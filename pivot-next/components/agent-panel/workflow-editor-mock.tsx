@@ -27,12 +27,21 @@ import { Textarea } from "@/components/ui/textarea";
 import type {
   Step,
   StepTypeCatalog,
+  StepTypeDef,
   Workflow,
   WorkflowStatus,
 } from "@/lib/types";
 import { findStepType } from "@/lib/mock-catalog";
 import { StepCard } from "@/components/agent-panel/step-card";
 import { StepConfigDrawer } from "@/components/agent-panel/StepConfigDrawer";
+import { StepTypePicker } from "@/components/agent-panel/StepTypePicker";
+import { defaultConfigFromSchema } from "@/lib/json-schema-to-zod";
+
+let stepIdCounter = 0;
+const newStepId = (): string => {
+  stepIdCounter += 1;
+  return `local-step-${Date.now().toString(36)}-${stepIdCounter}`;
+};
 
 const STATUS_COPY: Record<WorkflowStatus, { label: string; tone: "muted" | "success" | "warning" }> = {
   draft: { label: "Draft", tone: "muted" },
@@ -53,6 +62,7 @@ export function WorkflowEditorMock({
 }: WorkflowEditorMockProps): React.ReactElement {
   const [workflow, setWorkflow] = useState<Workflow>(initialWorkflow);
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
+  const [pickerInsertIndex, setPickerInsertIndex] = useState<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -92,6 +102,23 @@ export function WorkflowEditorMock({
       ),
     }));
     return {};
+  };
+
+  const handleAddStep = (insertAt: number, def: StepTypeDef): void => {
+    const newStep: Step = {
+      id: newStepId(),
+      step_index: insertAt,
+      step_type: def.step_type,
+      label: null,
+      config: defaultConfigFromSchema(def.config_schema),
+    };
+    setWorkflow((w) => {
+      const next = [...w.steps];
+      next.splice(insertAt, 0, newStep);
+      // Renumber.
+      const renumbered = next.map((s, idx) => ({ ...s, step_index: idx }));
+      return { ...w, steps: renumbered };
+    });
   };
 
   return (
@@ -154,9 +181,12 @@ export function WorkflowEditorMock({
                     }
                     onConfigure={() => setEditingStepId(step.id)}
                   />
-                  <AddStepDivider
-                    label={`Add step after ${idx + 1}`}
-                  />
+                  {idx < workflow.steps.length - 1 && (
+                    <AddStepDivider
+                      label={`Add step after step ${idx + 1}`}
+                      onClick={() => setPickerInsertIndex(idx + 1)}
+                    />
+                  )}
                 </li>
               ))}
             </ol>
@@ -168,9 +198,11 @@ export function WorkflowEditorMock({
             variant="outline"
             size="sm"
             className="w-full justify-center"
+            onClick={() => setPickerInsertIndex(workflow.steps.length)}
+            data-testid="add-step-button"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            Add step
+            {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}
           </Button>
         </div>
       </div>
@@ -182,6 +214,16 @@ export function WorkflowEditorMock({
           workflow={workflow}
           onSave={handleSaveStepConfig}
           onClose={() => setEditingStepId(null)}
+        />
+      )}
+
+      {pickerInsertIndex !== null && (
+        <StepTypePicker
+          open
+          insertIndex={pickerInsertIndex}
+          catalog={catalog}
+          onSelect={(def) => handleAddStep(pickerInsertIndex, def)}
+          onClose={() => setPickerInsertIndex(null)}
         />
       )}
     </div>
@@ -219,13 +261,20 @@ function SortableStepRow({
   );
 }
 
-function AddStepDivider({ label }: { label: string }): React.ReactElement {
+function AddStepDivider({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}): React.ReactElement {
   return (
     <div className="relative my-2 flex items-center justify-center">
       <span className="absolute inset-x-0 top-1/2 -z-10 h-px bg-border/60" />
       <button
         type="button"
         aria-label={label}
+        onClick={onClick}
         className="flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Plus className="h-3 w-3" aria-hidden="true" />
