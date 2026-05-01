@@ -18,6 +18,7 @@ from backend.routers.scheduler import router as scheduler_router
 from backend.routers.kite import router as kite_router
 from backend.routers.compare import router as compare_router
 from backend.routers.expr_backtest import router as expr_backtest_router
+from backend.routers.workflows import router as workflows_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ app.include_router(scheduler_router)
 app.include_router(kite_router)
 app.include_router(compare_router)
 app.include_router(expr_backtest_router)
+app.include_router(workflows_router)
 
 
 @app.on_event("startup")

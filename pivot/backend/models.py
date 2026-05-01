@@ -1,11 +1,30 @@
+import enum
+import uuid as _uuid
+
 from sqlalchemy import (
-    Column, Integer, String, Boolean, DateTime,
-    Text, Float, ForeignKey, Enum as SQLEnum
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Enum as SQLEnum,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-import enum
+
 from backend.database import Base
+
+
+def _uuid_str() -> str:
+    """Cross-dialect UUID v4 string default. Postgres-compatible (TEXT/UUID),
+    SQLite-compatible (TEXT). All workflow tables use 36-char string PKs."""
+    return str(_uuid.uuid4())
 
 
 class User(Base):
@@ -169,3 +188,207 @@ class TradeLog(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="trade_logs")
+
+
+# ─── Agent System (Workflows v1) ──────────────────────────────────────
+#
+# Schema mirrors docs/ARCHITECTURE.md §4 and the API contract in
+# docs/API_CONTRACT.md §3-§4. Driver is sync SQLAlchemy 2.0 + psycopg2.
+# Cross-dialect choices:
+#   - String(36) for UUID PKs (Python-side default via _uuid_str), so the
+#     in-memory SQLite test DB and Postgres production DB share schema.
+#   - JSON column type: SQLAlchemy renders JSONB on Postgres and JSON on
+#     SQLite; the migration file pins postgresql.JSONB explicitly for prod.
+#   - SQLEnum(..., native_enum=False) becomes a CHECK constraint in SQLite
+#     and a Postgres ENUM in the migration (which uses postgresql.ENUM
+#     directly to get the proper PG type).
+
+
+class WorkflowStatus(str, enum.Enum):
+    draft = "draft"
+    active = "active"
+    paused = "paused"
+    archived = "archived"
+
+
+class RunStatus(str, enum.Enum):
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    cancelled = "cancelled"
+    awaiting_approval = "awaiting_approval"
+
+
+class StepStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    skipped = "skipped"
+    awaiting_approval = "awaiting_approval"
+
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(
+        SQLEnum(WorkflowStatus, name="workflow_status", native_enum=False),
+        nullable=False,
+        default=WorkflowStatus.draft,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    next_run_at = Column(DateTime(timezone=True), nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    single_instance = Column(Boolean, nullable=False, default=True)
+
+    steps = relationship(
+        "WorkflowStep",
+        back_populates="workflow",
+        cascade="all, delete-orphan",
+        order_by="WorkflowStep.step_index",
+    )
+    runs = relationship("WorkflowRun", back_populates="workflow")
+    webhook_tokens = relationship(
+        "WorkflowWebhookToken",
+        back_populates="workflow",
+        cascade="all, delete-orphan",
+    )
+
+
+class WorkflowStep(Base):
+    __tablename__ = "workflow_steps"
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "step_index", name="uq_workflow_step_index"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    workflow_id = Column(
+        String(36),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    step_index = Column(Integer, nullable=False)
+    step_type = Column(String(64), nullable=False)
+    # config holds step-type-specific JSON; validated against the registry
+    # JSON Schema at every API + engine boundary. NEVER store secrets here
+    # (webhook tokens live in workflow_webhook_tokens).
+    config = Column(JSON, nullable=False, default=dict)
+    label = Column(String(255), nullable=True)
+
+    workflow = relationship("Workflow", back_populates="steps")
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+    # CheckConstraint on triggered_by so direct ORM inserts can't bypass
+    # the Pydantic Literal validation (per reviewer Day-1 audit). Values
+    # mirror docs/ARCHITECTURE.md §4 and API_CONTRACT.md §11.
+    __table_args__ = (
+        CheckConstraint(
+            "triggered_by IN ('schedule', 'manual', 'webhook', "
+            "'price_alert', 'indicator_alert', 'event_alert')",
+            name="ck_workflow_runs_triggered_by",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    workflow_id = Column(
+        String(36),
+        ForeignKey("workflows.id"),
+        nullable=False,
+        index=True,
+    )
+    workflow_version = Column(Integer, nullable=False)
+    triggered_by = Column(String(32), nullable=False)
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(
+        SQLEnum(RunStatus, name="run_status", native_enum=False),
+        nullable=False,
+        default=RunStatus.running,
+    )
+    halt_reason = Column(String(64), nullable=True)
+    # context is the inter-step data bag, keyed by stringified step_index.
+    context = Column(JSON, nullable=False, default=dict)
+    error_message = Column(Text, nullable=True)
+
+    workflow = relationship("Workflow", back_populates="runs")
+    steps = relationship(
+        "WorkflowRunStep",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="WorkflowRunStep.step_index",
+    )
+    approvals = relationship("WorkflowApproval", back_populates="run")
+
+
+class WorkflowRunStep(Base):
+    __tablename__ = "workflow_run_steps"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    run_id = Column(
+        String(36),
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    step_index = Column(Integer, nullable=False)
+    step_type = Column(String(64), nullable=False)
+    status = Column(
+        SQLEnum(StepStatus, name="step_status", native_enum=False),
+        nullable=False,
+    )
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    output = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    attempts = Column(Integer, nullable=False, default=1)
+
+    run = relationship("WorkflowRun", back_populates="steps")
+
+
+class WorkflowApproval(Base):
+    __tablename__ = "workflow_approvals"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    run_id = Column(
+        String(36),
+        ForeignKey("workflow_runs.id"),
+        nullable=False,
+        index=True,
+    )
+    step_index = Column(Integer, nullable=False)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    decision = Column(String(16), nullable=True)  # 'approved' | 'rejected' | NULL
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    summary = Column(Text, nullable=False)
+
+    run = relationship("WorkflowRun", back_populates="approvals")
+
+
+class WorkflowWebhookToken(Base):
+    __tablename__ = "workflow_webhook_tokens"
+
+    # Token IS the primary key — see docs/ARCHITECTURE.md §4. URL-safe
+    # random string. Stored separately from workflow_steps.config so
+    # secrets never appear in step JSON.
+    token = Column(String(64), primary_key=True)
+    workflow_id = Column(
+        String(36),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    step_index = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    workflow = relationship("Workflow", back_populates="webhook_tokens")

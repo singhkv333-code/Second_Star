@@ -35,6 +35,9 @@ Score: 0 / 14
 
 Backend-lead / Frontend-lead Day 1 work in flight; entries to be appended by them on completion.
 
+### Backend-lead — Day 1
+- Shipped tasks #7, #8, #9: Alembic migration `0001_workflows.py` (6 tables, 3 PG enums, JSONB, advisory-lock-ready FK structure, `triggered_by` CHECK constraint), SQLA 2.0 models (`Workflow` / `WorkflowStep` / `WorkflowRun` / `WorkflowRunStep` / `WorkflowApproval` / `WorkflowWebhookToken`) + Pydantic v2 schemas covering every API_CONTRACT.md §3-§4 + §8.1 shape, full step-type registry with all 24 v1 step types and stub executors raising `NotImplementedError`, and `GET /api/step-types` mounted in main.py. Absorbed both reviewer Day-1 contract fixes: `control.skip_if` rename, `webhook_payload` ref namespace ruling (no Day-1 code ships refs.py yet — rule absorbed for Day 2-3 implementation). 14 workflow tests pass (5 model smoke + 9 catalog contract); ruff + mypy --strict clean on new modules. `jsonschema==4.23.0` added to `pivot/requirements.txt` for Day 2 engine-side config validation.
+
 ### Contract audit — findings and fixes
 
 **Fix 1: `skip_if` renamed to `control.skip_if`.**
