@@ -1,8 +1,14 @@
-"""Control-flow step stubs.
+"""Control-flow step executors.
 
 Single-track only — no branching, no loops, no sub-workflows
-(ARCHITECTURE.md §5.6 + §13). max_retries=0 for both: retrying a
-sleep or a skip-marker has no semantic meaning."""
+(ARCHITECTURE.md §5.6 + §13). max_retries=0: retrying a sleep or a
+skip-marker has no semantic meaning.
+
+Day 2 leaves these as NotImplementedError stubs (per the assignment —
+demo path doesn't exercise them). They land Day 3 alongside the watcher
+work. Stubs use the new (ctx) signature so a future implementation
+slots in without engine churn.
+"""
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -22,14 +28,13 @@ from backend.workflows.schemas import SkipIfConfig, WaitDelayConfig
     config_model=WaitDelayConfig,
     output_schema=None,
 )
-async def execute_wait_delay(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_wait_delay(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("wait.delay executor lands Day 3")
 
 
 @register_step(
-    # Note: renamed from bare "skip_if" to "control.skip_if" per the
-    # reviewer's contract audit on Day 1 — every step type now follows
-    # the category.subtype dotted pattern. See STATUS.md Day 1, fix 1.
+    # Renamed from bare "skip_if" to "control.skip_if" per Day-1
+    # contract audit (STATUS.md Day 1, fix 1).
     step_type="control.skip_if",
     category="control",
     label="Skip if",
@@ -44,5 +49,5 @@ async def execute_wait_delay(*args: Any, **kwargs: Any) -> Optional[dict[str, An
         "required": ["skipped_next"],
     },
 )
-async def execute_control_skip_if(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_control_skip_if(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("control.skip_if executor lands Day 3")

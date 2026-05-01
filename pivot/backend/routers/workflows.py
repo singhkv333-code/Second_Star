@@ -16,9 +16,10 @@ types) but don't filter by user.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header
 
 from backend.auth.jwt_handler import get_user_id_from_token
+from backend.routers._errors import unauthenticated
 from backend.schemas import StepTypeCatalogResponse
 from backend.workflows.registry import get_catalog
 
@@ -28,17 +29,18 @@ router = APIRouter(prefix="/api", tags=["Agents"])
 
 def _require_user(authorization: str = Header(default=None)) -> int:
     """Auth dependency mirroring the existing routers (sip.py,
-    portfolio.py, etc.). Returns the JWT-decoded user_id or raises 401.
+    portfolio.py, etc.). Returns the JWT-decoded user_id or raises 401
+    with the API_CONTRACT.md §2 envelope code `unauthenticated`.
 
-    We re-implement here rather than reaching into another router so
-    every workflow endpoint has a single, auditable auth path.
+    The global HTTPException handler in backend/main.py wraps the dict
+    detail into the canonical { error: { code, message, details } }.
     """
     if not authorization:
-        raise HTTPException(status_code=401, detail="Missing token")
+        raise unauthenticated("missing token")
     token = authorization.replace("Bearer ", "", 1)
     user_id = get_user_id_from_token(token)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise unauthenticated("invalid token")
     return user_id
 
 

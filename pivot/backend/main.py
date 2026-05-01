@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 import logging
 
@@ -52,6 +54,140 @@ app.include_router(kite_router)
 app.include_router(compare_router)
 app.include_router(expr_backtest_router)
 app.include_router(workflows_router)
+
+
+# ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
+#
+# Every non-2xx response from the Agent System surface MUST use:
+#   { "error": { "code": "...", "message": "...", "details": {...} } }
+#
+# FastAPI's default HTTPException serialisation produces `{"detail": ...}`
+# which the frontend's `isError(result)` check (`"error" in result`)
+# silently misses. We install handlers below to wrap every raised
+# HTTPException + every Pydantic body-validation error.
+#
+# Status codes outside the locked set fall back to "internal_error".
+_ERROR_CODE_BY_STATUS = {
+    400: "validation_error",
+    401: "unauthenticated",
+    403: "unauthenticated",
+    404: "not_found",
+    409: "state_conflict",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_error",
+    503: "not_yet_available",
+}
+
+
+# Scope discipline: the canonical envelope is contractual ONLY for the
+# Agent System surface (`/api/*` and the WebSocket). Legacy routes
+# (`/auth/*`, `/portfolio/*`, etc.) keep FastAPI's default `{"detail": ...}`
+# shape so we don't regress their existing test suites. The handlers
+# below sniff request.url.path and only rewrap when the path matches.
+def _is_api_v1(request: Request) -> bool:
+    return request.url.path.startswith("/api/")
+
+
+@app.exception_handler(HTTPException)
+async def _http_exception_handler(
+    request: Request, exc: HTTPException,
+) -> JSONResponse:
+    """Wrap any raised HTTPException into the §2 canonical envelope —
+    but only for /api/* routes. Legacy routes get the FastAPI default.
+
+    Routers under /api/* may raise:
+      - HTTPException(status_code, detail="message string")
+        → message=string, details=None
+      - HTTPException(status_code, detail={"code": "...", "message": "...",
+        "details": {...}})  ← preferred for endpoint-specific codes
+        → use the embedded shape verbatim
+      - HTTPException(status_code, detail={"any": "dict"})  (legacy)
+        → message="request failed", details=detail
+    """
+    if not _is_api_v1(request):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
+
+    code = _ERROR_CODE_BY_STATUS.get(exc.status_code, "internal_error")
+    detail = exc.detail
+    if isinstance(detail, dict) and "code" in detail and "message" in detail:
+        # Router opted into a specific error code — trust it.
+        body: dict[str, object] = {
+            "error": {
+                "code": str(detail["code"]),
+                "message": str(detail["message"]),
+                "details": detail.get("details"),
+            }
+        }
+    elif isinstance(detail, str):
+        body = {
+            "error": {
+                "code": code,
+                "message": detail,
+                "details": None,
+            }
+        }
+    else:
+        body = {
+            "error": {
+                "code": code,
+                "message": "request failed",
+                "details": detail if isinstance(detail, dict) else None,
+            }
+        }
+    return JSONResponse(status_code=exc.status_code, content=body)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(
+    request: Request, exc: RequestValidationError,
+) -> JSONResponse:
+    """Pydantic body validation → 422.
+
+    Under /api/*: emits the canonical envelope with `validation_error`
+    code and per-field details. Legacy routes keep FastAPI's default
+    422 shape.
+    """
+    errors = exc.errors()
+    if not _is_api_v1(request):
+        return JSONResponse(
+            status_code=422, content={"detail": errors},
+        )
+
+    details: dict[str, object] = {"errors": errors}
+    if errors:
+        first = errors[0]
+        loc = list(first.get("loc", []))
+        details["reason"] = str(first.get("type", ""))
+        # Try to extract a step_index when the loc looks like
+        # ("body", "steps", <int>, ...). The frontend uses this to
+        # highlight the offending step in the editor.
+        try:
+            i = loc.index("steps")
+            if i + 1 < len(loc) and isinstance(loc[i + 1], int):
+                details["step_index"] = loc[i + 1]
+            if i + 2 < len(loc):
+                details["field"] = ".".join(str(p) for p in loc[i + 2:])
+        except ValueError:
+            # `steps` not in loc — top-level field validation
+            if loc and loc[0] == "body" and len(loc) > 1:
+                details["field"] = ".".join(str(p) for p in loc[1:])
+    body = {
+        "error": {
+            "code": "validation_error",
+            "message": (
+                errors[0]["msg"]
+                if errors and errors[0].get("msg") else
+                "request body invalid"
+            ),
+            "details": details,
+        }
+    }
+    return JSONResponse(status_code=422, content=body)
 
 
 @app.on_event("startup")

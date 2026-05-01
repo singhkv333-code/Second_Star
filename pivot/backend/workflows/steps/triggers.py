@@ -1,11 +1,17 @@
-"""Trigger step stubs. Triggers always live at step_index=0.
+"""Trigger step executors.
 
-Per ARCHITECTURE.md §7 invariant 3, triggers have max_retries=0: a
-trigger either fires or it doesn't, retrying is meaningless.
+Triggers always live at step_index=0 and have max_retries=0 (§7
+invariant 3). For the v1 demo path we ship `trigger.manual` and
+`trigger.schedule` as no-ops: by the time the engine reaches them, the
+trigger has already fired (the scheduler / "Run now" handler created
+the run row). The executor's job is purely to log the fire and return
+None so the engine moves on to step 1.
 
-Day-1 stubs raise NotImplementedError. Real executors land Day 2-4 in
-this same module (no new imports from the engine — keep the boundary
-clean)."""
+The remaining triggers (price/indicator/event/webhook) stay as
+NotImplementedError stubs — they are wired Day 3-4 once the watcher
+exists. The catalog still publishes them so the frontend renders them
+in the picker, but trying to *execute* one will fail the run.
+"""
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -32,8 +38,11 @@ from backend.workflows.schemas import (
     config_model=TriggerScheduleConfig,
     output_schema=None,
 )
-async def execute_trigger_schedule(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the scheduler already decided this should fire. The
+    workflow_runs row carries `triggered_by='schedule'` so the audit
+    trail is complete."""
+    return None
 
 
 @register_step(
@@ -47,8 +56,8 @@ async def execute_trigger_schedule(*args: Any, **kwargs: Any) -> Optional[dict[s
     config_model=TriggerPriceConfig,
     output_schema=None,
 )
-async def execute_trigger_price(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("trigger.price executor lands Day 3 with watcher")
 
 
 @register_step(
@@ -62,8 +71,8 @@ async def execute_trigger_price(*args: Any, **kwargs: Any) -> Optional[dict[str,
     config_model=TriggerIndicatorConfig,
     output_schema=None,
 )
-async def execute_trigger_indicator(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("trigger.indicator executor lands Day 3 with watcher")
 
 
 @register_step(
@@ -77,8 +86,8 @@ async def execute_trigger_indicator(*args: Any, **kwargs: Any) -> Optional[dict[
     config_model=TriggerEventConfig,
     output_schema=None,
 )
-async def execute_trigger_event(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("trigger.event executor lands Day 4 with event sources")
 
 
 @register_step(
@@ -92,8 +101,10 @@ async def execute_trigger_event(*args: Any, **kwargs: Any) -> Optional[dict[str,
     config_model=TriggerManualConfig,
     output_schema=None,
 )
-async def execute_trigger_manual(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the user clicked Run now. The run row carries
+    `triggered_by='manual'`."""
+    return None
 
 
 @register_step(
@@ -107,5 +118,9 @@ async def execute_trigger_manual(*args: Any, **kwargs: Any) -> Optional[dict[str
     config_model=TriggerWebhookConfig,
     output_schema=None,
 )
-async def execute_trigger_webhook(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_trigger_webhook(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op at execute time. The webhook router writes the inbound
+    body into `run.context["webhook_payload"]` BEFORE the engine starts,
+    so downstream `{{context.webhook_payload.<path>}}` refs resolve
+    correctly."""
+    return None

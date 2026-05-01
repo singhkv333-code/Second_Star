@@ -1,17 +1,25 @@
-"""Action step stubs.
+"""Action step executors.
 
 Actions mutate state and MUST be idempotent (ARCHITECTURE.md §7
-invariant 1). Each real executor will generate a deterministic
-client_request_id = sha1(f"{run_id}:{step_index}:{attempts}") so that
-broker/notification systems can reject duplicates.
+invariant 1). Every executor here uses the engine-supplied
+`client_request_id = sha1(f"{run_id}:{step_index}:{attempts}")` so the
+broker can reject duplicates on retry.
 
 max_retries=1: actions are idempotent so we tolerate one transient
-retry, but no more — the broker side-effect is real and we don't want
-to spam orders if the failure is structural."""
+retry, but no more — we don't want to spam orders if the failure is
+structural.
+
+Day 2 ships `action.place_order` (real, including the approval-pause
+path). Other actions stay NotImplementedError until Day 3-4.
+"""
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Optional
 
+from backend.kite.orders import place_order
+from backend.models import StepStatus, WorkflowApproval
+from backend.workflows.engine import _AwaitingApproval
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
     ActionCancelOrdersConfig,
@@ -19,6 +27,39 @@ from backend.workflows.schemas import (
     ActionSetStoplossConfig,
     ActionUpdateWatchlistConfig,
 )
+
+
+def _kite_token_for_run(ctx: Any) -> str:
+    """Resolve the Kite token for the workflow's user. Mirrors
+    services.portfolio: in mock mode (no Kite session) we return a
+    placeholder string; KITE_MOCK_MODE in backend/kite/auth.py routes
+    the call to mock data."""
+    from backend.models import User
+
+    user = (
+        ctx.db.query(User)
+        .filter(User.id == int(ctx.workflow.user_id))
+        .first()
+    )
+    if user and user.kite_session and user.kite_session.access_token:
+        return str(user.kite_session.access_token)
+    return "mock_token"
+
+
+def _has_pending_approval(ctx: Any) -> Optional[WorkflowApproval]:
+    """Look for a still-undecided approval row for this (run, step).
+    Used to detect the 'engine first encounters a requires_approval=
+    true step' moment vs the 'engine resumes after approval decided'
+    moment. The latter has decision='approved'."""
+    return (
+        ctx.db.query(WorkflowApproval)
+        .filter(
+            WorkflowApproval.run_id == ctx.run.id,
+            WorkflowApproval.step_index == ctx.step.step_index,
+        )
+        .order_by(WorkflowApproval.requested_at.desc())
+        .first()
+    )
 
 
 @register_step(
@@ -40,8 +81,86 @@ from backend.workflows.schemas import (
         "required": ["order_id", "client_request_id"],
     },
 )
-async def execute_action_place_order(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
+    """Two-phase executor for the demo path:
+
+      Phase 1 (no decision yet, requires_approval=true): write a
+      WorkflowApproval row and raise _AwaitingApproval. The engine
+      flips the run to `awaiting_approval` and returns; resumption
+      happens via the approvals router.
+
+      Phase 2 (decision='approved', or no approval needed): submit the
+      order to Kite with the engine-supplied client_request_id. The
+      Kite layer is in mock mode by default in tests, so this returns
+      a synthetic order_id without hitting any real broker.
+
+      Approval rejected → the engine never re-enters this executor;
+      the approvals router terminates the run as `cancelled`.
+    """
+    cfg = ctx.config
+    requires_approval = bool(cfg.get("requires_approval", False))
+
+    if requires_approval:
+        existing = _has_pending_approval(ctx)
+        if existing is None or existing.decision is None:
+            # First-touch: create a fresh approval row. Use the same
+            # session the engine handed us so the row appears in the
+            # same transaction.
+            from backend.workflows.engine import _utcnow
+            summary = (
+                f"{cfg['side'].upper()} {cfg['quantity']} {cfg['symbol']} "
+                f"at {cfg.get('order_type', 'market')}"
+            )
+            if cfg.get("order_type") == "limit" and cfg.get("limit_price"):
+                summary += f" (limit ₹{cfg['limit_price']})"
+
+            approval = WorkflowApproval(
+                run_id=ctx.run.id,
+                step_index=ctx.step.step_index,
+                expires_at=_utcnow() + timedelta(minutes=15),
+                summary=summary,
+            )
+            ctx.db.add(approval)
+            ctx.db.commit()
+            ctx.db.refresh(approval)
+            raise _AwaitingApproval(approval.id)
+
+        if existing.decision == "rejected":
+            # Engine should never re-enter this executor on rejection,
+            # but be defensive.
+            raise RuntimeError(
+                f"approval rejected at step {ctx.step.step_index}"
+            )
+        # decision == "approved" → fall through to actual order placement.
+
+    # Phase 2: place the real order (or mock-order in test mode).
+    token = _kite_token_for_run(ctx)
+    side = cfg["side"]
+    transaction_type = "BUY" if side == "buy" else "SELL"
+    order_type = cfg.get("order_type", "market").upper()
+    price = (
+        float(cfg["limit_price"])
+        if order_type == "LIMIT" and cfg.get("limit_price") is not None
+        else None
+    )
+
+    result = place_order(
+        access_token=token,
+        tradingsymbol=str(cfg["symbol"]),
+        exchange="NSE",
+        transaction_type=transaction_type,
+        quantity=int(cfg["quantity"]),
+        order_type=order_type,
+        price=price,
+        product="CNC",
+        tag=f"wf_{ctx.client_request_id[:16]}",
+    )
+
+    return {
+        "order_id": str(result.get("order_id", "")),
+        "status": str(result.get("status", "")),
+        "client_request_id": ctx.client_request_id,
+    }
 
 
 @register_step(
@@ -62,8 +181,8 @@ async def execute_action_place_order(*args: Any, **kwargs: Any) -> Optional[dict
         "required": ["cancelled_count"],
     },
 )
-async def execute_action_cancel_orders(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("action.cancel_orders executor lands Day 3")
 
 
 @register_step(
@@ -84,8 +203,8 @@ async def execute_action_cancel_orders(*args: Any, **kwargs: Any) -> Optional[di
         "required": ["trigger_id"],
     },
 )
-async def execute_action_set_stoploss(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("action.set_stoploss executor lands Day 3")
 
 
 @register_step(
@@ -106,5 +225,10 @@ async def execute_action_set_stoploss(*args: Any, **kwargs: Any) -> Optional[dic
         "required": ["action", "symbol"],
     },
 )
-async def execute_action_update_watchlist(*args: Any, **kwargs: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("not yet implemented")
+async def execute_action_update_watchlist(ctx: Any) -> Optional[dict[str, Any]]:
+    raise NotImplementedError("action.update_watchlist executor lands Day 3")
+
+
+# Keep StepStatus import alive in case future executors emit run-step
+# status nuances directly (currently engine-only).
+_ = StepStatus
