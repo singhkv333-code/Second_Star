@@ -32,6 +32,7 @@ import type {
 } from "@/lib/types";
 import { findStepType } from "@/lib/mock-catalog";
 import { StepCard } from "@/components/agent-panel/step-card";
+import { StepConfigDrawer } from "@/components/agent-panel/StepConfigDrawer";
 
 const STATUS_COPY: Record<WorkflowStatus, { label: string; tone: "muted" | "success" | "warning" }> = {
   draft: { label: "Draft", tone: "muted" },
@@ -51,6 +52,7 @@ export function WorkflowEditorMock({
   catalog,
 }: WorkflowEditorMockProps): React.ReactElement {
   const [workflow, setWorkflow] = useState<Workflow>(initialWorkflow);
+  const [editingStepId, setEditingStepId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -72,9 +74,28 @@ export function WorkflowEditorMock({
   };
 
   const status = STATUS_COPY[workflow.status];
+  const editingStep = editingStepId
+    ? workflow.steps.find((s) => s.id === editingStepId) ?? null
+    : null;
+  const editingCatalogEntry = editingStep
+    ? findStepType(catalog, editingStep.step_type)
+    : undefined;
+
+  const handleSaveStepConfig = (
+    config: Record<string, unknown>,
+  ): { error?: undefined } => {
+    if (!editingStep) return {};
+    setWorkflow((w) => ({
+      ...w,
+      steps: w.steps.map((s) =>
+        s.id === editingStep.id ? { ...s, config } : s,
+      ),
+    }));
+    return {};
+  };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       {/* Header: name (largest type), description, status, action buttons */}
       <header className="border-b px-6 py-5">
         <div className="flex items-start justify-between gap-4">
@@ -131,6 +152,7 @@ export function WorkflowEditorMock({
                     catalogEntry={
                       findStepType(catalog, step.step_type)
                     }
+                    onConfigure={() => setEditingStepId(step.id)}
                   />
                   <AddStepDivider
                     label={`Add step after ${idx + 1}`}
@@ -152,6 +174,16 @@ export function WorkflowEditorMock({
           </Button>
         </div>
       </div>
+
+      {editingStep && editingCatalogEntry && (
+        <StepConfigDrawer
+          step={editingStep}
+          catalogEntry={editingCatalogEntry}
+          workflow={workflow}
+          onSave={handleSaveStepConfig}
+          onClose={() => setEditingStepId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -159,9 +191,11 @@ export function WorkflowEditorMock({
 function SortableStepRow({
   step,
   catalogEntry,
+  onConfigure,
 }: {
   step: Step;
   catalogEntry: ReturnType<typeof findStepType>;
+  onConfigure: (step: Step) => void;
 }): React.ReactElement {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: step.id });
@@ -179,6 +213,7 @@ function SortableStepRow({
         catalogEntry={catalogEntry}
         isDragging={isDragging}
         dragHandleProps={{ ...attributes, ...listeners }}
+        onConfigure={onConfigure}
       />
     </div>
   );
