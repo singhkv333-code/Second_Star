@@ -117,7 +117,7 @@ pivot-next/
 -- One row per Agent (Workflow) the user has saved.
 CREATE TABLE workflows (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id         UUID NOT NULL REFERENCES users(id),
+    user_id         INTEGER NOT NULL REFERENCES users(id),  -- users.id is an INTEGER PK in this repo
     name            TEXT NOT NULL,
     description     TEXT,
     status          workflow_status NOT NULL DEFAULT 'draft',

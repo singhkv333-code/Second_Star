@@ -27,6 +27,87 @@ Score: 0 / 14
 
 ---
 
+## Day 2 — 2026-05-02 (reviewer)
+
+BE / FE Day 2 work in flight; entries to be appended on completion.
+
+### Shipped
+- Task #20: Full Day 1 commit audit across all six commits (243c88d, 3d3ca14, e9295ab, e051a6f, 8ed728b, 37da922).
+- Type safety check: mypy --strict on all new backend workflow modules (registry, schemas, refs, steps/*, routers/workflows.py, backend/schemas.py) — PASSES (errors are in pre-existing files config.py and auth/jwt_handler.py, explicitly excluded per commit message). events.py has 7 new type errors (see below).
+- Frontend typecheck: `pnpm typecheck` (tsc --noEmit) — PASSES, no errors.
+- Backend tests: `pytest tests/workflows/` — 14 / 14 pass.
+- Frontend tests: `pnpm test` — 21 / 21 pass.
+- Dead code grep (print, console.log, TODO, FIXME, XXX) in all new files — CLEAN.
+- Migration ↔ ARCHITECTURE.md §4 parity check — see notes below.
+- Catalog ↔ API_CONTRACT.md §8 parity check — all 24 step types present, correct categories.
+- Frontend mock catalog ↔ backend catalog cross-check — discrepancies found; see notes.
+- Generated 5 edge-case tasks for Day 3+.
+
+### Reviewer notes — Day 1 audit
+
+**Issue 1 — BLOCKING (backend-lead): `events.py` fails mypy --strict (7 errors)**
+`backend/workflows/events.py` shipped in commit 3d3ca14 but was not listed in the modules the backend-lead claimed were mypy-clean. All 7 errors are `Missing type arguments for generic type "dict"` — the `asyncio.Queue[dict]` and other `dict` uses lack type parameters. This is mypy --strict Day 9 blocker material if unfixed; fix now while the file is fresh. The fix is to replace bare `dict` with `dict[str, Any]` throughout. This is a non-trivial file (WS fan-out bus) that Day 2-3 code will call. Filed as task for backend-lead.
+
+**Issue 2 — BLOCKING (backend-lead): Auth 401 errors not in contract error envelope**
+`backend/routers/workflows.py` raises `HTTPException(status_code=401, detail="Missing token")` and `detail="Invalid token"`. FastAPI's default serialization produces `{"detail": "..."}`, NOT the `{"error": {"code": "...", "message": "..."}}` envelope specified in API_CONTRACT.md §2. Every other router (when this sprint writes them) must use the envelope. The test suite currently checks for `status_code == 401` but not the body shape. This will break the frontend's `isError()` discriminator for auth errors. Fix: raise `HTTPException` with a custom error body via a FastAPI exception handler, or return `JSONResponse` directly.
+
+**Issue 3 — Non-blocking (both leads, note): ARCHITECTURE.md §4 says `user_id UUID` but actual `users.id` is Integer**
+The ARCHITECTURE.md §4 DDL says `user_id UUID NOT NULL REFERENCES users(id)`. The real `users` table (pre-existing) uses `Integer` PK. The migration and Workflow model correctly use `Integer` to match reality. This is a doc error in ARCHITECTURE.md §4, not a code error — the code is correct. The doc was written before examining the existing users table. Will update ARCHITECTURE.md §4 to say `INTEGER` to prevent future confusion. No code change required.
+
+**Issue 4 — Non-blocking (frontend-lead, note): output_schema mismatch between backend and mock catalog**
+The frontend `lib/mock-catalog.ts` output schemas for several steps differ from what the backend registry emits. These will reconcile on Day 5 when the frontend swaps to the real endpoint, but the mismatches mean any test against output_schema content would fail:
+- `action.place_order`: backend has `{order_id, status, client_request_id}`; mock has `{broker_order_id, submitted_at}`.
+- `action.cancel_orders`: backend has `{cancelled_count, order_ids}`; mock has `{cancelled_ids}`.
+- `action.set_stoploss`: backend has `{trigger_id, client_request_id}`; mock has `{broker_order_id}`.
+- `notify.message`: backend has `{channel, delivered}`; mock has `{sent_at}`.
+- `fetch.quote`: backend icon is `bar-chart-3`; mock icon is `line-chart` (cosmetic, no functional impact).
+- `condition.numeric`: backend icon is `equal`; mock icon is `git-branch` (cosmetic).
+These are non-blocking for Day 2 (the mock is intentionally temporary) but must be reconciled before Day 5 wire-up. Frontend-lead should update mock schemas to match the backend registry output, or at minimum acknowledge the gap.
+
+**Issue 5 — Non-blocking (backend-lead, note): mock catalog test does not cover max_retries per step type**
+The frontend `tests/lib/mock-catalog.test.ts` does not have a test asserting max_retries values (e.g. fetches=3, actions=1, notify.message=2). The backend catalog test does (test_max_retries_match_invariant_3). If a frontend-lead edits the mock catalog and sets wrong retry counts, nothing catches it until the swap to the real endpoint. Non-blocking for Day 2 but should be added.
+
+**Positive findings:**
+- All 24 step types present in both backend registry and frontend mock catalog.
+- Correct category assignments across all 24 types in both backend and frontend (including the renamed `control.skip_if`, `wait.approval` under `notify`, `wait.delay` under `control`).
+- No hardcoded step configs in frontend components — all driven from catalog.
+- Webhook tokens confirmed to be in `workflow_webhook_tokens` table, not in `workflow_steps.config`. Security invariant upheld.
+- `refs.py` correctly implements the `context.webhook_payload.*` namespace per the Day 1 contract fix.
+- Migration enum values match spec exactly. All six tables present. All indexes match spec.
+- Frontend `lib/types.ts` matches API_CONTRACT.md §11 precisely, including `RunSummary` with `step_count`.
+- Frontend WS client has the 2s polling fallback and "reconnecting" state per §10.1.
+- No `print()` or `console.log()` debug statements in any new file.
+- No TODO/FIXME/XXX without context in any new file.
+
+### Edge cases filed for Day 3+
+
+1. `POST /api/workflows/{id}/activate` with a `trigger.schedule` whose cron expression is invalid (e.g. `"99 99 * * *"`) — does the engine reject it with 422 at activation time, or does it silently arm a schedule that never fires? Backend must validate cron syntax at activation, not just config schema.
+2. `PATCH /api/workflows/{id}` with `steps=[]` (empty list) — the spec says this fully replaces the step list. Does the engine reject a 0-step workflow at activation, or only at run time? Should be a 422 at activation: "Workflow must have at least one step (a trigger at index 0)."
+3. `POST /api/webhooks/{token}` fires for a `trigger.price` workflow (not a `trigger.webhook` workflow) — the token lookup finds a matching row, but the step_type at that step_index is wrong. What is the response? The engine should verify the referenced step is `trigger.webhook` before proceeding.
+4. WS client on `pivot-next/lib/ws.ts` enters the 2s polling fallback. If the polling `getRun()` call itself returns an error (e.g. 401 expired token mid-session), the fallback loop will call `onError` on every tick and spam the UI. The fallback should back off on repeated polling errors, not just on WS reconnect failures.
+5. `POST /api/workflows/{id}/run` is called while a run for the same workflow is already `awaiting_approval` (not `running`). The single-instance advisory lock is acquired at run start — but a run in `awaiting_approval` state has already released the lock (or has it?). If not, a user can never manually re-run while waiting for approval. This interaction between `single_instance` locking and approval gating needs a test.
+
+### Blocked
+- None blocking the leads' Day 2 work.
+
+### At risk for 2026-05-17
+- **`events.py` mypy errors (7 errors, Issue 1 above)**: This file ships Day 2 logic (WS streaming). If the engine imports it on Day 2 and mypy errors compound, the count will grow. Fix now costs 15 minutes; fix on Day 9 costs a panic. Backend-lead must fix before Day 2 engine PR.
+- **Auth error envelope (Issue 2 above)**: Every new router that ships Day 2-3 must use the correct error format. If this pattern (bare HTTPException) is copy-pasted into the 6+ new routers (runs.py, approvals.py, webhooks.py, run_stream.py), rectifying 20+ call sites on Day 9 is a real risk. Backend-lead must establish the correct pattern in a base exception handler TODAY.
+- **Output schema drift (Issue 4 above)**: Day 5 wire-up is the integration checkpoint. If the mock catalog's output schemas are wrong, any component that reads `output_schema` to render step output (e.g. RunView) will render broken UI. Low risk now; medium risk by Day 5.
+
+### Next session (reviewer Day 3)
+- Review Day 2 backend PRs: engine.py, REST endpoint implementations (POST/GET/PATCH workflows, activate/pause/archive/run, GET runs, cancel, approvals, webhook, WS stream). Check every new router against API_CONTRACT.md §2 error envelope.
+- Review Day 2 frontend PRs: WorkflowEditor (real), StepConfigDrawer, StepTypePicker, any run-view wiring.
+- Re-run full test suite; verify events.py mypy issue resolved.
+- Verify Issue 2 (auth envelope) fixed before more routers ship with the same pattern.
+- Walk any demo steps now exercisable (likely still 0/14 — needs live endpoints).
+- Generate Day 3 edge cases.
+
+### Demo path readiness (out of 14)
+Day 2: 0 / 14. No live runtime yet — Day 2 is when engine + REST endpoints begin landing. Demo path will not be walkable until Day 4 at earliest (per build sequence ARCHITECTURE.md §15).
+
+---
+
 ## Day 1 — 2026-05-02 (reviewer)
 
 ### Shipped
