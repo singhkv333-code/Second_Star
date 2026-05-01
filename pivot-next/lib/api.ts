@@ -67,6 +67,23 @@ export function setStepTypesSource(source: StepTypesSource): void {
   stepTypesSource = source;
 }
 
+/**
+ * Single global toggle that switches every Day 2 mock surface (catalog,
+ * run stream, …) between in-memory simulators and live backend wires.
+ * Day 5 default flips to "real" once the engine + WS land.
+ */
+export type BackendSource = "mock" | "real";
+let backendSource: BackendSource = "mock";
+
+export function setBackendSource(source: BackendSource): void {
+  backendSource = source;
+  setStepTypesSource(source);
+}
+
+export function getBackendSource(): BackendSource {
+  return backendSource;
+}
+
 // ---------------------------------------------------------------------------
 // Core fetch wrapper
 // ---------------------------------------------------------------------------
