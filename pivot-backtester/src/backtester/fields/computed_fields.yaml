@@ -1,0 +1,62 @@
+# Computed fields — derivations expressed in the same expression language
+# the user writes. The compiler substitutes these inline before emitting SQL.
+#
+# Cycles are detected at registry load time.
+#
+# Available leaf identifiers:
+#   - any base_fields.yaml entry (with optional _ttm suffix where ttm_eligible)
+#   - special leaves: price, shares_outstanding (resolved by the engine, not via line_items)
+
+shares_outstanding:
+  expr: (equity_share_capital * 1e7) / 10
+  unit: shares
+  description: |
+    Approximation: equity_share_capital is in Rs. Cr, face value assumed 10.
+    crore × 10^7 = absolute rupees, ÷ face_value = share count.
+    TODO: replace with a scraped shares-outstanding line when available.
+
+book_value:
+  expr: equity_share_capital + reserves
+  unit: rupees_crore
+
+book_value_per_share:
+  expr: (book_value * 1e7) / shares_outstanding
+  unit: rupees
+
+market_cap:
+  expr: price * shares_outstanding
+  unit: rupees
+
+pe_ratio:
+  expr: price / eps_basic_ttm
+  unit: ratio
+
+pb_ratio:
+  expr: price / book_value_per_share
+  unit: ratio
+
+debt_to_equity:
+  expr: total_debt / (equity_share_capital + reserves)
+  unit: ratio
+
+total_borrowings:
+  expr: total_debt + short_term_debt
+  unit: rupees_crore
+
+current_ratio:
+  expr: current_assets / current_liabilities
+  unit: ratio
+
+roe:
+  expr: (net_profit_ttm * 100) / (equity_share_capital + reserves)
+  unit: percentage
+
+roa:
+  # Total assets approximated as equity + total borrowings + current liabilities.
+  # Fragile; revisit when a `total_assets` base field lands.
+  expr: (net_profit_ttm * 100) / (equity_share_capital + reserves + total_debt + short_term_debt + current_liabilities)
+  unit: percentage
+
+interest_coverage:
+  expr: operating_profit_ttm / interest_expense_ttm
+  unit: ratio

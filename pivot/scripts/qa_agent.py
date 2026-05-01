@@ -131,14 +131,13 @@ async def run_single_test(test: dict) -> dict:
     error = None
     response = ""
     try:
-        response = await call_sarvam(
+        result = await call_sarvam(
             messages=messages,
             system_prompt=LIVE_SYSTEM_PROMPT,
             temperature=0.3,
             max_tokens=400,
         )
-        if not isinstance(response, str):
-            response = str(response)
+        response = result.get("content", "") if isinstance(result, dict) else str(result)
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
     elapsed_ms = int((time.time() - t0) * 1000)

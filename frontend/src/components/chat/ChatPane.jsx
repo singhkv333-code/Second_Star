@@ -15,7 +15,7 @@ function parseLogicCard(text) {
   }
 }
 
-export function ChatPane({ onOrderPreview }) {
+export function ChatPane({ onOrderPreview, onOpenChart, onOpenBacktest }) {
   const [messages, setMessages] = useState([
     { role: 'assistant', content: "Welcome to Pivot. I can execute orders, build investment products, and analyse your portfolio. What would you like to do?" }
   ]);
@@ -43,11 +43,25 @@ export function ChatPane({ onOrderPreview }) {
       const payload = firstUserIdx === -1 ? trimmed : trimmed.slice(firstUserIdx);
       const res = await sendChat(payload.map(({ role, content }) => ({ role, content })));
       const raw = res.data.response || '';
+      const chartData = res.data.chart_data || null;
+      const backtestData = res.data.backtest_data || null;
+      const screenData = res.data.screen_data || null;
+      const exprBacktestData = res.data.expr_backtest_data || null;
+      const intent = res.data.intent || null;
+      const requiresClarification = !!res.data.requires_clarification;
+      const missingParams = res.data.missing_params || [];
       const { text, logicCard } = parseLogicCard(raw);
       const aiMsg = {
         role: 'assistant',
         content: text,
         logicCard: logicCard || null,
+        chartData,
+        backtestData,
+        screenData,
+        exprBacktestData,
+        intent,
+        requiresClarification,
+        missingParams,
         timestamp: new Date().toISOString(),
       };
       setMessages((m) => [...m, aiMsg]);
@@ -55,9 +69,17 @@ export function ChatPane({ onOrderPreview }) {
         onOrderPreview({ ...logicCard, isAIGenerated: true });
       }
     } catch (err) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail
+        || err?.response?.data?.message
+        || err?.message
+        || 'Unknown error';
+      const summary = status
+        ? `Chat failed (HTTP ${status}): ${detail}`
+        : `Chat failed: ${detail}`;
       setMessages((m) => [...m, {
         role: 'assistant',
-        content: 'Something went wrong on our end. Please try again in a moment.',
+        content: summary,
         timestamp: new Date().toISOString(),
       }]);
     } finally {
@@ -69,7 +91,7 @@ export function ChatPane({ onOrderPreview }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
         {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} />
+          <MessageBubble key={i} message={msg} onOpenChart={onOpenChart} onOpenBacktest={onOpenBacktest} />
         ))}
 
         {isTyping && (
@@ -104,7 +126,7 @@ export function ChatPane({ onOrderPreview }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-          placeholder="Ask anything — 'buy 10 INFY at market', 'show my portfolio', 'explain SafeGrow'..."
+          placeholder="Ask anything — 'buy 10 INFY', '/screen pe_ratio < 15 AND roe > 12', '/expr-backtest pe_ratio<15 from 2018-01-01 to 2024-12-31'..."
           style={{
             flex: 1, padding: '12px 16px',
             background: 'rgba(255,255,255,0.04)',

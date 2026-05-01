@@ -15,6 +15,9 @@ from backend.routers.products import router as products_router
 from backend.routers.portfolio import router as portfolio_router
 from backend.routers.backtest import router as backtest_router
 from backend.routers.scheduler import router as scheduler_router
+from backend.routers.kite import router as kite_router
+from backend.routers.compare import router as compare_router
+from backend.routers.expr_backtest import router as expr_backtest_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,6 +47,9 @@ app.include_router(products_router)
 app.include_router(portfolio_router)
 app.include_router(backtest_router)
 app.include_router(scheduler_router)
+app.include_router(kite_router)
+app.include_router(compare_router)
+app.include_router(expr_backtest_router)
 
 
 @app.on_event("startup")
@@ -101,22 +107,6 @@ def health_check():
             "openai": not bool(settings.openai_api_key),
         },
     }
-
-
-@app.get("/kite/callback")
-def kite_callback(request_token: str):
-    """Handles Kite Connect OAuth callback with request_token."""
-    from backend.kite.auth import exchange_request_token
-    try:
-        session = exchange_request_token(request_token)
-        return {
-            "status": "success",
-            "message": "Kite connected",
-            "access_token": session.get("access_token"),
-            "kite_user_id": session.get("user_id"),
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
 
 
 @app.get("/")

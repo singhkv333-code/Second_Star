@@ -1,0 +1,54 @@
+# Pivot product economics — single source of truth.
+#
+# Hardcoding these in the system prompt led to "92.764%" leaking into every
+# greeting. They live here; the chatbot reads them via the get_product_spec
+# tool only when the user explicitly asks about Pivot's offerings.
+
+safegrow:
+  name: SafeGrow
+  type: capital_protection
+  one_liner: >-
+    A capital-guarantee structure: most of the principal goes into an
+    arbitrage fund that compounds back to your starting amount; a small
+    slice buys a Nifty call for upside.
+  allocation:
+    arbitrage_fund_pct: 92.764
+    nifty_atm_call_pct: 7.236
+  tenor_years: 1
+  protected_capital_pct: 100
+  notes: >-
+    The exact split is derived from the Indian arbitrage fund yield needed
+    to gross the safety leg back to par at 1y. If yields shift the split is
+    recomputed; never quote it as an absolute marketing fact.
+
+earnmore:
+  name: EarnMore
+  type: covered_call_income
+  one_liner: >-
+    Hold the underlying you already own; sell ATM weekly call options
+    against it for premium income. Caps upside; cushions sideways markets.
+  legs:
+    - long: underlying
+      side: hold
+    - short: weekly_atm_call
+      side: sell
+      qty_per_lot: 1
+  notes: >-
+    Premium is quote-driven and varies with IV and expiry. Never invent a
+    rupee premium — fetch live option data with the get_option_chain tool
+    when the user asks for sizing math.
+
+stormshield:
+  name: StormShield
+  type: bear_protection
+  one_liner: >-
+    A Nifty put debit spread: long ATM put, short OTM put. Pays off when
+    Nifty falls between the two strikes; defined-risk hedge.
+  legs:
+    - long: nifty_atm_put
+      side: buy
+    - short: nifty_otm_put
+      side: sell
+  notes: >-
+    Strike selection and net debit are quote-driven. Never invent strikes
+    or premiums; ask the user for inputs or reach for live option data.

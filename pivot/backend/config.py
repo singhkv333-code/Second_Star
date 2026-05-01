@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_version: str = "0.1.0"
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"
+    frontend_url: str = "http://localhost:5173"
 
     @property
     def allowed_origins_list(self) -> list[str]:

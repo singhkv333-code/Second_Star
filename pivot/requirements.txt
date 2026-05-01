@@ -31,7 +31,12 @@ kiteconnect==5.0.1
 pyotp==2.9.0
 
 # Market data (free, no API key needed)
-yfinance==0.2.44
+yfinance==0.2.66
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+# pandas_ta is unmaintained on PyPI for Python 3.11/3.12; use the maintained fork
+pandas_ta_classic>=0.4
 
 # Scheduler (SIP + strategy cron jobs)
 apscheduler==3.10.4

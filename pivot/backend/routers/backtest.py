@@ -1,13 +1,29 @@
+"""
+Backtest router — full implementation.
+
+POST /backtest/run     — run a backtest from a strategy_definition dict
+POST /backtest/parse   — parse a natural-language strategy request
+GET  /backtest/presets — return pre-built strategy presets
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from typing import Any, Optional
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional
+
 from backend.auth.jwt_handler import get_user_id_from_token
-from backend.kite.market_data import get_historical_ohlcv
-import statistics
+from backend.backtester.engine import run_backtest
+from backend.backtester.parser import parse_strategy
+from backend.cache import redis_client
 
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
+logger = logging.getLogger(__name__)
 
-DISCLAIMER = "⚠️ Past performance does not guarantee future results. This is a simulation only. Includes 0.1% friction per trade."
+CACHE_TTL_SECONDS = 3600
 
 
 def get_user_id(authorization: str = Header(None)) -> int:
@@ -19,85 +35,172 @@ def get_user_id(authorization: str = Header(None)) -> int:
     return uid
 
 
-class BacktestRequest(BaseModel):
-    symbol: str
-    strategy_type: str = Field(..., description="price_drop, rsi, price_cross, sip")
-    trigger_condition: dict
-    action: str = Field(default="BUY", description="BUY or SELL")
-    quantity_pct: float = Field(default=10.0, description="% of portfolio per trade")
-    period: str = Field(default="1y", description="1mo, 3mo, 6mo, 1y, 2y")
-    starting_capital: float = Field(default=100000)
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
 
+class RunRequest(BaseModel):
+    strategy_definition: dict
+    starting_capital: Optional[float] = Field(default=None)
+
+
+class ParseRequest(BaseModel):
+    message: str
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _strategy_cache_key(strategy: dict) -> str:
+    canonical = json.dumps(strategy, sort_keys=True, default=str)
+    digest = hashlib.sha1(canonical.encode("utf-8")).hexdigest()
+    return f"backtest:{digest}"
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post("/run")
-def run_backtest(request: BacktestRequest, user_id: int = Depends(get_user_id)):
-    """
-    Run a strategy backtest against historical data.
-    Uses yfinance — free, no API key needed.
-    """
-    history = get_historical_ohlcv(request.symbol, period=request.period)
-    if len(history) < 10:
-        raise HTTPException(status_code=400, detail=f"Insufficient historical data for {request.symbol}")
+async def run_endpoint(req: RunRequest, user_id: int = Depends(get_user_id)) -> dict:
+    strategy = dict(req.strategy_definition or {})
+    if not strategy.get("symbol"):
+        raise HTTPException(status_code=400, detail="strategy_definition.symbol is required")
+    has_new_entry = isinstance(strategy.get("entry"), dict) and strategy["entry"].get("conditions")
+    has_legacy_entry = bool(strategy.get("entry_signal"))
+    if not (has_new_entry or has_legacy_entry):
+        raise HTTPException(
+            status_code=400,
+            detail="strategy_definition.entry (with conditions) or entry_signal is required",
+        )
+    if req.starting_capital is not None:
+        strategy["starting_capital"] = float(req.starting_capital)
+    strategy.setdefault("starting_capital", 500_000.0)
 
-    FRICTION = 0.001  # 0.1% per trade (brokerage + slippage)
-    capital = request.starting_capital
-    position = 0
-    trades = []
-    prices = [d["close"] for d in history]
+    cache_key = _strategy_cache_key(strategy)
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            raw = cached.decode() if isinstance(cached, (bytes, bytearray)) else cached
+            return json.loads(raw)
+    except Exception as e:
+        logger.debug(f"Backtest cache miss for {cache_key}: {e}")
 
-    for i, day in enumerate(history):
-        price = day["close"]
-        triggered = False
+    try:
+        result = await run_backtest(strategy)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Backtest failed")
+        raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")
 
-        if request.strategy_type == "price_drop":
-            threshold = request.trigger_condition.get("drop_pct", 5) / 100
-            if i > 0 and (prices[i-1] - price) / prices[i-1] >= threshold:
-                triggered = True
+    try:
+        redis_client.set(cache_key, json.dumps(result, default=str),
+                          ex=CACHE_TTL_SECONDS)
+    except Exception as e:
+        logger.debug(f"Backtest cache write failed for {cache_key}: {e}")
 
-        elif request.strategy_type == "sip":
-            interval = request.trigger_condition.get("interval_days", 30)
-            if i % interval == 0:
-                triggered = True
+    return result
 
-        if triggered and capital > 1000:
-            trade_capital = capital * (request.quantity_pct / 100)
-            qty = int(trade_capital / price)
-            if qty > 0:
-                cost = qty * price * (1 + FRICTION)
-                capital -= cost
-                position += qty
-                trades.append({"date": day["date"], "action": "BUY", "price": price,
-                               "qty": qty, "capital_after": round(capital, 2)})
 
-    final_value = capital + (position * prices[-1] * (1 - FRICTION))
-    total_return = ((final_value - request.starting_capital) / request.starting_capital) * 100
+@router.post("/parse")
+async def parse_endpoint(req: ParseRequest, user_id: int = Depends(get_user_id)) -> dict:
+    parsed = await parse_strategy(req.message or "")
+    if parsed is None:
+        return {"status": "not_backtest"}
+    if parsed.get("status") == "needs_clarification":
+        return parsed
+    if parsed.get("status") == "ready":
+        return parsed
+    return {"status": "not_backtest"}
 
-    buy_trades = [t for t in trades if t["action"] == "BUY"]
-    profitable = sum(1 for t in buy_trades if prices[-1] > t["price"])
-    win_rate = (profitable / len(buy_trades) * 100) if buy_trades else 0
 
-    price_changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-    drawdowns = []
-    peak = request.starting_capital
-    running_value = request.starting_capital
-    for change in price_changes:
-        running_value += change
-        if running_value > peak:
-            peak = running_value
-        drawdown = (peak - running_value) / peak * 100
-        drawdowns.append(drawdown)
-    max_drawdown = round(max(drawdowns) if drawdowns else 0, 2)
-
-    return {
-        "symbol": request.symbol,
-        "period": request.period,
-        "strategy": request.strategy_type,
-        "starting_capital": request.starting_capital,
-        "final_value": round(final_value, 2),
-        "total_return_pct": round(total_return, 2),
-        "total_trades": len(trades),
-        "win_rate_pct": round(win_rate, 2),
-        "max_drawdown_pct": max_drawdown,
-        "trade_log": trades[:20],
-        "disclaimer": DISCLAIMER,
+@router.get("/presets")
+def presets_endpoint() -> list[dict]:
+    base = {
+        "starting_capital": 500_000.0,
+        "max_positions": 5,
+        "benchmark": "NIFTY50",
+        "calendar_filter": None,
+        "stop_loss_pct": None,
+        "take_profit_pct": None,
+        "position_size_pct": None,
+        "period": "3y",
     }
+    return [
+        {
+            "id": "rsi_oversold",
+            "name": "RSI Oversold Entry",
+            "description": "Buy when RSI(14) drops below 30. Sell when RSI crosses above 70.",
+            "strategy": {
+                **base,
+                "symbol": "NIFTYBEES",
+                "entry_signal": "rsi_cross_below",
+                "entry_params": {"period": 14, "threshold": 30.0},
+                "exit_signal": "rsi_cross_above",
+                "exit_params": {"period": 14, "threshold": 70.0},
+                "position_size_inr": 50_000.0,
+            },
+        },
+        {
+            "id": "52wk_high_momentum",
+            "name": "52-Week High Momentum",
+            "description": "Buy every time a stock makes a new 52-week high.",
+            "strategy": {
+                **base,
+                "symbol": "NIFTYBEES",
+                "entry_signal": "price_52wk_high",
+                "entry_params": {},
+                "exit_signal": "hold",
+                "exit_params": {},
+                "position_size_inr": 50_000.0,
+            },
+        },
+        {
+            "id": "macd_crossover",
+            "name": "MACD Golden Cross",
+            "description": "Buy on MACD bullish crossover. Sell on bearish crossover.",
+            "strategy": {
+                **base,
+                "symbol": "NIFTYBEES",
+                "entry_signal": "macd_cross_above_signal",
+                "entry_params": {"fast": 12, "slow": 26, "signal": 9},
+                "exit_signal": "macd_cross_below_signal",
+                "exit_params": {"fast": 12, "slow": 26, "signal": 9},
+                "position_size_inr": 50_000.0,
+            },
+        },
+        {
+            "id": "weekly_sip_sma_filter",
+            "name": "Monday SIP with SMA Filter",
+            "description": "Buy every Monday only when price is above its 50-day SMA.",
+            "strategy": {
+                **base,
+                "symbol": "NIFTYBEES",
+                "entry_signal": "calendar",
+                "entry_params": {
+                    "weekday": 0,
+                    "price_condition": "above",
+                    "sma_period": 50,
+                },
+                "exit_signal": "hold",
+                "exit_params": {},
+                "position_size_inr": 10_000.0,
+            },
+        },
+        {
+            "id": "bb_lower_bounce",
+            "name": "Bollinger Band Lower Touch",
+            "description": "Buy when price touches the lower Bollinger Band.",
+            "strategy": {
+                **base,
+                "symbol": "NIFTYBEES",
+                "entry_signal": "bb_lower_touch",
+                "entry_params": {"period": 20, "std": 2.0},
+                "exit_signal": "hold",
+                "exit_params": {},
+                "position_size_inr": 50_000.0,
+            },
+        },
+    ]
