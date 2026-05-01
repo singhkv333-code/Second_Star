@@ -5,6 +5,8 @@ const NAV = [
   { id: 'portfolio', label: 'Portfolio',  icon: '◈' },
   { id: 'orders',    label: 'Orders',     icon: '◇' },
   { id: 'products',  label: 'Products',   icon: '◆' },
+  { id: 'compare',   label: 'Compare',    icon: '⊠' },
+  { id: 'backtest',  label: 'Backtest',   icon: '◐' },
   { id: 'strategies',label: 'Strategies', icon: '◉' },
   { id: 'sips',      label: 'SIPs',       icon: '⊙' },
   { id: 'history',   label: 'History',    icon: '≡' },

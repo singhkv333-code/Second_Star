@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Sidebar } from '../components/layout/Sidebar';
+import { KiteConnectBanner } from '../components/layout/KiteConnectBanner';
 import { SummaryStrip } from '../components/portfolio/SummaryStrip';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
 import { ChatPane } from '../components/chat/ChatPane';
@@ -10,6 +11,8 @@ import { OrderConfirmModal } from '../components/orders/OrderConfirmModal';
 import { usePortfolio } from '../hooks/usePortfolio';
 import { useOrderStore } from '../store/orderStore';
 import { GlassCard, GlassSection } from '../components/ui/GlassCard';
+import CompareView from '../components/charts/CompareView';
+import BacktestView from '../components/backtest/BacktestView';
 
 const ORDER_TABS = ['GTT Order', 'Multi-Stock', 'Dip Buyer'];
 
@@ -17,6 +20,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('chat');
   const [orderSubTab, setOrderSubTab] = useState('GTT Order');
   const [pendingPreview, setPendingPreview] = useState(null);
+  const [compareSeed, setCompareSeed] = useState(null);
+  const [backtestSeed, setBacktestSeed] = useState(null);
   const { executionLog } = useOrderStore();
   usePortfolio(true);
 
@@ -29,6 +34,7 @@ export default function Dashboard() {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
+        <KiteConnectBanner />
         <SummaryStrip />
 
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
@@ -36,7 +42,17 @@ export default function Dashboard() {
           {activeTab === 'chat' && (
             <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
               <div style={{ flex: 1, overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-                <ChatPane onOrderPreview={handlePreviewReady} />
+                <ChatPane
+                  onOrderPreview={handlePreviewReady}
+                  onOpenChart={(chartData) => {
+                    setCompareSeed({ data: chartData, ts: Date.now() });
+                    setActiveTab('compare');
+                  }}
+                  onOpenBacktest={(backtestData) => {
+                    setBacktestSeed({ data: backtestData, ts: Date.now() });
+                    setActiveTab('backtest');
+                  }}
+                />
               </div>
               <div style={{ width: 320, overflowY: 'auto', padding: '20px' }}>
                 <GlassSection label="Quick Actions">
@@ -152,7 +168,13 @@ export default function Dashboard() {
             </div>
           )}
 
-          {!['chat', 'portfolio', 'orders'].includes(activeTab) && (
+          {activeTab === 'compare' && <CompareView seed={compareSeed} />}
+
+          {activeTab === 'backtest' && (
+            <BacktestView initialResult={backtestSeed?.data || null} />
+          )}
+
+          {!['chat', 'portfolio', 'orders', 'compare', 'backtest'].includes(activeTab) && (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', fontSize: 24, color: 'rgba(255,255,255,0.2)' }}>
                 {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}

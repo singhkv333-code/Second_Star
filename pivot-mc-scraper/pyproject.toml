@@ -1,0 +1,38 @@
+[project]
+name = "mc-scraper"
+version = "0.1.0"
+description = "Moneycontrol financial statements scraper for the Pivot platform"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx[http2]>=0.27",
+    "selectolax>=0.3.21",
+    "lxml>=5.2",
+    "asyncpg>=0.29",
+    "tenacity>=8.5",
+    "structlog>=24.1",
+    "tqdm>=4.66",
+    "typer>=0.12",
+    "pydantic-settings>=2.4",
+    "python-dotenv>=1.0",
+    "rich>=13.7",
+]
+
+[project.scripts]
+mc-scraper = "mc_scraper.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mc_scraper"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

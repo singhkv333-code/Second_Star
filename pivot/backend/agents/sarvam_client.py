@@ -8,7 +8,8 @@ import json
 import logging
 import re
 import asyncio
-from typing import Optional
+import time
+from typing import Optional, Any
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
@@ -33,14 +34,6 @@ def _strip_think_blocks(text: str) -> str:
 
 
 def _is_truncated(raw: str, cleaned: str) -> bool:
-    """Detect mid-stream truncation that should trigger a retry with bigger budget.
-
-    Cases handled:
-      (a) cleaned response is fully empty (the only case the old heuristic caught)
-      (b) cleaned response opens a <LOGICCARD without closing </LOGICCARD>
-      (c) raw response opens a <think> without closing </think> (model burned the
-          entire budget reasoning and never produced an answer at all)
-    """
     if not cleaned:
         return True
     low_clean = cleaned.lower()
@@ -55,6 +48,7 @@ def _is_truncated(raw: str, cleaned: str) -> bool:
 SARVAM_MOCK_MODE = not bool(settings.sarvam_api_key)
 SARVAM_API_URL = "https://api.sarvam.ai/v1/chat/completions"
 SARVAM_MODEL = "sarvam-m"
+SARVAM_M = SARVAM_MODEL
 MAX_RETRIES = 3
 TIMEOUT_SECONDS = 30
 
@@ -65,53 +59,131 @@ MOCK_RESPONSES = {
 }
 
 
+def _mock_response(messages: list) -> dict:
+    last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    lower = last_user_msg.lower()
+    if "safegrow" in lower or "capital guarantee" in lower or "protect" in lower:
+        return {"content": MOCK_RESPONSES["safegrow"], "tool_call": None,
+                "model": SARVAM_MODEL, "latency_ms": 0}
+    return {"content": MOCK_RESPONSES["default"], "tool_call": None,
+            "model": SARVAM_MODEL, "latency_ms": 0}
+
+
+_TOOL_CALL_RE = re.compile(r"<TOOL_CALL>\s*(\{.*?\})\s*</TOOL_CALL>", re.DOTALL | re.IGNORECASE)
+
+
+def _build_tool_instruction(tools: list) -> str:
+    """
+    Sarvam-m's chat completions endpoint rejects OpenAI-style `tools`/`tool_choice`
+    payloads with HTTP 400. Instead we describe the tools in the system prompt and
+    ask the model to emit a structured <TOOL_CALL>{...}</TOOL_CALL> block when an
+    action should be taken. We then parse that block ourselves.
+    """
+    lines = [
+        "You can call ONE of the tools below if — and only if — the user is asking "
+        "for an action that matches a tool. If no tool fits, reply normally.",
+        "",
+        "Tools (JSON Schema):",
+    ]
+    for t in tools:
+        fn = t.get("function", {})
+        try:
+            schema = json.dumps(fn.get("parameters", {}), separators=(",", ":"))
+        except Exception:
+            schema = "{}"
+        lines.append(f"- {fn.get('name', '')}: {fn.get('description', '')}")
+        lines.append(f"  parameters: {schema}")
+    lines.extend([
+        "",
+        "If you decide to call a tool, end your reply with EXACTLY one block:",
+        "<TOOL_CALL>{\"name\":\"<tool_name>\",\"arguments\":{...}}</TOOL_CALL>",
+        "Use double-quoted JSON. Do not wrap it in markdown fences. Do not invent "
+        "tool names. Omit the block entirely when no tool is appropriate.",
+    ])
+    return "\n".join(lines)
+
+
+def _extract_emulated_tool_call(raw: str) -> tuple[str, Optional[dict]]:
+    """Pull a <TOOL_CALL>{...}</TOOL_CALL> block out of `raw`. Returns (clean_text, tool_call|None)."""
+    if not raw:
+        return raw, None
+    match = _TOOL_CALL_RE.search(raw)
+    if not match:
+        return raw, None
+    body = match.group(1)
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return raw, None
+    name = parsed.get("name")
+    args = parsed.get("arguments", {})
+    if not name or not isinstance(args, dict):
+        return raw, None
+    cleaned_text = _TOOL_CALL_RE.sub("", raw).strip()
+    return cleaned_text, {"name": name, "arguments": args}
+
+
 async def call_sarvam(
     messages: list,
     system_prompt: str = "",
     temperature: float = 0.3,
     max_tokens: int = 1500,
     json_mode: bool = False,
-) -> str:
+    tools: Optional[list] = None,
+    tool_choice: Optional[Any] = None,  # accepted for API parity but unused (Sarvam rejects it)
+    model: str = SARVAM_MODEL,
+    reasoning_effort: Optional[str] = None,
+) -> dict:
     """
-    Call Sarvam AI API with retry logic.
-    Returns the assistant's response text.
+    Call Sarvam AI with retry logic.
+    Returns dict: {"content": str, "tool_call": dict|None, "model": str, "latency_ms": int}.
 
-    NOTE: /no_think and enable_thinking:false are NOT sent — sarvam-m silently
-    ignores both. Cycle-2 testing confirmed every response still contained a
-    <think> block. Instead we budget enough tokens (default 1500) for the
-    reasoning prelude AND a complete answer, then strip <think> server-side.
+    Tool-calling note: Sarvam-m on /v1/chat/completions returns 400 when the
+    OpenAI `tools`/`tool_choice` fields are sent, so we emulate function-calling
+    by injecting tool definitions into the system prompt and parsing a
+    <TOOL_CALL> block from the response.
     """
     if SARVAM_MOCK_MODE:
-        last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-        if "safegrow" in last_user_msg.lower() or "capital guarantee" in last_user_msg.lower() or "protect" in last_user_msg.lower():
-            return MOCK_RESPONSES["safegrow"]
-        return MOCK_RESPONSES["default"]
+        return _mock_response(messages)
+
+    effective_system = system_prompt or ""
+    if tools:
+        instruction = _build_tool_instruction(tools)
+        effective_system = (
+            f"{effective_system}\n\n{instruction}" if effective_system else instruction
+        )
+        # Tool calls need budget to materialise — bump small caps so the model
+        # doesn't truncate before emitting <TOOL_CALL>.
+        if max_tokens < 600:
+            max_tokens = 600
 
     full_messages = []
-    if system_prompt:
-        full_messages.append({"role": "system", "content": system_prompt})
+    if effective_system:
+        full_messages.append({"role": "system", "content": effective_system})
     full_messages.extend(messages)
 
-    # Trim to 8K context — keep system prompt + last N messages
     while len(json.dumps(full_messages)) > 28000 and len(full_messages) > 2:
-        # Remove oldest user+assistant pair (indices 1 and 2 if system exists)
-        start_idx = 1 if system_prompt else 0
+        start_idx = 1 if effective_system else 0
         if len(full_messages) > start_idx + 2:
             full_messages.pop(start_idx)
             full_messages.pop(start_idx)
         else:
             break
 
-    payload = {
-        "model": SARVAM_MODEL,
+    payload: dict = {
+        "model": model,
         "messages": full_messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    if reasoning_effort:
+        payload["reasoning_effort"] = reasoning_effort
+    # Deliberately NOT forwarding tools/tool_choice — Sarvam rejects them.
 
     truncation_retried = False
+    started = time.monotonic()
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -124,24 +196,51 @@ async def call_sarvam(
                 )
                 response.raise_for_status()
                 data = response.json()
-                content = data["choices"][0]["message"]["content"] or ""
-                cleaned = _strip_think_blocks(content)
-                # Retry-on-truncation: empty cleaned output, unclosed LOGICCARD,
-                # or unclosed <think>. Cap at one truncation retry to control cost.
-                if not truncation_retried and _is_truncated(content, cleaned):
+                choice = data["choices"][0]["message"]
+
+                # Native function-calling fallback (in case a future Sarvam release
+                # starts returning OpenAI-shaped tool_calls).
+                tool_result = None
+                if choice.get("tool_calls"):
+                    tc = choice["tool_calls"][0]
+                    try:
+                        tool_result = {
+                            "name": tc["function"]["name"],
+                            "arguments": json.loads(tc["function"]["arguments"]),
+                        }
+                    except Exception:
+                        pass
+
+                raw = choice.get("content") or ""
+                cleaned = _strip_think_blocks(raw)
+
+                # Pull emulated <TOOL_CALL> block out of the prose if present.
+                if not tool_result and tools:
+                    cleaned, tool_result = _extract_emulated_tool_call(cleaned)
+
+                if (not tool_result and not truncation_retried
+                        and _is_truncated(raw, cleaned)):
                     truncation_retried = True
-                    payload["max_tokens"] = payload["max_tokens"] * 3
+                    # Sarvam-m starter tier caps max_tokens at 2048; cap retry there.
+                    payload["max_tokens"] = min(payload["max_tokens"] * 3, 2048)
                     logger.warning(
-                        "Truncated response detected (empty/unclosed LOGICCARD/unclosed think); "
-                        "retrying once with max_tokens=%d",
+                        "Truncated response detected; retrying once with max_tokens=%d",
                         payload["max_tokens"],
                     )
                     continue
-                return cleaned
+
+                latency_ms = int((time.monotonic() - started) * 1000)
+                return {"content": cleaned, "tool_call": tool_result,
+                        "model": model, "latency_ms": latency_ms}
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429 and attempt < MAX_RETRIES - 1:
                 await asyncio.sleep(2 ** attempt)
                 continue
+            logger.error(
+                "Sarvam returned %s: %s",
+                e.response.status_code,
+                e.response.text[:300],
+            )
             raise
         except Exception as e:
             if attempt < MAX_RETRIES - 1:

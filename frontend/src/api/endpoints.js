@@ -39,4 +39,17 @@ export const previewProduct = (data) => client.post('/products/preview', data);
 export const fetchCatalogue = () => client.get('/products/catalogue');
 
 // Backtest
-export const runBacktest = (data) => client.post('/backtest/run', data);
+export const runBacktest        = (data) => client.post('/backtest/run', data);
+export const apiBacktestRun     = (data) => client.post('/backtest/run', data);
+export const apiBacktestParse   = (data) => client.post('/backtest/parse', data);
+export const apiBacktestPresets = ()     => client.get('/backtest/presets');
+
+// Compare (price history + comparison charts)
+export const apiCompare = (data) => client.post('/compare', data);
+
+// Kite Connect
+export const fetchKiteStatus    = () => client.get('/kite/status');
+export const fetchKiteLoginUrl  = () => client.get('/kite/login_url');
+export const connectKiteMock    = () => client.post('/kite/connect-mock');
+export const disconnectKite     = () => client.delete('/kite/session');
+export const verifyKiteSession  = () => client.get('/kite/verify');

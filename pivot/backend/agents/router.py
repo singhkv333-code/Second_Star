@@ -38,6 +38,7 @@ async def route_and_call(
     model = ROUTING_TABLE.get(task_type, "sarvam")
 
     if model == "sarvam":
-        return await call_sarvam(messages, system_prompt, json_mode=json_mode, max_tokens=max_tokens)
+        result = await call_sarvam(messages, system_prompt, json_mode=json_mode, max_tokens=max_tokens)
+        return result.get("content", "") if isinstance(result, dict) else result
     else:
         return await call_openai(messages, system_prompt, json_mode=True, max_tokens=max_tokens)
