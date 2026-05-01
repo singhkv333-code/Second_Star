@@ -336,10 +336,14 @@ const actionPlaceOrder: StepTypeDef = {
     },
     ["symbol", "side", "quantity", "order_type"],
   ),
-  output_schema: objectSchema({
-    broker_order_id: { type: "string" },
-    submitted_at: { type: "string" },
-  }),
+  output_schema: objectSchema(
+    {
+      order_id: { type: "string" },
+      status: { type: "string" },
+      client_request_id: { type: "string" },
+    },
+    ["order_id", "client_request_id"],
+  ),
 };
 
 const actionCancelOrders: StepTypeDef = {
@@ -354,7 +358,13 @@ const actionCancelOrders: StepTypeDef = {
     symbol_filter: { type: "string" },
     side_filter: { type: "string", enum: ["buy", "sell"] },
   }),
-  output_schema: objectSchema({ cancelled_ids: { type: "array" } }),
+  output_schema: objectSchema(
+    {
+      cancelled_count: { type: "integer" },
+      order_ids: { type: "array", items: { type: "string" } },
+    },
+    ["cancelled_count"],
+  ),
 };
 
 const actionSetStoploss: StepTypeDef = {
@@ -373,7 +383,13 @@ const actionSetStoploss: StepTypeDef = {
     },
     ["symbol", "trigger_price"],
   ),
-  output_schema: objectSchema({ broker_order_id: { type: "string" } }),
+  output_schema: objectSchema(
+    {
+      trigger_id: { type: "string" },
+      client_request_id: { type: "string" },
+    },
+    ["trigger_id"],
+  ),
 };
 
 const actionUpdateWatchlist: StepTypeDef = {
@@ -410,7 +426,13 @@ const notifyMessage: StepTypeDef = {
     },
     ["channel", "template"],
   ),
-  output_schema: objectSchema({ sent_at: { type: "string" } }),
+  output_schema: objectSchema(
+    {
+      channel: { type: "string" },
+      delivered: { type: "boolean" },
+    },
+    ["channel", "delivered"],
+  ),
 };
 
 const notifyLog: StepTypeDef = {
