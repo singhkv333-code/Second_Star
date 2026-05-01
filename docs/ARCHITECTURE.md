@@ -257,7 +257,7 @@ Each action generates a deterministic `client_request_id = sha1(f"{run_id}:{step
 | `step_type` | Config | Behavior |
 |---|---|---|
 | `wait.delay` | `{ duration_seconds }` OR `{ until_time, timezone }` | Sleeps. Run state persists across worker restarts. |
-| `skip_if` | `{ condition: numeric/market/position config }` | If condition holds, marks the **next** step as `skipped`. Does not branch. |
+| `control.skip_if` | `{ condition: numeric/market/position config }` | If condition holds, marks the **next** step as `skipped`. Does not branch. |
 
 ---
 
@@ -280,8 +280,11 @@ Every step writes its output to `run.context[step_index]` (JSONB). Later steps r
 
 Allowed namespaces in refs:
 - `context.<step_index>.<dotted.path>` — outputs of prior steps
+- `context.webhook_payload.<dotted.path>` — body of the inbound webhook (only meaningful in workflows with `trigger.webhook`; the raw payload is stored at `run.context["webhook_payload"]` using the literal key `"webhook_payload"` rather than a numeric step index)
 - `now` — current ISO timestamp at step execution
 - `workflow.<field>` — workflow metadata (id, name, version)
+
+`webhook_payload` is a reserved key in the `context` bag. It is NOT a sibling namespace — refs always begin with `context.`. The webhook executor is responsible for writing the raw payload to `run.context["webhook_payload"]` before the next step runs.
 
 No arithmetic in refs. If you need computation, use `condition.numeric`.
 

@@ -245,12 +245,12 @@ Paginated run history for a workflow. Newest first.
 **Response: 200**
 ```json
 {
-  "items": [ /* Run shape (§4) but without `context` and without `steps[]` — list view only */ ],
+  "items": [ /* Run list-view shape — see fields below */ ],
   "next_cursor": null
 }
 ```
 
-List items include: `id`, `workflow_id`, `workflow_version`, `triggered_by`, `started_at`, `finished_at`, `status`, `halt_reason`, `error_message`, `step_count` (int).
+List items include: `id`, `workflow_id`, `workflow_version`, `triggered_by`, `started_at`, `finished_at`, `status`, `halt_reason`, `error_message`, `step_count` (int — total steps in the workflow at run time, for display; **not** in the canonical Run shape §4 which is returned only by `GET /api/runs/{id}`). `context` and `steps[]` are omitted from list items to keep payload small.
 
 ### 6.2 `GET /api/runs/{id}`
 
@@ -379,6 +379,37 @@ Frontend fetches once on app load (cache 5 min). Backend changes to step types i
 
 Every step type in the catalog must include: `step_type`, `category`, `label`, `description`, `icon` (lucide-react name), `max_retries`, `trigger_only`, `config_schema` (JSON Schema draft 2020-12), `output_schema` (or null if no output).
 
+**Canonical category assignment for every v1 step type** (backend must return exactly these `category` values):
+
+| `step_type` | `category` |
+|---|---|
+| `trigger.schedule` | `trigger` |
+| `trigger.price` | `trigger` |
+| `trigger.indicator` | `trigger` |
+| `trigger.event` | `trigger` |
+| `trigger.manual` | `trigger` |
+| `trigger.webhook` | `trigger` |
+| `fetch.quote` | `fetch` |
+| `fetch.indicator` | `fetch` |
+| `fetch.fundamental` | `fetch` |
+| `fetch.portfolio` | `fetch` |
+| `fetch.news` | `fetch` |
+| `condition.numeric` | `condition` |
+| `condition.market_status` | `condition` |
+| `condition.position` | `condition` |
+| `condition.time_window` | `condition` |
+| `action.place_order` | `action` |
+| `action.cancel_orders` | `action` |
+| `action.set_stoploss` | `action` |
+| `action.update_watchlist` | `action` |
+| `notify.message` | `notify` |
+| `notify.log` | `notify` |
+| `wait.approval` | `notify` |
+| `wait.delay` | `control` |
+| `control.skip_if` | `control` |
+
+Note: `wait.approval` carries `category: "notify"` because ARCHITECTURE.md §5.5 groups it with Communication steps (it produces a user-facing notification). `wait.delay` carries `category: "control"` because it is pure timing control with no output.
+
 The frontend uses `config_schema` to generate the StepConfigDrawer form via `react-hook-form` + `zod` (with `@vite/json-schema-to-zod` or equivalent). Backend never accepts a `step_type` not in this catalog.
 
 ---
@@ -389,7 +420,7 @@ The frontend uses `config_schema` to generate the StepConfigDrawer form via `rea
 
 External system fires a workflow with a `trigger.webhook` step. Token is the value stored in `workflow_webhook_tokens.token`.
 
-**Request body:** any JSON. Stored at `run.context["webhook_payload"]` for downstream steps to reference via `{{ webhook_payload.<path> }}`.
+**Request body:** any JSON. Stored at `run.context["webhook_payload"]` (the literal string key `"webhook_payload"`, not a numeric step index) for downstream steps to reference via `{{ context.webhook_payload.<path> }}`. See ARCHITECTURE.md §6 for the full ref namespace spec.
 
 **Response: 202**
 ```json
@@ -491,6 +522,7 @@ type Step = {
   config: Record<string, unknown>;
 };
 
+// Full run detail — returned only by GET /api/runs/{id}
 type Run = {
   id: string;
   workflow_id: string;
@@ -503,6 +535,12 @@ type Run = {
   error_message: string | null;
   context: Record<string, Record<string, unknown>>;
   steps: RunStep[];
+};
+
+// List-view summary — returned by GET /api/workflows/{id}/runs items
+// Omits `context` and `steps`; adds `step_count` for display.
+type RunSummary = Omit<Run, "context" | "steps"> & {
+  step_count: number;
 };
 
 type RunStep = {
