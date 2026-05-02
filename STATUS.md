@@ -33,7 +33,7 @@ Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEP
 
 ### What's left
 - **#21 mypy `--strict` cleanup** — ~150 SQLA `Column[X]` errors. Tests pass; deferred to Day 8 buffer per build sequence.
-- **Mounting the new tabs** — AgentsTab, CalendarTab, PortfolioTab built but not yet wired into the app's tab navigation. The frontend agent's #31-35 work mounts AgentPanel etc.; the four tabs (Chat / Agents / Calendar / Portfolio) need their parent shell. Lightweight wrapper, ~30 LOC.
+- **Stitching done.** `AppShell` parent component shipped (~200 LOC) replacing the old Day-2 mock `app/page.tsx`. Sticky tab strip with Chat / Agents / Calendar / Portfolio, active tab persisted in URL hash, AgentPanel as a persistent overlay any tab can open. Default tab is Agents (highest demo value). Chat tab is an honest placeholder pointing at the legacy `frontend/` Vite app for the actual chatbot. 7 new tests; 122/122 frontend total.
 
 ### Demo path readiness (out of 14)
 - Backend can serve all 14 demo steps end-to-end (verified via smoke + propose_workflow Python snippet).
