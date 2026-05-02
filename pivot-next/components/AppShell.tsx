@@ -31,6 +31,7 @@ import {
   TrendingUp,
   User,
 } from "lucide-react";
+import { CommandPalette } from "@/components/CommandPalette";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { BacktestTab } from "@/components/BacktestTab";
@@ -303,6 +304,12 @@ export function AppShell(): React.ReactElement {
         open={panelOpen}
         onOpenChange={setPanelOpen}
         initialWorkflow={panelWorkflow}
+      />
+
+      <CommandPalette
+        conversations={conversations}
+        onNavigate={goTab}
+        onOpenConversation={() => goTab("chat")}
       />
     </div>
   );

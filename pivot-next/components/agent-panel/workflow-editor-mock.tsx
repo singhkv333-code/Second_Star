@@ -19,6 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Loader2, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,8 +171,10 @@ export function WorkflowEditorMock({
 
     if (isError(result)) {
       setActionError(result.error.message);
+      toast.error(result.error.message);
     } else {
       setWorkflow(result.data);
+      toast.success("Workflow saved");
     }
     setActionState("idle");
   };
@@ -210,8 +213,10 @@ export function WorkflowEditorMock({
       const result = await activateWorkflow(targetId);
       if (isError(result)) {
         setActionError(result.error.message);
+        toast.error(result.error.message);
       } else {
         setWorkflow(result.data);
+        toast.success("Workflow activated");
       }
     } else if (workflow.status === "active") {
       setActionState("pausing");
@@ -219,8 +224,10 @@ export function WorkflowEditorMock({
       const result = await pauseWorkflow(workflow.id);
       if (isError(result)) {
         setActionError(result.error.message);
+        toast.error(result.error.message);
       } else {
         setWorkflow(result.data);
+        toast.success("Workflow paused");
       }
     }
 
@@ -264,7 +271,9 @@ export function WorkflowEditorMock({
     const result = await runWorkflow(targetId);
     if (isError(result)) {
       setActionError(result.error.message);
+      toast.error(result.error.message);
     } else {
+      toast.success("Run started");
       setViewingRunId(result.data.run_id);
     }
     setActionState("idle");

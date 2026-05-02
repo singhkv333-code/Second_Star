@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StepIcon } from "@/components/agent-panel/step-icon";
 import { findStepType } from "@/lib/mock-catalog";
 import { decideApproval } from "@/lib/api";
+import { toast } from "sonner";
 import { useRunStream } from "@/lib/use-run-stream";
 import type {
   Approval,
@@ -63,8 +64,10 @@ export function RunView({ runId, catalog, onClose }: RunViewProps): React.ReactE
     const result = await decideApproval(approvalId, { decision });
     if ("error" in result) {
       setApprovalError(result.error.message);
+      toast.error(result.error.message);
     } else {
       resolveApproval(approvalId);
+      toast.success(decision === "approved" ? "Step approved" : "Step rejected");
     }
     setApprovalInFlight(null);
   };
