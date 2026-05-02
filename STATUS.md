@@ -19,6 +19,33 @@ Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEP
 
 ---
 
+## Day 5 — 2026-05-02 (lead + frontend-lead)
+
+### Shipped
+- **#37 (lead) — `GET /api/workflows/scheduled-runs`.** New `routers/scheduled.py` (~145 LOC). Enumerates next-fire times for active `trigger.schedule` workflows in `[from, to]` via APScheduler `CronTrigger.get_next_fire_time` iterated forward. Caps at 500 items / 90 days. User-scoped, malformed-cron-on-stored-step skipped silently (defense in depth). 10 new tests; 188/188 backend total. Smoke +5 checks → 46/46. `API_CONTRACT.md §6.5` documents the endpoint with curl example; `ScheduledRun` type added to §11. Mounted **before** workflows_router so `/api/workflows/scheduled-runs` isn't shadowed by `/api/workflows/{id}`.
+- **#31-#35 (frontend-lead, before rate-limit)** — five Day-5 FE tasks landed: `2ea8aa4` real-backend wire-up (AppBootstrap + auth-token plumbing), `6ebe971` WorkflowDraftCard (chat → editor flow), `690c3ca` RunHistory list, `4b2eede` AgentsTab with status filter chips, `2dff1d5` CalendarTab (month + agenda views, real `/api/workflows/scheduled-runs` no mock). 108 frontend tests pass.
+- **#36 (lead, solo) — PortfolioTab.** New `components/agent-panel/PortfolioTab.tsx` (~370 LOC). Three sections: metric strip (portfolio value, day P&L, total P&L with %), sortable holdings table (symbol / qty / avg / LTP / P&L / day % / value, default value desc, click any header to flip sort), and an honest "Performance — coming soon" placeholder (no backing endpoint yet; per spec rule "never fake data"). Reads from legacy `GET /portfolio/{summary,holdings}` via a new `requestLegacy()` helper that strips `/api` from the base URL — `/portfolio/*` routes don't sit under `/api/*`. Both light + dark mode support, INR formatting via Intl, P&L colors emerald/rose. Loading skeleton, error with Retry, empty state. 7 new tests; 115/115 frontend total.
+
+### Quality gates (end of Day 5)
+- Backend: 188/188 pytest, 46/46 smoke checks against live uvicorn.
+- Frontend: 115/115 vitest, `pnpm typecheck` + `pnpm lint` clean.
+- Both servers up locally (port 8000 + 3000).
+
+### What's left
+- **#21 mypy `--strict` cleanup** — ~150 SQLA `Column[X]` errors. Tests pass; deferred to Day 8 buffer per build sequence.
+- **Mounting the new tabs** — AgentsTab, CalendarTab, PortfolioTab built but not yet wired into the app's tab navigation. The frontend agent's #31-35 work mounts AgentPanel etc.; the four tabs (Chat / Agents / Calendar / Portfolio) need their parent shell. Lightweight wrapper, ~30 LOC.
+
+### Demo path readiness (out of 14)
+- Backend can serve all 14 demo steps end-to-end (verified via smoke + propose_workflow Python snippet).
+- Frontend has every component built (WorkflowEditor, StepConfigDrawer, StepTypePicker, RunView, RunHistory, AgentsTab, CalendarTab, PortfolioTab) but the parent shell stitching them all into Chat / Agents / Calendar / Portfolio tabs isn't done. ~14/14 walkable in components-individually; ~0/14 walkable as a single user journey through tabs.
+- Demo recording: not started. Day 9 in original plan.
+
+### Next session
+- Stitch the tabs into a parent shell so the demo path is one continuous user journey instead of N components mounted separately. ~30 LOC addition to `app/page.tsx` or a new `<TabBar>`.
+- Optionally start `#21` mypy cleanup if buffer permits.
+
+---
+
 ## Day 4 — 2026-05-02 (lead, solo backend)
 
 ### Shipped

@@ -120,11 +120,34 @@ function buildUrl(
   return url;
 }
 
+/**
+ * Legacy backend base — the existing Pivot routers (auth, portfolio,
+ * orders, etc.) live at the root, not under `/api`. Stripping the
+ * trailing `/api` from `getBaseUrl()` lands at the right host.
+ */
+function getLegacyBase(): string {
+  return getBaseUrl().replace(/\/api\/?$/, "");
+}
+
 async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
-  const base = getBaseUrl();
+  return _doRequest<T>(getBaseUrl(), path, options);
+}
+
+async function requestLegacy<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  return _doRequest<T>(getLegacyBase(), path, options);
+}
+
+async function _doRequest<T>(
+  base: string,
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
   const url = buildUrl(base, path, options.query);
   const token = await authTokenProvider();
 
@@ -354,6 +377,40 @@ export type ScheduledRun = {
 };
 
 export type ScheduledRunsResponse = { items: ScheduledRun[] };
+
+// ---------------------------------------------------------------------------
+// Portfolio (legacy /portfolio/* endpoints — NOT under /api)
+// ---------------------------------------------------------------------------
+
+export type Holding = {
+  tradingsymbol: string;
+  exchange: string;
+  quantity: number;
+  average_price: number;
+  last_price: number;
+  pnl: number;
+  day_change: number;
+  day_change_percentage: number;
+};
+
+export type PortfolioSummary = {
+  total_value: number;
+  invested_value: number;
+  total_pnl: number;
+  total_pnl_pct: number;
+  day_pnl: number;
+  num_holdings: number;
+};
+
+/** `GET /portfolio/summary` — backed by Kite (mock when KITE_API_KEY is empty). */
+export function getPortfolioSummary(): Promise<ApiResult<PortfolioSummary>> {
+  return requestLegacy<PortfolioSummary>("/portfolio/summary");
+}
+
+/** `GET /portfolio/holdings` — list of Holdings (mock data in test mode). */
+export function getPortfolioHoldings(): Promise<ApiResult<Holding[]>> {
+  return requestLegacy<Holding[]>("/portfolio/holdings");
+}
 
 /**
  * `GET /api/workflows/scheduled-runs?from=...&to=...`
