@@ -1,29 +1,51 @@
 /**
- * Tests for ChatDemo — #39 Day 6.
- * Covers textarea rendering, submit flow (success + error), loading state,
- * example prompt shortcut, and "Open in editor" handoff.
+ * Tests for ChatDemo — Phase 1 wired version.
+ * ChatDemo now calls POST /chat (legacy router), not proposeWorkflow.
+ * We mock global fetch to control backend responses.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChatDemo } from "@/components/chat/ChatDemo";
-import * as api from "@/lib/api";
 
-const MOCK_DRAFT = {
-  name: "RELIANCE 3:55 PM buy",
-  description: "Buy RELIANCE every weekday",
-  steps: [
-    { step_type: "trigger.schedule", label: "Every weekday at 3:55 PM IST", config: {} },
-    { step_type: "fetch.portfolio", label: "Get portfolio", config: {} },
-    { step_type: "condition.numeric", label: "Buying power > ₹50k", config: {} },
-    { step_type: "action.place_order", label: "Buy 10 RELIANCE", config: {} },
-    { step_type: "notify.message", label: "Email confirmation", config: {} },
-  ],
-  rationale: "Canonical demo workflow.",
-  warnings: [],
+const MOCK_CHAT_RESPONSE_DRAFT = {
+  response: "Here is a workflow for you.",
+  tools_called: ["propose_workflow"],
+  raw_data: {
+    _render_hint: "workflow_draft_card",
+    name: "RELIANCE 3:55 PM buy",
+    description: "Buy RELIANCE every weekday",
+    steps: [
+      { step_type: "trigger.schedule", label: "Every weekday at 3:55 PM IST", config: {} },
+      { step_type: "fetch.portfolio", label: "Get portfolio", config: {} },
+      { step_type: "condition.numeric", label: "Buying power > ₹50k", config: {} },
+      { step_type: "action.place_order", label: "Buy 10 RELIANCE", config: {} },
+      { step_type: "notify.message", label: "Email confirmation", config: {} },
+    ],
+    rationale: "Canonical demo workflow.",
+    warnings: [],
+  },
 };
+
+const MOCK_CHAT_RESPONSE_TEXT = {
+  response: "I can help you with that.",
+  raw_data: null,
+};
+
+function mockFetch(body: unknown, status = 200): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
+    }),
+  );
+}
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("ChatDemo", () => {
@@ -60,25 +82,43 @@ describe("ChatDemo", () => {
     expect(textarea.value).toContain("RELIANCE");
   });
 
-  it("submitting calls proposeWorkflow and shows draft card on success", async () => {
-    vi.spyOn(api, "proposeWorkflow").mockResolvedValue({ data: MOCK_DRAFT });
+  it("submitting calls POST /chat and shows draft card on draft response", async () => {
+    mockFetch(MOCK_CHAT_RESPONSE_DRAFT);
     render(<ChatDemo onOpenEditor={vi.fn()} />);
 
     fireEvent.change(screen.getByTestId("chat-textarea"), {
-      target: { value: "Buy RELIANCE" },
+      target: { value: "Buy RELIANCE every weekday" },
     });
     fireEvent.click(screen.getByTestId("chat-submit-btn"));
 
     await waitFor(() => {
       expect(screen.getByTestId("workflow-draft-card")).toBeInTheDocument();
     });
-    expect(api.proposeWorkflow).toHaveBeenCalledWith("Buy RELIANCE");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/chat"),
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
-  it("shows error message on API failure", async () => {
-    vi.spyOn(api, "proposeWorkflow").mockResolvedValue({
-      error: { code: "validation_error", message: "Intent is too vague" },
+  it("shows assistant text bubble for regular text responses", async () => {
+    mockFetch(MOCK_CHAT_RESPONSE_TEXT);
+    render(<ChatDemo onOpenEditor={vi.fn()} />);
+
+    fireEvent.change(screen.getByTestId("chat-textarea"), {
+      target: { value: "Hello" },
     });
+    fireEvent.click(screen.getByTestId("chat-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("I can help you with that.")).toBeInTheDocument();
+    });
+  });
+
+  it("shows error message on fetch failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("Network error")),
+    );
     render(<ChatDemo onOpenEditor={vi.fn()} />);
 
     fireEvent.change(screen.getByTestId("chat-textarea"), {
@@ -88,14 +128,19 @@ describe("ChatDemo", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("chat-error")).toBeInTheDocument();
-      expect(screen.getByText("Intent is too vague")).toBeInTheDocument();
+      expect(screen.getByText(/Network error/i)).toBeInTheDocument();
     });
   });
 
   it("shows loading skeleton while request is in flight", async () => {
-    let resolve: (v: { data: typeof MOCK_DRAFT }) => void = () => {};
-    vi.spyOn(api, "proposeWorkflow").mockReturnValue(
-      new Promise((res) => { resolve = res; }),
+    let resolve: (v: unknown) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockReturnValue(
+        new Promise((res) => {
+          resolve = res;
+        }),
+      ),
     );
 
     render(<ChatDemo onOpenEditor={vi.fn()} />);
@@ -105,19 +150,23 @@ describe("ChatDemo", () => {
     fireEvent.click(screen.getByTestId("chat-submit-btn"));
 
     expect(screen.getByTestId("chat-loading")).toBeInTheDocument();
-    resolve({ data: MOCK_DRAFT });
+    resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(MOCK_CHAT_RESPONSE_DRAFT),
+    });
     await waitFor(() =>
       expect(screen.queryByTestId("chat-loading")).not.toBeInTheDocument(),
     );
   });
 
   it("calls onOpenEditor with Workflow when 'Open in editor' is clicked", async () => {
-    vi.spyOn(api, "proposeWorkflow").mockResolvedValue({ data: MOCK_DRAFT });
+    mockFetch(MOCK_CHAT_RESPONSE_DRAFT);
     const onOpenEditor = vi.fn();
     render(<ChatDemo onOpenEditor={onOpenEditor} />);
 
     fireEvent.change(screen.getByTestId("chat-textarea"), {
-      target: { value: "Buy RELIANCE" },
+      target: { value: "Buy RELIANCE every weekday" },
     });
     fireEvent.click(screen.getByTestId("chat-submit-btn"));
 
@@ -127,7 +176,6 @@ describe("ChatDemo", () => {
 
     fireEvent.click(screen.getByTestId("open-in-editor-button"));
     expect(onOpenEditor).toHaveBeenCalledTimes(1);
-    // Should receive a Workflow object (has name, steps, status)
     const call = onOpenEditor.mock.calls[0];
     const arg = (call?.[0] ?? {}) as { name: string; status: string; steps: unknown[] };
     expect(arg.name).toBe("RELIANCE 3:55 PM buy");
@@ -136,7 +184,7 @@ describe("ChatDemo", () => {
   });
 
   it("Cmd+Enter submits the form", async () => {
-    vi.spyOn(api, "proposeWorkflow").mockResolvedValue({ data: MOCK_DRAFT });
+    mockFetch(MOCK_CHAT_RESPONSE_TEXT);
     render(<ChatDemo onOpenEditor={vi.fn()} />);
 
     const textarea = screen.getByTestId("chat-textarea");
@@ -144,7 +192,7 @@ describe("ChatDemo", () => {
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
 
     await waitFor(() => {
-      expect(api.proposeWorkflow).toHaveBeenCalledWith("Buy RELIANCE");
+      expect(fetch).toHaveBeenCalled();
     });
   });
 });

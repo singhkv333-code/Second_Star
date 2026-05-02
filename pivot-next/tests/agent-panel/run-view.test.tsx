@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { RunView } from "@/components/agent-panel/RunView";
 import { MOCK_CATALOG } from "@/lib/mock-catalog";
 import { setBackendSource } from "@/lib/api";
+import * as api from "@/lib/api";
 import type {
   Approval,
   Run,
@@ -34,10 +35,15 @@ beforeEach(() => {
   setBackendSource("mock");
   activeCallbacks = null;
   lastRunId = null;
+  // Default: decideApproval resolves successfully so approval banners dismiss.
+  vi.spyOn(api, "decideApproval").mockResolvedValue({
+    data: { id: "ap-1", decision: "approved", decided_at: "2026-05-02T10:01:00Z" },
+  });
 });
 
 afterEach(() => {
   activeCallbacks = null;
+  vi.restoreAllMocks();
 });
 
 function emit(action: (cbs: RunStreamCallbacks) => void): void {

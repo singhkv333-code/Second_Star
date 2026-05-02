@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,10 +31,20 @@ import type {
   Workflow,
   WorkflowStatus,
 } from "@/lib/types";
+import { isError } from "@/lib/types";
 import { findStepType } from "@/lib/mock-catalog";
+import {
+  activateWorkflow,
+  createWorkflow,
+  pauseWorkflow,
+  runWorkflow,
+  updateWorkflow,
+} from "@/lib/api";
 import { StepCard } from "@/components/agent-panel/step-card";
 import { StepConfigDrawer } from "@/components/agent-panel/StepConfigDrawer";
 import { StepTypePicker } from "@/components/agent-panel/StepTypePicker";
+import { RunHistory } from "@/components/agent-panel/RunHistory";
+import { RunView } from "@/components/agent-panel/RunView";
 import { defaultConfigFromSchema } from "@/lib/json-schema-to-zod";
 
 let stepIdCounter = 0;
@@ -50,8 +60,10 @@ const STATUS_COPY: Record<WorkflowStatus, { label: string; tone: "muted" | "succ
   archived: { label: "Archived", tone: "muted" },
 };
 
+type ActionState = "idle" | "saving" | "activating" | "pausing" | "running";
+
 export type WorkflowEditorMockProps = {
-  /** The workflow to render. Mutations stay local in this Day 1 mock. */
+  /** The workflow to render. Mutations persist via PATCH /api/workflows/{id}. */
   initialWorkflow: Workflow;
   catalog: StepTypeCatalog;
 };
@@ -63,6 +75,11 @@ export function WorkflowEditorMock({
   const [workflow, setWorkflow] = useState<Workflow>(initialWorkflow);
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [pickerInsertIndex, setPickerInsertIndex] = useState<number | null>(null);
+  const [actionState, setActionState] = useState<ActionState>("idle");
+  const [actionError, setActionError] = useState<string | null>(null);
+  // null = editor, string = run id being viewed in RunView
+  const [viewingRunId, setViewingRunId] = useState<string | null>(null);
+  const [showRunHistory, setShowRunHistory] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -121,6 +138,179 @@ export function WorkflowEditorMock({
     });
   };
 
+  /** Persist local state to backend. Creates if no id; patches otherwise. */
+  const handleSave = async (): Promise<void> => {
+    if (actionState !== "idle") return;
+    setActionState("saving");
+    setActionError(null);
+
+    const stepPayload = workflow.steps.map((s) => ({
+      step_type: s.step_type,
+      label: s.label,
+      config: s.config,
+    }));
+
+    let result;
+    if (!workflow.id || workflow.id.startsWith("local-") || workflow.id.startsWith("00000000-")) {
+      // New draft — create first, then patch id into local state.
+      result = await createWorkflow({
+        name: workflow.name,
+        description: workflow.description ?? undefined,
+        single_instance: workflow.single_instance,
+        steps: stepPayload,
+      });
+    } else {
+      result = await updateWorkflow(workflow.id, {
+        name: workflow.name,
+        description: workflow.description ?? undefined,
+        single_instance: workflow.single_instance,
+        steps: stepPayload,
+      });
+    }
+
+    if (isError(result)) {
+      setActionError(result.error.message);
+    } else {
+      setWorkflow(result.data);
+    }
+    setActionState("idle");
+  };
+
+  const handleActivateOrPause = async (): Promise<void> => {
+    if (actionState !== "idle") return;
+    const isDraft = workflow.status === "draft" || workflow.status === "paused";
+
+    if (isDraft) {
+      // Must save first if we have local changes.
+      setActionState("activating");
+      setActionError(null);
+
+      // If not yet persisted, create first.
+      let targetId = workflow.id;
+      if (!targetId || targetId.startsWith("00000000-")) {
+        const saveResult = await createWorkflow({
+          name: workflow.name,
+          description: workflow.description ?? undefined,
+          single_instance: workflow.single_instance,
+          steps: workflow.steps.map((s) => ({
+            step_type: s.step_type,
+            label: s.label,
+            config: s.config,
+          })),
+        });
+        if (isError(saveResult)) {
+          setActionError(saveResult.error.message);
+          setActionState("idle");
+          return;
+        }
+        targetId = saveResult.data.id;
+        setWorkflow(saveResult.data);
+      }
+
+      const result = await activateWorkflow(targetId);
+      if (isError(result)) {
+        setActionError(result.error.message);
+      } else {
+        setWorkflow(result.data);
+      }
+    } else if (workflow.status === "active") {
+      setActionState("pausing");
+      setActionError(null);
+      const result = await pauseWorkflow(workflow.id);
+      if (isError(result)) {
+        setActionError(result.error.message);
+      } else {
+        setWorkflow(result.data);
+      }
+    }
+
+    setActionState("idle");
+  };
+
+  const handleRunNow = async (): Promise<void> => {
+    if (actionState !== "idle") return;
+    setActionState("running");
+    setActionError(null);
+
+    // Archive can't run — guard
+    if (workflow.status === "archived") {
+      setActionError("Archived workflows cannot be run.");
+      setActionState("idle");
+      return;
+    }
+
+    // If draft/no-id, save first.
+    let targetId = workflow.id;
+    if (!targetId || targetId.startsWith("00000000-")) {
+      const saveResult = await createWorkflow({
+        name: workflow.name,
+        description: workflow.description ?? undefined,
+        single_instance: workflow.single_instance,
+        steps: workflow.steps.map((s) => ({
+          step_type: s.step_type,
+          label: s.label,
+          config: s.config,
+        })),
+      });
+      if (isError(saveResult)) {
+        setActionError(saveResult.error.message);
+        setActionState("idle");
+        return;
+      }
+      targetId = saveResult.data.id;
+      setWorkflow(saveResult.data);
+    }
+
+    const result = await runWorkflow(targetId);
+    if (isError(result)) {
+      setActionError(result.error.message);
+    } else {
+      setViewingRunId(result.data.run_id);
+    }
+    setActionState("idle");
+  };
+
+  // If viewing a run, show RunView
+  if (viewingRunId) {
+    return (
+      <RunView
+        runId={viewingRunId}
+        catalog={catalog}
+        onClose={() => setViewingRunId(null)}
+      />
+    );
+  }
+
+  // If viewing run history, show RunHistory
+  if (showRunHistory && workflow.id && !workflow.id.startsWith("00000000-")) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="border-b px-6 py-3">
+          <Button variant="ghost" size="sm" onClick={() => setShowRunHistory(false)}>
+            ← Back to editor
+          </Button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <RunHistory
+            workflowId={workflow.id}
+            onSelectRun={(runId) => {
+              setShowRunHistory(false);
+              setViewingRunId(runId);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const activateLabel = workflow.status === "active"
+    ? "Pause"
+    : workflow.status === "paused"
+    ? "Resume"
+    : "Activate";
+
+  const busy = actionState !== "idle";
+
   return (
     <div className="relative flex h-full flex-col">
       {/* Header: name (largest type), description, status, action buttons */}
@@ -153,10 +343,61 @@ export function WorkflowEditorMock({
             {status.label}
           </Badge>
         </div>
-        <div className="mt-4 flex items-center gap-2">
-          <Button size="sm" variant="default">Save</Button>
-          <Button size="sm" variant="outline">Run now</Button>
-          <Button size="sm" variant="ghost">Activate</Button>
+        {actionError && (
+          <p
+            role="alert"
+            className="mt-2 rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
+            data-testid="editor-action-error"
+          >
+            {actionError}
+          </p>
+        )}
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant="default"
+            onClick={() => { void handleSave(); }}
+            disabled={busy}
+            data-testid="save-btn"
+          >
+            {actionState === "saving" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+            Save
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { void handleRunNow(); }}
+            disabled={busy || workflow.status === "archived"}
+            data-testid="run-now-btn"
+          >
+            {actionState === "running" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+            Run now
+          </Button>
+          {workflow.status !== "archived" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { void handleActivateOrPause(); }}
+              disabled={busy}
+              data-testid="activate-btn"
+            >
+              {(actionState === "activating" || actionState === "pausing") && (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              )}
+              {activateLabel}
+            </Button>
+          )}
+          {workflow.id && !workflow.id.startsWith("00000000-") && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowRunHistory(true)}
+              disabled={busy}
+              data-testid="history-btn"
+            >
+              History
+            </Button>
+          )}
         </div>
       </header>
 

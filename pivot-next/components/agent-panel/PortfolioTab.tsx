@@ -348,6 +348,10 @@ function HoldingsTable({
 }
 
 // ── Performance chart placeholder ────────────────────────────────────
+// TODO(day8-be): Replace with a Recharts LineChart wired to:
+//   GET /api/portfolio/performance?period=1Y → { equity_curve: [{date, value}] }
+//   Overlay: GET /api/quotes/index/^NSEI/history?period=1Y → benchmark series.
+// Both en-route. Until they ship this placeholder is intentional (no fake data).
 
 function PerformancePlaceholder(): React.ReactElement {
   return (
@@ -357,8 +361,8 @@ function PerformancePlaceholder(): React.ReactElement {
     >
       <p className="text-sm font-medium">Performance</p>
       <p className="mt-1 text-xs text-muted-foreground">
-        Historical performance will appear once we&apos;ve tracked your
-        portfolio for 7+ days.
+        Performance chart arriving in v1.1 — wired to{" "}
+        <code className="font-mono text-[10px]">/api/portfolio/performance</code>.
       </p>
     </div>
   );

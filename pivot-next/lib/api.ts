@@ -546,3 +546,60 @@ export function proposeWorkflow(
     body: { user_intent },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Conversations (GET/POST /api/conversations — shipped Day 8 backend)
+// ---------------------------------------------------------------------------
+
+export type Conversation = {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConversationMessage = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+/**
+ * `GET /api/conversations` — list all conversations for the authenticated user.
+ * Auto-created when the user sends their first message.
+ */
+export function listConversations(params?: {
+  limit?: number;
+  cursor?: string;
+}): Promise<ApiResult<Paginated<Conversation>>> {
+  return request<Paginated<Conversation>>("/conversations", {
+    query: { limit: params?.limit, cursor: params?.cursor },
+  });
+}
+
+/**
+ * `POST /api/conversations` — create a new conversation (optional title).
+ */
+export function createConversation(body?: {
+  title?: string;
+}): Promise<ApiResult<Conversation>> {
+  return request<Conversation>("/conversations", {
+    method: "POST",
+    body: body ?? {},
+  });
+}
+
+/**
+ * `GET /api/conversations/{id}/messages` — list messages in a conversation.
+ */
+export function listConversationMessages(
+  conversationId: string,
+  params?: { limit?: number; cursor?: string },
+): Promise<ApiResult<Paginated<ConversationMessage>>> {
+  return request<Paginated<ConversationMessage>>(
+    `/conversations/${encodeURIComponent(conversationId)}/messages`,
+    { query: { limit: params?.limit, cursor: params?.cursor } },
+  );
+}

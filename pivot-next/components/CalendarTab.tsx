@@ -92,6 +92,9 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
   const fetchRuns = (anchor: Date, v: View): void => {
+    // TODO(day8-be): union with GET /api/events/calendar?from=&to= once that
+    // endpoint ships (trigger.event entries, earnings, dividends).
+    // The combined array should be sorted by fire_time asc.
     setState({ kind: "loading" });
     const from =
       v === "month"

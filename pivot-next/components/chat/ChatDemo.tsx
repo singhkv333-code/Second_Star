@@ -1,15 +1,18 @@
 "use client";
 
 /**
- * ChatDemo — demo-grade chat surface for the Chat tab.
+ * ChatDemo — real chat surface wired to POST /chat.
  *
- * Task #39 (Day 6). Replaces the static ChatPlaceholder with a working
- * demo: textarea → POST /api/propose-workflow → renders WorkflowDraftCard.
- * "Open in editor →" calls onOpenEditor so AppShell mounts AgentPanel
- * pre-filled with the draft.
+ * Messages → POST /chat (legacy router, no /api prefix).
+ * When the response includes a tool_call/raw_data with _render_hint:
+ *   "workflow_draft_card" → renders WorkflowDraftCard inline.
+ * Bare NSE tickers → renders StockSnapshotCard.
  *
- * Intentionally minimal — this is a demo surface, not a full chat UI.
- * The real chatbot lives in the legacy frontend/ Vite app.
+ * Conversation ID is derived per-user from the backend (u{user_id} format).
+ * Client carries rolling history so backend has context.
+ *
+ * TODO(day8-be): conversations sidebar wired to GET /api/conversations once
+ * that endpoint ships. For now, history is in-memory per session only.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -23,9 +26,78 @@ import {
   type WorkflowDraft,
 } from "@/components/chat/WorkflowDraftCard";
 import { StockSnapshotCard } from "@/components/chat/StockSnapshotCard";
-import { proposeWorkflow } from "@/lib/api";
-import { isError } from "@/lib/types";
 import type { Workflow } from "@/lib/types";
+
+// ---------------------------------------------------------------------------
+// Backend chat types (POST /chat — legacy router at /chat, no /api prefix)
+// ---------------------------------------------------------------------------
+
+type ChatHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type ChatApiResponse = {
+  response: string;
+  tools_called?: string[];
+  logiccard?: unknown;
+  raw_data?: {
+    _render_hint?: string;
+    name?: string;
+    description?: string;
+    steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
+    rationale?: string;
+    warnings?: string[];
+  } | null;
+};
+
+/**
+ * Call POST /chat — the legacy chat router (no /api prefix).
+ * Carries rolling history so the backend has conversation context.
+ */
+async function callChat(
+  userMessage: string,
+  history: ChatHistoryMessage[],
+  token: string | null,
+): Promise<ChatApiResponse> {
+  const base =
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
+    "/api";
+  const legacyBase = base.replace(/\/api\/?$/, "");
+  const url = `${legacyBase}/chat`;
+
+  const messages: ChatHistoryMessage[] = [
+    ...history,
+    { role: "user", content: userMessage },
+  ];
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      messages,
+      include_portfolio_context: true,
+    }),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Chat error ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  return res.json() as Promise<ChatApiResponse>;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /** Returns the symbol if the input is a bare NSE ticker (2-12 uppercase letters). */
 function extractTicker(text: string): string | null {
@@ -34,14 +106,28 @@ function extractTicker(text: string): string | null {
   return null;
 }
 
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem("pivot_jwt");
+  } catch {
+    return null;
+  }
+}
+
 const PLACEHOLDER_TEXT =
   "Describe your strategy, e.g. \"Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.\"";
 
 const EXAMPLE_PROMPT =
   "Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.";
 
+// ---------------------------------------------------------------------------
+// Message types
+// ---------------------------------------------------------------------------
+
 type Message =
   | { kind: "user"; text: string }
+  | { kind: "assistant"; text: string }
   | { kind: "draft"; draft: WorkflowDraft }
   | { kind: "snapshot"; symbol: string }
   | { kind: "error"; message: string };
@@ -59,6 +145,8 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  // Rolling history for the backend's conversation context
+  const historyRef = useRef<ChatHistoryMessage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Consume prefill once when it arrives
@@ -77,7 +165,7 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     setMessages((prev) => [...prev, { kind: "user", text: trimmed }]);
     setIntent("");
 
-    // If input is a bare ticker symbol, show snapshot card instead.
+    // If input is a bare ticker symbol, show snapshot card instead (no API call).
     const ticker = extractTicker(trimmed);
     if (ticker) {
       setMessages((prev) => [...prev, { kind: "snapshot", symbol: ticker }]);
@@ -87,26 +175,39 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     setLoading(true);
 
     try {
-      const result = await proposeWorkflow(trimmed);
-      if (isError(result)) {
-        setMessages((prev) => [
-          ...prev,
-          { kind: "error", message: result.error.message },
-        ]);
-      } else {
+      const token = getToken();
+      const data = await callChat(trimmed, historyRef.current, token);
+
+      // Update rolling history
+      historyRef.current = [
+        ...historyRef.current,
+        { role: "user" as const, content: trimmed },
+        { role: "assistant" as const, content: data.response ?? "" },
+      ].slice(-20); // cap at 20 messages to avoid huge payloads
+
+      // Check for workflow draft render hint in raw_data
+      const rawData = data.raw_data;
+      if (
+        rawData &&
+        rawData._render_hint === "workflow_draft_card" &&
+        rawData.name &&
+        rawData.steps
+      ) {
         const draft: WorkflowDraft = {
-          name: result.data.name,
-          description: result.data.description ?? "",
-          steps: result.data.steps.map((s) => ({
+          name: rawData.name,
+          description: rawData.description ?? "",
+          steps: (rawData.steps ?? []).map((s) => ({
             step_type: s.step_type,
             label: s.label,
             config: s.config,
           })),
-          rationale: result.data.rationale ?? "",
-          warnings: result.data.warnings,
+          rationale: rawData.rationale ?? "",
+          warnings: rawData.warnings ?? [],
           _render_hint: "workflow_draft_card",
         };
         setMessages((prev) => [...prev, { kind: "draft", draft }]);
+      } else if (data.response) {
+        setMessages((prev) => [...prev, { kind: "assistant", text: data.response }]);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Network error";
@@ -173,6 +274,18 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                     draft={msg.draft}
                     onOpenEditor={(draft) => onOpenEditor(draftToWorkflow(draft))}
                   />
+                </div>
+              );
+            }
+            if (msg.kind === "assistant") {
+              return (
+                <div key={idx} className="flex justify-start">
+                  <div className="flex items-start gap-2 max-w-sm">
+                    <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
+                    <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
+                      {msg.text}
+                    </div>
+                  </div>
                 </div>
               );
             }

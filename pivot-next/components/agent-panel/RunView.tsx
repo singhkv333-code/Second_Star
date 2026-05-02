@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StepIcon } from "@/components/agent-panel/step-icon";
 import { findStepType } from "@/lib/mock-catalog";
+import { decideApproval } from "@/lib/api";
 import { useRunStream } from "@/lib/use-run-stream";
 import type {
   Approval,
@@ -35,10 +36,11 @@ export type RunViewProps = {
 
 export function RunView({ runId, catalog, onClose }: RunViewProps): React.ReactElement {
   const { run, isReconnecting, error, pendingApprovals } = useRunStream(runId);
-  // Track approvals dismissed locally (Day 2 mock — Day 5 hits API).
   const [resolvedApprovalIds, setResolvedApprovalIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [approvalInFlight, setApprovalInFlight] = useState<string | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   const visibleApproval =
     pendingApprovals.find((a) => !resolvedApprovalIds.has(a.id)) ?? null;
@@ -49,6 +51,22 @@ export function RunView({ runId, catalog, onClose }: RunViewProps): React.ReactE
       next.add(id);
       return next;
     });
+  };
+
+  /** Wire to real POST /api/approvals/{id}/decision */
+  const handleApprovalDecision = async (
+    approvalId: string,
+    decision: "approved" | "rejected",
+  ): Promise<void> => {
+    setApprovalInFlight(approvalId);
+    setApprovalError(null);
+    const result = await decideApproval(approvalId, { decision });
+    if ("error" in result) {
+      setApprovalError(result.error.message);
+    } else {
+      resolveApproval(approvalId);
+    }
+    setApprovalInFlight(null);
   };
 
   if (error && !run) {
@@ -96,11 +114,20 @@ export function RunView({ runId, catalog, onClose }: RunViewProps): React.ReactE
         )}
       </header>
 
+      {approvalError && (
+        <p
+          role="alert"
+          className="border-b border-destructive/20 bg-destructive/5 px-6 py-2 text-xs text-destructive"
+        >
+          {approvalError}
+        </p>
+      )}
       {visibleApproval && (
         <ApprovalBanner
           approval={visibleApproval}
-          onApprove={() => resolveApproval(visibleApproval.id)}
-          onReject={() => resolveApproval(visibleApproval.id)}
+          inFlight={approvalInFlight === visibleApproval.id}
+          onApprove={() => { void handleApprovalDecision(visibleApproval.id, "approved"); }}
+          onReject={() => { void handleApprovalDecision(visibleApproval.id, "rejected"); }}
         />
       )}
 
@@ -215,10 +242,12 @@ function RunStepCard({
 
 function ApprovalBanner({
   approval,
+  inFlight,
   onApprove,
   onReject,
 }: {
   approval: Approval;
+  inFlight: boolean;
   onApprove: () => void;
   onReject: () => void;
 }): React.ReactElement {
@@ -234,10 +263,12 @@ function ApprovalBanner({
         <p className="mt-0.5 text-xs text-muted-foreground">{approval.summary}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <Button size="sm" variant="ghost" onClick={onReject}>
+        <Button size="sm" variant="ghost" onClick={onReject} disabled={inFlight}>
+          {inFlight && <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />}
           Reject
         </Button>
-        <Button size="sm" onClick={onApprove}>
+        <Button size="sm" onClick={onApprove} disabled={inFlight}>
+          {inFlight && <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />}
           Approve
         </Button>
       </div>

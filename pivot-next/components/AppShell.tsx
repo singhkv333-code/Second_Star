@@ -41,7 +41,12 @@ import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { getPortfolioSummary, getWorkflow, type PortfolioSummary } from "@/lib/api";
+import {
+  getPortfolioSummary,
+  getWorkflow,
+  listConversations,
+  type PortfolioSummary,
+} from "@/lib/api";
 import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
 
@@ -109,31 +114,19 @@ function applyTheme(t: Theme): void {
 }
 
 // ---------------------------------------------------------------------------
-// Conversation history (localStorage)
+// Conversation history — GET /api/conversations (wired Day 8)
 // ---------------------------------------------------------------------------
 
-const CONV_STORAGE_KEY = "pivot_chat_messages";
+type ConvEntry = { id: string; preview: string };
 
-type ConvEntry = { id: string; preview: string; ts: number };
-
-function loadConversations(): ConvEntry[] {
+async function fetchConversations(): Promise<ConvEntry[]> {
   try {
-    const raw = localStorage.getItem(CONV_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    // We don't have a real conversation store — just peek at the stored
-    // messages array and synthesize a list entry from the last user message.
-    // Shape varies by implementation; we handle gracefully.
-    return (parsed as Array<Record<string, unknown>>)
-      .filter((m) => m.kind === "user" && typeof m.text === "string")
-      .slice(-5)
-      .reverse()
-      .map((m, i) => ({
-        id: String(i),
-        preview: (m.text as string).slice(0, 60),
-        ts: Date.now() - i * 60_000,
-      }));
+    const result = await listConversations({ limit: 10 });
+    if (isError(result)) return [];
+    return result.data.items.map((c) => ({
+      id: c.id,
+      preview: c.title ?? "Untitled conversation",
+    }));
   } catch {
     return [];
   }
@@ -184,7 +177,9 @@ export function AppShell(): React.ReactElement {
     const initial = readStoredTheme() ?? getSystemTheme();
     setTheme(initial);
     applyTheme(initial);
-    setConversations(loadConversations());
+
+    // Load conversations from real backend
+    void fetchConversations().then(setConversations);
 
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -522,7 +517,7 @@ function Sidebar({
         })}
       </ul>
 
-      {/* Conversations section */}
+      {/* Conversations section — wired to GET /api/conversations */}
       <div className="mt-4 flex-1 overflow-y-auto px-3">
         <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Your Conversations
