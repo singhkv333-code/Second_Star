@@ -548,6 +548,99 @@ export function proposeWorkflow(
 }
 
 // ---------------------------------------------------------------------------
+// Backtester (GET /api/backtest/expr/fields, POST /api/backtest/expr/run etc.)
+// Top-level aliases /api/backtest/{fields,validate,run} also work (Day 8 BE).
+// ---------------------------------------------------------------------------
+
+export type BacktestField = {
+  name: string;
+  kind: "base" | "computed";
+  description: string | null;
+  unit: string | null;
+  statement?: string;
+  ttm_eligible?: boolean;
+  expr?: string;
+};
+
+export type BacktestFieldsResponse = {
+  base_fields: BacktestField[];
+  computed_fields: BacktestField[];
+  specials: string[];
+  ttm_suffix_note: string;
+};
+
+export type BacktestMetrics = {
+  cagr_pct: number;
+  sharpe: number | null;
+  max_drawdown_pct: number;
+  calmar: number | null;
+  turnover_pct: number | null;
+  hit_rate_pct: number | null;
+  n_unique_companies: number | null;
+  total_return_pct: number;
+};
+
+export type BacktestEquityPoint = { date: string; value: number };
+
+export type BacktestRebalance = {
+  date: string;
+  entered: Array<{ symbol: string; weight: number }>;
+  exited: Array<{ symbol: string }>;
+};
+
+export type BacktestResult = {
+  expression: string;
+  start: string;
+  end: string;
+  rebalance: string;
+  metrics: BacktestMetrics;
+  equity_curve: BacktestEquityPoint[];
+  benchmark_curve: BacktestEquityPoint[];
+  rebalances: BacktestRebalance[];
+  n_trades: number;
+  universe_audit: Record<string, unknown>[];
+  leaf_fields: string[];
+  referenced_fields: string[];
+  warnings: string[];
+};
+
+export type BacktestRunRequest = {
+  expression: string;
+  start: string;
+  end: string;
+  rebalance?: string;
+  starting_capital?: number;
+  benchmark_sc_id?: string | null;
+  basis?: string;
+  auto_map_symbols?: boolean;
+};
+
+/** `GET /api/backtest/expr/fields` — list available screener fields. */
+export function getBacktestFields(): Promise<ApiResult<BacktestFieldsResponse>> {
+  return request<BacktestFieldsResponse>("/backtest/expr/fields");
+}
+
+/** `POST /api/backtest/expr/validate` — validate expression without DB hit. */
+export function validateBacktestExpr(
+  expression: string,
+): Promise<ApiResult<{ ok: boolean; error?: string; suggestions?: string[]; referenced_fields?: string[]; warnings?: string[] }>> {
+  return request("/backtest/expr/validate", {
+    method: "POST",
+    body: { expression },
+  });
+}
+
+/** `POST /api/backtest/expr/run` — run full backtest with equity curve + metrics. */
+export function runBacktest(
+  body: BacktestRunRequest,
+): Promise<ApiResult<BacktestResult>> {
+  return request<BacktestResult>("/backtest/expr/run", {
+    method: "POST",
+    body,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Conversations (GET/POST /api/conversations — shipped Day 8 backend)
 // ---------------------------------------------------------------------------
 

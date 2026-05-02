@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
+import { BacktestTab } from "@/components/BacktestTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChatDemo } from "@/components/chat/ChatDemo";
@@ -61,7 +62,8 @@ type TabKey =
   | "news"
   | "agents"
   | "calendar"
-  | "screener";
+  | "screener"
+  | "backtest";
 
 const NAV_ITEMS: {
   key: TabKey;
@@ -75,6 +77,7 @@ const NAV_ITEMS: {
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
+  { key: "backtest", label: "Backtest", Icon: BarChart2 },
 ];
 
 const DEFAULT_TAB: TabKey = "dashboard";
@@ -284,6 +287,7 @@ export function AppShell(): React.ReactElement {
             {active === "portfolio" && <PortfolioTab />}
             {active === "news" && <NewsPlaceholder />}
             {active === "screener" && <ScreenerPlaceholder />}
+            {active === "backtest" && <BacktestTab />}
           </div>
         </main>
 
