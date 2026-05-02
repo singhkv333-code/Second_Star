@@ -641,6 +641,60 @@ export function runBacktest(
 }
 
 // ---------------------------------------------------------------------------
+// Stock automations — GET /api/stocks/{symbol}/automations
+// ---------------------------------------------------------------------------
+
+export type StockAutomation = {
+  workflow_id: string;
+  workflow_name: string;
+  /** "trigger_price" | "strike_price" | "past_fire" | "scheduled_run" */
+  overlay_type: string;
+  price_level?: number;
+  expiry?: string | null;
+  label?: string;
+  fired_at?: string | null;
+  scheduled_at?: string | null;
+};
+
+export type StockAutomationsResponse = { items: StockAutomation[] };
+
+/**
+ * `GET /api/stocks/{symbol}/automations`
+ * Returns trigger price levels, past fires, and scheduled run dates
+ * for all user workflows that touch this symbol.
+ */
+export function getStockAutomations(
+  symbol: string,
+): Promise<ApiResult<StockAutomationsResponse>> {
+  return request<StockAutomationsResponse>(
+    `/stocks/${encodeURIComponent(symbol)}/automations`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// News — GET /api/news?symbol=
+// ---------------------------------------------------------------------------
+
+export type NewsItem = {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  published_at: string;
+  summary: string | null;
+};
+
+export type NewsResponse = { items: NewsItem[] };
+
+/**
+ * `GET /api/news?symbol=X`
+ * Returns top 10 news items for a symbol.
+ */
+export function getNews(symbol: string): Promise<ApiResult<NewsResponse>> {
+  return request<NewsResponse>("/news", { query: { symbol } });
+}
+
+// ---------------------------------------------------------------------------
 // Conversations (GET/POST /api/conversations — shipped Day 8 backend)
 // ---------------------------------------------------------------------------
 
@@ -687,6 +741,83 @@ export function createConversation(body?: {
 /**
  * `GET /api/conversations/{id}/messages` — list messages in a conversation.
  */
+// ---------------------------------------------------------------------------
+// Portfolio performance — GET /api/portfolio/performance?period=
+// ---------------------------------------------------------------------------
+
+export type PortfolioPerformancePeriod = "1M" | "3M" | "6M" | "1Y" | "5Y";
+
+export type PortfolioPerformancePoint = { date: string; value: number };
+
+export type PortfolioPerformanceResponse = {
+  period: string;
+  equity_curve: PortfolioPerformancePoint[];
+};
+
+/** `GET /api/portfolio/performance?period=1M|3M|6M|1Y|5Y` — portfolio equity curve. */
+export function getPortfolioPerformance(
+  period: PortfolioPerformancePeriod = "1Y",
+): Promise<ApiResult<PortfolioPerformanceResponse>> {
+  return request<PortfolioPerformanceResponse>("/portfolio/performance", {
+    query: { period },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Index history — GET /api/quotes/index/{symbol}/history?period=
+// ---------------------------------------------------------------------------
+
+export type IndexHistorySymbol =
+  | "NIFTY50"
+  | "SENSEX"
+  | "BANKNIFTY"
+  | "NIFTYMIDCAP100";
+
+export type IndexHistoryPoint = { date: string; close: number };
+
+export type IndexHistoryResponse = {
+  symbol: string;
+  period: string;
+  points: IndexHistoryPoint[];
+};
+
+/** `GET /api/quotes/index/{symbol}/history?period=1Y` — benchmark overlay series. */
+export function getIndexHistory(
+  symbol: IndexHistorySymbol,
+  period: string = "1Y",
+): Promise<ApiResult<IndexHistoryResponse>> {
+  return request<IndexHistoryResponse>(
+    `/quotes/index/${encodeURIComponent(symbol)}/history`,
+    { query: { period } },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Calendar events — GET /api/events/calendar?from=&to=
+// ---------------------------------------------------------------------------
+
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  event_type: "earnings" | "dividend" | "ipo" | "macro" | "scheduled_run";
+  fire_time: string;
+  symbol: string | null;
+  description: string | null;
+  workflow_id: string | null;
+};
+
+export type CalendarEventsResponse = { items: CalendarEvent[] };
+
+/** `GET /api/events/calendar?from=&to=` — event-trigger entries for calendar overlay. */
+export function getCalendarEvents(params: {
+  from: string;
+  to: string;
+}): Promise<ApiResult<CalendarEventsResponse>> {
+  return request<CalendarEventsResponse>("/events/calendar", {
+    query: { from: params.from, to: params.to },
+  });
+}
+
 export function listConversationMessages(
   conversationId: string,
   params?: { limit?: number; cursor?: string },

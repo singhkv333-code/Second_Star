@@ -10,9 +10,7 @@
  *
  * Conversation ID is derived per-user from the backend (u{user_id} format).
  * Client carries rolling history so backend has context.
- *
- * TODO(day8-be): conversations sidebar wired to GET /api/conversations once
- * that endpoint ships. For now, history is in-memory per session only.
+ * Conversations sidebar is wired in AppShell via GET /api/conversations.
  */
 
 import { useEffect, useRef, useState } from "react";

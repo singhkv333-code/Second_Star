@@ -9,7 +9,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import * as api from "@/lib/api";
-import type { Holding, PortfolioSummary } from "@/lib/api";
+import type { Holding, PortfolioSummary, PortfolioPerformanceResponse } from "@/lib/api";
+
+const MOCK_PERF: PortfolioPerformanceResponse = {
+  period: "1Y",
+  equity_curve: [
+    { date: "2024-01-01", value: 100000 },
+    { date: "2024-12-31", value: 115000 },
+  ],
+};
 
 const SUMMARY: PortfolioSummary = {
   total_value: 230456,
@@ -40,6 +48,11 @@ const HOLDINGS: Holding[] = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // Performance chart is always stubbed to avoid network calls in tests
+  vi.spyOn(api, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
+  vi.spyOn(api, "getIndexHistory").mockResolvedValue({
+    data: { symbol: "NIFTY50", period: "1Y", points: [] },
+  });
 });
 
 describe("PortfolioTab", () => {
@@ -68,8 +81,8 @@ describe("PortfolioTab", () => {
     expect(screen.getByTestId("holding-INFY")).toBeInTheDocument();
     expect(screen.getByTestId("holding-TCS")).toBeInTheDocument();
     expect(screen.getByTestId("holding-HDFCBANK")).toBeInTheDocument();
-    // Performance placeholder is honest (no faked chart)
-    expect(screen.getByTestId("performance-placeholder")).toBeInTheDocument();
+    // Performance chart is rendered
+    expect(screen.getByTestId("performance-chart")).toBeInTheDocument();
   });
 
   it("default sort is value desc — HDFCBANK (largest value) first", async () => {

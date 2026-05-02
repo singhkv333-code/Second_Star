@@ -44,7 +44,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { getScheduledRuns, type ScheduledRun } from "@/lib/api";
+import { getScheduledRuns, getCalendarEvents, type ScheduledRun } from "@/lib/api";
 import { isError } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -92,9 +92,6 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
   const fetchRuns = (anchor: Date, v: View): void => {
-    // TODO(day8-be): union with GET /api/events/calendar?from=&to= once that
-    // endpoint ships (trigger.event entries, earnings, dividends).
-    // The combined array should be sorted by fire_time asc.
     setState({ kind: "loading" });
     const from =
       v === "month"
@@ -105,13 +102,34 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
         ? endOfMonth(anchor).toISOString()
         : addDays(new Date(), 30).toISOString();
 
-    getScheduledRuns({ from, to })
-      .then((result) => {
-        if (isError(result)) {
-          setState({ kind: "error", message: result.error.message });
+    // Union scheduled workflow runs with real calendar events (earnings, macro, etc.)
+    // Sort combined list by fire_time asc.
+    Promise.all([
+      getScheduledRuns({ from, to }),
+      getCalendarEvents({ from, to }).catch(() => null), // silently skip if events endpoint fails
+    ])
+      .then(([runsResult, eventsResult]) => {
+        if (isError(runsResult)) {
+          setState({ kind: "error", message: runsResult.error.message });
           return;
         }
-        setState({ kind: "ok", items: result.data.items });
+        const runs = runsResult.data.items;
+        // Map calendar events to ScheduledRun shape for unified rendering
+        const eventRuns: ScheduledRun[] =
+          eventsResult && !isError(eventsResult)
+            ? eventsResult.data.items.map((ev) => ({
+                workflow_id: ev.workflow_id ?? "",
+                workflow_name: ev.title,
+                fire_time: ev.fire_time,
+                fire_time_local: ev.fire_time,
+                trigger_type: "trigger.event" as const,
+              }))
+            : [];
+        const combined = [...runs, ...eventRuns].sort(
+          (a, b) =>
+            new Date(a.fire_time).getTime() - new Date(b.fire_time).getTime(),
+        );
+        setState({ kind: "ok", items: combined });
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : "Network error";

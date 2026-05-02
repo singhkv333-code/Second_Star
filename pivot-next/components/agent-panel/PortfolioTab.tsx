@@ -12,7 +12,7 @@
  * endpoint lands, drop a small SVG line chart into the placeholder slot.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -21,14 +21,28 @@ import {
   RefreshCw,
   Wallet,
 } from "lucide-react";
+import {
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { format as formatDate, parseISO } from "date-fns";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   getPortfolioHoldings,
   getPortfolioSummary,
+  getPortfolioPerformance,
+  getIndexHistory,
   type Holding,
   type PortfolioSummary,
+  type PortfolioPerformancePeriod,
+  type PortfolioPerformancePoint,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
 
@@ -169,7 +183,7 @@ export function PortfolioTab(): React.ReactElement {
               onSort={cycleSort}
             />
           )}
-          <PerformancePlaceholder />
+          <PerformanceChart />
         </>
       )}
     </div>
@@ -308,7 +322,14 @@ function HoldingsTable({
               className="hover:bg-muted/20 transition-colors"
               data-testid={`holding-${h.tradingsymbol}`}
             >
-              <td className="px-4 py-3 font-medium">{h.tradingsymbol}</td>
+              <td className="px-4 py-3 font-medium">
+                <Link
+                  href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
+                  className="hover:text-primary hover:underline underline-offset-2 transition-colors"
+                >
+                  {h.tradingsymbol}
+                </Link>
+              </td>
               <td className="px-4 py-3 text-right tabular-nums">{h.quantity}</td>
               <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
                 {INR.format(h.average_price)}
@@ -347,23 +368,150 @@ function HoldingsTable({
   );
 }
 
-// ── Performance chart placeholder ────────────────────────────────────
-// TODO(day8-be): Replace with a Recharts LineChart wired to:
-//   GET /api/portfolio/performance?period=1Y → { equity_curve: [{date, value}] }
-//   Overlay: GET /api/quotes/index/^NSEI/history?period=1Y → benchmark series.
-// Both en-route. Until they ship this placeholder is intentional (no fake data).
+// ── Performance chart ─────────────────────────────────────────────────
 
-function PerformancePlaceholder(): React.ReactElement {
+type PerfPoint = { date: string; portfolio: number | null; benchmark: number | null };
+type PerfState =
+  | { kind: "loading" }
+  | { kind: "error" }
+  | { kind: "empty" }
+  | { kind: "ok"; points: PerfPoint[] };
+
+const PERF_PERIODS: { label: string; value: PortfolioPerformancePeriod }[] = [
+  { label: "1M", value: "1M" },
+  { label: "3M", value: "3M" },
+  { label: "6M", value: "6M" },
+  { label: "1Y", value: "1Y" },
+  { label: "5Y", value: "5Y" },
+];
+
+function PerformanceChart(): React.ReactElement {
+  const [period, setPeriod] = useState<PortfolioPerformancePeriod>("1Y");
+  const [state, setState] = useState<PerfState>({ kind: "loading" });
+
+  const load = useCallback((p: PortfolioPerformancePeriod): void => {
+    setState({ kind: "loading" });
+    Promise.all([
+      getPortfolioPerformance(p),
+      getIndexHistory("NIFTY50", p).catch(() => null),
+    ])
+      .then(([perfRes, idxRes]) => {
+        if ("error" in perfRes) { setState({ kind: "error" }); return; }
+        const eq = perfRes.data.equity_curve;
+        if (eq.length === 0) { setState({ kind: "empty" }); return; }
+
+        // Normalise both series to 100 at start
+        const base0 = eq[0]!.value;
+        const idx = idxRes && !("error" in idxRes) ? idxRes.data.points : [];
+        const idxMap = new Map<string, number>(idx.map((pt) => [pt.date, pt.close]));
+        const idx0 = idx.length > 0 ? idx[0]!.close : null;
+
+        const points: PerfPoint[] = eq.map((pt: PortfolioPerformancePoint) => ({
+          date: pt.date,
+          portfolio: Math.round(((pt.value / base0) * 100) * 10) / 10,
+          benchmark:
+            idx0 && idxMap.has(pt.date)
+              ? Math.round((((idxMap.get(pt.date)!) / idx0) * 100) * 10) / 10
+              : null,
+        }));
+        setState({ kind: "ok", points });
+      })
+      .catch(() => setState({ kind: "error" }));
+  }, []);
+
+  useEffect(() => { load(period); }, [period, load]);
+
   return (
-    <div
-      className="rounded-xl border border-dashed bg-card/50 p-6 text-center"
-      data-testid="performance-placeholder"
-    >
-      <p className="text-sm font-medium">Performance</p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Performance chart arriving in v1.1 — wired to{" "}
-        <code className="font-mono text-[10px]">/api/portfolio/performance</code>.
-      </p>
+    <div className="rounded-xl border bg-card p-5" data-testid="performance-chart">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm font-medium">Performance</p>
+        <div className="flex gap-1" role="group" aria-label="Period">
+          {PERF_PERIODS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => setPeriod(p.value)}
+              className={cn(
+                "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+                period === p.value
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {state.kind === "loading" && (
+        <Skeleton className="h-36 w-full" />
+      )}
+      {state.kind === "error" && (
+        <div className="flex h-36 items-center justify-center text-xs text-muted-foreground">
+          Could not load performance data
+        </div>
+      )}
+      {state.kind === "empty" && (
+        <div className="flex h-36 items-center justify-center text-xs text-muted-foreground">
+          No performance history yet
+        </div>
+      )}
+      {state.kind === "ok" && (
+        <div className="h-36">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={state.points} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
+              <XAxis
+                dataKey="date"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                tickFormatter={(v: string) => formatDate(parseISO(v), "MMM yy")}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                tickFormatter={(v: number) => `${v}`}
+                domain={["auto", "auto"]}
+              />
+              <Tooltip
+                contentStyle={{ fontSize: 11, borderRadius: 6 }}
+                formatter={(v: number, name: string) => [`${v}`, name === "portfolio" ? "Portfolio" : "NIFTY 50"]}
+                labelFormatter={(l: string) => formatDate(parseISO(l), "d MMM yyyy")}
+              />
+              <Line
+                type="monotone"
+                dataKey="portfolio"
+                stroke="hsl(var(--primary))"
+                dot={false}
+                strokeWidth={1.5}
+                name="Portfolio"
+              />
+              <Line
+                type="monotone"
+                dataKey="benchmark"
+                stroke="hsl(var(--muted-foreground))"
+                dot={false}
+                strokeWidth={1}
+                strokeDasharray="4 2"
+                name="NIFTY 50"
+                connectNulls
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-0.5 w-5 bg-primary" /> Portfolio
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-px w-5 border-t border-dashed border-muted-foreground" /> NIFTY 50
+        </span>
+      </div>
     </div>
   );
 }
