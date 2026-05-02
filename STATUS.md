@@ -22,7 +22,17 @@ Shipped 7 endpoints required by the FE 4-phase brief, in parallel with `frontend
 
 ### Frontend-lead — Day 8
 
-In progress on the 4-phase brief: P1 wire-everything-to-real-backend → P2 Backtester → P3 Stock detail with automation overlays → P4 polish (cmd+K, sonner, a11y). Spawned in background (agentId a040575cfda383eec). Lead notified the agent as each BE endpoint shipped via SendMessage so the agent could flip TODO(day8-be) stubs to real calls in-flight.
+Shipped all 4 phases of the Day 8 FE brief.
+
+- **Phase 1 (wiring)**: Chat → real `POST /chat` with rolling 20-message history and `_render_hint` draft card detection. Workflow editor → `createWorkflow`/`updateWorkflow`/`activateWorkflow`/`pauseWorkflow`/`runWorkflow` with spinner states and inline error display. RunView approval → `decideApproval` with loading/error. AppShell conversations sidebar → `GET /api/conversations`. CalendarTab TODO stub flipped to real `GET /api/events/calendar` unioned with `getScheduledRuns`. Portfolio performance TODO stub replaced with real `PerformanceChart` (see Phase 3 below). All `TODO(day8-be)` stubs cleared from source.
+
+- **Phase 2 (Backtester)**: New `BacktestTab.tsx` — left column: DSL textarea with Cmd+Enter, field chips from `GET /api/backtest/expr/fields`, date range inputs, rebalance frequency chips, Run button; right column: equity curve Recharts LineChart with log/linear toggle, drawdown AreaChart, 7-metric strip (CAGR/Sharpe/Max DD/Calmar/Turnover/Hit Rate/# Companies), collapsible rebalance log accordion, audit appendix table. URL hash state persistence for expr/start/end/rebalance. Skeleton, empty, error states. 6 tests.
+
+- **Phase 3 (Stock detail route)**: New `/stock/[symbol]` page with `StockDetailPage.tsx` — sticky back nav, `QuoteHeader` (symbol, name, exchange, sector, large price, ±change, 8-cell stats strip), `ChartCard` (1D/1W/1M/6M/1Y/5Y range buttons, Recharts LineChart, dashed ReferenceLine overlays from `GET /api/stocks/{symbol}/automations`), `SidePanel` (Fundamentals/News/Related Agents tab strip). All 4 live data sources wired. Portfolio holdings table: symbol cells now link to `/stock/[symbol]`. PortfolioTab `PerformancePlaceholder` replaced with `PerformanceChart` wired to `GET /api/portfolio/performance` + NIFTY50 benchmark via `GET /api/quotes/index/NIFTY50/history`; period selector 1M/3M/6M/1Y/5Y. CalendarTab unions `getScheduledRuns` with `getCalendarEvents`. New API wrappers: `getPortfolioPerformance`, `getIndexHistory`, `getCalendarEvents`. 7 new tests.
+
+- **Phase 4 (polish)**: `CommandPalette.tsx` — Cmd+K opens cmdk Dialog with Navigation group (all 8 tabs) and Recent Conversations group; Esc closes; sr-only DialogTitle for a11y. Sonner `toast.success`/`toast.error` on every mutation in `workflow-editor-mock.tsx` (save/activate/pause/run) and `RunView.tsx` (approval approve/reject). Route error boundary `app/stock/[symbol]/error.tsx` with reset/go-home. CommandPalette mounted in AppShell. 5 new CommandPalette tests.
+
+**Quality gates (end of Day 8 FE):** 21 test files, 165/165 vitest, `pnpm typecheck` clean, `pnpm lint` clean. 4 commits on `dev` (f39d6b8, 05bae71 + Phase 1+2 from prior session).
 
 ---
 
