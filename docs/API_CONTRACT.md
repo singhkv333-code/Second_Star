@@ -579,6 +579,187 @@ Generate these types from the OpenAPI spec produced by FastAPI at `/openapi.json
 ## 12. Versioning & change process
 
 - This document is the contract. Backend and frontend code against it.
-- Any change requires a PR that updates this doc **before** the implementation PR lands. Reviewer blocks PRs whose impl doesn't match.
-- Breaking changes during the sprint require explicit signoff from both leads.
+- Any change requires a PR that updates this doc **before** the implementation PR lands.
+- Breaking changes during the sprint require explicit signoff.
 - Post-v1, contract changes follow semver: minor for additive, major for breaking.
+
+---
+
+## 13. Quickstart for the frontend dev (curl, copy-pasteable)
+
+Bring up the backend locally:
+
+```bash
+cd pivot
+docker-compose up -d            # postgres + redis
+uvicorn backend.main:app --reload --port 8000
+# OR — for a fast no-docker probe against sqlite:
+APP_ENV=test uvicorn backend.main:app --port 8000
+```
+
+Smoke-test every endpoint at once:
+
+```bash
+bash pivot/scripts/smoke_test_api.sh
+# 41 / 41 checks pass against http://127.0.0.1:8765 by default.
+# Set SMOKE_PORT=9000 to use a different port.
+```
+
+CORS is open to `http://localhost:3000` (Next.js) and `http://localhost:5173` (Vite) out of the box.
+
+### 13.1 Auth — get a token
+
+```bash
+TOKEN=$(curl -sS -X POST http://localhost:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"dev@example.com","password":"password123","full_name":"Dev"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+export TOKEN
+```
+
+If the email is already registered, swap to `/auth/login` with the same body sans `full_name`.
+
+Authenticate every Agent-System call with `-H "Authorization: Bearer $TOKEN"`.
+
+### 13.2 Step-type catalog
+
+```bash
+curl -sS http://localhost:8000/api/step-types \
+  -H "Authorization: Bearer $TOKEN" | jq '.step_types | length'
+# → 24
+```
+
+### 13.3 Create a workflow
+
+```bash
+WF_ID=$(curl -sS -X POST http://localhost:8000/api/workflows \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily RELIANCE buy",
+    "description": "Every weekday at 09:30 IST",
+    "single_instance": true,
+    "steps": [
+      {"step_type":"trigger.schedule","label":"weekday 09:30","config":{"cron":"30 9 * * 1-5","timezone":"Asia/Kolkata"}},
+      {"step_type":"fetch.portfolio","label":null,"config":{}},
+      {"step_type":"condition.numeric","label":"buying_power > 50K","config":{"left":"{{ context.1.buying_power }}","operator":">","right":50000}},
+      {"step_type":"action.place_order","label":"buy 1 RELIANCE","config":{"symbol":"RELIANCE","side":"buy","quantity":1,"order_type":"market","requires_approval":true}},
+      {"step_type":"notify.message","label":"email me","config":{"channel":"email","template":"Bought 1 RELIANCE","vars":{}}}
+    ]
+  }' | jq -r '.id')
+echo "WF_ID=$WF_ID"
+```
+
+### 13.4 List / get / activate / pause / archive / run
+
+```bash
+# List
+curl -sS http://localhost:8000/api/workflows -H "Authorization: Bearer $TOKEN"
+
+# Get full workflow
+curl -sS http://localhost:8000/api/workflows/$WF_ID -H "Authorization: Bearer $TOKEN"
+
+# Activate (computes next_run_at from cron; rejects bad cron with 422)
+curl -sS -X POST http://localhost:8000/api/workflows/$WF_ID/activate \
+  -H "Authorization: Bearer $TOKEN"
+
+# Pause (clears next_run_at)
+curl -sS -X POST http://localhost:8000/api/workflows/$WF_ID/pause \
+  -H "Authorization: Bearer $TOKEN"
+
+# PATCH (must be paused or draft — active returns 409)
+curl -sS -X PATCH http://localhost:8000/api/workflows/$WF_ID \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"Daily RELIANCE buy v2"}'
+
+# Manual run
+RUN_ID=$(curl -sS -X POST http://localhost:8000/api/workflows/$WF_ID/run \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.run_id')
+
+# Archive
+curl -sS -X POST http://localhost:8000/api/workflows/$WF_ID/archive \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 13.5 Runs
+
+```bash
+# List runs for a workflow
+curl -sS "http://localhost:8000/api/workflows/$WF_ID/runs?limit=20" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get full run with step log + context
+curl -sS http://localhost:8000/api/runs/$RUN_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# Cancel an in-flight run
+curl -sS -X POST http://localhost:8000/api/runs/$RUN_ID/cancel \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 13.6 Approvals
+
+```bash
+# Pending approvals for a run
+curl -sS http://localhost:8000/api/runs/$RUN_ID/approvals/pending \
+  -H "Authorization: Bearer $TOKEN"
+
+# Decide an approval
+curl -sS -X POST http://localhost:8000/api/approvals/$APPROVAL_ID/decision \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"decision":"approved"}'
+```
+
+### 13.7 WebSocket — live run updates
+
+```javascript
+// Browser / Next.js
+const ws = new WebSocket(
+  `ws://localhost:8000/api/runs/${runId}/stream?token=${TOKEN}`
+);
+ws.onmessage = (e) => {
+  const frame = JSON.parse(e.data);
+  // frame.type === "snapshot" | "step_update" | "run_update"
+  //              | "approval_requested" | "ping"
+  if (frame.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
+};
+```
+
+Or via `Sec-WebSocket-Protocol: bearer.<token>` (preferred for Authorization-style auth) when the WS client supports custom subprotocols.
+
+### 13.8 Webhook trigger (no auth)
+
+```bash
+curl -sS -X POST http://localhost:8000/api/webhooks/<token> \
+  -H "Content-Type: application/json" \
+  -d '{"any":"json","payload":"here"}'
+# Body becomes run.context["webhook_payload"], referenceable in steps as
+# {{ context.webhook_payload.payload }}
+```
+
+### 13.9 Error envelope reference
+
+Every non-2xx response from `/api/*` has the shape:
+
+```json
+{ "error": { "code": "validation_error", "message": "...", "details": {...} } }
+```
+
+Stable codes (also documented in §2): `validation_error` (400/422), `unauthenticated` (401), `not_found` (404), `state_conflict` (409), `rate_limited` (429), `not_yet_available` (503), `internal_error` (500).
+
+The frontend's `isError()` discriminator should check `"error" in result`. The `details` object is endpoint-specific — for workflow validation it includes `step_index`, `field`, `reason`.
+
+---
+
+## 14. Reproducible smoke test
+
+`pivot/scripts/smoke_test_api.sh` is the source of truth for "does this endpoint actually work end-to-end". It:
+
+- Boots `uvicorn` against a fresh sqlite DB on port 8765 (override via `SMOKE_PORT=...`)
+- Registers a user, hits every endpoint above, and asserts the canonical envelope on every error
+- Verifies CORS preflight from `http://localhost:3000`
+- Closes Day-2 reviewer edge case #1 (bad cron at activate → 422)
+
+Run it from repo root: `bash pivot/scripts/smoke_test_api.sh`. Exit 0 if every endpoint matches the contract; exit 1 with the failing endpoint identified.
+
+This is what backend changes are expected to keep green. If it goes red, the contract is broken, not just the test.

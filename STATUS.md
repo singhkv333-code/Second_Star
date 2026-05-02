@@ -22,6 +22,7 @@ Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEP
 ## Day 3 — 2026-05-02 (lead, solo backend)
 
 ### Shipped
+- **#23 — API curl smoke test + handoff polish.** New `pivot/scripts/smoke_test_api.sh` boots uvicorn against fresh sqlite, registers a user, hits every Agent System endpoint with curl, asserts canonical error envelope on failures, verifies CORS preflight from `http://localhost:3000`. **41/41 checks pass.** Doubles as living documentation — the human FE dev reads the script for copy-pasteable requests against a local backend. Captures: auth → catalog → workflow CRUD → state transitions (with 409 negatives) → manual run → runs list/get/cancel → approvals listing → archive → 401 envelope → CORS → bad-cron-at-activate-422. Added §13 (Quickstart for the frontend dev — every endpoint with curl example) and §14 (Reproducible smoke test) to `docs/API_CONTRACT.md` so the contract IS the integration guide.
 - **#22 — Scheduler hookup for `trigger.schedule`.** New `pivot/backend/workflows/scheduler.py` (~225 LOC):
   - `compute_next_run_at(cron, tz_str, after?)` — uses APScheduler's `CronTrigger.from_crontab` + IANA tz; raises `InvalidCronError` on bad cron / unknown tz.
   - `upsert_workflow_schedule(db, workflow)` — sets `next_run_at` for `active` + `trigger.schedule`; clears for paused / archived / non-schedule trigger types. Called from activate / pause / archive routers.
