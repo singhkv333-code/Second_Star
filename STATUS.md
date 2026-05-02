@@ -4,6 +4,28 @@
 
 ---
 
+## Day 8 — 2026-05-02
+
+### Lead — Day 8 BE (in parallel with frontend-lead Phase 1)
+
+Shipped 7 endpoints required by the FE 4-phase brief, in parallel with `frontend-lead` working through Phase 1 wiring. All endpoints under canonical `/api/*` envelope. 55 new tests; existing 207-test baseline unaffected (8 pre-existing test_compare/test_backtester failures are unrelated).
+
+- **#47 — `GET/POST /api/conversations` + messages.** New `Conversation` + `ConversationMessage` tables. List/create/get/append/rename/delete + paginated messages (`?before=`). Auto-titles untitled convos from first user message. Ownership returns 404 (not 403) to avoid leaking existence. ConversationMessage uses Python-side `default=datetime.utcnow` for microsecond precision in SQLite. (`118b041`)
+- **#51 — `/api/backtest/{fields,validate,run}` aliases.** Phase 2 brief uses these top-level paths; existing handlers live at `/api/backtest/expr/*`. Alias router delegates to the same callables. Both paths work; no behavioural drift. (`e3e1d5e`)
+- **#50 — `GET /api/quotes/index/{symbol}/history`.** Phase 1 portfolio benchmark overlay. Maps `NIFTY50/SENSEX/BANKNIFTY/NIFTYMIDCAP100` → `^NSEI/^BSESN/^NSEBANK/^NSEMDCP50`. ^-prefixed input passes through. Same `SparklineResponse` shape as `markets/sparkline` so FE reuses one TS type. (`be6bb23`)
+- **#49 — `GET /api/portfolio/performance?period=1M|3M|6M|1Y|5Y`.** Computes historical portfolio value series by multiplying each holding qty × yfinance close history, aligned on a unioned date index with forward-fill. Per-symbol fetch failures skipped silently. All-fail → 503. Empty holdings → 404. Includes starting/ending value + total return + %. (`a5cf8aa`)
+- **#48 — `GET /api/events/calendar?from=&to=`.** Enumerates active workflows whose first step is `trigger.event` and surfaces upcoming events from a static 2026 macro calendar (RBI MPC outcome dates, quarterly results windows, daily FII/DII flow weekdays). Shape mirrors `/api/workflows/scheduled-runs` so the FE can union them. (`717ef92`)
+- **#52 — `GET /api/stocks/{symbol}/automations`.** Phase 3 killer feature. Returns `{automations[], triggers[], past_fires[], scheduled[]}` for chart overlays. Symbol matching: top-level `config.symbol`/`symbol_filter` and nested `filter.symbol` (trigger.event). Active+paused workflows in scope; archived excluded. Past fires from `workflow_runs` (newest first, capped 40). Scheduled from cron triggers (5 forward fires/workflow). (`e3e4700`)
+- **#53 — `GET /api/news?symbol=`.** Yfinance-backed news for the Phase 3 stock detail side panel. Tolerates both upstream payload shapes (old flat: `title/publisher/link/providerPublishTime`; new nested: `content.{title,pubDate,clickThroughUrl,provider,thumbnail}`). Filters titleless items. Verified live with RELIANCE — 3 real articles returned. (`9124429`)
+
+**Quality gates (end of Day 8 BE):** 55/55 new tests pass (test_conversations 12, test_backtest_alias 4, test_quotes 6, test_portfolio_perf 6, test_events_calendar 9, test_stock_automations 11, test_news 7). Backend live on `:8000` with new schema applied. All endpoints curl-verified end-to-end with real yfinance + DB writes.
+
+### Frontend-lead — Day 8
+
+In progress on the 4-phase brief: P1 wire-everything-to-real-backend → P2 Backtester → P3 Stock detail with automation overlays → P4 polish (cmd+K, sonner, a11y). Spawned in background (agentId a040575cfda383eec). Lead notified the agent as each BE endpoint shipped via SendMessage so the agent could flip TODO(day8-be) stubs to real calls in-flight.
+
+---
+
 ## Day 7 — 2026-05-02
 
 ### Frontend-lead — Day 7
