@@ -99,6 +99,77 @@ _NL_BT_RE = re.compile(
     r"|(?P<word>daily|weekly|monthly|quarterly|yearly)))?\s*$",
     re.IGNORECASE,
 )
+
+# Indicator backtest — single-symbol RSI/SMA/EMA strategies. Runs off
+# yfinance + pandas_ta, no fundamentals DB required. Two phrasings:
+#
+# A) "<verb>? <SYMBOL> when[ever] (its )?<rsi|sma|ema>( <N>)? (op) <num>"
+#    e.g. "backtest buying reliance whenever its rsi drops below 50"
+#         "buy infy when rsi falls under 30"
+# B) "<verb>? <SYMBOL> when[ever] (it )?cross(es|ed) (above|below)? <N> (sma|ema)"
+#    e.g. "buying reliance whenever it crossed 200 ema"
+#         "buy tcs when it crosses above 50 sma"
+# Verb fragment that means "below" — covers past + present + over/under/below.
+_VERB_DOWN = (
+    r"(?:drops?|dropped|falls?|fell|crosses?|crossed|breaks?|broke|"
+    r"goes?\s+(?:below|under)|moves?\s+(?:below|under))"
+    r"\s+(?:below|under)"
+    r"|<"
+)
+_VERB_UP = (
+    r"(?:rises?|rose|crosses?|crossed|breaks?|broke|"
+    r"goes?\s+(?:above|over)|moves?\s+(?:above|over))"
+    r"\s+(?:above|over)"
+    r"|>"
+)
+_VERB_ANY_DIR = f"(?P<op>{_VERB_DOWN}|{_VERB_UP})"
+
+_NL_IND_RE_A = re.compile(
+    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
+    r"(?:when(?:ever)?|on)\s+(?:its\s+|the\s+)?"
+    r"(?P<indicator>rsi|sma|ema)"
+    r"(?:[\(\s]+(?P<period>\d{1,3})[\)\s]*)?\s*"
+    r"(?:is\s+|value\s+)?"
+    + _VERB_ANY_DIR +
+    r"\s+(?P<threshold>\d+(?:\.\d+)?)"
+    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
+    r"\s*$",
+    re.IGNORECASE,
+)
+_NL_IND_RE_B = re.compile(
+    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
+    r"(?:when(?:ever)?|on)\s+(?:it\s+|the\s+price\s+)?"
+    r"(?P<op>cross(?:es|ed)?(?:\s+(?P<dir>above|below))?)\s+"
+    r"(?P<period>\d{1,3})\s+"
+    r"(?P<indicator>sma|ema)"
+    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
+    r"\s*$",
+    re.IGNORECASE,
+)
+# C) Indicator name AFTER the threshold — common in casual phrasing:
+#    "backtest buying reliance whenever it dropped below 50 rsi"
+#    "buy infy when it falls under 30 rsi"
+_NL_IND_RE_C = re.compile(
+    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
+    r"(?:when(?:ever)?|on)\s+(?:it\s+|its\s+|the\s+(?:price\s+)?)?"
+    + _VERB_ANY_DIR +
+    r"\s+(?P<threshold>\d+(?:\.\d+)?)\s+"
+    r"(?P<indicator>rsi|sma|ema)"
+    r"(?:\s*\(?\s*(?P<period>\d{1,3})\s*\)?)?"
+    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
+    r"\s*$",
+    re.IGNORECASE,
+)
+# "the testing period is last N years" — follow-up that re-runs the
+# previous backtest with a new period. Stateful across turns: chat
+# router doesn't track this; we just match the phrase to expose the N.
+_NL_TESTING_PERIOD_RE = re.compile(
+    r"(?:the\s+)?testing\s+period\s+is\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?",
+    re.IGNORECASE,
+)
 # Natural-language screen — "screen roe > 18" or "find companies where pe < 15"
 _NL_SCREEN_RE = re.compile(
     r"^(?:screen|find(?:\s+companies)?(?:\s+where)?)\s+(?P<expr>.+?)"
@@ -141,7 +212,17 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
             )
         return None
 
-    # 2. Natural-language backtest.
+    # 2. Indicator backtest (single-symbol, RSI/SMA/EMA via yfinance).
+    #    Three orderings: A (`<sym> when <indicator> <op> <num>`),
+    #    B (`<sym> when crosses <N> sma|ema`), C (`<sym> when <op> <num> rsi`).
+    if (
+        (m := _NL_IND_RE_A.match(body))
+        or (m := _NL_IND_RE_B.match(body))
+        or (m := _NL_IND_RE_C.match(body))
+    ):
+        return await _run_indicator_backtest(m)
+
+    # 3. Natural-language fundamentals backtest.
     if (m := _NL_BT_RE.match(body)):
         rb = m.group("rb")
         if not rb and (word := m.group("word")):
@@ -152,13 +233,89 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
             end=_normalize_date_input(m.group("end")),
             rebalance=(rb or "Q").upper(),
         )
-    # 3. Natural-language screen.
+    # 4. Natural-language screen.
     if (m := _NL_SCREEN_RE.match(body)):
         return await _run_expr_screen(
             expression=m.group("expr").strip(),
             as_of=m.group("date"),
         )
     return None
+
+
+def _normalize_op(op_text: str, direction: str | None = None) -> str:
+    """Map a phrase like 'drops below' / 'crossed above' to the
+    indicator-backtest operator vocabulary."""
+    s = op_text.lower().strip()
+    if "below" in s or "<" in s or "drop" in s or "fall" in s or "fell" in s:
+        return "<"
+    if "above" in s or ">" in s or "rise" in s or "rose" in s or "goes" in s:
+        return ">"
+    if "cross" in s:
+        # "crossed 200 ema" with no direction → above (most common intent)
+        if direction == "below":
+            return "crosses_below"
+        return "crosses_above"
+    return "<"
+
+
+_DEFAULT_PERIOD_BY_INDICATOR = {"rsi": 14, "sma": 50, "ema": 50}
+
+
+async def _run_indicator_backtest(m: "re.Match[str]") -> dict:
+    """Convert a regex match into a call into
+    `services.indicator_backtest.run_indicator_backtest`. The chat router
+    runs in async context but the backtester is sync (CPU-bound +
+    yfinance HTTP); we offload via `asyncio.to_thread`."""
+    import asyncio
+    from backend.services.indicator_backtest import run_indicator_backtest
+
+    gd = m.groupdict()
+    symbol = gd["symbol"].upper()
+    indicator = gd["indicator"].lower()
+    period = int(gd.get("period")) if gd.get("period") else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
+    op_text = gd.get("op", "<")
+    direction = gd.get("dir")
+    operator = _normalize_op(op_text, direction)
+    threshold = float(gd.get("threshold") or period)  # SMA/EMA: threshold = period (ignored)
+    years = int(gd.get("years") or 5)
+    yf_period = f"{years}y"
+
+    try:
+        result = await asyncio.to_thread(
+            run_indicator_backtest,
+            symbol=symbol, indicator=indicator,  # type: ignore[arg-type]
+            indicator_period=period, operator=operator,  # type: ignore[arg-type]
+            threshold=threshold, period=yf_period,
+        )
+    except ValueError as e:
+        return _slash_error(f"Backtest error: {e}")
+    except Exception as e:
+        return _slash_error(f"Backtest failed: {str(e)[:200]}")
+
+    return {
+        "response": result.summary_text,
+        "intent": "INDICATOR_BACKTEST",
+        "screen_data": None, "expr_backtest_data": None, "backtest_data": None,
+        "chart_data": None, "logiccard": None, "requires_clarification": False,
+        # Flagged so the FE renders a chart card inline rather than a
+        # plain bubble. The shape mirrors what IndicatorBacktestCard
+        # consumes in pivot-next/components/chat/.
+        "raw_data": {
+            "_render_hint": "indicator_backtest_chart",
+            "symbol": result.symbol,
+            "indicator": result.indicator,
+            "indicator_period": result.indicator_period,
+            "operator": result.operator,
+            "threshold": result.threshold,
+            "period_label": result.period_label,
+            "price_curve": result.price_curve,
+            "equity_curve": result.equity_curve,
+            "indicator_curve": result.indicator_curve,
+            "signals": result.signals,
+            "metrics": result.metrics,
+            "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        },
+    }
 
 
 async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:

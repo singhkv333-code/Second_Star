@@ -24,6 +24,10 @@ import {
   type WorkflowDraft,
 } from "@/components/chat/WorkflowDraftCard";
 import { StockSnapshotCard } from "@/components/chat/StockSnapshotCard";
+import {
+  IndicatorBacktestCard,
+  type IndicatorBacktestPayload,
+} from "@/components/chat/IndicatorBacktestCard";
 import type { Workflow } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -41,11 +45,26 @@ type ChatApiResponse = {
   logiccard?: unknown;
   raw_data?: {
     _render_hint?: string;
+    // Workflow draft card payload
     name?: string;
     description?: string;
     steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
     rationale?: string;
     warnings?: string[];
+    // Indicator backtest chart payload (typed loose here; the card has
+    // its own narrow type and validates at the boundary)
+    symbol?: string;
+    indicator?: "rsi" | "sma" | "ema";
+    indicator_period?: number;
+    operator?: string;
+    threshold?: number;
+    period_label?: string;
+    price_curve?: Array<{ t: string; v: number }>;
+    equity_curve?: Array<{ t: string; v: number }>;
+    indicator_curve?: Array<{ t: string; v: number }>;
+    signals?: Array<{ t: string; side: "buy" | "sell"; price: number; indicator_value: number | null }>;
+    metrics?: Record<string, number>;
+    bench_buy_hold_return_pct?: number;
   } | null;
 };
 
@@ -128,6 +147,7 @@ type Message =
   | { kind: "assistant"; text: string }
   | { kind: "draft"; draft: WorkflowDraft }
   | { kind: "snapshot"; symbol: string }
+  | { kind: "indicator_backtest"; payload: IndicatorBacktestPayload; intro: string }
   | { kind: "error"; message: string };
 
 type ChatDemoProps = {
@@ -204,6 +224,50 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
           _render_hint: "workflow_draft_card",
         };
         setMessages((prev) => [...prev, { kind: "draft", draft }]);
+      } else if (
+        rawData &&
+        rawData._render_hint === "indicator_backtest_chart" &&
+        rawData.symbol &&
+        rawData.indicator &&
+        rawData.price_curve &&
+        rawData.equity_curve &&
+        rawData.indicator_curve &&
+        rawData.signals &&
+        rawData.metrics
+      ) {
+        // Indicator backtest result — render the chart card. The
+        // assistant text becomes a one-line intro above the card.
+        const payload: IndicatorBacktestPayload = {
+          symbol: rawData.symbol,
+          indicator: rawData.indicator,
+          indicator_period: rawData.indicator_period ?? 14,
+          operator: rawData.operator ?? "<",
+          threshold: rawData.threshold ?? 0,
+          period_label: rawData.period_label ?? "",
+          price_curve: rawData.price_curve,
+          equity_curve: rawData.equity_curve,
+          indicator_curve: rawData.indicator_curve,
+          signals: rawData.signals,
+          metrics: {
+            total_return_pct: rawData.metrics.total_return_pct ?? 0,
+            cagr_pct: rawData.metrics.cagr_pct ?? 0,
+            max_drawdown_pct: rawData.metrics.max_drawdown_pct ?? 0,
+            hit_rate_pct: rawData.metrics.hit_rate_pct ?? 0,
+            n_trades: rawData.metrics.n_trades ?? 0,
+            n_wins: rawData.metrics.n_wins ?? 0,
+            starting_capital: rawData.metrics.starting_capital ?? 0,
+            ending_value: rawData.metrics.ending_value ?? 0,
+          },
+          bench_buy_hold_return_pct: rawData.bench_buy_hold_return_pct ?? 0,
+        };
+        setMessages((prev) => [
+          ...prev,
+          {
+            kind: "indicator_backtest",
+            payload,
+            intro: data.response ?? "",
+          },
+        ]);
       } else if (data.response) {
         setMessages((prev) => [...prev, { kind: "assistant", text: data.response }]);
       }
@@ -291,6 +355,27 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
               return (
                 <div key={idx} className="flex justify-start">
                   <StockSnapshotCard symbol={msg.symbol} />
+                </div>
+              );
+            }
+            if (msg.kind === "indicator_backtest") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex items-start gap-2 max-w-md">
+                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
+                          {msg.intro}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <div className="w-full max-w-2xl">
+                      <IndicatorBacktestCard payload={msg.payload} />
+                    </div>
+                  </div>
                 </div>
               );
             }
