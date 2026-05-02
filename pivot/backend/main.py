@@ -33,6 +33,7 @@ from backend.routers.quotes import router as quotes_router
 from backend.routers.portfolio_perf import router as portfolio_perf_router
 from backend.routers.events_calendar import router as events_calendar_router
 from backend.routers.stock_automations import router as stock_automations_router
+from backend.routers.news import router as news_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ app.include_router(quotes_router)
 app.include_router(portfolio_perf_router)
 app.include_router(events_calendar_router)
 app.include_router(stock_automations_router)
+app.include_router(news_router)
 app.include_router(conversations_router)
 app.include_router(workflows_router)
 app.include_router(runs_router)
