@@ -426,3 +426,37 @@ export function getScheduledRuns(params: {
     query: { from: params.from, to: params.to },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Chat — propose workflow (Day 6 #38 backend endpoint)
+// ---------------------------------------------------------------------------
+
+export type ProposedDraftStep = {
+  step_type: string;
+  label: string | null;
+  config: Record<string, unknown>;
+};
+
+export type ProposedWorkflowDraft = {
+  name: string;
+  description: string | null;
+  steps: ProposedDraftStep[];
+  rationale: string | null;
+  warnings: string[];
+};
+
+/**
+ * `POST /api/propose-workflow`
+ *
+ * Translates a natural-language strategy into a validated WorkflowDraft.
+ * Does NOT persist — returns a draft for user review. "Open in editor →"
+ * is the next step.
+ */
+export function proposeWorkflow(
+  user_intent: string,
+): Promise<ApiResult<ProposedWorkflowDraft>> {
+  return request<ProposedWorkflowDraft>("/propose-workflow", {
+    method: "POST",
+    body: { user_intent },
+  });
+}

@@ -90,4 +90,64 @@ describe("AgentsTab", () => {
     fireEvent.click(screen.getByTestId("agent-row-wf-1"));
     await waitFor(() => expect(onOpenWorkflow).toHaveBeenCalledWith(fullWorkflow));
   });
+
+  // ── #42 "Create example agent" CTA ──────────────────────────────────
+
+  it("shows 'Create example agent' button in empty state", async () => {
+    vi.spyOn(api, "listWorkflows").mockResolvedValue({
+      data: { items: [], next_cursor: null },
+    });
+    render(<AgentsTab onOpenWorkflow={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("create-example-agent-btn")).toBeInTheDocument(),
+    );
+  });
+
+  it("clicking 'Create example agent' calls createWorkflow with the demo workflow", async () => {
+    vi.spyOn(api, "listWorkflows").mockResolvedValue({
+      data: { items: [], next_cursor: null },
+    });
+    const createdWf = { ...makeWorkflow("new-wf"), steps: [] };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(api, "createWorkflow").mockResolvedValue({ data: createdWf } as any);
+
+    render(<AgentsTab onOpenWorkflow={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("create-example-agent-btn")).toBeInTheDocument(),
+    );
+
+    // After clicking, listWorkflows will be called again; return a list now
+    vi.spyOn(api, "listWorkflows").mockResolvedValue({
+      data: { items: [makeWorkflow("new-wf")], next_cursor: null },
+    });
+
+    fireEvent.click(screen.getByTestId("create-example-agent-btn"));
+
+    await waitFor(() =>
+      expect(api.createWorkflow).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "RELIANCE 3:55 PM buy" }),
+      ),
+    );
+  });
+
+  it("shows seed error when createWorkflow fails", async () => {
+    vi.spyOn(api, "listWorkflows").mockResolvedValue({
+      data: { items: [], next_cursor: null },
+    });
+    vi.spyOn(api, "createWorkflow").mockResolvedValue({
+      error: { code: "validation_error", message: "Step config invalid" },
+    });
+
+    render(<AgentsTab onOpenWorkflow={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("create-example-agent-btn")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("create-example-agent-btn"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("seed-error")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Step config invalid")).toBeInTheDocument();
+  });
 });

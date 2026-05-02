@@ -2,7 +2,7 @@
  * Tests for AppShell — top-level navigation + tab switching.
  *
  * Covers tab rendering, default tab, click-to-switch behavior,
- * URL hash sync, and the chat placeholder copy. We don't deep-test
+ * URL hash sync, and the chat demo surface. We don't deep-test
  * the individual tabs (each has its own test file); we just verify
  * AppShell mounts the right one for the active tab.
  */
@@ -31,6 +31,15 @@ beforeEach(() => {
     },
   });
   vi.spyOn(api, "getPortfolioHoldings").mockResolvedValue({ data: [] });
+  vi.spyOn(api, "proposeWorkflow").mockResolvedValue({
+    data: {
+      name: "Test Draft",
+      description: null,
+      steps: [],
+      rationale: null,
+      warnings: [],
+    },
+  });
 });
 
 describe("AppShell", () => {
@@ -66,13 +75,12 @@ describe("AppShell", () => {
     expect(window.location.hash).toBe("#portfolio");
   });
 
-  it("Chat tab renders the placeholder explainer", () => {
+  it("Chat tab renders the demo surface with a textarea", () => {
     render(<AppShell />);
     fireEvent.click(screen.getByTestId("tab-chat"));
-    expect(screen.getByTestId("chat-placeholder")).toBeInTheDocument();
-    expect(
-      screen.getByText(/legacy frontend/i),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("chat-demo")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-textarea")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-submit-btn")).toBeInTheDocument();
   });
 
   it("Calendar tab mounts when its tab is active", async () => {
@@ -97,5 +105,59 @@ describe("AppShell", () => {
     expect(screen.getByTestId("tab-agents")).toHaveAttribute(
       "aria-current", "page",
     );
+  });
+
+  // ── #40 metric strip tests ──────────────────────────────────────────
+
+  it("shows metric strip loading skeleton initially", () => {
+    // getPortfolioSummary won't resolve synchronously
+    vi.spyOn(api, "getPortfolioSummary").mockReturnValue(new Promise(() => {}));
+    render(<AppShell />);
+    expect(screen.getByTestId("metric-strip-loading")).toBeInTheDocument();
+  });
+
+  it("shows metric strip data when portfolio summary resolves", async () => {
+    vi.spyOn(api, "getPortfolioSummary").mockResolvedValue({
+      data: {
+        total_value: 500000,
+        invested_value: 400000,
+        total_pnl: 100000,
+        total_pnl_pct: 25,
+        day_pnl: 5000,
+        num_holdings: 3,
+      },
+    });
+    render(<AppShell />);
+    await waitFor(() =>
+      expect(screen.getByTestId("metric-strip")).toBeInTheDocument(),
+    );
+  });
+
+  it("hides metric strip on portfolio error (does not block tabs)", async () => {
+    vi.spyOn(api, "getPortfolioSummary").mockResolvedValue({
+      error: { code: "internal_error", message: "Service unavailable" },
+    });
+    render(<AppShell />);
+    await waitFor(() =>
+      expect(screen.queryByTestId("metric-strip")).not.toBeInTheDocument(),
+    );
+    // Tabs still work
+    expect(screen.getByTestId("tab-strip")).toBeInTheDocument();
+  });
+
+  // ── #41 theme toggle tests ──────────────────────────────────────────
+
+  it("renders the theme toggle button", () => {
+    render(<AppShell />);
+    expect(screen.getByTestId("theme-toggle")).toBeInTheDocument();
+  });
+
+  it("clicking theme toggle switches aria-label", () => {
+    render(<AppShell />);
+    const btn = screen.getByTestId("theme-toggle");
+    // Default is light (matchMedia stub returns false for dark)
+    expect(btn).toHaveAttribute("aria-label", "Switch to dark mode");
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute("aria-label", "Switch to light mode");
   });
 });

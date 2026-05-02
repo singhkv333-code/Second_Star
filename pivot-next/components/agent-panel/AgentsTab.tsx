@@ -9,14 +9,15 @@
 
 import { useEffect, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { AlertCircle, Bot, RefreshCw } from "lucide-react";
+import { AlertCircle, Bot, RefreshCw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { getWorkflow, listWorkflows } from "@/lib/api";
+import { createWorkflow, getWorkflow, listWorkflows } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
+import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
 
 export type AgentsTabProps = {
   /** Called when a workflow is selected; parent mounts AgentPanel with the workflow. */
@@ -42,6 +43,8 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
   const [filter, setFilter] = useState<Filter>("all");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
 
   const load = (f: Filter): void => {
     setState({ kind: "loading" });
@@ -64,6 +67,33 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
   useEffect(() => {
     load(filter);
   }, [filter]);
+
+  const seedDemoAgent = (): void => {
+    setSeeding(true);
+    setSeedError(null);
+    createWorkflow({
+      name: DEMO_WORKFLOW.name,
+      description: DEMO_WORKFLOW.description ?? undefined,
+      single_instance: DEMO_WORKFLOW.single_instance,
+      steps: DEMO_WORKFLOW.steps.map((s) => ({
+        step_type: s.step_type,
+        label: s.label,
+        config: s.config,
+      })),
+    })
+      .then((result) => {
+        if (isError(result)) {
+          setSeedError(result.error.message);
+          return;
+        }
+        // Refresh the list so the new agent appears
+        load(filter);
+      })
+      .catch((err: unknown) => {
+        setSeedError(err instanceof Error ? err.message : "Network error");
+      })
+      .finally(() => setSeeding(false));
+  };
 
   const handleSelect = (id: string): void => {
     setOpeningId(id);
@@ -127,8 +157,28 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
           <Bot className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm font-medium">No agents yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Start a chat to propose one.
+            Start a chat to propose one, or try the example below.
           </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4 gap-1.5"
+            onClick={seedDemoAgent}
+            disabled={seeding}
+            data-testid="create-example-agent-btn"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            {seeding ? "Creating..." : "Create example agent"}
+          </Button>
+          {seedError && (
+            <p
+              className="mt-2 text-xs text-destructive"
+              role="alert"
+              data-testid="seed-error"
+            >
+              {seedError}
+            </p>
+          )}
         </div>
       )}
       {state.kind === "ok" && state.items.length > 0 && (
