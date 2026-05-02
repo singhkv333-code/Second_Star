@@ -42,12 +42,22 @@ class _RunBus:
         # key: run_id; value: subscriber queues
         self._subs: Dict[str, Set[asyncio.Queue[Frame]]] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
+        # Loop reference captured on subscribe so threadpool publishers
+        # (engine workers via asyncio.to_thread) can reach the right
+        # loop via call_soon_threadsafe. asyncio.get_running_loop()
+        # raises inside a non-loop thread, so we can't discover it from
+        # the publisher side — we must remember it from the subscriber
+        # side, which always runs on the loop.
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def subscribe(self, run_id: str) -> asyncio.Queue[Frame]:
         """Register a new subscriber queue for `run_id`. Caller must
         invoke `unsubscribe(run_id, queue)` on disconnect to avoid a
         memory leak when long-running runs accumulate dead subscribers."""
         q: asyncio.Queue[Frame] = asyncio.Queue(maxsize=128)
+        # Remember the loop the subscribers live on so threadpool
+        # publishers can target it. Subscribers always run on a loop.
+        self._loop = asyncio.get_running_loop()
         async with self._lock:
             self._subs.setdefault(run_id, set()).add(q)
         return q
@@ -81,14 +91,34 @@ class _RunBus:
     def publish_threadsafe(self, run_id: str, event: Frame) -> None:
         """Sync publish helper for callers running outside the loop
         (e.g. the engine's threadpool wrappers around sync DB code).
-        Schedules the publish on the running loop without awaiting."""
+        Schedules the publish on the subscriber-side loop without
+        awaiting. No-op if no loop has ever subscribed (no listeners
+        could possibly receive the event anyway)."""
+        # Prefer the currently-running loop (covers callers that ARE on
+        # a loop but want a fire-and-forget publish). Threadpool callers
+        # have no running loop — fall back to the subscriber loop we
+        # captured on subscribe.
+        loop: asyncio.AbstractEventLoop | None
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop — caller is in a pure-sync context and
-            # there are no live subscribers it could reach anyway.
+            loop = self._loop
+        if loop is None or loop.is_closed():
+            # No subscribers have ever connected, or the captured loop
+            # has shut down — nothing to deliver. Skip the coroutine
+            # construction entirely so we don't trigger the
+            # "coroutine was never awaited" RuntimeWarning.
             return
-        loop.create_task(self.publish(run_id, event))
+        # asyncio.run_coroutine_threadsafe is the documented bridge for
+        # cross-thread coroutine scheduling. create_task only works from
+        # within the loop's own thread.
+        coro = self.publish(run_id, event)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError:
+            # Loop closed between is_closed() and submit (race). Close
+            # the unawaited coroutine to silence the warning.
+            coro.close()
 
 
 # Module-level singleton. There is one bus per Python process. Multi-

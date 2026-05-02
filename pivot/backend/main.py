@@ -24,6 +24,7 @@ from backend.routers.workflows import router as workflows_router
 from backend.routers.runs import router as runs_router
 from backend.routers.approvals import router as approvals_router
 from backend.routers.webhooks import router as webhooks_router
+from backend.routers.run_stream import router as run_stream_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ app.include_router(workflows_router)
 app.include_router(runs_router)
 app.include_router(approvals_router)
 app.include_router(webhooks_router)
+app.include_router(run_stream_router)
 
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
