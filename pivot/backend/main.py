@@ -29,6 +29,7 @@ from backend.routers.scheduled import router as scheduled_router
 from backend.routers.markets import router as markets_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.backtest_alias import router as backtest_alias_router
+from backend.routers.quotes import router as quotes_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ app.include_router(backtest_alias_router)
 # /api/workflows/{id} route in workflows_router.
 app.include_router(scheduled_router)
 app.include_router(markets_router)
+app.include_router(quotes_router)
 app.include_router(conversations_router)
 app.include_router(workflows_router)
 app.include_router(runs_router)
