@@ -4,18 +4,31 @@
 
 ---
 
-## Team shape change — 2026-05-02
+## Day 6 — 2026-05-02
 
-**Frontend handed off to a human developer.** Reviewer agent retired.
-Lead session is the sole worker going forward.
+### Frontend-lead — Day 6
 
-- ❌ Don't spawn `frontend-lead`. Don't write any TypeScript / JSX / Tailwind / shadcn / Next.js. Don't touch `pivot-next/` (read-only OK).
-- ❌ Don't spawn `reviewer`. Lead owns `docs/`, `STATUS.md`, `BACKLOG.md` directly.
-- ✅ Lead does backend work directly (engine, scheduler, REST, WS, propose_workflow, integration tests, contract upkeep).
-- ✅ `docs/API_CONTRACT.md` is now the **handoff document** for the human frontend dev. Every endpoint must be `curl`-verifiable against the contract.
-- ✅ CORS already includes `localhost:3000` (Next.js) and `localhost:5173` (Vite) per `backend/config.py:allowed_origins`.
+- **#39 ChatDemo**: replaced the static `ChatPlaceholder` in the Chat tab with a working demo surface. Textarea submits `POST /api/propose-workflow` (live endpoint, no mock). Renders `WorkflowDraftCard` inline in a message thread; "Open in editor" calls `draftToWorkflow()` and mounts `AgentPanel` pre-filled. Loading skeleton (Bot icon + skeletons), error bubble with `error.message`, Cmd+Enter submit, example-prompt shortcut. New `proposeWorkflow()` in `lib/api.ts`. 10 new tests.
 
-Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEPRECATED` headers but should never be invoked.
+- **#40 Header metric strip**: portfolio value, day P&L (±), total P&L (± + %) always visible at the left of the AppShell header. Reads `getPortfolioSummary()` on mount, on every tab change, and every 30s via `setInterval`. Skeleton row while loading. Hides completely on error — never blocks tab navigation. INR `Intl.NumberFormat` formatting, lucide `TrendingUp`/`TrendingDown` icons, emerald/rose color coding, `dark:` variants. 3 new tests in `app-shell.test.tsx`.
+
+- **#41 Light/dark mode toggle**: Sun/Moon button at the far right of the AppShell header. Reads `localStorage["pivot-theme"]` on mount; falls back to `prefers-color-scheme`. Applies/removes Tailwind `dark` class on `<html>`. Persists choice on click. Added `window.matchMedia` JSDOM stub to `tests/setup.ts`. 2 new tests.
+
+- **#42 Demo seed agent**: "Create example agent" CTA button in `AgentsTab` empty state. Single click POSTs `DEMO_WORKFLOW` (already existed at `components/agent-panel/demo-workflow.ts`) via `createWorkflow()`, then reloads the list. Disabled while in flight ("Creating..."). Shows `error.message` inline on failure. 3 new tests.
+
+- **Quality gates (end of Day 6)**: 140/140 vitest (was 122), `pnpm typecheck` clean, `pnpm lint` clean. Commit `f2ca49a` on `dev`.
+
+---
+
+## Team shape — current
+
+**Lead + frontend-lead.** Reviewer retired. (Earlier 2026-05-02 the user said "frontend handed off to human dev" so frontend-lead was deprecated; later same day they reversed: "yes spawn the FE again". Memory `feedback_solo_backend_only.md` reflects current.)
+
+- ✅ `frontend-lead` is spawnable for FE-only tasks (`pivot-next/` only). Sonnet 4.6, ≤300 LOC per task.
+- ❌ `reviewer` stays retired. Lead owns `docs/`, `STATUS.md`, `BACKLOG.md` directly.
+- ✅ Lead does all backend work + cross-cutting work (smoke script, walkthrough doc, etc.).
+- ✅ `docs/HANDOFF.md` + `docs/API_CONTRACT.md` are the contract surface; smoke (`bash pivot/scripts/smoke_test_api.sh`) is the green/red signal.
+- ✅ CORS includes `localhost:3000` + `localhost:5173`.
 
 ---
 
