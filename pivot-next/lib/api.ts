@@ -188,6 +188,21 @@ async function _doRequest<T>(
   }
 
   if (!res.ok) {
+    // Token expired / invalid → wipe localStorage and bounce the user
+    // back through the AppBootstrap auth gate. Without this, every
+    // surface keeps retrying with a stale JWT and the UI shows
+    // generic "request failed" errors everywhere ("token problem
+    // that keeps coming up").
+    if (res.status === 401 && typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem("pivot_jwt");
+      } catch {
+        /* localStorage may be denied in some embeds; safe to ignore */
+      }
+      // Reload — AppBootstrap will detect the missing token and
+      // render SignInPrompt. One reload, not a polling loop.
+      window.location.reload();
+    }
     const envelope = (parsed ?? {}) as { error?: Partial<ErrorBody> };
     const err = envelope.error ?? {};
     return {

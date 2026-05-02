@@ -105,6 +105,17 @@ async function callChat(
   });
 
   if (!res.ok) {
+    // Bounce stale tokens back through the auth gate, same as
+    // lib/api.ts:_doRequest — without this the user just sees
+    // "Chat error 401: ..." over and over after the JWT expires.
+    if (res.status === 401 && typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem("pivot_jwt");
+      } catch {
+        /* embed-locked storage; safe to ignore */
+      }
+      window.location.reload();
+    }
     const text = await res.text();
     throw new Error(`Chat error ${res.status}: ${text.slice(0, 200)}`);
   }
