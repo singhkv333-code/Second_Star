@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * CalendarTab — when the user's agents are scheduled to run.
+ * CalendarTab — Quartr-style calendar polish (Day 7 redesign, image 5).
  *
- * Per docs/UI_TABS_V1.md §2.
+ * Views: Month (calendar grid, dot markers per day) and Agenda (chronological).
+ * Data: GET /api/workflows/scheduled-runs?from=&to= — only trigger.schedule
+ * workflows contribute. trigger.event is cut to v2.
  *
- * Views: Month (7×6 grid with dot markers) and Agenda (chronological list).
- * Data: GET /api/workflows/scheduled-runs?from=&to= (real endpoint, #37 shipped).
- *
- * Window: for Month view, always the full calendar month. For Agenda view,
- * the next 30 days from today.
+ * Header: serif big "Month YYYY" + Today button + nav arrows + Month/Agenda toggle.
+ * Category filter chips: Earnings / Dividends / IPOs / Macro — honest v1 placeholders
+ * with a tooltip explaining they'll wire to a real events scraper in v2.
  */
 
 import { useEffect, useState } from "react";
@@ -19,6 +19,7 @@ import {
   eachDayOfInterval,
   endOfMonth,
   format,
+  isSameDay,
   isSameMonth,
   parseISO,
   startOfMonth,
@@ -33,16 +34,24 @@ import {
   ChevronRight,
   List,
   RefreshCw,
-  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { getScheduledRuns, type ScheduledRun } from "@/lib/api";
 import { isError } from "@/lib/types";
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 export type CalendarTabProps = {
-  /** Called when the user clicks an agent entry. Parent opens AgentPanel. */
   onOpenWorkflow: (workflowId: string) => void;
 };
 
@@ -54,6 +63,27 @@ type FetchState =
   | { kind: "ok"; items: ScheduledRun[] };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+// Category chips — all honest placeholders for v1
+type CategoryChip = {
+  key: string;
+  label: string;
+  color: string; // dot color class
+};
+
+const CATEGORY_CHIPS: CategoryChip[] = [
+  { key: "earnings", label: "Earnings", color: "bg-blue-500" },
+  { key: "dividends", label: "Dividends", color: "bg-emerald-500" },
+  { key: "ipos", label: "IPOs", color: "bg-amber-500" },
+  { key: "macro", label: "Macro", color: "bg-rose-500" },
+];
+
+const CATEGORY_TOOLTIP =
+  "Category filtering lands when the events scraper ships in v2. For now, only your scheduled agent runs appear here.";
+
+// ---------------------------------------------------------------------------
+// CalendarTab
+// ---------------------------------------------------------------------------
 
 export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactElement {
   const [view, setView] = useState<View>("month");
@@ -91,106 +121,159 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
     setSelectedDay(null);
   }, [monthAnchor, view]);
 
+  const goToday = (): void => {
+    setMonthAnchor(startOfMonth(new Date()));
+    setSelectedDay(new Date());
+  };
+
   const items = state.kind === "ok" ? state.items : [];
 
   return (
-    <div className="flex flex-col gap-4" data-testid="calendar-tab">
-      {/* Controls row */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        {/* View toggle */}
-        <div className="flex items-center rounded-lg border p-0.5 gap-0.5" role="group" aria-label="Calendar view">
-          <Button
-            variant={view === "month" ? "default" : "ghost"}
-            size="sm"
-            className="h-7 px-2.5 text-xs"
-            onClick={() => setView("month")}
-            aria-pressed={view === "month"}
-            data-testid="view-month"
+    <TooltipProvider>
+      <div className="flex flex-col gap-5" data-testid="calendar-tab">
+        {/* Big serif heading + nav */}
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">
+              {format(monthAnchor, "MMMM yyyy")}
+            </h1>
+            <div className="mt-1 flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 rounded-full px-2.5 text-xs"
+                onClick={goToday}
+                data-testid="today-btn"
+              >
+                Today
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setMonthAnchor((d) => startOfMonth(addMonths(d, -1)))}
+                aria-label="Previous month"
+                data-testid="prev-month"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setMonthAnchor((d) => startOfMonth(addMonths(d, 1)))}
+                aria-label="Next month"
+                data-testid="next-month"
+              >
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+
+          {/* View toggle */}
+          <div
+            className="flex items-center rounded-lg border p-0.5 gap-0.5"
+            role="group"
+            aria-label="Calendar view"
           >
-            <Calendar className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-            Month
-          </Button>
-          <Button
-            variant={view === "agenda" ? "default" : "ghost"}
-            size="sm"
-            className="h-7 px-2.5 text-xs"
-            onClick={() => setView("agenda")}
-            aria-pressed={view === "agenda"}
-            data-testid="view-agenda"
-          >
-            <List className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-            Agenda
-          </Button>
+            <Button
+              variant={view === "month" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setView("month")}
+              aria-pressed={view === "month"}
+              data-testid="view-month"
+            >
+              <Calendar className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              Month
+            </Button>
+            <Button
+              variant={view === "agenda" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setView("agenda")}
+              aria-pressed={view === "agenda"}
+              data-testid="view-agenda"
+            >
+              <List className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              Agenda
+            </Button>
+          </div>
         </div>
 
-        {/* Month navigation (month view only) */}
-        {view === "month" && (
-          <div className="flex items-center gap-2">
+        {/* Category filter chips (placeholder) */}
+        <div
+          className="flex items-center gap-2 flex-wrap"
+          role="group"
+          aria-label="Event category filters (coming in v2)"
+        >
+          {CATEGORY_CHIPS.map((chip) => (
+            <Tooltip key={chip.key}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  disabled
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs",
+                    "cursor-not-allowed opacity-50",
+                    "bg-card text-muted-foreground",
+                  )}
+                  aria-label={`${chip.label} — coming in v2`}
+                  data-testid={`chip-${chip.key}`}
+                >
+                  <span
+                    className={cn("h-2 w-2 rounded-full", chip.color)}
+                    aria-hidden={true}
+                  />
+                  {chip.label}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-center">
+                {CATEGORY_TOOLTIP}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+
+        {/* Content */}
+        {state.kind === "loading" && <CalendarSkeleton view={view} />}
+
+        {state.kind === "error" && (
+          <div
+            role="alert"
+            className="flex flex-col items-center justify-center py-12 text-center"
+            data-testid="calendar-error"
+          >
+            <AlertCircle className="mb-3 h-6 w-6 text-destructive" aria-hidden="true" />
+            <p className="text-sm font-medium">Couldn&apos;t load schedule</p>
+            <p className="mt-1 text-xs text-muted-foreground">{state.message}</p>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setMonthAnchor((d) => startOfMonth(addMonths(d, -1)))}
-              aria-label="Previous month"
-              data-testid="prev-month"
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={() => fetchRuns(monthAnchor, view)}
             >
-              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-            </Button>
-            <span className="text-sm font-medium min-w-[120px] text-center">
-              {format(monthAnchor, "MMMM yyyy")}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setMonthAnchor((d) => startOfMonth(addMonths(d, 1)))}
-              aria-label="Next month"
-              data-testid="next-month"
-            >
-              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              Retry
             </Button>
           </div>
         )}
+
+        {state.kind === "ok" && view === "month" && (
+          <MonthView
+            anchor={monthAnchor}
+            items={items}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+            onOpenWorkflow={onOpenWorkflow}
+          />
+        )}
+
+        {state.kind === "ok" && view === "agenda" && (
+          <AgendaView items={items} onOpenWorkflow={onOpenWorkflow} />
+        )}
       </div>
-
-      {/* Content */}
-      {state.kind === "loading" && <CalendarSkeleton view={view} />}
-
-      {state.kind === "error" && (
-        <div
-          role="alert"
-          className="flex flex-col items-center justify-center py-12 text-center"
-          data-testid="calendar-error"
-        >
-          <AlertCircle className="mb-3 h-6 w-6 text-destructive" aria-hidden="true" />
-          <p className="text-sm font-medium">Couldn&apos;t load schedule</p>
-          <p className="mt-1 text-xs text-muted-foreground">{state.message}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => fetchRuns(monthAnchor, view)}
-          >
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-            Retry
-          </Button>
-        </div>
-      )}
-
-      {state.kind === "ok" && view === "month" && (
-        <MonthView
-          anchor={monthAnchor}
-          items={items}
-          selectedDay={selectedDay}
-          onSelectDay={setSelectedDay}
-          onOpenWorkflow={onOpenWorkflow}
-        />
-      )}
-
-      {state.kind === "ok" && view === "agenda" && (
-        <AgendaView items={items} onOpenWorkflow={onOpenWorkflow} />
-      )}
-    </div>
+    </TooltipProvider>
   );
 }
 
@@ -226,10 +309,10 @@ function MonthView({
     byDay.set(key, existing);
   }
 
-  const todayKey = format(new Date(), "yyyy-MM-dd");
+  const today = new Date();
+  const todayKey = format(today, "yyyy-MM-dd");
   const selectedKey = selectedDay ? format(selectedDay, "yyyy-MM-dd") : null;
   const selectedItems = selectedKey ? (byDay.get(selectedKey) ?? []) : [];
-
   const isEmpty = items.length === 0;
 
   return (
@@ -239,7 +322,7 @@ function MonthView({
         {DAY_NAMES.map((d) => (
           <span
             key={d}
-            className="py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+            className="py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
           >
             {d}
           </span>
@@ -268,13 +351,14 @@ function MonthView({
               )}
               onClick={() => onSelectDay(day)}
               aria-label={`${format(day, "MMMM d")}, ${dayItems.length} event${dayItems.length !== 1 ? "s" : ""}`}
+              aria-pressed={isSelected}
               data-testid={`day-cell-${key}`}
             >
               <span
                 className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-full text-xs",
+                  "flex h-5 w-5 items-center justify-center rounded-full text-[11px]",
                   isToday && "bg-primary text-primary-foreground font-semibold",
-                  !isToday && isSelected && "bg-muted",
+                  !isToday && isSelected && "bg-muted font-medium",
                 )}
               >
                 {format(day, "d")}
@@ -300,22 +384,35 @@ function MonthView({
         })}
       </div>
 
-      {/* Selected day drawer */}
+      {/* Selected day panel */}
       {selectedDay && (
-        <div className="rounded-xl border bg-card p-4" data-testid="day-detail">
-          <h3 className="mb-3 text-sm font-medium">
+        <div
+          className="rounded-xl border bg-card p-4"
+          data-testid="day-detail"
+        >
+          <h3 className="mb-3 font-serif text-sm font-semibold">
             {format(selectedDay, "EEEE, MMMM d")}
+            {isSameDay(selectedDay, today) && (
+              <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                Today
+              </span>
+            )}
           </h3>
           {selectedItems.length === 0 ? (
             <p className="text-xs text-muted-foreground">No runs scheduled.</p>
           ) : (
-            <ul className="space-y-2">
-              {selectedItems.map((item, i) => (
-                <li key={i}>
-                  <ScheduledRunRow item={item} onOpenWorkflow={onOpenWorkflow} />
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                {selectedItems.length} event{selectedItems.length !== 1 ? "s" : ""}
+              </p>
+              <ul className="space-y-2">
+                {selectedItems.map((item, i) => (
+                  <li key={i}>
+                    <ScheduledRunRow item={item} onOpenWorkflow={onOpenWorkflow} />
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       )}
@@ -373,20 +470,31 @@ function AgendaView({
 
   return (
     <div className="space-y-4" data-testid="agenda-view">
-      {[...groups.entries()].map(([dateKey, dayItems]) => (
-        <div key={dateKey}>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {format(parseISO(dateKey), "EEEE, MMMM d")}
-          </h3>
-          <ul className="space-y-1.5">
-            {dayItems.map((item, i) => (
-              <li key={i}>
-                <ScheduledRunRow item={item} onOpenWorkflow={onOpenWorkflow} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+      {[...groups.entries()].map(([dateKey, dayItems]) => {
+        const dateObj = parseISO(dateKey);
+        const isToday = format(new Date(), "yyyy-MM-dd") === dateKey;
+        return (
+          <div key={dateKey}>
+            <div className="mb-2 flex items-center gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {format(dateObj, "EEEE, MMMM d")}
+              </h3>
+              {isToday && (
+                <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  Today
+                </span>
+              )}
+            </div>
+            <ul className="space-y-1.5">
+              {dayItems.map((item, i) => (
+                <li key={i}>
+                  <ScheduledRunRow item={item} onOpenWorkflow={onOpenWorkflow} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -402,9 +510,7 @@ function ScheduledRunRow({
   item: ScheduledRun;
   onOpenWorkflow: (id: string) => void;
 }): React.ReactElement {
-  const relTime = formatDistanceToNow(parseISO(item.fire_time), {
-    addSuffix: true,
-  });
+  const relTime = formatDistanceToNow(parseISO(item.fire_time), { addSuffix: true });
 
   return (
     <button
@@ -417,7 +523,10 @@ function ScheduledRunRow({
       onClick={() => onOpenWorkflow(item.workflow_id)}
       data-testid={`scheduled-run-${item.workflow_id}`}
     >
-      <Zap className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+      <span
+        className="h-2 w-2 shrink-0 rounded-full bg-primary"
+        aria-hidden="true"
+      />
       <div className="min-w-0 flex-1">
         <span className="truncate text-xs font-medium text-foreground">
           {item.workflow_name}
@@ -457,4 +566,3 @@ function CalendarSkeleton({ view }: { view: View }): React.ReactElement {
     </div>
   );
 }
-
