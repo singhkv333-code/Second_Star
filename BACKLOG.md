@@ -20,6 +20,17 @@ These are blocked by the spec. If proposed, log here and refuse.
 | Workflow versioning UI | DB column exists; UI shows current only. Restore-from-history is v2. |
 | Live backtest integration in editor | Link to the existing standalone backtester is fine; embedded backtest is v2 |
 
+### Step types intentionally left as `NotImplementedError` (formally cut 2026-05-02)
+
+The catalog still publishes these so the frontend's StepTypePicker stays consistent, but executing one fails the run with a clear "not yet implemented" message. Status:
+
+| Step type | Reason for cut | Path back to real |
+|---|---|---|
+| `trigger.event` | No event source wired in this repo (RBI/results/FII feeds are external services). The legacy `_get_upcoming_events` tool returns a stub placeholder. | Build an events ingestion service or wire to a third-party provider (TrueData, NSE corporate actions API). |
+| `fetch.news` | No news source wired. Sarvam-summarised search is possible but adds external dep + cost. Lowest priority of the cut items. | Wire to a news API (newsdata.io, Marketaux) or build a Sarvam-summarised RSS aggregator. |
+
+Other previously-stubbed step types are now real (`trigger.price`/`indicator`/`webhook`, `fetch.quote`/`indicator`/`fundamental`, every condition/action except event-dependent ones, every notify/control). See `STATUS.md` for shipped status per task.
+
 ---
 
 ## v2 ideas (post-Speedrun)

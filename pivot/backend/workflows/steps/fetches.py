@@ -244,10 +244,70 @@ async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_fetch_fundamental(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotYetAvailableError(
-        "fetch.fundamental requires the fundamentals data source — "
-        "not yet wired in v1"
-    )
+    """Fetch a fundamental metric (PE / ROE / market cap / D/E) for a
+    symbol via yfinance `Ticker.info`. yfinance is keyless and works
+    for most NSE symbols (.NS suffix).
+
+    Metric mapping:
+      pe   → trailingPE (fall back to forwardPE if missing)
+      roe  → returnOnEquity (decimal — 0.18 = 18%)
+      mcap → marketCap (INR for .NS symbols)
+      de   → debtToEquity
+
+    Raises NotYetAvailableError when yfinance returns None for the
+    requested metric (common for newly-listed or unusual symbols).
+    """
+    from datetime import date, datetime, timezone
+
+    import yfinance as yf  # type: ignore[import-untyped]
+
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    metric = str(cfg["metric"]).lower()
+    ticker_symbol = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
+
+    try:
+        info = yf.Ticker(ticker_symbol).info or {}
+    except Exception as e:
+        raise NotYetAvailableError(
+            f"fetch.fundamental: yfinance lookup failed for {symbol}: {e}"
+        ) from e
+
+    metric_to_keys = {
+        "pe":   ["trailingPE", "forwardPE"],
+        "roe":  ["returnOnEquity"],
+        "mcap": ["marketCap"],
+        "de":   ["debtToEquity"],
+    }
+    keys = metric_to_keys.get(metric)
+    if keys is None:
+        raise ValueError(f"unsupported fundamental metric: {metric!r}")
+
+    raw_value: Optional[float] = None
+    for key in keys:
+        v = info.get(key)
+        if isinstance(v, (int, float)) and v is not None:
+            raw_value = float(v)
+            break
+    if raw_value is None:
+        raise NotYetAvailableError(
+            f"fetch.fundamental: {metric} not available for {symbol} "
+            f"(yfinance returned no value)"
+        )
+
+    out: dict[str, Any] = {
+        "value": raw_value,
+        "source": "yfinance",
+    }
+    # Best-effort period_end for statement-derived metrics.
+    last_fiscal = info.get("lastFiscalYearEnd")
+    if isinstance(last_fiscal, (int, float)):
+        out["period_end"] = datetime.fromtimestamp(
+            int(last_fiscal), tz=timezone.utc,
+        ).date().isoformat()
+    elif isinstance(last_fiscal, date):
+        out["period_end"] = last_fiscal.isoformat()
+    return out
 
 
 @register_step(
