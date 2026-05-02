@@ -10,6 +10,7 @@ import {
   WorkflowEditorSkeleton,
 } from "@/components/agent-panel/workflow-editor-mock";
 import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
+import type { Workflow } from "@/lib/types";
 
 const MIN_WIDTH = 420;
 const MAX_WIDTH = 920;
@@ -18,6 +19,13 @@ const DEFAULT_WIDTH = 560;
 export type AgentPanelProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Optional workflow to pre-fill the editor. When omitted the panel shows
+   * the built-in demo workflow. Used by:
+   * - WorkflowDraftCard "Open in editor →" (draft from chat, no id yet)
+   * - AgentsTab row click (saved workflow, has id)
+   */
+  initialWorkflow?: Workflow;
 };
 
 /**
@@ -37,6 +45,7 @@ export type AgentPanelProps = {
 export function AgentPanel({
   open,
   onOpenChange,
+  initialWorkflow,
 }: AgentPanelProps): React.ReactElement | null {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -121,14 +130,18 @@ export function AgentPanel({
           </Button>
         </div>
         <div className="flex-1 overflow-hidden">
-          <AgentPanelBody />
+          <AgentPanelBody initialWorkflow={initialWorkflow} />
         </div>
       </div>
     </aside>
   );
 }
 
-function AgentPanelBody(): React.ReactElement {
+function AgentPanelBody({
+  initialWorkflow,
+}: {
+  initialWorkflow?: Workflow;
+}): React.ReactElement {
   const state = useStepCatalog();
 
   if (state.status === "loading") {
@@ -155,7 +168,7 @@ function AgentPanelBody(): React.ReactElement {
 
   return (
     <WorkflowEditorMock
-      initialWorkflow={DEMO_WORKFLOW}
+      initialWorkflow={initialWorkflow ?? DEMO_WORKFLOW}
       catalog={state.catalog}
     />
   );
