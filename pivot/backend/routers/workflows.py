@@ -54,6 +54,8 @@ from backend.routers._errors import (
     validation_error,
 )
 from backend.schemas import (
+    ProposeWorkflowRequest,
+    ProposeWorkflowResponse,
     RunCreatedResponse,
     StepOut,
     StepTypeCatalogResponse,
@@ -253,6 +255,39 @@ def get_step_types(
 ) -> StepTypeCatalogResponse:
     catalog = get_catalog()
     return StepTypeCatalogResponse.model_validate(catalog)
+
+
+# ── propose_workflow as a direct REST endpoint (Day 6 #38) ────────────
+
+
+@router.post(
+    "/propose-workflow",
+    response_model=ProposeWorkflowResponse,
+    summary="Translate a NL strategy into a workflow draft",
+    description=(
+        "Surfaces the chatbot's `propose_workflow` tool as a direct REST "
+        "endpoint so frontends can demo the chat→draft flow without porting "
+        "the full chatbot. Same code path as the tool — mock or LLM, with "
+        "validation + retry-once + fallback-to-mock-with-warning. Does NOT "
+        "persist; returns a draft for the user to review."
+    ),
+)
+async def propose_workflow_endpoint(
+    body: ProposeWorkflowRequest,
+    _user_id: int = Depends(require_user),
+) -> ProposeWorkflowResponse:
+    from backend.workflows.propose import (
+        ProposalValidationError,
+        propose_workflow_async,
+    )
+    try:
+        draft = await propose_workflow_async(body.user_intent)
+    except ProposalValidationError as e:
+        raise validation_error(
+            f"propose_workflow rejected the input: {e}",
+            details={"field": "user_intent"},
+        )
+    return ProposeWorkflowResponse.model_validate(draft.model_dump())
 
 
 # ── Workflow CRUD ─────────────────────────────────────────────────────

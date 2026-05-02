@@ -216,6 +216,28 @@ class ScheduledRunsResponse(BaseModel):
     items: list[ScheduledRunItem]
 
 
+# ── propose_workflow as a REST endpoint (Day 6 #38) ───────────────────
+
+class ProposeWorkflowRequest(BaseModel):
+    user_intent: str = Field(..., min_length=1, max_length=2000)
+
+
+class ProposeWorkflowDraftStep(BaseModel):
+    step_type: str
+    label: Optional[str] = None
+    config: dict[str, object] = Field(default_factory=dict)
+
+
+class ProposeWorkflowResponse(BaseModel):
+    """Mirror of WorkflowDraft from backend.workflows.propose so the
+    frontend can render the result without double-decoding."""
+    name: str
+    description: Optional[str] = None
+    steps: list[ProposeWorkflowDraftStep]
+    rationale: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 # ── Approvals ────────────────────────────────────────────────────────
 
 class ApprovalOut(BaseModel):

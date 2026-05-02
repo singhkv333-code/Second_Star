@@ -256,6 +256,37 @@ List items include: `id`, `workflow_id`, `workflow_version`, `triggered_by`, `st
 
 Full Run shape (§4).
 
+### 6.4 `POST /api/propose-workflow`
+
+Direct REST surface for the chatbot's `propose_workflow` tool. Lets a frontend demo the chat → draft flow without porting the full chatbot stack. Same code path as the tool — mock-or-LLM with validate + retry-once + fallback-to-mock-with-warning. Does NOT persist; returns a draft for the user to review.
+
+**Request:**
+```json
+{ "user_intent": "Every weekday at 3:55 PM IST, if my buying power..." }
+```
+
+**Response: 200**
+```json
+{
+  "name": "Buy 10 RELIANCE",
+  "description": "Every weekday at 3:55 PM IST, ...",
+  "steps": [
+    { "step_type": "trigger.schedule", "label": "...", "config": {...} },
+    { "step_type": "fetch.portfolio", "label": null, "config": {} },
+    { "step_type": "condition.numeric", "label": "...", "config": {...} },
+    { "step_type": "action.place_order", "label": "...", "config": {...} },
+    { "step_type": "notify.message", "label": "...", "config": {...} }
+  ],
+  "rationale": "Mapped your request to a scheduled trigger, ...",
+  "warnings": []
+}
+```
+
+`warnings[]` is non-empty when the LLM path failed twice and the response is the deterministic mock fallback (per `propose_workflow_async` semantics in `backend/workflows/propose.py`). Frontend should surface these to the user so they review every field.
+
+**Errors:**
+- `422 validation_error` — empty `user_intent` or registry rejected the proposed draft (rare — the endpoint also runs the mock fallback before raising).
+
 ### 6.5 `GET /api/workflows/scheduled-runs`
 
 Backs the FE Calendar tab. Returns upcoming fire times for the authenticated user's active `trigger.schedule` workflows in `[from, to]`. v1 covers `trigger.schedule` only — `trigger.event` is cut to v2 and contributes nothing.

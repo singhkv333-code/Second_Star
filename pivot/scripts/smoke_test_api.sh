@@ -262,6 +262,25 @@ check "activate status 200"             "200" "$(status_code "$ACT_RESP")"
 contains "activate sets next_run_at"    "next_run_at" "$(body "$ACT_RESP")"
 contains "activate flips status active" '"status":"active"' "$(body "$ACT_RESP")"
 
+# ── 8a. propose-workflow REST endpoint (chat→draft, demo surface) ────
+echo "▶ propose-workflow"
+
+PROPOSE_RESP=$(curl -sS -w '\n%{http_code}' "${AUTH[@]}" \
+    -X POST "${BASE}/api/propose-workflow" \
+    -H "Content-Type: application/json" \
+    -d '{"user_intent":"Every weekday at 3:55 PM IST, if my buying power is over rs 50000, buy 10 shares of RELIANCE and notify me by email."}')
+check "propose-workflow status 200" "200" "$(status_code "$PROPOSE_RESP")"
+contains "propose-workflow returns 5-step draft" '"step_type":"trigger.schedule"' "$(body "$PROPOSE_RESP")"
+contains "propose-workflow includes RELIANCE qty 10" '"symbol":"RELIANCE"' "$(body "$PROPOSE_RESP")"
+
+# Empty intent → 422 canonical envelope.
+PROPOSE_EMPTY=$(curl -sS -w '\n%{http_code}' "${AUTH[@]}" \
+    -X POST "${BASE}/api/propose-workflow" \
+    -H "Content-Type: application/json" \
+    -d '{"user_intent":""}')
+check "propose-workflow empty status 422" "422" "$(status_code "$PROPOSE_EMPTY")"
+contains "propose-workflow empty canonical envelope" '"code":"validation_error"' "$(body "$PROPOSE_EMPTY")"
+
 # ── 8b. Calendar endpoint — scheduled-runs window ────────────────────
 echo "▶ scheduled-runs (calendar tab backing endpoint)"
 
