@@ -213,14 +213,16 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
         return None
 
     # 2. Indicator backtest (single-symbol, RSI/SMA/EMA via yfinance).
-    #    Three orderings: A (`<sym> when <indicator> <op> <num>`),
-    #    B (`<sym> when crosses <N> sma|ema`), C (`<sym> when <op> <num> rsi`).
+    #    Strict regex first (cheap, deterministic for canonical phrasings),
+    #    then a permissive heuristic parser for anything else.
     if (
         (m := _NL_IND_RE_A.match(body))
         or (m := _NL_IND_RE_B.match(body))
         or (m := _NL_IND_RE_C.match(body))
     ):
         return await _run_indicator_backtest(m)
+    if (parsed := _heuristic_indicator_intent(body)) is not None:
+        return await _run_indicator_backtest_dict(parsed)
 
     # 3. Natural-language fundamentals backtest.
     if (m := _NL_BT_RE.match(body)):
@@ -259,6 +261,193 @@ def _normalize_op(op_text: str, direction: str | None = None) -> str:
 
 
 _DEFAULT_PERIOD_BY_INDICATOR = {"rsi": 14, "sma": 50, "ema": 50}
+
+
+# Heuristic parser — runs after the strict regexes fail.
+#
+# Trigger: message contains "backtest" OR starts with a buy/sell/long/short
+# verb followed by "<sym> when[ever]". We then extract pieces independently
+# rather than trying to constrain word order:
+#   - indicator    (rsi|sma|ema)         required
+#   - op           (< / > / crosses_*)   inferred from verbs
+#   - threshold    (number nearest to a directional cue)
+#   - symbol       (first non-stopword content token)
+#   - years        ("N year(s)" anywhere in the sentence)
+# This is intentionally a fallback; canonical phrasings should still hit
+# the strict regexes for predictability.
+_INDICATOR_RE = re.compile(r"\b(rsi|sma|ema)\b", re.IGNORECASE)
+_BACKTEST_TRIGGER_RE = re.compile(r"\bbacktest\b", re.IGNORECASE)
+_VERB_START_RE = re.compile(
+    r"^(buy(?:ing)?|sell(?:ing)?|long|short)\b", re.IGNORECASE,
+)
+_THRESHOLD_NEAR_DIR_RE = re.compile(
+    r"(?:below|under|<|above|over|>|of|at|=)\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_INDICATOR_PERIOD_BEFORE_RE = re.compile(
+    r"(\d+)\s*(?:-?day\s+)?(?:rsi|sma|ema)\b", re.IGNORECASE,
+)
+_YEARS_RE = re.compile(r"(?:last|past)\s+(\d+)\s+years?\b", re.IGNORECASE)
+_DIRECTION_DOWN_RE = re.compile(
+    r"\b(?:drops?|dropped|drop|falls?|fell|below|under)\b", re.IGNORECASE,
+)
+_DIRECTION_UP_RE = re.compile(
+    r"\b(?:rises?|rose|above|over|exceed(?:s|ed)?|breaks?\s+out)\b",
+    re.IGNORECASE,
+)
+_DIRECTION_CROSS_RE = re.compile(
+    r"\b(cross(?:es|ed)?)(?:\s+(above|below))?\b", re.IGNORECASE,
+)
+
+# Stopwords excluded when picking a symbol candidate. Lowercase; matching
+# is done case-insensitively. Includes filler words ("what", "happens"),
+# sentence connectors, indicator/direction terms, etc.
+_SYMBOL_STOPWORDS = frozenset({
+    "backtest", "buy", "buying", "sell", "selling", "long", "short",
+    "what", "happens", "happen", "when", "whenever", "the", "last",
+    "past", "years", "year", "rsi", "sma", "ema", "drops", "dropped",
+    "drop", "falls", "fell", "below", "above", "of", "in", "on",
+    "over", "under", "with", "at", "and", "or", "if", "for", "to",
+    "from", "rose", "rises", "rise", "crosses", "crossed", "cross",
+    "exceed", "exceeds", "exceeded", "by", "is", "as", "it", "its",
+    "a", "an", "this", "that", "value", "price", "show", "showed",
+    "do", "does", "did", "i", "me", "my", "we", "our", "your",
+    "any", "some", "happens", "run",
+})
+
+
+def _heuristic_indicator_intent(body: str) -> dict | None:
+    """Permissive parser: pulls indicator + symbol + threshold + direction
+    + period out of free-form chat input. Returns the same dict shape the
+    regex `m.groupdict()` would produce, or None if no indicator backtest
+    intent is detectable."""
+    # Trigger gate.
+    if not (_BACKTEST_TRIGGER_RE.search(body) or _VERB_START_RE.match(body)):
+        return None
+    # Indicator is required.
+    ind_m = _INDICATOR_RE.search(body)
+    if not ind_m:
+        return None
+    indicator = ind_m.group(1).lower()
+
+    # Direction.
+    if _DIRECTION_CROSS_RE.search(body):
+        cm = _DIRECTION_CROSS_RE.search(body)
+        direction = (cm.group(2) or "").lower() if cm else ""
+        op = "crosses_below" if direction == "below" else "crosses_above"
+    elif _DIRECTION_UP_RE.search(body) and not _DIRECTION_DOWN_RE.search(body):
+        op = ">"
+    else:
+        # Default to `<` because most casual queries mean "buy when X
+        # drops below" (oversold / dip-buy). Tests for this default
+        # in test_chat_nl_shortcuts.
+        op = "<"
+
+    # Threshold — prefer a number that follows a directional cue
+    # ("below 50", "above 30", "of 50"), then fall back to any number
+    # next to the indicator name.
+    thr_m = _THRESHOLD_NEAR_DIR_RE.search(body)
+    threshold = float(thr_m.group(1)) if thr_m else None
+
+    # Indicator period — for SMA/EMA only ("200 EMA").
+    ip_m = _INDICATOR_PERIOD_BEFORE_RE.search(body)
+    indicator_period = (
+        int(ip_m.group(1)) if ip_m else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
+    )
+
+    # If RSI and threshold still missing, no point continuing.
+    if indicator == "rsi" and threshold is None:
+        # Try any number that isn't the year and isn't the indicator period.
+        all_nums = re.findall(r"\b(\d+(?:\.\d+)?)\b", body)
+        years_m_local = _YEARS_RE.search(body)
+        years_str = years_m_local.group(1) if years_m_local else ""
+        candidates = [n for n in all_nums if n != years_str]
+        if candidates:
+            threshold = float(candidates[0])
+    if indicator == "rsi" and threshold is None:
+        return None
+    # For SMA/EMA the threshold is implicit (= indicator period).
+    if threshold is None:
+        threshold = float(indicator_period)
+
+    # Years.
+    years_m = _YEARS_RE.search(body)
+    years = int(years_m.group(1)) if years_m else 5
+
+    # Symbol — first content word that's not a stopword and looks like
+    # a ticker or company name.
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-_]+", body)
+    symbol: str | None = None
+    for tok in tokens:
+        if tok.lower() in _SYMBOL_STOPWORDS:
+            continue
+        if len(tok) < 2 or len(tok) > 16:
+            continue
+        symbol = tok
+        break
+    if symbol is None:
+        return None
+
+    return {
+        "symbol": symbol,
+        "indicator": indicator,
+        "period": str(indicator_period),
+        "op": "drops below" if op == "<" else (
+            "rises above" if op == ">" else "crosses"
+        ),
+        "dir": "below" if op == "crosses_below" else (
+            "above" if op == "crosses_above" else None
+        ),
+        "threshold": str(threshold),
+        "years": str(years),
+    }
+
+
+async def _run_indicator_backtest_dict(gd: dict) -> dict:
+    """Heuristic-parser variant — takes a plain dict instead of a regex
+    match, otherwise identical to _run_indicator_backtest."""
+    import asyncio
+    from backend.services.indicator_backtest import run_indicator_backtest
+
+    symbol = gd["symbol"].upper()
+    indicator = gd["indicator"].lower()
+    period = int(gd.get("period")) if gd.get("period") else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
+    operator = _normalize_op(gd.get("op", "<"), gd.get("dir"))
+    threshold = float(gd.get("threshold") or period)
+    years = int(gd.get("years") or 5)
+    yf_period = f"{years}y"
+    try:
+        result = await asyncio.to_thread(
+            run_indicator_backtest,
+            symbol=symbol, indicator=indicator,  # type: ignore[arg-type]
+            indicator_period=period, operator=operator,  # type: ignore[arg-type]
+            threshold=threshold, period=yf_period,
+        )
+    except ValueError as e:
+        return _slash_error(f"Backtest error: {e}")
+    except Exception as e:
+        return _slash_error(f"Backtest failed: {str(e)[:200]}")
+    return {
+        "response": result.summary_text,
+        "intent": "INDICATOR_BACKTEST",
+        "screen_data": None, "expr_backtest_data": None, "backtest_data": None,
+        "chart_data": None, "logiccard": None, "requires_clarification": False,
+        "raw_data": {
+            "_render_hint": "indicator_backtest_chart",
+            "symbol": result.symbol,
+            "indicator": result.indicator,
+            "indicator_period": result.indicator_period,
+            "operator": result.operator,
+            "threshold": result.threshold,
+            "period_label": result.period_label,
+            "price_curve": result.price_curve,
+            "equity_curve": result.equity_curve,
+            "indicator_curve": result.indicator_curve,
+            "signals": result.signals,
+            "metrics": result.metrics,
+            "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        },
+    }
 
 
 async def _run_indicator_backtest(m: "re.Match[str]") -> dict:

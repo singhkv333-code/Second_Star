@@ -99,3 +99,58 @@ def test_screen_with_as_of_date() -> None:
 def test_screen_no_match_for_buy_intent() -> None:
     """Don't accidentally match 'buy reliance' as a screen."""
     assert _NL_SCREEN_RE.match("buy reliance") is None
+
+
+# ── Heuristic indicator parser ────────────────────────────────────
+
+
+from backend.routers.chat import _heuristic_indicator_intent
+
+
+def test_heuristic_handles_filler_phrasing() -> None:
+    """User typed: 'backtest what happens buying reliance when it
+    drops below rsi of 50 in the last 5 years'. Strict regex misses
+    this; heuristic must catch it."""
+    r = _heuristic_indicator_intent(
+        "backtest what happens buying reliance when it drops below rsi of 50 in the last 5 years"
+    )
+    assert r is not None
+    assert r["symbol"].lower() == "reliance"
+    assert r["indicator"] == "rsi"
+    assert r["threshold"] == "50.0"
+    assert r["years"] == "5"
+    assert r["op"] == "drops below"
+
+
+def test_heuristic_handles_indicator_period_prefix() -> None:
+    """'14-day rsi' should set indicator_period=14."""
+    r = _heuristic_indicator_intent(
+        "backtest infy when 14-day rsi falls below 30",
+    )
+    assert r is not None
+    assert r["indicator"] == "rsi"
+    assert r["period"] == "14"
+    assert r["threshold"] == "30.0"
+
+
+def test_heuristic_handles_ema_cross() -> None:
+    r = _heuristic_indicator_intent(
+        "backtest reliance when price crosses 200 ema over last 3 years",
+    )
+    assert r is not None
+    assert r["indicator"] == "ema"
+    assert r["period"] == "200"
+    assert r["years"] == "3"
+    assert r["op"] == "crosses"
+
+
+def test_heuristic_skips_no_indicator() -> None:
+    """Generic chat that doesn't mention an indicator should be skipped."""
+    assert _heuristic_indicator_intent("buy reliance") is None
+    assert _heuristic_indicator_intent("whats up with nifty") is None
+
+
+def test_heuristic_skips_no_trigger_word() -> None:
+    """Without 'backtest' or a buy/sell verb at the start, the heuristic
+    shouldn't auto-fire a backtest just because the user mentioned RSI."""
+    assert _heuristic_indicator_intent("rsi is at 50 today") is None
