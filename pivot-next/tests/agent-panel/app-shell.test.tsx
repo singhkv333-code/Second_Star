@@ -1,10 +1,10 @@
 /**
- * Tests for AppShell — top-level navigation + tab switching.
+ * Tests for AppShell — left sidebar navigation + tab switching.
  *
- * Covers tab rendering, default tab, click-to-switch behavior,
- * URL hash sync, and the chat demo surface. We don't deep-test
- * the individual tabs (each has its own test file); we just verify
- * AppShell mounts the right one for the active tab.
+ * Covers sidebar rendering, default tab (dashboard), click-to-switch behavior,
+ * URL hash sync, and the chat demo surface. We don't deep-test the individual
+ * tabs (each has its own test file); we just verify AppShell mounts the right
+ * content for the active tab.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -13,12 +13,15 @@ import * as api from "@/lib/api";
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  // Each test starts fresh on the default tab — clear the URL hash.
+  // Start fresh on the default tab — clear the URL hash.
   if (typeof window !== "undefined") {
     window.history.replaceState(null, "", "#");
   }
   // Stub fetches so children don't hit the network.
   vi.spyOn(api, "listWorkflows").mockResolvedValue({
+    data: { items: [], next_cursor: null },
+  });
+  vi.spyOn(api, "listRuns").mockResolvedValue({
     data: { items: [], next_cursor: null },
   });
   vi.spyOn(api, "getScheduledRuns").mockResolvedValue({
@@ -40,33 +43,41 @@ beforeEach(() => {
       warnings: [],
     },
   });
+  // Stub new market / me endpoints used by DashboardTab + ActiveAgentsRail
+  vi.spyOn(api, "getMarketIndices").mockResolvedValue({
+    data: { items: [] },
+  });
+  vi.spyOn(api, "getMe").mockResolvedValue({
+    data: { id: "u1", email: "demo@example.com", full_name: "Demo" },
+  });
 });
 
 describe("AppShell", () => {
-  it("renders the four-tab strip", () => {
+  it("renders the sidebar navigation", () => {
     render(<AppShell />);
-    const strip = screen.getByTestId("tab-strip");
-    expect(strip).toBeInTheDocument();
-    expect(screen.getByTestId("tab-chat")).toBeInTheDocument();
-    expect(screen.getByTestId("tab-agents")).toBeInTheDocument();
-    expect(screen.getByTestId("tab-calendar")).toBeInTheDocument();
-    expect(screen.getByTestId("tab-portfolio")).toBeInTheDocument();
+    const nav = screen.getByTestId("sidebar-nav");
+    expect(nav).toBeInTheDocument();
+    expect(screen.getByTestId("nav-chat")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-agents")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-calendar")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-portfolio")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-dashboard")).toBeInTheDocument();
   });
 
-  it("defaults to the Agents tab", async () => {
+  it("defaults to the Dashboard tab", async () => {
     render(<AppShell />);
-    expect(screen.getByTestId("tab-agents")).toHaveAttribute(
+    expect(screen.getByTestId("nav-dashboard")).toHaveAttribute(
       "aria-current", "page",
     );
     await waitFor(() =>
-      expect(screen.getByTestId("agents-tab")).toBeInTheDocument(),
+      expect(screen.getByTestId("dashboard-tab")).toBeInTheDocument(),
     );
   });
 
-  it("clicking a tab switches the active panel + updates URL hash", async () => {
+  it("clicking a nav item switches the active panel + updates URL hash", async () => {
     render(<AppShell />);
-    fireEvent.click(screen.getByTestId("tab-portfolio"));
-    expect(screen.getByTestId("tab-portfolio")).toHaveAttribute(
+    fireEvent.click(screen.getByTestId("nav-portfolio"));
+    expect(screen.getByTestId("nav-portfolio")).toHaveAttribute(
       "aria-current", "page",
     );
     await waitFor(() =>
@@ -75,17 +86,17 @@ describe("AppShell", () => {
     expect(window.location.hash).toBe("#portfolio");
   });
 
-  it("Chat tab renders the demo surface with a textarea", () => {
+  it("Chat nav item renders the demo surface with a textarea", () => {
     render(<AppShell />);
-    fireEvent.click(screen.getByTestId("tab-chat"));
+    fireEvent.click(screen.getByTestId("nav-chat"));
     expect(screen.getByTestId("chat-demo")).toBeInTheDocument();
     expect(screen.getByTestId("chat-textarea")).toBeInTheDocument();
     expect(screen.getByTestId("chat-submit-btn")).toBeInTheDocument();
   });
 
-  it("Calendar tab mounts when its tab is active", async () => {
+  it("Calendar nav item mounts the calendar tab", async () => {
     render(<AppShell />);
-    fireEvent.click(screen.getByTestId("tab-calendar"));
+    fireEvent.click(screen.getByTestId("nav-calendar"));
     await waitFor(() =>
       expect(screen.getByTestId("calendar-tab")).toBeInTheDocument(),
     );
@@ -99,18 +110,20 @@ describe("AppShell", () => {
     );
   });
 
-  it("ignores an unknown URL hash and falls back to default", () => {
+  it("ignores an unknown URL hash and falls back to dashboard", async () => {
     window.history.replaceState(null, "", "#nonsense");
     render(<AppShell />);
-    expect(screen.getByTestId("tab-agents")).toHaveAttribute(
+    expect(screen.getByTestId("nav-dashboard")).toHaveAttribute(
       "aria-current", "page",
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("dashboard-tab")).toBeInTheDocument(),
     );
   });
 
-  // ── #40 metric strip tests ──────────────────────────────────────────
+  // ── Metric strip tests ──────────────────────────────────────────────
 
   it("shows metric strip loading skeleton initially", () => {
-    // getPortfolioSummary won't resolve synchronously
     vi.spyOn(api, "getPortfolioSummary").mockReturnValue(new Promise(() => {}));
     render(<AppShell />);
     expect(screen.getByTestId("metric-strip-loading")).toBeInTheDocument();
@@ -133,7 +146,7 @@ describe("AppShell", () => {
     );
   });
 
-  it("hides metric strip on portfolio error (does not block tabs)", async () => {
+  it("hides metric strip on portfolio error (does not block navigation)", async () => {
     vi.spyOn(api, "getPortfolioSummary").mockResolvedValue({
       error: { code: "internal_error", message: "Service unavailable" },
     });
@@ -141,11 +154,11 @@ describe("AppShell", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("metric-strip")).not.toBeInTheDocument(),
     );
-    // Tabs still work
-    expect(screen.getByTestId("tab-strip")).toBeInTheDocument();
+    // Navigation still renders
+    expect(screen.getByTestId("sidebar-nav")).toBeInTheDocument();
   });
 
-  // ── #41 theme toggle tests ──────────────────────────────────────────
+  // ── Theme toggle tests ──────────────────────────────────────────────
 
   it("renders the theme toggle button", () => {
     render(<AppShell />);
@@ -155,7 +168,6 @@ describe("AppShell", () => {
   it("clicking theme toggle switches aria-label", () => {
     render(<AppShell />);
     const btn = screen.getByTestId("theme-toggle");
-    // Default is light (matchMedia stub returns false for dark)
     expect(btn).toHaveAttribute("aria-label", "Switch to dark mode");
     fireEvent.click(btn);
     expect(btn).toHaveAttribute("aria-label", "Switch to light mode");

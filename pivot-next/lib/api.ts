@@ -428,6 +428,92 @@ export function getScheduledRuns(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Markets endpoints (NEW for redesign — /api/markets/*)
+// ---------------------------------------------------------------------------
+
+export type IndexQuote = {
+  name: string;
+  symbol: string;
+  value: number;
+  change: number;
+  change_pct: number;
+  last_updated: string;
+};
+
+export type IndicesResponse = { items: IndexQuote[] };
+
+export type StockQuote = {
+  symbol: string;
+  exchange: string;
+  name: string;
+  ltp: number;
+  change: number;
+  change_pct: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  week_52_high: number;
+  week_52_low: number;
+  volume: number;
+  market_cap: number | null;
+  pe_ratio: number | null;
+  sector: string | null;
+};
+
+export type SparklinePoint = { t: string; v: number };
+
+export type SparklineResponse = {
+  symbol: string;
+  range: string;
+  interval: string;
+  points: SparklinePoint[];
+};
+
+export type SparklineRange = "1D" | "1W" | "1M" | "6M" | "1Y" | "5Y";
+
+/** `GET /api/markets/indices` — NIFTY 50, SENSEX, BANK NIFTY, NIFTY MIDCAP 100. 503 if yfinance down. */
+export function getMarketIndices(): Promise<ApiResult<IndicesResponse>> {
+  return request<IndicesResponse>("/markets/indices");
+}
+
+/** `GET /api/markets/quote/{symbol}?exchange=NSE|BSE` — full StockQuote. 404 if unknown. */
+export function getStockQuote(
+  symbol: string,
+  exchange?: "NSE" | "BSE",
+): Promise<ApiResult<StockQuote>> {
+  return request<StockQuote>(`/markets/quote/${encodeURIComponent(symbol)}`, {
+    query: exchange ? { exchange } : undefined,
+  });
+}
+
+/** `GET /api/markets/sparkline/{symbol}?range=1D|1W|1M|6M|1Y|5Y` — historical close series. */
+export function getSparkline(
+  symbol: string,
+  range: SparklineRange = "1M",
+): Promise<ApiResult<SparklineResponse>> {
+  return request<SparklineResponse>(
+    `/markets/sparkline/${encodeURIComponent(symbol)}`,
+    { query: { range } },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Auth — user profile (NEW for redesign — /auth/me)
+// ---------------------------------------------------------------------------
+
+export type UserProfile = {
+  id: string;
+  email: string;
+  full_name: string | null;
+};
+
+/** `GET /auth/me` — returns user profile for dashboard greeting. */
+export function getMe(): Promise<ApiResult<UserProfile>> {
+  return requestLegacy<UserProfile>("/auth/me");
+}
+
+// ---------------------------------------------------------------------------
 // Chat — propose workflow (Day 6 #38 backend endpoint)
 // ---------------------------------------------------------------------------
 

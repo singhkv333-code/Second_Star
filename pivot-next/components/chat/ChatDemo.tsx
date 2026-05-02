@@ -12,7 +12,7 @@
  * The real chatbot lives in the legacy frontend/ Vite app.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bot, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,13 +40,26 @@ type Message =
 type ChatDemoProps = {
   /** Called when user clicks "Open in editor →" on a draft card. */
   onOpenEditor: (workflow: Workflow) => void;
+  /** Optional prompt prefilled from dashboard chips. Auto-submits on mount. */
+  prefill?: string;
+  /** Called after the prefill has been consumed so parent can clear it. */
+  onPrefillConsumed?: () => void;
 };
 
-export function ChatDemo({ onOpenEditor }: ChatDemoProps): React.ReactElement {
+export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoProps): React.ReactElement {
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Consume prefill once when it arrives
+  useEffect(() => {
+    if (prefill) {
+      setIntent(prefill);
+      onPrefillConsumed?.();
+      textareaRef.current?.focus();
+    }
+  }, [prefill, onPrefillConsumed]);
 
   const submit = async (text: string): Promise<void> => {
     const trimmed = text.trim();

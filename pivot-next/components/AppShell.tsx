@@ -1,43 +1,43 @@
 "use client";
 
 /**
- * AppShell — top-level navigation and tab switching for the Pivot
- * Agent System UI.
+ * AppShell — Quartr-style premium shell with left sidebar nav, center content,
+ * and (on dashboard) right Active Agents rail.
  *
- * Four tabs: Chat / Agents / Calendar / Portfolio. Active tab persists
- * in the URL hash so reload preserves state.
+ * Layout:
+ *   [Sticky top header: logo + search + metric strip + theme toggle + avatar]
+ *   [Left sidebar nav | Center content pane | Right rail (dashboard only)]
  *
- * Header (#40) shows portfolio metric strip (value, day P&L, total P&L)
- * refreshed on tab change and every 30s. Skeleton while loading; hides
- * gracefully on error so it never blocks tabs.
+ * Nav items: Dashboard / Chat / Portfolio / News / Agents / Calendar / Screener
+ * Active item: solid left border + bg highlight
+ * Below nav: YOUR CONVERSATIONS — localStorage chat history or empty state
  *
- * Header (#41) also has a light/dark mode toggle (sun/moon). Persisted in
- * localStorage; defaults to prefers-color-scheme. Applies Tailwind `dark`
- * class to <html>.
- *
- * AgentPanel mounts as a persistent right-side drawer that overlays
- * any active tab. Opens via:
- *   - AgentsTab row click (selected saved workflow)
- *   - CalendarTab row click (workflow id only — fetch then open)
- *   - WorkflowDraftCard "Open in editor →" (chat-side, draft-mode)
+ * Default tab is now "dashboard" (was "agents").
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  BarChart2,
   CalendarDays,
   LayoutGrid,
   MessageSquare,
   Moon,
+  Newspaper,
   PieChart,
+  Search,
+  Settings,
   Sun,
   TrendingDown,
   TrendingUp,
+  User,
 } from "lucide-react";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChatDemo } from "@/components/chat/ChatDemo";
+import { DashboardTab } from "@/components/DashboardTab";
+import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -45,29 +45,46 @@ import { getPortfolioSummary, getWorkflow, type PortfolioSummary } from "@/lib/a
 import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
 
-type TabKey = "chat" | "agents" | "calendar" | "portfolio";
+// ---------------------------------------------------------------------------
+// Tab definitions
+// ---------------------------------------------------------------------------
 
-const TABS: {
+type TabKey =
+  | "dashboard"
+  | "chat"
+  | "portfolio"
+  | "news"
+  | "agents"
+  | "calendar"
+  | "screener";
+
+const NAV_ITEMS: {
   key: TabKey;
   label: string;
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }[] = [
+  { key: "dashboard", label: "Dashboard", Icon: LayoutGrid },
   { key: "chat", label: "Chat", Icon: MessageSquare },
-  { key: "agents", label: "Agents", Icon: LayoutGrid },
-  { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
+  { key: "news", label: "News", Icon: Newspaper },
+  { key: "agents", label: "Agents", Icon: Settings },
+  { key: "calendar", label: "Calendar", Icon: CalendarDays },
+  { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
-const DEFAULT_TAB: TabKey = "agents";
+const DEFAULT_TAB: TabKey = "dashboard";
 const METRIC_REFRESH_MS = 30_000;
 
 function readHashTab(): TabKey {
   if (typeof window === "undefined") return DEFAULT_TAB;
   const raw = window.location.hash.replace(/^#/, "");
-  return TABS.some((t) => t.key === raw) ? (raw as TabKey) : DEFAULT_TAB;
+  const valid: TabKey[] = NAV_ITEMS.map((t) => t.key);
+  return valid.includes(raw as TabKey) ? (raw as TabKey) : DEFAULT_TAB;
 }
 
-// ── Theme helpers (#41) ──────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Theme helpers
+// ---------------------------------------------------------------------------
 
 type Theme = "light" | "dark";
 const LS_KEY = "pivot-theme";
@@ -83,9 +100,7 @@ function readStoredTheme(): Theme | null {
 
 function getSystemTheme(): Theme {
   if (typeof window === "undefined") return "light";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function applyTheme(t: Theme): void {
@@ -93,27 +108,74 @@ function applyTheme(t: Theme): void {
   document.documentElement.classList.toggle("dark", t === "dark");
 }
 
-// ── AppShell ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Conversation history (localStorage)
+// ---------------------------------------------------------------------------
+
+const CONV_STORAGE_KEY = "pivot_chat_messages";
+
+type ConvEntry = { id: string; preview: string; ts: number };
+
+function loadConversations(): ConvEntry[] {
+  try {
+    const raw = localStorage.getItem(CONV_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    // We don't have a real conversation store — just peek at the stored
+    // messages array and synthesize a list entry from the last user message.
+    // Shape varies by implementation; we handle gracefully.
+    return (parsed as Array<Record<string, unknown>>)
+      .filter((m) => m.kind === "user" && typeof m.text === "string")
+      .slice(-5)
+      .reverse()
+      .map((m, i) => ({
+        id: String(i),
+        preview: (m.text as string).slice(0, 60),
+        ts: Date.now() - i * 60_000,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Metric strip state
+// ---------------------------------------------------------------------------
+
+type MetricState =
+  | { kind: "loading" }
+  | { kind: "ok"; summary: PortfolioSummary }
+  | { kind: "hidden" };
+
+// ---------------------------------------------------------------------------
+// INR formatter
+// ---------------------------------------------------------------------------
+
+const INR = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+});
+function fmt(n: number): string {
+  return INR.format(n);
+}
+
+// ---------------------------------------------------------------------------
+// AppShell
+// ---------------------------------------------------------------------------
 
 export function AppShell(): React.ReactElement {
   const [active, setActive] = useState<TabKey>(DEFAULT_TAB);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(
-    undefined,
-  );
-
-  // #40 — metric strip state
-  type MetricState =
-    | { kind: "loading" }
-    | { kind: "ok"; summary: PortfolioSummary }
-    | { kind: "hidden" }; // hide on error — don't block tabs
+  const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(undefined);
   const [metrics, setMetrics] = useState<MetricState>({ kind: "loading" });
+  const [theme, setTheme] = useState<Theme>("light");
+  const [conversations, setConversations] = useState<ConvEntry[]>([]);
+  const [chatPrefill, setChatPrefill] = useState<string | undefined>(undefined);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // #41 — theme state
-  const [theme, setTheme] = useState<Theme>("light");
-
-  // On mount: read hash, read theme, apply theme
+  // Hash + theme init
   useEffect(() => {
     setActive(readHashTab());
     const onHash = (): void => setActive(readHashTab());
@@ -122,6 +184,7 @@ export function AppShell(): React.ReactElement {
     const initial = readStoredTheme() ?? getSystemTheme();
     setTheme(initial);
     applyTheme(initial);
+    setConversations(loadConversations());
 
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -137,7 +200,7 @@ export function AppShell(): React.ReactElement {
     });
   }, []);
 
-  // #40 — load metrics; refresh on tab change and every 30s
+  // Metric strip loading
   const loadMetrics = useCallback((): void => {
     getPortfolioSummary()
       .then((result) => {
@@ -177,26 +240,65 @@ export function AppShell(): React.ReactElement {
     openWorkflow(result.data);
   }, [openWorkflow]);
 
+  /** Called from DashboardTab chips / chat input: route to Chat tab w/ prefill. */
+  const handleDashboardPrompt = useCallback((prompt: string): void => {
+    setChatPrefill(prompt);
+    goTab("chat");
+  }, [goTab]);
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <Header
-        active={active}
-        onTabChange={goTab}
-        metrics={metrics}
+      {/* Sticky top header */}
+      <TopHeader
         theme={theme}
         onToggleTheme={toggleTheme}
+        metrics={metrics}
       />
 
-      <main className="flex-1">
-        <div className="mx-auto max-w-6xl px-6 py-8">
-          {active === "chat" && <ChatDemo onOpenEditor={openWorkflow} />}
-          {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
-          {active === "calendar" && (
-            <CalendarTab onOpenWorkflow={openWorkflowById} />
-          )}
-          {active === "portfolio" && <PortfolioTab />}
-        </div>
-      </main>
+      {/* Body: sidebar + content */}
+      <div className="flex flex-1">
+        {/* Left sidebar */}
+        <Sidebar
+          active={active}
+          onTabChange={goTab}
+          conversations={conversations}
+        />
+
+        {/* Center pane */}
+        <main className="flex-1 min-w-0">
+          <div
+            className={cn(
+              "mx-auto px-6 py-6",
+              // Dashboard has right rail: constrain center width
+              active === "dashboard" ? "max-w-3xl" : "max-w-3xl",
+            )}
+          >
+            {active === "dashboard" && (
+              <DashboardTab
+                onSubmitPrompt={handleDashboardPrompt}
+                onOpenCalendar={() => goTab("calendar")}
+              />
+            )}
+            {active === "chat" && (
+              <ChatDemo onOpenEditor={openWorkflow} prefill={chatPrefill} onPrefillConsumed={() => setChatPrefill(undefined)} />
+            )}
+            {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
+            {active === "calendar" && (
+              <CalendarTab onOpenWorkflow={openWorkflowById} />
+            )}
+            {active === "portfolio" && <PortfolioTab />}
+            {active === "news" && <NewsPlaceholder />}
+            {active === "screener" && <ScreenerPlaceholder />}
+          </div>
+        </main>
+
+        {/* Right rail — dashboard only */}
+        {active === "dashboard" && (
+          <aside className="hidden w-72 shrink-0 border-l px-4 py-6 xl:block">
+            <ActiveAgentsRail onOpenWorkflow={openWorkflow} />
+          </aside>
+        )}
+      </div>
 
       <AgentPanel
         open={panelOpen}
@@ -207,77 +309,62 @@ export function AppShell(): React.ReactElement {
   );
 }
 
-// ── Header (logo + tab strip + metric strip + theme toggle) ───────────
+// ---------------------------------------------------------------------------
+// Top Header
+// ---------------------------------------------------------------------------
 
-type MetricState =
-  | { kind: "loading" }
-  | { kind: "ok"; summary: PortfolioSummary }
-  | { kind: "hidden" };
-
-function Header({
-  active,
-  onTabChange,
-  metrics,
+function TopHeader({
   theme,
   onToggleTheme,
+  metrics,
 }: {
-  active: TabKey;
-  onTabChange: (key: TabKey) => void;
-  metrics: MetricState;
-  theme: "light" | "dark";
+  theme: Theme;
   onToggleTheme: () => void;
+  metrics: MetricState;
 }): React.ReactElement {
   return (
     <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
+      <div className="flex items-center gap-4 px-6 py-3">
         {/* Logo */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
             <span className="text-sm font-bold text-primary">P</span>
           </div>
           <span className="text-sm font-semibold tracking-tight">Pivot</span>
         </div>
 
-        {/* #40 — Metric strip */}
+        {/* Global search */}
+        <div className="flex flex-1 items-center">
+          <div className="relative mx-auto w-full max-w-md">
+            <Search
+              className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden={true}
+            />
+            <input
+              type="search"
+              placeholder="Search stocks, strategies, conversations…"
+              aria-label="Global search"
+              data-testid="global-search"
+              className={cn(
+                "h-8 w-full rounded-full border bg-muted/40 pl-9 pr-4 text-xs",
+                "placeholder:text-muted-foreground/60",
+                "focus:outline-none focus:ring-2 focus:ring-ring",
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Metric strip */}
         <MetricStrip metrics={metrics} />
 
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Tab strip */}
-        <nav
-          aria-label="Primary"
-          className="flex items-center gap-1"
-          data-testid="tab-strip"
-        >
-          {TABS.map(({ key, label, Icon }) => {
-            const isActive = active === key;
-            return (
-              <Button
-                key={key}
-                variant={isActive ? "default" : "ghost"}
-                size="sm"
-                onClick={() => onTabChange(key)}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "h-8 gap-1.5 rounded-full px-3 text-xs font-medium",
-                  !isActive && "text-muted-foreground hover:text-foreground",
-                )}
-                data-testid={`tab-${key}`}
-              >
-                <Icon className="h-3.5 w-3.5" aria-hidden={true} />
-                {label}
-              </Button>
-            );
-          })}
-        </nav>
-
-        {/* #41 — Theme toggle */}
+        {/* Theme toggle */}
         <Button
           variant="ghost"
           size="sm"
           onClick={onToggleTheme}
-          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label={
+            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+          }
           data-testid="theme-toggle"
           className="h-8 w-8 shrink-0 rounded-full p-0"
         >
@@ -287,22 +374,22 @@ function Header({
             <Moon className="h-4 w-4" aria-hidden={true} />
           )}
         </Button>
+
+        {/* Avatar */}
+        <div
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15"
+          aria-label="User profile"
+        >
+          <User className="h-4 w-4 text-primary" aria-hidden={true} />
+        </div>
       </div>
     </header>
   );
 }
 
-// ── Metric strip (#40) ───────────────────────────────────────────────
-
-const INR = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-});
-
-function fmt(n: number): string {
-  return INR.format(n);
-}
+// ---------------------------------------------------------------------------
+// Metric strip
+// ---------------------------------------------------------------------------
 
 function PnlChip({
   value,
@@ -315,10 +402,7 @@ function PnlChip({
 }): React.ReactElement {
   const positive = value >= 0;
   return (
-    <div
-      className="flex items-center gap-1"
-      aria-label={`${label}: ${fmt(value)}`}
-    >
+    <div className="flex items-center gap-1" aria-label={`${label}: ${fmt(value)}`}>
       <span className="text-[11px] text-muted-foreground">{label}</span>
       {positive ? (
         <TrendingUp className="h-3 w-3 text-emerald-500" aria-hidden={true} />
@@ -328,7 +412,9 @@ function PnlChip({
       <span
         className={cn(
           "text-xs font-medium tabular-nums",
-          positive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+          positive
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-rose-600 dark:text-rose-400",
         )}
       >
         {positive ? "+" : ""}
@@ -345,11 +431,10 @@ function PnlChip({
 
 function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement | null {
   if (metrics.kind === "hidden") return null;
-
   if (metrics.kind === "loading") {
     return (
       <div
-        className="flex items-center gap-4"
+        className="hidden items-center gap-4 lg:flex"
         data-testid="metric-strip-loading"
         aria-label="Loading portfolio metrics"
       >
@@ -359,11 +444,10 @@ function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement 
       </div>
     );
   }
-
   const { summary } = metrics;
   return (
     <div
-      className="flex items-center gap-4"
+      className="hidden items-center gap-4 lg:flex"
       data-testid="metric-strip"
       role="status"
       aria-label="Portfolio metrics"
@@ -376,6 +460,132 @@ function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement 
       </div>
       <PnlChip value={summary.day_pnl} label="Day" />
       <PnlChip value={summary.total_pnl} pct={summary.total_pnl_pct} label="Total" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Left sidebar
+// ---------------------------------------------------------------------------
+
+function Sidebar({
+  active,
+  onTabChange,
+  conversations,
+}: {
+  active: TabKey;
+  onTabChange: (key: TabKey) => void;
+  conversations: ConvEntry[];
+}): React.ReactElement {
+  return (
+    <nav
+      className="hidden w-52 shrink-0 border-r bg-background/50 lg:flex lg:flex-col"
+      aria-label="Primary navigation"
+      data-testid="sidebar-nav"
+    >
+      {/* Nav items */}
+      <ul className="flex flex-col gap-0.5 p-3 pt-4" role="list">
+        {NAV_ITEMS.map(({ key, label, Icon }) => {
+          const isActive = active === key;
+          return (
+            <li key={key}>
+              <button
+                type="button"
+                onClick={() => onTabChange(key)}
+                aria-current={isActive ? "page" : undefined}
+                data-testid={`nav-${key}`}
+                className={cn(
+                  "group relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                  isActive
+                    ? "bg-primary/8 font-medium text-foreground"
+                    : "font-normal text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                )}
+              >
+                {/* Active dot on the right */}
+                {isActive && (
+                  <span
+                    className="absolute right-2.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-primary"
+                    aria-hidden={true}
+                  />
+                )}
+                <Icon
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
+                  )}
+                  aria-hidden={true}
+                />
+                {label}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Conversations section */}
+      <div className="mt-4 flex-1 overflow-y-auto px-3">
+        <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Your Conversations
+        </p>
+        {conversations.length === 0 ? (
+          <p className="px-1 text-[11px] text-muted-foreground">
+            Start a chat to see history.
+          </p>
+        ) : (
+          <ul className="space-y-0.5" role="list">
+            {conversations.map((conv) => (
+              <li key={conv.id}>
+                <button
+                  type="button"
+                  className="w-full truncate rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  onClick={() => onTabChange("chat")}
+                  aria-label={`Open conversation: ${conv.preview}`}
+                >
+                  {conv.preview}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Placeholder tabs
+// ---------------------------------------------------------------------------
+
+function NewsPlaceholder(): React.ReactElement {
+  return (
+    <div
+      className="flex flex-col items-center justify-center py-20 text-center"
+      data-testid="news-placeholder"
+      aria-label="News — coming soon"
+    >
+      <Newspaper className="mb-4 h-10 w-10 text-muted-foreground/40" aria-hidden={true} />
+      <h2 className="text-base font-semibold text-foreground">News</h2>
+      <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+        News integration is coming in v2. Real-time market news, earnings
+        announcements, and corporate actions will appear here.
+      </p>
+    </div>
+  );
+}
+
+function ScreenerPlaceholder(): React.ReactElement {
+  return (
+    <div
+      className="flex flex-col items-center justify-center py-20 text-center"
+      data-testid="screener-placeholder"
+      aria-label="Screener — coming soon"
+    >
+      <BarChart2 className="mb-4 h-10 w-10 text-muted-foreground/40" aria-hidden={true} />
+      <h2 className="text-base font-semibold text-foreground">Screener</h2>
+      <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+        Stock screener is coming in v2. Filter NSE stocks by fundamentals,
+        technicals, and custom criteria.
+      </p>
     </div>
   );
 }

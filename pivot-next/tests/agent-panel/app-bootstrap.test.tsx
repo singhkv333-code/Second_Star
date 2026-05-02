@@ -17,7 +17,7 @@ import { AppBootstrap } from "@/components/AppBootstrap";
   const store: Record<string, string> = {};
   const ls = {
     getItem: (k: string): string | null =>
-      Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null,
+      Object.prototype.hasOwnProperty.call(store, k) ? (store[k] ?? null) : null,
     setItem: (k: string, v: string): void => {
       store[k] = String(v);
     },
@@ -95,7 +95,7 @@ describe("AppBootstrap", () => {
 
     // The fetch hit /auth/register with the demo password.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const call = fetchSpy.mock.calls[0];
+    const call = fetchSpy.mock.calls[0]!;
     expect(String(call[0])).toMatch(/\/auth\/register$/);
     const body = JSON.parse(String(call[1]?.body ?? "{}"));
     expect(body.password).toBe("password123");
