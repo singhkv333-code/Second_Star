@@ -60,7 +60,72 @@ class NotYetAvailableError(RuntimeError):
     },
 )
 async def execute_fetch_quote(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("fetch.quote executor lands Day 3")
+    """Fetch latest quote (LTP, OHLC, volume) for a single symbol.
+
+    Path 1: try Kite live quote (real or mock — backend.kite.market_data
+            handles the routing).
+    Path 2: yfinance fallback for the OHLC + volume backfill — Kite
+            mock returns only `last_price`, so we round-trip via yfinance
+            to populate the rest. yfinance is keyless and works for
+            most NSE symbols (.NS suffix).
+
+    Output shape matches the catalog declaration. `asof` is always
+    UTC ISO 8601.
+    """
+    from datetime import datetime, timezone
+
+    from backend.kite.market_data import (
+        get_historical_ohlcv,
+        get_live_quote,
+    )
+    from backend.workflows.steps.actions import _kite_token_for_run
+
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    exchange = str(cfg.get("exchange", "NSE")).upper()
+    instrument = f"{exchange}:{symbol}"
+    token = _kite_token_for_run(ctx)
+
+    quote = (get_live_quote(token, [instrument]) or {}).get(instrument, {})
+    ltp = float(quote.get("last_price", 0) or 0)
+
+    ohlc = (quote.get("ohlc") or {})
+    open_p = float(ohlc.get("open", 0) or 0)
+    high_p = float(ohlc.get("high", 0) or 0)
+    low_p = float(ohlc.get("low", 0) or 0)
+    close_p = float(ohlc.get("close", 0) or 0)
+    volume = float(quote.get("volume", 0) or 0)
+
+    # Backfill from yfinance if Kite path returned a stub.
+    if open_p == 0 or close_p == 0 or volume == 0:
+        try:
+            bars = get_historical_ohlcv(symbol, period="5d", interval="1d") or []
+        except Exception:
+            bars = []
+        if bars:
+            latest = bars[-1]
+            open_p = open_p or float(latest.get("open", 0) or 0)
+            high_p = high_p or float(latest.get("high", 0) or 0)
+            low_p = low_p or float(latest.get("low", 0) or 0)
+            close_p = close_p or float(latest.get("close", 0) or 0)
+            volume = volume or float(latest.get("volume", 0) or 0)
+            ltp = ltp or close_p
+
+    if ltp <= 0:
+        # No live data and no historical data → fail loudly.
+        raise NotYetAvailableError(
+            f"fetch.quote: no quote available for {instrument}"
+        )
+
+    return {
+        "ltp": ltp,
+        "open": open_p,
+        "high": high_p,
+        "low": low_p,
+        "close": close_p,
+        "volume": volume,
+        "asof": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @register_step(

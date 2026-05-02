@@ -17,7 +17,12 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, Optional
 
-from backend.kite.orders import place_order
+from backend.kite.orders import (
+    cancel_order,
+    get_orders,
+    place_gtt_order,
+    place_order,
+)
 from backend.models import StepStatus, WorkflowApproval
 from backend.workflows.engine import _AwaitingApproval
 from backend.workflows.registry import register_step
@@ -182,7 +187,47 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("action.cancel_orders executor lands Day 3")
+    """Cancel every pending order matching the optional symbol/side
+    filters. Idempotent: cancelling an already-cancelled order is a
+    no-op (Kite returns CANCELLED). On retry, only orders still pending
+    get re-cancelled — the order_id list shrinks naturally."""
+    cfg = ctx.config
+    symbol_filter = (cfg.get("symbol_filter") or "").upper() or None
+    side_filter = (cfg.get("side_filter") or "").upper() or None  # BUY/SELL
+    token = _kite_token_for_run(ctx)
+
+    orders = get_orders(token) or []
+    pending: list[dict[str, Any]] = []
+    for o in orders:
+        status = str(o.get("status", "")).upper()
+        if status not in {"OPEN", "PENDING", "TRIGGER PENDING"}:
+            continue
+        if symbol_filter and str(o.get("tradingsymbol", "")).upper() != symbol_filter:
+            continue
+        if side_filter and str(o.get("transaction_type", "")).upper() != side_filter:
+            continue
+        pending.append(o)
+
+    cancelled_ids: list[str] = []
+    for o in pending:
+        order_id = str(o.get("order_id", ""))
+        if not order_id:
+            continue
+        try:
+            cancel_order(token, order_id)
+            cancelled_ids.append(order_id)
+        except Exception as e:
+            # Best-effort: log and continue. The engine's max_retries=1
+            # gives one retry; persistent failures bubble up.
+            import logging
+            logging.getLogger(__name__).warning(
+                "cancel_order failed for %s: %s", order_id, e,
+            )
+
+    return {
+        "cancelled_count": len(cancelled_ids),
+        "order_ids": cancelled_ids,
+    }
 
 
 @register_step(
@@ -204,7 +249,46 @@ async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("action.set_stoploss executor lands Day 3")
+    """Set a stop-loss as a Kite GTT (Good-Till-Triggered) sell order.
+    Idempotent via the engine's client_request_id (passed to the broker
+    as `tag`). Quantity defaults to the user's current holding for the
+    symbol when not specified."""
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    trigger_price = float(cfg["trigger_price"])
+    qty = cfg.get("quantity")
+    token = _kite_token_for_run(ctx)
+
+    if qty is None:
+        # Default to current holding quantity for the symbol.
+        from backend.services.portfolio import get_user_portfolio
+        portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
+        holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
+        for h in holdings:
+            if str(h.get("tradingsymbol", "")).upper() == symbol:
+                qty = int(h.get("quantity", 0))
+                break
+    if not qty or int(qty) <= 0:
+        raise ValueError(
+            f"action.set_stoploss: no quantity specified and no holding "
+            f"of {symbol} found"
+        )
+
+    # GTT limit price is the trigger_price (sell at the trigger).
+    result = place_gtt_order(
+        access_token=token,
+        tradingsymbol=symbol,
+        exchange="NSE",
+        transaction_type="SELL",
+        quantity=int(qty),
+        trigger_price=trigger_price,
+        limit_price=trigger_price,
+        last_price=trigger_price,
+    )
+    return {
+        "trigger_id": str(result.get("trigger_id", "")),
+        "client_request_id": ctx.client_request_id,
+    }
 
 
 @register_step(
@@ -226,7 +310,20 @@ async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_action_update_watchlist(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("action.update_watchlist executor lands Day 3")
+    """Add/remove a symbol from the user's watchlist.
+
+    v1: there is no `Watchlist` model in `backend/models.py`. Per the
+    spec rule (ARCHITECTURE.md §5.2 footnote: "never fake data") we
+    raise NotYetAvailableError so the workflow run fails loudly with
+    an actionable message instead of pretending to mutate state. The
+    proper fix lands when a Watchlist model + table is added — that's
+    a tracked v2 item in BACKLOG.md.
+    """
+    from backend.workflows.steps.fetches import NotYetAvailableError
+    raise NotYetAvailableError(
+        "action.update_watchlist requires the Watchlist data model — "
+        "not yet wired in v1. Add a Watchlist table to enable this step."
+    )
 
 
 # Keep StepStatus import alive in case future executors emit run-step

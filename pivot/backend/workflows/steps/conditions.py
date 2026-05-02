@@ -113,7 +113,16 @@ async def execute_condition_numeric(ctx: Any) -> Optional[dict[str, Any]]:
     output_schema=_CONDITION_OUTPUT_SCHEMA,
 )
 async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("condition.market_status executor lands Day 3")
+    """Pass when NSE market is in the chosen state. Reuses the shared
+    matcher in `steps.control` to keep the two state-machine surfaces
+    in sync (skip_if can also check market_status)."""
+    from backend.utils.time_utils import is_market_open, is_trading_day
+    from backend.workflows.steps.control import _market_status_matches
+
+    require = str(ctx.config["require"])
+    if _market_status_matches(require, is_market_open, is_trading_day):
+        return {"passed": True}
+    raise _ConditionFail
 
 
 @register_step(
@@ -128,7 +137,25 @@ async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
     output_schema=_CONDITION_OUTPUT_SCHEMA,
 )
 async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("condition.position executor lands Day 3")
+    """Pass when the symbol is (or isn't) in the user's holdings.
+    Delegates to the same portfolio service fetch.portfolio uses, so
+    both step types see the same canonical holdings shape."""
+    from backend.services.portfolio import get_user_portfolio
+
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    require = str(cfg["require"])  # 'held' | 'not_held'
+
+    portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
+    holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
+    held = any(
+        str(h.get("tradingsymbol", h.get("symbol", ""))).upper() == symbol
+        for h in holdings
+    )
+    holds_condition = held if require == "held" else not held
+    if holds_condition:
+        return {"passed": True}
+    raise _ConditionFail
 
 
 @register_step(
@@ -143,4 +170,16 @@ async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
     output_schema=_CONDITION_OUTPUT_SCHEMA,
 )
 async def execute_condition_time_window(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("condition.time_window executor lands Day 3")
+    """Pass when current time in the configured timezone is within
+    [start_time, end_time] (HH:MM, inclusive). Reuses the shared
+    helper in steps.control so skip_if and condition share semantics."""
+    from backend.workflows.steps.control import _time_in_window
+
+    cfg = ctx.config
+    if _time_in_window(
+        str(cfg["start_time"]),
+        str(cfg["end_time"]),
+        str(cfg.get("timezone", "Asia/Kolkata")),
+    ):
+        return {"passed": True}
+    raise _ConditionFail

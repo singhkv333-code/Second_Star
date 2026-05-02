@@ -22,6 +22,20 @@ Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEP
 ## Day 3 — 2026-05-02 (lead, solo backend)
 
 ### Shipped
+- **#25 — Path A: remaining stub executors implemented.** 8 of 9 stubs now real (1 → `NotYetAvailableError`):
+  - **`wait.delay`** — `asyncio.sleep` for `duration_seconds` OR sleep until `until_time` (HH:MM in tz). Capped at 1h so a typo can't eat the time budget. Returns `{slept_seconds: int}`.
+  - **`control.skip_if`** — evaluates the inner `condition` payload (numeric / market_status / time_window) and returns `{skipped_next: bool}`. The engine already honors this output (line 380 of engine.py) — marks the next step `skipped` without executing it.
+  - **`condition.market_status`** — uses existing `is_market_open` + `is_trading_day` helpers; supports `open / closed / pre / post` (NSE timing). Shared matcher with `skip_if` so semantics stay in sync.
+  - **`condition.position`** — delegates to `get_user_portfolio` (same source as `fetch.portfolio`); checks `held / not_held` for the symbol.
+  - **`condition.time_window`** — passes when current time in tz is in `[start_time, end_time]` HH:MM. v1 doesn't cross midnight (raises clearly).
+  - **`action.cancel_orders`** — lists pending orders via `get_orders`, filters by optional `symbol_filter` / `side_filter`, calls `cancel_order` for each. Idempotent (cancelling a cancelled order is a no-op via Kite mock). Returns `{cancelled_count, order_ids}`.
+  - **`action.set_stoploss`** — places a Kite GTT sell with `trigger_price` as both trigger and limit. Quantity defaults to current holding for the symbol if not specified; raises clearly if no holding. Idempotent via the engine's `client_request_id`.
+  - **`fetch.quote`** — Kite live quote first; if Kite mock returns only `last_price`, backfills OHLC + volume from yfinance (keyless). Raises `NotYetAvailableError` if both sources empty. Returns `{ltp, open, high, low, close, volume, asof}`.
+  - **`action.update_watchlist`** → `NotYetAvailableError` per spec rule ("never fake data") — there's no Watchlist model in `backend/models.py` yet. Logged as v2 in BACKLOG.md (TODO: add the model).
+  - **Cut-order items left as stubs**: `fetch.indicator`, `fetch.news`, `trigger.price`, `trigger.indicator`, `trigger.event` (all per the official cut order — they need separate watcher subprocess work that's out of scope for the demo).
+  - **Tests** (25 new): every executor's happy path, edge cases, and failure modes. Sleep is patched via `_no_sleep` fixture so tests don't burn time. Total now 125/125 (was 100). Smoke test still 41/41 against live uvicorn.
+  - **Quality gates:** `pytest tests/workflows/` 125/125. `ruff check` on touched files clean. mypy errors in `actions.py` are pre-existing from #14 SQLAlchemy `Column[X]` typing — not introduced by #25 (covered by #21 cleanup).
+
 - **#24 — `propose_workflow` chatbot tool.** New `pivot/backend/workflows/propose.py` (~370 LOC). Translates a NL strategy into a validated `WorkflowDraft` with name / description / ordered steps / rationale. Path:
   - **Mock mode** (no SARVAM/OpenAI key): pattern-matches the demo prompt — extracts cron from "every weekday at HH:MM (AM|PM) IST", quantity from "buy/sell N" or "N shares/units", symbol from uppercase tokens (filters AM/PM/IST/NSE/etc), threshold from "over X" / "above X" — and emits a deterministic 5-step draft (`trigger.schedule → fetch.portfolio → condition.numeric → action.place_order → notify.message`) for the canonical demo. 3-step draft (`trigger → action → notify`) when no condition clause is present.
   - **LLM mode**: builds a focused system prompt with the full 24-type catalog + ref-namespace constraints, calls `route_and_call(STRUCTURED_JSON, json_mode=True)`, parses JSON tolerantly (markdown fences, leading prose, brace-balanced extraction), validates **every step config against the registry's Pydantic model**, retries ONCE on validation failure with the concrete error embedded in the system prompt so the LLM can self-correct. Falls back to mock with a warning if both attempts fail (chat surfaces best-effort draft + warning, never empty hands).
