@@ -4,6 +4,26 @@
 
 ---
 
+## Day 7 — 2026-05-02
+
+### Frontend-lead — Day 7
+
+- **#44 Dashboard (step 1)**: New `DashboardTab.tsx` — 4-index card strip wired to `GET /api/markets/indices` (emerald/rose signed change chips, hides silently on 503), serif "Good Evening, {name}!" greeting from `GET /auth/me`, 7 action chip row (Generate Report / Run Agent / Portfolio Health / Market Pulse / Top Movers / Earnings Calendar / News Digest) that prefill Chat textarea or route to Calendar, big chat input with Cmd+Enter. New `ActiveAgentsRail.tsx` — right-side panel with RUNNING/BLOCKED/IDLE status derived from `GET /api/workflows/{id}/runs?limit=1`, KV rows (MODEL/LAST/NEXT), VIEW AGENT link, category pill. AppShell rebuilt: left sidebar nav (Dashboard / Chat / Portfolio / News / Agents / Calendar / Screener) with active-dot indicator, global search input, avatar circle, `localStorage` conversation history section. News + Screener render honest "coming in v2" placeholders. New API functions: `getMarketIndices`, `getStockQuote`, `getSparkline`, `getMe`. ChatDemo extended with `prefill` + `onPrefillConsumed` props.
+
+- **#44 Agents catalog (step 3)**: `AgentsTab.tsx` replaced with card grid — file-folder style cards with FILE NNN / QUANT|INCOME|TACTICAL|EVENT|PASSIVE header, risk pill (HIGH/MEDIUM/LOW color-coded), serif title ending with period, KV rows (METHOD/UNIVERSE/CADENCE/TURNOVER—/MIN TICKET—), footer VIEW AGENT + CAGR— placeholder. Grid: 1→2→3 col at sm/lg. Empty state CTA preserved.
+
+- **#44 Stock snapshot card (step 4)**: New `StockSnapshotCard.tsx` — recommendation pill (change_pct derived: >5% STRONG BUY … STRONG SELL), big serif price, signed change + %, "Today HH:MM IST", 6 range chips (1D/1W/1M/6M/1Y/5Y) wired to `GET /api/markets/sparkline`, pure SVG area-fill sparkline, 8-cell stat grid (OPEN/DAY HIGH/DAY LOW/VOLUME/52W HIGH/52W LOW/MKT CAP/PE), Buy/Sell/Watchlist action buttons. ChatDemo: bare ticker detection (2-12 uppercase letters) renders snapshot inline instead of propose-workflow.
+
+- **#44 Order draft card (step 5)**: New `OrderDraftCard.tsx` — status pill row (BUY|SELL · MARKET|LIMIT + draft ID + "est. fill < 1s"), 3-column body (INSTRUMENT with sparkline / QUANTITY / ESTIMATED COST with fees + cash% + Confirm button), mini sparkline via `GET /api/markets/sparkline?range=1M` hidden on 404.
+
+- **#44 Calendar polish (step 6)**: Serif big heading "Month YYYY" + Today button + nav arrows in header; disabled category chips (Earnings / Dividends / IPOs / Macro) with `Tooltip` explaining "coming in v2"; Today pill in day detail and agenda date headers; primary-dot markers on scheduled run rows; `TooltipProvider` wrapper.
+
+- **#44 News + Screener placeholders (step 7)**: Inline in AppShell as honest "coming in v2" empty states with appropriate icons.
+
+- **Quality gates (end of Day 7)**: 146/146 vitest (was 140), `pnpm typecheck` clean, `pnpm lint` clean. 6 commits on `dev` (e237b5e → 2be0c96).
+
+---
+
 ## Day 6 — 2026-05-02
 
 ### Frontend-lead — Day 6
