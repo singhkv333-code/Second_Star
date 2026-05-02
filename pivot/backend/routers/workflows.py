@@ -65,6 +65,10 @@ from backend.schemas import (
 )
 from backend.workflows.engine import WorkflowEngine
 from backend.workflows.registry import STEP_REGISTRY, get_catalog
+from backend.workflows.scheduler import (
+    InvalidCronError,
+    upsert_workflow_schedule,
+)
 
 router = APIRouter(prefix="/api", tags=["Agents"])
 
@@ -129,7 +133,7 @@ def _validate_steps(
         # only step 0 as the trigger boundary).
         if idx > 0 and defn.trigger_only:
             raise validation_error(
-                f"trigger.* may only appear at step_index=0",
+                "trigger.* may only appear at step_index=0",
                 details={
                     "step_index": idx,
                     "field": "step_type",
@@ -415,9 +419,16 @@ def activate_workflow(
 
     wf.status = WorkflowStatus.active
     wf.activated_at = datetime.now(timezone.utc)
-    # `next_run_at` for cron triggers is computed by the scheduler
-    # registration (Day 3+). Day 2 leaves it null; manual runs work
-    # regardless.
+    # Compute `next_run_at` for trigger.schedule workflows. Invalid
+    # cron / timezone fails the activation 422 (closes reviewer
+    # Day-2 edge case #1 — never silently arm a dead schedule).
+    try:
+        upsert_workflow_schedule(db, wf)
+    except InvalidCronError as e:
+        raise validation_error(
+            str(e),
+            details={"step_index": 0, "field": "config.cron"},
+        )
     db.commit()
     db.refresh(wf)
     return _to_workflow_out(wf)
@@ -440,6 +451,7 @@ def pause_workflow(
             details={"current_status": "archived"},
         )
     wf.status = WorkflowStatus.paused
+    upsert_workflow_schedule(db, wf)  # clears next_run_at
     db.commit()
     db.refresh(wf)
     return _to_workflow_out(wf)
@@ -457,6 +469,7 @@ def archive_workflow(
 ) -> WorkflowOut:
     wf = _workflow_for_user(db, user_id, workflow_id)
     wf.status = WorkflowStatus.archived
+    upsert_workflow_schedule(db, wf)  # clears next_run_at
     db.commit()
     db.refresh(wf)
     return _to_workflow_out(wf)

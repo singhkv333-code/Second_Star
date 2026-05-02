@@ -206,6 +206,13 @@ async def startup():
 
     try:
         init_scheduler(database_url=settings.database_url)
+        # Plug the workflows poll job into the same AsyncIOScheduler.
+        # It scans `workflows` every 30s for active+due trigger.schedule
+        # rows and fires them via the engine.
+        from backend import scheduler as scheduler_module
+        from backend.workflows.scheduler import register_workflow_scheduler
+        if scheduler_module.scheduler is not None:
+            register_workflow_scheduler(scheduler_module.scheduler)
         logger.info(
             f"[{format_ist(now_ist())}] "
             f"Pivot backend started. Scheduler running on IST."

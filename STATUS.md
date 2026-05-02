@@ -1,6 +1,56 @@
 # STATUS — Pivot Agent System Sprint
 
-> Daily reviewer-owned status report. Read top-to-bottom: most recent day first. Lead reads this to plan the next session.
+> Daily lead-owned status report. Read top-to-bottom: most recent day first.
+
+---
+
+## Team shape change — 2026-05-02
+
+**Frontend handed off to a human developer.** Reviewer agent retired.
+Lead session is the sole worker going forward.
+
+- ❌ Don't spawn `frontend-lead`. Don't write any TypeScript / JSX / Tailwind / shadcn / Next.js. Don't touch `pivot-next/` (read-only OK).
+- ❌ Don't spawn `reviewer`. Lead owns `docs/`, `STATUS.md`, `BACKLOG.md` directly.
+- ✅ Lead does backend work directly (engine, scheduler, REST, WS, propose_workflow, integration tests, contract upkeep).
+- ✅ `docs/API_CONTRACT.md` is now the **handoff document** for the human frontend dev. Every endpoint must be `curl`-verifiable against the contract.
+- ✅ CORS already includes `localhost:3000` (Next.js) and `localhost:5173` (Vite) per `backend/config.py:allowed_origins`.
+
+Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEPRECATED` headers but should never be invoked.
+
+---
+
+## Day 3 — 2026-05-02 (lead, solo backend)
+
+### Shipped
+- **#22 — Scheduler hookup for `trigger.schedule`.** New `pivot/backend/workflows/scheduler.py` (~225 LOC):
+  - `compute_next_run_at(cron, tz_str, after?)` — uses APScheduler's `CronTrigger.from_crontab` + IANA tz; raises `InvalidCronError` on bad cron / unknown tz.
+  - `upsert_workflow_schedule(db, workflow)` — sets `next_run_at` for `active` + `trigger.schedule`; clears for paused / archived / non-schedule trigger types. Called from activate / pause / archive routers.
+  - `_poll_due_workflows()` — every 30s polls `workflows` for `status='active' AND next_run_at <= now()`, creates a `triggered_by='schedule'` run, recomputes `next_run_at` past now, hands the run to the engine. Uses `asyncio.to_thread` so the loop never blocks on sync DB I/O.
+  - `register_workflow_scheduler(scheduler)` — attaches the poll job to the existing `AsyncIOScheduler` (extends, doesn't replace, per ARCHITECTURE.md §3).
+- **Activate / pause / archive routers** call `upsert_workflow_schedule` so cron triggers actually fire after activation. Closes reviewer Day-2 edge case #1: bad cron at activate → 422 `validation_error` with `details.field='config.cron'` (no longer silently arms a dead schedule).
+- **Startup wiring** in `backend/main.py` calls `register_workflow_scheduler` after `init_scheduler` so the poll job runs in production.
+- **11 new tests** in `tests/workflows/test_scheduler.py`: cron computation (UTC, IANA tz, invalid cron, unknown tz), upsert behavior across all states + invalid cron, poll-creates-run for due workflows, poll-skips-paused, activate-rejects-bad-cron with 422.
+- **Quality gates:** `pytest tests/workflows/` 79/79 pass (was 68 after #16). `mypy --strict --follow-imports=silent backend/workflows/scheduler.py` clean. `ruff check` on touched files clean. No `TODO/FIXME/XXX` in new code.
+
+### Notes
+- Test fixture `_scheduler_uses_test_db` works around a pre-existing SQLite + StaticPool cross-thread visibility issue: separate `SessionLocal()` opens in worker threads can't see flushed-but-uncommitted rows from the test session. Real Postgres handles this correctly — production code unchanged.
+- The polling cadence is 30s. Cron resolution is per-minute, so worst-case latency between scheduled time and fire is 30s. Acceptable for v1.
+- Price/indicator watcher (`trigger.price`, `trigger.indicator`) is NOT in this commit — that's a separate watcher, deferred per cut order. Rest of the demo path uses `trigger.schedule` + `trigger.manual`.
+
+### Blocked
+- None.
+
+### At risk for 2026-05-17
+- **mypy --strict debt (#21)** — backend has ~150 SQLAlchemy `Column[X]` vs `X` errors across engine, routers from Day 2. Tests pass; this is type-system noise, not behavior. Defer to buffer day (Day 8) per cut order.
+- **propose_workflow LLM tool (Day 6)** — only critical demo blocker remaining for backend. ~4-6h of agent time when ready.
+
+### Next session
+- `propose_workflow` chatbot tool — Day 6 work, but can be brought forward if buffer permits.
+- Manual `curl` smoke test of every Agent System endpoint against running uvicorn (integration-readiness for human frontend dev).
+- API_CONTRACT.md polish: per-endpoint `curl` example block.
+
+### Demo path readiness (out of 14)
+Day 3: 0 / 14 walkable end-to-end (no live HTTP smoke yet), but every backing piece for steps 6, 7, 8, 13, 14 is now wired. After `propose_workflow` lands, demo path becomes exercisable end-to-end.
 
 ---
 

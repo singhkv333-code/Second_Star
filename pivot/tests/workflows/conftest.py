@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Iterator
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session  # noqa: F401  (used in fixture annotations)
 
 # Engine modules that hold their own SessionLocal binding need to be
 # rebound to the in-memory test session when tests fire async runs in
@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 # tasks open their own session via `SessionLocal()`).
 from backend.routers import run_stream as run_stream_mod
 from backend.workflows import engine as engine_mod
+from backend.workflows import scheduler as scheduler_mod
 from tests.conftest import TestSessionLocal
 
 
@@ -41,6 +42,7 @@ def _bind_engine_to_test_db(
     don't burn 16-second backoffs."""
     monkeypatch.setattr(engine_mod, "SessionLocal", TestSessionLocal)
     monkeypatch.setattr(run_stream_mod, "SessionLocal", TestSessionLocal)
+    monkeypatch.setattr(scheduler_mod, "SessionLocal", TestSessionLocal)
     monkeypatch.setattr(engine_mod, "_engine_sleep", lambda s: None)
     yield
 

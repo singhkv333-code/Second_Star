@@ -1,4 +1,8 @@
 ---
+# DEPRECATED 2026-05-02 — DO NOT SPAWN
+# Solo backend mode: lead session owns docs/, STATUS.md, BACKLOG.md
+# directly. No more reviewer audits. Persona kept only as historical
+# reference for what good DoD looks like.
 name: reviewer
 description: >
   Reviewer / Integrator for Pivot's Agent System v1. Adversarial reviewer of
