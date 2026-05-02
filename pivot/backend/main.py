@@ -28,6 +28,7 @@ from backend.routers.run_stream import router as run_stream_router
 from backend.routers.scheduled import router as scheduled_router
 from backend.routers.markets import router as markets_router
 from backend.routers.conversations import router as conversations_router
+from backend.routers.backtest_alias import router as backtest_alias_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ app.include_router(scheduler_router)
 app.include_router(kite_router)
 app.include_router(compare_router)
 app.include_router(expr_backtest_router)
+app.include_router(backtest_alias_router)
 # scheduled_router MUST mount before workflows_router — otherwise the
 # more-specific path /api/workflows/scheduled-runs gets caught by the
 # /api/workflows/{id} route in workflows_router.
