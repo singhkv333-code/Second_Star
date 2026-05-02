@@ -338,3 +338,34 @@ export function getStepTypes(opts?: {
 export function _clearCatalogCache(): void {
   cachedCatalog = null;
 }
+
+// ---------------------------------------------------------------------------
+// Scheduled runs (Calendar tab — API_CONTRACT.md §6.5)
+// ---------------------------------------------------------------------------
+
+export type ScheduledRun = {
+  workflow_id: string;
+  workflow_name: string;
+  trigger_type: "trigger.schedule" | "trigger.event";
+  /** ISO 8601 UTC */
+  fire_time: string;
+  /** Pre-formatted in trigger's tz, e.g. "3:55 PM IST" */
+  fire_time_local: string;
+};
+
+export type ScheduledRunsResponse = { items: ScheduledRun[] };
+
+/**
+ * `GET /api/workflows/scheduled-runs?from=...&to=...`
+ *
+ * Returns upcoming fire times for all active trigger.schedule workflows in
+ * [from, to]. Backend cap: 500 items, window ≤ 90 days.
+ */
+export function getScheduledRuns(params: {
+  from: string;
+  to: string;
+}): Promise<ApiResult<ScheduledRunsResponse>> {
+  return request<ScheduledRunsResponse>("/workflows/scheduled-runs", {
+    query: { from: params.from, to: params.to },
+  });
+}
