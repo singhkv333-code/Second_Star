@@ -22,9 +22,17 @@ import {
   draftToWorkflow,
   type WorkflowDraft,
 } from "@/components/chat/WorkflowDraftCard";
+import { StockSnapshotCard } from "@/components/chat/StockSnapshotCard";
 import { proposeWorkflow } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { Workflow } from "@/lib/types";
+
+/** Returns the symbol if the input is a bare NSE ticker (2-12 uppercase letters). */
+function extractTicker(text: string): string | null {
+  const trimmed = text.trim();
+  if (/^[A-Z]{2,12}$/.test(trimmed)) return trimmed;
+  return null;
+}
 
 const PLACEHOLDER_TEXT =
   "Describe your strategy, e.g. \"Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.\"";
@@ -35,6 +43,7 @@ const EXAMPLE_PROMPT =
 type Message =
   | { kind: "user"; text: string }
   | { kind: "draft"; draft: WorkflowDraft }
+  | { kind: "snapshot"; symbol: string }
   | { kind: "error"; message: string };
 
 type ChatDemoProps = {
@@ -67,6 +76,14 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
 
     setMessages((prev) => [...prev, { kind: "user", text: trimmed }]);
     setIntent("");
+
+    // If input is a bare ticker symbol, show snapshot card instead.
+    const ticker = extractTicker(trimmed);
+    if (ticker) {
+      setMessages((prev) => [...prev, { kind: "snapshot", symbol: ticker }]);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -156,6 +173,13 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                     draft={msg.draft}
                     onOpenEditor={(draft) => onOpenEditor(draftToWorkflow(draft))}
                   />
+                </div>
+              );
+            }
+            if (msg.kind === "snapshot") {
+              return (
+                <div key={idx} className="flex justify-start">
+                  <StockSnapshotCard symbol={msg.symbol} />
                 </div>
               );
             }
