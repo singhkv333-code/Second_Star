@@ -44,6 +44,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "delete_sip":                 _delete_sip,
         "pause_all_sips":             _pause_all_sips,
         "create_strategy":            _create_strategy,
+        "propose_workflow":           _propose_workflow,
         "create_cash_sweep":          _generic_confirm,
         "create_rebalancing_rule":    _generic_confirm,
         "create_drawdown_protection": _generic_confirm,
@@ -337,6 +338,33 @@ async def _create_strategy(a, kt, db, uid):
 
 async def _generic_confirm(a, kt, db, uid):
     return {"success": True, "data": {"message": "Created", "args": a}, "logiccard": None}
+
+
+async def _propose_workflow(a, kt, db, uid):
+    """Bridge from chat -> backend.workflows.propose.
+
+    Returns a tool result whose `data` is the WorkflowDraft dict +
+    a `_render_hint` that tells the chat UI to show an inline
+    "Open in editor" card. Does NOT persist to DB — frontend POSTs
+    to /api/workflows when the user activates from the editor.
+    """
+    from backend.workflows.propose import (
+        ProposalValidationError,
+        propose_workflow_async,
+    )
+    user_intent = (a or {}).get("user_intent", "")
+    try:
+        draft = await propose_workflow_async(user_intent)
+    except ProposalValidationError as e:
+        return {
+            "success": False,
+            "error": str(e)[:300],
+            "data": {},
+            "logiccard": None,
+        }
+    payload = draft.model_dump()
+    payload["_render_hint"] = "workflow_draft_card"
+    return {"success": True, "data": payload, "logiccard": None}
 
 
 async def _list_strategies(a, kt, db, uid):

@@ -18,8 +18,9 @@ TOOL_SUBSETS = {
     "ORDER_MANAGE":      ["cancel_order", "modify_order", "list_pending_orders", "list_gtt_orders", "cancel_gtt", "squareoff_all_intraday", "squareoff_symbol"],
     "PORTFOLIO_QUERY":   ["get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_holding_detail", "get_tax_summary", "get_active_products"],
     "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_option_chain"],
-    "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection"],
+    "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
+    "WORKFLOW_PROPOSE":  ["propose_workflow"],
     "SIP_MANAGE":        ["list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
     "YIELD_QUERY":       ["compare_yields", "get_yield_recommendation"],
     "CALCULATION":       ["calculate_order_qty", "calculate_tax_impact", "calculate_sl_price", "calculate_dip_price", "calculate_margin"],
@@ -529,6 +530,26 @@ tool("get_scheduler_status",
 tool("list_upcoming_jobs",
      "Returns all upcoming scheduled SIP and strategy jobs with IST timestamps.",
      {}, [])
+
+# ── AGENT SYSTEM (Workflows v1) ──────────────────────────────────────────────
+
+tool("propose_workflow",
+     "Translates a natural-language trading strategy into a structured "
+     "Pivot workflow draft (an 'Agent'). Use when the user describes a "
+     "multi-step automation: 'every weekday at 3 PM if my buying power "
+     "is over 50K buy 10 RELIANCE and email me'. Returns a WorkflowDraft "
+     "with name, description, ordered steps (trigger -> fetch -> condition "
+     "-> action -> notify), and rationale. Does NOT activate or persist — "
+     "the user reviews and activates from the editor panel. Prefer this "
+     "over create_strategy when the request describes a multi-step "
+     "'agent' rather than a single price-trigger rule.",
+     {
+         "user_intent": {
+             "type": "string",
+             "description": "The user's verbatim strategy description.",
+         },
+     },
+     ["user_intent"])
 
 
 def get_tools_for_subset(subset_name: str) -> list:
