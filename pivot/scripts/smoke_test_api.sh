@@ -262,6 +262,21 @@ check "activate status 200"             "200" "$(status_code "$ACT_RESP")"
 contains "activate sets next_run_at"    "next_run_at" "$(body "$ACT_RESP")"
 contains "activate flips status active" '"status":"active"' "$(body "$ACT_RESP")"
 
+# ── 8b. Calendar endpoint — scheduled-runs window ────────────────────
+echo "▶ scheduled-runs (calendar tab backing endpoint)"
+
+SCHED_RESP=$(curl -sS -w '\n%{http_code}' "${AUTH[@]}" \
+    "${BASE}/api/workflows/scheduled-runs?from=2026-05-02T00:00:00Z&to=2026-05-09T00:00:00Z")
+check "scheduled-runs status 200" "200" "$(status_code "$SCHED_RESP")"
+contains "scheduled-runs has items[]"     '"items"' "$(body "$SCHED_RESP")"
+contains "scheduled-runs has fire_time"   "fire_time" "$(body "$SCHED_RESP")"
+
+# Validation: window > 90 days → 422 canonical envelope.
+SCHED_BAD=$(curl -sS -w '\n%{http_code}' "${AUTH[@]}" \
+    "${BASE}/api/workflows/scheduled-runs?from=2026-05-02T00:00:00Z&to=2026-09-01T00:00:00Z")
+check "scheduled-runs window-too-large status 422" "422" "$(status_code "$SCHED_BAD")"
+contains "scheduled-runs window-too-large canonical envelope" '"code":"validation_error"' "$(body "$SCHED_BAD")"
+
 # Edge case: activate again → 409 state_conflict
 RE_ACT_RESP=$(curl -sS -w '\n%{http_code}' "${AUTH[@]}" \
     -X POST "${BASE}/api/workflows/${WF_ID}/activate")

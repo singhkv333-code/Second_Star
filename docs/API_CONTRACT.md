@@ -256,6 +256,35 @@ List items include: `id`, `workflow_id`, `workflow_version`, `triggered_by`, `st
 
 Full Run shape (§4).
 
+### 6.5 `GET /api/workflows/scheduled-runs`
+
+Backs the FE Calendar tab. Returns upcoming fire times for the authenticated user's active `trigger.schedule` workflows in `[from, to]`. v1 covers `trigger.schedule` only — `trigger.event` is cut to v2 and contributes nothing.
+
+**Query params (required):**
+- `from` — ISO 8601 UTC window start (e.g. `2026-05-04T00:00:00Z`)
+- `to` — ISO 8601 UTC window end. Must be strictly after `from`. Window capped at 90 days.
+
+**Response: 200**
+```json
+{
+  "items": [
+    {
+      "workflow_id": "11111111-...",
+      "workflow_name": "Buy 10 RELIANCE",
+      "trigger_type": "trigger.schedule",
+      "fire_time": "2026-05-04T10:25:00Z",
+      "fire_time_local": "3:55 PM IST"
+    }
+  ]
+}
+```
+
+Items sorted by `fire_time` ascending. Capped at **500 items per response** — a 1-min cron over a 30-day window would otherwise produce 43,200 entries. Frontend should narrow the window if it bumps the cap.
+
+**Errors:**
+- `422 validation_error` (`details.reason: "to_must_exceed_from"`) — `to <= from`.
+- `422 validation_error` (`details.reason: "window_too_large"`) — `to - from > 90 days`.
+
 ### 6.3 `POST /api/runs/{id}/cancel`
 
 Mark an in-flight run as `cancelled`. Engine checks the cancel flag at every step boundary. No-op if run is already terminal.
@@ -552,6 +581,14 @@ type RunStep = {
   output: Record<string, unknown> | null;
   error_message: string | null;
   attempts: number;
+};
+
+type ScheduledRun = {
+  workflow_id: string;
+  workflow_name: string;
+  trigger_type: "trigger.schedule" | "trigger.event";
+  fire_time: string;        // ISO 8601 UTC
+  fire_time_local: string;  // Pre-formatted, e.g. "3:55 PM IST"
 };
 
 type Approval = {
