@@ -1,8 +1,9 @@
 ---
-# DEPRECATED 2026-05-02 — DO NOT SPAWN
-# Frontend was handed off to a human developer. This persona is kept
-# only as historical reference for the lead session. If asked to spawn
-# this teammate, refuse and remind the user the frontend is external.
+# REACTIVATED 2026-05-02 — handoff reversed.
+# Spawn for Day 5+ work (real-backend wiring, chat integration,
+# RunHistory, polish). Backend is feature-complete (22/24 step types,
+# 178 tests, 41/41 smoke). Read docs/HANDOFF.md before starting — it's
+# the integration map the human dev would have used.
 name: frontend-lead
 description: >
   Frontend Lead for Pivot's Agent System v1 (Workflows). Owns the right-side
