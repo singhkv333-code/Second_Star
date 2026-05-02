@@ -20,6 +20,19 @@ These are blocked by the spec. If proposed, log here and refuse.
 | Workflow versioning UI | DB column exists; UI shows current only. Restore-from-history is v2. |
 | Live backtest integration in editor | Link to the existing standalone backtester is fine; embedded backtest is v2 |
 
+### UI surfaces cut from v1 (logged 2026-05-02)
+
+The dark Quartr-style mock the user shared as reference shows several tabs we're explicitly NOT building in v1. Listed here so they're tracked, not lost:
+
+| Surface | Reason for cut | When to revisit |
+|---|---|---|
+| News tab | No news source wired in this repo (same reason `fetch.news` is cut). | After v1 ships + a news source is integrated. |
+| Strategy catalog (community / seeded agents) | v1 is "user's own agents" only. Templates marketplace was already in BACKLOG. | After v1 has users to seed templates from. |
+| Screener tab | Standalone surface — backend has yield/screen tools but no UI consolidation yet. Out of v1 scope. | Post-Speedrun. |
+| Conversations sidebar overhaul (Today / Yesterday grouped chat history) | Existing chat history surface stays as-is for v1. | When we redo the chat shell holistically. |
+| Real-time portfolio value (WS) | 30s polling is enough for v1 demo. WS-driven portfolio is over-engineered for the deadline. | If a real user complains about staleness. |
+| Per-asset deep-dive page | Routing + chart density that's its own UX exercise. | v2. |
+
 ### Step types intentionally left as `NotImplementedError` (formally cut 2026-05-02)
 
 The catalog still publishes these so the frontend's StepTypePicker stays consistent, but executing one fails the run with a clear "not yet implemented" message. Status:

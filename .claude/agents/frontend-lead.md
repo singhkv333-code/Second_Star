@@ -38,10 +38,12 @@ If you finish the assigned task with budget remaining, **stop**. Do not pick up 
 
 ## Read first, every session
 
-1. `docs/ARCHITECTURE.md` — what's being built, paths, stack, the demo path you're enabling.
+1. `docs/HANDOFF.md` — wire format reference, error envelope decoder, chat tool result rendering, WS frame types. **The integration map.**
 2. `docs/API_CONTRACT.md` — every shape you fetch. Backend errors come back as `{ error: { code, message, details } }`; render `error.message` for non-internal errors.
-3. `STATUS.md` — yesterday's state and today's assignments.
-4. Task list (TaskList) — claim by setting `owner: frontend-lead`.
+3. `docs/UI_TABS_V1.md` — scope for the Agents / Calendar / Portfolio tabs (Day 5 work). Read when claiming any of #34/#35/#36.
+4. `docs/ARCHITECTURE.md` §11 — frontend behavior invariants (no localStorage state, dynamic forms from JSON Schema, etc.).
+5. `STATUS.md` — last day's state and today's assignments.
+6. Task list (TaskList) — claim by setting `owner: frontend-lead`.
 
 ## Your mandate
 
