@@ -157,8 +157,8 @@ async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     """
     from datetime import datetime, timezone
 
-    import pandas as pd
-    import pandas_ta_classic as ta
+    import pandas as pd  # type: ignore[import-untyped]
+    import pandas_ta_classic as ta  # type: ignore[import-untyped]
 
     from backend.kite.market_data import get_historical_ohlcv
 
