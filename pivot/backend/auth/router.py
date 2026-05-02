@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import User
-from backend.schemas import UserCreate, UserLogin, TokenResponse
+from backend.schemas import UserCreate, UserLogin, TokenResponse, UserResponse
 from backend.auth.jwt_handler import (
     hash_password, verify_password,
     create_access_token, create_refresh_token,
+    get_user_id_from_token,
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -40,6 +41,38 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         user_id=user.id,
         email=user.email,
     )
+
+
+@router.get("/me", response_model=UserResponse)
+def me(
+    authorization: str = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Return the authenticated user's profile.
+
+    Used by the frontend dashboard ("Good Evening {name}!" greeting)
+    and anywhere we need the current user's display name without
+    re-decoding the JWT in the browser.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing token",
+        )
+    token = authorization.replace("Bearer ", "", 1)
+    user_id = get_user_id_from_token(token)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    return UserResponse.model_validate(user)
 
 
 @router.post("/login", response_model=TokenResponse)
