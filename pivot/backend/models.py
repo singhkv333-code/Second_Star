@@ -1,5 +1,6 @@
 import enum
 import uuid as _uuid
+from datetime import datetime as _datetime
 
 from sqlalchemy import (
     Boolean,
@@ -417,3 +418,68 @@ class WorkflowWebhookToken(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     workflow = relationship("Workflow", back_populates="webhook_tokens")
+
+
+# ─── Chat persistence (Day 8 — backs /api/conversations) ──────────────
+#
+# Chat was previously stateless (rolling history sent in every request,
+# Redis-only conv_id). The redesign's left sidebar needs a per-user
+# conversation history rendered from `GET /api/conversations`, so we
+# persist conversations + messages in Postgres.
+#
+# A conversation is auto-created on the first chat turn that doesn't
+# carry a conversation_id. Subsequent turns under the same id append
+# to its messages list.
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    title = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    last_message_at = Column(DateTime(timezone=True), nullable=True)
+
+    messages = relationship(
+        "ConversationMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ConversationMessage.created_at",
+    )
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    conversation_id = Column(
+        String(36),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role = Column(String(16), nullable=False)  # "user" | "assistant" | "tool"
+    content = Column(Text, nullable=False, default="")
+    # Tool calls + tool results carried as JSON when role != "user"/"assistant".
+    tool_payload = Column(JSON, nullable=True)
+    # Python-side default for microsecond precision in SQLite tests; in
+    # Postgres prod this still resolves at row-creation time.
+    created_at = Column(
+        DateTime(timezone=True),
+        default=_datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    conversation = relationship("Conversation", back_populates="messages")
