@@ -404,12 +404,15 @@ def _mock_propose(user_intent: str) -> WorkflowDraft:
         channel = "email" if "email" in low else (
             "sms" if "sms" in low or "text" in low else "push"
         )
+        # Proper past tense — "Buyed"/"Selled" reads broken in the
+        # rendered email/SMS body.
+        past = {"buy": "Bought", "sell": "Sold"}.get(side, side.capitalize())
         steps.append(DraftStep(
             step_type="notify.message",
             label=f"Notify by {channel}",
             config={
                 "channel": channel,
-                "template": f"{side.capitalize()}ed {qty} {symbol}",
+                "template": f"{past} {qty} {symbol}",
                 "vars": {},
             },
         ))
