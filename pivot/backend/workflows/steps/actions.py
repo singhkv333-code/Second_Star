@@ -310,20 +310,58 @@ async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_action_update_watchlist(ctx: Any) -> Optional[dict[str, Any]]:
-    """Add/remove a symbol from the user's watchlist.
+    """Add or remove a symbol from the user's watchlist.
 
-    v1: there is no `Watchlist` model in `backend/models.py`. Per the
-    spec rule (ARCHITECTURE.md §5.2 footnote: "never fake data") we
-    raise NotYetAvailableError so the workflow run fails loudly with
-    an actionable message instead of pretending to mutate state. The
-    proper fix lands when a Watchlist model + table is added — that's
-    a tracked v2 item in BACKLOG.md.
+    Idempotent on both sides:
+      - 'add' for a symbol already in the watchlist → no-op (the
+        UNIQUE (user_id, symbol, exchange) constraint guarantees this
+        anyway, but we check first to avoid IntegrityError noise in
+        logs).
+      - 'remove' for a symbol absent from the watchlist → no-op.
+
+    Engine retries are safe by construction: on retry the row already
+    exists (add) or already doesn't (remove).
     """
-    from backend.workflows.steps.fetches import NotYetAvailableError
-    raise NotYetAvailableError(
-        "action.update_watchlist requires the Watchlist data model — "
-        "not yet wired in v1. Add a Watchlist table to enable this step."
+    from sqlalchemy import and_
+
+    from backend.models import WatchlistItem
+
+    cfg = ctx.config
+    action = str(cfg["action"]).lower()
+    symbol = str(cfg["symbol"]).upper()
+    exchange = str(cfg.get("exchange", "NSE")).upper()
+    user_id = int(ctx.workflow.user_id)
+
+    existing = (
+        ctx.db.query(WatchlistItem)
+        .filter(and_(
+            WatchlistItem.user_id == user_id,
+            WatchlistItem.symbol == symbol,
+            WatchlistItem.exchange == exchange,
+        ))
+        .first()
     )
+
+    mutated = False
+    if action == "add" and existing is None:
+        ctx.db.add(WatchlistItem(
+            user_id=user_id, symbol=symbol, exchange=exchange,
+        ))
+        ctx.db.commit()
+        mutated = True
+    elif action == "remove" and existing is not None:
+        ctx.db.delete(existing)
+        ctx.db.commit()
+        mutated = True
+    elif action not in {"add", "remove"}:
+        raise ValueError(f"unsupported watchlist action: {action!r}")
+
+    return {
+        "action": action,
+        "symbol": symbol,
+        "exchange": exchange,
+        "mutated": mutated,
+    }
 
 
 # Keep StepStatus import alive in case future executors emit run-step

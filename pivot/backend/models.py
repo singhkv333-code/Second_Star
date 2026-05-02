@@ -48,6 +48,31 @@ class User(Base):
     trade_logs = relationship("TradeLog", back_populates="user")
 
 
+class WatchlistItem(Base):
+    """A symbol the user is watching. Backs `action.update_watchlist`
+    in the Agent System and a future per-user watchlist UI surface.
+
+    Plain table on purpose (vs. a JSON array on User) so we get UNIQUE
+    enforcement at the DB layer (a user can't accidentally have INFY
+    twice) and so future fields (added_at, notes, sort_order) drop in
+    without a JSON migration.
+    """
+    __tablename__ = "watchlist_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    symbol = Column(String(64), nullable=False)
+    exchange = Column(String(8), nullable=False, default="NSE")
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "symbol", "exchange",
+            name="uq_watchlist_items_user_symbol_exchange",
+        ),
+    )
+
+
 class KiteSession(Base):
     __tablename__ = "kite_sessions"
 

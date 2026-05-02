@@ -19,7 +19,6 @@ from backend.workflows.steps import actions as actions_mod
 from backend.workflows.steps.actions import (
     execute_action_cancel_orders,
     execute_action_set_stoploss,
-    execute_action_update_watchlist,
 )
 from backend.workflows.steps.conditions import (
     execute_condition_market_status,
@@ -373,17 +372,10 @@ async def test_set_stoploss_no_qty_no_holding_raises(
         }))
 
 
-# ── action.update_watchlist ──────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_update_watchlist_raises_not_yet_available() -> None:
-    """Per spec: never fake data when the source isn't ready."""
-    with pytest.raises(NotYetAvailableError, match="Watchlist data model"):
-        await execute_action_update_watchlist(_StubCtx({
-            "action": "add", "symbol": "INFY",
-        }))
-
+# ── action.update_watchlist — real impl tests live in
+#    tests/workflows/test_watchlist.py (needs the DB-backed
+#    WatchlistItem model). Day-3 NotYetAvailableError shim was removed
+#    in #27 when the model + migration landed.
 
 # ── fetch.quote ──────────────────────────────────────────────────────
 

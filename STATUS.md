@@ -22,6 +22,7 @@ Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEP
 ## Day 4 — 2026-05-02 (lead, solo backend)
 
 ### Shipped
+- **#27 — Watchlist model + `action.update_watchlist` real.** New `WatchlistItem` model in `backend/models.py` (id, user_id FK, symbol, exchange, added_at, UNIQUE on (user_id, symbol, exchange)). Alembic migration `0002_watchlist.py`. Replaced the Day-3 `NotYetAvailableError` shim with a real upsert/delete that's idempotent on both sides (re-add no-ops, re-remove no-ops) so engine retries are safe by construction. Returns `{action, symbol, exchange, mutated: bool}`. 8 new tests cover happy paths, no-ops, two-user isolation, DB-level UNIQUE enforcement, and explicit BSE exchange. 148/148 in tests/workflows/. Smoke 41/41.
 - **#26 — Price/indicator watcher + `fetch.indicator` real impl.** Closes the cut-order item that was the biggest functional gap.
   - `backend/workflows/scheduler.py` extended with `_poll_watch_triggers()` — runs every 60s during NSE market hours (`is_market_open() && is_trading_day()`), batch-fetches quotes for every active `trigger.price` workflow in a single Kite call (one request per symbol per tick, not one per workflow), evaluates `>` / `<` / `crosses_above` / `crosses_below` against the latest price.
   - **Crossing detection** persists `_last_price` (and `_last_value` for indicators) into `workflow_steps.config` between ticks, so `crosses_above`/`crosses_below` only fire on actual transitions — not on every tick where current is already past the threshold.
