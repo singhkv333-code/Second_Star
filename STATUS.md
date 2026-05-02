@@ -19,6 +19,22 @@ Persona files at `.claude/agents/{frontend-lead,reviewer}.md` are kept with `DEP
 
 ---
 
+## Day 4 — 2026-05-02 (lead, solo backend)
+
+### Shipped
+- **#26 — Price/indicator watcher + `fetch.indicator` real impl.** Closes the cut-order item that was the biggest functional gap.
+  - `backend/workflows/scheduler.py` extended with `_poll_watch_triggers()` — runs every 60s during NSE market hours (`is_market_open() && is_trading_day()`), batch-fetches quotes for every active `trigger.price` workflow in a single Kite call (one request per symbol per tick, not one per workflow), evaluates `>` / `<` / `crosses_above` / `crosses_below` against the latest price.
+  - **Crossing detection** persists `_last_price` (and `_last_value` for indicators) into `workflow_steps.config` between ticks, so `crosses_above`/`crosses_below` only fire on actual transitions — not on every tick where current is already past the threshold.
+  - **Indicator triggers** evaluated per-workflow (yfinance + pandas_ta_classic computation is heavier than batched price quotes; per-workflow is OK at v1 N).
+  - On match: creates a `triggered_by='price_alert'` / `'indicator_alert'` workflow_runs row, hands to engine. Same engine, same WS frames, same approval/cancel/etc. logic — the watcher is just another way to fire a run.
+  - **`trigger.price` and `trigger.indicator` executors** now no-ops (return None) — by the time the engine reaches them the watcher has already created the run row. The executors just acknowledge.
+  - **`fetch.indicator` real impl** (in `steps/fetches.py`): yfinance OHLC pull → `pandas_ta_classic.rsi/sma/ema/macd`. MACD returns the histogram (macd - signal) — most useful single-number value for a threshold trigger. Raises `NotYetAvailableError` cleanly on insufficient bars.
+  - **16 new tests**: every threshold operator (`>`, `<`, `crosses_above`/`below` with prior + no-prior cases), market-hours short-circuit, fire-on-match, last-price persistence, two-tick crossing, no-quote graceful skip, fetch.indicator SMA/insufficient/unsupported.
+  - **Quality gates:** `pytest tests/workflows/` 141/141 (was 125). `mypy --strict --follow-imports=silent backend/workflows/scheduler.py` clean. ruff clean on touched files.
+  - **Smoke test still 41/41.**
+
+---
+
 ## Day 3 — 2026-05-02 (lead, solo backend)
 
 ### Shipped

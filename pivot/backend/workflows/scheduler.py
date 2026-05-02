@@ -57,6 +57,13 @@ logger = logging.getLogger(__name__)
 # 30s of jitter past the cron tick — acceptable for v1.
 _POLL_INTERVAL_SECONDS = 30
 
+# Price/indicator watcher cadence. Per ARCHITECTURE.md §8: every 60s
+# during market hours. We register the job unconditionally (cheap when
+# no watch-trigger workflows are active) and short-circuit inside the
+# job when the market is closed.
+_WATCHER_INTERVAL_SECONDS = 60
+_WATCHER_JOB_ID = "pivot_workflows_watcher"
+
 # APScheduler job id for the workflow poll job — keep stable across
 # restarts so `replace_existing=True` works.
 _POLL_JOB_ID = "pivot_workflows_poll"
@@ -234,9 +241,9 @@ async def _fire_one(workflow_id: str, fired_at: datetime) -> None:
 
 
 def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
-    """Attach the workflow poll job to the existing AsyncIOScheduler.
+    """Attach the workflow poll + watcher jobs to the existing scheduler.
 
-    Idempotent: re-registering replaces the existing job.
+    Idempotent: re-registering replaces the existing jobs.
     """
     scheduler.add_job(
         _poll_due_workflows,
@@ -248,7 +255,312 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         max_instances=1,
         coalesce=True,
     )
-    logger.info(
-        "[workflow-scheduler] registered poll job (every %ss)",
-        _POLL_INTERVAL_SECONDS,
+    scheduler.add_job(
+        _poll_watch_triggers,
+        trigger="interval",
+        seconds=_WATCHER_INTERVAL_SECONDS,
+        id=_WATCHER_JOB_ID,
+        name="Pivot Workflows — price / indicator watcher",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
+    logger.info(
+        "[workflow-scheduler] registered poll job (%ss) + watcher (%ss)",
+        _POLL_INTERVAL_SECONDS, _WATCHER_INTERVAL_SECONDS,
+    )
+
+
+# ── Price / indicator watcher ────────────────────────────────────────
+
+
+# Price/indicator triggers store last_price under this key inside
+# workflow_steps.config so the watcher can detect crossings on the
+# next tick. Stored as a JSON-friendly float; absent on the first tick.
+_LAST_PRICE_KEY = "_last_price"
+_LAST_VALUE_KEY = "_last_value"  # for indicator triggers
+
+
+async def _poll_watch_triggers() -> None:
+    """Polled every 60s. During NSE market hours, scans active workflows
+    whose first step is `trigger.price` or `trigger.indicator`,
+    batch-fetches the relevant quotes / computes indicators, and fires
+    runs when conditions match.
+
+    Crossing semantics (`crosses_above` / `crosses_below`) require
+    knowing the previous tick's value — we persist it under
+    `workflow_steps.config[_last_price]` (or `_last_value`) so the
+    next tick can compare.
+    """
+    from backend.utils.time_utils import is_market_open, is_trading_day
+
+    # Out of market hours / weekend → cheap no-op.
+    try:
+        if not (is_trading_day() and is_market_open()):
+            return
+    except Exception:  # pragma: no cover — defensive
+        return
+
+    fired_at = datetime.now(timezone.utc)
+
+    def _scan_active_watch_triggers() -> list[tuple[str, str, dict[str, object]]]:
+        """Returns list of (workflow_id, step_type, config_copy)
+        tuples. Runs in a worker thread."""
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(Workflow, WorkflowStep)
+                .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+                .filter(
+                    Workflow.status == WorkflowStatus.active,
+                    WorkflowStep.step_index == 0,
+                    WorkflowStep.step_type.in_(
+                        ["trigger.price", "trigger.indicator"],
+                    ),
+                )
+                .all()
+            )
+            return [
+                (str(wf.id), str(step.step_type), dict(step.config or {}))
+                for wf, step in rows
+            ]
+        finally:
+            db.close()
+
+    triggers = await asyncio.to_thread(_scan_active_watch_triggers)
+    if not triggers:
+        return
+
+    # Group price triggers by symbol so we batch-fetch quotes once per
+    # tick instead of once per workflow.
+    price_symbols: set[str] = set()
+    for _wf_id, step_type, cfg in triggers:
+        if step_type == "trigger.price":
+            sym = str(cfg.get("symbol", "")).upper()
+            exch = str(cfg.get("exchange", "NSE")).upper()
+            if sym:
+                price_symbols.add(f"{exch}:{sym}")
+
+    quotes: dict[str, float] = {}
+    if price_symbols:
+        try:
+            quotes = await asyncio.to_thread(_batch_fetch_prices, sorted(price_symbols))
+        except Exception:
+            logger.exception("[watcher] price batch fetch failed")
+            quotes = {}
+
+    for wf_id, step_type, cfg in triggers:
+        try:
+            if step_type == "trigger.price":
+                await _evaluate_price_trigger(wf_id, cfg, quotes, fired_at)
+            elif step_type == "trigger.indicator":
+                await _evaluate_indicator_trigger(wf_id, cfg, fired_at)
+        except Exception:
+            logger.exception(
+                "[watcher] failed to evaluate %s for workflow %s",
+                step_type, wf_id,
+            )
+
+
+def _batch_fetch_prices(instruments: list[str]) -> dict[str, float]:
+    """Fetch live quotes for a batch of instruments. Uses Kite-mock-mode
+    when no key is configured. Returns {instrument: ltp} for every
+    instrument that has a price."""
+    from backend.kite.market_data import get_live_quote
+
+    raw = get_live_quote("mock_token", instruments) or {}
+    out: dict[str, float] = {}
+    for inst, payload in raw.items():
+        if not isinstance(payload, dict):
+            continue
+        ltp = payload.get("last_price")
+        if isinstance(ltp, (int, float)) and float(ltp) > 0:
+            out[inst] = float(ltp)
+    return out
+
+
+def _matches_threshold(
+    operator: str, current: float, threshold: float, last: Optional[float],
+) -> bool:
+    """Evaluate a price/indicator threshold operator. `last` is the
+    previous tick's value, required for `crosses_*` operators."""
+    if operator == ">":
+        return current > threshold
+    if operator == "<":
+        return current < threshold
+    if operator == "crosses_above":
+        return last is not None and last <= threshold < current
+    if operator == "crosses_below":
+        return last is not None and last >= threshold > current
+    return False
+
+
+async def _evaluate_price_trigger(
+    workflow_id: str,
+    cfg: dict[str, object],
+    quotes: dict[str, float],
+    fired_at: datetime,
+) -> None:
+    sym = str(cfg.get("symbol", "")).upper()
+    exch = str(cfg.get("exchange", "NSE")).upper()
+    operator = str(cfg.get("operator", ""))
+    threshold = float(cfg.get("value", 0.0))  # type: ignore[arg-type]
+    instrument = f"{exch}:{sym}"
+    current = quotes.get(instrument)
+    if current is None:
+        return  # no quote available this tick
+
+    last_raw = cfg.get(_LAST_PRICE_KEY)
+    last = float(last_raw) if isinstance(last_raw, (int, float)) else None
+
+    matched = _matches_threshold(operator, current, threshold, last)
+
+    # Persist last_price so next tick's crosses_* logic works.
+    await asyncio.to_thread(
+        _persist_last_value, workflow_id, _LAST_PRICE_KEY, current,
+    )
+
+    if matched:
+        await _fire_watch_run(workflow_id, "price_alert", fired_at)
+
+
+async def _evaluate_indicator_trigger(
+    workflow_id: str,
+    cfg: dict[str, object],
+    fired_at: datetime,
+) -> None:
+    """Compute the indicator inline and apply the same threshold logic
+    as price triggers. This is more expensive than price evaluation
+    (yfinance + indicator math) so we do it per-workflow rather than
+    batching — N is expected to be small in v1."""
+    sym = str(cfg.get("symbol", "")).upper()
+    indicator = str(cfg.get("indicator", "")).lower()
+    period = int(cfg.get("period", 14))  # type: ignore[call-overload]
+    operator = str(cfg.get("operator", ""))
+    threshold = float(cfg.get("value", 0.0))  # type: ignore[arg-type]
+
+    try:
+        value = await asyncio.to_thread(
+            _compute_indicator_sync, sym, indicator, period,
+        )
+    except Exception:
+        # Indicator data temporarily unavailable — try again next tick.
+        return
+    if value is None:
+        return
+
+    last_raw = cfg.get(_LAST_VALUE_KEY)
+    last = float(last_raw) if isinstance(last_raw, (int, float)) else None
+    matched = _matches_threshold(operator, value, threshold, last)
+
+    await asyncio.to_thread(
+        _persist_last_value, workflow_id, _LAST_VALUE_KEY, value,
+    )
+
+    if matched:
+        await _fire_watch_run(workflow_id, "indicator_alert", fired_at)
+
+
+def _compute_indicator_sync(
+    symbol: str, indicator: str, period: int,
+) -> Optional[float]:
+    """Sync version of the fetch.indicator computation, suitable for
+    the watcher (which runs DB / network in worker threads). Returns
+    the latest value or None on insufficient data."""
+    import pandas as pd  # type: ignore[import-untyped]
+    import pandas_ta_classic as ta  # type: ignore[import-untyped]
+
+    from backend.kite.market_data import get_historical_ohlcv
+
+    bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
+    if len(bars) < period + 5:
+        return None
+    df = pd.DataFrame(bars)
+    if "close" not in df.columns:
+        return None
+
+    if indicator == "rsi":
+        s = ta.rsi(df["close"], length=period)
+    elif indicator == "sma":
+        s = ta.sma(df["close"], length=period)
+    elif indicator == "ema":
+        s = ta.ema(df["close"], length=period)
+    elif indicator == "macd":
+        macd_df = ta.macd(df["close"], fast=12, slow=max(period, 13), signal=9)
+        if macd_df is None or macd_df.empty:
+            return None
+        col = next((c for c in macd_df.columns if c.startswith("MACDh_")), None)
+        if col is None:
+            return None
+        s = macd_df[col]
+    else:
+        return None
+
+    if s is None or s.dropna().empty:
+        return None
+    return float(s.dropna().iloc[-1])
+
+
+def _persist_last_value(
+    workflow_id: str, key: str, value: float,
+) -> None:
+    """Update the workflow's step-0 config with the latest observed
+    value so the next tick can detect a crossing. Uses a fresh
+    SessionLocal because we're in a worker thread."""
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == 0,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        # JSON column update — copy and reassign so SQLA detects the
+        # change (in-place mutation of a JSON dict isn't auto-tracked).
+        cfg = dict(step.config or {})
+        cfg[key] = float(value)
+        step.config = cfg  # type: ignore[assignment]
+        db.commit()
+    finally:
+        db.close()
+
+
+async def _fire_watch_run(
+    workflow_id: str, triggered_by: str, fired_at: datetime,
+) -> None:
+    """Create the workflow_run row and hand to the engine. Mirrors
+    `_fire_one` but with the watch-specific `triggered_by` value."""
+
+    def _create() -> Optional[str]:
+        db = SessionLocal()
+        try:
+            wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+            if wf is None or wf.status != WorkflowStatus.active:
+                return None
+            run = WorkflowRun(
+                workflow_id=wf.id,
+                workflow_version=int(wf.version),
+                triggered_by=triggered_by,
+                status=RunStatus.running,
+                context={},
+            )
+            db.add(run)
+            wf.last_run_at = fired_at  # type: ignore[assignment]
+            db.commit()
+            db.refresh(run)
+            return str(run.id)
+        finally:
+            db.close()
+
+    run_id = await asyncio.to_thread(_create)
+    if run_id is None:
+        return
+
+    from backend.workflows.engine import WorkflowEngine
+
+    engine = WorkflowEngine()
+    asyncio.create_task(engine.execute_run(run_id))

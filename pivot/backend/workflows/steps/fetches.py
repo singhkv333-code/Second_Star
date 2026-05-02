@@ -147,7 +147,81 @@ async def execute_fetch_quote(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("fetch.indicator executor lands Day 3")
+    """Compute a technical indicator (RSI / SMA / EMA / MACD) for a
+    symbol. Pulls historical OHLCV via yfinance (keyless) and runs
+    pandas_ta_classic. Returns the latest indicator value + asof.
+
+    For MACD we return the macd-minus-signal value (the histogram-style
+    delta) — that's the most useful single-number output for a
+    threshold trigger ('macd > 0' = bullish crossover).
+    """
+    from datetime import datetime, timezone
+
+    import pandas as pd
+    import pandas_ta_classic as ta
+
+    from backend.kite.market_data import get_historical_ohlcv
+
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    indicator = str(cfg["indicator"]).lower()
+    period = int(cfg["period"])
+
+    # Need enough history for the indicator. RSI needs ~period+1; MACD
+    # default 26+9. Pull 6 months for headroom.
+    bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
+    if len(bars) < period + 5:
+        raise NotYetAvailableError(
+            f"fetch.indicator: not enough history for {symbol} "
+            f"({len(bars)} bars; need {period + 5}+)"
+        )
+
+    df = pd.DataFrame(bars)
+    if "close" not in df.columns:
+        raise NotYetAvailableError(
+            f"fetch.indicator: history for {symbol} missing 'close' column"
+        )
+
+    series: Optional[pd.Series] = None
+    if indicator == "rsi":
+        series = ta.rsi(df["close"], length=period)
+    elif indicator == "sma":
+        series = ta.sma(df["close"], length=period)
+    elif indicator == "ema":
+        series = ta.ema(df["close"], length=period)
+    elif indicator == "macd":
+        # Standard MACD with the user-supplied period as the slow EMA.
+        # Returns a DataFrame with MACD/MACDh/MACDs columns; we use
+        # the histogram (macd - signal).
+        macd_df = ta.macd(df["close"], fast=12, slow=max(period, 13), signal=9)
+        if macd_df is None or macd_df.empty:
+            raise NotYetAvailableError(
+                f"fetch.indicator: MACD computation returned empty for {symbol}"
+            )
+        # Histogram column name pattern: MACDh_12_26_9
+        hist_col = next(
+            (c for c in macd_df.columns if c.startswith("MACDh_")),
+            None,
+        )
+        if hist_col is None:
+            raise NotYetAvailableError(
+                "fetch.indicator: MACD output missing histogram column"
+            )
+        series = macd_df[hist_col]
+    else:
+        raise ValueError(f"unsupported indicator: {indicator!r}")
+
+    if series is None or series.dropna().empty:
+        raise NotYetAvailableError(
+            f"fetch.indicator: {indicator}({period}) on {symbol} "
+            f"produced no values"
+        )
+
+    value = float(series.dropna().iloc[-1])
+    return {
+        "value": value,
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @register_step(

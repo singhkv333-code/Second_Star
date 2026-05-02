@@ -57,7 +57,11 @@ async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
     output_schema=None,
 )
 async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("trigger.price executor lands Day 3 with watcher")
+    """No-op: the watcher (backend/workflows/scheduler.py:_poll_watch_triggers)
+    is what actually fires this trigger. By the time the engine reaches
+    this executor, the run row already carries `triggered_by='price_alert'`.
+    The executor's only job is to log + return None so step 1 runs."""
+    return None
 
 
 @register_step(
@@ -72,7 +76,10 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     output_schema=None,
 )
 async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("trigger.indicator executor lands Day 3 with watcher")
+    """No-op: same reasoning as trigger.price. The watcher fires the
+    run with `triggered_by='indicator_alert'`; this executor just
+    acknowledges."""
+    return None
 
 
 @register_step(
