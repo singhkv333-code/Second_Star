@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getBackendSource } from "@/lib/api";
+import { getStoredToken } from "@/components/AppBootstrap";
 import { openMockRunStream } from "@/lib/mock-run";
 import { openRunStream, type RunStreamCallbacks } from "@/lib/ws";
 import type {
@@ -98,7 +99,9 @@ export function useRunStream(runId: string | null): UseRunStreamState {
     const handle =
       getBackendSource() === "mock"
         ? openMockRunStream(runId, callbacks)
-        : openRunStream(runId, callbacks);
+        : openRunStream(runId, callbacks, {
+            token: getStoredToken(),
+          });
     handleRef.current = handle;
 
     return () => {

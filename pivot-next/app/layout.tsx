@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { AppBootstrap } from "@/components/AppBootstrap";
 
 export const metadata: Metadata = {
   title: "Pivot — Agent System",
@@ -15,7 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-background text-foreground antialiased">
-        {children}
+        <AppBootstrap>{children}</AppBootstrap>
         <Toaster richColors position="top-right" />
       </body>
     </html>

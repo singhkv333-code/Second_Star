@@ -41,6 +41,9 @@ const DEFAULT_BASE = "/api";
 
 function getBaseUrl(): string {
   // Read at call time so tests / SSR can override.
+  // NEXT_PUBLIC_PIVOT_API_BASE (e.g. http://127.0.0.1:8000/api) is set in
+  // .env.local for the dev environment; falls back to the relative path so
+  // the app still works behind a reverse proxy in production.
   return (
     (typeof process !== "undefined" &&
       process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
