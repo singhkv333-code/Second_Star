@@ -86,19 +86,74 @@ _BT_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Natural-language backtest patterns — work without leading slash.
+# Accepts:
+#   "backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31"
+#   "backtest pe_ratio < 15 from 2020 to 2024 quarterly"
+#   "run a backtest on roe > 18 from 2018 to 2024 rebalance Q"
+_NL_BT_RE = re.compile(
+    r"^(?:run\s+(?:a\s+)?)?backtest\s+(?:on\s+)?(?P<expr>.+?)\s+"
+    r"from\s+(?P<start>\d{4}(?:-\d{2}-\d{2})?)\s+"
+    r"to\s+(?P<end>\d{4}(?:-\d{2}-\d{2})?)"
+    r"(?:\s+(?:rebalance\s+(?P<rb>[DWMQYdwmqy])"
+    r"|(?P<word>daily|weekly|monthly|quarterly|yearly)))?\s*$",
+    re.IGNORECASE,
+)
+# Natural-language screen — "screen roe > 18" or "find companies where pe < 15"
+_NL_SCREEN_RE = re.compile(
+    r"^(?:screen|find(?:\s+companies)?(?:\s+where)?)\s+(?P<expr>.+?)"
+    r"(?:\s+(?:as\s+of|@)\s*(?P<date>\d{4}-\d{2}-\d{2}))?\s*$",
+    re.IGNORECASE,
+)
+_REBALANCE_WORD_MAP = {
+    "daily": "D", "weekly": "W", "monthly": "M",
+    "quarterly": "Q", "yearly": "Y",
+}
+
+
+def _normalize_date_input(s: str) -> str:
+    """Accept either a YYYY date (→ Jan 1) or full YYYY-MM-DD."""
+    s = s.strip()
+    return f"{s}-01-01" if re.fullmatch(r"\d{4}", s) else s
+
 
 async def _maybe_run_slash(text: str) -> Optional[dict]:
+    """Match either explicit slash commands OR natural-language patterns
+    that map to deterministic backend tools (backtest / screen). Both
+    short-circuit before the LLM is called, so they work even when the
+    LLM provider is down."""
     body = (text or "").strip()
-    if not body or not body.startswith("/"):
+    if not body:
         return None
 
-    if (m := _BT_PREFIX_RE.match(body)):
+    # 1. Slash commands (legacy).
+    if body.startswith("/"):
+        if (m := _BT_PREFIX_RE.match(body)):
+            return await _run_expr_backtest(
+                expression=m.group("expr").strip(),
+                start=m.group("start"), end=m.group("end"),
+                rebalance=(m.group("rb") or "Q").upper(),
+            )
+        if (m := _SCREEN_PREFIX_RE.match(body)):
+            return await _run_expr_screen(
+                expression=m.group("expr").strip(),
+                as_of=m.group("date"),
+            )
+        return None
+
+    # 2. Natural-language backtest.
+    if (m := _NL_BT_RE.match(body)):
+        rb = m.group("rb")
+        if not rb and (word := m.group("word")):
+            rb = _REBALANCE_WORD_MAP.get(word.lower(), "Q")
         return await _run_expr_backtest(
             expression=m.group("expr").strip(),
-            start=m.group("start"), end=m.group("end"),
-            rebalance=(m.group("rb") or "Q").upper(),
+            start=_normalize_date_input(m.group("start")),
+            end=_normalize_date_input(m.group("end")),
+            rebalance=(rb or "Q").upper(),
         )
-    if (m := _SCREEN_PREFIX_RE.match(body)):
+    # 3. Natural-language screen.
+    if (m := _NL_SCREEN_RE.match(body)):
         return await _run_expr_screen(
             expression=m.group("expr").strip(),
             as_of=m.group("date"),
