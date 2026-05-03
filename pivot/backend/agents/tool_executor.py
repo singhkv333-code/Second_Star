@@ -44,6 +44,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "delete_sip":                 _delete_sip,
         "pause_all_sips":             _pause_all_sips,
         "create_strategy":            _create_strategy,
+        "propose_workflow":           _propose_workflow,
         "create_cash_sweep":          _generic_confirm,
         "create_rebalancing_rule":    _generic_confirm,
         "create_drawdown_protection": _generic_confirm,
@@ -85,8 +86,17 @@ async def execute_tool(tool_name: str, arguments: dict,
         return {"success": False, "error": str(e), "data": {}, "logiccard": None}
 
 
-def _lc(type_, action, symbol, details, explanation):
-    return {
+def _lc(type_, action, symbol, details, explanation, *, register_payload=None):
+    """Build a LogicCard for the chat UI.
+
+    `register_payload` is the machine-readable form of the same intent —
+    when the user clicks "Confirm & register" in chat, this payload is
+    POSTed to `/orders/register` (or the matching endpoint for the card
+    type) and a row gets written to TradeLog. Tools never persist on
+    their own; the confirm click is the commit point. Option A in the
+    v1 plan.
+    """
+    card = {
         "type": type_,
         "action": action,
         "symbol": symbol,
@@ -95,6 +105,9 @@ def _lc(type_, action, symbol, details, explanation):
         "disclaimer": "This is automation of your instructions, not financial advice.",
         "requires_confirmation": True,
     }
+    if register_payload is not None:
+        card["register_payload"] = register_payload
+    return card
 
 
 def _cached(symbol):
@@ -116,12 +129,18 @@ async def _place_market_order(a, kt, db, uid):
     ok, err = validate_order_value(qty, est)
     if not ok:
         return {"success": False, "error": err, "data": {}, "logiccard": None}
+    product = a.get("product", "CNC")
     lc = _lc("market_order", txn, sym,
              [{"label": "Quantity", "value": str(qty)},
               {"label": "Order Type", "value": "MARKET"},
-              {"label": "Product", "value": a.get("product", "CNC")},
+              {"label": "Product", "value": product},
               {"label": "Est. Value", "value": f"₹{qty * est:,.0f}"}],
-             f"{'Buy' if txn == 'BUY' else 'Sell'} {qty} {sym} immediately at ~₹{est:,.2f}.")
+             f"{'Buy' if txn == 'BUY' else 'Sell'} {qty} {sym} immediately at ~₹{est:,.2f}.",
+             register_payload={
+                 "symbol": sym, "exchange": a.get("exchange", "NSE"),
+                 "transaction_type": txn, "order_type": "MARKET",
+                 "quantity": int(qty), "price": float(est), "product": product,
+             })
     return {"success": True, "data": {}, "logiccard": lc}
 
 
@@ -131,7 +150,13 @@ async def _place_limit_order(a, kt, db, uid):
              [{"label": "Quantity", "value": str(qty)},
               {"label": "Limit Price", "value": f"₹{price:,.2f}"},
               {"label": "Est. Value", "value": f"₹{qty * price:,.0f}"}],
-             f"{txn.title()} {qty} {sym} at ₹{price:,.2f} or better.")
+             f"{txn.title()} {qty} {sym} at ₹{price:,.2f} or better.",
+             register_payload={
+                 "symbol": sym, "exchange": a.get("exchange", "NSE"),
+                 "transaction_type": txn, "order_type": "LIMIT",
+                 "quantity": int(qty), "price": float(price),
+                 "product": a.get("product", "CNC"),
+             })
     return {"success": True, "data": {}, "logiccard": lc}
 
 
@@ -147,7 +172,13 @@ async def _create_gtt_order(a, kt, db, uid):
               {"label": "Current Price", "value": f"₹{cur:,.2f}" if cur else "—"},
               {"label": "Est. Spend", "value": f"₹{qty * tp:,.0f}"}],
              f"GTT: {txn.lower()} {qty} {sym} when price hits ₹{tp:,.2f}. "
-             f"Zerodha monitors this automatically.")
+             f"Zerodha monitors this automatically.",
+             register_payload={
+                 "symbol": sym, "exchange": a.get("exchange", "NSE"),
+                 "transaction_type": txn, "order_type": "GTT",
+                 "quantity": int(qty), "price": float(lp),
+                 "trigger_price": float(tp), "product": "CNC",
+             })
     return {"success": True, "data": {}, "logiccard": lc}
 
 
@@ -160,7 +191,15 @@ async def _create_sl_order(a, kt, db, uid):
              [{"label": "Quantity", "value": str(qty)},
               {"label": "Stop Price", "value": f"₹{sp:,.2f}" if sp else "—"}],
              f"Stop-loss: sell {qty} {sym} if price falls to ₹{sp:,.2f}." if sp
-             else f"Stop-loss requested for {sym} but stop price could not be determined.")
+             else f"Stop-loss requested for {sym} but stop price could not be determined.",
+             register_payload={
+                 "symbol": sym, "exchange": a.get("exchange", "NSE"),
+                 "transaction_type": "SELL", "order_type": "SL",
+                 "quantity": int(qty),
+                 "trigger_price": float(sp) if sp else None,
+                 "price": float(sp) if sp else None,
+                 "product": "CNC",
+             } if sp else None)
     return {"success": True, "data": {}, "logiccard": lc}
 
 
@@ -171,7 +210,13 @@ async def _create_oco_order(a, kt, db, uid):
              [{"label": "Quantity", "value": str(qty)},
               {"label": "Target (Sell)", "value": f"₹{tgt:,.2f}"},
               {"label": "Stop (Sell)", "value": f"₹{stp:,.2f}"}],
-             f"OCO on {qty} {sym}: sell at ₹{tgt:,.2f} target OR ₹{stp:,.2f} stop.")
+             f"OCO on {qty} {sym}: sell at ₹{tgt:,.2f} target OR ₹{stp:,.2f} stop.",
+             register_payload={
+                 "symbol": sym, "exchange": a.get("exchange", "NSE"),
+                 "transaction_type": "SELL", "order_type": "OCO",
+                 "quantity": int(qty), "price": float(tgt),
+                 "trigger_price": float(stp), "product": "CNC",
+             })
     return {"success": True, "data": {}, "logiccard": lc}
 
 
@@ -187,7 +232,13 @@ async def _create_dip_buy(a, kt, db, uid):
               {"label": "Trigger Price", "value": f"₹{tp:,.2f}" if tp else "—"},
               {"label": "Quantity", "value": str(qty) if qty else "—"},
               {"label": "Budget", "value": f"₹{budget:,.0f}"}],
-             f"Dip buy: purchase {qty or '?'} {sym} when price falls {dip}% to ₹{tp or '?'}.")
+             f"Dip buy: purchase {qty or '?'} {sym} when price falls {dip}% to ₹{tp or '?'}.",
+             register_payload={
+                 "symbol": sym, "exchange": a.get("exchange", "NSE"),
+                 "transaction_type": "BUY", "order_type": "GTT",
+                 "quantity": int(qty), "price": float(tp),
+                 "trigger_price": float(tp), "product": "CNC",
+             } if (tp and qty) else None)
     return {"success": True, "data": {}, "logiccard": lc}
 
 
@@ -198,7 +249,22 @@ async def _place_basket_order(a, kt, db, uid):
              [{"label": f"{l['transaction_type']} {l['symbol']}",
                "value": f"{l['quantity']} @ {l.get('order_type', 'MARKET')}"}
               for l in legs],
-             f"Basket: {len(legs)} orders execute simultaneously.")
+             f"Basket: {len(legs)} orders execute simultaneously.",
+             register_payload={
+                 "basket": True,
+                 "legs": [
+                     {
+                         "symbol": l["symbol"].upper(),
+                         "exchange": l.get("exchange", "NSE"),
+                         "transaction_type": l["transaction_type"],
+                         "order_type": l.get("order_type", "MARKET"),
+                         "quantity": int(l["quantity"]),
+                         "price": float(l.get("price")) if l.get("price") is not None else None,
+                         "product": l.get("product", "CNC"),
+                     }
+                     for l in legs
+                 ],
+             })
     return {"success": True, "data": {}, "logiccard": lc}
 
 
@@ -337,6 +403,33 @@ async def _create_strategy(a, kt, db, uid):
 
 async def _generic_confirm(a, kt, db, uid):
     return {"success": True, "data": {"message": "Created", "args": a}, "logiccard": None}
+
+
+async def _propose_workflow(a, kt, db, uid):
+    """Bridge from chat -> backend.workflows.propose.
+
+    Returns a tool result whose `data` is the WorkflowDraft dict +
+    a `_render_hint` that tells the chat UI to show an inline
+    "Open in editor" card. Does NOT persist to DB — frontend POSTs
+    to /api/workflows when the user activates from the editor.
+    """
+    from backend.workflows.propose import (
+        ProposalValidationError,
+        propose_workflow_async,
+    )
+    user_intent = (a or {}).get("user_intent", "")
+    try:
+        draft = await propose_workflow_async(user_intent)
+    except ProposalValidationError as e:
+        return {
+            "success": False,
+            "error": str(e)[:300],
+            "data": {},
+            "logiccard": None,
+        }
+    payload = draft.model_dump()
+    payload["_render_hint"] = "workflow_draft_card"
+    return {"success": True, "data": payload, "logiccard": None}
 
 
 async def _list_strategies(a, kt, db, uid):

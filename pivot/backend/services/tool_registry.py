@@ -58,6 +58,8 @@ _REAL_TOOLS: set[str] = {
     "get_scheduler_status", "list_upcoming_jobs",
     # New v2 tools
     "get_product_spec",
+    # Agent System (Workflows v1)
+    "propose_workflow",
 }
 
 

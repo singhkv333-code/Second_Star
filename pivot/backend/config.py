@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     # JWT
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 15
+    # Default 12 hours for demo / development convenience. Production
+    # should override via ACCESS_TOKEN_EXPIRE_MINUTES in env to 15-30.
+    access_token_expire_minutes: int = 720
     refresh_token_expire_days: int = 7
 
     # Kite

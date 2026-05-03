@@ -44,6 +44,9 @@ apscheduler==3.10.4
 # Timezones (IST for market-hours checks)
 pytz==2024.2
 
+# JSON Schema validation (workflow step config validation, draft 2020-12)
+jsonschema==4.23.0
+
 # Logging
 structlog==24.4.0
 

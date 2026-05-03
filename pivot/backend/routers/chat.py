@@ -86,24 +86,425 @@ _BT_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Natural-language backtest patterns — work without leading slash.
+# Accepts:
+#   "backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31"
+#   "backtest pe_ratio < 15 from 2020 to 2024 quarterly"
+#   "run a backtest on roe > 18 from 2018 to 2024 rebalance Q"
+_NL_BT_RE = re.compile(
+    r"^(?:run\s+(?:a\s+)?)?backtest\s+(?:on\s+)?(?P<expr>.+?)\s+"
+    r"from\s+(?P<start>\d{4}(?:-\d{2}-\d{2})?)\s+"
+    r"to\s+(?P<end>\d{4}(?:-\d{2}-\d{2})?)"
+    r"(?:\s+(?:rebalance\s+(?P<rb>[DWMQYdwmqy])"
+    r"|(?P<word>daily|weekly|monthly|quarterly|yearly)))?\s*$",
+    re.IGNORECASE,
+)
+
+# Indicator backtest — single-symbol RSI/SMA/EMA strategies. Runs off
+# yfinance + pandas_ta, no fundamentals DB required. Two phrasings:
+#
+# A) "<verb>? <SYMBOL> when[ever] (its )?<rsi|sma|ema>( <N>)? (op) <num>"
+#    e.g. "backtest buying reliance whenever its rsi drops below 50"
+#         "buy infy when rsi falls under 30"
+# B) "<verb>? <SYMBOL> when[ever] (it )?cross(es|ed) (above|below)? <N> (sma|ema)"
+#    e.g. "buying reliance whenever it crossed 200 ema"
+#         "buy tcs when it crosses above 50 sma"
+# Verb fragment that means "below" — covers past + present + over/under/below.
+_VERB_DOWN = (
+    r"(?:drops?|dropped|falls?|fell|crosses?|crossed|breaks?|broke|"
+    r"goes?\s+(?:below|under)|moves?\s+(?:below|under))"
+    r"\s+(?:below|under)"
+    r"|<"
+)
+_VERB_UP = (
+    r"(?:rises?|rose|crosses?|crossed|breaks?|broke|"
+    r"goes?\s+(?:above|over)|moves?\s+(?:above|over))"
+    r"\s+(?:above|over)"
+    r"|>"
+)
+_VERB_ANY_DIR = f"(?P<op>{_VERB_DOWN}|{_VERB_UP})"
+
+_NL_IND_RE_A = re.compile(
+    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
+    r"(?:when(?:ever)?|on)\s+(?:its\s+|the\s+)?"
+    r"(?P<indicator>rsi|sma|ema)"
+    r"(?:[\(\s]+(?P<period>\d{1,3})[\)\s]*)?\s*"
+    r"(?:is\s+|value\s+)?"
+    + _VERB_ANY_DIR +
+    r"\s+(?P<threshold>\d+(?:\.\d+)?)"
+    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
+    r"\s*$",
+    re.IGNORECASE,
+)
+_NL_IND_RE_B = re.compile(
+    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
+    r"(?:when(?:ever)?|on)\s+(?:it\s+|the\s+price\s+)?"
+    r"(?P<op>cross(?:es|ed)?(?:\s+(?P<dir>above|below))?)\s+"
+    r"(?P<period>\d{1,3})\s+"
+    r"(?P<indicator>sma|ema)"
+    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
+    r"\s*$",
+    re.IGNORECASE,
+)
+# C) Indicator name AFTER the threshold — common in casual phrasing:
+#    "backtest buying reliance whenever it dropped below 50 rsi"
+#    "buy infy when it falls under 30 rsi"
+_NL_IND_RE_C = re.compile(
+    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
+    r"(?:when(?:ever)?|on)\s+(?:it\s+|its\s+|the\s+(?:price\s+)?)?"
+    + _VERB_ANY_DIR +
+    r"\s+(?P<threshold>\d+(?:\.\d+)?)\s+"
+    r"(?P<indicator>rsi|sma|ema)"
+    r"(?:\s*\(?\s*(?P<period>\d{1,3})\s*\)?)?"
+    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
+    r"\s*$",
+    re.IGNORECASE,
+)
+# "the testing period is last N years" — follow-up that re-runs the
+# previous backtest with a new period. Stateful across turns: chat
+# router doesn't track this; we just match the phrase to expose the N.
+_NL_TESTING_PERIOD_RE = re.compile(
+    r"(?:the\s+)?testing\s+period\s+is\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?",
+    re.IGNORECASE,
+)
+# Natural-language screen — "screen roe > 18" or "find companies where pe < 15"
+_NL_SCREEN_RE = re.compile(
+    r"^(?:screen|find(?:\s+companies)?(?:\s+where)?)\s+(?P<expr>.+?)"
+    r"(?:\s+(?:as\s+of|@)\s*(?P<date>\d{4}-\d{2}-\d{2}))?\s*$",
+    re.IGNORECASE,
+)
+_REBALANCE_WORD_MAP = {
+    "daily": "D", "weekly": "W", "monthly": "M",
+    "quarterly": "Q", "yearly": "Y",
+}
+
+
+def _normalize_date_input(s: str) -> str:
+    """Accept either a YYYY date (→ Jan 1) or full YYYY-MM-DD."""
+    s = s.strip()
+    return f"{s}-01-01" if re.fullmatch(r"\d{4}", s) else s
+
 
 async def _maybe_run_slash(text: str) -> Optional[dict]:
+    """Match either explicit slash commands OR natural-language patterns
+    that map to deterministic backend tools (backtest / screen). Both
+    short-circuit before the LLM is called, so they work even when the
+    LLM provider is down."""
     body = (text or "").strip()
-    if not body or not body.startswith("/"):
+    if not body:
         return None
 
-    if (m := _BT_PREFIX_RE.match(body)):
+    # 1. Slash commands (legacy).
+    if body.startswith("/"):
+        if (m := _BT_PREFIX_RE.match(body)):
+            return await _run_expr_backtest(
+                expression=m.group("expr").strip(),
+                start=m.group("start"), end=m.group("end"),
+                rebalance=(m.group("rb") or "Q").upper(),
+            )
+        if (m := _SCREEN_PREFIX_RE.match(body)):
+            return await _run_expr_screen(
+                expression=m.group("expr").strip(),
+                as_of=m.group("date"),
+            )
+        return None
+
+    # 2. Indicator backtest (single-symbol, RSI/SMA/EMA via yfinance).
+    #    Strict regex first (cheap, deterministic for canonical phrasings),
+    #    then a permissive heuristic parser for anything else.
+    if (
+        (m := _NL_IND_RE_A.match(body))
+        or (m := _NL_IND_RE_B.match(body))
+        or (m := _NL_IND_RE_C.match(body))
+    ):
+        return await _run_indicator_backtest(m)
+    if (parsed := _heuristic_indicator_intent(body)) is not None:
+        return await _run_indicator_backtest_dict(parsed)
+
+    # 3. Natural-language fundamentals backtest.
+    if (m := _NL_BT_RE.match(body)):
+        rb = m.group("rb")
+        if not rb and (word := m.group("word")):
+            rb = _REBALANCE_WORD_MAP.get(word.lower(), "Q")
         return await _run_expr_backtest(
             expression=m.group("expr").strip(),
-            start=m.group("start"), end=m.group("end"),
-            rebalance=(m.group("rb") or "Q").upper(),
+            start=_normalize_date_input(m.group("start")),
+            end=_normalize_date_input(m.group("end")),
+            rebalance=(rb or "Q").upper(),
         )
-    if (m := _SCREEN_PREFIX_RE.match(body)):
+    # 4. Natural-language screen.
+    if (m := _NL_SCREEN_RE.match(body)):
         return await _run_expr_screen(
             expression=m.group("expr").strip(),
             as_of=m.group("date"),
         )
     return None
+
+
+def _normalize_op(op_text: str, direction: str | None = None) -> str:
+    """Map a phrase like 'drops below' / 'crossed above' to the
+    indicator-backtest operator vocabulary."""
+    s = op_text.lower().strip()
+    if "below" in s or "<" in s or "drop" in s or "fall" in s or "fell" in s:
+        return "<"
+    if "above" in s or ">" in s or "rise" in s or "rose" in s or "goes" in s:
+        return ">"
+    if "cross" in s:
+        # "crossed 200 ema" with no direction → above (most common intent)
+        if direction == "below":
+            return "crosses_below"
+        return "crosses_above"
+    return "<"
+
+
+_DEFAULT_PERIOD_BY_INDICATOR = {"rsi": 14, "sma": 50, "ema": 50}
+
+
+# Heuristic parser — runs after the strict regexes fail.
+#
+# Trigger: message contains "backtest" OR starts with a buy/sell/long/short
+# verb followed by "<sym> when[ever]". We then extract pieces independently
+# rather than trying to constrain word order:
+#   - indicator    (rsi|sma|ema)         required
+#   - op           (< / > / crosses_*)   inferred from verbs
+#   - threshold    (number nearest to a directional cue)
+#   - symbol       (first non-stopword content token)
+#   - years        ("N year(s)" anywhere in the sentence)
+# This is intentionally a fallback; canonical phrasings should still hit
+# the strict regexes for predictability.
+_INDICATOR_RE = re.compile(r"\b(rsi|sma|ema)\b", re.IGNORECASE)
+_BACKTEST_TRIGGER_RE = re.compile(r"\bbacktest\b", re.IGNORECASE)
+_VERB_START_RE = re.compile(
+    r"^(buy(?:ing)?|sell(?:ing)?|long|short)\b", re.IGNORECASE,
+)
+_THRESHOLD_NEAR_DIR_RE = re.compile(
+    r"(?:below|under|<|above|over|>|of|at|=)\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_INDICATOR_PERIOD_BEFORE_RE = re.compile(
+    r"(\d+)\s*(?:-?day\s+)?(?:rsi|sma|ema)\b", re.IGNORECASE,
+)
+_YEARS_RE = re.compile(r"(?:last|past)\s+(\d+)\s+years?\b", re.IGNORECASE)
+_DIRECTION_DOWN_RE = re.compile(
+    r"\b(?:drops?|dropped|drop|falls?|fell|below|under)\b", re.IGNORECASE,
+)
+_DIRECTION_UP_RE = re.compile(
+    r"\b(?:rises?|rose|above|over|exceed(?:s|ed)?|breaks?\s+out)\b",
+    re.IGNORECASE,
+)
+_DIRECTION_CROSS_RE = re.compile(
+    r"\b(cross(?:es|ed)?)(?:\s+(above|below))?\b", re.IGNORECASE,
+)
+
+# Stopwords excluded when picking a symbol candidate. Lowercase; matching
+# is done case-insensitively. Includes filler words ("what", "happens"),
+# sentence connectors, indicator/direction terms, etc.
+_SYMBOL_STOPWORDS = frozenset({
+    "backtest", "buy", "buying", "sell", "selling", "long", "short",
+    "what", "happens", "happen", "when", "whenever", "the", "last",
+    "past", "years", "year", "rsi", "sma", "ema", "drops", "dropped",
+    "drop", "falls", "fell", "below", "above", "of", "in", "on",
+    "over", "under", "with", "at", "and", "or", "if", "for", "to",
+    "from", "rose", "rises", "rise", "crosses", "crossed", "cross",
+    "exceed", "exceeds", "exceeded", "by", "is", "as", "it", "its",
+    "a", "an", "this", "that", "value", "price", "show", "showed",
+    "do", "does", "did", "i", "me", "my", "we", "our", "your",
+    "any", "some", "happens", "run",
+})
+
+
+def _heuristic_indicator_intent(body: str) -> dict | None:
+    """Permissive parser: pulls indicator + symbol + threshold + direction
+    + period out of free-form chat input. Returns the same dict shape the
+    regex `m.groupdict()` would produce, or None if no indicator backtest
+    intent is detectable."""
+    # Trigger gate.
+    if not (_BACKTEST_TRIGGER_RE.search(body) or _VERB_START_RE.match(body)):
+        return None
+    # Indicator is required.
+    ind_m = _INDICATOR_RE.search(body)
+    if not ind_m:
+        return None
+    indicator = ind_m.group(1).lower()
+
+    # Direction.
+    if _DIRECTION_CROSS_RE.search(body):
+        cm = _DIRECTION_CROSS_RE.search(body)
+        direction = (cm.group(2) or "").lower() if cm else ""
+        op = "crosses_below" if direction == "below" else "crosses_above"
+    elif _DIRECTION_UP_RE.search(body) and not _DIRECTION_DOWN_RE.search(body):
+        op = ">"
+    else:
+        # Default to `<` because most casual queries mean "buy when X
+        # drops below" (oversold / dip-buy). Tests for this default
+        # in test_chat_nl_shortcuts.
+        op = "<"
+
+    # Threshold — prefer a number that follows a directional cue
+    # ("below 50", "above 30", "of 50"), then fall back to any number
+    # next to the indicator name.
+    thr_m = _THRESHOLD_NEAR_DIR_RE.search(body)
+    threshold = float(thr_m.group(1)) if thr_m else None
+
+    # Indicator period — for SMA/EMA only ("200 EMA").
+    ip_m = _INDICATOR_PERIOD_BEFORE_RE.search(body)
+    indicator_period = (
+        int(ip_m.group(1)) if ip_m else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
+    )
+
+    # If RSI and threshold still missing, no point continuing.
+    if indicator == "rsi" and threshold is None:
+        # Try any number that isn't the year and isn't the indicator period.
+        all_nums = re.findall(r"\b(\d+(?:\.\d+)?)\b", body)
+        years_m_local = _YEARS_RE.search(body)
+        years_str = years_m_local.group(1) if years_m_local else ""
+        candidates = [n for n in all_nums if n != years_str]
+        if candidates:
+            threshold = float(candidates[0])
+    if indicator == "rsi" and threshold is None:
+        return None
+    # For SMA/EMA the threshold is implicit (= indicator period).
+    if threshold is None:
+        threshold = float(indicator_period)
+
+    # Years.
+    years_m = _YEARS_RE.search(body)
+    years = int(years_m.group(1)) if years_m else 5
+
+    # Symbol — first content word that's not a stopword and looks like
+    # a ticker or company name.
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-_]+", body)
+    symbol: str | None = None
+    for tok in tokens:
+        if tok.lower() in _SYMBOL_STOPWORDS:
+            continue
+        if len(tok) < 2 or len(tok) > 16:
+            continue
+        symbol = tok
+        break
+    if symbol is None:
+        return None
+
+    return {
+        "symbol": symbol,
+        "indicator": indicator,
+        "period": str(indicator_period),
+        "op": "drops below" if op == "<" else (
+            "rises above" if op == ">" else "crosses"
+        ),
+        "dir": "below" if op == "crosses_below" else (
+            "above" if op == "crosses_above" else None
+        ),
+        "threshold": str(threshold),
+        "years": str(years),
+    }
+
+
+async def _run_indicator_backtest_dict(gd: dict) -> dict:
+    """Heuristic-parser variant — takes a plain dict instead of a regex
+    match, otherwise identical to _run_indicator_backtest."""
+    import asyncio
+    from backend.services.indicator_backtest import run_indicator_backtest
+
+    symbol = gd["symbol"].upper()
+    indicator = gd["indicator"].lower()
+    period = int(gd.get("period")) if gd.get("period") else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
+    operator = _normalize_op(gd.get("op", "<"), gd.get("dir"))
+    threshold = float(gd.get("threshold") or period)
+    years = int(gd.get("years") or 5)
+    yf_period = f"{years}y"
+    try:
+        result = await asyncio.to_thread(
+            run_indicator_backtest,
+            symbol=symbol, indicator=indicator,  # type: ignore[arg-type]
+            indicator_period=period, operator=operator,  # type: ignore[arg-type]
+            threshold=threshold, period=yf_period,
+        )
+    except ValueError as e:
+        return _slash_error(f"Backtest error: {e}")
+    except Exception as e:
+        return _slash_error(f"Backtest failed: {str(e)[:200]}")
+    return {
+        "response": result.summary_text,
+        "intent": "INDICATOR_BACKTEST",
+        "screen_data": None, "expr_backtest_data": None, "backtest_data": None,
+        "chart_data": None, "logiccard": None, "requires_clarification": False,
+        "raw_data": {
+            "_render_hint": "indicator_backtest_chart",
+            "symbol": result.symbol,
+            "indicator": result.indicator,
+            "indicator_period": result.indicator_period,
+            "operator": result.operator,
+            "threshold": result.threshold,
+            "period_label": result.period_label,
+            "price_curve": result.price_curve,
+            "equity_curve": result.equity_curve,
+            "indicator_curve": result.indicator_curve,
+            "signals": result.signals,
+            "metrics": result.metrics,
+            "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        },
+    }
+
+
+async def _run_indicator_backtest(m: "re.Match[str]") -> dict:
+    """Convert a regex match into a call into
+    `services.indicator_backtest.run_indicator_backtest`. The chat router
+    runs in async context but the backtester is sync (CPU-bound +
+    yfinance HTTP); we offload via `asyncio.to_thread`."""
+    import asyncio
+    from backend.services.indicator_backtest import run_indicator_backtest
+
+    gd = m.groupdict()
+    symbol = gd["symbol"].upper()
+    indicator = gd["indicator"].lower()
+    period = int(gd.get("period")) if gd.get("period") else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
+    op_text = gd.get("op", "<")
+    direction = gd.get("dir")
+    operator = _normalize_op(op_text, direction)
+    threshold = float(gd.get("threshold") or period)  # SMA/EMA: threshold = period (ignored)
+    years = int(gd.get("years") or 5)
+    yf_period = f"{years}y"
+
+    try:
+        result = await asyncio.to_thread(
+            run_indicator_backtest,
+            symbol=symbol, indicator=indicator,  # type: ignore[arg-type]
+            indicator_period=period, operator=operator,  # type: ignore[arg-type]
+            threshold=threshold, period=yf_period,
+        )
+    except ValueError as e:
+        return _slash_error(f"Backtest error: {e}")
+    except Exception as e:
+        return _slash_error(f"Backtest failed: {str(e)[:200]}")
+
+    return {
+        "response": result.summary_text,
+        "intent": "INDICATOR_BACKTEST",
+        "screen_data": None, "expr_backtest_data": None, "backtest_data": None,
+        "chart_data": None, "logiccard": None, "requires_clarification": False,
+        # Flagged so the FE renders a chart card inline rather than a
+        # plain bubble. The shape mirrors what IndicatorBacktestCard
+        # consumes in pivot-next/components/chat/.
+        "raw_data": {
+            "_render_hint": "indicator_backtest_chart",
+            "symbol": result.symbol,
+            "indicator": result.indicator,
+            "indicator_period": result.indicator_period,
+            "operator": result.operator,
+            "threshold": result.threshold,
+            "period_label": result.period_label,
+            "price_curve": result.price_curve,
+            "equity_curve": result.equity_curve,
+            "indicator_curve": result.indicator_curve,
+            "signals": result.signals,
+            "metrics": result.metrics,
+            "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        },
+    }
 
 
 async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
@@ -227,17 +628,66 @@ async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance
         f"{len(result.rebalances)} rebalances, {len(result.trades)} trades. "
         "Past performance does not guarantee future results."
     )
+    # Serialise the equity / benchmark curves to plain JSON-able lists.
+    # `result.equity_curve` is List[BacktestEquityPoint(date: date, value: float)].
+    def _curve_to_json(curve) -> list[dict]:
+        out = []
+        for p in curve:
+            d = p.date if hasattr(p, "date") else p["date"]
+            v = p.value if hasattr(p, "value") else p["value"]
+            out.append({
+                "date": d.isoformat() if hasattr(d, "isoformat") else str(d),
+                "value": float(v),
+            })
+        return out
+
+    def _rebalance_to_json(rb) -> dict:
+        d = rb.date if hasattr(rb, "date") else rb["date"]
+        entered = rb.entered if hasattr(rb, "entered") else rb.get("entered", [])
+        exited = rb.exited if hasattr(rb, "exited") else rb.get("exited", [])
+        return {
+            "date": d.isoformat() if hasattr(d, "isoformat") else str(d),
+            "entered": [
+                {"symbol": (e.symbol if hasattr(e, "symbol") else e["symbol"]),
+                 "weight": float(e.weight if hasattr(e, "weight") else e["weight"])}
+                for e in entered
+            ],
+            "exited": [
+                {"symbol": (x.symbol if hasattr(x, "symbol") else x["symbol"])}
+                for x in exited
+            ],
+        }
+
+    equity_json = _curve_to_json(result.equity_curve)
+    benchmark_json = _curve_to_json(result.benchmark_curve)
+    rebalances_json = [_rebalance_to_json(rb) for rb in result.rebalances[:50]]
+
     return {
         "response": text, "intent": "EXPR_BACKTEST",
         "expr_backtest_data": {
             "expression": expression, "start": start, "end": end,
             "rebalance": cfg.rebalance, "metrics": metrics,
-            "equity_curve": result.equity_curve,
-            "benchmark_curve": result.benchmark_curve,
-            "rebalances": result.rebalances[:50],
+            "equity_curve": equity_json,
+            "benchmark_curve": benchmark_json,
+            "rebalances": rebalances_json,
             "n_trades": len(result.trades),
             "warnings": result.warnings[:5],
             "symbol_mapping": mapping_summary,
+        },
+        # Tag for the FE so ChatDemo dispatches to FinancialBacktestCard.
+        # Same convention as indicator_backtest_chart (line ~436 above).
+        "raw_data": {
+            "_render_hint": "financial_backtest_chart",
+            "expression": expression,
+            "start": start,
+            "end": end,
+            "rebalance": cfg.rebalance,
+            "metrics": metrics,
+            "equity_curve": equity_json,
+            "benchmark_curve": benchmark_json,
+            "rebalances": rebalances_json,
+            "n_trades": len(result.trades),
+            "warnings": result.warnings[:5],
         },
         "screen_data": None, "backtest_data": None, "chart_data": None,
         "logiccard": None, "requires_clarification": False,
@@ -313,6 +763,29 @@ async def chat(
         logger.warning("post-processor stripped output for user %s conv %s",
                        user_id, conv_id)
 
+    raw_data = turn.raw_data or {}
+    # Tools that emit a card payload (propose_workflow → workflow_draft_card,
+    # run_backtest → indicator_backtest_chart, …) put it under
+    # raw_data[tool_name]. The frontend reads `_render_hint` at the top
+    # level, so we need to lift that nested payload up. We pick the first
+    # nested dict that carries a `_render_hint`; in practice only one
+    # tool is called per turn so there's no ambiguity.
+    if not raw_data.get("_render_hint"):
+        for _key, val in list(raw_data.items()):
+            if isinstance(val, dict) and val.get("_render_hint"):
+                # Merge the nested payload over the top so existing keys
+                # (e.g. _render_hint, name, steps, …) are visible to the FE.
+                raw_data = {**raw_data, **val}
+                break
+
+    # If a tool produced a LogicCard and nothing else has set a render
+    # hint, tag the response so the frontend renders the unified
+    # LogicCardChip. This is the single switchboard for the ~30 chat
+    # tools that build a LogicCard (orders, GTT, SL, OCO, dip-buy,
+    # basket, squareoff, SIP create, etc.).
+    if turn.logiccard and not raw_data.get("_render_hint"):
+        raw_data = {**raw_data, "_render_hint": "logic_card"}
+
     return {
         "response": turn.response,
         "intent": None,                       # intent classifier removed
@@ -321,7 +794,7 @@ async def chat(
         "requires_clarification": False,
         "missing_params": [],
         "tool_call": None,                    # legacy field — never populated now
-        "raw_data": turn.raw_data or None,
+        "raw_data": raw_data or None,
         "latency_ms": turn.latency_ms,
     }
 
