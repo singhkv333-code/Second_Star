@@ -21,12 +21,18 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from pydantic import BaseModel, ValidationError
 
 from backend.llm.base import LLMClient, LLMMessage, LLMResponse, ToolDef
+from backend.services.completeness import (
+    CompletenessReport,
+    MissingField,
+    check_completeness,
+)
 from backend.services.tool_registry import ToolResult, execute, get_tool_schema
 
 
@@ -197,6 +203,9 @@ class GuardedToolResult:
     data: dict[str, Any] = field(default_factory=dict)
     logiccard: Optional[dict[str, Any]] = None
     error: Optional[str] = None
+    # Per-step latency for the tool's own pre-flight + execution.
+    # Surfaces in chat_service's latency_breakdown.
+    latency_ms: int = 0
 
     @classmethod
     def from_tool_result(cls, name: str, args: dict[str, Any], r: ToolResult) -> "GuardedToolResult":
@@ -207,6 +216,155 @@ class GuardedToolResult:
             logiccard=r.logiccard,
             error=r.error,
         )
+
+
+# ── Schema-driven completeness gate ────────────────────────────────
+
+
+async def _generate_clarification_question(
+    *,
+    llm_client: LLMClient,
+    tool_name: str,
+    tool_description: str,
+    user_message: str,
+    missing: list[MissingField],
+) -> str:
+    """Tiny minimal-reasoning LLM call. Writes ONE friendly question
+    for the user given the missing-field list. Average <1 s.
+
+    The deterministic completeness check has already done the
+    structural work; the model is just phrasing the question. No
+    chain-of-thought required.
+    """
+    fields_block = "\n".join(
+        f"- {m.field_name}"
+        + (f" ({m.description})" if m.description else "")
+        + f" — type: {m.type_hint}"
+        for m in missing
+    )
+    prompt = (
+        f"User said: {user_message!r}\n"
+        f"They want to: {tool_description}\n"
+        f"To do that I'm missing:\n{fields_block}\n\n"
+        "Write ONE short, friendly question asking the user to provide "
+        "these missing details. Be specific about what to provide. "
+        "Avoid technical jargon (don't list field names or schema types). "
+        "Keep it to one or two sentences."
+    )
+    response = await llm_client.complete(
+        messages=[LLMMessage(role="user", content=prompt)],
+        tools=None,
+        tool_choice="none",
+        max_output_tokens=200,
+        reasoning_effort="minimal",
+        temperature=0.2,
+    )
+    return (response.content or "").strip() or _fallback_question(missing)
+
+
+def _fallback_question(missing: list[MissingField]) -> str:
+    """Deterministic fallback if the LLM clarification call fails."""
+    if not missing:
+        return "Could you give me a bit more detail?"
+    names = ", ".join(m.field_name for m in missing)
+    return (
+        f"I'm missing some details to do that — could you tell me the "
+        f"{names}?"
+    )
+
+
+async def execute_with_completeness(
+    tool_name: str,
+    args: dict[str, Any],
+    *,
+    llm_client: LLMClient,
+    user_message: str,
+    kite_token: str,
+    db: Any,
+    user_id: int,
+) -> GuardedToolResult:
+    """Schema-first tool execution.
+
+    Order of operations (each layer cheaper than the next):
+      1. Pure-Python completeness check on required fields.
+      2. JSON-Schema arg validator (type / enum / minLength).
+      3. Tool execution.
+
+    Each layer short-circuits on failure — so a missing field
+    *never* triggers a Pydantic call, an Pydantic-violating arg
+    never reaches the executor.
+
+    The completeness branch returns `needs_clarification=True` with
+    a one-question prompt the chat surfaces as the assistant reply.
+    No LLM retry hop here — the agentic loop already gives the
+    model another chance to call a different tool on its next
+    iteration if the user comes back with more info.
+    """
+    started = time.monotonic()
+
+    # ASK_USER intercept (synthetic tool — no executor; also no
+    # completeness check beyond the question-non-empty rule baked
+    # into its schema).
+    if tool_name == ASK_USER_TOOL_NAME:
+        ask_schema = ask_user_tool_def().parameters
+        err = _validate_args_against_schema(args, ask_schema)
+        if err is not None:
+            return GuardedToolResult(
+                name=tool_name, args=args, error=err,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+        return GuardedToolResult(
+            name=tool_name, args=args,
+            needs_clarification=True,
+            question=(args.get("question") or "").strip(),
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
+
+    # Look up the schema for the chosen tool.
+    schema = _schema_for_tool(tool_name)
+    description = _description_for_tool(tool_name) or ""
+
+    # 1. Completeness check (pure Python, microseconds).
+    if isinstance(schema, dict):
+        report = check_completeness(tool_name, schema, args)
+        if not report.is_complete:
+            question = await _generate_clarification_question(
+                llm_client=llm_client,
+                tool_name=tool_name,
+                tool_description=description,
+                user_message=user_message,
+                missing=report.missing,
+            )
+            return GuardedToolResult(
+                name=tool_name, args=args,
+                needs_clarification=True,
+                question=question,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+
+    # 2. JSON-Schema arg validation (type / enum / length).
+    err = _validate_args_against_schema(args, schema) if schema else None
+    if err is not None:
+        return GuardedToolResult(
+            name=tool_name, args=args, error=err,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
+
+    # 3. Execute.
+    result = await execute(
+        tool_name, args, kite_token=kite_token, db=db, user_id=user_id,
+    )
+    out = GuardedToolResult.from_tool_result(tool_name, args, result)
+    out.latency_ms = int((time.monotonic() - started) * 1000)
+    return out
+
+
+def _description_for_tool(tool_name: str) -> Optional[str]:
+    from backend.agents.tools import ALL_TOOLS
+    defn = ALL_TOOLS.get(tool_name)
+    if not defn:
+        return None
+    return ((defn.get("function") or {}).get("description"))
 
 
 # ── The retry loop ──────────────────────────────────────────────────

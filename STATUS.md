@@ -4,6 +4,67 @@
 
 ---
 
+## Day 10 — 2026-05-03 (evening) — Prompt 2 complete
+
+**Agentic loop live, schema-driven completeness, reasoning tuned per role, fast path active.**
+
+### What shipped
+
+- **Fast-path classifier** (`backend/services/fast_path.py`). Pure-Python pattern match; greetings / thanks / help asks return canned text in <1 ms with zero LLM calls. Strict equality after normalization + a `startswith + end` guard so "hello, what's RELIANCE's price" does NOT mis-route — that exact regression is locked in by 7 explicit pass-through tests.
+
+- **Schema-driven completeness checker** (`backend/services/completeness.py`). Walks the tool's JSON Schema, flags required-but-missing or sentinel-valued fields. Pure Python, microseconds. Renders type hints to user-readable phrases ("integer ≥ 1", "ISO date (YYYY-MM-DD)", "one of: BUY, SELL"). Sits in front of arg validation so a missing field never reaches the executor or wastes a Pydantic call.
+
+- **Agentic loop in `chat_service`**. Replaced the single-shot first-hop / second-hop pattern with a `while hop_index < MAX_TOOL_CALLS=8` loop. Each iteration appends the assistant's tool_calls + each tool's result to the message list; the model decides per turn whether to call another tool, ask the user, or finish. Errors get fed back as tool-result messages — no separate soft-failure-retry hop, the loop *is* the retry mechanism. Multi-tool reasoning ("compare RELIANCE PE to TCS and INFY") now works in one user turn.
+
+- **`execute_with_completeness`** wraps tool execution. Order: completeness check (Python) → JSON-Schema arg validation → executor. ASK_USER intercept lives here too, with the empty-question guard. Latency tracked per-tool in the `latency_breakdown` dict.
+
+- **Plan + draft split for `propose_workflow`**. Phase 1 = planning at `medium` reasoning (genuinely a reasoning task — what trigger type, what fetches, what conditions, does it even fit Pivot's shape). Phase 2 = JSON drafting at `minimal` reasoning (transcription only). Validation-retry inside `_propose_via_llm` skips re-planning since the original plan is implicit in the prompt + the embedded validation error. The mock fallback for LLM failures is still gone (Prompt 1 commitment).
+
+- **Reasoning effort routed per role** (Prompt 2 §3 table): chat hop = `low`, narration = `minimal`, clarification-question generation = `minimal`, propose-plan = `medium`, propose-draft = `minimal`. Encoded in `chat_service.py`, `validation_retry.py::_generate_clarification_question`, and `workflows/propose.py`.
+
+- **Tracing + admin endpoint** (`backend/services/chat_trace.py` + `backend/routers/admin.py`). In-memory ring buffer per conv_id (capped 25 turns × 100 events). Events emitted at every boundary: `turn.start`, `fast_path.matched`, `llm.call`, `llm.response` (with token counts), `tool.invoke`, `tool.result`, `turn.end`. Surfaced via `GET /admin/conv/{conv_id}/trace?limit=N`. Use this when chat output looks wrong — it's the cheapest way to see exactly what the loop did.
+
+### Quality gates
+
+- **Backend: 543 / 543 pass** (3 pre-existing pandas date-bug deselections unchanged).
+- **Frontend: 210 / 210** (no FE changes this round).
+- **75 new backend tests** across `test_fast_path.py` (46), `test_completeness.py` (23), `test_chat_trace.py` (6). Existing chat / propose / validation suites updated to match the new architecture.
+
+### Live latency (Prompt 2 architecture)
+
+| Prompt | Target | Actual | Status |
+|---|---|---|---|
+| Fast path "hi" | <100 ms | **0 ms** | ✓ |
+| Fast path "what can you do" | <100 ms | **0 ms** | ✓ |
+| Completeness gate ("buy some shares") | <2 s | 4.5 s | over (gpt-5-mini per-call floor) |
+| Single tool ("price of RELIANCE") | <4 s | 8.0 s | over (2 hops × ~3.6 s each) |
+| Multi-tool synthesis | 5–10 s | not measured live | passes stub test |
+| Workflow propose (canonical) | <8 s | 36 s | over (3 hops: plan + draft + narrate) |
+| Ambiguous order → ASK_USER | — | 30.9 s | recovers correctly |
+
+The latency overshoots are gpt-5-mini's per-call floor (~3 s each at low reasoning, longer at medium). Architecture is correct; the slow path is the model. Mitigations parked in BACKLOG: drop narration to gpt-5-nano, prompt cache the system message, parallelise tool calls.
+
+### Eval vs Prompt 1 baseline
+
+`scripts/eval_chat_quality.py --diff openai_with_fixes prompt2` shows 3 changes, all neutral or improvements:
+
+- `indicator_backtest_sma` — was `[]` (silent fail), now `run_backtest`. **Improvement.**
+- `portfolio_summary` — `get_holdings` → `get_portfolio_summary`. Side-grade (both produce a complete answer).
+- `calc_qty` — `calculate_order_qty` → `get_live_price`. Side-grade (model fetches price first, then computes).
+
+Canonical workflow propose still produces `workflow_draft_card`; ambiguous prompts still escalate via ASK_USER. No quality regression.
+
+### What's parked for Prompt 3
+
+Logged in `BACKLOG.md` (created today):
+- Streaming responses (FE doesn't consume `/chat/stream` yet)
+- Few-shot examples in propose_workflow
+- UserContext-rich system prompts
+- Conversation history quality refactor
+- Faster narration hop (gpt-5-nano? prompt cache?)
+
+---
+
 ## Day 10 — 2026-05-03 (afternoon) — Prompt 1 complete
 
 **GPT-5 mini wired, domain primer live, mock killed, validate-retry in place.**

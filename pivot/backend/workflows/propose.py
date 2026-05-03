@@ -183,26 +183,145 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
 # ── LLM call + retry loop ────────────────────────────────────────────
 
 
+_PLAN_SYSTEM_INSTRUCTION = """You are translating a user's natural-
+language strategy description into a Pivot workflow plan.
+
+A Pivot workflow is a LINEAR ordered list of steps:
+  step 0: exactly one trigger (trigger.schedule | trigger.price |
+          trigger.indicator | trigger.event | trigger.manual |
+          trigger.webhook)
+  step 1+: optional fetch.* (data the decision needs)
+  step 2+: optional condition.* (gates continuation; halts if false)
+  step N: action.* (the trade or watchlist update)
+  step N+1: optional notify.* (user-facing notification)
+
+Hard constraints:
+  - Exactly ONE trigger, at step 0. No multi-trigger workflows.
+  - No branching, no loops, no sub-workflows.
+  - All inter-step references use {{ context.<idx>.<dotted.path> }}.
+
+Your job (this hop): write a SHORT plan in plain English (4-8 lines)
+describing each step you'd emit and why. Do NOT emit JSON yet. Do not
+list step types you're unsure about — say "needs clarification" if a
+required field can't be inferred from the user's request.
+
+If the user's strategy genuinely doesn't fit the linear-single-trigger
+shape (e.g. "buy Monday and sell Tuesday" needs two agents), say so
+explicitly so the next hop can surface a clarification rather than
+fabricate an invalid draft.
+"""
+
+
+_DRAFT_SYSTEM_INSTRUCTION = """You are emitting the JSON for a Pivot
+workflow given a plan. You receive the user's original intent and a
+pre-written plan describing each step.
+
+Output ONLY a single JSON object matching this schema (no prose, no
+markdown fences):
+{
+  "name": "short workflow title",
+  "description": "one-sentence summary",
+  "steps": [
+    { "step_type": "...", "label": "...", "config": { ... } }
+  ],
+  "rationale": "1-2 sentences explaining the mapping"
+}
+
+You may ONLY use step_types from the catalog the planner referenced.
+"""
+
+
+async def _call_llm_for_plan(user_intent: str) -> str:
+    """Phase 1: planning. Medium reasoning. Returns plain-English
+    text describing the steps.
+
+    Planning is the load-bearing reasoning task in propose_workflow —
+    the model has to decide trigger type, what fetches are needed,
+    what conditions gate execution, and whether the user's intent
+    actually fits Pivot's shape at all. Cutting reasoning here is
+    where quality cratered when we tried `"minimal"` for the whole
+    flow on 2026-05-03.
+    """
+    from backend.llm import LLMMessage, get_llm_client
+
+    catalog = _build_catalog_summary()
+    system = (
+        f"{_PLAN_SYSTEM_INSTRUCTION}\n\n"
+        f"CATALOG (24 step types, names you can plan with):\n{catalog}"
+    )
+    client = get_llm_client()
+    response = await client.complete(
+        messages=[
+            LLMMessage(role="system", content=system),
+            LLMMessage(role="user", content=user_intent),
+        ],
+        max_output_tokens=900,
+        reasoning_effort="medium",
+        temperature=0.2,
+    )
+    if response.finish_reason == "error":
+        raise ProposalValidationError(
+            f"LLM error during workflow planning: {response.content}"
+        )
+    return (response.content or "").strip()
+
+
 async def _call_llm_for_draft(
     user_intent: str,
     *,
     extra_instruction: str = "",
 ) -> str:
-    """Calls route_and_call with a workflow-proposal-tuned prompt.
-    Returns raw response text (caller parses JSON)."""
-    from backend.agents.router import TaskType, route_and_call
+    """Phase 2: JSON drafting from the plan. Minimal reasoning.
 
-    system = build_system_prompt()
+    Two-call structure (plan → draft) collapses to a single call here
+    when `extra_instruction` is set — that's the validation-retry
+    path inside `_propose_via_llm`. On retry the plan is implicit in
+    the original system prompt + the embedded validation error; we
+    don't re-plan because the retry IS a fix-up call.
+    """
+    from backend.llm import LLMMessage, get_llm_client
+
     if extra_instruction:
-        system += f"\n\nIMPORTANT: {extra_instruction}"
+        # Retry path: skip planning, go straight to draft with the
+        # validation error embedded. Treat it as transcription —
+        # the planner already ran in the previous iteration.
+        system = build_system_prompt() + f"\n\nIMPORTANT: {extra_instruction}"
+        messages = [
+            LLMMessage(role="system", content=system),
+            LLMMessage(role="user", content=user_intent),
+        ]
+    else:
+        # Happy path: plan first, then transcribe.
+        plan = await _call_llm_for_plan(user_intent)
+        system = (
+            f"{_DRAFT_SYSTEM_INSTRUCTION}\n\n"
+            f"CATALOG:\n{_build_catalog_summary()}"
+        )
+        messages = [
+            LLMMessage(role="system", content=system),
+            LLMMessage(
+                role="user",
+                content=(
+                    f"User intent: {user_intent}\n\n"
+                    f"Plan:\n{plan}\n\n"
+                    "Now emit the JSON workflow draft matching the schema."
+                ),
+            ),
+        ]
 
-    return await route_and_call(
-        TaskType.STRUCTURED_JSON,  # routes to OpenAI when SARVAM is too loose
-        messages=[{"role": "user", "content": user_intent}],
-        system_prompt=system,
-        json_mode=True,
-        max_tokens=2000,
+    client = get_llm_client()
+    response = await client.complete(
+        messages=messages,
+        max_output_tokens=1500,
+        reasoning_effort="minimal",
+        temperature=0.2,
+        response_format="json_object",
     )
+    if response.finish_reason == "error":
+        raise ProposalValidationError(
+            f"LLM error during workflow draft: {response.content}"
+        )
+    return response.content or ""
 
 
 def _extract_json(raw: str) -> dict[str, Any]:

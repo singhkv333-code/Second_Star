@@ -795,6 +795,7 @@ async def chat(
         "missing_params": [],
         "tool_call": None,                    # legacy field — never populated now
         "raw_data": raw_data or None,
+        "latency_breakdown": turn.latency_breakdown,
         "latency_ms": turn.latency_ms,
     }
 

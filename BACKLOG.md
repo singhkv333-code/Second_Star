@@ -4,6 +4,22 @@
 
 ---
 
+## Parked from Prompt 2 (2026-05-03)
+
+Items the prompt explicitly named as out-of-scope for this round, plus latency mitigations the architecture now exposes:
+
+| Item | Why parked |
+|---|---|
+| **Streaming responses** | Backend has `/chat/stream` but `pivot-next/components/chat/ChatDemo.tsx` doesn't consume it. Wiring needs FE work. Backend is structurally ready — once FE swaps the fetch for an SSE/WS reader the responses will stream. |
+| **Few-shot examples in propose_workflow plan prompt** | Prompt 3 territory. The plan instruction currently has none; adding 1-2 worked examples should raise plan quality on edge cases without much latency cost. |
+| **UserContext-rich system prompts** | Prompt 3. Today the assembler accepts `UserContext` but no caller fills it; the `chat` role would benefit from "active workflows: 3", "portfolio: ₹78k spread across 5 holdings". |
+| **Conversation history quality refactor** | Prompt 3. Redis store works but loses formatting; tool calls are not replayed in summaries. |
+| **gpt-5-nano for narration hop** | Each turn pays ~3 s on the narration call. gpt-5-nano with `reasoning_effort="minimal"` should bring that to <1 s. Tradeoff: nano may produce flatter prose. Worth a focused eval before flipping. |
+| **Prompt caching for the chat system message** | OpenAI's prompt cache (5-min TTL, 90% discount) is automatic for prompts >1024 tokens but isn't observable from our side. If `chat` role's system prompt + tool catalog stays stable across turns, cache hits should drop the per-call floor. Need to instrument cache_hit_tokens. |
+| **Parallel tool calls** | `gpt-5-mini` supports parallel function calling — when the model wants to fetch RELIANCE + TCS + INFY at once it could issue all three in one turn. Today the agentic loop processes them sequentially. |
+
+---
+
 ## Explicitly NOT in v1 (do not build)
 
 These are blocked by the spec. If proposed, log here and refuse.

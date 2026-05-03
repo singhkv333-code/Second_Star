@@ -34,6 +34,7 @@ from backend.routers.portfolio_perf import router as portfolio_perf_router
 from backend.routers.events_calendar import router as events_calendar_router
 from backend.routers.stock_automations import router as stock_automations_router
 from backend.routers.news import router as news_router
+from backend.routers.admin import router as admin_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ app.include_router(runs_router)
 app.include_router(approvals_router)
 app.include_router(webhooks_router)
 app.include_router(run_stream_router)
+app.include_router(admin_router)
 
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────

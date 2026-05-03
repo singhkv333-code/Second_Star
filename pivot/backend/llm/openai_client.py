@@ -195,7 +195,10 @@ class LLMOpenAI(LLMClient):
             else:
                 payload["tool_choice"] = "auto"
         if response_format == "json_object":
-            payload["response_format"] = {"type": "json_object"}
+            # Responses API moved this from `response_format` (Chat
+            # Completions location) to `text.format`. Sending the old
+            # key 400s with "Unsupported parameter: 'response_format'".
+            payload["text"] = {"format": {"type": "json_object"}}
 
         started = time.monotonic()
         try:
