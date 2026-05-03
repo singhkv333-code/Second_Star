@@ -6,6 +6,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChatDemo } from "@/components/chat/ChatDemo";
+import * as api from "@/lib/api";
 
 const MOCK_CHAT_RESPONSE_DRAFT = {
   response: "Here is a workflow for you.",
@@ -29,6 +30,58 @@ const MOCK_CHAT_RESPONSE_DRAFT = {
 const MOCK_CHAT_RESPONSE_TEXT = {
   response: "I can help you with that.",
   raw_data: null,
+};
+
+const MOCK_CHAT_RESPONSE_FINANCIAL_BACKTEST = {
+  response: "Backtested `pe_ratio < 15` from 2020-01-01 to 2024-12-31, Q rebalance.",
+  raw_data: {
+    _render_hint: "financial_backtest_chart",
+    expression: "pe_ratio < 15",
+    start: "2020-01-01",
+    end: "2024-12-31",
+    rebalance: "Q",
+    metrics: {
+      cagr_pct: 12.0,
+      sharpe: 0.85,
+      max_drawdown_pct: 22.0,
+      hit_rate_pct: 55,
+      total_return_pct: 75.5,
+    },
+    equity_curve: [
+      { date: "2020-01-01", value: 100000 },
+      { date: "2024-12-31", value: 175500 },
+    ],
+    benchmark_curve: [
+      { date: "2020-01-01", value: 100000 },
+      { date: "2024-12-31", value: 150000 },
+    ],
+    rebalances: [],
+    n_trades: 22,
+    warnings: [],
+  },
+};
+
+const MOCK_CHAT_RESPONSE_LOGIC_CARD = {
+  response: "Here's the order I'd register.",
+  tools_called: ["place_market_order"],
+  logiccard: {
+    type: "market_order",
+    action: "BUY",
+    symbol: "RELIANCE",
+    details: [
+      { label: "Quantity", value: "10" },
+      { label: "Order Type", value: "MARKET" },
+    ],
+    explanation: "Buy 10 RELIANCE immediately at ~₹2,500.",
+    disclaimer: "This is automation of your instructions, not financial advice.",
+    requires_confirmation: true,
+    register_payload: {
+      symbol: "RELIANCE", exchange: "NSE",
+      transaction_type: "BUY", order_type: "MARKET",
+      quantity: 10, price: 2500, product: "CNC",
+    },
+  },
+  raw_data: { _render_hint: "logic_card" },
 };
 
 function mockFetch(body: unknown, status = 200): void {
@@ -181,6 +234,100 @@ describe("ChatDemo", () => {
     expect(arg.name).toBe("RELIANCE 3:55 PM buy");
     expect(arg.status).toBe("draft");
     expect(arg.steps).toHaveLength(5);
+  });
+
+  it("renders FinancialBacktestCard when raw_data._render_hint === 'financial_backtest_chart'", async () => {
+    mockFetch(MOCK_CHAT_RESPONSE_FINANCIAL_BACKTEST);
+    render(<ChatDemo onOpenEditor={vi.fn()} />);
+
+    fireEvent.change(screen.getByTestId("chat-textarea"), {
+      target: { value: "backtest pe_ratio < 15 from 2020 to 2024" },
+    });
+    fireEvent.click(screen.getByTestId("chat-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("financial-backtest-card")).toBeInTheDocument();
+    });
+    expect(screen.getByText("pe_ratio < 15")).toBeInTheDocument();
+    expect(screen.getByText(/Backtested/)).toBeInTheDocument();
+  });
+
+  it("renders LogicCardChip when raw_data._render_hint === 'logic_card'", async () => {
+    mockFetch(MOCK_CHAT_RESPONSE_LOGIC_CARD);
+    render(<ChatDemo onOpenEditor={vi.fn()} />);
+
+    fireEvent.change(screen.getByTestId("chat-textarea"), {
+      target: { value: "Buy 10 RELIANCE at market" },
+    });
+    fireEvent.click(screen.getByTestId("chat-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("logic-card-chip")).toBeInTheDocument();
+    });
+    // Intro bubble + the card both render
+    expect(screen.getByText(/Here's the order I'd register/)).toBeInTheDocument();
+    expect(screen.getByText("RELIANCE")).toBeInTheDocument();
+  });
+
+  it.each([
+    // Long workflow description that contains "if price" — must NOT
+    // be hijacked into a snapshot card with "IF" as the ticker.
+    // (See screenshot: "no quote available for IF.NSE" bug.)
+    "Build an agent that buys reliance every monday opening and sells if price decreases and holds if price increases. 3 shares.",
+    "Every weekday at 3:55, buy 10 RELIANCE if my buying power is over 50000",
+    "Set up a SIP that invests 5000 monthly in INFY",
+    "What can you do?",
+    "Hello",
+  ])("phrase '%s' is NOT mistaken for a ticker shortcut", async (input) => {
+    mockFetch(MOCK_CHAT_RESPONSE_TEXT);
+    render(<ChatDemo onOpenEditor={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("chat-textarea"), {
+      target: { value: input },
+    });
+    fireEvent.click(screen.getByTestId("chat-submit-btn"));
+    // Wait for the chat call to resolve, then assert no snapshot card.
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(screen.queryByTestId("stock-snapshot-loading")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("stock-snapshot-card")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "RELIANCE",
+    "$RELIANCE",
+    "show me reliance",
+    "what about TCS?",
+    "INFY snapshot",
+    "price of HDFCBANK",
+  ])("phrase '%s' triggers a stock snapshot card without hitting /chat", async (input) => {
+    // Stub the snapshot card's data fetches so it stays in loading
+    // state without throwing. The chat shortcut is what we're testing.
+    vi.spyOn(api, "getStockQuote").mockReturnValue(new Promise(() => {}));
+    vi.spyOn(api, "getSparkline").mockReturnValue(new Promise(() => {}));
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve("{}"),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<ChatDemo onOpenEditor={vi.fn()} />);
+
+    fireEvent.change(screen.getByTestId("chat-textarea"), {
+      target: { value: input },
+    });
+    fireEvent.click(screen.getByTestId("chat-submit-btn"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("stock-snapshot-loading"),
+      ).toBeInTheDocument(),
+    );
+    // /chat should never have been called for this shortcut.
+    expect(
+      fetchSpy.mock.calls.some((c) =>
+        String(c[0]).endsWith("/chat"),
+      ),
+    ).toBe(false);
   });
 
   it("Cmd+Enter submits the form", async () => {

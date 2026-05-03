@@ -1,0 +1,359 @@
+{
+  "label": "after_subset_run3",
+  "recorded_at": "2026-05-03T11:04:50.381477Z",
+  "user_email": "eval_bcd033e9@example.com",
+  "n_prompts": 18,
+  "results": [
+    {
+      "id": "order_market_buy",
+      "prompt": "Buy 10 RELIANCE at market",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "market_order"
+      },
+      "actual": {
+        "response_preview": "The order to buy 10 shares of RELIANCE at market price could not be executed. Please check if the stock is available for trading (market hours, correct symbol) and try again. Ensure sufficient funds in your account.  \n\nThis is automation of your instructions, not financial advice.",
+        "response_full_len": 281,
+        "tools_called": [
+          "place_market_order"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "market_order",
+        "intent": null,
+        "latency_ms": 3724,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "order_limit_buy",
+      "prompt": "Buy 5 INFY at limit price 1400",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "limit_order"
+      },
+      "actual": {
+        "response_preview": "The order to buy 5 shares of INFY at \u20b91,400 couldn't be placed. Please check the price or account balance. Would you like to adjust the price or proceed with a market order instead?  \n\nThis is automation of your instructions, not financial advice.",
+        "response_full_len": 247,
+        "tools_called": [
+          "place_limit_order"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "limit_order",
+        "intent": null,
+        "latency_ms": 3775,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "order_gtt",
+      "prompt": "Set a GTT to buy 3 HDFCBANK if it drops to 1480",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "gtt_order"
+      },
+      "actual": {
+        "response_preview": "The GTT order to buy 3 shares of HDFCBANK at \u20b91,480 couldn't be created. Please confirm the parameters or check connectivity.  \n\n**This is automation of your instructions, not financial advice.**",
+        "response_full_len": 195,
+        "tools_called": [
+          "create_gtt_order"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "gtt_order",
+        "intent": null,
+        "latency_ms": 5109,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "order_market_sell",
+      "prompt": "Sell 12 WIPRO at market",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "market_order"
+      },
+      "actual": {
+        "response_preview": "The order to sell 12 shares of WIPRO at market could not be executed. This is automation of your instructions, not financial advice.",
+        "response_full_len": 132,
+        "tools_called": [
+          "place_market_order"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "market_order",
+        "intent": null,
+        "latency_ms": 3361,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "workflow_propose_5step",
+      "prompt": "Every weekday at 3:55 PM IST, if my buying power is over \u20b950,000, buy 10 shares of RELIANCE and notify me by email.",
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tools_called": [
+          "propose_workflow"
+        ]
+      },
+      "actual": {
+        "response_preview": "Here's your proposed automated workflow:\n\n**Buy 10 RELIANCE Shares Daily**  \n\u23f0 Schedule: 3:55 PM IST, Mon-Fri  \n\ud83d\udcca Condition: Only if buying power > \u20b950,000  \n\ud83d\udce9 Notification: Email confirmation after execution  \n\n**Requires your approval** to activate. This is automation of your instructions, not fin",
+        "response_full_len": 314,
+        "tools_called": [
+          "propose_workflow"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 6306,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "workflow_propose_3step",
+      "prompt": "Every Monday morning, buy 5 INFY",
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tools_called": [
+          "propose_workflow"
+        ]
+      },
+      "actual": {
+        "response_preview": "**Review the proposed workflow below. Confirm to activate:**\n\n- **Trigger:** Every Monday at 9:30 AM IST (cron: `30 9 * * 1 Asia/Kolkata` \u2013 *corrected for Mondays*).  \n- **Action:** Buy 5 shares of INFY at market price.  \n- **Requires your approval** before execution.  \n\n\u26a0\ufe0f **Note:** The initial cro",
+        "response_full_len": 474,
+        "tools_called": [
+          "propose_workflow"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 5592,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "indicator_backtest_rsi",
+      "prompt": "backtest RELIANCE buying when RSI drops below 30 from 2023-01-01 to 2024-12-31",
+      "expect": {
+        "render_hint": "indicator_backtest_chart"
+      },
+      "actual": {
+        "response_preview": "Here's the backtest for RELIANCE entering long when RSI(14) drops below 30 over 5y. Strategy returned +10.1% across 18 trades; buy-and-hold returned +61.1%.",
+        "response_full_len": 156,
+        "tools_called": [],
+        "render_hint": "indicator_backtest_chart",
+        "logiccard_type": null,
+        "intent": "INDICATOR_BACKTEST",
+        "latency_ms": 296,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "indicator_backtest_sma",
+      "prompt": "backtest INFY golden cross 50 200",
+      "expect": {
+        "render_hint": "indicator_backtest_chart"
+      },
+      "actual": {
+        "response_preview": "The golden cross backtest for INFY (50-day/200-day) showed no trades executed and a flat return (0.0%) over the period. The final portfolio value remains at \u20b91,00,000. This strategy didn't generate signals in the historical data tested.  \n\n**This is automation of your instructions, not financial adv",
+        "response_full_len": 306,
+        "tools_called": [
+          "run_backtest"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 5008,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "financial_backtest_pe",
+      "prompt": "backtest pe_ratio < 15 from 2020-01-01 to 2022-12-31 quarterly",
+      "expect": {
+        "render_hint": "financial_backtest_chart"
+      },
+      "actual": {
+        "response_preview": "Backtest failed: invalid DSN: scheme is expected to be either \"postgresql\" or \"postgres\", got 'sqlite'",
+        "response_full_len": 102,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": "ERROR",
+        "latency_ms": 22,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "slash_screen",
+      "prompt": "/screen roe > 18",
+      "expect": {
+        "intent_or_render": "screen"
+      },
+      "actual": {
+        "response_preview": "Could not reach the financials DB: invalid DSN: scheme is expected to be either \"postgresql\" or \"postgres\", got 'sqlite'",
+        "response_full_len": 120,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": "ERROR",
+        "latency_ms": 6,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "portfolio_summary",
+      "prompt": "What's in my portfolio?",
+      "expect": {
+        "tools_called_any_of": [
+          "get_portfolio_summary",
+          "get_holdings"
+        ]
+      },
+      "actual": {
+        "response_preview": "Here's your portfolio summary:\n\n- **INFY**: 10 shares (\u20b914,500 avg) \u2192 Current: \u20b915,230 (+\u20b9730 PNL). Today +0.83%  \n- **TCS**: 5 shares (\u20b93,200 avg) \u2192 Current: \u20b93,356 (+\u20b9780 PNL). Today -0.24%  \n- **HDFCBANK**: 20 shares (\u20b91,580 avg) \u2192 Current: \u20b91,643 (+\u20b91,260 PNL). Today +0.33%  \n- **NIFTYBEES**: 50",
+        "response_full_len": 505,
+        "tools_called": [
+          "get_holdings"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 5440,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "market_price",
+      "prompt": "What's the current price of RELIANCE?",
+      "expect": {
+        "tools_called_any_of": [
+          "get_live_price"
+        ]
+      },
+      "actual": {
+        "response_preview": "Reliance Industries (RELIANCE) is currently trading at **\u20b91,436.00**, with a **0.41% increase** today.  \n\nThis is automation of your instructions, not financial advice.",
+        "response_full_len": 168,
+        "tools_called": [
+          "get_live_price"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 3903,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "market_status",
+      "prompt": "Is the market open right now?",
+      "expect": {
+        "tools_called_any_of": [
+          "get_market_status"
+        ]
+      },
+      "actual": {
+        "response_preview": "Markets are closed. Current time: 03 May 2026, 16:34:35 IST.",
+        "response_full_len": 60,
+        "tools_called": [
+          "get_market_status"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 3013,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "calc_qty",
+      "prompt": "How many shares of TCS can I buy with \u20b950,000?",
+      "expect": {
+        "tools_called_any_of": [
+          "calculate_order_qty"
+        ]
+      },
+      "actual": {
+        "response_preview": "\"Current price data unavailable. Please check live price and recalculate.\"",
+        "response_full_len": 74,
+        "tools_called": [
+          "calculate_order_qty"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 3196,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "sip_create",
+      "prompt": "Set up a monthly SIP of \u20b95000 in INFY on the 1st",
+      "expect": {
+        "tools_called_any_of": [
+          "create_sip"
+        ]
+      },
+      "actual": {
+        "response_preview": "The SIP setup for \u20b95,000/month in INFY on the 1st could not be confirmed. Please verify account linkage with Zerodha and try again.  \n\nThis is automation of your instructions, not financial advice.",
+        "response_full_len": 197,
+        "tools_called": [
+          "create_sip"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "sip_create",
+        "intent": null,
+        "latency_ms": 4080,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "free_text_what_can_you_do",
+      "prompt": "What can you do?",
+      "expect": {
+        "tools_called": []
+      },
+      "actual": {
+        "response_preview": "I can fetch live market data, historical trends, financial statements, and news. I can also help with trade execution, portfolio analysis, and creating automated investment strategies. For specific queries, I'll fetch the relevant data or guide you through the process.",
+        "response_full_len": 269,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 2240,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "free_text_explain_sip",
+      "prompt": "Briefly explain what a SIP is.",
+      "expect": {
+        "tools_called": []
+      },
+      "actual": {
+        "response_preview": "A Systematic Investment Plan (SIP) is a disciplined way to invest fixed amounts regularly (daily/weekly/monthly) in mutual funds or ETFs. It helps average out market volatility through rupee cost averaging, reduces timing risk, and encourages consistent investing. Popular in India for goal-based wea",
+        "response_full_len": 313,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 2662,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "free_text_greeting",
+      "prompt": "Hello",
+      "expect": {
+        "tools_called": []
+      },
+      "actual": {
+        "response_preview": "Hi! How can I assist you today?",
+        "response_full_len": 31,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 1297,
+        "is_fallback": false
+      }
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -8,7 +10,9 @@ from backend.auth.jwt_handler import (
     create_access_token, create_refresh_token,
     get_user_id_from_token,
 )
+from backend.services.demo_seeder import seed_demo_data
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
@@ -31,6 +35,21 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Seed demo data so a fresh account doesn't land on empty Agents /
+    # Portfolio / Order-history tabs. Failures here are logged but
+    # never block registration — the user can still use the app, just
+    # without preloaded examples.
+    try:
+        seed_result = seed_demo_data(db, user.id)
+        if not seed_result.get("skipped"):
+            logger.info(
+                "Seeded demo data for user %s: %d workflows, %d trades",
+                user.id, seed_result.get("workflows", 0),
+                seed_result.get("trades", 0),
+            )
+    except Exception as e:
+        logger.warning("Demo seed raised for user %s: %s", user.id, e)
 
     access_token = create_access_token(user.id, user.email)
     refresh_token = create_refresh_token(user.id)

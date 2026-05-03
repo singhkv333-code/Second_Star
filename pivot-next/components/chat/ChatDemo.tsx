@@ -28,6 +28,15 @@ import {
   IndicatorBacktestCard,
   type IndicatorBacktestPayload,
 } from "@/components/chat/IndicatorBacktestCard";
+import {
+  FinancialBacktestCard,
+  type FinancialBacktestPayload,
+} from "@/components/chat/FinancialBacktestCard";
+import {
+  LogicCardChip,
+  type LogicCard,
+} from "@/components/chat/LogicCardChip";
+import { InlineRunCard } from "@/components/chat/InlineRunCard";
 import type { Workflow } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -42,30 +51,19 @@ type ChatHistoryMessage = {
 type ChatApiResponse = {
   response: string;
   tools_called?: string[];
-  logiccard?: unknown;
-  raw_data?: {
-    _render_hint?: string;
-    // Workflow draft card payload
-    name?: string;
-    description?: string;
-    steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
-    rationale?: string;
-    warnings?: string[];
-    // Indicator backtest chart payload (typed loose here; the card has
-    // its own narrow type and validates at the boundary)
-    symbol?: string;
-    indicator?: "rsi" | "sma" | "ema";
-    indicator_period?: number;
-    operator?: string;
-    threshold?: number;
-    period_label?: string;
-    price_curve?: Array<{ t: string; v: number }>;
-    equity_curve?: Array<{ t: string; v: number }>;
-    indicator_curve?: Array<{ t: string; v: number }>;
-    signals?: Array<{ t: string; side: "buy" | "sell"; price: number; indicator_value: number | null }>;
-    metrics?: Record<string, number>;
-    bench_buy_hold_return_pct?: number;
-  } | null;
+  /** Backend builds a structured LogicCard for ~30 tools (orders, GTT,
+   * SL, OCO, dip-buy, basket, squareoff, SIP create…). When set, the
+   * frontend renders LogicCardChip and the user can confirm-register. */
+  logiccard?: LogicCard | null;
+  /**
+   * Loosely typed bag — every chat tool ships its own payload shape and
+   * we narrow inside the dispatch via `_render_hint`. Payload types
+   * (WorkflowDraft, IndicatorBacktestPayload, FinancialBacktestPayload,
+   * LogicCard) live with their respective card components.
+   */
+  raw_data?:
+    | (Record<string, unknown> & { _render_hint?: string })
+    | null;
 };
 
 /**
@@ -127,12 +125,64 @@ async function callChat(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns the symbol if the input is a bare NSE ticker (2-12 uppercase letters). */
+/**
+ * Quick "show me X" ticker shortcut. Three accepted shapes:
+ *   1. bare ticker: "RELIANCE"
+ *   2. snapshot phrase: "show me reliance", "what about TCS?", "INFY snapshot"
+ *   3. with leading $: "$RELIANCE"
+ *
+ * If no phrase pattern matches we fall through to the LLM. The earlier
+ * regex-only path missed everything except #1 and forced users to type
+ * exactly the ticker — too narrow.
+ */
 function extractTicker(text: string): string | null {
   const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  // Bare ticker (the original case).
   if (/^[A-Z]{2,12}$/.test(trimmed)) return trimmed;
+
+  // $RELIANCE
+  const dollarMatch = /^\$([A-Z]{2,12})\b/.exec(trimmed);
+  if (dollarMatch) return dollarMatch[1];
+
+  // Phrase patterns: require an explicit verb cue AND a short total
+  // message length. Snapshot intents are phrases ("show me INFY",
+  // "TCS quote"), workflow descriptions are sentences. Without this
+  // length gate, a phrase like "...sells if price decreases..." inside
+  // a long workflow description would match `/(\w)\s+price/` and
+  // mis-route to the snapshot card with the conjunction as the
+  // ticker (e.g. "no quote available for IF.NSE").
+  if (trimmed.length > 40) return null;
+
+  const lower = trimmed.toLowerCase();
+  const phrasePatterns = [
+    /^(?:show|show me|what about|how(?:'s| is| about)|tell me about|price of|quote for|snapshot of|chart for)\s+([a-z]{2,12})\b/,
+    /^([a-z]{2,12})\s+(?:snapshot|quote|price|chart)\s*\??\s*$/,
+  ];
+  for (const re of phrasePatterns) {
+    const m = re.exec(lower);
+    if (m) {
+      const candidate = m[1].toUpperCase();
+      if (!STOPWORDS.has(candidate)) return candidate;
+    }
+  }
   return null;
 }
+
+/** Words that look like tickers but are clearly conversational filler. */
+const STOPWORDS = new Set([
+  // Greetings / acknowledgements
+  "HI", "HELLO", "HEY", "OK", "OKAY", "YES", "NO", "PLEASE", "THANKS", "BYE",
+  "SURE", "MAYBE",
+  // Question words
+  "WHAT", "WHEN", "WHY", "WHO", "HOW",
+  // Conjunctions / prepositions (caught when message slips past length gate)
+  "IF", "AT", "ON", "IN", "BY", "AS", "IS", "OF", "TO", "OR", "AND", "BUT",
+  "FOR", "WITH", "FROM", "THE", "AN", "BE",
+  // Verb-ish words that look like tickers
+  "SHOW", "TELL", "BUY", "SELL", "RUN", "GET", "SET", "ADD",
+]);
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -159,6 +209,9 @@ type Message =
   | { kind: "draft"; draft: WorkflowDraft }
   | { kind: "snapshot"; symbol: string }
   | { kind: "indicator_backtest"; payload: IndicatorBacktestPayload; intro: string }
+  | { kind: "financial_backtest"; payload: FinancialBacktestPayload; intro: string }
+  | { kind: "logic_card"; card: LogicCard; intro: string }
+  | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
 type ChatDemoProps = {
@@ -216,65 +269,66 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
 
       // Check for workflow draft render hint in raw_data
       const rawData = data.raw_data;
-      if (
-        rawData &&
-        rawData._render_hint === "workflow_draft_card" &&
-        rawData.name &&
-        rawData.steps
-      ) {
-        const draft: WorkflowDraft = {
-          name: rawData.name,
-          description: rawData.description ?? "",
-          steps: (rawData.steps ?? []).map((s) => ({
-            step_type: s.step_type,
-            label: s.label,
-            config: s.config,
-          })),
-          rationale: rawData.rationale ?? "",
-          warnings: rawData.warnings ?? [],
-          _render_hint: "workflow_draft_card",
+      const hint = rawData?._render_hint;
+
+      if (hint === "workflow_draft_card" && rawData) {
+        // Workflow draft proposal — propose_workflow tool result.
+        const r = rawData as unknown as {
+          name?: string;
+          description?: string;
+          steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
+          rationale?: string;
+          warnings?: string[];
         };
-        setMessages((prev) => [...prev, { kind: "draft", draft }]);
-      } else if (
-        rawData &&
-        rawData._render_hint === "indicator_backtest_chart" &&
-        rawData.symbol &&
-        rawData.indicator &&
-        rawData.price_curve &&
-        rawData.equity_curve &&
-        rawData.indicator_curve &&
-        rawData.signals &&
-        rawData.metrics
-      ) {
-        // Indicator backtest result — render the chart card. The
-        // assistant text becomes a one-line intro above the card.
-        const payload: IndicatorBacktestPayload = {
-          symbol: rawData.symbol,
-          indicator: rawData.indicator,
-          indicator_period: rawData.indicator_period ?? 14,
-          operator: rawData.operator ?? "<",
-          threshold: rawData.threshold ?? 0,
-          period_label: rawData.period_label ?? "",
-          price_curve: rawData.price_curve,
-          equity_curve: rawData.equity_curve,
-          indicator_curve: rawData.indicator_curve,
-          signals: rawData.signals,
-          metrics: {
-            total_return_pct: rawData.metrics.total_return_pct ?? 0,
-            cagr_pct: rawData.metrics.cagr_pct ?? 0,
-            max_drawdown_pct: rawData.metrics.max_drawdown_pct ?? 0,
-            hit_rate_pct: rawData.metrics.hit_rate_pct ?? 0,
-            n_trades: rawData.metrics.n_trades ?? 0,
-            n_wins: rawData.metrics.n_wins ?? 0,
-            starting_capital: rawData.metrics.starting_capital ?? 0,
-            ending_value: rawData.metrics.ending_value ?? 0,
+        if (r.name && r.steps) {
+          const draft: WorkflowDraft = {
+            name: r.name,
+            description: r.description ?? "",
+            steps: r.steps.map((s) => ({
+              step_type: s.step_type,
+              label: s.label,
+              config: s.config,
+            })),
+            rationale: r.rationale ?? "",
+            warnings: r.warnings ?? [],
+            _render_hint: "workflow_draft_card",
+          };
+          setMessages((prev) => [...prev, { kind: "draft", draft }]);
+        } else if (data.response) {
+          setMessages((prev) => [...prev, { kind: "assistant", text: data.response }]);
+        }
+      } else if (hint === "logic_card" && data.logiccard) {
+        // Generic LogicCard path — covers ~30 chat tools (orders, GTT,
+        // SL, OCO, dip-buy, basket, squareoff, SIP create, etc.). The
+        // assistant text becomes the intro bubble; the card carries
+        // the structured details + confirm payload.
+        setMessages((prev) => [
+          ...prev,
+          {
+            kind: "logic_card",
+            card: data.logiccard as LogicCard,
+            intro: data.response ?? "",
           },
-          bench_buy_hold_return_pct: rawData.bench_buy_hold_return_pct ?? 0,
-        };
+        ]);
+      } else if (hint === "indicator_backtest_chart" && rawData) {
+        // Indicator backtest result (yfinance + technical indicator).
+        const payload = rawData as unknown as IndicatorBacktestPayload;
         setMessages((prev) => [
           ...prev,
           {
             kind: "indicator_backtest",
+            payload,
+            intro: data.response ?? "",
+          },
+        ]);
+      } else if (hint === "financial_backtest_chart" && rawData) {
+        // Fundamentals (SQL DB) backtest — same render hint emits this
+        // shape from backend/routers/chat.py::_run_expr_backtest.
+        const payload = rawData as unknown as FinancialBacktestPayload;
+        setMessages((prev) => [
+          ...prev,
+          {
+            kind: "financial_backtest",
             payload,
             intro: data.response ?? "",
           },
@@ -346,6 +400,30 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                   <WorkflowDraftCard
                     draft={msg.draft}
                     onOpenEditor={(draft) => onOpenEditor(draftToWorkflow(draft))}
+                    onActivatedAndRunning={(info) => {
+                      // Append a live-run card right after the draft so
+                      // the user sees the workflow's first run streaming
+                      // step-by-step in the same chat thread.
+                      setMessages((prev) => [
+                        ...prev,
+                        {
+                          kind: "live_run",
+                          runId: info.runId,
+                          workflowName: info.workflowName,
+                          workflowId: info.workflowId,
+                        },
+                      ]);
+                    }}
+                  />
+                </div>
+              );
+            }
+            if (msg.kind === "live_run") {
+              return (
+                <div key={idx} className="flex justify-start">
+                  <InlineRunCard
+                    runId={msg.runId}
+                    workflowName={msg.workflowName}
                   />
                 </div>
               );
@@ -386,6 +464,44 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                     <div className="w-full max-w-2xl">
                       <IndicatorBacktestCard payload={msg.payload} />
                     </div>
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "financial_backtest") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex items-start gap-2 max-w-md">
+                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
+                          {msg.intro}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <FinancialBacktestCard payload={msg.payload} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "logic_card") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex items-start gap-2 max-w-md">
+                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
+                          {msg.intro}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <LogicCardChip card={msg.card} />
                   </div>
                 </div>
               );

@@ -628,17 +628,66 @@ async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance
         f"{len(result.rebalances)} rebalances, {len(result.trades)} trades. "
         "Past performance does not guarantee future results."
     )
+    # Serialise the equity / benchmark curves to plain JSON-able lists.
+    # `result.equity_curve` is List[BacktestEquityPoint(date: date, value: float)].
+    def _curve_to_json(curve) -> list[dict]:
+        out = []
+        for p in curve:
+            d = p.date if hasattr(p, "date") else p["date"]
+            v = p.value if hasattr(p, "value") else p["value"]
+            out.append({
+                "date": d.isoformat() if hasattr(d, "isoformat") else str(d),
+                "value": float(v),
+            })
+        return out
+
+    def _rebalance_to_json(rb) -> dict:
+        d = rb.date if hasattr(rb, "date") else rb["date"]
+        entered = rb.entered if hasattr(rb, "entered") else rb.get("entered", [])
+        exited = rb.exited if hasattr(rb, "exited") else rb.get("exited", [])
+        return {
+            "date": d.isoformat() if hasattr(d, "isoformat") else str(d),
+            "entered": [
+                {"symbol": (e.symbol if hasattr(e, "symbol") else e["symbol"]),
+                 "weight": float(e.weight if hasattr(e, "weight") else e["weight"])}
+                for e in entered
+            ],
+            "exited": [
+                {"symbol": (x.symbol if hasattr(x, "symbol") else x["symbol"])}
+                for x in exited
+            ],
+        }
+
+    equity_json = _curve_to_json(result.equity_curve)
+    benchmark_json = _curve_to_json(result.benchmark_curve)
+    rebalances_json = [_rebalance_to_json(rb) for rb in result.rebalances[:50]]
+
     return {
         "response": text, "intent": "EXPR_BACKTEST",
         "expr_backtest_data": {
             "expression": expression, "start": start, "end": end,
             "rebalance": cfg.rebalance, "metrics": metrics,
-            "equity_curve": result.equity_curve,
-            "benchmark_curve": result.benchmark_curve,
-            "rebalances": result.rebalances[:50],
+            "equity_curve": equity_json,
+            "benchmark_curve": benchmark_json,
+            "rebalances": rebalances_json,
             "n_trades": len(result.trades),
             "warnings": result.warnings[:5],
             "symbol_mapping": mapping_summary,
+        },
+        # Tag for the FE so ChatDemo dispatches to FinancialBacktestCard.
+        # Same convention as indicator_backtest_chart (line ~436 above).
+        "raw_data": {
+            "_render_hint": "financial_backtest_chart",
+            "expression": expression,
+            "start": start,
+            "end": end,
+            "rebalance": cfg.rebalance,
+            "metrics": metrics,
+            "equity_curve": equity_json,
+            "benchmark_curve": benchmark_json,
+            "rebalances": rebalances_json,
+            "n_trades": len(result.trades),
+            "warnings": result.warnings[:5],
         },
         "screen_data": None, "backtest_data": None, "chart_data": None,
         "logiccard": None, "requires_clarification": False,
@@ -714,6 +763,29 @@ async def chat(
         logger.warning("post-processor stripped output for user %s conv %s",
                        user_id, conv_id)
 
+    raw_data = turn.raw_data or {}
+    # Tools that emit a card payload (propose_workflow → workflow_draft_card,
+    # run_backtest → indicator_backtest_chart, …) put it under
+    # raw_data[tool_name]. The frontend reads `_render_hint` at the top
+    # level, so we need to lift that nested payload up. We pick the first
+    # nested dict that carries a `_render_hint`; in practice only one
+    # tool is called per turn so there's no ambiguity.
+    if not raw_data.get("_render_hint"):
+        for _key, val in list(raw_data.items()):
+            if isinstance(val, dict) and val.get("_render_hint"):
+                # Merge the nested payload over the top so existing keys
+                # (e.g. _render_hint, name, steps, …) are visible to the FE.
+                raw_data = {**raw_data, **val}
+                break
+
+    # If a tool produced a LogicCard and nothing else has set a render
+    # hint, tag the response so the frontend renders the unified
+    # LogicCardChip. This is the single switchboard for the ~30 chat
+    # tools that build a LogicCard (orders, GTT, SL, OCO, dip-buy,
+    # basket, squareoff, SIP create, etc.).
+    if turn.logiccard and not raw_data.get("_render_hint"):
+        raw_data = {**raw_data, "_render_hint": "logic_card"}
+
     return {
         "response": turn.response,
         "intent": None,                       # intent classifier removed
@@ -722,7 +794,7 @@ async def chat(
         "requires_clarification": False,
         "missing_params": [],
         "tool_call": None,                    # legacy field — never populated now
-        "raw_data": turn.raw_data or None,
+        "raw_data": raw_data or None,
         "latency_ms": turn.latency_ms,
     }
 

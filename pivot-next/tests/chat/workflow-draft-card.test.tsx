@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   WorkflowDraftCard,
   draftToWorkflow,
   type WorkflowDraft,
 } from "@/components/chat/WorkflowDraftCard";
+import * as api from "@/lib/api";
 
 const DEMO_DRAFT: WorkflowDraft = {
   name: "RELIANCE 3:55 PM buy",
@@ -66,6 +67,118 @@ describe("WorkflowDraftCard", () => {
   it("shows the rationale", () => {
     render(<WorkflowDraftCard draft={DEMO_DRAFT} onOpenEditor={vi.fn()} />);
     expect(screen.getByText("Mapped to a scheduled trigger workflow.")).toBeInTheDocument();
+  });
+});
+
+describe("WorkflowDraftCard — Save & activate", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("saves and activates on click and shows confirmation", async () => {
+    const created = {
+      id: "wf-123", name: "RELIANCE 3:55 PM buy", description: null,
+      status: "draft" as const, version: 1, single_instance: true,
+      created_at: "now", updated_at: "now", activated_at: null,
+      last_run_at: null, next_run_at: null, steps: [],
+    };
+    const activated = { ...created, status: "active" as const, activated_at: "now" };
+    const createSpy = vi
+      .spyOn(api, "createWorkflow")
+      .mockResolvedValue({ data: created });
+    const activateSpy = vi
+      .spyOn(api, "activateWorkflow")
+      .mockResolvedValue({ data: activated });
+
+    render(<WorkflowDraftCard draft={DEMO_DRAFT} onOpenEditor={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("save-activate-button"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-saved")).toBeInTheDocument(),
+    );
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(activateSpy).toHaveBeenCalledWith("wf-123");
+    expect(screen.getByText(/Saved & activated/)).toBeInTheDocument();
+    expect(screen.getByText(/wf-123/)).toBeInTheDocument();
+  });
+
+  it("shows error message when createWorkflow fails", async () => {
+    vi.spyOn(api, "createWorkflow").mockResolvedValue({
+      error: { code: "validation_error", message: "Step 0 must be a trigger" },
+    });
+
+    render(<WorkflowDraftCard draft={DEMO_DRAFT} onOpenEditor={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("save-activate-button"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-save-error")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Step 0 must be a trigger/)).toBeInTheDocument();
+  });
+
+  it("kicks off a manual run and notifies parent with the runId", async () => {
+    const created = {
+      id: "wf-99", name: "RELIANCE 3:55 PM buy", description: null,
+      status: "draft" as const, version: 1, single_instance: true,
+      created_at: "now", updated_at: "now", activated_at: null,
+      last_run_at: null, next_run_at: null, steps: [],
+    };
+    const activated = { ...created, status: "active" as const, activated_at: "now" };
+    vi.spyOn(api, "createWorkflow").mockResolvedValue({ data: created });
+    vi.spyOn(api, "activateWorkflow").mockResolvedValue({ data: activated });
+    const runSpy = vi
+      .spyOn(api, "runWorkflow")
+      .mockResolvedValue({ data: { run_id: "run-xyz" } });
+    const onActivatedAndRunning = vi.fn();
+
+    render(
+      <WorkflowDraftCard
+        draft={DEMO_DRAFT}
+        onOpenEditor={vi.fn()}
+        onActivatedAndRunning={onActivatedAndRunning}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("save-activate-button"));
+
+    await waitFor(() =>
+      expect(onActivatedAndRunning).toHaveBeenCalledTimes(1),
+    );
+    expect(runSpy).toHaveBeenCalledWith("wf-99");
+    expect(onActivatedAndRunning).toHaveBeenCalledWith({
+      workflowId: "wf-99",
+      workflowName: "RELIANCE 3:55 PM buy",
+      runId: "run-xyz",
+    });
+  });
+
+  it("does not call onActivatedAndRunning when the run kickoff fails", async () => {
+    const created = {
+      id: "wf-99", name: "RELIANCE 3:55 PM buy", description: null,
+      status: "draft" as const, version: 1, single_instance: true,
+      created_at: "now", updated_at: "now", activated_at: null,
+      last_run_at: null, next_run_at: null, steps: [],
+    };
+    const activated = { ...created, status: "active" as const, activated_at: "now" };
+    vi.spyOn(api, "createWorkflow").mockResolvedValue({ data: created });
+    vi.spyOn(api, "activateWorkflow").mockResolvedValue({ data: activated });
+    vi.spyOn(api, "runWorkflow").mockResolvedValue({
+      error: { code: "conflict", message: "already running" },
+    });
+    const onActivatedAndRunning = vi.fn();
+
+    render(
+      <WorkflowDraftCard
+        draft={DEMO_DRAFT}
+        onOpenEditor={vi.fn()}
+        onActivatedAndRunning={onActivatedAndRunning}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("save-activate-button"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-saved")).toBeInTheDocument(),
+    );
+    expect(onActivatedAndRunning).not.toHaveBeenCalled();
   });
 });
 

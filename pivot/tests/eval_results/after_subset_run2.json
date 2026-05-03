@@ -1,0 +1,357 @@
+{
+  "label": "after_subset_run2",
+  "recorded_at": "2026-05-03T11:03:30.713693Z",
+  "user_email": "eval_69de0964@example.com",
+  "n_prompts": 18,
+  "results": [
+    {
+      "id": "order_market_buy",
+      "prompt": "Buy 10 RELIANCE at market",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "market_order"
+      },
+      "actual": {
+        "response_preview": "I'll help place the order. Please confirm:  \n**Action:** Buy 10 shares of RELIANCE at market price (NSE, CNC).  \n**Estimated cost:** \u20b9 (current price required for exact amount).",
+        "response_full_len": 177,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 2134,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "order_limit_buy",
+      "prompt": "Buy 5 INFY at limit price 1400",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "limit_order"
+      },
+      "actual": {
+        "response_preview": "The order to buy 5 shares of INFY at \u20b91,400 limit price could not be executed. Please confirm the details or check connectivity.  \n\nThis is automation of your instructions, not financial advice.",
+        "response_full_len": 194,
+        "tools_called": [
+          "place_limit_order"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "limit_order",
+        "intent": null,
+        "latency_ms": 3533,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "order_gtt",
+      "prompt": "Set a GTT to buy 3 HDFCBANK if it drops to 1480",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "gtt_order"
+      },
+      "actual": {
+        "response_preview": "GTT order for 3 HDFCBANK shares at \u20b91,480 couldn't be set. Please verify the price/quantity and try again. Ensure the stock is tradable (not in a circuit filter or non-market hours).",
+        "response_full_len": 182,
+        "tools_called": [
+          "create_gtt_order"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "gtt_order",
+        "intent": null,
+        "latency_ms": 3937,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "order_market_sell",
+      "prompt": "Sell 12 WIPRO at market",
+      "expect": {
+        "render_hint": "logic_card",
+        "logiccard_type": "market_order"
+      },
+      "actual": {
+        "response_preview": "The order to sell 12 shares of WIPRO at market could not be executed. This is automation of your instructions, not financial advice.",
+        "response_full_len": 132,
+        "tools_called": [
+          "place_market_order"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "market_order",
+        "intent": null,
+        "latency_ms": 3305,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "workflow_propose_5step",
+      "prompt": "Every weekday at 3:55 PM IST, if my buying power is over \u20b950,000, buy 10 shares of RELIANCE and notify me by email.",
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tools_called": [
+          "propose_workflow"
+        ]
+      },
+      "actual": {
+        "response_preview": "Here's your proposed workflow for automated RELIANCE purchases:\n\n**Schedule:** 3:55 PM IST on weekdays  \n**Conditions:** Buying power > \u20b950,000  \n**Action:** Buy 10 RELIANCE shares via market order  \n**Notification:** Email confirmation  \n\n\u26a0\ufe0f **Important:** This is a draft with a validation warning ",
+        "response_full_len": 510,
+        "tools_called": [
+          "propose_workflow"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 5128,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "workflow_propose_3step",
+      "prompt": "Every Monday morning, buy 5 INFY",
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tools_called": [
+          "propose_workflow"
+        ]
+      },
+      "actual": {
+        "response_preview": "Here's your proposed workflow to buy 5 INFY shares every Monday at 9:30 AM IST:\n\n**Schedule:**  \n\ud83d\udcc5 Mondays at 9:30 AM (IST)  \n**Action:**  \n\ud83d\uded2 Buy 5 shares of INFY at market price  \n\n\u26a0\ufe0f **Note:** The system flagged a technical issue in the proposal draft. Please review all details carefully before ac",
+        "response_full_len": 325,
+        "tools_called": [
+          "propose_workflow"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 5252,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "indicator_backtest_rsi",
+      "prompt": "backtest RELIANCE buying when RSI drops below 30 from 2023-01-01 to 2024-12-31",
+      "expect": {
+        "render_hint": "indicator_backtest_chart"
+      },
+      "actual": {
+        "response_preview": "Here's the backtest for RELIANCE entering long when RSI(14) drops below 30 over 5y. Strategy returned +10.1% across 18 trades; buy-and-hold returned +61.1%.",
+        "response_full_len": 156,
+        "tools_called": [],
+        "render_hint": "indicator_backtest_chart",
+        "logiccard_type": null,
+        "intent": "INDICATOR_BACKTEST",
+        "latency_ms": 420,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "indicator_backtest_sma",
+      "prompt": "backtest INFY golden cross 50 200",
+      "expect": {
+        "render_hint": "indicator_backtest_chart"
+      },
+      "actual": {
+        "response_preview": "The golden cross backtest for INFY (50/200 periods) showed no trades executed and 0% returns. The strategy didn't generate signals in the tested period. Remember, past performance doesn't guarantee future results.",
+        "response_full_len": 213,
+        "tools_called": [
+          "run_backtest"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 4682,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "financial_backtest_pe",
+      "prompt": "backtest pe_ratio < 15 from 2020-01-01 to 2022-12-31 quarterly",
+      "expect": {
+        "render_hint": "financial_backtest_chart"
+      },
+      "actual": {
+        "response_preview": "Backtest failed: invalid DSN: scheme is expected to be either \"postgresql\" or \"postgres\", got 'sqlite'",
+        "response_full_len": 102,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": "ERROR",
+        "latency_ms": 27,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "slash_screen",
+      "prompt": "/screen roe > 18",
+      "expect": {
+        "intent_or_render": "screen"
+      },
+      "actual": {
+        "response_preview": "Could not reach the financials DB: invalid DSN: scheme is expected to be either \"postgresql\" or \"postgres\", got 'sqlite'",
+        "response_full_len": 120,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": "ERROR",
+        "latency_ms": 6,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "portfolio_summary",
+      "prompt": "What's in my portfolio?",
+      "expect": {
+        "tools_called_any_of": [
+          "get_portfolio_summary",
+          "get_holdings"
+        ]
+      },
+      "actual": {
+        "response_preview": "Here's your portfolio summary:\n\n- **INFY**: 10 shares (\u20b914,500 avg) \u2192 Now \u20b915,230. PNL: \u20b9730 (+0.83% today)\n- **TCS**: 5 shares (\u20b93,200 avg) \u2192 Now \u20b93,356. PNL: \u20b9780 (-0.24% today)\n- **HDFCBANK**: 20 shares (\u20b91,580 avg) \u2192 Now \u20b91,643. PNL: \u20b91,260 (+0.33% today)\n- **NIFTYBEES**: 50 units (\u20b9215 avg) \u2192 N",
+        "response_full_len": 380,
+        "tools_called": [
+          "get_holdings"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 5941,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "market_price",
+      "prompt": "What's the current price of RELIANCE?",
+      "expect": {
+        "tools_called_any_of": [
+          "get_live_price"
+        ]
+      },
+      "actual": {
+        "response_preview": "Reliance Industries is currently trading at \u20b91,436.00, up 0.41% today.",
+        "response_full_len": 70,
+        "tools_called": [
+          "get_live_price"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 4611,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "market_status",
+      "prompt": "Is the market open right now?",
+      "expect": {
+        "tools_called_any_of": [
+          "get_market_status"
+        ]
+      },
+      "actual": {
+        "response_preview": "No, the market is closed. Current time: 03 May 2026, 16:33 IST.",
+        "response_full_len": 63,
+        "tools_called": [
+          "get_market_status"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 3877,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "calc_qty",
+      "prompt": "How many shares of TCS can I buy with \u20b950,000?",
+      "expect": {
+        "tools_called_any_of": [
+          "calculate_order_qty"
+        ]
+      },
+      "actual": {
+        "response_preview": "\"Current price needed. Let me fetch live data\u2026\"",
+        "response_full_len": 47,
+        "tools_called": [
+          "calculate_order_qty"
+        ],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 5409,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "sip_create",
+      "prompt": "Set up a monthly SIP of \u20b95000 in INFY on the 1st",
+      "expect": {
+        "tools_called_any_of": [
+          "create_sip"
+        ]
+      },
+      "actual": {
+        "response_preview": "The SIP setup for \u20b95,000/month in INFY on the 1st couldn\u2019t be confirmed. Please verify account linkage and try again.  \n\nThis is automation of your instructions, not financial advice.",
+        "response_full_len": 183,
+        "tools_called": [
+          "create_sip"
+        ],
+        "render_hint": "logic_card",
+        "logiccard_type": "sip_create",
+        "intent": null,
+        "latency_ms": 4596,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "free_text_what_can_you_do",
+      "prompt": "What can you do?",
+      "expect": {
+        "tools_called": []
+      },
+      "actual": {
+        "response_preview": "I can fetch live market data, historical trends, financial statements, and news. I can also help analyze stocks with ratios, screeners, and backtests. For trading, I execute orders via Zerodha and set up SIPs. Let me know what you need!  \n\nThis is automation of your instructions, not financial advic",
+        "response_full_len": 302,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 3157,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "free_text_explain_sip",
+      "prompt": "Briefly explain what a SIP is.",
+      "expect": {
+        "tools_called": []
+      },
+      "actual": {
+        "response_preview": "A SIP (Systematic Investment Plan) is a disciplined way to invest fixed amounts regularly (daily/weekly/monthly) in mutual funds or ETFs. It helps average out market volatility via rupee-cost averaging. Popular for long-term goals like retirement or education.",
+        "response_full_len": 260,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 2239,
+        "is_fallback": false
+      }
+    },
+    {
+      "id": "free_text_greeting",
+      "prompt": "Hello",
+      "expect": {
+        "tools_called": []
+      },
+      "actual": {
+        "response_preview": "Hi! How can I assist you today?",
+        "response_full_len": 31,
+        "tools_called": [],
+        "render_hint": null,
+        "logiccard_type": null,
+        "intent": null,
+        "latency_ms": 1313,
+        "is_fallback": false
+      }
+    }
+  ]
+}

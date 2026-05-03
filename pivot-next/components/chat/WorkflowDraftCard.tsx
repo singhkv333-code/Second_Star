@@ -13,11 +13,18 @@
  *   }
  */
 
-import { AlertCircle, ArrowRight, Bot, Zap } from "lucide-react";
+import { useState } from "react";
+import { AlertCircle, ArrowRight, Bot, Check, Loader2, Play, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { StepIcon } from "@/components/agent-panel/step-icon";
+import {
+  activateWorkflow,
+  createWorkflow,
+  runWorkflow,
+} from "@/lib/api";
+import { isError } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Public types — matches the propose_workflow tool result from the backend
@@ -43,7 +50,24 @@ export type WorkflowDraftCardProps = {
   draft: WorkflowDraft;
   /** Called when the user clicks "Open in editor". Parent mounts AgentPanel with the draft. */
   onOpenEditor: (draft: WorkflowDraft) => void;
+  /**
+   * Called once Save & activate succeeds AND a manual run is kicked off.
+   * The chat parent uses this to mount an inline live-run checklist.
+   * Optional — if omitted, the card just shows the saved/activated state
+   * without surfacing a live run.
+   */
+  onActivatedAndRunning?: (info: {
+    workflowId: string;
+    workflowName: string;
+    runId: string;
+  }) => void;
 };
+
+type SaveState =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved"; workflowId: string; workflowName: string }
+  | { kind: "error"; message: string };
 
 // Map step_type prefix → icon name (same palette as mock-catalog / step-icon)
 const CATEGORY_ICON: Record<string, string> = {
@@ -66,9 +90,65 @@ const MAX_VISIBLE_STEPS = 5;
 export function WorkflowDraftCard({
   draft,
   onOpenEditor,
+  onActivatedAndRunning,
 }: WorkflowDraftCardProps): React.ReactElement {
   const visibleSteps = draft.steps.slice(0, MAX_VISIBLE_STEPS);
   const hiddenCount = draft.steps.length - visibleSteps.length;
+  const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
+
+  const handleSaveAndActivate = async (): Promise<void> => {
+    setSaveState({ kind: "saving" });
+    const created = await createWorkflow({
+      name: draft.name,
+      description: draft.description ?? null,
+      single_instance: true,
+      steps: draft.steps.map((s, idx) => ({
+        step_index: idx,
+        step_type: s.step_type,
+        label: s.label,
+        config: s.config,
+      })),
+    });
+    if (isError(created)) {
+      setSaveState({
+        kind: "error",
+        message: created.error.message ?? "Failed to save workflow",
+      });
+      return;
+    }
+    const activated = await activateWorkflow(created.data.id);
+    if (isError(activated)) {
+      // Saved but couldn't activate — still useful to show the user the
+      // draft persisted; they can activate from the editor.
+      setSaveState({
+        kind: "error",
+        message: `Saved as draft, but activation failed: ${
+          activated.error.message ?? "unknown error"
+        }`,
+      });
+      return;
+    }
+    setSaveState({
+      kind: "saved",
+      workflowId: activated.data.id,
+      workflowName: activated.data.name,
+    });
+
+    // Kick off a manual run so the chat can show a live checklist
+    // immediately. Failure here is non-fatal: the workflow is already
+    // active and will fire on its trigger; we just don't surface a
+    // run card. Parent only gets notified on success.
+    if (onActivatedAndRunning) {
+      const ran = await runWorkflow(activated.data.id);
+      if (!isError(ran)) {
+        onActivatedAndRunning({
+          workflowId: activated.data.id,
+          workflowName: activated.data.name,
+          runId: ran.data.run_id,
+        });
+      }
+    }
+  };
 
   return (
     <div
@@ -139,20 +219,69 @@ export function WorkflowDraftCard({
       )}
 
       {/* CTA */}
-      <div className="border-t px-4 py-3">
-        <Button
-          size="sm"
-          className="w-full justify-between"
-          onClick={() => onOpenEditor(draft)}
-          data-testid="open-in-editor-button"
+      {saveState.kind === "saved" ? (
+        <div
+          className="border-t bg-emerald-500/10 px-4 py-3"
+          data-testid="workflow-saved"
         >
-          <span className="flex items-center gap-1.5">
-            <Zap className="h-3.5 w-3.5" aria-hidden="true" />
-            Open in editor
-          </span>
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </Button>
-      </div>
+          <div className="flex items-start gap-2 text-emerald-700 dark:text-emerald-400">
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <div className="min-w-0 flex-1 text-xs">
+              <p className="font-medium">
+                Saved & activated · {saveState.workflowName}
+              </p>
+              <p className="mt-0.5 text-[11px] text-emerald-700/70 dark:text-emerald-400/70 truncate">
+                Workflow id: {saveState.workflowId}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="border-t px-4 py-3 space-y-2">
+          <Button
+            size="sm"
+            className="w-full justify-between"
+            onClick={() => void handleSaveAndActivate()}
+            disabled={saveState.kind === "saving"}
+            data-testid="save-activate-button"
+          >
+            <span className="flex items-center gap-1.5">
+              {saveState.kind === "saving" ? (
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Play className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {saveState.kind === "saving" ? "Saving…" : "Save & activate"}
+            </span>
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full justify-between"
+            onClick={() => onOpenEditor(draft)}
+            data-testid="open-in-editor-button"
+          >
+            <span className="flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+              Open in editor
+            </span>
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+          {saveState.kind === "error" && (
+            <p
+              role="alert"
+              data-testid="workflow-save-error"
+              className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive"
+            >
+              {saveState.message}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

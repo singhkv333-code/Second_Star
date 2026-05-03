@@ -162,13 +162,27 @@ async def call_sarvam(
         full_messages.append({"role": "system", "content": effective_system})
     full_messages.extend(messages)
 
-    while len(json.dumps(full_messages)) > 28000 and len(full_messages) > 2:
+    # Sarvam-m's actual context window is 7192 tokens (~28K chars).
+    # System prompt + tool-schema injection alone eats ~5200 tokens
+    # (~20K chars) of that, so we cap the *full payload* at ~25K
+    # chars — slightly under the ceiling — and pop oldest user/
+    # assistant turns first when over. Going higher (e.g. 100K) makes
+    # Sarvam 422 with "exceeds the model context window".
+    _CTX_CHAR_BUDGET = 25000
+    _trimmed = 0
+    while len(json.dumps(full_messages)) > _CTX_CHAR_BUDGET and len(full_messages) > 2:
         start_idx = 1 if effective_system else 0
         if len(full_messages) > start_idx + 2:
             full_messages.pop(start_idx)
             full_messages.pop(start_idx)
+            _trimmed += 2
         else:
             break
+    if _trimmed:
+        logger.warning(
+            "Sarvam payload exceeded %d chars; dropped %d oldest messages",
+            _CTX_CHAR_BUDGET, _trimmed,
+        )
 
     payload: dict = {
         "model": model,
@@ -235,6 +249,22 @@ async def call_sarvam(
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429 and attempt < MAX_RETRIES - 1:
                 await asyncio.sleep(2 ** attempt)
+                continue
+            # 422 with "context window" / "exceeds" → the prompt itself
+            # is too big for the requested max_tokens. Retry once with
+            # a tighter max_tokens floor before giving up. Without this,
+            # one mis-sized request poisons the whole chat into the
+            # unavailable-fallback for the rest of the conversation.
+            if (
+                e.response.status_code == 422
+                and attempt < MAX_RETRIES - 1
+                and "context window" in e.response.text.lower()
+            ):
+                payload["max_tokens"] = max(300, payload["max_tokens"] // 2)
+                logger.warning(
+                    "Sarvam 422 context overflow; retrying with max_tokens=%d",
+                    payload["max_tokens"],
+                )
                 continue
             logger.error(
                 "Sarvam returned %s: %s",

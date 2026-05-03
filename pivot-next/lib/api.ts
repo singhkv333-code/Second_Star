@@ -427,6 +427,76 @@ export function getPortfolioHoldings(): Promise<ApiResult<Holding[]>> {
   return requestLegacy<Holding[]>("/portfolio/holdings");
 }
 
+// ---------------------------------------------------------------------------
+// Orders — chat-confirm register flow (POST /orders/register)
+//
+// v1 design: chat builds a LogicCard; user clicks "Confirm & register";
+// payload is POSTed here; backend writes a TradeLog row with
+// status="registered" and source="chat-confirm". No broker call. The
+// resulting row(s) appear in /orders/history immediately.
+// ---------------------------------------------------------------------------
+
+export type OrderRegisterLeg = {
+  symbol: string;
+  exchange?: string;
+  transaction_type: "BUY" | "SELL";
+  order_type: "MARKET" | "LIMIT" | "GTT" | "SL" | "OCO";
+  quantity: number;
+  price?: number | null;
+  trigger_price?: number | null;
+  product?: string;
+};
+
+export type OrderRegisterRequest = (
+  | OrderRegisterLeg
+  | { basket: true; legs: OrderRegisterLeg[] }
+);
+
+export type RegisteredOrder = {
+  id: number;
+  symbol: string;
+  exchange: string;
+  transaction_type: string;
+  order_type: string;
+  quantity: number;
+  price: number | null;
+  trigger_price: number | null;
+  status: string;
+  placed_at: string;
+};
+
+export type RegisterOrderResponse =
+  | RegisteredOrder
+  | { registered: RegisteredOrder[]; count: number };
+
+/** `POST /orders/register` — persist a chat LogicCard intent (no broker). */
+export function registerOrder(
+  body: OrderRegisterRequest,
+): Promise<ApiResult<RegisterOrderResponse>> {
+  return requestLegacy<RegisterOrderResponse>("/orders/register", {
+    method: "POST",
+    body,
+  });
+}
+
+export type OrderHistoryRow = {
+  id: number;
+  symbol: string;
+  action: string;
+  quantity: number;
+  status: string;
+  placed_at: string;
+};
+
+/** `GET /orders/history` — most recent registered/executed orders. */
+export function getOrderHistory(
+  limit = 20,
+): Promise<ApiResult<OrderHistoryRow[]>> {
+  return requestLegacy<OrderHistoryRow[]>("/orders/history", {
+    query: { limit },
+  });
+}
+
 /**
  * `GET /api/workflows/scheduled-runs?from=...&to=...`
  *

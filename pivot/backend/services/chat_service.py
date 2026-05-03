@@ -91,7 +91,10 @@ class ChatService:
         carried message list during the cut-over; once Redis-backed
         conversations are fully wired in, this argument goes away.
         """
-        history = history_override if history_override is not None else self.store.get_history(conv_id, limit=10)
+        # 20 turns matches CONV_MAX_TURNS in conversation_store; the older
+        # 10-turn limit was the proximate cause of "the bot forgot what I
+        # said earlier" — Redis kept the data, we just weren't fetching it.
+        history = history_override if history_override is not None else self.store.get_history(conv_id, limit=20)
 
         tools = get_tool_schema()
         try:
@@ -99,6 +102,12 @@ class ChatService:
                 messages=[*history, {"role": "user", "content": message}],
                 system_prompt=system_prompt(),
                 temperature=0.2,
+                # Sarvam-m's total context is 7192 tokens. System prompt
+                # + 39 tool schemas already eats ~5200, leaving ~2000.
+                # Setting max_tokens above ~900 makes `prompt_tokens +
+                # max_tokens` overflow and Sarvam returns 422. (Earlier
+                # bumping to 2000 broke chat outright — confirmed via
+                # error: "5211 + 2000 = 7211 exceeds 7192".)
                 max_tokens=900,
                 tools=tools,
                 tool_choice="auto",
@@ -151,6 +160,9 @@ class ChatService:
                               tool_msg],
                     system_prompt=system_prompt(),
                     temperature=0.2,
+                    # Second hop has no tool schema in the system prompt
+                    # so the prompt budget is much smaller; we can give
+                    # the reply a bit more headroom than the first hop.
                     max_tokens=600,
                     tools=None,                  # we already ran the tool; no second tool call
                     tool_choice=None,
@@ -170,6 +182,17 @@ class ChatService:
 
         text, sanitised = _post_process(text)
 
+        # If post-processing left us with the generic fallback BUT a tool
+        # actually executed (and therefore produced a card the FE will
+        # render), replace the text with a brief one-liner that points
+        # at the card. The fallback "Sorry, I had trouble — could you
+        # rephrase?" is misleading when, e.g., propose_workflow
+        # successfully built a draft and we just lost the LLM's
+        # narration to truncation.
+        if sanitised and text == _GENERIC_FALLBACK and tools_called:
+            text = _tool_summary_line(tools_called[0], logiccard)
+            sanitised = False
+
         # Persist plain text only — never the tool-call payload.
         self.store.append(conv_id, message, text)
 
@@ -181,6 +204,28 @@ class ChatService:
             sanitised=sanitised,
             raw_data=raw_data,
         )
+
+
+# ---- Salvage helpers ---------------------------------------------------
+
+
+def _tool_summary_line(tool_name: str, logiccard: dict | None) -> str:
+    """One-line description of what the tool did, for use when the LLM's
+    narration was lost to truncation. Keeps the user oriented when the
+    card below is real but the bubble above would otherwise be the
+    generic "Sorry, I had trouble" fallback.
+    """
+    if tool_name == "propose_workflow":
+        return "Here's a draft of that workflow — review the steps below."
+    if logiccard:
+        action = logiccard.get("action") or ""
+        symbol = logiccard.get("symbol") or ""
+        if action and symbol:
+            return f"Proposed: {action} {symbol}. Review the card below to confirm."
+        return "Here's the action I prepared — review and confirm below."
+    if tool_name.startswith("get_") or tool_name.startswith("list_"):
+        return "Here's what I found."
+    return f"Done — `{tool_name}` ran. See result below."
 
 
 # ---- Post-processing safety net ---------------------------------------

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timezone
 from backend.database import get_db
 from backend.models import TradeLog, User
@@ -188,6 +188,129 @@ def get_order_history(
              "quantity": t.quantity, "status": t.status,
              "placed_at": format_ist(t.placed_at)}
             for t in trades]
+
+
+class OrderRegisterLeg(BaseModel):
+    """Single leg of an order intent — what the LogicCard's register_payload carries."""
+    symbol: str
+    exchange: str = "NSE"
+    transaction_type: str = Field(..., description="BUY or SELL")
+    order_type: str = Field(..., description="MARKET, LIMIT, GTT, SL, OCO")
+    quantity: int = Field(..., gt=0)
+    price: Optional[float] = None
+    trigger_price: Optional[float] = None
+    product: str = "CNC"
+
+
+class OrderRegisterRequest(BaseModel):
+    """Body for POST /orders/register.
+
+    Comes from the chat LogicCard "Confirm & register" button. We do NOT
+    call any broker; we write a TradeLog row with status="registered" and
+    source="chat-confirm". Live trading is out of scope for v1 — we only
+    persist the intent so the UI can show order history.
+
+    Single-leg orders pass `symbol/transaction_type/...` at the top.
+    Basket orders pass `legs: [...]`. Both forms result in one TradeLog
+    row per resulting order.
+    """
+    # Single-leg fields (mutually exclusive with `legs`)
+    symbol: Optional[str] = None
+    exchange: Optional[str] = "NSE"
+    transaction_type: Optional[str] = None
+    order_type: Optional[str] = None
+    quantity: Optional[int] = None
+    price: Optional[float] = None
+    trigger_price: Optional[float] = None
+    product: Optional[str] = "CNC"
+    # Basket form
+    basket: bool = False
+    legs: Optional[List[OrderRegisterLeg]] = None
+
+
+def _persist_leg(db: Session, user_id: int, leg: dict) -> TradeLog:
+    """Write a single TradeLog row for a registered (not executed) order."""
+    row = TradeLog(
+        user_id=user_id,
+        kite_order_id=None,                    # never sent to a broker
+        symbol=leg["symbol"].upper(),
+        exchange=leg.get("exchange", "NSE"),
+        transaction_type=leg["transaction_type"],
+        order_type=leg["order_type"],
+        quantity=int(leg["quantity"]),
+        price=leg.get("price"),
+        trigger_price=leg.get("trigger_price"),
+        status="registered",
+        source="chat-confirm",
+        placed_at=now_ist(),
+    )
+    db.add(row)
+    return row
+
+
+@router.post("/register", status_code=201)
+async def register_order(
+    request: OrderRegisterRequest,
+    auth: tuple = Depends(get_current_user_token),
+    db: Session = Depends(get_db),
+):
+    """Persist an order intent from a chat LogicCard confirm.
+
+    No broker call; this is v1's "register but don't execute" path.
+    Returns the TradeLog row(s) that were inserted so the UI can show
+    them in order history immediately.
+    """
+    user_id, _ = auth
+
+    # Basket: write one TradeLog row per leg.
+    if request.basket and request.legs:
+        rows = [_persist_leg(db, user_id, leg.model_dump()) for leg in request.legs]
+        db.commit()
+        for r in rows:
+            db.refresh(r)
+        return {
+            "registered": [
+                {
+                    "id": r.id, "symbol": r.symbol, "exchange": r.exchange,
+                    "transaction_type": r.transaction_type, "order_type": r.order_type,
+                    "quantity": r.quantity, "price": r.price,
+                    "trigger_price": r.trigger_price, "status": r.status,
+                    "placed_at": format_ist(r.placed_at),
+                }
+                for r in rows
+            ],
+            "count": len(rows),
+        }
+
+    # Single leg.
+    required = ("symbol", "transaction_type", "order_type", "quantity")
+    missing = [f for f in required if getattr(request, f) in (None, "")]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing fields for single-leg register: {', '.join(missing)}",
+        )
+
+    leg = {
+        "symbol": request.symbol,
+        "exchange": request.exchange or "NSE",
+        "transaction_type": request.transaction_type,
+        "order_type": request.order_type,
+        "quantity": request.quantity,
+        "price": request.price,
+        "trigger_price": request.trigger_price,
+        "product": request.product or "CNC",
+    }
+    row = _persist_leg(db, user_id, leg)
+    db.commit()
+    db.refresh(row)
+    return {
+        "id": row.id, "symbol": row.symbol, "exchange": row.exchange,
+        "transaction_type": row.transaction_type, "order_type": row.order_type,
+        "quantity": row.quantity, "price": row.price,
+        "trigger_price": row.trigger_price, "status": row.status,
+        "placed_at": format_ist(row.placed_at),
+    }
 
 
 @router.post("/gtt")
