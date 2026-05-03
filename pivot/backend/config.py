@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     sarvam_api_key: str = ""
     openai_api_key: str = ""
 
+    # LLM provider selection (read by backend.llm.factory).
+    # `llm_provider`: "openai" | "sarvam".  Default openai once we have a key.
+    # `llm_model`:    overrides the per-provider default (gpt-5-mini /
+    #                 sarvam-m). Leave blank to keep the default.
+    llm_provider: str = "openai"
+    llm_model: str = ""
+
     # App
     app_env: str = "development"
     app_version: str = "0.1.0"

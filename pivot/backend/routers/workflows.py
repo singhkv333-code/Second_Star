@@ -267,9 +267,11 @@ def get_step_types(
     description=(
         "Surfaces the chatbot's `propose_workflow` tool as a direct REST "
         "endpoint so frontends can demo the chat→draft flow without porting "
-        "the full chatbot. Same code path as the tool — mock or LLM, with "
-        "validation + retry-once + fallback-to-mock-with-warning. Does NOT "
-        "persist; returns a draft for the user to review."
+        "the full chatbot. Calls the LLM with validation + one retry. On "
+        "second failure returns 422 with a structured message naming the "
+        "missing or invalid fields — does NOT fabricate a workflow when "
+        "the LLM couldn't produce one. Successful drafts are NOT persisted; "
+        "the user reviews and clicks Save & activate to commit."
     ),
 )
 async def propose_workflow_endpoint(
@@ -283,9 +285,14 @@ async def propose_workflow_endpoint(
     try:
         draft = await propose_workflow_async(body.user_intent)
     except ProposalValidationError as e:
+        # Surface a user-readable message, not a stack trace. The error
+        # text from propose.py already names the offending field
+        # ("step 2 (action.place_order) config invalid: quantity: ...").
         raise validation_error(
-            f"propose_workflow rejected the input: {e}",
-            details={"field": "user_intent"},
+            f"I couldn't quite turn that into a workflow — {e}. "
+            "Try rephrasing with the specific values (price thresholds, "
+            "quantities, order types) you want.",
+            details={"field": "user_intent", "reason": str(e)},
         )
     return ProposeWorkflowResponse.model_validate(draft.model_dump())
 

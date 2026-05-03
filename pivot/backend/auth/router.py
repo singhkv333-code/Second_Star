@@ -37,19 +37,21 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.refresh(user)
 
     # Seed demo data so a fresh account doesn't land on empty Agents /
-    # Portfolio / Order-history tabs. Failures here are logged but
-    # never block registration — the user can still use the app, just
-    # without preloaded examples.
-    try:
-        seed_result = seed_demo_data(db, user.id)
-        if not seed_result.get("skipped"):
-            logger.info(
-                "Seeded demo data for user %s: %d workflows, %d trades",
-                user.id, seed_result.get("workflows", 0),
-                seed_result.get("trades", 0),
-            )
-    except Exception as e:
-        logger.warning("Demo seed raised for user %s: %s", user.id, e)
+    # Portfolio / Order-history tabs. Failures here are logged but never
+    # block registration. Test suites disable seeding via env so a
+    # registered test user starts truly empty.
+    import os as _os
+    if _os.environ.get("DEMO_SEED_ON_REGISTER", "1") != "0":
+        try:
+            seed_result = seed_demo_data(db, user.id)
+            if not seed_result.get("skipped"):
+                logger.info(
+                    "Seeded demo data for user %s: %d workflows, %d trades",
+                    user.id, seed_result.get("workflows", 0),
+                    seed_result.get("trades", 0),
+                )
+        except Exception as e:
+            logger.warning("Demo seed raised for user %s: %s", user.id, e)
 
     access_token = create_access_token(user.id, user.email)
     refresh_token = create_refresh_token(user.id)

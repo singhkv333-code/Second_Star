@@ -10,6 +10,10 @@ os.environ["KITE_API_KEY"] = ""
 os.environ["KITE_API_SECRET"] = ""
 os.environ["SARVAM_API_KEY"] = ""
 os.environ["OPENAI_API_KEY"] = ""
+# Demo seeder runs on /auth/register in dev; disable for tests so a
+# freshly-registered user starts truly empty. Tests that exercise the
+# seeder explicitly opt-in by un-setting this in their own setup.
+os.environ["DEMO_SEED_ON_REGISTER"] = "0"
 
 import pytest
 from sqlalchemy import create_engine

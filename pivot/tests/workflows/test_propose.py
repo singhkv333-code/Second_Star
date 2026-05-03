@@ -312,11 +312,15 @@ async def test_propose_with_llm_retries_on_validation_fail(
 
 
 @pytest.mark.asyncio
-async def test_propose_falls_back_to_mock_after_two_llm_failures(
+async def test_propose_raises_when_llm_fails_twice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Both LLM attempts fail → return a mock draft with a warning so
-    the chat surfaces SOMETHING actionable instead of an exception."""
+    """Both LLM attempts fail → raise ProposalValidationError so the
+    caller (chat / endpoint) surfaces a structured 'I need more info'
+    message. The earlier behaviour of falling back to a fabricated
+    mock draft was killed on 2026-05-03 — that path silently lied to
+    users (canned RELIANCE/buying-power steps regardless of intent).
+    """
     monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "x")
     monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
 
@@ -324,13 +328,26 @@ async def test_propose_falls_back_to_mock_after_two_llm_failures(
         return "this is not json at all"
 
     monkeypatch.setattr(propose_mod, "_call_llm_for_draft", _always_bad)
+    with pytest.raises(ProposalValidationError):
+        await propose_workflow_async(
+            "Every weekday at 09:30 IST buy 1 RELIANCE and email me."
+        )
+
+
+@pytest.mark.asyncio
+async def test_propose_offline_mode_still_uses_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When NO LLM key is set, the offline mock path is preserved —
+    that's the demo-recording / CI path. Distinct from the
+    LLM-failed-with-key-present path which now raises."""
+    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+
     draft = await propose_workflow_async(
         "Every weekday at 09:30 IST buy 1 RELIANCE and email me."
     )
-    # Mock fallback runs.
     assert draft.steps[0].step_type == "trigger.schedule"
-    # Warning is set so the UI can flag "best effort" to the user.
-    assert any("LLM proposal failed" in w for w in draft.warnings)
 
 
 @pytest.mark.asyncio

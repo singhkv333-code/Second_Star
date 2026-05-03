@@ -4,6 +4,61 @@
 
 ---
 
+## Day 10 — 2026-05-03 (afternoon) — Prompt 1 complete
+
+**GPT-5 mini wired, domain primer live, mock killed, validate-retry in place.**
+
+### What shipped
+
+- **`backend/llm/`** — provider-agnostic LLM contract.
+  - `base.py`: `LLMClient` ABC + `LLMMessage` / `ToolDef` / `LLMResponse` Pydantic models. Token usage split into `input_tokens` / `output_tokens` / `reasoning_tokens` so reasoning-model billing is observable.
+  - `openai_client.py`: `LLMOpenAI` over `/v1/responses`. Native function calling, reasoning effort, message-shape conversion (system/user/assistant/tool/tool_calls). Returns structured errors instead of raising on 4xx/5xx.
+  - `sarvam_client.py`: refactor of the existing client into the `LLMClient` interface, preserving the prompt-injection emulation pattern (Sarvam-m rejects native `tools` payloads). 7K-context trimming + truncation retry kept.
+  - `factory.py`: env-driven selection (`LLM_PROVIDER=openai|sarvam`, `LLM_MODEL=<name>`). Test override via `set_llm_client_for_tests`.
+
+- **`backend/prompts/`** — role-aware assembly.
+  - `domain_primer.md`: ~500 tokens of Indian retail trading reality (parameter ranges, sector linkages, workflow conventions, what NOT to do). Prepended to every system prompt across the platform via the assembler.
+  - `assembler.py`: `build_system_prompt(role, user_context, extra_context)`. Roles: `chat`, `propose_workflow`, `narrate_tool_result`, `correlation_decompose` (placeholder for Prompt 2).
+
+- **`backend/services/validation_retry.py`** — validate-and-retry tool wrapper.
+  - `execute_tool_with_retry`: validates args against the tool's JSON Schema (required / type / enum / minLength). On failure, sends a terse error (`"quantity: Field required."`) back to the LLM as a tool-result message and lets it fix the args or call `ASK_USER`.
+  - `ASK_USER` synthetic tool — the model's escape hatch when a required field can't be inferred. The wrapper intercepts before dispatching to the executor; the chat surfaces the question as the assistant message with `_render_hint: "ask_user"`.
+
+- **Mock fallback in `propose_workflow` is dead.** The "LLM failed → emit hardcoded RELIANCE/buying-power template with a warning" path was a silent lie — users saw fabricated workflows regardless of their request. Now the second LLM-validation failure raises `ProposalValidationError` with the specific missing fields; the endpoint surfaces a `422` with `"I couldn't quite turn that into a workflow — {field}: required field missing. Try rephrasing with the specific values you want."`. The genuine no-LLM-key offline mock path is preserved for CI / demo recordings.
+
+- **`chat_service.py`** rewritten through the abstraction. Uses `get_llm_client()` (no more direct `call_sarvam`), `build_system_prompt(role="chat")` for the first hop, `build_system_prompt(role="narrate_tool_result")` for the second. Tool execution always goes through `execute_tool_with_retry`. ASK_USER bubbles surface as the assistant message; validation failures after retry surface as a structured error (no card, `_render_hint: "validation_error"`).
+
+### Quality gates
+
+- **Backend: 462 / 462 pass** (3 pre-existing pandas date-bug deselections unchanged).
+- **Frontend: 210 / 210 pass** (no FE changes this round).
+- **48 new backend tests** across `test_llm_abstraction.py` (20), `test_validation_retry.py` (15), `test_prompt_assembler.py` (8), `test_chat_service_with_stub_llm.py` (5). Existing chat / propose suites unchanged.
+- **Live smoke (`/chat` → OpenAI / GPT-5 mini)**: "What is the current price of RELIANCE?" → calls `get_live_price`, returns `"RELIANCE last traded at ₹1,436.00, up 0.41% (source: yfinance)."` Real data, INR formatting, no slang, no "Chill, dude."
+- **Eval harness vs Sarvam baseline (`scripts/eval_chat_quality.py --diff baseline openai_with_fixes`)**: 18 prompts, 3 differences:
+  - `market_status` (`[]` → `get_market_status`) — improvement.
+  - `workflow_propose_3step` (`[]` → `ASK_USER`) — improvement (asks instead of failing silently).
+  - `indicator_backtest_sma` (`run_backtest` → `[]`) — soft regression. Sarvam guessed defaults for the missing date range; GPT-5 mini is stricter.
+  - All four order tools (market buy / limit / GTT / market sell) call the right tool with `_render_hint: "logic_card"`. The canonical 5-step workflow draft prompt produces `workflow_draft_card` end-to-end. The mock-fallback lie is gone.
+
+### Behavioural changes the user will see
+
+- **Order replies feel different.** GPT-5 mini drafts the LogicCard via the tool (`Prepared a market BUY order for 10 shares of RELIANCE...`), not pure prose. Confirm-button stays the commit moment.
+- **Underspecified prompts get a question, not a fabricated workflow.** "Every Monday morning buy 5 INFY" → `ASK_USER` for clarification; "build me a strategy" → `422` from the propose endpoint with field-level reasons.
+- **Voice is professional.** Earlier "Chill, dude. 😅" path no longer possible — system prompt explicitly bans slang/emoji and requires calm tone even on "wtf".
+
+### What's not yet done (Prompt 2 territory)
+
+- Multi-hop planner for `propose_workflow` (the current path is still single-shot LLM with one validation retry — fine for simple drafts, weak on multi-condition strategies).
+- Correlation-decomposition role for event-driven workflows (placeholder in the assembler).
+- Migrating the rest of `backend/agents/*` callers (`symbol_mapper`, `chart_parser`, `backtester/parser`) onto the LLM abstraction. They still hit `agents/sarvam_client.call_sarvam` directly. No urgency — those paths work; will migrate when their next refactor lands.
+
+### Configuration
+
+- `.env`: `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5-mini`, `OPENAI_API_KEY=…` (set Day 9). Sarvam stays available for cheap automated tests via `LLM_PROVIDER=sarvam`.
+- `tests/conftest.py`: `DEMO_SEED_ON_REGISTER=0` so a freshly-registered test user starts empty (the demo seeder still runs in dev/prod).
+
+---
+
 ## Day 8 — 2026-05-02
 
 ### Lead — Day 8 BE (in parallel with frontend-lead Phase 1)

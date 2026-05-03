@@ -437,33 +437,38 @@ def _mock_propose(user_intent: str) -> WorkflowDraft:
 async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
     """Translate a natural-language strategy into a validated WorkflowDraft.
 
-    In mock mode (no LLM keys) uses pattern matching for a deterministic
-    demo. With keys configured, calls the LLM and validates strictly,
-    retrying ONCE on validation failure.
+    With keys configured, calls the LLM and validates strictly, retrying
+    ONCE on validation failure. Without keys (offline / CI), falls back
+    to deterministic pattern-matched mock for the demo recording.
 
-    Always returns a draft that's valid against the registry — never
-    surfaces a half-baked draft to the chat.
+    NEVER returns a fabricated workflow when the LLM was *available* but
+    failed to produce a valid draft. The earlier behaviour — falling
+    through to the same pattern-matched mock and surfacing it with a
+    warning — silently lied to users (they'd see canned RELIANCE/buying-
+    power steps regardless of what they asked for). That path was killed
+    on 2026-05-03; the LLM-failure case now raises ProposalValidationError
+    so callers can present a structured "I need more info" message.
+
+    Raises:
+        ProposalValidationError when LLM-based proposal can't produce a
+        valid draft after one retry. The error message names the
+        specific missing/invalid fields so the chat can surface them
+        to the user verbatim.
     """
     user_intent = (user_intent or "").strip()
     if not user_intent:
         raise ProposalValidationError("user_intent is empty")
 
     if _is_mock_mode():
+        # Genuine offline mode (no Sarvam, no OpenAI). The mock path
+        # is the demo recording's deterministic fallback — kept so CI
+        # and screencast runs work without network. NOT a graceful
+        # degradation when an LLM call fails.
         draft = _mock_propose(user_intent)
-        # Sanity-check the mock against the registry too, so a registry
-        # change can't silently desync the mock.
         return validate_draft_against_registry(draft.model_dump())
 
-    try:
-        return await _propose_via_llm(user_intent)
-    except ProposalValidationError as e:
-        # Last-resort fallback: surface the mock draft with a warning.
-        logger.warning(
-            "propose_workflow LLM failed twice (%s); falling back to mock", e
-        )
-        draft = _mock_propose(user_intent)
-        draft.warnings.append(
-            f"LLM proposal failed: {e}. Showing a best-effort draft — "
-            "review every field before activating."
-        )
-        return validate_draft_against_registry(draft.model_dump())
+    # LLM is configured — propose for real, no safety net. If the model
+    # can't produce a valid draft after one retry, the caller (chat
+    # service / propose endpoint) gets the validation error and is
+    # responsible for telling the user what's missing.
+    return await _propose_via_llm(user_intent)
