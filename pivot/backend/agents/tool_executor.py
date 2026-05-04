@@ -46,6 +46,10 @@ async def execute_tool(tool_name: str, arguments: dict,
         "pause_all_sips":             _pause_all_sips,
         "create_strategy":            _create_strategy,
         "propose_workflow":           _propose_workflow,
+        "propose_scheduled_order":    _propose_scheduled_order,
+        "propose_threshold_order":    _propose_threshold_order,
+        "propose_basket_allocation":  _propose_basket_allocation,
+        "propose_holding_action":     _propose_holding_action,
         "create_cash_sweep":          _generic_confirm,
         "create_rebalancing_rule":    _generic_confirm,
         "create_drawdown_protection": _generic_confirm,
@@ -478,6 +482,53 @@ async def _propose_workflow(a, kt, db, uid):
     payload = draft.model_dump()
     payload["_render_hint"] = "workflow_draft_card"
     return {"success": True, "data": payload, "logiccard": None}
+
+
+# ── Macro tool executors ────────────────────────────────────────────
+#
+# Each executor delegates to a single hydration function in
+# `services/workflow_macros.py`. The model emits 5-15 small typed
+# fields; the hydrator returns the same WorkflowDraft shape that
+# `_propose_workflow` produces. Output decode time on the LLM side
+# drops from ~7s to ~0.2s.
+
+async def _run_macro(name: str, a: dict) -> dict:
+    """Shared body for macro executors.
+
+    Calls workflow_macros.hydrate_and_validate; on ValueError surfaces
+    the message as a tool error so the agentic loop can ask the user
+    for the missing/invalid field. On success returns the draft as
+    `data` with `_render_hint='workflow_draft_card'` so the FE
+    renders the same card as full propose_workflow."""
+    from backend.services.workflow_macros import hydrate_and_validate
+
+    try:
+        draft = hydrate_and_validate(name, a or {})
+    except (ValueError, TypeError) as e:
+        logger.info("macro %s rejected: %s", name, e)
+        return {
+            "success": False,
+            "error": str(e)[:300],
+            "data": {},
+            "logiccard": None,
+        }
+    return {"success": True, "data": draft, "logiccard": None}
+
+
+async def _propose_scheduled_order(a, kt, db, uid):
+    return await _run_macro("scheduled_order", a)
+
+
+async def _propose_threshold_order(a, kt, db, uid):
+    return await _run_macro("threshold_order", a)
+
+
+async def _propose_basket_allocation(a, kt, db, uid):
+    return await _run_macro("basket_allocation", a)
+
+
+async def _propose_holding_action(a, kt, db, uid):
+    return await _run_macro("holding_action", a)
 
 
 async def _list_strategies(a, kt, db, uid):

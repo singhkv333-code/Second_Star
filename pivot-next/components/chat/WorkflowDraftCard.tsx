@@ -14,17 +14,25 @@
  */
 
 import { useState } from "react";
-import { AlertCircle, ArrowRight, Bot, Check, Loader2, Play, Zap } from "lucide-react";
+import {
+  AlertCircle, ArrowRight, BarChart3, Bot, Check, Loader2, Play, Zap,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { StepIcon } from "@/components/agent-panel/step-icon";
 import {
   activateWorkflow,
+  backtestDraftWorkflow,
   createWorkflow,
   runWorkflow,
+  type BacktestDraftEligible,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import {
+  IndicatorBacktestCard,
+  type IndicatorBacktestPayload,
+} from "@/components/chat/IndicatorBacktestCard";
 
 // ---------------------------------------------------------------------------
 // Public types — matches the propose_workflow tool result from the backend
@@ -69,6 +77,14 @@ type SaveState =
   | { kind: "saved"; workflowId: string; workflowName: string }
   | { kind: "error"; message: string };
 
+/** Backtest-button lifecycle. Independent of the save/activate flow. */
+type BacktestState =
+  | { kind: "idle" }
+  | { kind: "running" }
+  | { kind: "ineligible"; reason: string }
+  | { kind: "ready"; payload: IndicatorBacktestPayload; warnings: string[] }
+  | { kind: "error"; message: string };
+
 // Map step_type prefix → icon name (same palette as mock-catalog / step-icon)
 const CATEGORY_ICON: Record<string, string> = {
   trigger: "calendar-clock",
@@ -95,6 +111,48 @@ export function WorkflowDraftCard({
   const visibleSteps = draft.steps.slice(0, MAX_VISIBLE_STEPS);
   const hiddenCount = draft.steps.length - visibleSteps.length;
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
+  const [backtestState, setBacktestState] = useState<BacktestState>({
+    kind: "idle",
+  });
+
+  const handleBacktest = async (): Promise<void> => {
+    setBacktestState({ kind: "running" });
+    const res = await backtestDraftWorkflow({
+      name: draft.name,
+      description: draft.description ?? null,
+      steps: draft.steps.map((s) => ({
+        step_type: s.step_type,
+        label: s.label,
+        config: s.config,
+      })),
+      // 5-year default mirrors the indicator backtest UX. Users who
+      // want a different period will use chat's natural-language path.
+      period: "5y",
+    });
+    if (isError(res)) {
+      setBacktestState({
+        kind: "error",
+        message: res.error.message ?? "Backtest failed",
+      });
+      return;
+    }
+    if (!res.data.eligible) {
+      setBacktestState({
+        kind: "ineligible",
+        reason: res.data.reason,
+      });
+      return;
+    }
+    // Hand the payload to the same chart card the indicator
+    // backtester uses. Cast: BacktestDraftEligible already has every
+    // field IndicatorBacktestPayload needs.
+    const payload = res.data as unknown as IndicatorBacktestPayload;
+    setBacktestState({
+      kind: "ready",
+      payload,
+      warnings: (res.data as BacktestDraftEligible).warnings,
+    });
+  };
 
   const handleSaveAndActivate = async (): Promise<void> => {
     setSaveState({ kind: "saving" });
@@ -271,6 +329,31 @@ export function WorkflowDraftCard({
             </span>
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
+          {/* Backtest button — only renders for shapes the simulator
+              recognises. The button is always shown so users can try;
+              the response carries the eligibility verdict. */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full justify-between"
+            onClick={() => void handleBacktest()}
+            disabled={backtestState.kind === "running"}
+            data-testid="backtest-draft-button"
+          >
+            <span className="flex items-center gap-1.5">
+              {backtestState.kind === "running" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {backtestState.kind === "running"
+                ? "Running backtest…"
+                : backtestState.kind === "ready"
+                  ? "Backtest re-run"
+                  : "Backtest this agent"}
+            </span>
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
           {saveState.kind === "error" && (
             <p
               role="alert"
@@ -279,6 +362,41 @@ export function WorkflowDraftCard({
             >
               {saveState.message}
             </p>
+          )}
+          {backtestState.kind === "ineligible" && (
+            <p
+              role="status"
+              data-testid="backtest-ineligible"
+              className="rounded-md bg-muted px-2.5 py-1.5 text-[11px] text-muted-foreground"
+            >
+              <span className="font-medium">Can't backtest this shape:</span>{" "}
+              {backtestState.reason}
+            </p>
+          )}
+          {backtestState.kind === "error" && (
+            <p
+              role="alert"
+              data-testid="backtest-draft-error"
+              className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive"
+            >
+              {backtestState.message}
+            </p>
+          )}
+        </div>
+      )}
+      {/* Inline backtest result — same chart card the indicator
+          backtest path uses, so the FE doesn't grow a second renderer. */}
+      {backtestState.kind === "ready" && (
+        <div className="border-t" data-testid="backtest-draft-result">
+          <IndicatorBacktestCard payload={backtestState.payload} />
+          {backtestState.warnings.length > 0 && (
+            <div className="border-t bg-muted/40 px-4 py-2 space-y-1">
+              {backtestState.warnings.map((w, i) => (
+                <p key={i} className="text-[11px] text-muted-foreground">
+                  Note: {w}
+                </p>
+              ))}
+            </div>
           )}
         </div>
       )}

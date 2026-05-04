@@ -290,6 +290,67 @@ export function runWorkflow(
   );
 }
 
+/**
+ * Eligible response — workflow can be replayed historically. The shape
+ * mirrors the indicator backtest payload so the existing chart card
+ * renders without changes.
+ */
+export type BacktestDraftEligible = {
+  eligible: true;
+  warnings: string[];
+  _render_hint: "indicator_backtest_chart";
+  symbol: string;
+  indicator: string;
+  indicator_period: number;
+  operator: string;
+  threshold: number;
+  period_label: string;
+  price_curve: { t: string; v: number }[];
+  equity_curve: { t: string; v: number }[];
+  indicator_curve: { t: string; v: number }[];
+  signals: Array<{
+    t: string;
+    side: string;
+    price: number;
+    qty?: number;
+  }>;
+  metrics: {
+    total_return_pct: number;
+    cagr_pct: number;
+    max_drawdown_pct: number;
+    n_trades: number;
+  };
+  bench_buy_hold_return_pct: number;
+  summary: string;
+};
+
+export type BacktestDraftIneligible = {
+  eligible: false;
+  reason: string;
+  warnings: string[];
+};
+
+export type BacktestDraftResponse =
+  | BacktestDraftEligible
+  | BacktestDraftIneligible;
+
+/**
+ * Backtest a workflow draft against historical bars. Used by the
+ * "Backtest this agent" button on the WorkflowDraftCard. Returns the
+ * same chart payload shape the indicator backtester does.
+ */
+export function backtestDraftWorkflow(body: {
+  name: string;
+  description?: string | null;
+  steps: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
+  period?: string;
+}): Promise<ApiResult<BacktestDraftResponse>> {
+  return request<BacktestDraftResponse>("/workflows/backtest-draft", {
+    method: "POST",
+    body,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Runs
 // ---------------------------------------------------------------------------

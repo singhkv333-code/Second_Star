@@ -390,8 +390,8 @@ type Message =
    * `startedAt` is the unix-ms timestamp when the bubble was created;
    * the `StreamingStatusBar` reads it to render an elapsed counter. */
   | { kind: "streaming"; text: string; tools: ToolPill[]; startedAt: number }
-  | { kind: "draft"; draft: WorkflowDraft }
-  | { kind: "snapshot"; symbol: string }
+  | { kind: "draft"; draft: WorkflowDraft; intro: string }
+  | { kind: "snapshot"; symbol: string; intro: string }
   | { kind: "indicator_backtest"; payload: IndicatorBacktestPayload; intro: string }
   | { kind: "financial_backtest"; payload: FinancialBacktestPayload; intro: string }
   | { kind: "logic_card"; card: LogicCard; intro: string }
@@ -459,7 +459,7 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
           warnings: r.warnings ?? [],
           _render_hint: "workflow_draft_card",
         };
-        finalMessage = { kind: "draft", draft };
+        finalMessage = { kind: "draft", draft, intro: data.response ?? "" };
       } else {
         finalMessage = { kind: "assistant", text: data.response ?? "" };
       }
@@ -502,7 +502,14 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     // Bare ticker shortcut — no API call.
     const ticker = extractTicker(trimmed);
     if (ticker) {
-      setMessages((prev) => [...prev, { kind: "snapshot", symbol: ticker }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          kind: "snapshot",
+          symbol: ticker,
+          intro: `Here's a quick snapshot for ${ticker} — price, day range, and the basics are below.`,
+        },
+      ]);
       return;
     }
 
@@ -725,25 +732,37 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
             }
             if (msg.kind === "draft") {
               return (
-                <div key={idx} className="flex justify-start">
-                  <WorkflowDraftCard
-                    draft={msg.draft}
-                    onOpenEditor={(draft) => onOpenEditor(draftToWorkflow(draft))}
-                    onActivatedAndRunning={(info) => {
-                      // Append a live-run card right after the draft so
-                      // the user sees the workflow's first run streaming
-                      // step-by-step in the same chat thread.
-                      setMessages((prev) => [
-                        ...prev,
-                        {
-                          kind: "live_run",
-                          runId: info.runId,
-                          workflowName: info.workflowName,
-                          workflowId: info.workflowId,
-                        },
-                      ]);
-                    }}
-                  />
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex items-start gap-2 max-w-md">
+                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
+                          {msg.intro}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <WorkflowDraftCard
+                      draft={msg.draft}
+                      onOpenEditor={(draft) => onOpenEditor(draftToWorkflow(draft))}
+                      onActivatedAndRunning={(info) => {
+                        // Append a live-run card right after the draft so
+                        // the user sees the workflow's first run streaming
+                        // step-by-step in the same chat thread.
+                        setMessages((prev) => [
+                          ...prev,
+                          {
+                            kind: "live_run",
+                            runId: info.runId,
+                            workflowName: info.workflowName,
+                            workflowId: info.workflowId,
+                          },
+                        ]);
+                      }}
+                    />
+                  </div>
                 </div>
               );
             }
@@ -771,8 +790,20 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
             }
             if (msg.kind === "snapshot") {
               return (
-                <div key={idx} className="flex justify-start">
-                  <StockSnapshotCard symbol={msg.symbol} />
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex items-start gap-2 max-w-md">
+                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
+                          {msg.intro}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <StockSnapshotCard symbol={msg.symbol} />
+                  </div>
                 </div>
               );
             }

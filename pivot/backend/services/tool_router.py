@@ -28,11 +28,18 @@ import re
 from typing import Optional
 
 
-# Tools that are ALWAYS in scope. The agent-builder and the
-# clarification tool need to be available regardless of what the user
-# typed — both are escape hatches the model relies on.
+# Tools that are ALWAYS in scope. The agent-builder, the four macro
+# variants, and the clarification tool need to be available regardless
+# of what the user typed — they're the escape hatches the model relies
+# on. Including the macros up-front means a "buy 5 NIFTYBEES every
+# weekday" prompt sees them even if the keyword router didn't classify
+# the message as agent-y.
 _ALWAYS_INCLUDE: frozenset[str] = frozenset({
     "propose_workflow",
+    "propose_scheduled_order",
+    "propose_threshold_order",
+    "propose_basket_allocation",
+    "propose_holding_action",
     "ASK_USER",  # synthetic; added by the chat service, not the registry
 })
 

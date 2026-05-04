@@ -612,11 +612,24 @@ _PROPOSE_STEPS_SCHEMA, _PROPOSE_STEP_TYPES = _build_propose_workflow_schema()
 
 
 tool("propose_workflow",
-     "Emit a Pivot workflow draft (a multi-step automation, aka 'Agent') "
-     "directly as structured arguments. Call this when the user asks to "
-     "BUILD or CREATE an automation — e.g. 'every weekday at 3 PM if my "
-     "buying power is over 50K buy 10 RELIANCE and email me', 'buy "
-     "NIFTYBEES every Monday at 9:15', 'sell INFY when RSI < 30'.\n\n"
+     "FALLBACK workflow builder. Emit the full draft (name + steps[]) as "
+     "structured arguments. Use this ONLY when none of the four macro "
+     "tools fits the user's request:\n"
+     "  - `propose_scheduled_order` → 'every weekday/Monday at HH:MM "
+     "(buy|sell) N SYMBOL' patterns. ALWAYS prefer this for SIP-style.\n"
+     "  - `propose_threshold_order` → '(buy|sell) N SYMBOL when "
+     "(RSI|SMA|EMA|price) (<|>|crosses) X' patterns with absolute "
+     "thresholds.\n"
+     "  - `propose_basket_allocation` → 'invest ₹X across top N "
+     "<sector> stocks' patterns.\n"
+     "  - `propose_holding_action` → 'sell my SYMBOL when X' / 'set "
+     "Y% SL on my SYMBOL' patterns.\n"
+     "Use propose_workflow when the request needs runtime-relative "
+     "thresholds ('5% below today's open'), multi-trigger workflows "
+     "(two independent branches), explicit conditions on portfolio "
+     "state ('if buying power > 50K'), or notify steps with custom "
+     "templates. The macros emit ~20-30 tokens; this tool emits "
+     "~1000. Always check macros first.\n\n"
      "EMITTING IS NOT ACTIVATING. The draft you return is rendered as a "
      "review card the user inspects and edits before clicking Activate. "
      "Calling propose_workflow does NOT place orders, does NOT persist, "
@@ -644,12 +657,135 @@ tool("propose_workflow",
      "period: 14, operator, value }\n"
      "  - fetch.portfolio: {} (output: buying_power, holdings)\n"
      "  - fetch.indicator: { symbol, indicator, period }\n"
+     "  - fetch.day_open: { symbol } "
+     "(output: { value: today's open price, session_date })\n"
+     "  - fetch.prior_close: { symbol, sessions_back?: 1 } "
+     "(output: { value: prior close, session_date })\n"
+     "  - fetch.relative_threshold: { symbol, "
+     "reference: 'day_open'|'prior_close'|'prior_high'|'prior_low', "
+     "offset_pct: number } "
+     "(output: { value: ABSOLUTE price level, reference_value, "
+     "reference_label })\n"
+     "  - fetch.screener: { sector?, mcap_min_cr?, mcap_max_cr?, "
+     "sort_by?: 'mcap'|'symbol', limit?: 10 } "
+     "(output: { symbols: [...], ranked: [{symbol, name, sector, mcap_cr}], "
+     "n }) — use this to resolve 'top N stocks in sector S'. Sectors: "
+     "steel, metals, banking, psu_bank, private_bank, it, auto, pharma, "
+     "fmcg, energy, cement, defence, telecom.\n"
      "  - condition.numeric: { left: '{{ context.1.buying_power }}', "
      "operator: '>', right: 50000 }\n"
-     "  - action.place_order: { symbol, side: 'buy'|'sell', quantity, "
-     "order_type?: 'market'|'limit', requires_approval?: bool }\n"
+     "  - action.place_order: { symbol, side: 'buy'|'sell', "
+     "quantity OR notional_inr (ONE of them), "
+     "order_type?: 'market'|'limit', requires_approval?: bool }. "
+     "Use notional_inr when the user expressed size in INR ('buy ₹5K of "
+     "RELIANCE'); the executor converts to integer shares at fire time.\n"
+     "  - action.allocate_notional: { symbols: ref|list, "
+     "side: 'buy'|'sell', total_inr, strategy?: 'equal'|'mcap_weighted', "
+     "order_type? } — splits a ₹ budget across N symbols and places "
+     "each as one order. Replaces N copies of action.place_order for a "
+     "portfolio buy. The `symbols` field accepts either a literal list "
+     "or a Mustache ref like `{{ context.4.ranked }}` (preferred — "
+     "carries mcap data for mcap_weighted strategy).\n"
+     "  - action.set_stoploss: { symbol, "
+     "trigger_price OR trigger_offset_pct (% below entry, e.g. 2 for 2%), "
+     "quantity? }\n"
      "  - notify.message: { channel: 'email'|'sms'|'push', template, "
      "vars?: {} }\n\n"
+     "STOP-LOSS: when the user says '2% stop loss' / 'X% SL' / 'stop "
+     "below entry', use action.set_stoploss with `trigger_offset_pct` "
+     "(a number like 2). Use `trigger_price` only when the user gave "
+     "an absolute price (e.g. '₹1,420' or 'stop at 1400'). Never both.\n\n"
+     "RUNTIME-RELATIVE LEVELS (e.g. 'X% below today's open', 'above prior "
+     "close', 'when price gaps down 5%'). Workflow triggers and "
+     "condition.numeric only accept fixed numbers — they do NOT support "
+     "arithmetic in Mustache refs (`{{ x * 0.95 }}` is invalid). To "
+     "express a relative level, chain a `fetch.relative_threshold` step "
+     "BEFORE the condition. Example for 'when RELIANCE drops 5% below "
+     "today's open':\n"
+     "  steps: [\n"
+     "    { step_type: 'trigger.schedule', "
+     "config: { cron: '*/5 9-15 * * 1-5', timezone: 'Asia/Kolkata' } },\n"
+     "    { step_type: 'fetch.quote', config: { symbol: 'RELIANCE' } },\n"
+     "    { step_type: 'fetch.relative_threshold', "
+     "config: { symbol: 'RELIANCE', reference: 'day_open', "
+     "offset_pct: -5 } },\n"
+     "    { step_type: 'condition.numeric', "
+     "config: { left: '{{ context.1.ltp }}', operator: '<=', "
+     "right: '{{ context.2.value }}' } },\n"
+     "    { step_type: 'action.set_stoploss', "
+     "config: { symbol: 'RELIANCE', trigger_offset_pct: 2 } }\n"
+     "  ]\n"
+     "Never write `{{ x * 0.95 }}` directly — refs don't compute. Use "
+     "fetch.relative_threshold and reference its `value` field.\n\n"
+     "STAY LITERAL TO THE USER'S REQUEST. If the user only asked for "
+     "an SL, do NOT add a buy step. If the user only asked for a buy, "
+     "do NOT add an SL step. Add steps the user did not request only "
+     "when the workflow is unworkable without them (e.g. fetch.portfolio "
+     "before referencing holdings).\n\n"
+     "EXAMPLES (emit shapes like these — adjust values to match the user):\n"
+     "  // 'buy 5 NIFTYBEES every weekday at 09:15'\n"
+     "  { name: 'Weekday NIFTYBEES SIP', description: 'Buy 5 NIFTYBEES every "
+     "weekday at 09:15 IST', steps: ["
+     "{ step_type: 'trigger.schedule', config: { cron: '15 9 * * 1-5', "
+     "timezone: 'Asia/Kolkata' } },"
+     "{ step_type: 'action.place_order', config: { symbol: 'NIFTYBEES', "
+     "side: 'buy', quantity: 5, order_type: 'market', requires_approval: "
+     "false } } ], rationale: 'Single weekly schedule trigger, market buy "
+     "for SIP-style accumulation.' }\n\n"
+     "  // SL-only example: 'when RELIANCE drops below 2700, set 2% stop loss "
+     "on my holding'\n"
+     "  { name: 'RELIANCE 2% SL on dip', steps: ["
+     "{ step_type: 'trigger.price', config: { symbol: 'RELIANCE', "
+     "operator: 'crosses_below', value: 2700 } },"
+     "{ step_type: 'action.set_stoploss', config: { symbol: 'RELIANCE', "
+     "trigger_offset_pct: 2 } } ], rationale: 'Trigger on price crossing "
+     "below; place a percentage-based SL on the existing holding.' }\n\n"
+     "  // Day-anchored runtime-relative SL example: 'if RELIANCE "
+     "dips 5% on Monday set a 2% stop loss'. The 5% dip is RELATIVE "
+     "to a reference price (prior close), so we need fetch.relative_threshold "
+     "to compute the absolute level, fetch.quote for the current LTP, "
+     "then condition.numeric to compare. The schedule runs every "
+     "Monday during market hours; the SL fires when the LTP crosses "
+     "below the threshold.\n"
+     "  { name: 'RELIANCE 5% Monday dip → 2% SL', steps: ["
+     "{ step_type: 'trigger.schedule', config: { cron: '*/15 9-15 * * 1', "
+     "timezone: 'Asia/Kolkata' } },"
+     "{ step_type: 'fetch.relative_threshold', config: { symbol: 'RELIANCE', "
+     "reference: 'prior_close', offset_pct: -5 } },"
+     "{ step_type: 'fetch.quote', config: { symbol: 'RELIANCE' } },"
+     "{ step_type: 'condition.numeric', config: { left: '{{ context.2.ltp }}', "
+     "operator: '<=', right: '{{ context.1.value }}' } },"
+     "{ step_type: 'action.set_stoploss', config: { symbol: 'RELIANCE', "
+     "trigger_offset_pct: 2 } } ], rationale: 'Polls RELIANCE every 15 "
+     "minutes during Monday market hours; when LTP is at or below 5% of "
+     "prior close, places a 2% stop-loss on the holding.' }\n\n"
+     "  // Buy + SL example: 'watch HDFCBANK and buy 3 shares when price "
+     "crosses below 1400, with a 2% stop loss after the buy'\n"
+     "  { name: 'HDFCBANK dip buy with SL', steps: ["
+     "{ step_type: 'trigger.price', config: { symbol: 'HDFCBANK', "
+     "operator: 'crosses_below', value: 1400 } },"
+     "{ step_type: 'action.place_order', config: { symbol: 'HDFCBANK', "
+     "side: 'buy', quantity: 3, order_type: 'market', requires_approval: "
+     "false } },"
+     "{ step_type: 'action.set_stoploss', config: { symbol: 'HDFCBANK', "
+     "trigger_offset_pct: 2 } } ], rationale: '...' }\n\n"
+     "  // Portfolio basket example: 'invest ₹1,00,000 equally across "
+     "the top 10 steel sector stocks when NIFTY opens above prev close'\n"
+     "  { name: 'Steel basket on NIFTY gap-up', steps: ["
+     "{ step_type: 'trigger.schedule', config: { cron: '20 9 * * 1-5', "
+     "timezone: 'Asia/Kolkata' } },"
+     "{ step_type: 'fetch.day_open', config: { symbol: 'NIFTY' } },"
+     "{ step_type: 'fetch.prior_close', config: { symbol: 'NIFTY' } },"
+     "{ step_type: 'condition.numeric', config: { left: "
+     "'{{ context.1.value }}', operator: '>', right: "
+     "'{{ context.2.value }}' } },"
+     "{ step_type: 'fetch.screener', config: { sector: 'steel', "
+     "sort_by: 'mcap', limit: 10 } },"
+     "{ step_type: 'action.allocate_notional', config: { symbols: "
+     "'{{ context.4.ranked }}', side: 'buy', total_inr: 100000, "
+     "strategy: 'equal' } } ], rationale: 'Schedule shortly after open, "
+     "compare day open to prior close, screen steel top 10, allocate "
+     "₹1L equally across the basket.' }\n\n"
      "Output the draft as the tool arguments — do NOT pass the user's "
      "raw text. The user reviews and activates from the editor panel; "
      "do not persist.",
@@ -669,6 +805,185 @@ tool("propose_workflow",
          },
      },
      ["name", "steps"])
+
+
+# ── MACRO WORKFLOW TOOLS ────────────────────────────────────────────
+#
+# Four narrow tools that hydrate the most common workflow shapes
+# server-side. The model emits ~20-30 tokens of params; the executor
+# in tool_executor.py expands these into a full WorkflowDraft and
+# returns the same `_render_hint: "workflow_draft_card"` payload as
+# `propose_workflow`. ~30× faster decode for the 80% of agent prompts
+# that fit one of these shapes.
+#
+# When the prompt doesn't fit any macro, the model falls through to
+# the full `propose_workflow` tool which is still in scope.
+
+
+tool("propose_scheduled_order",
+     "Build a workflow that places ONE order on a recurring schedule "
+     "(SIP-style or weekly/Monday rules). PREFER this over "
+     "propose_workflow for prompts shaped like: 'buy 5 NIFTYBEES every "
+     "weekday at 09:15', 'every Monday 09:30 sell 2 INFY', 'put ₹500 "
+     "into HDFCBANK every day at market open'. Server hydrates the full "
+     "trigger.schedule + action.place_order (+ optional "
+     "action.set_stoploss) draft. Pass exactly ONE of `quantity` or "
+     "`notional_inr`.",
+     {
+         "symbol": {"type": "string"},
+         "side": {"type": "string", "enum": ["buy", "sell"]},
+         "quantity": {"type": "integer", "minimum": 1,
+                      "description": "Integer share count. XOR with notional_inr."},
+         "notional_inr": {"type": "number", "minimum": 1,
+                          "description": "Rupee budget. XOR with quantity."},
+         "days": {
+             "type": "array",
+             "items": {"type": "string"},
+             "description": "Days to fire — list of mon|tue|wed|thu|fri|"
+                            "weekday|daily. Use ['weekday'] for Mon-Fri.",
+         },
+         "time_ist": {
+             "type": "string",
+             "description": "Fire time, HH:MM in IST. Default 09:15.",
+         },
+         "sl_pct": {"type": "number", "minimum": 0.1, "maximum": 50,
+                    "description": "Optional % stop-loss after the fill."},
+         "requires_approval": {"type": "boolean",
+                               "description": "Default false (auto-execute)."},
+     },
+     ["symbol", "side", "days"])
+
+
+tool("propose_threshold_order",
+     "Build a workflow that places ONE order when an indicator or "
+     "price threshold fires. PREFER this over propose_workflow for "
+     "prompts shaped like: 'buy 10 INFY when RSI < 30', 'sell 5 "
+     "RELIANCE when price crosses above 2800', 'buy 3 HDFCBANK when "
+     "price drops below 1400 with 2% SL'. Server hydrates the full "
+     "trigger.{indicator|price} + action.place_order (+ optional "
+     "action.set_stoploss) draft. Pass exactly ONE of `quantity` or "
+     "`notional_inr`. Use this ONLY for absolute thresholds — for "
+     "runtime-relative rules ('5% below today's open') use the full "
+     "propose_workflow with fetch.relative_threshold instead.",
+     {
+         "symbol": {"type": "string"},
+         "side": {"type": "string", "enum": ["buy", "sell"]},
+         "quantity": {"type": "integer", "minimum": 1},
+         "notional_inr": {"type": "number", "minimum": 1},
+         "trigger_kind": {
+             "type": "string", "enum": ["indicator", "price"],
+             "description": "What kind of trigger. 'indicator' for RSI/SMA/EMA,"
+                            " 'price' for absolute price levels.",
+         },
+         "operator": {
+             "type": "string",
+             "enum": ["<", ">", "crosses_above", "crosses_below"],
+         },
+         "threshold": {"type": "number"},
+         "indicator": {
+             "type": "string", "enum": ["rsi", "sma", "ema"],
+             "description": "Required when trigger_kind='indicator'.",
+         },
+         "indicator_period": {"type": "integer", "minimum": 1, "maximum": 500,
+                              "description": "Default 14 for RSI, 50 for SMA/EMA."},
+         "sl_pct": {"type": "number", "minimum": 0.1, "maximum": 50},
+         "requires_approval": {"type": "boolean"},
+     },
+     ["symbol", "side", "trigger_kind", "operator", "threshold"])
+
+
+tool("propose_basket_allocation",
+     "Build a workflow that allocates a ₹ budget across the top N "
+     "stocks in a sector. PREFER this over propose_workflow for "
+     "prompts shaped like: 'invest ₹1L equally across top 10 steel "
+     "stocks', 'put ₹50K into top 5 banking stocks', 'allocate ₹2L "
+     "across top 10 IT stocks when NIFTY gaps up'. Server hydrates "
+     "trigger.schedule (+ optional gap-up/down gate on the index) + "
+     "fetch.screener + action.allocate_notional + notify.message. "
+     "Sectors recognised: steel, metals, banking, psu_bank, "
+     "private_bank, it, auto, pharma, fmcg, energy, cement, defence, "
+     "telecom.",
+     {
+         "sector": {"type": "string"},
+         "total_inr": {"type": "number", "minimum": 1},
+         "side": {"type": "string", "enum": ["buy", "sell"], "default": "buy"},
+         "strategy": {
+             "type": "string", "enum": ["equal", "mcap_weighted"],
+             "default": "equal",
+         },
+         "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+         "schedule_time_ist": {
+             "type": "string", "default": "09:20",
+             "description": "Fire time, HH:MM IST. Default 09:20 (just after open).",
+         },
+         "days": {
+             "type": "array", "items": {"type": "string"},
+             "description": "Days to fire. Default ['weekday'].",
+         },
+         "gap_condition": {
+             "type": "string",
+             "enum": ["gap_up", "gap_down", "flat"],
+             "description": "Optional gate: only fire when the index "
+                            "opens above/below/flat vs prior close.",
+         },
+         "index_symbol": {"type": "string", "default": "NIFTY",
+                          "description": "Index for gap_condition. Default NIFTY."},
+         "requires_approval": {"type": "boolean"},
+     },
+     ["sector", "total_inr"])
+
+
+tool("propose_holding_action",
+     "Build a workflow that acts on the user's EXISTING holding of a "
+     "symbol — sells it entirely or sets a stop-loss. PREFER this "
+     "over propose_workflow for prompts shaped like: 'sell my INFY "
+     "when RSI > 70', 'set 2% SL on my RELIANCE', 'exit TCS when it "
+     "drops below 3500'. Two action shapes: 'sell' (entire holding "
+     "via fetch.portfolio + place_order) or 'set_stoploss' (absolute "
+     "price OR offset pct). Three trigger shapes: indicator, price, "
+     "schedule.",
+     {
+         "symbol": {"type": "string"},
+         "action_kind": {
+             "type": "string", "enum": ["sell", "set_stoploss"],
+         },
+         "trigger_kind": {
+             "type": "string",
+             "enum": ["indicator", "price", "schedule", "manual"],
+             "description": "When the user did not specify a trigger "
+                            "(e.g. 'set 2% SL on my RELIANCE'), use "
+                            "'manual' — the workflow only fires when "
+                            "the user clicks Run now.",
+         },
+         "operator": {
+             "type": "string",
+             "enum": ["<", ">", "crosses_above", "crosses_below"],
+             "description": "Required for trigger_kind in {indicator, price}.",
+         },
+         "threshold": {"type": "number",
+                       "description": "Required for trigger_kind in {indicator, price}."},
+         "indicator": {
+             "type": "string", "enum": ["rsi", "sma", "ema"],
+             "description": "Required when trigger_kind='indicator'.",
+         },
+         "indicator_period": {"type": "integer", "minimum": 1, "maximum": 500},
+         "schedule_cron": {
+             "type": "string",
+             "description": "Required when trigger_kind='schedule'. e.g. '15 9 * * 1-5'.",
+         },
+         "sl_offset_pct": {
+             "type": "number", "minimum": 0.1, "maximum": 50,
+             "description": "For action_kind='set_stoploss'. % below current "
+                            "price. XOR with sl_trigger_price.",
+         },
+         "sl_trigger_price": {
+             "type": "number",
+             "description": "For action_kind='set_stoploss'. Absolute price. "
+                            "XOR with sl_offset_pct.",
+         },
+         "requires_approval": {"type": "boolean"},
+     },
+     ["symbol", "action_kind", "trigger_kind"])
 
 
 def get_tools_for_subset(subset_name: str) -> list:

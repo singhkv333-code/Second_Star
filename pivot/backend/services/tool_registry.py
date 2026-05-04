@@ -61,6 +61,12 @@ _REAL_TOOLS: set[str] = {
     "get_product_spec",
     # Agent System (Workflows v1)
     "propose_workflow",
+    # Macro tools — narrow alternatives to propose_workflow that
+    # hydrate the most common shapes server-side. ~30× faster decode.
+    "propose_scheduled_order",
+    "propose_threshold_order",
+    "propose_basket_allocation",
+    "propose_holding_action",
 }
 
 

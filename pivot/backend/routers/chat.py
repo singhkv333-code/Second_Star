@@ -280,7 +280,21 @@ _DEFAULT_PERIOD_BY_INDICATOR = {"rsi": 14, "sma": 50, "ema": 50}
 # This is intentionally a fallback; canonical phrasings should still hit
 # the strict regexes for predictability.
 _INDICATOR_RE = re.compile(r"\b(rsi|sma|ema)\b", re.IGNORECASE)
-_BACKTEST_TRIGGER_RE = re.compile(r"\bbacktest\b", re.IGNORECASE)
+# Words that strongly signal historical-backtest intent. Used as the
+# trigger gate for `_heuristic_indicator_intent`. Includes the literal
+# "backtest" word AND counterfactual phrasings ("what if I had
+# bought…", "how would X have done…", "over the (last|past) N…")
+# that the strict regexes don't match.
+_BACKTEST_TRIGGER_RE = re.compile(
+    r"\bbacktest\b"
+    r"|\bwhat\s+if\s+(?:i\s+)?(?:had|i)\b"
+    r"|\bhow\s+(?:would|did)\b"
+    r"|\bif\s+i\s+had\s+(?:bought|invested|sold)\b"
+    r"|\b(?:over|in)\s+the\s+(?:last|past)\s+\d+\s+(?:year|month|week)s?\b"
+    r"|\bsimulate\b"
+    r"|\bhistorical(?:ly)?\b",
+    re.IGNORECASE,
+)
 
 
 # Phrases that signal "user wants a FUTURE-action agent, not a historical
@@ -300,7 +314,18 @@ _AGENT_INTENT_SIGNALS_RE = re.compile(
     r"|\balert\s+me\b"
     r"|\bnotify\s+me\b"
     r"|\bevery\s+(?:monday|tuesday|wednesday|thursday|friday|"
-    r"weekday|day|week|hour)\b",
+    r"weekday|day|week|hour)\b"
+    # Quantity in the verb phrase = forward-looking order, NOT a
+    # historical backtest. "buy 10 INFY when RSI < 30" is an agent
+    # ask; "what if I had bought INFY whenever RSI < 30" is a backtest.
+    # Backtests don't carry a share count.
+    r"|\b(?:buy|sell)\s+\d+\s+[A-Z][A-Z0-9\-_]+\b"
+    # SL / take-profit / stop-loss phrasing is always forward-looking.
+    r"|\b(?:set|place|put|create|add)\s+(?:a\s+|an\s+)?"
+    r"(?:[\d.]+\s*%\s+)?(?:stop[- ]?loss|sl|stoploss|trailing\s+stop|"
+    r"take[- ]?profit|tp|target)\b"
+    # "if X dips/drops/rises N% then Y" — conditional rule, not a backtest.
+    r"|\bif\b[^\.]{0,120}\b(?:dips?|drops?|falls?|rises?|crosses?|hits?|reaches?)\b",
     re.IGNORECASE,
 )
 
@@ -659,10 +684,22 @@ async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
 async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance: str) -> dict:
     import asyncpg, datetime as _dt
     from backend.config import settings as _s
-    from backtester.engine import BacktestConfig, run_backtest as _run_bt
-    from backtester.metrics import compute_metrics
-    from backtester.universe import universe_at
-    from backtester.expr.validator import ValidationError
+    # The fundamentals backtester lives in the sibling `pivot-backtester`
+    # package; it's an optional dependency. If it isn't installed in the
+    # running interpreter, surface a clean message instead of a 500.
+    try:
+        from backtester.engine import BacktestConfig, run_backtest as _run_bt
+        from backtester.metrics import compute_metrics
+        from backtester.universe import universe_at
+        from backtester.expr.validator import ValidationError
+    except ModuleNotFoundError:
+        return _slash_error(
+            "Fundamentals backtester isn't installed in this environment. "
+            "Install it with `pip install -e ../pivot-backtester` from the "
+            "pivot directory, then restart the backend. Indicator "
+            "backtests (RSI / SMA / EMA) still work — try `backtest "
+            "<symbol> when its rsi drops below 30`."
+        )
 
     base = (_s.database_url
             .replace("postgresql+psycopg2://", "postgresql://")
@@ -732,7 +769,12 @@ async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance
     )
     # Serialise the equity / benchmark curves to plain JSON-able lists.
     # `result.equity_curve` is List[BacktestEquityPoint(date: date, value: float)].
+    # benchmark_curve is None when the backtester runs without one
+    # (e.g. universe screen with no NIFTY data) — guard so the JSON
+    # serialiser doesn't 500 trying to iterate None.
     def _curve_to_json(curve) -> list[dict]:
+        if not curve:
+            return []
         out = []
         for p in curve:
             d = p.date if hasattr(p, "date") else p["date"]
@@ -952,7 +994,44 @@ async def chat_stream(
         if isinstance(m, dict) and m.get("role") in {"user", "assistant"} and m.get("content")
     ][:-1]
 
+    # Slash-command + indicator-backtest deterministic shortcut.
+    # POST /chat runs this BEFORE the LLM (line ~841). The streaming
+    # path used to skip it, so prompts like "How would a 50 SMA on
+    # TCS have done over the past 3 years" went to the model — which
+    # hallucinated period limits and burned 25s on an ASK_USER round
+    # trip. Run the same shortcut here and surface its result as a
+    # synthetic SSE sequence (start → delta → done) so the FE sees
+    # the same shape as a normal stream.
+    slash_result = await _maybe_run_slash(last_msg)
+
     async def gen():
+        if slash_result is not None:
+            yield f"data: {json.dumps({'type': 'start'})}\n\n"
+            text = slash_result.get("response") or ""
+            if text:
+                yield f"data: {json.dumps({'type': 'delta', 'text': text})}\n\n"
+            # Build a /chat-shaped raw_data block from the slash
+            # result so the FE's render-hint dispatch fires the same
+            # card it would have on the non-streaming path.
+            raw = slash_result.get("raw_data") or {}
+            for key in (
+                "expr_backtest_data", "backtest_data", "screen_data",
+                "chart_data",
+            ):
+                payload = slash_result.get(key)
+                if isinstance(payload, dict) and not raw.get("_render_hint"):
+                    raw = {**raw, **payload}
+            done_event = {
+                "type": "done",
+                "response": text,
+                "tools_called": [],
+                "logiccard": slash_result.get("logiccard"),
+                "raw_data": raw or None,
+                "latency_ms": 0,
+                "latency_breakdown": {},
+            }
+            yield f"data: {json.dumps(done_event, default=str)}\n\n"
+            return
         try:
             async for event in _chat_service.handle_stream(
                 last_msg, conv_id, ctx,

@@ -303,10 +303,18 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
             "the action, and what action should run?"
         )
 
+    # Type hints we don't surface — they read as schema-explainer
+    # noise to a chat user ("what's the trigger condition? (object)").
+    _NOISE_HINTS = {"value", "object", "list of value", "yes/no"}
+
+    def _hint(m: MissingField) -> str:
+        if not m.type_hint or m.type_hint in _NOISE_HINTS:
+            return ""
+        return f" ({m.type_hint})"
+
     if len(missing) == 1:
         m = missing[0]
-        suffix = f" ({m.type_hint})" if m.type_hint and m.type_hint != "value" else ""
-        return f"Got it — what's the {_humanize_description(m)}?{suffix}"
+        return f"Got it — what's the {_humanize_description(m)}?{_hint(m)}"
 
     if len(missing) == 2:
         a, b = missing[0], missing[1]
@@ -316,8 +324,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
         )
 
     bullets = "\n".join(
-        f"  • {_humanize_description(m)}"
-        + (f" — {m.type_hint}" if m.type_hint and m.type_hint != "value" else "")
+        f"  • {_humanize_description(m)}{('  — ' + m.type_hint) if m.type_hint and m.type_hint not in _NOISE_HINTS else ''}"
         for m in missing
     )
     return f"I'm missing a few things — could you share:\n{bullets}"

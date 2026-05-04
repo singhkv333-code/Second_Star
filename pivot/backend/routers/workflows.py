@@ -564,3 +564,92 @@ async def run_workflow(
     asyncio.create_task(engine.execute_run(str(run.id)))
 
     return RunCreatedResponse(run_id=str(run.id))
+
+
+# ── Workflow draft backtest ───────────────────────────────────────────
+
+
+from pydantic import BaseModel, Field as _PField
+
+
+class _BacktestDraftRequest(BaseModel):
+    """Body for ``POST /api/workflows/backtest-draft``.
+
+    The chat sends the same draft shape it returns from
+    ``propose_workflow``. Period defaults to 5y to match the
+    indicator-backtest UX. Name is purely cosmetic — used in the
+    summary string of the result."""
+    name: str = _PField(default="Workflow")
+    description: str | None = None
+    steps: list[dict] = _PField(default_factory=list)
+    period: str = _PField(
+        default="5y",
+        description=(
+            "yfinance period: 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, max."
+        ),
+    )
+
+
+@router.post(
+    "/workflows/backtest-draft",
+    summary="Backtest a workflow draft against historical bars",
+    description=(
+        "Replays the workflow's logic over historical daily prices and "
+        "returns the same chart payload the indicator backtester does. "
+        "Eligible workflow shapes: trigger.schedule / trigger.indicator / "
+        "trigger.price + action.place_order. Returns 422 with a "
+        "user-readable reason for shapes that can't be replayed "
+        "historically (event triggers, fundamentals fetches, etc.)."
+    ),
+)
+async def backtest_draft(
+    body: _BacktestDraftRequest,
+    user_id: int = Depends(require_user),
+) -> dict:
+    from backend.services.workflow_backtester import (
+        backtest_workflow,
+        check_eligibility,
+    )
+
+    elig = check_eligibility(body.steps)
+    if not elig.eligible:
+        return {
+            "eligible": False,
+            "reason": elig.reason,
+            "warnings": [],
+        }
+
+    try:
+        result = await asyncio.to_thread(
+            backtest_workflow,
+            body.steps,
+            period=body.period,
+            name=body.name,
+        )
+    except ValueError as e:
+        return {
+            "eligible": False,
+            "reason": str(e),
+            "warnings": elig.warnings,
+        }
+
+    # Match the shape the FE chart card already consumes (mirrors the
+    # raw_data block on POST /chat for indicator backtests).
+    return {
+        "eligible": True,
+        "warnings": elig.warnings,
+        "_render_hint": "indicator_backtest_chart",
+        "symbol": result.symbol,
+        "indicator": result.indicator,
+        "indicator_period": result.indicator_period,
+        "operator": result.operator,
+        "threshold": result.threshold,
+        "period_label": result.period_label,
+        "price_curve": result.price_curve,
+        "equity_curve": result.equity_curve,
+        "indicator_curve": result.indicator_curve,
+        "signals": result.signals,
+        "metrics": result.metrics,
+        "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        "summary": result.summary_text,
+    }

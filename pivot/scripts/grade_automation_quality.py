@@ -116,6 +116,7 @@ PROMPTS: list[Prompt] = [
         expected_tools=frozenset(),  # routes pre-LLM
         max_acceptable_asks=0,
         expected_intent="INDICATOR_BACKTEST",
+        expected_render_hints=("indicator_backtest_chart",),
         notes="Deterministic shortcut should fire.",
     ),
     Prompt(
@@ -250,9 +251,68 @@ PROMPTS: list[Prompt] = [
 ]
 
 
-# Agent-only subset — used for the focused per-turn-trace test.
+_BACKTEST_PROMPTS: list[Prompt] = [
+    # ── Backtest bucket — must produce an inline chart card without
+    # asking the user for clarification on canonical phrasings. The
+    # indicator-backtest shortcut should fire pre-LLM for these.
+    Prompt(
+        name="bt_rsi_oversold",
+        bucket="backtest",
+        text="Backtest buying INFY whenever RSI drops below 30 over the last 5 years",
+        expected_tools=frozenset(),
+        max_acceptable_asks=0,
+        expected_intent="INDICATOR_BACKTEST",
+        expected_render_hints=("indicator_backtest_chart",),
+    ),
+    Prompt(
+        name="bt_sma_cross",
+        bucket="backtest",
+        text="Backtest buying TCS when it crosses above 200 SMA over the past 3 years",
+        expected_tools=frozenset(),
+        max_acceptable_asks=0,
+        expected_intent="INDICATOR_BACKTEST",
+        expected_render_hints=("indicator_backtest_chart",),
+    ),
+    Prompt(
+        name="bt_ema_natural",
+        bucket="backtest",
+        text="What if I had bought RELIANCE every time it dropped below its 200 EMA over the last 2 years",
+        expected_tools=frozenset(),
+        max_acceptable_asks=0,
+        expected_intent="INDICATOR_BACKTEST",
+        expected_render_hints=("indicator_backtest_chart",),
+        notes="Natural-language phrasing — no leading verb.",
+    ),
+    Prompt(
+        name="bt_slash_command",
+        bucket="backtest",
+        text="/expr-backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31",
+        expected_tools=frozenset(),
+        max_acceptable_asks=0,
+        expected_intent="EXPR_BACKTEST",
+        expected_render_hints=("financial_backtest_chart",),
+        notes="Explicit slash command for fundamentals backtest.",
+    ),
+    Prompt(
+        name="bt_vague",
+        bucket="backtest",
+        text="Backtest a strategy on HDFCBANK",
+        expected_tools=frozenset({"run_backtest"}),
+        max_acceptable_asks=1,
+        expected_render_hints=("indicator_backtest_chart",),
+        notes="Vague — needs one focused clarification (which strategy?).",
+    ),
+]
+
+PROMPTS.extend(_BACKTEST_PROMPTS)
+
+
+# Bucket subsets — used for focused per-turn-trace tests.
 AGENT_PROMPT_NAMES: tuple[str, ...] = tuple(
     p.name for p in PROMPTS if p.bucket == "agent"
+)
+BACKTEST_PROMPT_NAMES: tuple[str, ...] = tuple(
+    p.name for p in PROMPTS if p.bucket == "backtest"
 )
 
 
