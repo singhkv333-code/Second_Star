@@ -263,7 +263,7 @@ def _findings(name: str, r: dict, traces: list[dict]) -> list[str]:
     for i, t in enumerate(traces, 1):
         msgs = t.get("input_messages") or []
         has_system = any(m.get("role") == "system" for m in msgs)
-        if not has_system and t.get("caller", "").startswith("backend.services.validation_retry"):
+        if not has_system and t.get("caller", "").startswith("backend.services.validation_handler"):
             out.append(
                 f"call #{i} ({t.get('caller')}): no system prompt — relies on a "
                 "single user-message template; check if rule could be deterministic"

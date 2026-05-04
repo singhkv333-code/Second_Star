@@ -16,7 +16,7 @@ How it interacts with the validate-and-retry loop (Prompt 1):
   - Completeness check runs FIRST. Catches missing required fields
     BEFORE we waste a tool execution or a Pydantic-validate call.
   - Type / enum / format violations are still caught by the
-    `_validate_args_against_schema` path in validation_retry.py;
+    `_validate_args_against_schema` path in validation_handler.py;
     the two layers are complementary.
 """
 from __future__ import annotations
@@ -45,6 +45,11 @@ class MissingField:
     type_hint: str               # human-readable: "integer > 0", "ISO date", etc.
     enum: Optional[list[Any]] = None      # if the schema constrains values
     why_required: str = "Required field — cannot proceed without it."
+    # Coarse type used by chat_service's deterministic resume path
+    # (Change 2). One of: int, float, str, date, enum, any. Set when
+    # the schema gives us enough to coerce a user reply directly into
+    # the field's value without another LLM hop.
+    type_kind: str = "any"
 
 
 @dataclass
@@ -174,5 +179,29 @@ def check_completeness(
                 description=prop.get("description", "") or "",
                 type_hint=_human_type(prop),
                 enum=prop.get("enum"),
+                type_kind=_kind_of(prop),
             ))
     return report
+
+
+def _kind_of(prop: dict[str, Any]) -> str:
+    """Coarse type label for the deterministic resume path. Same shape
+    as the human type but stripped to one of {int, float, str, date,
+    enum, any} — only enough to drive a coercion."""
+    if not isinstance(prop, dict):
+        return "any"
+    if prop.get("enum"):
+        return "enum"
+    t = prop.get("type")
+    fmt = prop.get("format")
+    if t == "integer":
+        return "int"
+    if t == "number":
+        return "float"
+    if t == "string":
+        if fmt in ("date", "date-time"):
+            return "date"
+        return "str"
+    if t == "boolean":
+        return "bool"
+    return "any"

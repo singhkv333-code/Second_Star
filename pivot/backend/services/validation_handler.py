@@ -1,21 +1,28 @@
-"""Validate-and-retry loop for tool execution.
+"""Schema-driven validation handler for tool execution.
 
-When the LLM emits a tool call, today's chat path either crashes on
-malformed args or runs the tool with garbage. That makes the model
-*look* worse than it is — given the validation error, it would fix
-its own output most of the time.
+This module is single-shot. There is no LLM retry loop here, and the
+chat layer no longer iterates against the model on validation failure
+either (Change 1 — see chat_service.py docstring).
 
-This module wraps the tool dispatcher in a single-retry loop:
-  1. Validate the model's args against the tool's input schema.
-  2. On failure, send a terse error summary back to the model and let
-     it fix the args (or call ASK_USER to escalate to the human).
-  3. On second failure, surface a structured error — never run the
-     tool with bad args.
+Order of operations per call (each layer faster than the next):
+  1. ASK_USER intercept (synthetic tool — produces a clarification).
+  2. Pure-Python completeness check on required fields.
+  3. JSON-Schema arg validation (type / enum / length).
+  4. Tool execution.
+
+Any layer's failure short-circuits to a `GuardedToolResult` with
+either `needs_clarification=True` (with a deterministic question) or
+`error=<terse string>`. The chat handler converts errors into a
+deterministic question and surfaces them to the user — there is no
+fix-it hop against the model.
 
 The synthetic ASK_USER tool exists in the schema (so the model can
 call it) but is intercepted here rather than dispatched to the
 executor. ASK_USER returns a `needs_clarification` ToolResult that
 chat_service surfaces to the user as a normal assistant message.
+
+Module renamed from `validation_retry.py` 2026-05-04 to reflect that
+it no longer retries.
 """
 from __future__ import annotations
 
@@ -98,8 +105,9 @@ def format_validation_errors_terse(e: ValidationError) -> str:
       'dip_threshold_pct: Input should be > 0; got -1.'
       'symbol: String should have at least 1 character.'
 
-    Used in the retry hop to give the model a precise, structured fix
-    target — the better the error, the more likely the retry succeeds.
+    Kept as a debugging helper — the retry hop that originally
+    consumed this is gone (Change 1, 2026-05-04). Trace logs and the
+    `_format_recoverable_failure_question` helper still reference it.
     """
     lines: list[str] = []
     for err in e.errors():
@@ -204,6 +212,11 @@ class GuardedToolResult:
     # Per-step latency for the tool's own pre-flight + execution.
     # Surfaces in chat_service's latency_breakdown.
     latency_ms: int = 0
+    # Set when needs_clarification fires because exactly one required
+    # field was missing — chat_service uses this to persist a
+    # PendingToolCall so the user's next reply resumes deterministically
+    # without an LLM hop.
+    missing_field: Optional[MissingField] = None
 
     @classmethod
     def from_tool_result(cls, name: str, args: dict[str, Any], r: ToolResult) -> "GuardedToolResult":
@@ -418,11 +431,18 @@ async def execute_with_completeness(
             # already gives us everything we need to write a one-line
             # question. Removed 2026-05-04 per the LLM-call audit.
             question = _format_clarification_question(report.missing)
+            # Surface the FIRST missing field so chat_service can persist
+            # a PendingToolCall and resume deterministically when the
+            # user replies. Multi-field misses still get a question, but
+            # we only auto-resume on single-field cases — the others
+            # need the LLM to figure out which value goes where.
+            single_missing = report.missing[0] if len(report.missing) == 1 else None
             return GuardedToolResult(
                 name=tool_name, args=args,
                 needs_clarification=True,
                 question=question,
                 latency_ms=int((time.monotonic() - started) * 1000),
+                missing_field=single_missing,
             )
 
     # 2. JSON-Schema arg validation (type / enum / length).

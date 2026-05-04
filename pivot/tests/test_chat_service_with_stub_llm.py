@@ -22,7 +22,7 @@ from backend.services.chat_service import (
     ChatService,
     UserContext,
 )
-from backend.services import validation_retry as vr
+from backend.services import validation_handler as vr
 from backend.services.tool_registry import ToolResult
 
 
@@ -46,12 +46,32 @@ class _StubStore:
     a Redis connection during tests."""
     def __init__(self) -> None:
         self.appended: list[tuple[str, str, str]] = []
+        self.pending: dict[str, object] = {}
+        self.active_drafts: dict[str, object] = {}
 
     def get_history(self, conv_id: str, limit: int = 20):
         return []
 
     def append(self, conv_id: str, user: str, assistant: str) -> None:
         self.appended.append((conv_id, user, assistant))
+
+    def get_pending(self, conv_id: str):
+        return self.pending.get(conv_id)
+
+    def set_pending(self, conv_id: str, pending) -> None:
+        self.pending[conv_id] = pending
+
+    def clear_pending(self, conv_id: str) -> None:
+        self.pending.pop(conv_id, None)
+
+    def get_active_draft(self, conv_id: str):
+        return self.active_drafts.get(conv_id)
+
+    def set_active_draft(self, conv_id: str, draft) -> None:
+        self.active_drafts[conv_id] = draft
+
+    def clear_active_draft(self, conv_id: str) -> None:
+        self.active_drafts.pop(conv_id, None)
 
 
 @pytest.fixture
@@ -223,11 +243,17 @@ async def test_llm_error_returns_unavailable_fallback(stub_ctx):
 
 
 @pytest.mark.asyncio
-async def test_tool_error_loops_back_for_self_correction(stub_ctx, monkeypatch):
-    """A tool returning success=False feeds the error back as a tool-
-    result message; on the next iteration the model decides what to
-    do (retry, ASK_USER, finish). No special soft-failure-retry hop —
-    the loop IS the retry mechanism."""
+async def test_tool_error_returns_question_no_llm_retry(stub_ctx, monkeypatch):
+    """Non-`propose_workflow` tools fail single-shot — error becomes a
+    deterministic question, no LLM retry. (`propose_workflow` keeps a
+    one-retry escape hatch; covered by a different test.)
+
+    Test contract:
+      - LLM is called exactly once.
+      - Tool runs once, returns error.
+      - The chat turn returns a deterministic question, not the
+        model's next-iteration output.
+    """
     from backend.services.tool_registry import ToolResult
 
     call_count = {"n": 0}
@@ -235,45 +261,42 @@ async def test_tool_error_loops_back_for_self_correction(stub_ctx, monkeypatch):
         call_count["n"] += 1
         return ToolResult(
             name=name, args=args, success=False, data={},
-            error="step 2: trigger.* may only appear at step 0",
+            error="symbol: unrecognised ticker 'NFTY'",
         )
     monkeypatch.setattr(vr, "execute", fake_execute)
     monkeypatch.setattr(vr, "_schema_for_tool", lambda n: {
         "type": "object",
-        "properties": {"user_intent": {"type": "string"}},
-        "required": ["user_intent"],
+        "properties": {
+            "symbol": {"type": "string"},
+            "transaction_type": {"type": "string", "enum": ["BUY", "SELL"]},
+            "quantity": {"type": "integer"},
+        },
+        "required": ["symbol", "transaction_type", "quantity"],
     })
 
     stub = _StubClient(queue=[
-        # Hop 1: model emits a 2-trigger intent
         LLMResponse(
             content=None,
             tool_calls=[{
-                "id": "p1", "name": "propose_workflow",
-                "arguments": {"user_intent": "buy Mon sell Tue"},
-            }],
-            finish_reason="tool_calls",
-        ),
-        # Hop 2: sees the error, switches to ASK_USER
-        LLMResponse(
-            content=None,
-            tool_calls=[{
-                "id": "ask1", "name": vr.ASK_USER_TOOL_NAME,
-                "arguments": {"question":
-                              "Should this be one agent or split into a buy "
-                              "agent and a sell agent?"},
+                "id": "p1", "name": "place_market_order",
+                "arguments": {
+                    "symbol": "NFTY", "transaction_type": "BUY",
+                    "quantity": 10,
+                },
             }],
             finish_reason="tool_calls",
         ),
     ])
     set_llm_client_for_tests(stub)
     svc = ChatService(store=_StubStore())
-    turn = await svc.handle("buy Mon sell Tue", "u1", stub_ctx, history_override=[])
+    turn = await svc.handle(
+        "buy 10 NFTY", "u1", stub_ctx, history_override=[],
+    )
 
-    assert turn.tools_called == [vr.ASK_USER_TOOL_NAME]
-    assert "split" in turn.response.lower() or "two" in turn.response.lower()
-    # The model saw the error and did NOT retry the same tool.
     assert call_count["n"] == 1
+    assert len(stub.calls) == 1, "no LLM retry expected for non-propose tools"
+    assert turn.response, "expected a non-empty deterministic question"
+    assert turn.raw_data and turn.raw_data.get("_render_hint") == "ask_user"
 
 
 @pytest.mark.asyncio
@@ -401,3 +424,286 @@ async def test_fast_path_records_fast_path_in_breakdown(stub_ctx):
     turn = await svc.handle("thanks", "u1", stub_ctx, history_override=[])
     assert "fast_path" in turn.latency_breakdown
     assert "llm_hop_1" not in turn.latency_breakdown
+
+
+@pytest.mark.asyncio
+async def test_fast_resume_executes_tool_with_zero_llm_hops(stub_ctx, monkeypatch):
+    """Change 2 — when the previous turn left a PendingToolCall and the
+    user replies with a clean value, splice and execute. ZERO LLM hops
+    on the resume turn.
+
+    Test contract:
+      - Pending state: tool=create_gtt_order, missing_field=trigger_price
+      - User reply: "1400"
+      - Expected: tool runs once with trigger_price=1400, no LLM call.
+    """
+    from backend.services.conversation_store import PendingToolCall
+    from backend.services.tool_registry import ToolResult
+
+    captured = {"args": None, "name": None, "n": 0}
+    async def fake_execute(name, args, **kw):
+        captured["n"] += 1
+        captured["args"] = dict(args)
+        captured["name"] = name
+        return ToolResult(
+            name=name, args=args, success=True,
+            data={"trigger": args.get("trigger_price")},
+            logiccard={"action": "BUY", "symbol": "INFY", "quantity": 10},
+        )
+    monkeypatch.setattr(vr, "execute", fake_execute)
+    monkeypatch.setattr(vr, "_schema_for_tool", lambda n: {
+        "type": "object",
+        "properties": {
+            "symbol": {"type": "string"},
+            "trigger_price": {"type": "number"},
+            "limit_price": {"type": "number"},
+            "quantity": {"type": "integer"},
+        },
+        "required": ["symbol", "trigger_price", "limit_price", "quantity"],
+    })
+
+    store = _StubStore()
+    store.set_pending("u1", PendingToolCall(
+        tool_name="create_gtt_order",
+        args={
+            "symbol": "INFY", "limit_price": 1410, "quantity": 10,
+        },
+        missing_field="trigger_price",
+        field_type="float",
+        field_description="trigger price (INR)",
+    ))
+    # Empty queue — if the chat layer asks for an LLM call this fails.
+    stub = _StubClient(queue=[])
+    set_llm_client_for_tests(stub)
+
+    svc = ChatService(store=store)
+    turn = await svc.handle("1400", "u1", stub_ctx, history_override=[])
+
+    assert captured["n"] == 1, "tool should run exactly once"
+    assert captured["name"] == "create_gtt_order"
+    assert captured["args"]["trigger_price"] == 1400.0
+    assert captured["args"]["symbol"] == "INFY"   # original args preserved
+    assert len(stub.calls) == 0, "ZERO LLM hops expected on resume"
+    assert turn.tools_called == ["create_gtt_order"]
+    assert "u1" not in store.pending, "pending state should be cleared"
+
+
+@pytest.mark.asyncio
+async def test_fast_resume_cancellation_clears_pending(stub_ctx, monkeypatch):
+    """User reply 'cancel' → pending cleared, fall through to LLM path."""
+    from backend.services.conversation_store import PendingToolCall
+
+    store = _StubStore()
+    store.set_pending("u1", PendingToolCall(
+        tool_name="place_market_order",
+        args={"symbol": "INFY", "transaction_type": "BUY"},
+        missing_field="quantity",
+        field_type="int",
+        field_description="number of shares",
+    ))
+    stub = _StubClient(queue=[
+        LLMResponse(content="Got it — order cancelled.", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+
+    svc = ChatService(store=store)
+    turn = await svc.handle("never mind", "u1", stub_ctx, history_override=[])
+
+    assert "u1" not in store.pending
+    assert "cancel" in turn.response.lower() or len(stub.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_fast_resume_multiclause_falls_through_to_llm(stub_ctx, monkeypatch):
+    """Reply with a value AND modification ('1400, and use CNC') falls
+    through to the LLM — not a clean value reply."""
+    from backend.services.conversation_store import PendingToolCall
+
+    store = _StubStore()
+    store.set_pending("u1", PendingToolCall(
+        tool_name="create_gtt_order",
+        args={"symbol": "INFY"},
+        missing_field="trigger_price",
+        field_type="float",
+        field_description="trigger price",
+    ))
+    stub = _StubClient(queue=[
+        LLMResponse(content="OK, taking that into account.", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+
+    svc = ChatService(store=store)
+    await svc.handle("1400 and use CNC instead", "u1", stub_ctx,
+                     history_override=[])
+    # LLM was hit because the reply wasn't a pure-value shape.
+    assert len(stub.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_active_draft_cached_when_propose_workflow_succeeds(
+    stub_ctx, monkeypatch,
+):
+    """When propose_workflow returns success, the active draft is
+    persisted in conversation state so the next turn can amend it
+    directly via the followup_hint (no history regex scan)."""
+    from backend.services.tool_registry import ToolResult
+
+    draft = {
+        "name": "Daily NIFTYBEES open buy",
+        "steps": [
+            {"step_type": "trigger.cron",
+             "config": {"cron": "0 15 9 * * 1-5", "tz": "Asia/Kolkata"}},
+            {"step_type": "action.place_market_order",
+             "config": {"symbol": "NIFTYBEES", "side": "BUY", "quantity": 1}},
+        ],
+        "rationale": "Buy NIFTYBEES at open every weekday.",
+    }
+
+    async def fake_execute(name, args, **kw):
+        return ToolResult(
+            name=name, args=args, success=True, data=draft,
+            logiccard=None,
+        )
+    monkeypatch.setattr(vr, "execute", fake_execute)
+    monkeypatch.setattr(vr, "_schema_for_tool", lambda n: {
+        "type": "object",
+        "properties": {"user_intent": {"type": "string"}},
+        "required": ["user_intent"],
+    })
+
+    stub = _StubClient(queue=[
+        # Hop 1 — emit propose_workflow.
+        LLMResponse(
+            content=None,
+            tool_calls=[{
+                "id": "p1", "name": "propose_workflow",
+                "arguments": {"user_intent": "buy NIFTYBEES at open daily"},
+            }],
+            finish_reason="tool_calls",
+        ),
+        # Hop 2 — final text.
+        LLMResponse(content="Done — drafted.", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+    store = _StubStore()
+    svc = ChatService(store=store)
+    await svc.handle("buy NIFTYBEES at open daily", "u1", stub_ctx,
+                     history_override=[])
+
+    # Active draft was cached.
+    cached = store.get_active_draft("u1")
+    assert cached is not None
+    assert cached.tool_name == "propose_workflow"
+    assert cached.draft["name"] == "Daily NIFTYBEES open buy"
+    assert len(cached.draft["steps"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_followup_hint_includes_active_draft_when_present(
+    stub_ctx, monkeypatch,
+):
+    """When an active draft exists and the user replies to a
+    clarification, the system message we send to the LLM contains the
+    actual draft JSON — not a regex-scraped paraphrase."""
+    from backend.services.conversation_store import ActiveDraft
+    from backend.services.tool_registry import ToolResult
+
+    store = _StubStore()
+    store.set_active_draft("u1", ActiveDraft(
+        tool_name="propose_workflow",
+        draft={"name": "X", "steps": [{"step_type": "trigger.cron"}]},
+        last_caption="prior draft caption",
+    ))
+
+    # Stub: any LLM call returns final text; we just want to inspect
+    # what messages it received.
+    stub = _StubClient(queue=[
+        LLMResponse(content="ok", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+    svc = ChatService(store=store)
+    # History with a prior assistant question to trigger followup hint.
+    await svc.handle(
+        "1 lot",
+        "u1",
+        stub_ctx,
+        history_override=[
+            {"role": "user", "content": "build me an agent"},
+            {"role": "assistant", "content": "What quantity?"},
+        ],
+    )
+
+    assert len(stub.calls) == 1
+    sent_messages = stub.calls[0]["messages"]
+    system_blobs = " ".join(
+        (m.content or "") for m in sent_messages if m.role == "system"
+    )
+    assert "ACTIVE WORKFLOW DRAFT" in system_blobs
+    assert "trigger.cron" in system_blobs   # actual draft JSON injected
+
+
+@pytest.mark.asyncio
+async def test_active_draft_cleared_on_explicit_cancel(stub_ctx, monkeypatch):
+    """Cancellation off-ramp also clears the active draft (not just
+    pending). The user is abandoning the whole thing."""
+    from backend.services.conversation_store import ActiveDraft, PendingToolCall
+
+    store = _StubStore()
+    store.set_active_draft("u1", ActiveDraft(
+        tool_name="propose_workflow",
+        draft={"name": "X", "steps": []},
+    ))
+    store.set_pending("u1", PendingToolCall(
+        tool_name="propose_workflow", args={},
+        missing_field="quantity", field_type="int",
+        field_description="qty",
+    ))
+    stub = _StubClient(queue=[
+        LLMResponse(content="Cancelled.", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+    svc = ChatService(store=store)
+    await svc.handle("never mind", "u1", stub_ctx, history_override=[])
+
+    assert "u1" not in store.pending
+    assert "u1" not in store.active_drafts
+
+
+# ── Intent classification (automation vs agent vs other) ────────────
+
+
+@pytest.mark.parametrize("message,expected", [
+    # Automation — single deterministic action
+    ("buy 10 RELIANCE at market",         "automation"),
+    ("sell 5 INFY",                       "automation"),
+    ("buy 100 TCS at 3500",               "automation"),
+    ("set a 5% stop loss on my INFY",     "automation"),
+    ("place an SL at ₹1400 on RELIANCE",  "automation"),
+    ("GTT buy 5 TCS at 3000",             "automation"),
+    ("create a SIP for ₹5000 in NIFTYBEES every Monday", "automation"),
+    ("SIP ₹5000 in NIFTYBEES every Monday at 09:15",     "automation"),
+    ("square off all intraday",           "automation"),
+    ("square off my RELIANCE position",   "automation"),
+    # Agent — multi-step workflow
+    ("build me an agent that buys NIFTYBEES every Monday", "agent"),
+    ("create a strategy where I buy when RSI < 30",        "agent"),
+    ("set up an automation to rebalance monthly",          "agent"),
+    ("watch my portfolio and alert me if any holding exceeds 30%", "agent"),
+    ("buy NIFTYBEES whenever RSI drops below 30",          "agent"),
+    ("buy when RSI < 30 over the next year",               "agent"),
+    ("if RELIANCE dips 5% then buy 10 shares",             "agent"),
+    ("when RELIANCE drops 5% buy 10 shares",               "agent"),
+    ("buy at open and sell at close every weekday",        "agent"),
+    ("SIP ₹5000 every Monday IF cash > ₹50,000",           "agent"),
+    # Other — chat / data lookup
+    ("what is the price of RELIANCE",     "other"),
+    ("what's PE of INFY",                 "other"),
+    ("explain RSI",                       "other"),
+    ("show me my portfolio",              "other"),
+    ("hi",                                "other"),
+])
+def test_classify_intent(message, expected):
+    from backend.services.chat_service import _classify_intent
+    assert _classify_intent(message) == expected, (
+        f"misclassified: {message!r}"
+    )

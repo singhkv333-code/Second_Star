@@ -255,7 +255,162 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
             expression=m.group("expr").strip(),
             as_of=m.group("date"),
         )
+
+    # 5. Open/close intraday roundtrip backtest.
+    if has_backtest_word and (parsed := _parse_open_close_backtest(body)):
+        return await _run_open_close_backtest(**parsed)
+
+    # 6. "backtest …" with no parsable shape → deterministic
+    #    capability-gap message. Without this, prompts like
+    #    "backtest <something not yet supported>" used to fall
+    #    through to the LLM, which would call run_backtest with a
+    #    missing `trigger_condition` and surface the opaque
+    #    "what's the trigger condition?" question. Be honest.
+    if has_backtest_word:
+        return _unsupported_backtest_message(body)
     return None
+
+
+# Open/close intraday roundtrip — "backtest buy open sell close on
+# <SYMBOL>", "backtest open close roundtrip on RELIANCE", "backtest
+# RELIANCE open to close every day", etc. Captures: symbol, optional
+# years window. The actual backtester (services.open_close_backtest)
+# only needs symbol + period.
+_NL_OPEN_CLOSE_RE = re.compile(
+    r"\bbacktest\b.{0,80}?"
+    r"\b(?:buy(?:ing)?\s+)?open\b.{0,40}?"
+    r"\b(?:and\s+)?(?:sell(?:ing)?\s+)?close\b"
+    r".{0,80}?\bon\s+(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\b"
+    r"(?:.{0,80}?\b(?:over|for|in)\s+(?:the\s+)?(?:last|past)\s+"
+    r"(?P<years>\d+)\s+years?\b)?",
+    re.IGNORECASE | re.DOTALL,
+)
+# Permissive variant: "backtest <SYMBOL> open close" / "backtest
+# <SYMBOL> open to close" — symbol BEFORE open/close. Catches the
+# shape the user used in the report.
+_NL_OPEN_CLOSE_RE_B = re.compile(
+    r"\bbacktest\b\s+(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\b"
+    r".{0,40}?\bopen\b.{0,40}?\bclose\b"
+    r"(?:.{0,80}?\b(?:over|for|in)\s+(?:the\s+)?(?:last|past)\s+"
+    r"(?P<years>\d+)\s+years?\b)?",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _parse_open_close_backtest(body: str) -> dict | None:
+    """Extract {symbol, years} from a free-form 'backtest open/close'
+    request. Returns None if neither shape matches."""
+    for rx in (_NL_OPEN_CLOSE_RE, _NL_OPEN_CLOSE_RE_B):
+        m = rx.search(body)
+        if m:
+            sym = m.group("symbol").upper()
+            if sym in {"OPEN", "CLOSE"}:
+                continue
+            years = int(m.group("years") or 5)
+            return {"symbol": sym, "years": years}
+    return None
+
+
+async def _run_open_close_backtest(*, symbol: str, years: int) -> dict:
+    """Call services.open_close_backtest and shape the result for the
+    FE's FinancialBacktestCard (we reuse that card; no new component
+    needed)."""
+    import asyncio
+    from backend.services.open_close_backtest import run_open_close_backtest
+
+    yf_period = f"{years}y"
+    try:
+        result = await asyncio.to_thread(
+            run_open_close_backtest, symbol=symbol, period=yf_period,
+        )
+    except ValueError as e:
+        return _slash_error(f"Open/close backtest error: {e}")
+    except Exception as e:
+        return _slash_error(f"Open/close backtest failed: {str(e)[:200]}")
+
+    expression = (
+        f"buy {symbol} at open, sell at close (every weekday, "
+        f"{years}y window)"
+    )
+    payload = {
+        "expression": expression,
+        "start": result.start_iso,
+        "end": result.end_iso,
+        "rebalance": "Daily",
+        "metrics": result.metrics,
+        "equity_curve": result.equity_curve,
+        "benchmark_curve": result.benchmark_curve,
+        "rebalances": [],
+        "n_trades": result.n_trades,
+        "warnings": [],
+    }
+    return {
+        "response": result.summary_text,
+        "intent": "OPEN_CLOSE_BACKTEST",
+        "expr_backtest_data": payload,
+        "raw_data": {
+            "_render_hint": "financial_backtest_chart",
+            **payload,
+        },
+        "screen_data": None, "backtest_data": None,
+        "chart_data": None, "logiccard": None,
+        "requires_clarification": False,
+    }
+
+
+# Indicator / fundamentals tokens — if any of these is in the body,
+# the strict regexes above SHOULD have matched (and we wouldn't be
+# here). Presence here means the user wrote a backtest ask in a
+# non-canonical shape; the unsupported-message branch below tells
+# them what shapes ARE supported.
+_BACKTESTABLE_TOKENS_RE = re.compile(
+    r"\b(rsi|sma|ema|pe|pe_ratio|p/e|p/b|pb|roe|roa|"
+    r"market\s*cap|debt|earnings|dividend\s*yield)\b",
+    re.IGNORECASE,
+)
+
+
+def _unsupported_backtest_message(body: str) -> dict:
+    """User said `backtest …` but nothing parseable matched. Surface
+    a focused message naming what Pivot CAN backtest, what it can't,
+    and offering the agent-build path."""
+    body_lc = body.lower()
+    if _BACKTESTABLE_TOKENS_RE.search(body_lc):
+        # Looks like it WANTS to be backtestable but the shape
+        # isn't quite right — give the canonical phrasings.
+        text = (
+            "I couldn't parse that backtest shape. The two formats "
+            "I can run:\n\n"
+            "- **Indicator on a single stock** — `backtest RELIANCE "
+            "when its RSI drops below 30 over the last 5 years`\n"
+            "- **Fundamentals expression on the universe** — "
+            "`backtest pe_ratio < 15 and roe > 18 from 2020-01-01 "
+            "to 2024-12-31 quarterly`\n\n"
+            "Could you restate using one of those shapes?"
+        )
+    else:
+        text = (
+            "I can backtest these strategy shapes:\n\n"
+            "- **Indicator on a single stock** (RSI / SMA / EMA on "
+            "daily close) — e.g. `backtest RELIANCE when its RSI "
+            "drops below 30 over the last 5 years`\n"
+            "- **Open → close intraday roundtrip** — e.g. "
+            "`backtest buy open sell close on RELIANCE over the "
+            "last 5 years`\n"
+            "- **Fundamentals expression on the universe** — e.g. "
+            "`backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31 "
+            "quarterly`\n\n"
+            "Calendar (every Monday) and other order-flow shapes "
+            "aren't backtestable yet — but I can draft a live agent "
+            "for those. Which would you like?"
+        )
+    return {
+        "response": text, "intent": "BACKTEST_UNSUPPORTED",
+        "screen_data": None, "expr_backtest_data": None,
+        "backtest_data": None, "chart_data": None,
+        "logiccard": None, "requires_clarification": False,
+        "raw_data": {"_render_hint": "ask_user"},
+    }
 
 
 def _normalize_op(op_text: str, direction: str | None = None) -> str:
