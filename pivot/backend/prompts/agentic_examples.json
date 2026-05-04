@@ -39,7 +39,15 @@
       "tool": "propose_scheduled_order",
       "args": {"symbol": "NIFTYBEES", "side": "buy", "quantity": 10, "schedule_time_ist": "09:15", "days": ["monday"]},
       "confidence": 0.93,
-      "note": "Recurring schedule + single instrument + fixed qty → propose_scheduled_order. NOT propose_workflow."
+      "note": "Recurring schedule + single instrument + fixed qty + NO second action → propose_scheduled_order. NOT propose_workflow."
+    },
+    {
+      "id": "multi_branch_agent_negative",
+      "prompt": "every Monday 09:15 buy 5 NIFTYBEES and at Monday close sell my entire NIFTYBEES holding if RSI(14) is below 30",
+      "tool": "propose_workflow",
+      "args": {"_steps_summary": "trigger.market_relative_time(open Mon) → action.place_order(buy 5 NIFTYBEES) → trigger.market_relative_time(close Mon) → fetch.indicator(rsi 14) → condition.numeric → fetch.portfolio → action.place_order(sell)"},
+      "confidence": 0.95,
+      "note": "TWO triggers / TWO branches in one ask → propose_workflow, NEVER propose_scheduled_order. The scheduled-order macro is single-trigger only. Whenever the prompt has 'AND … sells/buys at <other time>' or any conditional second leg, route to propose_workflow."
     },
     {
       "id": "basket_sector_agent",
@@ -50,12 +58,28 @@
       "note": "Sector basket — propose_basket_allocation hydrates the screener + allocate steps. Steel is a canonical sector."
     },
     {
+      "id": "explicit_symbol_basket_negative",
+      "prompt": "every Monday 09:30 split 10000 rupees equally across HDFCBANK, ICICIBANK, AXISBANK and TCS",
+      "tool": "propose_workflow",
+      "args": {"_steps_summary": "trigger.schedule(09:30 Mon) → action.allocate_notional(symbols=[HDFCBANK,ICICIBANK,AXISBANK,TCS], side=buy, total_inr=10000, strategy=equal)"},
+      "confidence": 0.95,
+      "note": "EXPLICIT TICKER LIST → propose_workflow with action.allocate_notional, NEVER propose_basket_allocation. The basket macro is sector-only ('top N steel stocks'); when the user names individual symbols, action.allocate_notional accepts a literal symbols list directly. One trigger + one allocate step is all that's needed."
+    },
+    {
+      "id": "index_relative_single_symbol_negative",
+      "prompt": "every weekday at 09:20 if NIFTY 50 is up more than 0.5% from previous close, buy 5 SBIN at market",
+      "tool": "propose_workflow",
+      "args": {"_steps_summary": "trigger.schedule(09:20 weekday) → fetch.day_open(NIFTY 50) → fetch.prior_close(NIFTY 50) → condition.numeric (open/prior - 1 > 0.005) → action.place_order(buy 5 SBIN)"},
+      "confidence": 0.9,
+      "note": "Index-relative gate but action on a SINGLE symbol → propose_workflow, NEVER propose_basket_allocation. The basket macro forces a sector ticker list; single-symbol action with a gap condition needs the explicit fetch chain. A schedule + fetch.day_open + fetch.prior_close + condition.numeric + action.place_order is the right shape."
+    },
+    {
       "id": "threshold_order_agent",
       "prompt": "buy 50 TCS at market when its price drops below 3500",
       "tool": "propose_threshold_order",
       "args": {"symbol": "TCS", "side": "buy", "quantity": 50, "trigger_kind": "price", "operator": "<", "threshold": 3500},
       "confidence": 0.92,
-      "note": "Single-symbol price threshold → propose_threshold_order. ABSOLUTE price level required (not 'X% below open')."
+      "note": "Single-symbol price threshold, no expiry → propose_threshold_order. ABSOLUTE price level required (not 'X% below open')."
     },
     {
       "id": "indicator_threshold_agent",
@@ -63,7 +87,15 @@
       "tool": "propose_threshold_order",
       "args": {"symbol": "RELIANCE", "side": "buy", "quantity": 10, "trigger_kind": "indicator", "indicator": "rsi", "indicator_period": 14, "operator": "crosses_above", "threshold": 30},
       "confidence": 0.92,
-      "note": "Indicator threshold on a single symbol → propose_threshold_order. Daily candle only."
+      "note": "Indicator threshold on a single symbol, no TTL → propose_threshold_order. Daily candle only."
+    },
+    {
+      "id": "expiry_window_negative",
+      "prompt": "buy 10 RELIANCE if its 14-day RSI drops below 30, valid till the end of this month",
+      "tool": "propose_workflow",
+      "args": {"_steps_summary": "trigger.indicator(RELIANCE rsi 14 < 30) → action.place_order(buy 10 RELIANCE market). Workflow carries valid_until='YYYY-MM-DD' (resolve relative date to absolute)."},
+      "confidence": 0.95,
+      "note": "TTL / EXPIRY phrases — 'valid till', 'until <date>', 'good for the month', 'till EOD', 'next 7 days', 'till Friday' — MUST go to propose_workflow, NEVER propose_threshold_order. The threshold macro has no expiry slot and would create a workflow that runs forever, the wrong intent. Resolve the relative date to ISO YYYY-MM-DD before emitting the draft."
     },
     {
       "id": "holding_action_sell_all",
@@ -72,6 +104,22 @@
       "args": {"symbol": "INFY", "action": "sell_all", "trigger_kind": "price", "operator": ">", "threshold": 1700},
       "confidence": 0.93,
       "note": "Acts on existing holding → propose_holding_action. Quantity comes from holding lookup at fire time, not the prompt."
+    },
+    {
+      "id": "oco_bracket_negative",
+      "prompt": "buy 5 LT at market then place a 2% stop loss and a 5% target as an OCO bracket",
+      "tool": "create_oco_order",
+      "args": {"symbol": "LT", "transaction_type": "BUY", "quantity": 5, "stop_loss_pct": 2, "target_pct": 5},
+      "confidence": 0.85,
+      "note": "OCO (one-cancels-other) bracket on a freshly-bought position is a single deterministic chat tool, NOT a workflow. NEVER call propose_holding_action or propose_workflow with symbol='OCO' — OCO is the bracket type, never the ticker. If the chat tool can't take the buy + bracket together, split into place_market_order then create_oco_order on the resulting position."
+    },
+    {
+      "id": "cross_symbol_negative",
+      "prompt": "sell my SBIN if NIFTY 50 drops more than 1% from today's open",
+      "tool": "propose_workflow",
+      "args": {"_steps_summary": "trigger.schedule(*/5 mkt-hours) → fetch.quote(NIFTY 50) → fetch.relative_threshold(NIFTY 50, day_open, -1) → condition.numeric → fetch.portfolio → action.place_order(sell {{holdings.SBIN.qty}} SBIN)"},
+      "confidence": 0.9,
+      "note": "Cross-symbol rule (trigger watches one symbol, action targets another) → propose_workflow. The macro tools all bind trigger and action to the same symbol; this shape needs the polling/fetch/condition chain. Use trigger.schedule to poll, fetch.relative_threshold on the index, then act on the holding via fetch.portfolio."
     },
     {
       "id": "_pointer_complex_workflows",

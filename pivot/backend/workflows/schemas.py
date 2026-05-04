@@ -83,11 +83,21 @@ FloatOrRef = Annotated[Union[float, str], BeforeValidator(_coerce_float_or_ref)]
 class _Strict(BaseModel):
     """Base for all step config models.
 
-    `extra='forbid'` so unknown keys are rejected with a clear error
-    rather than silently ignored. `populate_by_name=True` is irrelevant
-    here but keeps the door open for aliases later."""
+    Originally `extra='forbid'`, but we observed the planner LLM dropping
+    a draft over a single unrequested field on a single step (e.g. a
+    spurious `notify.message` step missing its `channel`, or a
+    `requires_approval` flag tacked onto a step type that doesn't carry
+    one). Rejecting the whole draft for one harmless extra field
+    produced a 21-second catalog-dump fallback for what was otherwise
+    a usable workflow. `extra='ignore'` keeps validation strict on
+    REQUIRED fields and types, but silently drops unknown keys so the
+    draft survives. The trade-off: genuine model mistakes on field
+    names won't surface as errors anymore — they'll be quietly dropped.
+    Acceptable for v1; revisit if we see it masking real bugs.
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    `populate_by_name=True` keeps the door open for aliases later."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 
 # ── Triggers ─────────────────────────────────────────────────────────
@@ -473,11 +483,52 @@ class ActionAllocateNotionalConfig(_Strict):
     requires_approval: bool = False
 
 
+# ── Squareoff actions ─────────────────────────────────────────────────
+
+
+class ActionSquareoffAllIntradayConfig(_Strict):
+    """Exit all open intraday (MIS) positions with market sells.
+
+    Pairs with the EOD risk-gate pattern *"5 minutes before close, if
+    intraday P&L < -2%, exit all MIS"*. The executor walks live
+    positions, filters to product=MIS with non-zero net qty, and places
+    one market sell per leg under per-leg idempotent client_request_ids.
+
+    No config — scope is fixed (intraday only). For per-symbol exits
+    use ``action.squareoff_symbol``.
+    """
+    pass
+
+
+class ActionSquareoffSymbolConfig(_Strict):
+    """Exit a single symbol's open lot at market.
+
+    Used for per-symbol risk gates and basket trims. ``product`` selects
+    intraday vs delivery; defaults to MIS since "exit my X" is most
+    often an intraday cut.
+    """
+    symbol: str
+    product: Literal["MIS", "CNC"] = "MIS"
+
+
 # ── Communication ────────────────────────────────────────────────────
 
 class NotifyMessageConfig(_Strict):
-    channel: Literal["email", "sms", "push"]
-    template: str
+    # Defaults are deliberate: the planner LLM frequently appends an
+    # unrequested notify step at the tail of a workflow without
+    # bothering to fill `channel` or `template`. Rejecting the whole
+    # draft for that turned a usable workflow into a 21s catalog-dump
+    # fallback. With defaults, the step still validates and the user
+    # sees a generic in-app notification — they can rename or remove
+    # it from the editor.
+    channel: Literal["email", "sms", "push"] = Field(
+        default="push",
+        description="Default 'push' (in-app); the safest channel.",
+    )
+    template: str = Field(
+        default="Workflow {{ workflow.name }} fired.",
+        description="Defaults to a generic auto-generated message.",
+    )
     # vars is template-specific structured data: keys map to template
     # placeholders. Typed loosely to allow primitives + refs.
     vars: dict[str, Union[str, int, float, bool, None]] = Field(
@@ -486,7 +537,11 @@ class NotifyMessageConfig(_Strict):
 
 
 class NotifyLogConfig(_Strict):
-    message: str
+    message: str = Field(
+        default="Workflow step fired.",
+        description="Default to a non-empty placeholder so a missing "
+                    "message field doesn't reject the draft.",
+    )
 
 
 class WaitApprovalConfig(_Strict):

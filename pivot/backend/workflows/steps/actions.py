@@ -31,6 +31,8 @@ from backend.workflows.schemas import (
     ActionCancelOrdersConfig,
     ActionPlaceOrderConfig,
     ActionSetStoplossConfig,
+    ActionSquareoffAllIntradayConfig,
+    ActionSquareoffSymbolConfig,
     ActionUpdateWatchlistConfig,
 )
 
@@ -128,6 +130,8 @@ def _has_pending_approval(ctx: Any) -> Optional[WorkflowApproval]:
             "side": {"type": "string"},
             "executed_price": {"type": ["number", "null"]},
             "quantity": {"type": "integer"},
+            "executed_value_inr": {"type": ["number", "null"]},
+            "notional_inr_used": {"type": ["number", "null"]},
         },
         "required": ["order_id", "client_request_id"],
     },
@@ -252,6 +256,10 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
         or result.get("price")
         or (price if order_type == "LIMIT" else None)
     )
+    executed_value = (
+        float(executed_price) * int(quantity)
+        if (executed_price and quantity) else None
+    )
     return {
         "order_id": str(result.get("order_id", "")),
         "status": str(result.get("status", "")),
@@ -260,6 +268,7 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
         "side": side,
         "executed_price": float(executed_price) if executed_price else None,
         "quantity": quantity,
+        "executed_value_inr": executed_value,
         "notional_inr_used": (
             float(notional) if notional is not None else None
         ),
@@ -680,6 +689,170 @@ async def execute_action_allocate_notional(
         "residual_inr": round(total_inr - deployed, 2),
         "strategy": strategy,
         "side": side,
+        "client_request_id": parent_req,
+    }
+
+
+# ── Squareoff actions ─────────────────────────────────────────────────
+
+
+def _build_squareoff_legs(
+    positions: dict, *, product_filter: str, symbol_filter: Optional[str],
+) -> list[dict]:
+    """Filter Kite positions into closeable legs.
+
+    Kite returns positions with positive (long) and negative (short)
+    `quantity`. To exit, we send the OPPOSITE side: long → SELL, short
+    → BUY. Zero-qty rows are net-flat and skipped.
+    """
+    legs: list[dict] = []
+    rows = positions.get("net") if isinstance(positions, dict) else None
+    if not isinstance(rows, list):
+        return legs
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("product", "")).upper() != product_filter:
+            continue
+        sym = str(r.get("tradingsymbol", "")).upper()
+        if symbol_filter and sym != symbol_filter:
+            continue
+        qty = int(r.get("quantity", 0) or 0)
+        if qty == 0:
+            continue
+        legs.append({
+            "symbol": sym,
+            "exchange": str(r.get("exchange", "NSE")),
+            "transaction_type": "SELL" if qty > 0 else "BUY",
+            "quantity": abs(qty),
+        })
+    return legs
+
+
+def _place_squareoff_legs(
+    legs: list[dict], token: str, *, product: str, parent_req: str,
+) -> tuple[list[dict], list[dict]]:
+    """Run the same place_order helper that action.place_order uses."""
+    placed: list[dict] = []
+    skipped: list[dict] = []
+    for i, leg in enumerate(legs):
+        leg_req = f"{parent_req}:leg{i}:{leg['symbol']}"
+        try:
+            result = place_order(
+                access_token=token,
+                tradingsymbol=leg["symbol"],
+                exchange=leg["exchange"],
+                transaction_type=leg["transaction_type"],
+                quantity=leg["quantity"],
+                product=product,
+                order_type="MARKET",
+                client_request_id=leg_req,
+            )
+            placed.append({
+                "symbol": leg["symbol"],
+                "side": leg["transaction_type"],
+                "quantity": leg["quantity"],
+                "order_id": str(result.get("order_id", "")),
+                "status": str(result.get("status", "")),
+            })
+        except Exception as e:
+            skipped.append({"symbol": leg["symbol"], "reason": str(e)[:160]})
+    return placed, skipped
+
+
+@register_step(
+    step_type="action.squareoff_all_intraday",
+    category="action",
+    label="Square off all intraday",
+    description=(
+        "Place market exits on every open MIS position. Pair with "
+        "fetch.intraday_pnl + condition.numeric for P&L-gated exits."
+    ),
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffAllIntradayConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "skipped": {"type": "array"},
+            "n_filled": {"type": "integer"},
+            "n_skipped": {"type": "integer"},
+        },
+        "required": ["orders", "n_filled"],
+    },
+)
+async def execute_action_squareoff_all_intraday(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    from backend.kite.portfolio import get_positions
+
+    token = _kite_token_for_run(ctx)
+    positions = get_positions(token)
+    legs = _build_squareoff_legs(
+        positions, product_filter="MIS", symbol_filter=None,
+    )
+    parent_req = (
+        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}:{ctx.attempts}"
+    )
+    orders, skipped = _place_squareoff_legs(
+        legs, token, product="MIS", parent_req=parent_req,
+    )
+    return {
+        "orders": orders,
+        "skipped": skipped,
+        "n_filled": sum(1 for o in orders if o.get("status") not in ("failed",)),
+        "n_skipped": len(skipped),
+        "scope": "intraday",
+        "client_request_id": parent_req,
+    }
+
+
+@register_step(
+    step_type="action.squareoff_symbol",
+    category="action",
+    label="Square off symbol",
+    description="Exit a single symbol's open lot at market.",
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffSymbolConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "n_filled": {"type": "integer"},
+        },
+        "required": ["orders", "n_filled"],
+    },
+)
+async def execute_action_squareoff_symbol(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    from backend.kite.portfolio import get_positions
+
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    product = str(cfg.get("product", "MIS")).upper()
+    token = _kite_token_for_run(ctx)
+    positions = get_positions(token)
+    legs = _build_squareoff_legs(
+        positions, product_filter=product, symbol_filter=symbol,
+    )
+    parent_req = (
+        f"sqoff_sym:{symbol}:{ctx.run.id}:{ctx.step.step_index}:{ctx.attempts}"
+    )
+    orders, skipped = _place_squareoff_legs(
+        legs, token, product=product, parent_req=parent_req,
+    )
+    return {
+        "orders": orders,
+        "skipped": skipped,
+        "n_filled": sum(1 for o in orders if o.get("status") not in ("failed",)),
+        "n_skipped": len(skipped),
+        "symbol": symbol,
+        "product": product,
         "client_request_id": parent_req,
     }
 

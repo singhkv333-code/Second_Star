@@ -680,7 +680,12 @@ _COMPLEXITY_RE = re.compile(
     # at fire time; the skeleton can't compute them. Send to LLM.
     r"|\d+\s*%\s*(?:below|above|under|over)\s+(?:today|yesterday|prev|previous|last)"
     r"|\b(?:below|above|under|over)\s+(?:today|yesterday|prev(?:ious)?|last)(?:'s)?\s+(?:open|close|high|low)"
-    r"|\bif\s+(?:current|today)\s+(?:price|open|close)\s+is\s+(?:above|below|over|under)",
+    r"|\bif\s+(?:current|today)\s+(?:price|open|close)\s+is\s+(?:above|below|over|under)"
+    # TTL / valid-until phrases. The skeleton emits a perpetual
+    # workflow; if the user expressed a deactivation date, we MUST
+    # let the LLM path through so it can populate `valid_until` on
+    # the WorkflowDraft. Skeleton path drops that field silently.
+    r"|\b(?:valid\s+(?:till|until)|until\s+\d|good\s+(?:for|till)|expires?\s+(?:on|after)|till\s+(?:eod|the\s+end|next|month|week|friday)|next\s+\d+\s+(?:days|weeks))",
     re.IGNORECASE,
 )
 
