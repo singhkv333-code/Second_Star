@@ -246,7 +246,7 @@ export function AppShell(): React.ReactElement {
   }, [goTab]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col bg-background">
       {/* Sticky top header */}
       <TopHeader
         theme={theme}
@@ -255,7 +255,7 @@ export function AppShell(): React.ReactElement {
       />
 
       {/* Body: sidebar + content */}
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-h-0">
         {/* Left sidebar */}
         <Sidebar
           active={active}
@@ -263,33 +263,35 @@ export function AppShell(): React.ReactElement {
           conversations={conversations}
         />
 
-        {/* Center pane */}
-        <main className="flex-1 min-w-0">
-          <div
-            className={cn(
-              "mx-auto px-6 py-6",
-              // Dashboard has right rail: constrain center width
-              active === "dashboard" ? "max-w-3xl" : "max-w-3xl",
-            )}
-          >
-            {active === "dashboard" && (
-              <DashboardTab
-                onSubmitPrompt={handleDashboardPrompt}
-                onOpenCalendar={() => goTab("calendar")}
-              />
-            )}
-            {active === "chat" && (
+        {/* Center pane — flex column so the chat tab can size its
+            messages region to the available space and pin the composer
+            to the bottom (ChatGPT/Claude-style). Other tabs get the
+            old scrollable wrapper. */}
+        <main className="flex flex-1 min-w-0 min-h-0 flex-col">
+          {active === "chat" ? (
+            <div className="mx-auto flex h-full w-full max-w-3xl min-h-0 flex-col px-6">
               <ChatDemo onOpenEditor={openWorkflow} prefill={chatPrefill} onPrefillConsumed={() => setChatPrefill(undefined)} />
-            )}
-            {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
-            {active === "calendar" && (
-              <CalendarTab onOpenWorkflow={openWorkflowById} />
-            )}
-            {active === "portfolio" && <PortfolioTab />}
-            {active === "news" && <NewsPlaceholder />}
-            {active === "screener" && <ScreenerPlaceholder />}
-            {active === "backtest" && <BacktestTab />}
-          </div>
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="mx-auto max-w-3xl px-6 py-6">
+                {active === "dashboard" && (
+                  <DashboardTab
+                    onSubmitPrompt={handleDashboardPrompt}
+                    onOpenCalendar={() => goTab("calendar")}
+                  />
+                )}
+                {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
+                {active === "calendar" && (
+                  <CalendarTab onOpenWorkflow={openWorkflowById} />
+                )}
+                {active === "portfolio" && <PortfolioTab />}
+                {active === "news" && <NewsPlaceholder />}
+                {active === "screener" && <ScreenerPlaceholder />}
+                {active === "backtest" && <BacktestTab />}
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Right rail — dashboard only */}

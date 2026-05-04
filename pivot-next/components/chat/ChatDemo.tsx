@@ -38,6 +38,7 @@ import {
   type LogicCard,
 } from "@/components/chat/LogicCardChip";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
+import AssistantMessage from "@/components/chat/AssistantMessage";
 import type { Workflow } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -414,6 +415,10 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
   // Rolling history for the backend's conversation context
   const historyRef = useRef<ChatHistoryMessage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Scroll container — kept pinned to the bottom while messages stream
+  // in, the same auto-follow behaviour ChatGPT/Claude use.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
 
   // Consume prefill once when it arrives
   useEffect(() => {
@@ -423,6 +428,28 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
       textareaRef.current?.focus();
     }
   }, [prefill, onPrefillConsumed]);
+
+  // Track whether the user is at the bottom. If they scroll up to read
+  // earlier output, we stop auto-scrolling so we don't yank them down.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = (): void => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickToBottomRef.current = distanceFromBottom < 80;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll to the bottom whenever messages change (new message,
+  // streaming delta) — but only if the user hasn't scrolled away.
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   /**
    * Dispatch the final `done` payload to the right Message kind and replace
@@ -659,7 +686,14 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
   };
 
   return (
-    <div className="flex flex-col gap-4" data-testid="chat-demo">
+    <div className="flex h-full min-h-0 flex-col" data-testid="chat-demo">
+      {/* Scrollable message region — fills available space, composer
+          stays pinned at the bottom (ChatGPT/Claude-style). */}
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-y-auto pt-6 pb-4"
+        data-testid="chat-scroll"
+      >
       {/* Intro (only shown before any messages) */}
       {messages.length === 0 && (
         <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
@@ -685,12 +719,12 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
 
       {/* Message thread */}
       {messages.length > 0 && (
-        <div className="flex flex-col gap-3" data-testid="chat-messages">
+        <div className="flex flex-col gap-6" data-testid="chat-messages">
           {messages.map((msg, idx) => {
             if (msg.kind === "user") {
               return (
                 <div key={idx} className="flex justify-end">
-                  <div className="max-w-sm rounded-xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground">
+                  <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-2.5 text-sm leading-6 text-primary-foreground">
                     {msg.text}
                   </div>
                 </div>
@@ -699,28 +733,27 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
             if (msg.kind === "streaming") {
               return (
                 <div key={idx} className="flex justify-start">
-                  <div className="flex items-start gap-2 max-w-sm">
+                  <div className="flex w-full items-start gap-3">
                     <Bot
-                      className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                      className="mt-1 h-5 w-5 shrink-0 text-muted-foreground"
                       aria-hidden={true}
                     />
-                    <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
-                      {/* Single-line status row replaces the previous
-                          tool-pill row. Shows what the model is doing
-                          + an elapsed counter so the user can track
-                          time themselves. */}
+                    <div className="w-full max-w-3xl">
+                      {/* Status row stays — shows what the model is
+                          doing + elapsed counter — but flows above the
+                          markdown body instead of inside a card. */}
                       <StreamingStatusBar
                         startedAt={msg.startedAt}
                         tools={msg.tools}
                         hasText={msg.text.length > 0}
                       />
                       {msg.text ? (
-                        <span className="mt-2 block whitespace-pre-wrap">
-                          {msg.text}
-                        </span>
+                        <div className="mt-2">
+                          <AssistantMessage text={msg.text} />
+                        </div>
                       ) : (
                         /* No text yet — show skeleton while first delta arrives */
-                        <div className="mt-2 flex flex-col gap-1.5 py-0.5">
+                        <div className="mt-3 flex flex-col gap-1.5 py-0.5">
                           <Skeleton className="h-3 w-40" />
                           <Skeleton className="h-3 w-28" />
                         </div>
@@ -735,11 +768,9 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex items-start gap-2 max-w-md">
-                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
-                          {msg.intro}
-                        </div>
+                      <div className="flex w-full items-start gap-3">
+                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <AssistantMessage text={msg.intro} />
                       </div>
                     </div>
                   )}
@@ -779,11 +810,9 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
             if (msg.kind === "assistant") {
               return (
                 <div key={idx} className="flex justify-start">
-                  <div className="flex items-start gap-2 max-w-sm">
-                    <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
-                    <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
-                      {msg.text}
-                    </div>
+                  <div className="flex w-full items-start gap-3">
+                    <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
+                    <AssistantMessage text={msg.text} />
                   </div>
                 </div>
               );
@@ -793,11 +822,9 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex items-start gap-2 max-w-md">
-                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
-                          {msg.intro}
-                        </div>
+                      <div className="flex w-full items-start gap-3">
+                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <AssistantMessage text={msg.intro} />
                       </div>
                     </div>
                   )}
@@ -812,11 +839,9 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex items-start gap-2 max-w-md">
-                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
-                          {msg.intro}
-                        </div>
+                      <div className="flex w-full items-start gap-3">
+                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <AssistantMessage text={msg.intro} />
                       </div>
                     </div>
                   )}
@@ -833,11 +858,9 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex items-start gap-2 max-w-md">
-                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
-                          {msg.intro}
-                        </div>
+                      <div className="flex w-full items-start gap-3">
+                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <AssistantMessage text={msg.intro} />
                       </div>
                     </div>
                   )}
@@ -852,11 +875,9 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex items-start gap-2 max-w-md">
-                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <div className="rounded-xl rounded-bl-sm border bg-card px-4 py-2.5 text-sm text-foreground">
-                          {msg.intro}
-                        </div>
+                      <div className="flex w-full items-start gap-3">
+                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <AssistantMessage text={msg.intro} />
                       </div>
                     </div>
                   )}
@@ -900,8 +921,11 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
           )}
         </div>
       )}
+      </div>
 
-      {/* Input area */}
+      {/* Pinned composer — sits below the scrolling thread, never moves
+          while messages stream in. */}
+      <div className="shrink-0 border-t bg-background/80 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="rounded-xl border bg-card shadow-sm">
         <Textarea
           ref={textareaRef}
@@ -929,6 +953,7 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
             Send
           </Button>
         </div>
+      </div>
       </div>
     </div>
   );
