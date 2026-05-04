@@ -181,6 +181,13 @@ _REBALANCE_WORD_MAP = {
     "quarterly": "Q", "yearly": "Y",
 }
 
+# Hard gate for natural-language backtest paths. The heuristic parsers
+# below used to fire on phrasings like "buy reliance whenever rsi drops
+# below 50", "what if I had bought INFY", "how would TCS have done" —
+# all of which the user wanted treated as agent-build / chat intents,
+# not historical backtests. Now we require the literal word.
+_HAS_BACKTEST_WORD_RE = re.compile(r"\bbacktest(?:ed|ing|s)?\b", re.IGNORECASE)
+
 
 def _normalize_date_input(s: str) -> str:
     """Accept either a YYYY date (→ Jan 1) or full YYYY-MM-DD."""
@@ -216,9 +223,12 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
     #    Strict regex first (cheap, deterministic for canonical phrasings),
     #    then a permissive heuristic parser for anything else.
     #
-    #    Both paths defer to the LLM when the prompt is clearly an
-    #    agent-build (future action) rather than a historical backtest.
-    if not _looks_like_agent_intent(body):
+    #    Hard gate: the prompt must literally contain "backtest". Without
+    #    this, casual phrasings like "buy reliance when rsi drops" or
+    #    "what if I had bought INFY" hijacked the LLM path and ran a
+    #    backtest the user never asked for.
+    has_backtest_word = bool(_HAS_BACKTEST_WORD_RE.search(body))
+    if has_backtest_word and not _looks_like_agent_intent(body):
         if (
             (m := _NL_IND_RE_A.match(body))
             or (m := _NL_IND_RE_B.match(body))
@@ -228,8 +238,8 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
         if (parsed := _heuristic_indicator_intent(body)) is not None:
             return await _run_indicator_backtest_dict(parsed)
 
-    # 3. Natural-language fundamentals backtest.
-    if (m := _NL_BT_RE.match(body)):
+    # 3. Natural-language fundamentals backtest. Same gate.
+    if has_backtest_word and (m := _NL_BT_RE.match(body)):
         rb = m.group("rb")
         if not rb and (word := m.group("word")):
             rb = _REBALANCE_WORD_MAP.get(word.lower(), "Q")

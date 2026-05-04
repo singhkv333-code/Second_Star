@@ -245,6 +245,45 @@ def _history_to_llm_messages(history: list[dict[str, str]]) -> list[LLMMessage]:
     return msgs
 
 
+# Phrases the assistant uses when it's asking the user something.
+# We previously gated the follow-up hint on "last assistant content
+# ends with `?`" — too narrow. Models often phrase clarifications as
+# "Please share your portfolio size." or "Let me know which symbol."
+# without a literal question mark. Detect both shapes.
+_CLARIFICATION_CUES_RE = re.compile(
+    r"\?"
+    r"|\bplease\s+(?:share|specify|provide|confirm|clarify|tell|let\s+me\s+know)\b"
+    r"|\blet\s+me\s+know\b"
+    r"|\bcould\s+you\s+(?:share|specify|tell|confirm|clarify)\b"
+    r"|\bcan\s+you\s+(?:share|specify|tell|confirm|clarify)\b"
+    r"|\bwhich\s+(?:symbol|stock|ticker|amount|qty|quantity|threshold|period)\b"
+    r"|\bhow\s+(?:much|many)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_clarification_followup(history: list[dict]) -> bool:
+    """True when the latest assistant turn was a clarification (so the
+    user's current message is answering it). Used to inject a stronger
+    follow-up system hint that carries the original ask forward.
+
+    The earlier gate also required ``len(message) <= 50`` — too tight.
+    A reply like "I want a 14-period RSI with threshold 30" is clearly
+    a clarification answer but exceeds the cap. Drop the length gate;
+    the cue match alone is the right signal."""
+    last_assistant = next(
+        (h for h in reversed(history)
+         if isinstance(h, dict) and h.get("role") == "assistant"),
+        None,
+    )
+    last_text = (last_assistant or {}).get("content") or ""
+    if not last_text:
+        return False
+    # Look at the trailing portion (clarifications end with the ask).
+    tail = last_text.rstrip()[-400:]
+    return bool(_CLARIFICATION_CUES_RE.search(tail))
+
+
 def _summarise_tool_result(g: GuardedToolResult) -> str:
     """Compact JSON the loop's next iteration consumes as the tool
     result. Errors get a structured prefix so the model treats them
@@ -484,41 +523,40 @@ class ChatService:
         # but now I'm asking again").
         followup_hint: Optional[LLMMessage] = None
         original_intent: Optional[str] = None
-        if history and len(message) <= 50:
+        if history and _looks_like_clarification_followup(history):
             last_assistant = next(
                 (h for h in reversed(history)
                  if isinstance(h, dict) and h.get("role") == "assistant"),
                 None,
             )
             last_text = (last_assistant or {}).get("content") or ""
-            if last_text.rstrip().endswith("?"):
-                # First user message in history = the original ask.
-                first_user = next(
-                    (h for h in history
-                     if isinstance(h, dict) and h.get("role") == "user"),
-                    None,
-                )
-                original_intent = (first_user or {}).get("content") or ""
-                followup_hint = LLMMessage(
-                    role="system",
-                    content=(
-                        "FOLLOW-UP TURN. The user is answering your "
-                        f"clarifying question. Their ORIGINAL request was: "
-                        f'"{original_intent[:280]}". Their LAST clarification '
-                        f'asked: "{last_text[-200:]}". Their CURRENT reply '
-                        f'is: "{message}". '
-                        "Merge the reply into the original request and call "
-                        "the matching tool (propose_workflow / "
-                        "place_market_order / etc.) IMMEDIATELY with the "
-                        "complete arguments. Do NOT ask another question. "
-                        "Do NOT paraphrase back as 'Confirm: …'. Do NOT "
-                        "ignore the original request. If the merged request "
-                        "still has missing required fields, fill them with "
-                        "sensible defaults (qty=1, exchange=NSE, "
-                        "order_type=market) rather than asking a second "
-                        "round."
-                    ),
-                )
+            # First user message in history = the original ask.
+            first_user = next(
+                (h for h in history
+                 if isinstance(h, dict) and h.get("role") == "user"),
+                None,
+            )
+            original_intent = (first_user or {}).get("content") or ""
+            followup_hint = LLMMessage(
+                role="system",
+                content=(
+                    "FOLLOW-UP TURN. The user is answering your "
+                    f"clarifying question. Their ORIGINAL request was: "
+                    f'"{original_intent[:280]}". Their LAST clarification '
+                    f'asked: "{last_text[-200:]}". Their CURRENT reply '
+                    f'is: "{message}". '
+                    "Merge the reply into the original request and call "
+                    "the matching tool (propose_workflow / "
+                    "place_market_order / etc.) IMMEDIATELY with the "
+                    "complete arguments. Do NOT restart from scratch. "
+                    "Do NOT ask another question. Do NOT paraphrase back "
+                    "as 'Confirm: …'. Do NOT ignore the original request. "
+                    "If the merged request still has missing required "
+                    "fields, fill them with sensible defaults (qty=1, "
+                    "exchange=NSE, order_type=market) rather than asking "
+                    "a second round."
+                ),
+            )
 
         base_messages: list[LLMMessage] = [
             LLMMessage(
@@ -1039,38 +1077,37 @@ class ChatService:
         # Carries the original user request inline so the model can't
         # treat the answer as a fresh prompt.
         followup_hint_msg: Optional[LLMMessage] = None
-        if history and len(message) <= 50:
+        if history and _looks_like_clarification_followup(history):
             last_assistant = next(
                 (h for h in reversed(history)
                  if isinstance(h, dict) and h.get("role") == "assistant"),
                 None,
             )
             last_text = (last_assistant or {}).get("content") or ""
-            if last_text.rstrip().endswith("?"):
-                first_user = next(
-                    (h for h in history
-                     if isinstance(h, dict) and h.get("role") == "user"),
-                    None,
-                )
-                original_intent = (first_user or {}).get("content") or ""
-                followup_hint_msg = LLMMessage(
-                    role="system",
-                    content=(
-                        "FOLLOW-UP TURN. The user is answering your "
-                        "clarifying question. Their ORIGINAL request was: "
-                        f'"{original_intent[:280]}". Their LAST clarification '
-                        f'asked: "{last_text[-200:]}". Their CURRENT reply '
-                        f'is: "{message}". '
-                        "Merge the reply into the original request and call "
-                        "the matching tool (propose_workflow / "
-                        "place_market_order / etc.) IMMEDIATELY with the "
-                        "complete arguments. Do NOT ask another question. "
-                        "If the merged request still has missing required "
-                        "fields, fill them with sensible defaults (qty=1, "
-                        "exchange=NSE, order_type=market) rather than "
-                        "asking a second round."
-                    ),
-                )
+            first_user = next(
+                (h for h in history
+                 if isinstance(h, dict) and h.get("role") == "user"),
+                None,
+            )
+            original_intent = (first_user or {}).get("content") or ""
+            followup_hint_msg = LLMMessage(
+                role="system",
+                content=(
+                    "FOLLOW-UP TURN. The user is answering your "
+                    "clarifying question. Their ORIGINAL request was: "
+                    f'"{original_intent[:280]}". Their LAST clarification '
+                    f'asked: "{last_text[-200:]}". Their CURRENT reply '
+                    f'is: "{message}". '
+                    "Merge the reply into the original request and call "
+                    "the matching tool (propose_workflow / "
+                    "place_market_order / etc.) IMMEDIATELY with the "
+                    "complete arguments. Do NOT restart from scratch. "
+                    "Do NOT ask another question. If the merged request "
+                    "still has missing required fields, fill them with "
+                    "sensible defaults (qty=1, exchange=NSE, "
+                    "order_type=market) rather than asking a second round."
+                ),
+            )
 
         base_msgs: list[LLMMessage] = [
             LLMMessage(
