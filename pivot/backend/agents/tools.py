@@ -74,11 +74,23 @@ tool("place_market_order",
      "Use when user wants to buy or sell RIGHT NOW at current price. "
      "Do NOT use for conditional orders (use create_gtt_order). "
      "Do NOT use for recurring orders (use create_sip). "
+     "Do NOT use when the user gave a colloquial company name that could "
+     "map to multiple tickers (Tata, M&M, HDFC) — call ASK_USER first. "
      "Always requires user confirmation before execution.",
      {
-         "symbol":           {"type": "string", "description": "NSE ticker uppercase e.g. INFY"},
-         "transaction_type": {"type": "string", "enum": ["BUY", "SELL"]},
-         "quantity":         {"type": "integer", "minimum": 1},
+         "symbol":           {"type": "string", "description":
+                              "NSE ticker, uppercase, e.g. 'INFY' or 'RELIANCE'. "
+                              "If the user said a colloquial name and the ticker "
+                              "is unambiguous (TCS, INFY, RELIANCE), infer it. "
+                              "If ambiguous (Tata, M&M, HDFC, Adani), call "
+                              "ASK_USER instead of guessing — picking the wrong "
+                              "ticker places a real order on the wrong stock."},
+         "transaction_type": {"type": "string", "enum": ["BUY", "SELL"],
+                              "description": "BUY or SELL — uppercase only."},
+         "quantity":         {"type": "integer", "minimum": 1, "description":
+                              "Number of shares as a positive integer. If the "
+                              "user said '100 of X' without specifying shares vs "
+                              "lots, ASK_USER for the unit (shares vs lots)."},
          "exchange":         {"type": "string", "enum": ["NSE", "BSE"], "default": "NSE"},
          "product":          {"type": "string", "enum": ["CNC", "MIS"], "default": "CNC",
                               "description": "CNC=delivery, MIS=intraday"},
@@ -104,13 +116,24 @@ tool("place_limit_order",
 tool("create_gtt_order",
      "Creates a GTT order that fires when a price condition is met. Zerodha monitors it. "
      "Use for: 'buy if it falls to X', 'sell if it hits X'. One-time conditional order. "
-     "Do NOT use for recurring orders. Do NOT use for immediate execution.",
+     "Do NOT use for recurring orders. Do NOT use for immediate execution. "
+     "trigger_price is an ABSOLUTE rupee price — if the user expressed it "
+     "as a percentage move ('5% below current'), call ASK_USER for the "
+     "absolute price OR fetch the live quote first and compute it.",
      {
-         "symbol":           {"type": "string"},
+         "symbol":           {"type": "string", "description":
+                              "NSE ticker, uppercase. ASK_USER if the user named "
+                              "an ambiguous company (Tata, M&M, HDFC, Adani)."},
          "transaction_type": {"type": "string", "enum": ["BUY", "SELL"]},
          "quantity":         {"type": "integer", "minimum": 1},
-         "trigger_price":    {"type": "number", "description": "Price that activates the order"},
-         "limit_price":      {"type": "number", "description": "Execution price after trigger"},
+         "trigger_price":    {"type": "number", "description":
+                              "Absolute price (INR) that activates the order. "
+                              "Must be a number, NOT a percentage. If the user "
+                              "only gave a percentage, ASK_USER for the absolute."},
+         "limit_price":      {"type": "number", "description":
+                              "Execution price after trigger fires (INR). For BUY, "
+                              "set slightly above trigger to ensure fill; for SELL, "
+                              "slightly below."},
          "exchange":         {"type": "string", "enum": ["NSE", "BSE"], "default": "NSE"},
      },
      ["symbol", "transaction_type", "quantity", "trigger_price", "limit_price"],
@@ -537,14 +560,42 @@ tool("calculate_margin",
 # ── BACKTEST ─────────────────────────────────────────────────────────────────
 
 tool("run_backtest",
-     "Runs a strategy simulation on historical data. "
-     "Returns total return %, win rate %, max drawdown %, trade log. "
-     "Always appends disclaimer about past performance.",
+     "Runs a STRATEGY simulation on daily-close historical data. "
+     "Use ONLY when the user names a supported strategy_type below "
+     "AND can express the trigger as a numeric threshold (e.g. RSI "
+     "< 30, price drops 5%). "
+     "Do NOT use for time-of-day strategies (open/close roundtrips, "
+     "intraday, EOD entries) — those aren't supported. "
+     "Do NOT use for calendar strategies (every Monday, every "
+     "weekday) — those are AGENTS, not backtests; route them to "
+     "propose_workflow. "
+     "Do NOT use for fundamentals expressions (PE < 15, ROE > 18) — "
+     "those go through the deterministic `/expr-backtest` slash "
+     "command, not this tool. "
+     "If none of these apply, do NOT call this tool — call ASK_USER "
+     "to clarify what kind of backtest the user means.",
      {
-         "symbol":            {"type": "string"},
+         "symbol":            {"type": "string", "description":
+                               "NSE ticker, uppercase. Single stock only — "
+                               "this tool is one-symbol; use the fundamentals "
+                               "backtest path for universe-level shapes."},
          "strategy_type":     {"type": "string",
-                               "enum": ["sip","price_drop","rsi","price_cross"]},
-         "trigger_condition": {"type": "object"},
+                               "enum": ["sip","price_drop","rsi","price_cross"],
+                               "description":
+                               "EXACTLY one of: sip (recurring buy on a "
+                               "schedule), price_drop (buy on % drop), rsi "
+                               "(buy/sell when RSI crosses threshold), "
+                               "price_cross (buy/sell when price crosses an "
+                               "SMA/EMA). If the user's strategy doesn't fit "
+                               "any of these, do NOT pick the closest one — "
+                               "call ASK_USER instead."},
+         "trigger_condition": {"type": "object", "description":
+                               "Strategy-specific config. For rsi: "
+                               "{'period': 14, 'op': '<', 'threshold': 30}. "
+                               "For price_cross: {'period': 200, 'kind': 'sma', "
+                               "'direction': 'above'}. For price_drop: "
+                               "{'pct': 5}. For sip: {'cron': '...', "
+                               "'amount_inr': N}."},
          "period":            {"type": "string",
                                "enum": ["1mo","3mo","6mo","1y","2y"], "default": "1y"},
          "starting_capital":  {"type": "number", "default": 100000},
@@ -612,9 +663,21 @@ _PROPOSE_STEPS_SCHEMA, _PROPOSE_STEP_TYPES = _build_propose_workflow_schema()
 
 
 tool("propose_workflow",
-     "FALLBACK workflow builder. Emit the full draft (name + steps[]) as "
-     "structured arguments. Use this ONLY when none of the four macro "
-     "tools fits the user's request:\n"
+     "FALLBACK workflow builder for AGENTS — multi-step workflows "
+     "with runtime fetches, conditions, or multiple actions per fire.\n\n"
+     "Do NOT call this for AUTOMATION (single deterministic action "
+     "where the user supplied all parameters). Automation goes to the "
+     "matching single tool:\n"
+     "  - 'buy 10 RELIANCE at market'   → place_market_order\n"
+     "  - 'sell 5 INFY at ₹1,420'       → place_limit_order\n"
+     "  - 'GTT buy 5 TCS at ₹3,000'     → create_gtt_order\n"
+     "  - 'set 5% SL on my INFY'        → create_sl_order\n"
+     "  - 'OCO target 1600 stop 1400'   → create_oco_order\n"
+     "  - 'SIP ₹5k Monday in NIFTYBEES' → create_sip\n"
+     "  - 'square off intraday'         → squareoff_all_intraday\n\n"
+     "If propose_workflow fits, emit the full draft (name + steps[]) "
+     "as structured arguments. Use this ONLY when none of the four "
+     "macro tools fits the user's request:\n"
      "  - `propose_scheduled_order` → 'every weekday/Monday at HH:MM "
      "(buy|sell) N SYMBOL' patterns. ALWAYS prefer this for SIP-style.\n"
      "  - `propose_threshold_order` → '(buy|sell) N SYMBOL when "

@@ -43,7 +43,7 @@ class TestSentinelDetection:
         # fields. Treating them as missing would block legitimate
         # tool calls (e.g. quantity=0 may be invalid but it's a
         # *typed* problem, not a *missing* problem — let
-        # validation_retry handle it).
+        # validation_handler handle it).
         assert _is_sentinel(0) is False
         assert _is_sentinel(False) is False
 
@@ -168,7 +168,7 @@ class TestCheckCompleteness:
 
     def test_unknown_schema_returns_complete(self):
         # Tool with no schema (or a non-object schema) should not
-        # block — return complete and let validation_retry handle it.
+        # block — return complete and let validation_handler handle it.
         rpt = check_completeness("weird_tool", {}, {})
         assert rpt.is_complete
 
@@ -182,7 +182,7 @@ class TestCheckCompleteness:
 
     def test_zero_quantity_is_present_not_missing(self):
         # quantity=0 violates minimum=1 but is NOT missing — that's
-        # validation_retry's job, not completeness's.
+        # validation_handler's job, not completeness's.
         rpt = check_completeness(
             "place_market_order", _PLACE_ORDER_SCHEMA,
             {"symbol": "INFY", "quantity": 0, "transaction_type": "BUY"},

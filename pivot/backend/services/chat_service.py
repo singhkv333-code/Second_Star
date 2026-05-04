@@ -1,34 +1,49 @@
-"""ChatService — agentic-loop request handler.
+"""ChatService — single-hop request handler with deterministic resume.
 
-The architecture (Prompt 2):
+LLM-call audit (2026-05-04). Per turn the LLM is called AT MOST once on
+this path. There used to be a multi-hop agentic loop here that re-fed
+tool errors back to the model so it could self-correct ("validation
+retry"); that loop was burning 2–6 seconds per turn for a problem the
+schema already knew how to describe deterministically. Both fixes
+shipped together:
 
-    1. **Fast path.** Greetings / thanks / help asks return canned text
-       in <1 ms. No LLM. Caught by `services.fast_path.try_fast_path`.
-    2. **Agentic loop.** A single message list grows turn by turn:
-       [system, ...history, user] → LLM call (low reasoning) → if it
-       emitted tool_calls, append assistant + run each tool, append
-       results, loop. If finish_reason='stop', we have the final
-       reply. Circuit-breaker at MAX_TOOL_CALLS=8.
-    3. **Schema-driven completeness.** Before any tool execution,
-       `services.completeness.check_completeness` walks the tool's
-       JSON Schema and lists missing required fields. If anything is
-       missing we generate a single clarification question via a
-       minimal-reasoning LLM call and return — no executor invocation
-       with garbage args.
-    4. **Validation retry.** After completeness passes, the JSON-Schema
-       validator catches type/enum/length violations. Failures feed
-       back into the loop as a tool_result error so the model can
-       self-correct on its next iteration.
+    Change 1 — zero LLM retries on validation failure
+    ─────────────────────────────────────────────────
+    Tool returned `error` (not `needs_clarification`):
+      OLD: append error to messages, loop back to LLM, hope it fixes
+           the args. Up to MAX_TOOL_CALLS times.
+      NEW: convert the error into a deterministic clarification
+           question (`_format_recoverable_failure_question` /
+           `_format_clarification_question`) and surface to the user.
+           No second hop. The first call has to be right or it asks.
 
-Reasoning effort assignments (from Prompt 2's table):
+    Change 2 — deterministic resume after clarification
+    ───────────────────────────────────────────────────
+    User reply to a clarification (e.g. "1400" after we asked for the
+    stop-loss price):
+      OLD: another LLM hop with a "merge this into the JSON" system
+           message; the model rebuilds the full tool call.
+      NEW: ConversationStore persists `PendingToolCall(name, args,
+           missing_field, field_type)` when the question is asked.
+           On the next turn, if the reply parses cleanly as the
+           missing field's value, splice and execute. ZERO LLM calls.
+           Off-ramps for cancel / multi-clause / type mismatch fall
+           back to the normal LLM path.
 
-    - chat hop (tool selection / synthesis): low
-    - clarification question generation: minimal
-    - narrate-tool-result on a non-loop final hop: minimal
+LLM call sites NOW:
 
-The loop pattern subsumes the soft-failure-retry hop from Prompt 1 —
-errors are now fed back as tool results and the model has the next
-iteration to call ASK_USER, retry, or finish.
+    - `handle()`: 1× `client.complete(...)` per turn (single hop). Loop
+      removed; on error → return question; on success → return result.
+    - `handle_stream()`: same shape, streamed.
+    - `propose.py`: 2× per `propose_workflow` tool call (planner +
+      drafter split). Out of scope for this audit — that's a different
+      LLM-call structure, not validation retries.
+    - Fast path: 0 LLM calls. Greetings/help via regex.
+
+What stays the same: the fast-path classifier, schema-driven
+completeness check, structured cards, propose_workflow's macro
+fallback (when the planner-drafter split itself fails), the
+post-processor that strips placeholders and tool-call leakage.
 """
 from __future__ import annotations
 
@@ -44,7 +59,12 @@ from backend.llm.base import ReasoningEffort
 from backend.prompts import build_system_prompt
 from backend.prompts.assembler import UserContext as PromptUserContext
 from backend.services.chat_trace import TurnTrace, start_turn
-from backend.services.conversation_store import ConversationStore, default_store
+from backend.services.conversation_store import (
+    ActiveDraft,
+    ConversationStore,
+    PendingToolCall,
+    default_store,
+)
 from backend.services.fast_path import try_fast_path
 from backend.services.tool_registry import get_tool_schema
 from backend.services.workflow_skeleton import try_workflow_skeleton
@@ -53,7 +73,7 @@ from backend.services.tool_router import (
     filter_registry_tools,
     select_tool_names,
 )
-from backend.services.validation_retry import (
+from backend.services.validation_handler import (
     ASK_USER_TOOL_NAME,
     GuardedToolResult,
     ask_user_tool_def,
@@ -84,59 +104,111 @@ _LATENT_GREETING_RE = re.compile(
 _MAX_TOOL_CALLS = 8
 
 
-# Phrases that signal "user wants to BUILD an agent / workflow".
-# Used to flip tool_choice to required and reasoning_effort to minimal
-# (A1 + B4 from the latency analysis). Conservative — we'd rather miss
-# a tightening opportunity than apply it to a query like "what's
-# RELIANCE's price". When this hits, we still let the LLM choose which
-# tool (propose_workflow, create_strategy, …) but force it to commit.
+# ── Intent classification: automation vs agent vs other ─────────────
+#
+# Two distinct request shapes route to different tools:
+#
+#   AUTOMATION — single deterministic action with parameters supplied
+#                by the user. We just execute the matching tool. No
+#                fetch-then-decide. Examples:
+#                  "buy 10 RELIANCE at market"       → place_market_order
+#                  "GTT 5 TCS if drops to 3000"      → create_gtt_order
+#                  "set 5% stop loss on my INFY"     → create_sl_order
+#                  "SIP ₹5000 in NIFTYBEES Monday"   → create_sip
+#                  "square off intraday"             → squareoff_all_intraday
+#
+#   AGENT — multi-step workflow. Requires runtime fetches, conditions,
+#           or multiple actions per fire. Routes to propose_workflow.
+#                  "every Monday if RSI<30 buy INFY" — schedule+fetch+cond+act
+#                  "watch portfolio and alert if X"  — continuous+cond+notify
+#                  "buy at open & sell at close ev day" — 2 scheduled actions
+#                  "buy when it dips 5% from prior"  — runtime fetch + rel thresh
+#
+# Decision rule encoded below: does the request need a fetch step
+# BEFORE the action? If yes → agent. If no → automation.
+#
+# Mutual exclusivity: agent wins ties (safer to draft a workflow than
+# to misfire a single immediate tool).
+
 _AGENT_INTENT_RE = re.compile(
-    # "build|create|set up an agent / strategy / workflow"
+    # Explicit "build/create an agent/strategy/workflow/automation"
     r"\b(?:build|create|set\s*up|setup|make|generate|design)\s+"
-    r"(?:me\s+)?an?\s+(?:agent|strategy|workflow|automation|rule|bot|sip)\b"
-    # Time-anchored buy/sell: "every Monday at 9:15 buy 5 NIFTYBEES"
-    r"|\bevery\s+(?:weekday|monday|tuesday|wednesday|thursday|friday|"
-    r"day|week|hour|morning|evening)\b[^\.]{0,80}"
-    r"\b(?:buy|sell|order|trade|invest|put|allocate)\b"
-    # "buy ... every Monday"
-    r"|\b(?:buy|sell)\b[^\.]{0,40}\bevery\b"
-    # Indicator-anchored conditional: "when RSI < 30"
+    r"(?:me\s+)?an?\s+(?:agent|strategy|workflow|automation|rule|bot)\b"
+    # Indicator-anchored conditional — fetch step REQUIRED at runtime
     r"|\bwhen(?:ever)?\b[^\.]{0,80}\b(?:rsi|sma|ema|macd)\b"
-    # Watch / monitor + and/then
+    # Watch / monitor + and/then — continuous behaviour
     r"|\b(?:watch|monitor|track|alert\s+me|notify\s+me)\b[^\.]{0,80}"
     r"\b(?:and|then)\b"
-    # Explicit phrases
+    # Explicit "automatically execute" phrasing
     r"|\bautomatic(?:ally)?\s+execut"
-    # Conditional rule shapes: "if SYM dips/drops/rises X% then Y"
-    # Without this, "if reliance dips 5% on monday set a stop loss"
-    # falls into the slow auto-tool path instead of A1+B4.
-    r"|\bif\b[^\.]{0,120}\b(?:dips?|drops?|falls?|rises?|crosses?|hits?|reaches?)\b"
-    r"|\bwhen(?:ever)?\b[^\.]{0,80}\b(?:dips?|drops?|falls?|rises?|crosses?)\b\s*\d+\s*%"
-    # Stop-loss / take-profit / target language. Setting an SL is
-    # almost always a workflow build (the user wants something automated
-    # tied to a trigger or holding). The middle slop allows "set a 2%
-    # stop loss" / "place a trailing stop" / "add an SL at ₹1400".
+    # Conditional rule with PERCENTAGE move (relative — needs runtime
+    # fetch of a baseline). Absolute-price conditionals are GTTs,
+    # which are automation.
+    r"|\bif\b[^\.]{0,120}\b(?:dips?|drops?|falls?|rises?|crosses?)\b"
+    r"\s*\d+\s*%"
+    r"|\bwhen(?:ever)?\b[^\.]{0,80}\b(?:dips?|drops?|falls?|rises?|crosses?)\b"
+    r"\s*\d+\s*%"
+    # "X% dip" / "5% drop" + ANY action verb — same fetch-required shape
+    r"|\b\d+\s*%\s*(?:dip|drop|fall|rise|crash|gain)\b"
+    # Multi-action pattern in one fire — "buy at open AND sell at close",
+    # "buy X then sell Y" — needs a workflow with multiple actions.
+    r"|\b(?:buy|long)\b[^\.]{0,60}\b(?:and|then)\b[^\.]{0,60}\b(?:sell|exit|short)\b"
+    # SIP that includes a condition is an agent (e.g. "SIP ₹5k every
+    # Monday IF cash > ₹50k"). Plain SIP without 'if' is automation.
+    r"|\bsip\b[^\.]{0,200}\bif\b",
+    re.IGNORECASE,
+)
+
+_AUTOMATION_INTENT_RE = re.compile(
+    # Imperative buy/sell with quantity (no condition keywords here)
+    r"\b(?:buy|sell)\s+\d+\s+[A-Z][A-Z0-9\-_]{1,15}\b"
+    # Imperative buy/sell at market / now / today
+    r"|\b(?:buy|sell)\b[^\.]{0,30}\b(?:at\s+market|right\s+now|today)\b"
+    # Limit order with explicit price
+    r"|\b(?:buy|sell)\b[^\.]{0,40}\b(?:at|@)\s*(?:rs\.?|₹|inr)?\s*\d{2,}\b"
+    # GTT / SL / take-profit setup at an ABSOLUTE price ("at ₹1400")
+    # or a percentage (handled by create_sl_order via stop_pct)
     r"|\b(?:set|place|put|create|add)\s+(?:a\s+|an\s+)?"
     r"(?:[\d.]+\s*%\s+)?"
-    r"(?:stop[- ]?loss|sl|stoploss|trailing\s+stop|take[- ]?profit|tp|target)\b"
-    # "place a buy/sell ... when X" — conditional order
-    r"|\b(?:place|put)\s+a?\s*(?:buy|sell|stop|limit|gtt|sl|stoploss)\b[^\.]{0,80}\bwhen\b"
-    # "X% dip" / "5% drop" + ANY action verb in same sentence
-    r"|\b\d+\s*%\s*(?:dip|drop|fall|rise|crash|gain)\b",
+    r"(?:stop[- ]?loss|sl|stoploss|trailing\s+stop|take[- ]?profit|tp|target|gtt)\b"
+    # GTT / limit order with explicit price reference
+    r"|\b(?:gtt|limit\s+order)\b[^\.]{0,80}\b(?:at|to)\s+(?:rs\.?|₹|inr)?\s*\d+"
+    # Square-off
+    r"|\bsquare\s*off\b"
+    # SIP setup — recurring single action, NO condition (the agent regex
+    # above catches "SIP … if …" before we get here)
+    r"|\bsip\b[^\.]{0,80}\b(?:in|of|for|every)\b"
+    # "create a sip" — explicit single-tool request
+    r"|\b(?:create|set\s*up|setup|make)\s+(?:a\s+|an\s+)?sip\b"
+    # "every Monday 9:15 buy <SYM>" with no condition — recurring SIP
+    # automation. The agent regex catches the conditional variant first.
+    r"|\bevery\s+(?:weekday|monday|tuesday|wednesday|thursday|friday|"
+    r"day|week)\b[^\.]{0,80}\b(?:buy|sell|invest)\b\s+",
     re.IGNORECASE,
 )
 
 
-def _looks_like_agent_intent(message: str) -> bool:
-    """True for messages that clearly want a multi-step automation.
+def _classify_intent(message: str) -> str:
+    """Return one of {'agent', 'automation', 'other'}.
 
-    Drives the A1 (tool_choice=required) and B4 (reasoning=minimal)
-    optimisations. False on simple data queries / orders so they keep
-    the broader 'auto' tool surface.
+    Agent wins ties — better to over-draft a workflow than misfire a
+    single immediate tool. 'other' covers data lookups, conversation,
+    explanations.
     """
     if not message:
-        return False
-    return bool(_AGENT_INTENT_RE.search(message))
+        return "other"
+    if _AGENT_INTENT_RE.search(message):
+        return "agent"
+    if _AUTOMATION_INTENT_RE.search(message):
+        return "automation"
+    return "other"
+
+
+def _looks_like_agent_intent(message: str) -> bool:
+    """Back-compat wrapper. Use _classify_intent for the three-way
+    distinction; this stays for the few existing call sites that
+    just need the agent / not-agent boolean."""
+    return _classify_intent(message) == "agent"
 
 
 @dataclass
@@ -284,6 +356,103 @@ def _looks_like_clarification_followup(history: list[dict]) -> bool:
     return bool(_CLARIFICATION_CUES_RE.search(tail))
 
 
+# ── Deterministic resume after clarification (Change 2) ──────────────
+
+
+class ValueCoercionError(ValueError):
+    """Raised when a user reply can't be coerced into a pending field's
+    type. The chat handler clears the pending state and falls through
+    to the normal LLM path when this fires."""
+
+
+# Replies that mean "abandon what we were doing." If the pending state
+# is set and the user types one of these (alone or as the whole
+# sentence), we clear pending and fall through to the LLM so the model
+# can produce a graceful confirmation.
+_RESUME_CANCEL_RE = re.compile(
+    r"^\s*(?:cancel|never\s*mind|nevermind|forget(?:\s+it)?|stop|abort|"
+    r"no(?:t)?(?:\s+anymore)?|drop\s+it|drop\s+that)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+# Conjunctions that signal "value PLUS modification" — fall through to
+# the LLM so we don't strip context the user added on top.
+_RESUME_MULTICLAUSE_RE = re.compile(
+    r"\b(?:and|also|but|instead|except|however|plus|then)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_simple_value_reply(message: str, expected_kind: str) -> bool:
+    """True when the user's message looks like a pure value for the
+    pending field — short, single-clause, and shaped like the
+    expected type. False for anything that warrants an LLM hop."""
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    if _RESUME_CANCEL_RE.match(msg):
+        return False
+    if _RESUME_MULTICLAUSE_RE.search(msg):
+        return False
+    # Strip light decoration (₹, $, commas, leading "rs", trailing units)
+    # before counting tokens — "₹1,400" and "1400 rs" are still 1-token
+    # value replies.
+    stripped = re.sub(r"[₹$,]", "", msg)
+    if len(stripped.split()) > 6:
+        return False
+    if expected_kind in {"int", "float"}:
+        return bool(re.match(
+            r"^\s*-?\d+(?:[.,]\d+)?\s*(?:rs|inr|rupees?|%)?\s*$",
+            stripped,
+            re.IGNORECASE,
+        ))
+    if expected_kind == "bool":
+        return msg.lower() in {
+            "yes", "y", "true", "1", "no", "n", "false", "0",
+        }
+    if expected_kind == "date":
+        return bool(re.match(r"^\s*\d{4}-\d{2}-\d{2}\s*$", msg))
+    # str / enum / any → any short single-clause reply qualifies.
+    return True
+
+
+def _coerce_value(message: str, expected_kind: str, enum: Optional[list] = None) -> Any:
+    """Convert a user reply into the pending field's type. Raises
+    ValueCoercionError when the input doesn't fit."""
+    msg = (message or "").strip()
+    # Strip currency / unit decoration consistent with the recogniser.
+    msg = re.sub(r"[₹$,]", "", msg)
+    msg = re.sub(r"\s*(?:rs|inr|rupees?|%)\s*$", "", msg, flags=re.IGNORECASE)
+
+    try:
+        if expected_kind == "int":
+            return int(float(msg))     # tolerate "10.0"
+        if expected_kind == "float":
+            return float(msg)
+        if expected_kind == "bool":
+            low = msg.lower()
+            if low in {"yes", "y", "true", "1"}:
+                return True
+            if low in {"no", "n", "false", "0"}:
+                return False
+            raise ValueCoercionError(f"can't read {msg!r} as yes/no")
+        if expected_kind == "date":
+            # Already validated by the recogniser, just return as-is.
+            return msg
+        if expected_kind == "enum":
+            if not enum:
+                raise ValueCoercionError("enum field with empty enum")
+            for opt in enum:
+                if str(opt).lower() == msg.lower():
+                    return opt
+            raise ValueCoercionError(
+                f"{msg!r} not one of {enum}"
+            )
+        # str / any
+        return msg
+    except (TypeError, ValueError) as e:
+        raise ValueCoercionError(str(e)) from e
+
+
 def _summarise_tool_result(g: GuardedToolResult) -> str:
     """Compact JSON the loop's next iteration consumes as the tool
     result. Errors get a structured prefix so the model treats them
@@ -346,6 +515,176 @@ class ChatService:
     def _client(self) -> LLMClient:
         return self._llm if self._llm is not None else get_llm_client()
 
+    def _stash_workflow_draft(
+        self, conv_id: str, draft: dict, caption: str = "",
+    ) -> None:
+        """Cache the just-emitted workflow draft for the next turn's
+        followup hint. Single source of truth — call from every place
+        a draft becomes the user's pending agent (skeleton fast-path,
+        agentic loop success, macro fallback)."""
+        if not draft:
+            return
+        self.store.set_active_draft(conv_id, ActiveDraft(
+            tool_name="propose_workflow",
+            draft=draft,
+            last_caption=caption[:400],
+            created_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        ))
+
+    def _maybe_set_pending(self, conv_id: str, guarded: GuardedToolResult) -> None:
+        """Persist a PendingToolCall when a clarification fired with a
+        single, coercible missing field. Multi-field misses and
+        free-form ASK_USER calls clear pending — those need an LLM
+        hop on the next turn."""
+        mf = guarded.missing_field
+        if mf is None or mf.type_kind in {"any", "object"}:
+            self.store.clear_pending(conv_id)
+            return
+        self.store.set_pending(conv_id, PendingToolCall(
+            tool_name=guarded.name,
+            args=guarded.args,
+            missing_field=mf.field_name,
+            field_type=mf.type_kind,
+            field_description=mf.description,
+            enum=mf.enum,
+            asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        ))
+
+    async def _try_fast_resume(
+        self,
+        *,
+        message: str,
+        conv_id: str,
+        ctx: "UserContext",
+        trace: TurnTrace,
+        turn_started: float,
+        breakdown: dict[str, int],
+    ) -> Optional["ChatTurn"]:
+        """Deterministic resume after an ASK_USER clarification.
+
+        Returns None when there's no pending state OR the user's reply
+        doesn't fit the missing field — both cases fall through to the
+        normal LLM path. Returns a ChatTurn (success or cascading
+        clarification) when we resumed without an LLM hop.
+        """
+        pending = self.store.get_pending(conv_id)
+        if pending is None:
+            return None
+
+        # Cancellation off-ramp: clear pending AND any active draft
+        # (the user is abandoning the whole thing), then let the LLM
+        # produce a graceful confirmation of the abandonment.
+        if _RESUME_CANCEL_RE.match(message.strip()):
+            self.store.clear_pending(conv_id)
+            self.store.clear_active_draft(conv_id)
+            trace.event("resume.cancelled", tool=pending.tool_name,
+                        field=pending.missing_field)
+            return None
+
+        if not _is_simple_value_reply(message, pending.field_type):
+            # Doesn't look like a clean value reply (multi-clause,
+            # too long, wrong shape). Don't clear pending yet — the
+            # LLM might still resolve it; if the next assistant turn
+            # supersedes it the pending state expires on its own.
+            trace.event("resume.shape_mismatch", tool=pending.tool_name,
+                        field=pending.missing_field, kind=pending.field_type)
+            return None
+
+        try:
+            value = _coerce_value(message, pending.field_type, pending.enum)
+        except ValueCoercionError as e:
+            trace.event("resume.coerce_failed", tool=pending.tool_name,
+                        field=pending.missing_field, error=str(e)[:120])
+            self.store.clear_pending(conv_id)
+            return None
+
+        # Splice the value into the saved args and execute. Any further
+        # missing field cascades into a fresh pending state — still no
+        # LLM hop on this turn.
+        new_args = dict(pending.args)
+        new_args[pending.missing_field] = value
+        client = self._client()
+        guarded = await execute_with_completeness(
+            pending.tool_name, new_args,
+            llm_client=client, user_message=message,
+            kite_token=ctx.kite_token, db=ctx.db, user_id=ctx.user_id,
+        )
+        breakdown[f"tool_{guarded.name}"] = guarded.latency_ms
+        trace.event("resume.tool", tool=guarded.name,
+                    success=guarded.success,
+                    needs_clarification=guarded.needs_clarification,
+                    error=guarded.error)
+
+        # Cascading clarification — set new pending and surface the
+        # next question. Still 0 LLM calls on this turn.
+        if guarded.needs_clarification and guarded.question:
+            self.store.append(conv_id, message, guarded.question)
+            if guarded.missing_field is not None:
+                self.store.set_pending(conv_id, PendingToolCall(
+                    tool_name=guarded.name,
+                    args=guarded.args,
+                    missing_field=guarded.missing_field.field_name,
+                    field_type=guarded.missing_field.type_kind,
+                    field_description=guarded.missing_field.description,
+                    enum=guarded.missing_field.enum,
+                    asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                ))
+            else:
+                self.store.clear_pending(conv_id)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["total"] = total
+            _log_timing("resume", message, total, breakdown,
+                        tools=[guarded.name], note="resume-cascade")
+            trace.event("turn.end", total_ms=total, tools_called=[guarded.name],
+                        reason="resume_cascade")
+            trace.end()
+            return ChatTurn(
+                response=guarded.question,
+                tools_called=[guarded.name],
+                raw_data={"_render_hint": "ask_user"},
+                latency_ms=total,
+                latency_breakdown=breakdown,
+            )
+
+        # Tool failed for some other reason on resume — clear pending,
+        # fall through to the LLM so the user gets a normal recovery
+        # path rather than a stale pending loop.
+        if not guarded.success:
+            self.store.clear_pending(conv_id)
+            trace.event("resume.tool_error", tool=guarded.name,
+                        error=(guarded.error or "")[:120])
+            return None
+
+        # Success — render the card directly. ZERO LLM calls this turn.
+        self.store.clear_pending(conv_id)
+        raw_data: dict[str, Any] = {}
+        logiccard: Optional[dict] = None
+        if guarded.data:
+            raw_data[guarded.name] = guarded.data
+        if guarded.logiccard:
+            logiccard = guarded.logiccard
+        text = _tool_summary_line(guarded.name, logiccard)
+        text = _ensure_widget_caption(
+            text, tool_name=guarded.name,
+            logiccard=logiccard, raw_data=raw_data,
+        )
+        self.store.append(conv_id, message, text)
+        total = int((time.monotonic() - turn_started) * 1000)
+        breakdown["total"] = total
+        _log_timing("resume", message, total, breakdown,
+                    tools=[guarded.name], note="resume-success")
+        trace.event("turn.end", total_ms=total, tools_called=[guarded.name],
+                    reason="resume_success")
+        trace.end()
+        return ChatTurn(
+            response=text,
+            tools_called=[guarded.name],
+            logiccard=logiccard,
+            raw_data=raw_data,
+            latency_ms=total,
+            latency_breakdown=breakdown,
+        )
+
     async def handle(
         self,
         message: str,
@@ -400,6 +739,7 @@ class ChatService:
             )
             response_text = _workflow_skeleton_caption(skeleton)
             self.store.append(conv_id, message, response_text)
+            self._stash_workflow_draft(conv_id, skeleton, response_text)
             total = int((time.monotonic() - turn_started) * 1000)
             breakdown["workflow_skeleton"] = total
             breakdown["total"] = total
@@ -424,6 +764,19 @@ class ChatService:
                 latency_breakdown=breakdown,
             )
 
+        # ── Deterministic resume (Change 2) ────────────────────────
+        # If the previous turn ended with a clarification AND the user's
+        # current message looks like a clean value reply, splice the
+        # value into the partial args and execute the tool — no LLM.
+        # Off-ramps (cancel / multi-clause / type mismatch) clear the
+        # pending state and fall through to the LLM path.
+        resumed = await self._try_fast_resume(
+            message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if resumed is not None:
+            return resumed
+
         # ── Agentic loop setup ─────────────────────────────────────
         history = (
             history_override
@@ -439,24 +792,34 @@ class ChatService:
         # always-include floor + fallback read tools, so we never
         # ship a turn with zero tools.
         selected_names = select_tool_names(message)
-        is_agent_intent = _looks_like_agent_intent(message)
-        # When agent intent is clear, strip the immediate-order tools
-        # from the surface — keeping them around made the model pick
-        # `place_limit_order` / `create_sl_order` for prompts that
-        # were really workflow asks (e.g. "buy 10 INFY if it drops
-        # 3% from yesterday close"). Forcing the choice to
-        # propose_workflow is the better outcome; if the user really
-        # wanted an immediate order they'd phrase it without the
-        # conditional ("buy 10 INFY at market").
+        intent_kind = _classify_intent(message)
+        is_agent_intent = intent_kind == "agent"
+        is_automation_intent = intent_kind == "automation"
+        # Tool-surface routing per intent class:
+        #
+        #   agent      → strip immediate-order tools (e.g. place_limit_order),
+        #                force propose_workflow into the surface so the model
+        #                drafts a workflow rather than misfiring a one-off.
+        #   automation → KEEP the immediate-order tools (this IS automation —
+        #                place_market_order / create_sl_order / create_sip /
+        #                squareoff are exactly what we want), and DROP
+        #                propose_workflow so the model can't reach for it.
+        #                A single-action ask shouldn't become a workflow.
+        #   other      → leave the broad surface alone.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
             "place_market_order", "place_limit_order",
             "create_gtt_order", "create_sl_order", "create_oco_order",
             "create_dip_buy", "place_basket_order",
+            "create_sip", "squareoff_all_intraday", "squareoff_symbol",
         })
         if is_agent_intent and selected_names is not None:
             selected_names = (selected_names - _IMMEDIATE_ORDER_TOOLS) | {
                 "propose_workflow",
             }
+        elif is_automation_intent and selected_names is not None:
+            selected_names = (selected_names - {"propose_workflow"}) | (
+                _IMMEDIATE_ORDER_TOOLS
+            )
         tooldefs = _registry_tools_as_tooldefs(selected_names)
         # Route-stable cache key — a fresh hash of the routed toolset
         # so each unique route caches its own system + tools prefix.
@@ -489,12 +852,13 @@ class ChatService:
         # dramatically without measurable quality loss.
         effort: ReasoningEffort = "minimal" if is_agent_intent else "low"
         max_output: int = 1500
-        # A2: per-tool retry budget for propose_workflow. The
-        # validation-retry loop is great at fixing typos but it can't
-        # fix structurally unsatisfiable requests. After 3 attempts
-        # we escalate to ASK_USER. Other tools keep the broader cap.
+        # Scoped retry budget for propose_workflow only — see the
+        # documented escape hatch at the bottom of the Change-1 plan.
+        # propose_workflow's failures are usually mechanical (unknown
+        # step_type, "step 0 must be trigger.*") that the model fixes
+        # on a single retry. All other tools stay single-shot.
         propose_workflow_attempts = 0
-        _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 3
+        _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2
         trace.event(
             "tool_router.select",
             n_selected=len(tooldefs),
@@ -537,6 +901,25 @@ class ChatService:
                 None,
             )
             original_intent = (first_user or {}).get("content") or ""
+            # Active-draft cache (replaces the prior history-regex
+            # scan). When propose_workflow last emitted a draft this
+            # conversation, we have its actual JSON — inject it into
+            # the hint so the model amends THIS shape instead of
+            # reconstructing from chat text.
+            active = self.store.get_active_draft(conv_id)
+            workflow_hint = ""
+            if active is not None and active.tool_name == "propose_workflow":
+                draft_json = json.dumps(active.draft, default=str)[:1800]
+                workflow_hint = (
+                    " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
+                    "Treat the user's reply as an AMENDMENT to this "
+                    "draft — re-emit propose_workflow with the SAME "
+                    "steps shape, only mutating the field(s) the user "
+                    "addressed. Do NOT switch tools. Do NOT start a "
+                    "new draft. If the user is clearly proposing a "
+                    "wholly different agent, supersede the draft. "
+                    f"DRAFT JSON: {draft_json}."
+                )
             followup_hint = LLMMessage(
                 role="system",
                 content=(
@@ -544,8 +927,9 @@ class ChatService:
                     f"clarifying question. Their ORIGINAL request was: "
                     f'"{original_intent[:280]}". Their LAST clarification '
                     f'asked: "{last_text[-200:]}". Their CURRENT reply '
-                    f'is: "{message}". '
-                    "Merge the reply into the original request and call "
+                    f'is: "{message}".'
+                    + workflow_hint +
+                    " Merge the reply into the original request and call "
                     "the matching tool (propose_workflow / "
                     "place_market_order / etc.) IMMEDIATELY with the "
                     "complete arguments. Do NOT restart from scratch. "
@@ -582,17 +966,11 @@ class ChatService:
         # "I had trouble". The user's "internal step-format issue"
         # message was caused by the breaker swallowing this.
         last_tool_error: Optional[str] = None
-        # Per (tool, error-signature) counter. Caps how many times the
-        # model can fail with the SAME class of error before we give
-        # up the retry loop and ask the user. Without this, gpt-5-mini
-        # would loop 8× on a structurally unsatisfiable propose_workflow
-        # field (e.g. trigger_price required but user gave a percentage),
-        # blowing through the circuit-breaker at 45–55s with a generic
-        # "couldn't finish" message.
-        error_counts: dict[tuple[str, str], int] = {}
-        _SAME_ERROR_LIMIT = 2
-
-        # ── Loop ───────────────────────────────────────────────────
+        # ── Loop (multi-tool only — no validation retry) ───────────
+        # The loop is now exclusively for genuinely multi-tool turns:
+        # tool A succeeds → model gets the next hop to chain tool B
+        # or write the final reply. Tool errors return a deterministic
+        # question and exit the function (no retry-against-the-model).
         while hop_index < _MAX_TOOL_CALLS:
             hop_index += 1
             # A1: only force tool_choice on the FIRST hop. Subsequent
@@ -658,6 +1036,10 @@ class ChatService:
                     raw_data=raw_data,
                 )
                 self.store.append(conv_id, message, text)
+                # Successful turn supersedes any stale pending state
+                # (the prior clarification was abandoned or resolved
+                # by the LLM path itself).
+                self.store.clear_pending(conv_id)
                 total = int((time.monotonic() - turn_started) * 1000)
                 breakdown["total"] = total
                 _log_timing(client.provider_name, message, total, breakdown,
@@ -705,8 +1087,11 @@ class ChatService:
                             latency_ms=guarded.latency_ms)
 
                 # Completeness or ASK_USER → surface immediately.
+                # Persist the partial tool call so the user's next
+                # reply can resume deterministically (Change 2).
                 if guarded.needs_clarification and guarded.question:
                     self.store.append(conv_id, message, guarded.question)
+                    self._maybe_set_pending(conv_id, guarded)
                     total = int((time.monotonic() - turn_started) * 1000)
                     breakdown["total"] = total
                     _log_timing(client.provider_name, message, total, breakdown,
@@ -723,148 +1108,130 @@ class ChatService:
                         latency_breakdown=breakdown,
                     )
 
-                # Append the tool's result to the conversation. Even
-                # errors go through this path — the model sees the
-                # error in the next iteration and decides what to do.
-                tool_msg_content = _summarise_tool_result(guarded)
-                messages.append(LLMMessage(
-                    role="tool",
-                    tool_call_id=tc.get("id", f"call_{hop_index}"),
-                    name=guarded.name,
-                    content=tool_msg_content,
-                ))
-
+                # On success keep state and let the loop continue —
+                # the model gets one more LLM hop to either chain
+                # another tool (genuinely multi-tool turn) or write
+                # the final reply. On error STOP: surface a
+                # deterministic question and return. No retry hop
+                # against the model — see Change 1 in this file's
+                # docstring.
                 if guarded.success:
+                    tool_msg_content = _summarise_tool_result(guarded)
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name=guarded.name,
+                        content=tool_msg_content,
+                    ))
                     if guarded.name not in tools_called:
                         tools_called.append(guarded.name)
                     if guarded.logiccard:
                         logiccard = guarded.logiccard
                     if guarded.data:
                         raw_data[guarded.name] = guarded.data
-                elif guarded.error:
-                    last_tool_error = (
-                        f"{guarded.name}: {guarded.error}"
-                    )
-                    # A2: per-tool attempt cap for propose_workflow.
-                    # The model sometimes fails for DIFFERENT reasons
-                    # on consecutive attempts (e.g. wrong cron then
-                    # wrong step_type) — the same-error escalation
-                    # below misses that case because the signature
-                    # changes. A flat 3-attempt cap on propose_workflow
-                    # specifically catches it: by attempt 4 we've seen
-                    # enough that the model isn't going to nail it.
-                    if guarded.name == "propose_workflow":
-                        propose_workflow_attempts += 1
-                        if propose_workflow_attempts >= _PROPOSE_WORKFLOW_MAX_ATTEMPTS:
-                            # Last-ditch macro fallback. If the user's
-                            # phrasing matches a known shape (SL on
-                            # holding, etc.), hydrate that as a draft
-                            # rather than emitting the generic "I
-                            # couldn't" message — the user already
-                            # waited 20+ seconds, give them a workable
-                            # starting point.
-                            fb_draft = _try_macro_fallback(message)
-                            if fb_draft is not None:
-                                fb_text = (
-                                    "I couldn't fit your full request "
-                                    "into a single workflow shape, so "
-                                    "I've drafted a simplified version "
-                                    "you can edit. The trigger has been "
-                                    "set to manual — review the steps "
-                                    "and adjust the trigger before "
-                                    "activating."
-                                )
-                                self.store.append(conv_id, message, fb_text)
-                                total = int((time.monotonic() - turn_started) * 1000)
-                                breakdown["total"] = total
-                                _log_timing(
-                                    client.provider_name, message, total,
-                                    breakdown, tools=tools_called,
-                                    note="propose_workflow_macro_fallback",
-                                )
-                                trace.event(
-                                    "turn.end", total_ms=total,
-                                    tools_called=tools_called + ["propose_holding_action"],
-                                    reason="propose_workflow_macro_fallback",
-                                    attempts=propose_workflow_attempts,
-                                )
-                                trace.end()
-                                return ChatTurn(
-                                    response=fb_text,
-                                    tools_called=tools_called + ["propose_holding_action"],
-                                    raw_data={
-                                        **fb_draft,
-                                        "propose_workflow": fb_draft,
-                                    },
-                                    latency_ms=total,
-                                    latency_breakdown=breakdown,
-                                )
-                            question = _format_recoverable_failure_question(
-                                tool_name=guarded.name,
-                                error=guarded.error or "",
-                            )
-                            self.store.append(conv_id, message, question)
-                            total = int((time.monotonic() - turn_started) * 1000)
-                            breakdown["total"] = total
-                            _log_timing(
-                                client.provider_name, message, total, breakdown,
-                                tools=tools_called,
-                                note=(
-                                    f"propose_workflow_attempts="
-                                    f"{propose_workflow_attempts}"
-                                ),
-                            )
-                            trace.event(
-                                "turn.end", total_ms=total,
-                                tools_called=tools_called,
-                                reason="propose_workflow_attempt_cap",
-                                attempts=propose_workflow_attempts,
-                                last_error=(guarded.error or "")[:120],
-                            )
-                            trace.end()
-                            return ChatTurn(
-                                response=question,
-                                tools_called=tools_called + [guarded.name],
-                                raw_data={"_render_hint": "ask_user"},
-                                latency_ms=total,
-                                latency_breakdown=breakdown,
-                            )
-                    # Same-error escalation. Two consecutive failures of
-                    # the same (tool, error-class) → ASK_USER instead of
-                    # hammering the loop. The signature is the first
-                    # ~80 chars of the error message — captures the
-                    # "field required" / "must be one of" / etc. shape
-                    # without being so broad it conflates unrelated
-                    # failures.
-                    sig = (guarded.error or "")[:80]
-                    key = (guarded.name, sig)
-                    error_counts[key] = error_counts.get(key, 0) + 1
-                    if error_counts[key] >= _SAME_ERROR_LIMIT:
-                        question = _format_recoverable_failure_question(
-                            tool_name=guarded.name, error=guarded.error or "",
+                    # Cache the active draft when propose_workflow
+                    # succeeds so the next turn can amend it directly.
+                    if guarded.name == "propose_workflow" and guarded.data:
+                        self._stash_workflow_draft(conv_id, guarded.data)
+                    continue
+
+                # Tool error path.
+                #
+                # propose_workflow: feed the error back ONCE so the
+                # model can self-correct (mechanical fixes — unknown
+                # step_type, step 0 isn't a trigger.*, etc.) — then
+                # macro fallback, then deterministic question. All
+                # other tools fail single-shot — no LLM retry.
+                last_tool_error = f"{guarded.name}: {guarded.error}"
+                if guarded.name == "propose_workflow":
+                    propose_workflow_attempts += 1
+                    if propose_workflow_attempts < _PROPOSE_WORKFLOW_MAX_ATTEMPTS:
+                        # Append the error as a tool-result message and
+                        # let the loop iterate — the model gets one
+                        # more pass to fix the args.
+                        tool_msg_content = _summarise_tool_result(guarded)
+                        messages.append(LLMMessage(
+                            role="tool",
+                            tool_call_id=tc.get("id", f"call_{hop_index}"),
+                            name=guarded.name,
+                            content=tool_msg_content,
+                        ))
+                        trace.event(
+                            "propose_workflow.retry",
+                            attempt=propose_workflow_attempts,
+                            error=(guarded.error or "")[:160],
                         )
-                        self.store.append(conv_id, message, question)
+                        continue
+                    # Out of retries — try macro fallback first.
+                    fb_draft = _try_macro_fallback(message)
+                    if fb_draft is not None:
+                        fb_text = (
+                            "I couldn't fit your full request into a "
+                            "single workflow shape, so I've drafted a "
+                            "simplified version you can edit. The "
+                            "trigger has been set to manual — review the "
+                            "steps and adjust the trigger before "
+                            "activating."
+                        )
+                        self.store.append(conv_id, message, fb_text)
+                        self.store.clear_pending(conv_id)
+                        self._stash_workflow_draft(conv_id, fb_draft, fb_text)
                         total = int((time.monotonic() - turn_started) * 1000)
                         breakdown["total"] = total
                         _log_timing(
-                            client.provider_name, message, total, breakdown,
-                            tools=tools_called,
-                            note=f"same_error_escalation:{guarded.name}",
+                            client.provider_name, message, total,
+                            breakdown, tools=tools_called,
+                            note="propose_workflow_macro_fallback",
                         )
                         trace.event(
                             "turn.end", total_ms=total,
-                            tools_called=tools_called,
-                            reason="same_error_escalation",
-                            tool=guarded.name, sig=sig,
+                            tools_called=tools_called + ["propose_holding_action"],
+                            reason="propose_workflow_macro_fallback",
                         )
                         trace.end()
                         return ChatTurn(
-                            response=question,
-                            tools_called=tools_called + [guarded.name],
-                            raw_data={"_render_hint": "ask_user"},
+                            response=fb_text,
+                            tools_called=tools_called + ["propose_holding_action"],
+                            raw_data={
+                                **fb_draft,
+                                "propose_workflow": fb_draft,
+                            },
                             latency_ms=total,
                             latency_breakdown=breakdown,
                         )
+
+                # Build the user-facing question. For propose_workflow
+                # we pass the user's original ask alongside the error
+                # so the question can name the specific phrase that
+                # didn't parse (NIFTY → NIFTYBEES, "buying power" →
+                # supported via fetch.portfolio, etc.).
+                question = _format_recoverable_failure_question(
+                    tool_name=guarded.name,
+                    error=guarded.error or "",
+                    user_message=message,
+                )
+                self.store.append(conv_id, message, question)
+                self.store.clear_pending(conv_id)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["total"] = total
+                _log_timing(
+                    client.provider_name, message, total, breakdown,
+                    tools=tools_called,
+                    note=f"tool_error_no_retry:{guarded.name}",
+                )
+                trace.event(
+                    "turn.end", total_ms=total, tools_called=tools_called,
+                    reason="tool_error_no_retry", tool=guarded.name,
+                    error=(guarded.error or "")[:120],
+                )
+                trace.end()
+                return ChatTurn(
+                    response=question,
+                    tools_called=tools_called + [guarded.name],
+                    raw_data={"_render_hint": "ask_user"},
+                    latency_ms=total,
+                    latency_breakdown=breakdown,
+                )
 
             # back to top of loop — model now sees tool results
 
@@ -1006,6 +1373,31 @@ class ChatService:
             trace.end()
             return
 
+        # ── Deterministic resume (Change 2 — streaming) ────────────
+        # Same fast-resume gate as handle(); converts the resume's
+        # ChatTurn output into the SSE event sequence the FE expects.
+        resumed_turn = await self._try_fast_resume(
+            message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if resumed_turn is not None:
+            yield {"type": "start"}
+            for tname in resumed_turn.tools_called:
+                yield {"type": "tool_start", "name": tname}
+                yield {"type": "tool_done", "name": tname, "ok": True}
+            if resumed_turn.response:
+                yield {"type": "delta", "text": resumed_turn.response}
+            yield {
+                "type": "done",
+                "response": resumed_turn.response,
+                "tools_called": resumed_turn.tools_called,
+                "logiccard": resumed_turn.logiccard,
+                "raw_data": resumed_turn.raw_data or None,
+                "latency_ms": resumed_turn.latency_ms,
+                "latency_breakdown": resumed_turn.latency_breakdown,
+            }
+            return
+
         # ── Agentic loop setup ─────────────────────────────────────
         history = (
             history_override
@@ -1036,19 +1428,25 @@ class ChatService:
             return
 
         selected_names = select_tool_names(message)
-        is_agent_intent = _looks_like_agent_intent(message)
-        # Streaming mirror of the non-streaming narrowing: drop
-        # immediate-order tools when agent intent is clear so the
-        # model commits to propose_workflow.
+        intent_kind = _classify_intent(message)
+        is_agent_intent = intent_kind == "agent"
+        is_automation_intent = intent_kind == "automation"
+        # Streaming mirror of the non-streaming intent routing.
+        # See handle() for the full rationale.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
             "place_market_order", "place_limit_order",
             "create_gtt_order", "create_sl_order", "create_oco_order",
             "create_dip_buy", "place_basket_order",
+            "create_sip", "squareoff_all_intraday", "squareoff_symbol",
         })
         if is_agent_intent and selected_names is not None:
             selected_names = (selected_names - _IMMEDIATE_ORDER_TOOLS) | {
                 "propose_workflow",
             }
+        elif is_automation_intent and selected_names is not None:
+            selected_names = (selected_names - {"propose_workflow"}) | (
+                _IMMEDIATE_ORDER_TOOLS
+            )
         tooldefs = _registry_tools_as_tooldefs(selected_names)
         cache_key = cache_key_for(selected_names)
         # A1 + B4 (mirror of non-streaming path): when the message
@@ -1059,9 +1457,9 @@ class ChatService:
         )
         effort: ReasoningEffort = "minimal" if is_agent_intent else "low"
         max_output: int = 1500
-        # A2 — mirrored: 3-attempt cap on propose_workflow specifically.
+        # Same scoped retry budget as the non-streaming path.
         propose_workflow_attempts = 0
-        _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 3
+        _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2
         trace.event(
             "tool_router.select",
             n_selected=len(tooldefs),
@@ -1090,6 +1488,20 @@ class ChatService:
                 None,
             )
             original_intent = (first_user or {}).get("content") or ""
+            active = self.store.get_active_draft(conv_id)
+            workflow_hint = ""
+            if active is not None and active.tool_name == "propose_workflow":
+                draft_json = json.dumps(active.draft, default=str)[:1800]
+                workflow_hint = (
+                    " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
+                    "Treat the user's reply as an AMENDMENT to this "
+                    "draft — re-emit propose_workflow with the SAME "
+                    "steps shape, only mutating the field(s) the user "
+                    "addressed. Do NOT switch tools. Do NOT start a "
+                    "new draft. If the user is clearly proposing a "
+                    "wholly different agent, supersede the draft. "
+                    f"DRAFT JSON: {draft_json}."
+                )
             followup_hint_msg = LLMMessage(
                 role="system",
                 content=(
@@ -1097,8 +1509,9 @@ class ChatService:
                     "clarifying question. Their ORIGINAL request was: "
                     f'"{original_intent[:280]}". Their LAST clarification '
                     f'asked: "{last_text[-200:]}". Their CURRENT reply '
-                    f'is: "{message}". '
-                    "Merge the reply into the original request and call "
+                    f'is: "{message}".'
+                    + workflow_hint +
+                    " Merge the reply into the original request and call "
                     "the matching tool (propose_workflow / "
                     "place_market_order / etc.) IMMEDIATELY with the "
                     "complete arguments. Do NOT restart from scratch. "
@@ -1131,8 +1544,6 @@ class ChatService:
         # Track the most recent tool error so the streaming
         # circuit-breaker can surface it to the user.
         last_tool_error: Optional[str] = None
-        error_counts: dict[tuple[str, str], int] = {}
-        _SAME_ERROR_LIMIT = 2
 
         while hop_index < _MAX_TOOL_CALLS:
             hop_index += 1
@@ -1294,6 +1705,8 @@ class ChatService:
                 if sanitised:
                     yield {"type": "replace", "text": text}
                 self.store.append(conv_id, message, text)
+                # Successful turn supersedes any pending state.
+                self.store.clear_pending(conv_id)
                 total = int((time.monotonic() - turn_started) * 1000)
                 breakdown["total"] = total
                 _log_timing(client.provider_name, message, total, breakdown,
@@ -1366,6 +1779,7 @@ class ChatService:
 
                 if guarded.needs_clarification and guarded.question:
                     self.store.append(conv_id, message, guarded.question)
+                    self._maybe_set_pending(conv_id, guarded)
                     total = int((time.monotonic() - turn_started) * 1000)
                     breakdown["total"] = total
                     yield {"type": "delta", "text": guarded.question}
@@ -1386,141 +1800,119 @@ class ChatService:
                     trace.end()
                     return
 
-                tool_msg_content = _summarise_tool_result(guarded)
-                messages.append(LLMMessage(
-                    role="tool",
-                    tool_call_id=tc.get("id", f"call_{hop_index}"),
-                    name=guarded.name,
-                    content=tool_msg_content,
-                ))
-
+                # Mirror handle()'s post-tool branching — see Change 1
+                # in the file docstring. Success continues the loop;
+                # error returns a deterministic question. No retry.
                 if guarded.success:
+                    tool_msg_content = _summarise_tool_result(guarded)
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name=guarded.name,
+                        content=tool_msg_content,
+                    ))
                     if guarded.name not in tools_called:
                         tools_called.append(guarded.name)
                     if guarded.logiccard:
                         logiccard = guarded.logiccard
                     if guarded.data:
                         raw_data[guarded.name] = guarded.data
-                elif guarded.error:
-                    last_tool_error = f"{guarded.name}: {guarded.error}"
-                    # A2 (streaming): 3-attempt cap on propose_workflow.
-                    if guarded.name == "propose_workflow":
-                        propose_workflow_attempts += 1
-                        if propose_workflow_attempts >= _PROPOSE_WORKFLOW_MAX_ATTEMPTS:
-                            # Streaming mirror of the non-streaming
-                            # macro fallback. Same logic — surface a
-                            # simplified draft instead of "couldn't
-                            # do it".
-                            fb_draft = _try_macro_fallback(message)
-                            if fb_draft is not None:
-                                fb_text = (
-                                    "I couldn't fit your full request "
-                                    "into a single workflow shape, so "
-                                    "I've drafted a simplified version "
-                                    "you can edit. The trigger has been "
-                                    "set to manual — review the steps "
-                                    "and adjust the trigger before "
-                                    "activating."
-                                )
-                                self.store.append(conv_id, message, fb_text)
-                                total = int((time.monotonic() - turn_started) * 1000)
-                                breakdown["total"] = total
-                                stream_raw_data = {
-                                    **fb_draft,
-                                    "propose_workflow": fb_draft,
-                                    "_render_hint": "workflow_draft_card",
-                                }
-                                yield {"type": "tool_start", "name": "propose_holding_action"}
-                                yield {"type": "tool_done", "name": "propose_holding_action", "ok": True}
-                                yield {"type": "delta", "text": fb_text}
-                                yield {
-                                    "type": "done",
-                                    "response": fb_text,
-                                    "tools_called": tools_called + ["propose_holding_action"],
-                                    "logiccard": None,
-                                    "raw_data": stream_raw_data,
-                                    "latency_ms": total,
-                                    "latency_breakdown": breakdown,
-                                }
-                                _log_timing(
-                                    client.provider_name, message, total,
-                                    breakdown, tools=tools_called,
-                                    note="stream-propose_workflow_macro_fallback",
-                                )
-                                trace.event(
-                                    "turn.end", total_ms=total,
-                                    tools_called=tools_called + ["propose_holding_action"],
-                                    reason="propose_workflow_macro_fallback",
-                                    attempts=propose_workflow_attempts,
-                                )
-                                trace.end()
-                                return
-                            question = _format_recoverable_failure_question(
-                                tool_name=guarded.name,
-                                error=guarded.error or "",
-                            )
-                            self.store.append(conv_id, message, question)
-                            total = int((time.monotonic() - turn_started) * 1000)
-                            breakdown["total"] = total
-                            yield {"type": "delta", "text": question}
-                            yield {
-                                "type": "done",
-                                "response": question,
-                                "tools_called": tools_called + [guarded.name],
-                                "logiccard": None,
-                                "raw_data": {"_render_hint": "ask_user"},
-                                "latency_ms": total,
-                                "latency_breakdown": breakdown,
-                            }
-                            _log_timing(
-                                client.provider_name, message, total, breakdown,
-                                tools=tools_called,
-                                note=(
-                                    f"stream-propose_workflow_attempts="
-                                    f"{propose_workflow_attempts}"
-                                ),
-                            )
-                            trace.event(
-                                "turn.end", total_ms=total,
-                                tools_called=tools_called,
-                                reason="propose_workflow_attempt_cap",
-                                attempts=propose_workflow_attempts,
-                            )
-                            trace.end()
-                            return
-                    sig = (guarded.error or "")[:80]
-                    key = (guarded.name, sig)
-                    error_counts[key] = error_counts.get(key, 0) + 1
-                    if error_counts[key] >= _SAME_ERROR_LIMIT:
-                        question = _format_recoverable_failure_question(
-                            tool_name=guarded.name, error=guarded.error or "",
+                    if guarded.name == "propose_workflow" and guarded.data:
+                        self._stash_workflow_draft(conv_id, guarded.data)
+                    continue
+
+                last_tool_error = f"{guarded.name}: {guarded.error}"
+                if guarded.name == "propose_workflow":
+                    propose_workflow_attempts += 1
+                    if propose_workflow_attempts < _PROPOSE_WORKFLOW_MAX_ATTEMPTS:
+                        tool_msg_content = _summarise_tool_result(guarded)
+                        messages.append(LLMMessage(
+                            role="tool",
+                            tool_call_id=tc.get("id", f"call_{hop_index}"),
+                            name=guarded.name,
+                            content=tool_msg_content,
+                        ))
+                        trace.event(
+                            "propose_workflow.retry",
+                            attempt=propose_workflow_attempts,
+                            error=(guarded.error or "")[:160],
                         )
-                        self.store.append(conv_id, message, question)
+                        continue
+                    fb_draft = _try_macro_fallback(message)
+                    if fb_draft is not None:
+                        fb_text = (
+                            "I couldn't fit your full request into a "
+                            "single workflow shape, so I've drafted a "
+                            "simplified version you can edit. The "
+                            "trigger has been set to manual — review the "
+                            "steps and adjust the trigger before "
+                            "activating."
+                        )
+                        self.store.append(conv_id, message, fb_text)
+                        self.store.clear_pending(conv_id)
+                        self._stash_workflow_draft(conv_id, fb_draft, fb_text)
                         total = int((time.monotonic() - turn_started) * 1000)
                         breakdown["total"] = total
-                        yield {"type": "delta", "text": question}
+                        stream_raw_data = {
+                            **fb_draft,
+                            "propose_workflow": fb_draft,
+                            "_render_hint": "workflow_draft_card",
+                        }
+                        yield {"type": "tool_start", "name": "propose_holding_action"}
+                        yield {"type": "tool_done", "name": "propose_holding_action", "ok": True}
+                        yield {"type": "delta", "text": fb_text}
                         yield {
                             "type": "done",
-                            "response": question,
-                            "tools_called": tools_called + [guarded.name],
+                            "response": fb_text,
+                            "tools_called": tools_called + ["propose_holding_action"],
                             "logiccard": None,
-                            "raw_data": {"_render_hint": "ask_user"},
+                            "raw_data": stream_raw_data,
                             "latency_ms": total,
                             "latency_breakdown": breakdown,
                         }
                         _log_timing(
-                            client.provider_name, message, total, breakdown,
-                            tools=tools_called,
-                            note=f"stream-same-error:{guarded.name}",
+                            client.provider_name, message, total,
+                            breakdown, tools=tools_called,
+                            note="stream-propose_workflow_macro_fallback",
                         )
                         trace.event(
                             "turn.end", total_ms=total,
-                            tools_called=tools_called,
-                            reason="same_error_escalation",
-                            tool=guarded.name, sig=sig,
+                            tools_called=tools_called + ["propose_holding_action"],
+                            reason="propose_workflow_macro_fallback",
                         )
                         trace.end()
                         return
+
+                question = _format_recoverable_failure_question(
+                    tool_name=guarded.name,
+                    error=guarded.error or "",
+                    user_message=message,
+                )
+                self.store.append(conv_id, message, question)
+                self.store.clear_pending(conv_id)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["total"] = total
+                yield {"type": "delta", "text": question}
+                yield {
+                    "type": "done",
+                    "response": question,
+                    "tools_called": tools_called + [guarded.name],
+                    "logiccard": None,
+                    "raw_data": {"_render_hint": "ask_user"},
+                    "latency_ms": total,
+                    "latency_breakdown": breakdown,
+                }
+                _log_timing(
+                    client.provider_name, message, total, breakdown,
+                    tools=tools_called,
+                    note=f"stream-tool-error-no-retry:{guarded.name}",
+                )
+                trace.event(
+                    "turn.end", total_ms=total, tools_called=tools_called,
+                    reason="tool_error_no_retry", tool=guarded.name,
+                )
+                trace.end()
+                return
 
             # next iteration of the loop will stream the next hop
 
@@ -1755,16 +2147,66 @@ def _try_macro_fallback(message: str) -> Optional[dict]:
     return None
 
 
-def _format_recoverable_failure_question(*, tool_name: str, error: str) -> str:
-    """User-facing question after a same-error retry escalation.
+def _format_recoverable_failure_question(
+    *, tool_name: str, error: str, user_message: str = "",
+) -> str:
+    """User-facing question after a tool error.
 
     Maps the most common structural failures into a focused ask rather
-    than dumping the raw schema error. The previous behaviour ("Try
-    rephrasing with the specific values you want") is too generic — the
-    user has no idea which value to give. We can do better because we
-    know which tool failed and roughly which field tripped the schema.
+    than dumping the raw schema error or a generic "didn't fit." When
+    we can identify the offending phrase from the user's message
+    (NIFTY index instead of NIFTYBEES, "buying power" condition that
+    needs a fetch step, etc.), we name it.
     """
     err_lc = (error or "").lower()
+    msg_lc = (user_message or "").lower()
+
+    # Quick detector for offending phrases in the user's message that
+    # commonly trip propose_workflow. Each entry is (regex pattern in
+    # user message, tailored question).
+    if tool_name == "propose_workflow" and msg_lc:
+        if re.search(r"\bnifty\b(?!\s*bees|\s*50\b)", msg_lc):
+            return (
+                "I couldn't draft that — `NIFTY` is the index, not a "
+                "tradeable instrument. To run a daily open→close round-"
+                "trip you'd use the ETF that tracks it: `NIFTYBEES`. "
+                "Want me to draft the same agent on NIFTYBEES instead?"
+            )
+        if re.search(r"\bbank\s*nifty\b(?!\s*bees)", msg_lc):
+            return (
+                "I couldn't draft that — `BANKNIFTY` is the index, not "
+                "a tradeable instrument. The ETF that tracks it is "
+                "`BANKBEES`. Should I draft the agent on BANKBEES instead?"
+            )
+        if re.search(
+            r"\b(?:buying\s+power|cash\s+balance|available\s+balance|"
+            r"free\s+cash|funds?\s+available)\b",
+            msg_lc,
+        ):
+            return (
+                "I couldn't fit the buying-power check — Pivot v1 doesn't "
+                "support a 'cash > X' gate as a step. Two ways to express "
+                "this: (a) drop the buying-power check and just run the "
+                "buy on the schedule, or (b) run a portfolio fetch first "
+                "and skip the day if cash is below your threshold (we'll "
+                "wire the fetch + condition manually). Which would you "
+                "like?"
+            )
+        if re.search(r"\bemail\b", msg_lc):
+            return (
+                "I couldn't wire the email step — Pivot v1's notify "
+                "channel is in-app only (the agent run history surfaces "
+                "the message). Want me to draft the same agent without "
+                "email, with the notification visible in the run log?"
+            )
+        if re.search(r"\bnotify\b|\balert\s+me\b", msg_lc) and "notify" in err_lc:
+            return (
+                "I couldn't wire the notification step from that wording. "
+                "Could you say what you want notified about — e.g. *notify "
+                "me when the buy order fires* or *notify me at end of day "
+                "with the P&L*?"
+            )
+
     if tool_name == "propose_workflow":
         if "trigger_price" in err_lc and "required" in err_lc:
             return (
@@ -1798,10 +2240,10 @@ def _format_recoverable_failure_question(*, tool_name: str, error: str) -> str:
             tok in err_lc for tok in ("input should be", "extra inputs", "literal_error")
         ):
             return (
-                "I tried that draft a few times but couldn't fit it into "
-                "Pivot's trigger types — those need a fixed price level "
-                "or a fixed indicator threshold (RSI < 30, EMA cross, "
-                "etc.). Two ways to express what you want:\n"
+                "That request doesn't fit Pivot's trigger types — they "
+                "need a fixed price level or a fixed indicator threshold "
+                "(RSI < 30, EMA cross, etc.). Two ways to express what "
+                "you want:\n"
                 "  • Pick an absolute price (e.g. *trigger when RELIANCE "
                 "drops below ₹2,800*), or\n"
                 "  • Use a daily-checkpoint shape — *every weekday at "
@@ -1822,7 +2264,7 @@ def _format_recoverable_failure_question(*, tool_name: str, error: str) -> str:
             "limit price?"
         )
     return (
-        f"I tried `{tool_name}` twice and the same input issue came back. "
+        f"I couldn't run `{tool_name}` with the values I had. "
         "Could you restate that with specific values?"
     )
 

@@ -4,6 +4,115 @@
 
 ---
 
+## Day 11 — 2026-05-04 (afternoon) — Two-LLM-hop audit: Changes 1 + 2 shipped together
+
+**Validation-retry loop killed; deterministic resume after clarification.**
+
+### What shipped
+
+- **Change 1 — zero LLM retries on tool failure.** The agentic loop
+  in `chat_service.handle()` and `handle_stream()` no longer feeds
+  tool errors back to the model for self-correction. When a tool
+  returns `success=False`, we build a deterministic question via
+  `_format_recoverable_failure_question` and exit the loop on the
+  same turn. `propose_workflow` keeps its macro-fallback path
+  (deterministic, also no LLM) but the 3-attempt cap is gone — first
+  failure either hits the macro or asks the user. Removed the
+  `_PROPOSE_WORKFLOW_MAX_ATTEMPTS` and `_SAME_ERROR_LIMIT` tunables.
+
+- **Change 2 — deterministic resume after clarification.**
+  `ConversationStore` gained `set_pending` / `get_pending` /
+  `clear_pending` (Redis SET / GET / DEL keyed `chat:pending:{conv_id}`,
+  10-min TTL). When the completeness check surfaces a single missing
+  field, chat_service persists `PendingToolCall(name, args,
+  missing_field, type_kind, ...)`. On the user's next message, the
+  new `_try_fast_resume` path checks pending, runs the cancel /
+  multi-clause / type-shape off-ramps, coerces the value, and
+  executes the tool — **zero LLM hops** on the resume turn. Cascading
+  clarifications stay in the fast path until the tool finishes.
+
+- **First-call robustness.** `system.md` gained a "Handling
+  ambiguity (single-shot rule)" section that names the exact failure
+  modes (M&M / Tata / colloquial tickers, ambiguous units, runtime-
+  relative price refs) and instructs the model to call ASK_USER
+  rather than guess. `place_market_order` and `create_gtt_order`
+  field descriptions now spell out "if the user said an ambiguous
+  company, ASK_USER" and "trigger_price is absolute INR, never a
+  percentage."
+
+- **File rename.** `validation_retry.py` → `validation_handler.py`
+  to reflect that nothing in the chain retries against the LLM
+  anymore. All imports + tests updated.
+
+### Per-turn LLM hop count (before → after)
+
+| Turn shape | Before | After |
+|---|---|---|
+| Tool succeeds (single tool) | 2 | 1 |
+| Tool succeeds → model chains another | 3 | 2 |
+| Missing field → ASK_USER | 1 | 1 |
+| User replies with the value | 1 | **0** |
+| Cascading: missing → reply → next missing → reply | 2 | **0** |
+| Tool errors out | 2–8 | 1 |
+| Pure-chat ask | 1 | 1 |
+| Fast path / skeleton | 0 | 0 |
+
+### Quality gates
+
+- **Chat-related backend tests: 49 / 49 pass.** Added 4 new tests:
+  `test_tool_error_returns_question_no_llm_retry`,
+  `test_fast_resume_executes_tool_with_zero_llm_hops`,
+  `test_fast_resume_cancellation_clears_pending`,
+  `test_fast_resume_multiclause_falls_through_to_llm`.
+- **Wider workflow + chat sweep: 348 / 350.** Two pre-existing
+  failures unrelated to this change:
+  `test_chat_render_hints::test_tool_summary_line_for_get_tool`
+  (assertion text drifted from production months ago) and
+  `test_step_types_catalog::test_every_step_type_present_with_correct_category`
+  (catalog out of date with newer step types).
+- Backend hot-reloaded cleanly through every edit. Live smoke:
+  `localhost:8000/docs` 200, `localhost:3000` 200.
+
+### Risks / rollback
+
+Documented in the plan. Highest risk: `propose_workflow` errors
+that the model used to fix on retry now surface as ASK_USER on the
+first failure. Macro fallback covers the most common shapes; the
+sharper tool descriptions + `system.md` ambiguity rule should make
+the first call right more often. If quality drops on eval by more
+than ~5 points, the rollback is to add back exactly one retry hop
+scoped to specific error types (enum case normalisation, format
+fixups), not a generic "fix the JSON."
+
+### Files touched
+
+- `pivot/backend/services/chat_service.py` — top-doc rewrite, added
+  `_try_fast_resume`, `_maybe_set_pending`, `_is_simple_value_reply`,
+  `_coerce_value`, `ValueCoercionError`; killed validation-retry
+  branches in both `handle()` and `handle_stream()`; removed stale
+  attempt-cap tunables.
+- `pivot/backend/services/validation_handler.py` (renamed from
+  `validation_retry.py`) — docstring rewrite, single-shot
+  `execute_with_completeness` now sets `missing_field` on the
+  `GuardedToolResult` for single-field cases.
+- `pivot/backend/services/completeness.py` — `MissingField.type_kind`
+  added (int / float / str / date / enum / bool / any) with
+  `_kind_of(prop)` derivation.
+- `pivot/backend/services/conversation_store.py` — `PendingToolCall`
+  dataclass + `set_pending` / `get_pending` / `clear_pending`
+  methods, Redis-backed with 10-min TTL.
+- `pivot/backend/agents/tools.py` — sharpened `place_market_order`
+  and `create_gtt_order` descriptions.
+- `pivot/backend/prompts/system.md` — new "Handling ambiguity
+  (single-shot rule)" section.
+- `pivot/tests/test_validation_handler.py` (renamed),
+  `pivot/tests/test_chat_service_with_stub_llm.py`,
+  `pivot/tests/test_completeness.py`,
+  `pivot/scripts/audit_llm_flows.py` — import / docstring updates,
+  added 4 new tests, rewrote 1 retry-loop test for the new contract.
+
+---
+
 ## Day 10 — 2026-05-03 (evening) — Prompt 2 complete
 
 **Agentic loop live, schema-driven completeness, reasoning tuned per role, fast path active.**

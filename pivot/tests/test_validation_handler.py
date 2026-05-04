@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, ValidationError
 
-from backend.services import validation_retry as vr
+from backend.services import validation_handler as vr
 from backend.services.completeness import MissingField
 
 
