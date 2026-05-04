@@ -189,6 +189,7 @@ class LLMSarvam(LLMClient):
         reasoning_effort: Optional[ReasoningEffort] = None,
         temperature: float = 0.2,
         response_format: Optional[Literal["json_object"]] = None,
+        prompt_cache_key: Optional[str] = None,  # noqa: ARG002 — Sarvam has no prompt cache
     ) -> LLMResponse:
         if self._mock_mode:
             return self._mock_response(messages)

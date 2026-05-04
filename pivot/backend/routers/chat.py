@@ -215,14 +215,18 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
     # 2. Indicator backtest (single-symbol, RSI/SMA/EMA via yfinance).
     #    Strict regex first (cheap, deterministic for canonical phrasings),
     #    then a permissive heuristic parser for anything else.
-    if (
-        (m := _NL_IND_RE_A.match(body))
-        or (m := _NL_IND_RE_B.match(body))
-        or (m := _NL_IND_RE_C.match(body))
-    ):
-        return await _run_indicator_backtest(m)
-    if (parsed := _heuristic_indicator_intent(body)) is not None:
-        return await _run_indicator_backtest_dict(parsed)
+    #
+    #    Both paths defer to the LLM when the prompt is clearly an
+    #    agent-build (future action) rather than a historical backtest.
+    if not _looks_like_agent_intent(body):
+        if (
+            (m := _NL_IND_RE_A.match(body))
+            or (m := _NL_IND_RE_B.match(body))
+            or (m := _NL_IND_RE_C.match(body))
+        ):
+            return await _run_indicator_backtest(m)
+        if (parsed := _heuristic_indicator_intent(body)) is not None:
+            return await _run_indicator_backtest_dict(parsed)
 
     # 3. Natural-language fundamentals backtest.
     if (m := _NL_BT_RE.match(body)):
@@ -277,6 +281,38 @@ _DEFAULT_PERIOD_BY_INDICATOR = {"rsi": 14, "sma": 50, "ema": 50}
 # the strict regexes for predictability.
 _INDICATOR_RE = re.compile(r"\b(rsi|sma|ema)\b", re.IGNORECASE)
 _BACKTEST_TRIGGER_RE = re.compile(r"\bbacktest\b", re.IGNORECASE)
+
+
+# Phrases that signal "user wants a FUTURE-action agent, not a historical
+# backtest" — even when the wording matches the indicator-backtest regex.
+# When any of these match AND the prompt doesn't say "backtest" outright,
+# we defer to the LLM's propose_workflow path.
+_AGENT_INTENT_SIGNALS_RE = re.compile(
+    r"\bmy\s+[A-Za-z]"              # "sell MY infy" / "in MY portfolio"
+    r"|\bset\s+up\b"
+    r"|\bcreate\b"
+    r"|\bbuild\b"
+    r"|\bwatch(?:es)?\b"
+    r"|\bmonitor\b"
+    r"|\bagent\b"
+    r"|\bstrategy\b"
+    r"|\bautomation\b"
+    r"|\balert\s+me\b"
+    r"|\bnotify\s+me\b"
+    r"|\bevery\s+(?:monday|tuesday|wednesday|thursday|friday|"
+    r"weekday|day|week|hour)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_agent_intent(body: str) -> bool:
+    """True when the prompt mentions building / watching / monitoring
+    something — i.e., the user wants a future-action workflow rather
+    than a historical backtest. The presence of the word ``backtest``
+    overrides this (an explicit backtest is always a backtest)."""
+    if _BACKTEST_TRIGGER_RE.search(body):
+        return False
+    return bool(_AGENT_INTENT_SIGNALS_RE.search(body))
 _VERB_START_RE = re.compile(
     r"^(buy(?:ing)?|sell(?:ing)?|long|short)\b", re.IGNORECASE,
 )
@@ -301,7 +337,11 @@ _DIRECTION_CROSS_RE = re.compile(
 
 # Stopwords excluded when picking a symbol candidate. Lowercase; matching
 # is done case-insensitively. Includes filler words ("what", "happens"),
-# sentence connectors, indicator/direction terms, etc.
+# sentence connectors, indicator/direction terms, conversational openers
+# ("okay", "could", "kindly"), etc. The `okay/can/you/where/strategy`
+# additions came from a real failure: a user prompt starting with "Okay
+# and can you backtest a strategy where I buy reliance whenever..." was
+# picking "Okay" as the ticker because "okay" wasn't on the list.
 _SYMBOL_STOPWORDS = frozenset({
     "backtest", "buy", "buying", "sell", "selling", "long", "short",
     "what", "happens", "happen", "when", "whenever", "the", "last",
@@ -313,6 +353,24 @@ _SYMBOL_STOPWORDS = frozenset({
     "a", "an", "this", "that", "value", "price", "show", "showed",
     "do", "does", "did", "i", "me", "my", "we", "our", "your",
     "any", "some", "happens", "run",
+    # Conversational openers / fillers.
+    "okay", "ok", "alright", "right", "yeah", "yes", "yep", "sure",
+    "please", "kindly", "could", "would", "should", "can", "may",
+    "might", "shall", "will", "want", "wanna", "let", "lets",
+    # Question-like structure words.
+    "where", "which", "who", "whom", "whose", "how",
+    # Vague nouns that aren't tickers.
+    "strategy", "backtested", "trade", "trades", "share", "shares",
+    "thing", "stuff", "anything", "nothing", "something",
+    "way", "case", "test", "stock", "stocks", "name", "ticker",
+    # Pronouns / demonstratives missed before.
+    "you", "he", "she", "they", "we", "us", "them", "him", "her",
+    "all", "both", "each", "every", "few", "many", "much",
+    # Aux verbs / conjunctions missed before.
+    "be", "been", "being", "am", "are", "was", "were", "have",
+    "has", "had", "having", "but", "than", "then", "so", "yet",
+    "though", "although", "while", "until", "since", "because",
+    "after", "before", "during",
 })
 
 
@@ -329,6 +387,31 @@ def _heuristic_indicator_intent(body: str) -> dict | None:
     if not ind_m:
         return None
     indicator = ind_m.group(1).lower()
+    # Agent-intent disambiguation — when the user says "sell MY infy"
+    # or "set up", "create a strategy", "watch", "alert me", they want
+    # a future-action agent, not a historical backtest. Bail out so
+    # the chat hop's propose_workflow path handles it. The shortcut
+    # still fires when the prompt has the word "backtest" explicitly,
+    # because that's an unambiguous signal.
+    if not _BACKTEST_TRIGGER_RE.search(body):
+        agent_signals = (
+            r"\bmy\s+[A-Za-z]",        # "sell MY infy"
+            r"\bset\s+up\b",
+            r"\bcreate\b",
+            r"\bbuild\b",
+            r"\bwatch(?:es)?\b",
+            r"\bmonitor\b",
+            r"\bagent\b",
+            r"\bstrategy\b",
+            r"\bautomation\b",
+            r"\balert\s+me\b",
+            r"\bnotify\s+me\b",
+            r"\bevery\s+(monday|tuesday|wednesday|thursday|friday|"
+            r"weekday|day|week|hour)\b",
+        )
+        for pat in agent_signals:
+            if re.search(pat, body, re.IGNORECASE):
+                return None
 
     # Direction.
     if _DIRECTION_CROSS_RE.search(body):
@@ -374,17 +457,36 @@ def _heuristic_indicator_intent(body: str) -> dict | None:
     years_m = _YEARS_RE.search(body)
     years = int(years_m.group(1)) if years_m else 5
 
-    # Symbol — first content word that's not a stopword and looks like
-    # a ticker or company name.
-    tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-_]+", body)
+    # Symbol extraction — two-stage:
+    #   1. Look for the noun immediately after a buy/sell/long/short verb.
+    #      This is the strongest signal — natural-language trade descriptions
+    #      always say the verb-then-instrument ("buy reliance", "sell INFY").
+    #   2. Fall back to the first non-stopword content token.
+    # Stage 1 closes the "Okay and can you backtest a strategy where I buy
+    # reliance" failure: the verb-anchor finds "reliance" verb-anchored
+    # rather than "Okay" position-anchored.
     symbol: str | None = None
-    for tok in tokens:
-        if tok.lower() in _SYMBOL_STOPWORDS:
-            continue
-        if len(tok) < 2 or len(tok) > 16:
-            continue
-        symbol = tok
-        break
+    verb_anchor = re.search(
+        r"\b(?:buy|buying|bought|sell|selling|sold|long|short|backtest)\s+"
+        r"(?:(?:on|some|me|the)\s+)*"  # absorb tiny filler words
+        r"([A-Za-z][A-Za-z0-9\-_]{1,15})\b",
+        body,
+        re.IGNORECASE,
+    )
+    if verb_anchor:
+        candidate = verb_anchor.group(1)
+        if candidate.lower() not in _SYMBOL_STOPWORDS:
+            symbol = candidate
+    if symbol is None:
+        # Stage 2 — first non-stopword content token.
+        tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-_]+", body)
+        for tok in tokens:
+            if tok.lower() in _SYMBOL_STOPWORDS:
+                continue
+            if len(tok) < 2 or len(tok) > 16:
+                continue
+            symbol = tok
+            break
     if symbol is None:
         return None
 
@@ -809,11 +911,24 @@ async def chat_stream(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    """SSE wrapper: runs the same handler, then word-streams the final reply.
+    """True SSE stream: emits typed events as the agentic loop runs.
 
-    We don't stream tokens from Sarvam (it doesn't true-stream). We stream
-    *the deterministic reply we already got* word-by-word so the UI feels
-    live. Tool calls happen before the first word ships.
+    Event shape (one JSON object per `data:` line):
+      {"type": "start"}
+      {"type": "tool_start", "name": "..."}
+      {"type": "tool_done",  "name": "...", "ok": bool, "error": str|null}
+      {"type": "delta",      "text": "..."}                  # final-hop tokens
+      {"type": "replace",    "text": "..."}                  # post-processor rewrite
+      {"type": "done",       "response": "...", "tools_called": [...],
+                              "logiccard": {...}|null, "raw_data": {...}|null,
+                              "latency_ms": int,
+                              "latency_breakdown": {...}}
+      {"type": "error",      "message": "..."}
+
+    On the OpenAI provider, `delta` events come straight from the
+    Responses API stream — first token typically lands ~1s after
+    request start. On Sarvam (or fast-path), the full reply is emitted
+    as a single `delta` because those paths don't true-stream.
     """
     user_id = _auth(authorization)
     last_msg = _last_user_message(request.messages)
@@ -821,22 +936,52 @@ async def chat_stream(
         raise HTTPException(400, "no user message in payload")
 
     kite_token = _kite_token_for(db, user_id)
-    ctx = UserContext(user_id=user_id, kite_token=kite_token, db=db)
+    holdings: list[dict] = []
+    if request.include_portfolio_context:
+        try:
+            from backend.kite.portfolio import get_holdings
+            holdings = get_holdings(kite_token)
+        except Exception:
+            holdings = []
+
+    ctx = UserContext(user_id=user_id, kite_token=kite_token, db=db, holdings=holdings)
     conv_id = _conv_id(request, user_id)
     history = [
         {"role": m.get("role"), "content": m.get("content", "")}
         for m in (request.messages or [])
         if isinstance(m, dict) and m.get("role") in {"user", "assistant"} and m.get("content")
     ][:-1]
-    turn = await _chat_service.handle(last_msg, conv_id, ctx,
-                                      history_override=history if history else None)
 
     async def gen():
-        words = (turn.response or "").split(" ")
-        for i, w in enumerate(words):
-            chunk = w + (" " if i < len(words) - 1 else "")
-            yield f"data: {json.dumps({'token': chunk})}\n\n"
-            await asyncio.sleep(0.02)
-        yield f"data: {json.dumps({'done': True})}\n\n"
+        try:
+            async for event in _chat_service.handle_stream(
+                last_msg, conv_id, ctx,
+                history_override=history if history else None,
+            ):
+                # Hoist nested-tool render hints up to top level so the
+                # FE consumes the same shape as POST /chat. We only need
+                # to do this on the `done` event.
+                if event.get("type") == "done":
+                    raw_data = event.get("raw_data") or {}
+                    if isinstance(raw_data, dict) and not raw_data.get("_render_hint"):
+                        for _key, val in list(raw_data.items()):
+                            if isinstance(val, dict) and val.get("_render_hint"):
+                                raw_data = {**raw_data, **val}
+                                break
+                    if event.get("logiccard") and not (raw_data or {}).get("_render_hint"):
+                        raw_data = {**(raw_data or {}), "_render_hint": "logic_card"}
+                    event = {**event, "raw_data": raw_data or None}
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+        except Exception as e:
+            logger.exception("chat_stream gen failed: %s", e)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)[:200]})}\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # disable nginx buffering if proxied
+            "Connection": "keep-alive",
+        },
+    )

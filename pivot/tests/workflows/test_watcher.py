@@ -172,6 +172,7 @@ async def test_price_trigger_fires_on_gt_match(
     quotes = {"NSE:INFY": 1523.0}
     await _evaluate_price_trigger(
         str(wf.id),
+        0,
         {"symbol": "INFY", "exchange": "NSE",
          "operator": ">", "value": 1500.0},
         quotes,
@@ -210,6 +211,7 @@ async def test_price_trigger_persists_last_price(
 
     await _evaluate_price_trigger(
         str(wf.id),
+        0,
         {"symbol": "INFY", "exchange": "NSE",
          "operator": ">", "value": 2000.0},
         {"NSE:INFY": 1523.0},
@@ -255,7 +257,7 @@ async def test_price_trigger_crosses_above_needs_prior_tick(
 
     # Tick 1: current 95 (below) — should persist last_price=95, no fire.
     await _evaluate_price_trigger(
-        str(wf.id), dict(cfg_now), {"NSE:INFY": 95.0},
+        str(wf.id), 0, dict(cfg_now), {"NSE:INFY": 95.0},
         datetime.now(timezone.utc),
     )
     await asyncio.sleep(0)
@@ -269,7 +271,7 @@ async def test_price_trigger_crosses_above_needs_prior_tick(
     assert step is not None
     cfg_with_last = dict(step.config or {})
     await _evaluate_price_trigger(
-        str(wf.id), cfg_with_last, {"NSE:INFY": 110.0},
+        str(wf.id), 0, cfg_with_last, {"NSE:INFY": 110.0},
         datetime.now(timezone.utc),
     )
     await asyncio.sleep(0)
@@ -295,6 +297,7 @@ async def test_price_trigger_no_quote_skips_silently(
     )
     await _evaluate_price_trigger(
         str(wf.id),
+        0,
         {"symbol": "INFY", "exchange": "NSE",
          "operator": ">", "value": 100.0},
         {},  # no quote

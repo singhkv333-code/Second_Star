@@ -19,7 +19,6 @@ chat_service surfaces to the user as a normal assistant message.
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -27,13 +26,12 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ValidationError
 
-from backend.llm.base import LLMClient, LLMMessage, LLMResponse, ToolDef
+from backend.llm.base import LLMClient, ToolDef
 from backend.services.completeness import (
-    CompletenessReport,
     MissingField,
     check_completeness,
 )
-from backend.services.tool_registry import ToolResult, execute, get_tool_schema
+from backend.services.tool_registry import ToolResult, execute
 
 
 logger = logging.getLogger(__name__)
@@ -221,56 +219,115 @@ class GuardedToolResult:
 # ── Schema-driven completeness gate ────────────────────────────────
 
 
-async def _generate_clarification_question(
-    *,
-    llm_client: LLMClient,
-    tool_name: str,
-    tool_description: str,
-    user_message: str,
-    missing: list[MissingField],
-) -> str:
-    """Tiny minimal-reasoning LLM call. Writes ONE friendly question
-    for the user given the missing-field list. Average <1 s.
+import re as _re
 
-    The deterministic completeness check has already done the
-    structural work; the model is just phrasing the question. No
-    chain-of-thought required.
+# Field-name → user-friendly label. Used when the schema's `description`
+# is too schema-explainer-y to leak into a chat reply (e.g. propose_workflow's
+# `name` field carries "Short workflow title (e.g. 'Weekly NIFTYBEES buy')."
+# which reads as gibberish in a clarification question).
+_PRETTY_FIELD_NAMES: dict[str, str] = {
+    "symbol": "stock or ETF",
+    "quantity": "number of shares",
+    "qty": "number of shares",
+    "price": "price",
+    "limit_price": "limit price",
+    "trigger_price": "stop-loss trigger price",
+    "name": "name for the agent",
+    "steps": "exact steps",
+    "side": "buy or sell",
+    "exchange": "exchange (NSE / BSE)",
+    "user_intent": "what you want the agent to do",
+}
+
+
+# Strip "(e.g. ...)" / "(matches ...)" / parentheticals that read as
+# schema-explainer prose in a clarification reply.
+_PAREN_NOISE_RE = _re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _humanize_description(m: MissingField) -> str:
+    """Best-effort short, conversational name for a missing field.
+
+    Priority:
+      1. Hand-curated alias for well-known fields (symbol, quantity, …).
+      2. Schema description, with parenthetical examples stripped.
+      3. Field name with underscores → spaces.
     """
-    fields_block = "\n".join(
-        f"- {m.field_name}"
-        + (f" ({m.description})" if m.description else "")
-        + f" — type: {m.type_hint}"
+    alias = _PRETTY_FIELD_NAMES.get(m.field_name)
+    if alias:
+        return alias
+    desc = (m.description or "").strip()
+    if desc:
+        # Drop trailing parentheticals ("(e.g. 'Weekly NIFTYBEES buy')").
+        desc = _PAREN_NOISE_RE.sub("", desc).rstrip(".")
+        # Drop leading "Short " / "The " / "A " article-y noise.
+        for prefix in ("Short ", "The ", "A "):
+            if desc.startswith(prefix):
+                desc = desc[len(prefix):]
+                break
+        # If the description is still very long or schema-explainer, fall
+        # back to the field name.
+        if len(desc) <= 60 and "MUST" not in desc and "registry" not in desc:
+            return desc
+    return m.field_name.replace("_", " ").lower()
+
+
+def _format_clarification_question(missing: list[MissingField]) -> str:
+    """Deterministic, template-based clarification question.
+
+    Replaces a minimal-reasoning LLM call (~1s, ~500 tokens) that did
+    nothing the schema couldn't tell us. Stitches MissingField records
+    into a friendly sentence in microseconds.
+
+    Special-cased for the most common shapes:
+      - one missing field          → "Got it — what's the {pretty}?"
+      - two missing fields         → "I need {a} and {b}."
+      - three or more              → bulleted list.
+      - structural fields (e.g.    → fall back to a generic "could you
+        propose_workflow.steps)      describe it more concretely?" so
+                                     we never leak internal schema text.
+    """
+    if not missing:
+        return "Could you give me a bit more detail?"
+
+    # Detect the "model couldn't even fill the required structural
+    # fields" case (propose_workflow with no name + no steps). The
+    # completeness machinery is technically correct but the only useful
+    # thing to say is "describe it more concretely".
+    structural = {"name", "steps"}
+    field_names = {m.field_name for m in missing}
+    if field_names <= structural and "steps" in field_names:
+        return (
+            "I couldn't quite map that into a workflow. Could you "
+            "describe it a bit more concretely — what should trigger "
+            "the action, and what action should run?"
+        )
+
+    if len(missing) == 1:
+        m = missing[0]
+        suffix = f" ({m.type_hint})" if m.type_hint and m.type_hint != "value" else ""
+        return f"Got it — what's the {_humanize_description(m)}?{suffix}"
+
+    if len(missing) == 2:
+        a, b = missing[0], missing[1]
+        return (
+            f"To do that I need two things: the "
+            f"{_humanize_description(a)} and the {_humanize_description(b)}."
+        )
+
+    bullets = "\n".join(
+        f"  • {_humanize_description(m)}"
+        + (f" — {m.type_hint}" if m.type_hint and m.type_hint != "value" else "")
         for m in missing
     )
-    prompt = (
-        f"User said: {user_message!r}\n"
-        f"They want to: {tool_description}\n"
-        f"To do that I'm missing:\n{fields_block}\n\n"
-        "Write ONE short, friendly question asking the user to provide "
-        "these missing details. Be specific about what to provide. "
-        "Avoid technical jargon (don't list field names or schema types). "
-        "Keep it to one or two sentences."
-    )
-    response = await llm_client.complete(
-        messages=[LLMMessage(role="user", content=prompt)],
-        tools=None,
-        tool_choice="none",
-        max_output_tokens=200,
-        reasoning_effort="minimal",
-        temperature=0.2,
-    )
-    return (response.content or "").strip() or _fallback_question(missing)
+    return f"I'm missing a few things — could you share:\n{bullets}"
 
 
 def _fallback_question(missing: list[MissingField]) -> str:
-    """Deterministic fallback if the LLM clarification call fails."""
-    if not missing:
-        return "Could you give me a bit more detail?"
-    names = ", ".join(m.field_name for m in missing)
-    return (
-        f"I'm missing some details to do that — could you tell me the "
-        f"{names}?"
-    )
+    """Back-compat shim for any remaining caller. Same behaviour as
+    `_format_clarification_question` — kept under the old name in case
+    a downstream module still imports it."""
+    return _format_clarification_question(missing)
 
 
 async def execute_with_completeness(
@@ -328,13 +385,32 @@ async def execute_with_completeness(
     if isinstance(schema, dict):
         report = check_completeness(tool_name, schema, args)
         if not report.is_complete:
-            question = await _generate_clarification_question(
-                llm_client=llm_client,
-                tool_name=tool_name,
-                tool_description=description,
-                user_message=user_message,
-                missing=report.missing,
-            )
+            # propose_workflow is special: its required fields (`name`,
+            # `steps`) are structural — when they're missing it's
+            # almost always a model failure (the model emitted an
+            # empty function call), NOT a real "user hasn't said".
+            # Feed the validation error back into the agentic loop so
+            # the model gets another iteration to emit a real draft,
+            # instead of bouncing the user with a clarification.
+            if tool_name == "propose_workflow":
+                return GuardedToolResult(
+                    name=tool_name, args=args,
+                    error=(
+                        f"Missing required fields: "
+                        f"{', '.join(m.field_name for m in report.missing)}. "
+                        "Re-emit the propose_workflow call with the full "
+                        "draft as arguments — name, steps[] (with at "
+                        "least one trigger.* at index 0), and rationale. "
+                        "Do NOT call ASK_USER for these — fill in "
+                        "sensible defaults and emit the draft."
+                    ),
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
+            # Deterministic phrasing — used to be an LLM call (~1s,
+            # ~500 tokens) but the schema's description + type_hint
+            # already gives us everything we need to write a one-line
+            # question. Removed 2026-05-04 per the LLM-call audit.
+            question = _format_clarification_question(report.missing)
             return GuardedToolResult(
                 name=tool_name, args=args,
                 needs_clarification=True,
@@ -368,120 +444,6 @@ def _description_for_tool(tool_name: str) -> Optional[str]:
 
 
 # ── The retry loop ──────────────────────────────────────────────────
-
-
-async def execute_tool_with_retry(
-    tool_name: str,
-    args: dict[str, Any],
-    *,
-    llm_client: LLMClient,
-    conversation_messages: list[LLMMessage],
-    tools_for_retry: list[ToolDef],
-    kite_token: str,
-    db: Any,
-    user_id: int,
-    max_retries: int = 1,
-) -> GuardedToolResult:
-    """Execute `tool_name(args)` with one validation-retry hop.
-
-    If the args fail validation:
-      1. Send a structured tool-message back to the LLM (with the
-         validation error and the original tool schema in scope).
-      2. Take whichever tool the LLM picks next:
-         - ASK_USER → return needs_clarification.
-         - same tool again → recurse with max_retries - 1.
-         - different tool → recurse with the new name.
-         - no tool call → surface the error as-is.
-      3. After max_retries the loop ends and we surface the validation
-         error to the user (we don't run with garbage args).
-
-    `tools_for_retry` should include the synthetic ASK_USER tool so the
-    model has the escape hatch.
-    """
-    # Look up schema. ASK_USER's schema lives on the tool def passed
-    # to the LLM, not in the registry — fetch it directly.
-    if tool_name == ASK_USER_TOOL_NAME:
-        schema = ask_user_tool_def().parameters
-    else:
-        schema = _schema_for_tool(tool_name)
-
-    err = _validate_args_against_schema(args, schema) if schema else None
-
-    # Intercept ASK_USER only AFTER schema validation, so an empty-
-    # question call goes through the LLM fix-it hop instead of dying.
-    if err is None and tool_name == ASK_USER_TOOL_NAME:
-        question = (args.get("question") or "").strip()
-        return GuardedToolResult(
-            name=tool_name, args=args,
-            needs_clarification=True,
-            question=question,
-        )
-
-    if err is None:
-        # Args look fine — execute and return.
-        result = await execute(
-            tool_name, args, kite_token=kite_token, db=db, user_id=user_id,
-        )
-        return GuardedToolResult.from_tool_result(tool_name, args, result)
-
-    # Validation failed.
-    if max_retries <= 0:
-        return GuardedToolResult(
-            name=tool_name, args=args,
-            error=f"Could not produce valid arguments after retry: {err}",
-        )
-
-    logger.info("tool %s args invalid (%s); requesting fix from LLM", tool_name, err)
-
-    # Build the fix-it conversation: original messages + the assistant's
-    # bad tool call + a tool-result message saying validation failed.
-    fix_messages = list(conversation_messages) + [
-        LLMMessage(
-            role="assistant",
-            content="",
-            tool_calls=[{
-                "id": "fix_attempt",
-                "name": tool_name,
-                "arguments": args,
-            }],
-        ),
-        LLMMessage(
-            role="tool",
-            tool_call_id="fix_attempt",
-            name=tool_name,
-            content=f"VALIDATION_FAILED: {err}\nFix the arguments or call ASK_USER.",
-        ),
-    ]
-
-    response = await llm_client.complete(
-        messages=fix_messages,
-        tools=tools_for_retry,
-        tool_choice="auto",
-        max_output_tokens=900,
-    )
-
-    if response.finish_reason == "error":
-        return GuardedToolResult(
-            name=tool_name, args=args,
-            error=f"LLM error during retry: {response.content}",
-        )
-
-    if not response.tool_calls:
-        return GuardedToolResult(
-            name=tool_name, args=args,
-            error=f"LLM did not produce a tool call on retry. Validation error was: {err}",
-        )
-
-    next_call = response.tool_calls[0]
-    return await execute_tool_with_retry(
-        next_call["name"],
-        next_call["arguments"] or {},
-        llm_client=llm_client,
-        conversation_messages=conversation_messages,
-        tools_for_retry=tools_for_retry,
-        kite_token=kite_token, db=db, user_id=user_id,
-        max_retries=max_retries - 1,
-    )
 
 
 # ── Internal helpers ────────────────────────────────────────────────

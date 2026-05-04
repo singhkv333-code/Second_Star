@@ -8,6 +8,7 @@ Returns: { success, data, logiccard, error }
 
 import logging
 
+from backend.agents.tools import get_tool_defaults
 from backend.safety import validate_order_value
 
 logger = logging.getLogger(__name__)
@@ -79,8 +80,10 @@ async def execute_tool(tool_name: str, arguments: dict,
     if not handler:
         return {"success": False, "error": f"Unknown tool: {tool_name}",
                 "data": {}, "logiccard": None}
+    # Merge declarative defaults — user-supplied values win.
+    merged = {**get_tool_defaults(tool_name), **(arguments or {})}
     try:
-        return await handler(arguments, kite_token, db, user_id)
+        return await handler(merged, kite_token, db, user_id)
     except Exception as e:
         logger.error(f"Tool {tool_name} failed: {e}")
         return {"success": False, "error": str(e), "data": {}, "logiccard": None}
@@ -406,7 +409,16 @@ async def _generic_confirm(a, kt, db, uid):
 
 
 async def _propose_workflow(a, kt, db, uid):
-    """Bridge from chat -> backend.workflows.propose.
+    """Validate a workflow draft emitted by the chat hop.
+
+    The chat hop now produces the full WorkflowDraft (name, description,
+    steps[], rationale) as the tool arguments — there is no nested LLM
+    call here. The executor's job is to validate against the step
+    registry and return the draft for the UI to render.
+
+    Backwards compat: if the model only sent ``user_intent`` (older
+    prompts, REST callers), fall back to the original two-LLM-call
+    planner. New traffic should never hit that path.
 
     Returns a tool result whose `data` is the WorkflowDraft dict +
     a `_render_hint` that tells the chat UI to show an inline
@@ -416,8 +428,44 @@ async def _propose_workflow(a, kt, db, uid):
     from backend.workflows.propose import (
         ProposalValidationError,
         propose_workflow_async,
+        validate_draft_against_registry,
     )
-    user_intent = (a or {}).get("user_intent", "")
+
+    a = a or {}
+
+    # New path — chat hop emits the structured draft directly.
+    if isinstance(a.get("steps"), list):
+        try:
+            draft = validate_draft_against_registry(a)
+        except ProposalValidationError as e:
+            logger.info("propose_workflow validation failed: %s", e)
+            # Surface as a tool error so the agentic loop's next hop
+            # can self-correct (e.g. fix a bad step_type, drop an
+            # extra trigger, supply the missing required field).
+            return {
+                "success": False,
+                "error": str(e)[:300],
+                "data": {},
+                "logiccard": None,
+            }
+        payload = draft.model_dump()
+        payload["_render_hint"] = "workflow_draft_card"
+        return {"success": True, "data": payload, "logiccard": None}
+
+    # Legacy fallback — only `user_intent` provided. Runs the inner
+    # planner LLM. Kept for the `/api/workflows/propose-workflow`
+    # REST endpoint and any older prompt that still reaches here.
+    user_intent = a.get("user_intent", "")
+    if not user_intent:
+        return {
+            "success": False,
+            "error": (
+                "propose_workflow needs structured arguments "
+                "(name + steps[]) — emit the draft directly."
+            ),
+            "data": {},
+            "logiccard": None,
+        }
     try:
         draft = await propose_workflow_async(user_intent)
     except ProposalValidationError as e:

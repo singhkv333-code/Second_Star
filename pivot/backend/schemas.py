@@ -86,12 +86,18 @@ class StepInput(BaseModel):
 
 
 class StepOut(BaseModel):
-    """Step shape on responses, includes server-assigned id + index."""
+    """Step shape on responses, includes server-assigned id + index.
+
+    `next_run_at` is set on `trigger.schedule` steps when the workflow is
+    active and the scheduler has computed the next fire time. NULL on
+    every other step type and on paused / archived workflows.
+    """
     id: str
     step_index: int
     step_type: str
     label: Optional[str]
     config: dict[str, object]
+    next_run_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

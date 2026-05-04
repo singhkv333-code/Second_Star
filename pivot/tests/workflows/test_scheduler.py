@@ -192,13 +192,18 @@ async def test_poll_creates_run_for_due_workflow(
     monkeypatch: pytest.MonkeyPatch,
     _scheduler_uses_test_db: None,
 ) -> None:
-    """Active workflow with next_run_at in the past → poll creates a
-    `triggered_by='schedule'` run and recomputes next_run_at past now."""
+    """Active workflow with a past-due step.next_run_at → poll
+    creates a `triggered_by='schedule'` run and recomputes
+    next_run_at past now."""
     wf = _make_workflow(
         workflow_db, status=WorkflowStatus.active, cron="*/5 * * * *"
     )
-    # Force it past-due.
-    wf.next_run_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    # Force the trigger step past-due. The poller now keys off
+    # WorkflowStep.next_run_at, not workflow.next_run_at.
+    past = datetime.now(timezone.utc) - timedelta(seconds=1)
+    trigger_step = next(s for s in wf.steps if s.step_index == 0)
+    trigger_step.next_run_at = past
+    wf.next_run_at = past  # workflow-level summary kept in sync
     workflow_db.flush()
     wf_id = str(wf.id)
 

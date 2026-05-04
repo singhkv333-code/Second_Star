@@ -141,15 +141,35 @@ def test_create_step_0_must_be_trigger(
     assert err["details"]["reason"] == "step_0_must_be_trigger"
 
 
-def test_create_trigger_after_step_0_rejected(
+def test_create_trigger_after_step_0_accepted_as_branch(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
+    """Multi-trigger: trigger.* at a later index opens a new branch.
+    The API used to reject this with a 422 (single-trigger invariant);
+    it now accepts as long as the trigger doesn't sit immediately
+    after another trigger (empty branch)."""
     body = _basic_workflow_body()
+    # Replace step 2 with a trigger and add another action after it,
+    # so both branches have at least one action / step in them.
     body["steps"][2] = {"step_type": "trigger.manual", "config": {}}
+    body["steps"].append({
+        "step_type": "notify.log",
+        "config": {"message": "branch B"},
+    })
+    r = client.post("/api/workflows", json=body, headers=auth_headers)
+    assert r.status_code == 201, r.text
+
+
+def test_create_two_adjacent_triggers_rejected(
+    client: TestClient, auth_headers: dict[str, str],
+) -> None:
+    """Two trigger.* steps in a row leaves the first branch empty."""
+    body = _basic_workflow_body()
+    body["steps"][1] = {"step_type": "trigger.manual", "config": {}}
     r = client.post("/api/workflows", json=body, headers=auth_headers)
     assert r.status_code == 422
     err = r.json()["error"]
-    assert err["details"]["step_index"] == 2
+    assert err["details"]["reason"] == "empty_branch"
 
 
 def test_create_invalid_config_returns_422_with_step_index(

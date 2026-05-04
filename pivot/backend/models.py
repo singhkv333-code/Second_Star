@@ -308,6 +308,11 @@ class WorkflowStep(Base):
     # (webhook tokens live in workflow_webhook_tokens).
     config = Column(JSON, nullable=False, default=dict)
     label = Column(String(255), nullable=True)
+    # Per-step next-run-at, set by the scheduler for trigger.schedule
+    # steps. NULL for non-trigger steps and for triggers that aren't
+    # scheduled (manual / webhook / price / indicator). Multi-trigger
+    # workflows can have several rows here, one per trigger.schedule.
+    next_run_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     workflow = relationship("Workflow", back_populates="steps")
 
@@ -334,6 +339,11 @@ class WorkflowRun(Base):
     )
     workflow_version = Column(Integer, nullable=False)
     triggered_by = Column(String(32), nullable=False)
+    # The step_index of the trigger.* that fired this run. NULL means
+    # "the workflow's only trigger" (legacy single-trigger workflows
+    # written before 2026-05-04). Multi-trigger workflows always set
+    # this so the engine knows which branch to execute.
+    triggered_step_index = Column(Integer, nullable=True)
     started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(

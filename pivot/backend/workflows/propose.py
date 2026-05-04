@@ -139,6 +139,16 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
     """Parse the LLM's JSON output into WorkflowDraft AND validate every
     step config against the registry's Pydantic model.
 
+    Multi-trigger rules:
+      - Step 0 must be a trigger.* (every workflow needs at least one
+        entry point).
+      - Trigger.* may appear at any later index too — each trigger
+        starts a new branch. Steps following a trigger up to the next
+        trigger (or end of workflow) belong to that branch.
+      - Two adjacent triggers (an empty branch) is rejected — most
+        likely a model mistake; encourages the user to give every
+        trigger at least one action.
+
     Raises ProposalValidationError with a precise message the LLM can
     use as feedback on a retry."""
     try:
@@ -151,21 +161,31 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
     if not draft.steps:
         raise ProposalValidationError("draft must contain at least one step")
 
+    prev_was_trigger = False
     for idx, step in enumerate(draft.steps):
         defn = STEP_REGISTRY.get(step.step_type)
         if defn is None:
+            allowed = sorted(STEP_REGISTRY.keys())
+            # Suggest the closest match — the model often invents
+            # near-misses ("condition.holding" vs "condition.position",
+            # "condition.symbol" vs "condition.position").
+            from difflib import get_close_matches
+            near = get_close_matches(step.step_type, allowed, n=1, cutoff=0.5)
+            suggestion = f" — did you mean {near[0]!r}?" if near else ""
             raise ProposalValidationError(
-                f"step {idx}: unknown step_type {step.step_type!r} "
-                f"(allowed: {sorted(STEP_REGISTRY.keys())[:5]}... + 19 more)"
+                f"step {idx}: unknown step_type {step.step_type!r}"
+                f"{suggestion} Allowed step_types (full list): "
+                f"{', '.join(allowed)}."
             )
-        if idx == 0 and not defn.trigger_only:
+        is_trigger = bool(defn.trigger_only)
+        if idx == 0 and not is_trigger:
             raise ProposalValidationError(
                 f"step 0 must be a trigger.* (got {step.step_type!r})"
             )
-        if idx > 0 and defn.trigger_only:
+        if is_trigger and idx > 0 and prev_was_trigger:
             raise ProposalValidationError(
-                f"step {idx}: trigger.* may only appear at step 0 "
-                f"(got {step.step_type!r})"
+                f"step {idx}: two triggers in a row creates an empty "
+                f"branch — give the previous trigger at least one action"
             )
         try:
             defn.config_model.model_validate(step.config)
@@ -176,8 +196,32 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
                 f"step {idx} ({step.step_type}) config invalid: "
                 f"{field}: {first.get('msg', 'unknown')}"
             ) from e
+        prev_was_trigger = is_trigger
 
     return draft
+
+
+def trigger_step_indices(steps: list) -> list[int]:
+    """Return the step_indices of every trigger.* step in order.
+
+    Used by the scheduler / watcher / engine to enumerate branches.
+    Accepts a list of WorkflowStep ORM objects OR DraftStep dicts —
+    duck-typed via attribute lookup.
+    """
+    out: list[int] = []
+    for s in steps:
+        st = getattr(s, "step_type", None)
+        if st is None and isinstance(s, dict):
+            st = s.get("step_type")
+        idx = getattr(s, "step_index", None)
+        if idx is None and isinstance(s, dict):
+            idx = s.get("step_index")
+        if isinstance(st, str) and st.startswith("trigger."):
+            try:
+                out.append(int(idx))
+            except (TypeError, ValueError):
+                continue
+    return sorted(out)
 
 
 # ── LLM call + retry loop ────────────────────────────────────────────

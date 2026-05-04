@@ -131,7 +131,9 @@ def test_validate_rejects_non_trigger_at_step_0() -> None:
         validate_draft_against_registry(bad)
 
 
-def test_validate_rejects_trigger_after_step_0() -> None:
+def test_validate_rejects_two_adjacent_triggers() -> None:
+    """Multi-trigger is allowed, but two triggers in a row leaves
+    the first branch empty — almost always a model mistake."""
     bad = {
         "name": "x", "description": None, "rationale": None, "warnings": [],
         "steps": [
@@ -142,8 +144,56 @@ def test_validate_rejects_trigger_after_step_0() -> None:
             {"step_type": "trigger.manual", "label": None, "config": {}},
         ],
     }
-    with pytest.raises(ProposalValidationError, match="trigger.* may only appear at step 0"):
+    with pytest.raises(ProposalValidationError, match="two triggers in a row"):
         validate_draft_against_registry(bad)
+
+
+def test_validate_accepts_multi_trigger_with_branches() -> None:
+    """Two triggers separated by an action — the canonical multi-
+    trigger shape (e.g. 'buy Mon 9:15, sell Mon 15:30 if RSI<30')."""
+    ok = {
+        "name": "WeeklyBuyAndSell",
+        "description": "Buy Mon morning, sell Mon close if RSI low",
+        "rationale": "Two firings in one workflow.",
+        "warnings": [],
+        "steps": [
+            {
+                "step_type": "trigger.schedule", "label": "Mon 09:15",
+                "config": {"cron": "15 9 * * 1", "timezone": "Asia/Kolkata"},
+            },
+            {
+                "step_type": "action.place_order", "label": "Buy NIFTYBEES",
+                "config": {"symbol": "NIFTYBEES", "side": "buy", "quantity": 10},
+            },
+            {
+                "step_type": "trigger.schedule", "label": "Mon 15:30",
+                "config": {"cron": "30 15 * * 1", "timezone": "Asia/Kolkata"},
+            },
+            {
+                "step_type": "fetch.indicator", "label": "RSI(14)",
+                "config": {"symbol": "NIFTYBEES", "indicator": "rsi", "period": 14},
+            },
+            {
+                "step_type": "condition.numeric", "label": "RSI < 30",
+                "config": {
+                    "left": "{{ context.3.value }}",
+                    "operator": "<",
+                    "right": 30,
+                },
+            },
+            {
+                "step_type": "action.place_order", "label": "Sell NIFTYBEES",
+                "config": {"symbol": "NIFTYBEES", "side": "sell", "quantity": 10},
+            },
+        ],
+    }
+    draft = validate_draft_against_registry(ok)
+    assert len(draft.steps) == 6
+    # Two trigger.* steps at indices 0 and 2.
+    trigger_indices = [
+        i for i, s in enumerate(draft.steps) if s.step_type.startswith("trigger.")
+    ]
+    assert trigger_indices == [0, 2]
 
 
 def test_validate_rejects_bad_config() -> None:

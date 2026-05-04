@@ -91,6 +91,12 @@ class LLMResponse(BaseModel):
     """Reasoning tokens are billable on GPT-5 / o-series models even
     though they're not in `content`. 0 for non-reasoning providers."""
 
+    cached_tokens: int = 0
+    """Subset of input_tokens served from the OpenAI prompt cache.
+    Cache hits are billed at ~25% the price of fresh input tokens, so
+    surfacing this lets the per-turn log show whether prompt caching
+    is actually working. 0 for providers without prompt caching."""
+
     latency_ms: int = 0
     model: str = ""
     raw: dict[str, Any] = Field(default_factory=dict)
@@ -123,6 +129,7 @@ class LLMClient(ABC):
         reasoning_effort: Optional[ReasoningEffort] = None,
         temperature: float = 0.2,
         response_format: Optional[Literal["json_object"]] = None,
+        prompt_cache_key: Optional[str] = None,
     ) -> LLMResponse:
         """Run a single completion.
 

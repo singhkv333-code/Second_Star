@@ -31,8 +31,14 @@ TOOL_SUBSETS = {
 
 ALL_TOOLS = {}
 
+# Declarative defaults registry — single source of truth for optional-field
+# values. The chat LLM only fills REQUIRED fields; optional fields get merged
+# in by `tool_executor.execute_tool` and `services.tool_registry.execute`
+# right before the handler runs. User-supplied values always win.
+_TOOL_DEFAULTS: dict[str, dict] = {}
 
-def tool(name, description, properties, required):
+
+def tool(name, description, properties, required, defaults=None):
     defn = {
         "type": "function",
         "function": {
@@ -46,7 +52,19 @@ def tool(name, description, properties, required):
         }
     }
     ALL_TOOLS[name] = defn
+    if defaults:
+        _TOOL_DEFAULTS[name] = dict(defaults)
     return defn
+
+
+def get_tool_defaults(name: str) -> dict:
+    """Returns a copy of the documented defaults for a tool, or {}.
+
+    Used by the executors to auto-fill optional fields (exchange, product,
+    order_type, etc.) before dispatching to the handler. Always returns a
+    fresh dict — callers may mutate it freely.
+    """
+    return dict(_TOOL_DEFAULTS.get(name, {}))
 
 
 # ── ORDER EXECUTION ──────────────────────────────────────────────────────────
@@ -65,7 +83,8 @@ tool("place_market_order",
          "product":          {"type": "string", "enum": ["CNC", "MIS"], "default": "CNC",
                               "description": "CNC=delivery, MIS=intraday"},
      },
-     ["symbol", "transaction_type", "quantity"])
+     ["symbol", "transaction_type", "quantity"],
+     defaults={"exchange": "NSE", "product": "CNC", "order_type": "MARKET"})
 
 tool("place_limit_order",
      "Places a limit order that only executes at the specified price or better. "
@@ -79,7 +98,8 @@ tool("place_limit_order",
          "exchange":         {"type": "string", "enum": ["NSE", "BSE"], "default": "NSE"},
          "product":          {"type": "string", "enum": ["CNC", "MIS"], "default": "CNC"},
      },
-     ["symbol", "transaction_type", "quantity", "price"])
+     ["symbol", "transaction_type", "quantity", "price"],
+     defaults={"exchange": "NSE", "product": "CNC", "order_type": "LIMIT"})
 
 tool("create_gtt_order",
      "Creates a GTT order that fires when a price condition is met. Zerodha monitors it. "
@@ -93,7 +113,8 @@ tool("create_gtt_order",
          "limit_price":      {"type": "number", "description": "Execution price after trigger"},
          "exchange":         {"type": "string", "enum": ["NSE", "BSE"], "default": "NSE"},
      },
-     ["symbol", "transaction_type", "quantity", "trigger_price", "limit_price"])
+     ["symbol", "transaction_type", "quantity", "trigger_price", "limit_price"],
+     defaults={"exchange": "NSE", "product": "CNC"})
 
 tool("create_sl_order",
      "Creates a stop-loss GTT order to protect a holding. "
@@ -106,7 +127,8 @@ tool("create_sl_order",
          "stop_pct":     {"type": "number", "description": "% below current price e.g. 5 means 5% drop"},
          "entry_price":  {"type": "number", "description": "Buy price, used to calculate stop from stop_pct"},
      },
-     ["symbol", "quantity"])
+     ["symbol", "quantity"],
+     defaults={"exchange": "NSE", "product": "CNC"})
 
 tool("create_oco_order",
      "Creates OCO (One Cancels Other): target sell + stop-loss sell. "
@@ -118,7 +140,8 @@ tool("create_oco_order",
          "target_price": {"type": "number", "description": "Sell if price RISES to this"},
          "stop_price":   {"type": "number", "description": "Sell if price FALLS to this"},
      },
-     ["symbol", "quantity", "target_price", "stop_price"])
+     ["symbol", "quantity", "target_price", "stop_price"],
+     defaults={"exchange": "NSE", "product": "CNC"})
 
 tool("create_dip_buy",
      "Creates a GTT buy at a price calculated from a dip percentage. "
@@ -130,7 +153,8 @@ tool("create_dip_buy",
          "dip_pct":    {"type": "number", "description": "Percentage dip from current price"},
          "budget_inr": {"type": "number", "description": "Total INR to invest when triggered"},
      },
-     ["symbol", "dip_pct", "budget_inr"])
+     ["symbol", "dip_pct", "budget_inr"],
+     defaults={"exchange": "NSE", "product": "CNC"})
 
 tool("place_basket_order",
      "Places simultaneous orders for multiple stocks. "
@@ -151,7 +175,8 @@ tool("place_basket_order",
              }
          }
      },
-     ["legs"])
+     ["legs"],
+     defaults={"exchange": "NSE", "product": "CNC"})
 
 tool("cancel_order",
      "Cancels a pending regular or limit order by order_id.",
@@ -291,7 +316,8 @@ tool("create_sip",
          "instrument_type": {"type": "string", "enum": ["etf","stock","mutual_fund"], "default": "etf"},
          "name":            {"type": "string"},
      },
-     ["symbol", "amount_inr", "frequency"])
+     ["symbol", "amount_inr", "frequency"],
+     defaults={"exchange": "NSE", "product": "CNC", "order_type": "MARKET"})
 
 tool("list_sips",   "Returns all SIPs with next execution time in IST.", {}, [])
 tool("pause_sip",   "Pauses a SIP. Stops execution until resumed.",
@@ -324,7 +350,8 @@ tool("create_strategy",
                             "description": "{transaction_type,symbol,quantity_or_amount,order_type}"},
          "max_budget_inr": {"type": "number", "maximum": 200000},
      },
-     ["name", "trigger_type", "trigger_params", "action"])
+     ["name", "trigger_type", "trigger_params", "action"],
+     defaults={"exchange": "NSE"})
 
 tool("create_cash_sweep",
      "Creates a rule to automatically move idle cash above/below a threshold. "
@@ -392,7 +419,8 @@ tool("get_holding_detail",
      "Returns detailed info on one holding: avg price, all-time P&L, holding period, STCG/LTCG status. "
      "Use for: 'how much have I made on INFY', 'when did I buy TCS'.",
      {"symbol": {"type": "string"}},
-     ["symbol"])
+     ["symbol"],
+     defaults={"exchange": "NSE"})
 
 tool("get_tax_summary",
      "Returns STCG vs LTCG breakdown and tax-loss harvesting candidates. "
@@ -408,7 +436,8 @@ tool("get_active_products",
 tool("get_live_price",
      "Returns current live price for any NSE stock or ETF.",
      {"symbol": {"type": "string"}},
-     ["symbol"])
+     ["symbol"],
+     defaults={"exchange": "NSE"})
 
 tool("get_index_level",
      "Returns current level of Nifty 50, BankNifty, or Sensex.",
@@ -421,12 +450,14 @@ tool("get_ohlc",
          "symbol": {"type": "string"},
          "period": {"type": "string", "enum": ["today","1w","1m","3m","1y"], "default": "today"},
      },
-     ["symbol"])
+     ["symbol"],
+     defaults={"exchange": "NSE"})
 
 tool("get_52wk_range",
      "Returns 52-week high and low for a stock.",
      {"symbol": {"type": "string"}},
-     ["symbol"])
+     ["symbol"],
+     defaults={"exchange": "NSE"})
 
 tool("get_market_status",
      "Returns whether NSE is open, current time in IST, time until open/close, upcoming holidays.",
@@ -533,23 +564,111 @@ tool("list_upcoming_jobs",
 
 # ── AGENT SYSTEM (Workflows v1) ──────────────────────────────────────────────
 
+
+def _build_propose_workflow_schema() -> tuple[dict, list[str]]:
+    """Generate a discriminated-union schema for `steps[].items` from the
+    workflow registry, plus a flat list of step_type names.
+
+    Each registered step type contributes one `oneOf` branch with its
+    Pydantic-derived config schema inlined as `properties.config`. This
+    is what stops the model from emitting empty `config: {}` — the
+    schema now requires per-step-type keys (e.g. `cron` for
+    `trigger.schedule`, `symbol/side/quantity` for `action.place_order`).
+
+    Returns (steps_array_schema, step_type_names).
+    """
+    from backend.workflows.registry import STEP_REGISTRY
+
+    branches: list[dict] = []
+    names: list[str] = []
+    for step_type in sorted(STEP_REGISTRY.keys()):
+        defn = STEP_REGISTRY[step_type]
+        config_schema = dict(defn.config_schema or {"type": "object"})
+        # Pydantic injects "$defs" + "properties.title"; the discriminated
+        # union doesn't need either at branch-level.
+        branches.append({
+            "type": "object",
+            "properties": {
+                "step_type": {"const": step_type},
+                "label": {
+                    "type": "string",
+                    "description": "Short human label for this step.",
+                },
+                "config": config_schema,
+            },
+            "required": ["step_type", "config"],
+        })
+        names.append(step_type)
+
+    return {
+        "type": "array",
+        "minItems": 1,
+        "description": "Ordered list of steps. First item MUST be a trigger.*.",
+        "items": {"oneOf": branches},
+    }, names
+
+
+_PROPOSE_STEPS_SCHEMA, _PROPOSE_STEP_TYPES = _build_propose_workflow_schema()
+
+
 tool("propose_workflow",
-     "Translates a natural-language trading strategy into a structured "
-     "Pivot workflow draft (an 'Agent'). Use when the user describes a "
-     "multi-step automation: 'every weekday at 3 PM if my buying power "
-     "is over 50K buy 10 RELIANCE and email me'. Returns a WorkflowDraft "
-     "with name, description, ordered steps (trigger -> fetch -> condition "
-     "-> action -> notify), and rationale. Does NOT activate or persist — "
-     "the user reviews and activates from the editor panel. Prefer this "
-     "over create_strategy when the request describes a multi-step "
-     "'agent' rather than a single price-trigger rule.",
+     "Emit a Pivot workflow draft (a multi-step automation, aka 'Agent') "
+     "directly as structured arguments. Call this when the user asks to "
+     "BUILD or CREATE an automation — e.g. 'every weekday at 3 PM if my "
+     "buying power is over 50K buy 10 RELIANCE and email me', 'buy "
+     "NIFTYBEES every Monday at 9:15', 'sell INFY when RSI < 30'.\n\n"
+     "EMITTING IS NOT ACTIVATING. The draft you return is rendered as a "
+     "review card the user inspects and edits before clicking Activate. "
+     "Calling propose_workflow does NOT place orders, does NOT persist, "
+     "and does NOT need the user's prior confirmation. Do NOT call "
+     "ASK_USER to ask 'do you confirm?' or 'should I proceed?' before "
+     "emitting — the user confirms BY clicking Activate on the draft "
+     "card. Just emit the draft.\n\n"
+     "A workflow is an ordered list of steps grouped into BRANCHES. "
+     "Step 0 MUST be a trigger.*. Additional trigger.* steps may "
+     "appear at any later index — each new trigger starts a fresh "
+     "branch. Steps after a trigger up to the NEXT trigger (or end of "
+     "the workflow) belong to that branch. When any trigger fires, the "
+     "engine runs ONLY that trigger's branch, not the whole workflow.\n\n"
+     "A request like 'buy NIFTYBEES every Monday 9:15 AND sell it Monday "
+     "close if RSI<30' is ONE workflow with two triggers / two branches "
+     "— not two separate agents. Two adjacent trigger.* steps (an empty "
+     "branch) is invalid; every trigger needs at least one action / "
+     "condition / fetch step.\n\n"
+     "Inter-step references use Mustache: {{ context.<idx>.<field> }} "
+     "or {{ now }}. Times default to Asia/Kolkata. Indian stocks default "
+     "to NSE / INR. Common configs:\n"
+     "  - trigger.schedule: { cron: '15 9 * * 1', timezone: 'Asia/Kolkata' }\n"
+     "  - trigger.price: { symbol, operator: '>'|'<'|'>='|'<=', value }\n"
+     "  - trigger.indicator: { symbol, indicator: 'rsi'|'sma'|'ema', "
+     "period: 14, operator, value }\n"
+     "  - fetch.portfolio: {} (output: buying_power, holdings)\n"
+     "  - fetch.indicator: { symbol, indicator, period }\n"
+     "  - condition.numeric: { left: '{{ context.1.buying_power }}', "
+     "operator: '>', right: 50000 }\n"
+     "  - action.place_order: { symbol, side: 'buy'|'sell', quantity, "
+     "order_type?: 'market'|'limit', requires_approval?: bool }\n"
+     "  - notify.message: { channel: 'email'|'sms'|'push', template, "
+     "vars?: {} }\n\n"
+     "Output the draft as the tool arguments — do NOT pass the user's "
+     "raw text. The user reviews and activates from the editor panel; "
+     "do not persist.",
      {
-         "user_intent": {
+         "name": {
              "type": "string",
-             "description": "The user's verbatim strategy description.",
+             "description": "Short workflow title (e.g. 'Weekly NIFTYBEES buy').",
+         },
+         "description": {
+             "type": "string",
+             "description": "One-sentence summary in the user's own words.",
+         },
+         "steps": _PROPOSE_STEPS_SCHEMA,
+         "rationale": {
+             "type": "string",
+             "description": "1-2 sentences explaining why these steps map to the user's request.",
          },
      },
-     ["user_intent"])
+     ["name", "steps"])
 
 
 def get_tools_for_subset(subset_name: str) -> list:

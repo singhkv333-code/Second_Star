@@ -184,7 +184,10 @@ async def test_completeness_gate_fires_clarification_question(stub_ctx, monkeypa
     monkeypatch.setattr(vr, "execute", must_not_run)
 
     stub = _StubClient(queue=[
-        # Hop 1: model emits buy with NO symbol or quantity
+        # Hop 1: model emits buy with NO symbol or quantity. The
+        # completeness gate now generates the clarification question
+        # deterministically (no follow-up LLM call), so a single hop
+        # is enough.
         LLMResponse(
             content=None,
             tool_calls=[{
@@ -192,19 +195,15 @@ async def test_completeness_gate_fires_clarification_question(stub_ctx, monkeypa
             }],
             finish_reason="tool_calls",
         ),
-        # Inside execute_with_completeness: minimal-reasoning LLM
-        # call generates the clarification question.
-        LLMResponse(
-            content="What stock and how many shares should I buy?",
-            finish_reason="stop",
-        ),
     ])
     set_llm_client_for_tests(stub)
     svc = ChatService(store=_StubStore())
     turn = await svc.handle("buy some shares", "u1", stub_ctx, history_override=[])
 
-    assert "stock" in turn.response.lower()
-    assert "shares" in turn.response.lower()
+    # The deterministic template surfaces the missing fields by their
+    # schema descriptions. We assert structure (a question was shown,
+    # no executor ran) rather than exact wording.
+    assert turn.response  # non-empty question
     assert turn.raw_data == {"_render_hint": "ask_user"}
 
 

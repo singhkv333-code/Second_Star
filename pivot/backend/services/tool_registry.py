@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass, field
 
 from backend.agents.tool_executor import execute_tool as _legacy_execute_tool
+from backend.agents.tools import get_tool_defaults
 
 
 logger = logging.getLogger(__name__)
@@ -100,13 +101,17 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
     """Dispatch a tool call to its handler. Wraps the legacy executor + new v2 tools."""
     _ensure_v2_tools_registered()
 
+    # Merge declarative defaults so v2 handlers also get optional fields
+    # auto-filled (exchange, etc.). User-supplied values win.
+    merged = {**get_tool_defaults(name), **(args or {})}
+
     if name in _V2_HANDLERS:
         try:
-            data = await _V2_HANDLERS[name](args)
+            data = await _V2_HANDLERS[name](merged)
         except Exception as e:
             logger.exception("v2 tool %s failed: %s", name, e)
-            return ToolResult(name=name, args=args, success=False, data={}, error=str(e)[:200])
-        return ToolResult(name=name, args=args, success=True, data=data)
+            return ToolResult(name=name, args=merged, success=False, data={}, error=str(e)[:200])
+        return ToolResult(name=name, args=merged, success=True, data=data)
 
     if name not in _REAL_TOOLS:
         return ToolResult(
@@ -114,6 +119,8 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
             error=f"tool '{name}' is not currently available",
         )
 
+    # Legacy executor performs its own merge; pass the original args so
+    # there's a single point-of-truth for the merged payload.
     raw = await _legacy_execute_tool(name, args, kite_token, db, user_id)
     return ToolResult(
         name=name, args=args,
@@ -156,6 +163,7 @@ def _ensure_v2_tools_registered() -> None:
                        "default": "1y"},
         },
         ["symbol"],
+        defaults={"exchange": "NSE"},
     )
 
     tool(
@@ -164,6 +172,7 @@ def _ensure_v2_tools_registered() -> None:
         "for a stock. Real values from price history — never a placeholder.",
         {"symbol": {"type": "string"}},
         ["symbol"],
+        defaults={"exchange": "NSE"},
     )
 
     tool(

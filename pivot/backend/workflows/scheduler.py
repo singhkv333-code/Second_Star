@@ -76,13 +76,16 @@ class InvalidCronError(ValueError):
     """
 
 
-def _trigger_schedule_step(workflow: Workflow) -> Optional[WorkflowStep]:
-    """Return the `trigger.schedule` step at index 0, or None if the
-    workflow's trigger is a different type (manual, price, etc.)."""
-    for step in workflow.steps:
-        if int(step.step_index) == 0:
-            return step if str(step.step_type) == "trigger.schedule" else None
-    return None
+def _trigger_schedule_steps(workflow: Workflow) -> list[WorkflowStep]:
+    """Return EVERY ``trigger.schedule`` step in the workflow.
+
+    Multi-trigger workflows can have several. Pre-multi-trigger
+    workflows have either one (at index 0) or none.
+    """
+    return [
+        step for step in workflow.steps
+        if str(step.step_type) == "trigger.schedule"
+    ]
 
 
 def compute_next_run_at(
@@ -116,87 +119,115 @@ def compute_next_run_at(
 
 
 def upsert_workflow_schedule(db: Session, workflow: Workflow) -> None:
-    """Set or clear `workflow.next_run_at` based on current state.
+    """Recompute per-step ``next_run_at`` for every ``trigger.schedule``
+    step, plus the workflow-level ``next_run_at`` summary.
 
     Called by the workflows router on activate / pause / archive /
-    PATCH-with-steps. Caller is responsible for `db.commit()`.
+    PATCH-with-steps. Caller is responsible for ``db.commit()``.
 
     Behavior:
-      - If status == active AND step 0 is `trigger.schedule` →
-        recompute `next_run_at` from the cron config. Raises
-        `InvalidCronError` if the cron is bad — caller should let it
-        bubble so the router emits 422.
-      - Otherwise (paused / archived / draft / non-schedule trigger) →
-        clear `next_run_at` so the poller skips this workflow.
+      - Status != active → clear every step's ``next_run_at`` plus
+        the workflow's. Poller skips both.
+      - Status == active → for each ``trigger.schedule`` step,
+        compute ``next_run_at`` from its cron config. The
+        workflow-level ``next_run_at`` is set to the EARLIEST of
+        the per-step values (or None if no schedule triggers); used
+        by the workflows list endpoint as a "next fire" summary.
+      - Raises ``InvalidCronError`` if any cron is bad — caller lets
+        it bubble so the router emits 422.
     """
+    schedule_steps = _trigger_schedule_steps(workflow)
+
     if workflow.status != WorkflowStatus.active:
+        for step in schedule_steps:
+            step.next_run_at = None  # type: ignore[assignment]
         workflow.next_run_at = None  # type: ignore[assignment]
         return
 
-    step = _trigger_schedule_step(workflow)
-    if step is None:
-        # Active but trigger isn't schedule (manual, price, etc.) —
-        # not our problem; clear `next_run_at` so the poller skips.
+    if not schedule_steps:
+        # Active but no scheduled triggers — manual / webhook / price /
+        # indicator workflow. Nothing for the poller to do.
         workflow.next_run_at = None  # type: ignore[assignment]
         return
 
-    raw_cfg: dict[str, object] = step.config or {}  # type: ignore[assignment]
-    cfg: dict[str, object] = dict(raw_cfg) if raw_cfg else {}
-    cron = str(cfg.get("cron", ""))
-    tz_str = str(cfg.get("timezone", "UTC"))
-    workflow.next_run_at = compute_next_run_at(cron, tz_str)  # type: ignore[assignment]
+    earliest: Optional[datetime] = None
+    for step in schedule_steps:
+        raw_cfg: dict[str, object] = step.config or {}  # type: ignore[assignment]
+        cfg: dict[str, object] = dict(raw_cfg) if raw_cfg else {}
+        cron = str(cfg.get("cron", ""))
+        tz_str = str(cfg.get("timezone", "UTC"))
+        nra = compute_next_run_at(cron, tz_str)
+        step.next_run_at = nra  # type: ignore[assignment]
+        if earliest is None or nra < earliest:
+            earliest = nra
+    workflow.next_run_at = earliest  # type: ignore[assignment]
 
 
 async def _poll_due_workflows() -> None:
-    """Polled job: find every active workflow whose `next_run_at`
-    has passed, create a `triggered_by='schedule'` run, hand it to the
-    engine, and recompute `next_run_at` for the next tick.
+    """Polled job: find every (workflow, trigger.schedule step) pair
+    whose ``WorkflowStep.next_run_at`` has passed, fire one run per
+    pair with ``triggered_step_index`` set so the engine knows which
+    branch to execute.
 
-    All DB work via sync sessions inside `asyncio.to_thread()` so the
+    Multi-trigger note: the poll keys off ``WorkflowStep.next_run_at``
+    rather than ``Workflow.next_run_at`` so a workflow with two
+    schedules at different times fires twice (one run per branch).
+
+    All DB work via sync sessions inside ``asyncio.to_thread()`` so the
     APScheduler loop never blocks on I/O.
     """
     fired_at = datetime.now(timezone.utc)
 
-    def _fetch_due() -> list[str]:
-        """Returns workflow IDs to fire. Runs in a worker thread."""
+    def _fetch_due() -> list[tuple[str, int]]:
+        """Returns (workflow_id, step_index) pairs to fire. Runs in a
+        worker thread."""
         db = SessionLocal()
         try:
-            due = (
-                db.query(Workflow)
+            rows = (
+                db.query(Workflow, WorkflowStep)
+                .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
                 .filter(
                     Workflow.status == WorkflowStatus.active,
-                    Workflow.next_run_at.isnot(None),
-                    Workflow.next_run_at <= fired_at,
+                    WorkflowStep.step_type == "trigger.schedule",
+                    WorkflowStep.next_run_at.isnot(None),
+                    WorkflowStep.next_run_at <= fired_at,
                 )
                 .all()
             )
-            return [str(wf.id) for wf in due]
+            return [(str(wf.id), int(st.step_index)) for wf, st in rows]
         finally:
             db.close()
 
-    workflow_ids = await asyncio.to_thread(_fetch_due)
-    if not workflow_ids:
+    pairs = await asyncio.to_thread(_fetch_due)
+    if not pairs:
         return
 
     logger.info(
-        "[workflow-scheduler] firing %d due workflow(s) at %s",
-        len(workflow_ids),
+        "[workflow-scheduler] firing %d due trigger(s) at %s",
+        len(pairs),
         fired_at.isoformat(),
     )
 
-    for wf_id in workflow_ids:
+    for wf_id, step_index in pairs:
         try:
-            await _fire_one(wf_id, fired_at)
+            await _fire_one(wf_id, step_index, fired_at)
         except Exception:
             # Don't let one bad workflow kill the poll cycle.
             logger.exception(
-                "[workflow-scheduler] failed to fire workflow %s", wf_id
+                "[workflow-scheduler] failed to fire workflow %s step %d",
+                wf_id, step_index,
             )
 
 
-async def _fire_one(workflow_id: str, fired_at: datetime) -> None:
-    """Create a scheduled run row, recompute next_run_at, hand to
-    engine. All DB work via to_thread; engine is async."""
+async def _fire_one(
+    workflow_id: str, triggered_step_index: int, fired_at: datetime,
+) -> None:
+    """Create a scheduled run row tied to the firing trigger step,
+    advance that step's ``next_run_at`` to the next cron tick, and
+    hand the run to the engine.
+
+    All DB work via to_thread; engine is async.
+    """
 
     def _create_run_and_recompute() -> Optional[str]:
         """Returns the new run_id, or None if the workflow vanished /
@@ -210,18 +241,21 @@ async def _fire_one(workflow_id: str, fired_at: datetime) -> None:
                 workflow_id=wf.id,
                 workflow_version=int(wf.version),
                 triggered_by="schedule",
+                triggered_step_index=triggered_step_index,
                 status=RunStatus.running,
                 context={},
             )
             db.add(run)
             wf.last_run_at = fired_at  # type: ignore[assignment]
+            # Advance EVERY trigger.schedule step so the workflow-level
+            # next_run_at summary stays accurate. Cheap (handful of
+            # steps per workflow). Falls back to clearing on bad cron.
             try:
                 upsert_workflow_schedule(db, wf)
             except InvalidCronError:
-                # Cron became invalid since activation (e.g. step
-                # patched after activation through some future path).
-                # Clear so we don't retry forever.
                 wf.next_run_at = None  # type: ignore[assignment]
+                for st in _trigger_schedule_steps(wf):
+                    st.next_run_at = None  # type: ignore[assignment]
             db.commit()
             db.refresh(run)
             return str(run.id)
@@ -303,9 +337,14 @@ async def _poll_watch_triggers() -> None:
 
     fired_at = datetime.now(timezone.utc)
 
-    def _scan_active_watch_triggers() -> list[tuple[str, str, dict[str, object]]]:
-        """Returns list of (workflow_id, step_type, config_copy)
-        tuples. Runs in a worker thread."""
+    def _scan_active_watch_triggers() -> list[tuple[str, int, str, dict[str, object]]]:
+        """Returns list of (workflow_id, step_index, step_type,
+        config_copy) tuples. Runs in a worker thread.
+
+        Multi-trigger: scans EVERY trigger.price / trigger.indicator
+        step, not just step 0, so a workflow's third trigger can also
+        fire its own branch.
+        """
         db = SessionLocal()
         try:
             rows = (
@@ -313,7 +352,6 @@ async def _poll_watch_triggers() -> None:
                 .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
                 .filter(
                     Workflow.status == WorkflowStatus.active,
-                    WorkflowStep.step_index == 0,
                     WorkflowStep.step_type.in_(
                         ["trigger.price", "trigger.indicator"],
                     ),
@@ -321,7 +359,12 @@ async def _poll_watch_triggers() -> None:
                 .all()
             )
             return [
-                (str(wf.id), str(step.step_type), dict(step.config or {}))
+                (
+                    str(wf.id),
+                    int(step.step_index),
+                    str(step.step_type),
+                    dict(step.config or {}),
+                )
                 for wf, step in rows
             ]
         finally:
@@ -334,7 +377,7 @@ async def _poll_watch_triggers() -> None:
     # Group price triggers by symbol so we batch-fetch quotes once per
     # tick instead of once per workflow.
     price_symbols: set[str] = set()
-    for _wf_id, step_type, cfg in triggers:
+    for _wf_id, _step_idx, step_type, cfg in triggers:
         if step_type == "trigger.price":
             sym = str(cfg.get("symbol", "")).upper()
             exch = str(cfg.get("exchange", "NSE")).upper()
@@ -349,16 +392,16 @@ async def _poll_watch_triggers() -> None:
             logger.exception("[watcher] price batch fetch failed")
             quotes = {}
 
-    for wf_id, step_type, cfg in triggers:
+    for wf_id, step_idx, step_type, cfg in triggers:
         try:
             if step_type == "trigger.price":
-                await _evaluate_price_trigger(wf_id, cfg, quotes, fired_at)
+                await _evaluate_price_trigger(wf_id, step_idx, cfg, quotes, fired_at)
             elif step_type == "trigger.indicator":
-                await _evaluate_indicator_trigger(wf_id, cfg, fired_at)
+                await _evaluate_indicator_trigger(wf_id, step_idx, cfg, fired_at)
         except Exception:
             logger.exception(
-                "[watcher] failed to evaluate %s for workflow %s",
-                step_type, wf_id,
+                "[watcher] failed to evaluate %s for workflow %s step %d",
+                step_type, wf_id, step_idx,
             )
 
 
@@ -397,6 +440,7 @@ def _matches_threshold(
 
 async def _evaluate_price_trigger(
     workflow_id: str,
+    step_index: int,
     cfg: dict[str, object],
     quotes: dict[str, float],
     fired_at: datetime,
@@ -417,15 +461,16 @@ async def _evaluate_price_trigger(
 
     # Persist last_price so next tick's crosses_* logic works.
     await asyncio.to_thread(
-        _persist_last_value, workflow_id, _LAST_PRICE_KEY, current,
+        _persist_last_value, workflow_id, step_index, _LAST_PRICE_KEY, current,
     )
 
     if matched:
-        await _fire_watch_run(workflow_id, "price_alert", fired_at)
+        await _fire_watch_run(workflow_id, step_index, "price_alert", fired_at)
 
 
 async def _evaluate_indicator_trigger(
     workflow_id: str,
+    step_index: int,
     cfg: dict[str, object],
     fired_at: datetime,
 ) -> None:
@@ -454,11 +499,11 @@ async def _evaluate_indicator_trigger(
     matched = _matches_threshold(operator, value, threshold, last)
 
     await asyncio.to_thread(
-        _persist_last_value, workflow_id, _LAST_VALUE_KEY, value,
+        _persist_last_value, workflow_id, step_index, _LAST_VALUE_KEY, value,
     )
 
     if matched:
-        await _fire_watch_run(workflow_id, "indicator_alert", fired_at)
+        await _fire_watch_run(workflow_id, step_index, "indicator_alert", fired_at)
 
 
 def _compute_indicator_sync(
@@ -502,18 +547,23 @@ def _compute_indicator_sync(
 
 
 def _persist_last_value(
-    workflow_id: str, key: str, value: float,
+    workflow_id: str, step_index: int, key: str, value: float,
 ) -> None:
-    """Update the workflow's step-0 config with the latest observed
-    value so the next tick can detect a crossing. Uses a fresh
-    SessionLocal because we're in a worker thread."""
+    """Update the firing step's config with the latest observed value
+    so the next tick can detect a crossing. Uses a fresh SessionLocal
+    because we're in a worker thread.
+
+    Multi-trigger: writes to the specific step that fired, not just
+    step 0 — different triggers in the same workflow keep their
+    own ``_last_price`` / ``_last_value``.
+    """
     db = SessionLocal()
     try:
         step = (
             db.query(WorkflowStep)
             .filter(
                 WorkflowStep.workflow_id == workflow_id,
-                WorkflowStep.step_index == 0,
+                WorkflowStep.step_index == step_index,
             )
             .first()
         )
@@ -530,10 +580,15 @@ def _persist_last_value(
 
 
 async def _fire_watch_run(
-    workflow_id: str, triggered_by: str, fired_at: datetime,
+    workflow_id: str,
+    triggered_step_index: int,
+    triggered_by: str,
+    fired_at: datetime,
 ) -> None:
     """Create the workflow_run row and hand to the engine. Mirrors
-    `_fire_one` but with the watch-specific `triggered_by` value."""
+    `_fire_one` but with the watch-specific ``triggered_by`` value
+    and the firing step's index so the engine runs the right branch.
+    """
 
     def _create() -> Optional[str]:
         db = SessionLocal()
@@ -545,6 +600,7 @@ async def _fire_watch_run(
                 workflow_id=wf.id,
                 workflow_version=int(wf.version),
                 triggered_by=triggered_by,
+                triggered_step_index=triggered_step_index,
                 status=RunStatus.running,
                 context={},
             )

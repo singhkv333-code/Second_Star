@@ -131,17 +131,25 @@ def _validate_steps(
                     "reason": "step_0_must_be_trigger",
                 },
             )
-        # Subsequent steps must NOT be triggers (the engine handles
-        # only step 0 as the trigger boundary).
+        # Multi-trigger: trigger.* is allowed at any later index too —
+        # each one starts a new branch. The only invariant is that two
+        # triggers can't sit back-to-back (an empty branch is almost
+        # always a model mistake; reject so the user notices).
         if idx > 0 and defn.trigger_only:
-            raise validation_error(
-                "trigger.* may only appear at step_index=0",
-                details={
-                    "step_index": idx,
-                    "field": "step_type",
-                    "reason": "trigger_must_be_step_0",
-                },
-            )
+            prev = steps[idx - 1]
+            prev_type = (prev.get("step_type") or "")
+            prev_defn = STEP_REGISTRY.get(prev_type)
+            if prev_defn is not None and prev_defn.trigger_only:
+                raise validation_error(
+                    "two triggers in a row creates an empty branch — "
+                    "give the previous trigger at least one action / "
+                    "condition / fetch step",
+                    details={
+                        "step_index": idx,
+                        "field": "step_type",
+                        "reason": "empty_branch",
+                    },
+                )
 
         cfg = step.get("config") or {}
         try:
@@ -214,6 +222,7 @@ def _to_workflow_out(wf: Workflow) -> WorkflowOut:
                 step_type=str(s.step_type),
                 label=s.label,
                 config=dict(s.config or {}),
+                next_run_at=s.next_run_at,
             )
             for s in sorted(wf.steps, key=lambda s: int(s.step_index))
         ],

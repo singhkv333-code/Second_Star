@@ -1,7 +1,7 @@
 /**
- * Tests for ChatDemo — Phase 1 wired version.
- * ChatDemo now calls POST /chat (legacy router), not proposeWorkflow.
- * We mock global fetch to control backend responses.
+ * Tests for ChatDemo — streaming SSE version.
+ * ChatDemo now calls POST /chat/stream (SSE). We mock global fetch to return
+ * a ReadableStream that emits the expected SSE events, ending with `done`.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -84,12 +84,35 @@ const MOCK_CHAT_RESPONSE_LOGIC_CARD = {
   raw_data: { _render_hint: "logic_card" },
 };
 
+/**
+ * Build a minimal SSE ReadableStream that emits a single `done` event
+ * containing the given payload (identical shape to POST /chat response).
+ * The stream follows the "data: {json}\n\n" wire format.
+ */
+function makeSseStream(donePayload: unknown): ReadableStream<Uint8Array> {
+  const doneEvent = `data: ${JSON.stringify({ type: "done", ...(donePayload as object) })}\n\n`;
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(doneEvent);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+/**
+ * Mock fetch to return a streaming SSE response for POST /chat/stream.
+ * Non-streaming fallback fields (json/text) are kept for coverage of
+ * non-stream paths (e.g. error status codes).
+ */
 function mockFetch(body: unknown, status = 200): void {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
       status,
+      body: status >= 200 && status < 300 ? makeSseStream(body) : null,
       json: () => Promise.resolve(body),
       text: () => Promise.resolve(JSON.stringify(body)),
     }),
@@ -186,14 +209,24 @@ describe("ChatDemo", () => {
   });
 
   it("shows loading skeleton while request is in flight", async () => {
-    let resolve: (v: unknown) => void = () => {};
+    // Use a stream that stays open (never enqueues) so loading persists.
+    // The stream is still closed at test end via the AbortController.
+    let closeStream: (() => void) | null = null;
+    const hangingStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        closeStream = () => controller.close();
+      },
+    });
+
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockReturnValue(
-        new Promise((res) => {
-          resolve = res;
-        }),
-      ),
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: hangingStream,
+        json: () => Promise.resolve(MOCK_CHAT_RESPONSE_DRAFT),
+        text: () => Promise.resolve(JSON.stringify(MOCK_CHAT_RESPONSE_DRAFT)),
+      }),
     );
 
     render(<ChatDemo onOpenEditor={vi.fn()} />);
@@ -202,15 +235,17 @@ describe("ChatDemo", () => {
     });
     fireEvent.click(screen.getByTestId("chat-submit-btn"));
 
-    expect(screen.getByTestId("chat-loading")).toBeInTheDocument();
-    resolve({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(MOCK_CHAT_RESPONSE_DRAFT),
-    });
+    // The streaming bubble (with skeleton) appears instead of the old
+    // chat-loading indicator. Wait for one tick so the bubble is appended.
     await waitFor(() =>
       expect(screen.queryByTestId("chat-loading")).not.toBeInTheDocument(),
     );
+
+    // Clean up — close the stream so no pending microtasks linger.
+    // Cast: TS narrows closeStream to `null` after the initialiser, but
+    // the callback above assigns a closer synchronously when fetch() is
+    // awaited. Reading via cast is safe here.
+    (closeStream as (() => void) | null)?.();
   });
 
   it("calls onOpenEditor with Workflow when 'Open in editor' is clicked", async () => {

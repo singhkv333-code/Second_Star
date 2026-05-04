@@ -11,9 +11,9 @@ and we comment those cases.
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 
 # Refs are resolved by backend/workflows/refs.py before each step runs.
@@ -21,6 +21,63 @@ from pydantic import BaseModel, ConfigDict, Field
 # "{{ context.1.buying_power }}". We type these as Union[X, str] in the
 # Pydantic model and let the resolver coerce at runtime.
 RefOrNumber = Union[float, str]
+
+
+def _is_mustache_ref(s: str) -> bool:
+    """A string is a Mustache template reference if it has at least one
+    matching `{{ ... }}` pair. Used by the int/float coercers below so
+    the registry accepts a draft like
+    ``{"quantity": "{{ context.5.holdings.NIFTYBEES.quantity }}"}``
+    even though `quantity` is logically an integer.
+    The reference is resolved at execution time by `refs.resolve_refs`."""
+    return "{{" in s and "}}" in s.split("{{", 1)[1]
+
+
+def _coerce_int_or_ref(v: Any) -> Any:
+    """Accepts an int (passes through) OR a numeric string (coerced to
+    int) OR a Mustache reference string (kept verbatim for runtime
+    resolution). Anything else raises ValueError so Pydantic surfaces
+    a clean validation error."""
+    if isinstance(v, bool):
+        # Pydantic treats bool as int subclass; reject.
+        raise ValueError("expected integer or {{ ... }} reference")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str):
+        s = v.strip()
+        if _is_mustache_ref(s):
+            return s
+        try:
+            return int(s)
+        except ValueError:
+            pass
+    raise ValueError("expected integer or {{ ... }} reference")
+
+
+def _coerce_float_or_ref(v: Any) -> Any:
+    """Same shape as `_coerce_int_or_ref` but for float-valued fields
+    (price, threshold). Mustache refs pass through untouched."""
+    if isinstance(v, bool):
+        raise ValueError("expected number or {{ ... }} reference")
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip()
+        if _is_mustache_ref(s):
+            return s
+        try:
+            return float(s)
+        except ValueError:
+            pass
+    raise ValueError("expected number or {{ ... }} reference")
+
+
+# A field whose value is an int at runtime, but at draft time may be
+# a Mustache template string the engine resolves later. The model's
+# common pattern: `quantity = "{{ context.5.holdings.NIFTYBEES.quantity }}"`
+# for "sell entire holding" branches.
+IntOrRef = Annotated[Union[int, str], BeforeValidator(_coerce_int_or_ref)]
+FloatOrRef = Annotated[Union[float, str], BeforeValidator(_coerce_float_or_ref)]
 
 
 class _Strict(BaseModel):
@@ -136,9 +193,13 @@ class ConditionTimeWindowConfig(_Strict):
 class ActionPlaceOrderConfig(_Strict):
     symbol: str
     side: Literal["buy", "sell"]
-    quantity: int = Field(..., ge=1)
+    # Accepts both literal integers AND Mustache references like
+    # `{{ context.5.holdings.NIFTYBEES.quantity }}` — the latter is
+    # the canonical way to express "sell the entire holding" without
+    # asking the user. Refs resolve at execution time.
+    quantity: IntOrRef = Field(...)
     order_type: Literal["market", "limit"] = "market"
-    limit_price: Optional[float] = None
+    limit_price: Optional[FloatOrRef] = None
     requires_approval: bool = False
 
 
@@ -149,8 +210,8 @@ class ActionCancelOrdersConfig(_Strict):
 
 class ActionSetStoplossConfig(_Strict):
     symbol: str
-    trigger_price: float
-    quantity: Optional[int] = Field(default=None, ge=1)
+    trigger_price: FloatOrRef
+    quantity: Optional[IntOrRef] = None
 
 
 class ActionUpdateWatchlistConfig(_Strict):
