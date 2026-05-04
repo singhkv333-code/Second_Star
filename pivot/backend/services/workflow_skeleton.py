@@ -685,18 +685,52 @@ _COMPLEXITY_RE = re.compile(
 )
 
 
-# Heuristic: the message looks like a multi-trigger ask if it has an
-# AND/comma split between two action verbs. When the multi-trigger
-# parser fails on a message that LOOKS multi-trigger, we must NOT
-# fall through to single-trigger parsers — that would silently drop
-# the second branch and ship a partial draft to the user. Bail to
-# the LLM instead.
+# Heuristic: the message looks like a multi-trigger / multi-clause
+# ask if EITHER:
+#   (a) two action verbs connected by "and"/";"/"," — classic
+#       "buy X and sell Y" / "Mon buy X, Wed buy Y";
+#   (b) a single action verb with multiple day names joined by
+#       "and"/"," — "every Wed and Fri buy 5 X". The scheduled
+#       parser only emits ONE day, so we must bail rather than
+#       silently drop the others.
+# When this matches but the multi-trigger parser fails, fall to the
+# LLM. Better an extra hop than a partial draft the user can't see is
+# wrong.
 _LOOKS_MULTI_TRIGGER_RE = re.compile(
+    # (a) Two verbs with a connector
     r"\b(?:buy|buys|buying|sell|sells|selling|exit)\b[^.]{0,160}?"
-    r"(?:\s+and\s+(?:then\s+)?|;\s*)"
+    r"(?:\s+and\s+(?:then\s+)?|;\s*|,\s+(?!and\s)(?:on\s+)?)"
     r"(?:also\s+)?(?:buy|buys|buying|sell|sells|selling|exit)\b",
     re.IGNORECASE,
 )
+
+# Standalone day-name detector — used by `_looks_like_multi_day`
+# below. Matches mon|tue|wed|thu|fri|sat|sun with optional
+# day/s/nesday/rsday/urday suffix.
+_DAY_TOKEN_RE = re.compile(
+    r"\b(mon|tue|wed|thu|fri|sat|sun)"
+    r"(?:day|s|sday|nesday|rsday|urday)?\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_multi_day(message: str) -> bool:
+    """True when a single sentence in the message names two+ distinct
+    weekdays. Catches both 'every Wed and Fri' (days adjacent) and
+    'every Monday buy X, every Wednesday buy Y' (days separated by a
+    full clause). The single-day scheduled parser only emits ONE day,
+    so any prompt past the first listed day silently disappears —
+    bail to LLM rather than ship a partial draft."""
+    if not message:
+        return False
+    # Sentence-split on .!? so "Monday open, Wednesday close" stays
+    # in one sentence but "Buy on Monday. Sell on Friday." doesn't
+    # trigger (those are two distinct asks the user typed separately).
+    for sentence in re.split(r"[.!?]\s+", message):
+        days = {m.group(1).lower() for m in _DAY_TOKEN_RE.finditer(sentence)}
+        if len(days) >= 2:
+            return True
+    return False
 
 
 def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
@@ -717,6 +751,7 @@ def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
         return None
 
     looks_multi = bool(_LOOKS_MULTI_TRIGGER_RE.search(message))
+    looks_multi_day = _looks_like_multi_day(message)
 
     for parser in (
         _try_multi_trigger,
@@ -730,6 +765,12 @@ def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
         # but we're on a single-trigger parser, skip it. Better to
         # fall through to the LLM than emit a partial workflow.
         if looks_multi and parser is not _try_multi_trigger:
+            continue
+        # Multi-day guard: same reasoning. The scheduled parser only
+        # emits ONE day; if the user listed several, the LLM has to
+        # build a multi-trigger workflow. Don't let scheduled silently
+        # eat a single day and drop the rest.
+        if looks_multi_day and parser is _try_scheduled:
             continue
         result = parser(message)
         if result is not None:

@@ -100,6 +100,53 @@ class TriggerScheduleConfig(_Strict):
     )
 
 
+class TriggerMarketRelativeTimeConfig(_Strict):
+    """Schedule trigger anchored to NSE market hours rather than a
+    fixed wall-clock time.
+
+    User asks like *"5 minutes before close"* or *"at the open"* would
+    otherwise need the model to remember that NSE opens at 09:15 IST and
+    closes at 15:30 IST — fragile, and breaks on early-close days
+    (Diwali muhurat, special sessions). This trigger lets the model say
+    `{anchor: 'close', offset_minutes: -5}` and the scheduler resolves
+    to the correct concrete cron at job-registration time.
+
+    `days` defaults to NSE trading weekdays. `offset_minutes` is signed:
+    negative = before, positive = after. Resolution happens once at job
+    arming; the scheduler does NOT re-resolve daily, so if NSE shifts
+    its session times mid-week the workflow holds the old time until
+    the next save.
+    """
+    anchor: Literal["open", "close", "pre_open", "post_close"] = Field(
+        ...,
+        description=(
+            "Which market boundary to anchor to. open=09:15 IST, "
+            "close=15:30 IST, pre_open=09:00 IST, post_close=16:00 IST."
+        ),
+    )
+    offset_minutes: int = Field(
+        default=0, ge=-90, le=90,
+        description=(
+            "Signed minutes from the anchor. -5 = 5min before, "
+            "+30 = 30min after. Bounds keep us in/around market hours."
+        ),
+    )
+    days: list[Literal[
+        "monday", "tuesday", "wednesday", "thursday", "friday",
+        "weekday",
+    ]] = Field(
+        default_factory=lambda: ["weekday"],
+        description=(
+            "Days the trigger fires on. 'weekday' is shorthand for "
+            "Mon–Fri. Weekends and known holidays are always skipped."
+        ),
+    )
+    timezone: str = Field(
+        default="Asia/Kolkata",
+        description="IANA timezone; almost always Asia/Kolkata.",
+    )
+
+
 class TriggerPriceConfig(_Strict):
     symbol: str
     operator: Literal[">", "<", "crosses_above", "crosses_below"]
@@ -158,6 +205,39 @@ class FetchFundamentalConfig(_Strict):
 class FetchPortfolioConfig(_Strict):
     """No config — fetches the authenticated user's portfolio."""
     pass
+
+
+class FetchIntradayPnLConfig(_Strict):
+    """Compute realised + unrealised P&L from the user's holdings.
+
+    Drives risk-gate prompts like *"every weekday at 15:25, if my
+    intraday P&L < -2%, exit all MIS positions"*. The output is a
+    structured dict downstream `condition.numeric` can compare against:
+
+        {
+          "total_pct": -1.23,           # P&L as % of cost basis
+          "total_inr": -2456.0,         # absolute P&L in INR
+          "unrealised_inr": -2456.0,    # mark-to-market on open positions
+          "realised_inr": 0.0,          # closed-position P&L (today)
+          "cost_basis_inr": 200000.0,   # what you paid for the open lot
+          "by_symbol": {                # per-symbol breakdown
+            "RELIANCE": {"qty": 10, "avg": 2500.0, "ltp": 2475.0,
+                         "pnl_inr": -250.0, "pnl_pct": -1.0},
+            ...
+          }
+        }
+
+    `scope` selects which positions count. Default 'all' covers both
+    delivery (CNC) and intraday (MIS). 'intraday' restricts to MIS only
+    so a 'square off intraday' guard doesn't trip on long-term holders.
+    """
+    scope: Literal["all", "intraday", "delivery"] = Field(
+        default="all",
+        description=(
+            "Which positions to include. 'intraday' = MIS only, "
+            "'delivery' = CNC only, 'all' = both."
+        ),
+    )
 
 
 class FetchNewsConfig(_Strict):

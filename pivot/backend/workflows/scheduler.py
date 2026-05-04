@@ -77,15 +77,107 @@ class InvalidCronError(ValueError):
 
 
 def _trigger_schedule_steps(workflow: Workflow) -> list[WorkflowStep]:
-    """Return EVERY ``trigger.schedule`` step in the workflow.
+    """Return EVERY scheduled trigger step in the workflow.
+
+    Includes both ``trigger.schedule`` (raw cron) and
+    ``trigger.market_relative_time`` (anchor-relative). The latter is
+    resolved to a concrete cron via `_resolve_market_relative_time` at
+    arming time, then treated identically by the poller.
 
     Multi-trigger workflows can have several. Pre-multi-trigger
     workflows have either one (at index 0) or none.
     """
     return [
         step for step in workflow.steps
-        if str(step.step_type) == "trigger.schedule"
+        if str(step.step_type) in {
+            "trigger.schedule", "trigger.market_relative_time",
+        }
     ]
+
+
+# NSE regular session, IST. Hardcoded — these have been stable for years
+# and a config knob would just invite mistakes. Special-day overrides
+# (Diwali muhurat, etc.) come from the holiday calendar.
+_NSE_OPEN_IST = "09:15"
+_NSE_CLOSE_IST = "15:30"
+_NSE_PRE_OPEN_IST = "09:00"
+_NSE_POST_CLOSE_IST = "16:00"
+
+_DOW_TO_CRON: dict[str, str] = {
+    "monday": "1", "tuesday": "2", "wednesday": "3",
+    "thursday": "4", "friday": "5",
+}
+
+
+def _resolve_market_relative_time(cfg: dict[str, object]) -> tuple[str, str]:
+    """Convert a `trigger.market_relative_time` config to a
+    (cron_expression, timezone) tuple the rest of the scheduler can
+    treat identically to a raw `trigger.schedule`.
+
+    `cfg` matches `TriggerMarketRelativeTimeConfig`:
+      anchor:         'open' | 'close' | 'pre_open' | 'post_close'
+      offset_minutes: int (signed; -5 = 5min before)
+      days:           list of day names or ['weekday']
+      timezone:       IANA tz, default Asia/Kolkata
+
+    Raises `InvalidCronError` for unknown anchors / day names so the
+    422 path bubbles cleanly.
+    """
+    anchor_raw = str(cfg.get("anchor", "")).lower()
+    anchor_clock = {
+        "open": _NSE_OPEN_IST,
+        "close": _NSE_CLOSE_IST,
+        "pre_open": _NSE_PRE_OPEN_IST,
+        "post_close": _NSE_POST_CLOSE_IST,
+    }.get(anchor_raw)
+    if anchor_clock is None:
+        raise InvalidCronError(
+            f"trigger.market_relative_time: unknown anchor "
+            f"{anchor_raw!r} (expected open/close/pre_open/post_close)"
+        )
+
+    try:
+        offset_min = int(cfg.get("offset_minutes", 0))
+    except (TypeError, ValueError) as e:
+        raise InvalidCronError(
+            f"trigger.market_relative_time: offset_minutes must be int"
+        ) from e
+
+    # Add the signed offset to the anchor wall-clock to land on the
+    # actual fire time. Stay in 24h arithmetic so 09:15 + (-30) = 08:45,
+    # 15:30 + 30 = 16:00, etc.
+    h, m = map(int, anchor_clock.split(":"))
+    total = h * 60 + m + offset_min
+    if total < 0 or total >= 24 * 60:
+        raise InvalidCronError(
+            f"trigger.market_relative_time: offset {offset_min} pushes "
+            f"fire time out of the 24h day from anchor {anchor_raw}"
+        )
+    fire_h, fire_m = divmod(total, 60)
+
+    # Build the day-of-week cron field. 'weekday' shorthand expands to
+    # 1-5 (mon-fri). Otherwise we union the listed days.
+    days_raw = cfg.get("days") or ["weekday"]
+    if not isinstance(days_raw, list):
+        raise InvalidCronError(
+            "trigger.market_relative_time: days must be a list"
+        )
+    if any(str(d).lower() == "weekday" for d in days_raw):
+        dow_field = "1-5"
+    else:
+        nums = []
+        for d in days_raw:
+            num = _DOW_TO_CRON.get(str(d).lower())
+            if num is None:
+                raise InvalidCronError(
+                    f"trigger.market_relative_time: unknown day {d!r}"
+                )
+            nums.append(num)
+        dow_field = ",".join(sorted(set(nums)))
+
+    cron = f"{fire_m} {fire_h} * * {dow_field}"
+    tz = str(cfg.get("timezone", "Asia/Kolkata"))
+    return cron, tz
 
 
 def compute_next_run_at(
@@ -154,8 +246,17 @@ def upsert_workflow_schedule(db: Session, workflow: Workflow) -> None:
     for step in schedule_steps:
         raw_cfg: dict[str, object] = step.config or {}  # type: ignore[assignment]
         cfg: dict[str, object] = dict(raw_cfg) if raw_cfg else {}
-        cron = str(cfg.get("cron", ""))
-        tz_str = str(cfg.get("timezone", "UTC"))
+        # Two shapes flow through this loop today:
+        #   trigger.schedule              → cfg has {cron, timezone}
+        #   trigger.market_relative_time  → cfg has {anchor, offset_minutes,
+        #                                            days, timezone}, which
+        #                                   we resolve to the same
+        #                                   (cron, tz) pair.
+        if str(step.step_type) == "trigger.market_relative_time":
+            cron, tz_str = _resolve_market_relative_time(cfg)
+        else:
+            cron = str(cfg.get("cron", ""))
+            tz_str = str(cfg.get("timezone", "UTC"))
         nra = compute_next_run_at(cron, tz_str)
         step.next_run_at = nra  # type: ignore[assignment]
         if earliest is None or nra < earliest:
@@ -188,7 +289,9 @@ async def _poll_due_workflows() -> None:
                 .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
                 .filter(
                     Workflow.status == WorkflowStatus.active,
-                    WorkflowStep.step_type == "trigger.schedule",
+                    WorkflowStep.step_type.in_(
+                        ["trigger.schedule", "trigger.market_relative_time"],
+                    ),
                     WorkflowStep.next_run_at.isnot(None),
                     WorkflowStep.next_run_at <= fired_at,
                 )

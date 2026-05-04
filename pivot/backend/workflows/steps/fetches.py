@@ -22,6 +22,7 @@ from backend.workflows.schemas import (
     FetchDayOpenConfig,
     FetchFundamentalConfig,
     FetchIndicatorConfig,
+    FetchIntradayPnLConfig,
     FetchNewsConfig,
     FetchPortfolioConfig,
     FetchPriorCloseConfig,
@@ -342,6 +343,97 @@ async def execute_fetch_portfolio(ctx: Any) -> Optional[dict[str, Any]]:
     """
     user_id = int(ctx.workflow.user_id)
     return get_user_portfolio(user_id, ctx.db)
+
+
+@register_step(
+    step_type="fetch.intraday_pnl",
+    category="fetch",
+    label="Get intraday P&L",
+    description="Compute realised + unrealised P&L from current holdings",
+    icon="trending-down",
+    max_retries=3,
+    trigger_only=False,
+    config_model=FetchIntradayPnLConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "total_pct": {"type": "number"},
+            "total_inr": {"type": "number"},
+            "unrealised_inr": {"type": "number"},
+            "realised_inr": {"type": "number"},
+            "cost_basis_inr": {"type": "number"},
+            "by_symbol": {"type": "object"},
+        },
+        "required": ["total_pct", "total_inr", "cost_basis_inr"],
+    },
+)
+async def execute_fetch_intraday_pnl(ctx: Any) -> Optional[dict[str, Any]]:
+    """Compute P&L from the user's holdings without an extra Kite hop.
+
+    `fetch.portfolio` already returns last_price and average_price per
+    holding; we recompute mark-to-market here so the workflow doesn't
+    need a separate Kite call. The result fits a `condition.numeric`
+    that compares against `total_pct` (a percentage) directly:
+
+        - step 1: fetch.intraday_pnl(scope='intraday')
+        - step 2: condition.numeric(left='{{ context.1.total_pct }}',
+                                    operator='<', right=-2)
+        - step 3: action.squareoff_all_intraday()
+
+    Realised P&L from closed positions today is not separately tracked
+    here (Kite needs the orderbook for that); we surface 0 and put
+    everything into `unrealised_inr`. Acceptable for the v1 risk-gate
+    use case where the unrealised number is what people watch.
+    """
+    user_id = int(ctx.workflow.user_id)
+    portfolio = get_user_portfolio(user_id, ctx.db)
+    holdings = portfolio.get("holdings", []) or []
+
+    cfg = ctx.config or {}
+    scope = str(cfg.get("scope", "all")).lower()
+
+    by_symbol: dict[str, dict[str, float]] = {}
+    total_unrealised = 0.0
+    total_cost_basis = 0.0
+    for h in holdings:
+        # The portfolio dict only carries delivery (CNC) lots today —
+        # the intraday MIS positions live in Kite's `positions` endpoint
+        # which we'll wire on demand. For now `scope` is informational;
+        # all surfaced holdings count toward the calc.
+        del scope  # silence linter; gated by future Kite positions wire
+        try:
+            qty = float(h.get("quantity") or 0)
+            avg = float(h.get("average_price") or 0)
+            ltp = float(h.get("last_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0 or avg <= 0:
+            continue
+        cost = qty * avg
+        mtm = qty * ltp
+        pnl = mtm - cost
+        by_symbol[str(h.get("tradingsymbol") or "?")] = {
+            "qty": qty,
+            "avg": round(avg, 2),
+            "ltp": round(ltp, 2),
+            "pnl_inr": round(pnl, 2),
+            "pnl_pct": round((pnl / cost) * 100.0 if cost else 0.0, 3),
+        }
+        total_unrealised += pnl
+        total_cost_basis += cost
+
+    realised = 0.0
+    total_pnl = total_unrealised + realised
+    total_pct = (total_pnl / total_cost_basis * 100.0) if total_cost_basis else 0.0
+
+    return {
+        "total_pct": round(total_pct, 3),
+        "total_inr": round(total_pnl, 2),
+        "unrealised_inr": round(total_unrealised, 2),
+        "realised_inr": round(realised, 2),
+        "cost_basis_inr": round(total_cost_basis, 2),
+        "by_symbol": by_symbol,
+    }
 
 
 @register_step(
