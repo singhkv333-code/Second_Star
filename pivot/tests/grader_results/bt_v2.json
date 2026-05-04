@@ -1,0 +1,261 @@
+{
+  "label": "bt_v2",
+  "ts": 1777859169.04025,
+  "samples_per_prompt": 1,
+  "aggregates": [
+    {
+      "name": "bt_rsi_oversold",
+      "bucket": "backtest",
+      "prompt": "Backtest buying INFY whenever RSI drops below 30 over the last 5 years",
+      "median_score": 10,
+      "min_score": 10,
+      "max_score": 10,
+      "median_latency_ms": 914,
+      "samples": [
+        {
+          "name": "bt_rsi_oversold",
+          "bucket": "backtest",
+          "prompt": "Backtest buying INFY whenever RSI drops below 30 over the last 5 years",
+          "response": "Here's the backtest for INFY entering long when RSI(14) drops below 30 over 5y. Strategy returned -4.3% across 26 trades; buy-and-hold returned -0.7%.",
+          "tools_called": [],
+          "n_asks": 0,
+          "n_llm_hops": 0,
+          "render_hint": "indicator_backtest_chart",
+          "intent": "INDICATOR_BACKTEST",
+          "latency_ms": 914,
+          "error": null,
+          "score": 10,
+          "score_breakdown": [
+            "+5 deterministic shortcut hit (INDICATOR_BACKTEST)",
+            "+3 asks=0 <= max=0",
+            "+2 render_hint=indicator_backtest_chart"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bt_sma_cross",
+      "bucket": "backtest",
+      "prompt": "Backtest buying TCS when it crosses above 200 SMA over the past 3 years",
+      "median_score": 10,
+      "min_score": 10,
+      "max_score": 10,
+      "median_latency_ms": 191,
+      "samples": [
+        {
+          "name": "bt_sma_cross",
+          "bucket": "backtest",
+          "prompt": "Backtest buying TCS when it crosses above 200 SMA over the past 3 years",
+          "response": "Here's the backtest for TCS entering long when price crosses above SMA(200) over 3y. Strategy returned -21.7% across 16 trades; buy-and-hold returned -16.4%.",
+          "tools_called": [],
+          "n_asks": 0,
+          "n_llm_hops": 0,
+          "render_hint": "indicator_backtest_chart",
+          "intent": "INDICATOR_BACKTEST",
+          "latency_ms": 191,
+          "error": null,
+          "score": 10,
+          "score_breakdown": [
+            "+5 deterministic shortcut hit (INDICATOR_BACKTEST)",
+            "+3 asks=0 <= max=0",
+            "+2 render_hint=indicator_backtest_chart"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bt_ema_natural",
+      "bucket": "backtest",
+      "prompt": "What if I had bought RELIANCE every time it dropped below its 200 EMA over the last 2 years",
+      "median_score": 10,
+      "min_score": 10,
+      "max_score": 10,
+      "median_latency_ms": 244,
+      "samples": [
+        {
+          "name": "bt_ema_natural",
+          "bucket": "backtest",
+          "prompt": "What if I had bought RELIANCE every time it dropped below its 200 EMA over the last 2 years",
+          "response": "Here's the backtest for RELIANCE entering long when price drops below EMA(200) over 2y. Strategy returned +9.5% across 8 trades; buy-and-hold returned -1.7%.",
+          "tools_called": [],
+          "n_asks": 0,
+          "n_llm_hops": 0,
+          "render_hint": "indicator_backtest_chart",
+          "intent": "INDICATOR_BACKTEST",
+          "latency_ms": 244,
+          "error": null,
+          "score": 10,
+          "score_breakdown": [
+            "+5 deterministic shortcut hit (INDICATOR_BACKTEST)",
+            "+3 asks=0 <= max=0",
+            "+2 render_hint=indicator_backtest_chart"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bt_slash_command",
+      "bucket": "backtest",
+      "prompt": "/expr-backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31",
+      "median_score": 10,
+      "min_score": 10,
+      "max_score": 10,
+      "median_latency_ms": 362,
+      "samples": [
+        {
+          "name": "bt_slash_command",
+          "bucket": "backtest",
+          "prompt": "/expr-backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31",
+          "response": "Backtested `pe_ratio < 15` from 2020-01-01 to 2024-12-31, Q rebalance. CAGR +0.0%, max drawdown 0.0%, 20 rebalances, 0 trades. Past performance does not guarantee future results.",
+          "tools_called": [],
+          "n_asks": 0,
+          "n_llm_hops": 0,
+          "render_hint": "financial_backtest_chart",
+          "intent": "EXPR_BACKTEST",
+          "latency_ms": 362,
+          "error": null,
+          "score": 10,
+          "score_breakdown": [
+            "+5 deterministic shortcut hit (EXPR_BACKTEST)",
+            "+3 asks=0 <= max=0",
+            "+2 render_hint=financial_backtest_chart"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bt_vague",
+      "bucket": "backtest",
+      "prompt": "Backtest a strategy on HDFCBANK",
+      "median_score": 6,
+      "min_score": 6,
+      "max_score": 6,
+      "median_latency_ms": 6151,
+      "samples": [
+        {
+          "name": "bt_vague",
+          "bucket": "backtest",
+          "prompt": "Backtest a strategy on HDFCBANK",
+          "response": "Which strategy do you want to backtest on HDFCBANK and over what period? Reply with one of: 'rsi', 'price_drop', 'price_cross', or 'sip' and choose period '1mo', '3mo', '6mo', '1y' or '2y' (for example: \"rsi 1y\").",
+          "tools_called": [
+            "ASK_USER"
+          ],
+          "n_asks": 1,
+          "n_llm_hops": 1,
+          "render_hint": "ask_user",
+          "intent": null,
+          "latency_ms": 6151,
+          "error": null,
+          "score": 6,
+          "score_breakdown": [
+            "+4 model asked a focused clarification (vague prompt)",
+            "+3 asks=1 <= max=1",
+            "-1 render_hint=ask_user, expected one of ('indicator_backtest_chart',)"
+          ]
+        }
+      ]
+    }
+  ],
+  "outcomes": [
+    {
+      "name": "bt_rsi_oversold",
+      "bucket": "backtest",
+      "prompt": "Backtest buying INFY whenever RSI drops below 30 over the last 5 years",
+      "response": "Here's the backtest for INFY entering long when RSI(14) drops below 30 over 5y. Strategy returned -4.3% across 26 trades; buy-and-hold returned -0.7%.",
+      "tools_called": [],
+      "n_asks": 0,
+      "n_llm_hops": 0,
+      "render_hint": "indicator_backtest_chart",
+      "intent": "INDICATOR_BACKTEST",
+      "latency_ms": 914,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 deterministic shortcut hit (INDICATOR_BACKTEST)",
+        "+3 asks=0 <= max=0",
+        "+2 render_hint=indicator_backtest_chart"
+      ]
+    },
+    {
+      "name": "bt_sma_cross",
+      "bucket": "backtest",
+      "prompt": "Backtest buying TCS when it crosses above 200 SMA over the past 3 years",
+      "response": "Here's the backtest for TCS entering long when price crosses above SMA(200) over 3y. Strategy returned -21.7% across 16 trades; buy-and-hold returned -16.4%.",
+      "tools_called": [],
+      "n_asks": 0,
+      "n_llm_hops": 0,
+      "render_hint": "indicator_backtest_chart",
+      "intent": "INDICATOR_BACKTEST",
+      "latency_ms": 191,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 deterministic shortcut hit (INDICATOR_BACKTEST)",
+        "+3 asks=0 <= max=0",
+        "+2 render_hint=indicator_backtest_chart"
+      ]
+    },
+    {
+      "name": "bt_ema_natural",
+      "bucket": "backtest",
+      "prompt": "What if I had bought RELIANCE every time it dropped below its 200 EMA over the last 2 years",
+      "response": "Here's the backtest for RELIANCE entering long when price drops below EMA(200) over 2y. Strategy returned +9.5% across 8 trades; buy-and-hold returned -1.7%.",
+      "tools_called": [],
+      "n_asks": 0,
+      "n_llm_hops": 0,
+      "render_hint": "indicator_backtest_chart",
+      "intent": "INDICATOR_BACKTEST",
+      "latency_ms": 244,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 deterministic shortcut hit (INDICATOR_BACKTEST)",
+        "+3 asks=0 <= max=0",
+        "+2 render_hint=indicator_backtest_chart"
+      ]
+    },
+    {
+      "name": "bt_slash_command",
+      "bucket": "backtest",
+      "prompt": "/expr-backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31",
+      "response": "Backtested `pe_ratio < 15` from 2020-01-01 to 2024-12-31, Q rebalance. CAGR +0.0%, max drawdown 0.0%, 20 rebalances, 0 trades. Past performance does not guarantee future results.",
+      "tools_called": [],
+      "n_asks": 0,
+      "n_llm_hops": 0,
+      "render_hint": "financial_backtest_chart",
+      "intent": "EXPR_BACKTEST",
+      "latency_ms": 362,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 deterministic shortcut hit (EXPR_BACKTEST)",
+        "+3 asks=0 <= max=0",
+        "+2 render_hint=financial_backtest_chart"
+      ]
+    },
+    {
+      "name": "bt_vague",
+      "bucket": "backtest",
+      "prompt": "Backtest a strategy on HDFCBANK",
+      "response": "Which strategy do you want to backtest on HDFCBANK and over what period? Reply with one of: 'rsi', 'price_drop', 'price_cross', or 'sip' and choose period '1mo', '3mo', '6mo', '1y' or '2y' (for example: \"rsi 1y\").",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "n_asks": 1,
+      "n_llm_hops": 1,
+      "render_hint": "ask_user",
+      "intent": null,
+      "latency_ms": 6151,
+      "error": null,
+      "score": 6,
+      "score_breakdown": [
+        "+4 model asked a focused clarification (vague prompt)",
+        "+3 asks=1 <= max=1",
+        "-1 render_hint=ask_user, expected one of ('indicator_backtest_chart',)"
+      ]
+    }
+  ],
+  "median_total": 46,
+  "total": 46,
+  "max": 50
+}

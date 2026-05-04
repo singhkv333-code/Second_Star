@@ -1,0 +1,174 @@
+# Base fields — direct lookups against mc.statement_lines.
+#
+# Each entry maps a stable, user-facing identifier to one or more raw
+# `line_item` strings as written by Moneycontrol. The list is
+# intentionally permissive: when we encounter a synonym in real data we add
+# it here rather than touching engine code.
+#
+# Conventions
+#   statement      — one of balance_sheet | profit_loss | cash_flow | ratios | quarterly_results
+#   basis_default  — standalone | consolidated. Resolver may override.
+#   unit           — rupees_crore | rupees | ratio | percentage | shares
+#                    (used only for unit-mismatch warnings)
+#   ttm_eligible   — true if the field can be summed across last 4 quarterly_results
+#                    rows to produce a `<name>_ttm` value.
+#
+# When in doubt about line_items, run:
+#   SELECT DISTINCT line_item FROM mc.statement_lines
+#    WHERE statement = '<...>' AND line_item ILIKE '%<keyword>%';
+
+# ---- Profit & Loss -------------------------------------------------------
+
+revenue:
+  statement: profit_loss
+  basis_default: consolidated
+  ttm_eligible: true
+  line_items:
+    - "Total Income From Operations"
+    - "Revenue From Operations"
+    - "Net Sales"
+    - "Net Sales/Income from operations"
+    - "Income from Operations"
+  unit: rupees_crore
+  description: "Top-line revenue for the period."
+
+net_profit:
+  statement: profit_loss
+  basis_default: consolidated
+  ttm_eligible: true
+  line_items:
+    - "Net Profit"
+    - "Net Profit/(Loss) For the Period"
+    - "Profit/Loss For The Period"
+    - "Net Profit After Tax"
+    - "Profit/(Loss) for the Period"
+  unit: rupees_crore
+
+operating_profit:
+  statement: profit_loss
+  basis_default: consolidated
+  ttm_eligible: true
+  line_items:
+    - "Operating Profit"
+    - "Operating Profit (Before OI, Interest & Exceptional Items)"
+    - "EBITDA"
+  unit: rupees_crore
+
+eps_basic:
+  statement: profit_loss
+  basis_default: consolidated
+  ttm_eligible: true
+  line_items:
+    - "Basic EPS"
+    - "Basic EPS."
+    - "Basic EPS (Rs.)"
+  unit: rupees
+
+eps_diluted:
+  statement: profit_loss
+  basis_default: consolidated
+  ttm_eligible: true
+  line_items:
+    - "Diluted EPS"
+    - "Diluted EPS."
+    - "Diluted EPS (Rs.)"
+  unit: rupees
+
+interest_expense:
+  statement: profit_loss
+  basis_default: consolidated
+  ttm_eligible: true
+  line_items:
+    - "Finance Costs"
+    - "Interest"
+    - "Finance Cost"
+  unit: rupees_crore
+
+# ---- Balance Sheet (annual point-in-time) -------------------------------
+
+equity_share_capital:
+  statement: balance_sheet
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Equity Share Capital"
+    - "Share Capital"
+  unit: rupees_crore
+
+reserves:
+  statement: balance_sheet
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Reserves and Surplus"
+    - "Reserves Excluding Revaluation Reserves"
+    - "Total Reserves and Surplus"
+  unit: rupees_crore
+
+total_debt:
+  statement: balance_sheet
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Total Debt"
+    - "Long Term Borrowings"
+  unit: rupees_crore
+  description: "Long-term borrowings only. For total incl. short-term, use computed field `total_borrowings`."
+
+short_term_debt:
+  statement: balance_sheet
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Short Term Borrowings"
+    - "Current Borrowings"
+  unit: rupees_crore
+
+current_assets:
+  statement: balance_sheet
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Total Current Assets"
+    - "Current Assets"
+  unit: rupees_crore
+
+current_liabilities:
+  statement: balance_sheet
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Total Current Liabilities"
+    - "Current Liabilities"
+  unit: rupees_crore
+
+cash_and_equivalents:
+  statement: balance_sheet
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Cash And Cash Equivalents"
+    - "Cash and Bank Balance"
+    - "Cash and Cash Equivalents"
+  unit: rupees_crore
+
+# ---- Cash Flow ----------------------------------------------------------
+
+cash_from_operations:
+  statement: cash_flow
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Net Cash Flow from Operating Activities"
+    - "Cash Flow from Operating Activities"
+    - "Net Cash from Operating Activities"
+  unit: rupees_crore
+
+capex:
+  statement: cash_flow
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Purchase of Fixed Assets"
+    - "Purchased of Fixed Assets"
+  unit: rupees_crore

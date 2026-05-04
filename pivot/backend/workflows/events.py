@@ -1,0 +1,137 @@
+"""In-process pub/sub for live run events.
+
+The engine writes status to the DB FIRST and then publishes to any
+subscribers (WebSocket clients) via this module. Persistence-before-
+emit per ARCHITECTURE.md §7 invariant 2.
+
+Design:
+  - One asyncio.Queue per (run_id, subscriber). Subscribers register on
+    WS connect, drain on disconnect.
+  - Fan-out is non-blocking: if a subscriber's queue is full (slow
+    consumer), the event is dropped for that subscriber. The DB remains
+    the source of truth — the WS is decorative.
+  - All subscribers see all event types for their run_id; filtering is
+    a frontend concern.
+
+Schema of published events mirrors API_CONTRACT.md §10 frames. The
+producer side here just forwards opaque dicts; the WS endpoint
+serialises them to JSON.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any, AsyncIterator, Dict, Set
+
+
+# WS frame is a JSON object. Concrete frame shapes are defined in
+# API_CONTRACT.md §10; we don't enforce them here at the type level
+# because the engine emits each shape from a different code site —
+# enforcing would require Union types that buy little. The WS endpoint
+# performs the json.dumps() at the boundary.
+Frame = Dict[str, Any]
+
+
+logger = logging.getLogger(__name__)
+
+
+class _RunBus:
+    """Per-process bus mapping run_id -> set of subscriber queues."""
+
+    def __init__(self) -> None:
+        # key: run_id; value: subscriber queues
+        self._subs: Dict[str, Set[asyncio.Queue[Frame]]] = {}
+        self._lock: asyncio.Lock = asyncio.Lock()
+        # Loop reference captured on subscribe so threadpool publishers
+        # (engine workers via asyncio.to_thread) can reach the right
+        # loop via call_soon_threadsafe. asyncio.get_running_loop()
+        # raises inside a non-loop thread, so we can't discover it from
+        # the publisher side — we must remember it from the subscriber
+        # side, which always runs on the loop.
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    async def subscribe(self, run_id: str) -> asyncio.Queue[Frame]:
+        """Register a new subscriber queue for `run_id`. Caller must
+        invoke `unsubscribe(run_id, queue)` on disconnect to avoid a
+        memory leak when long-running runs accumulate dead subscribers."""
+        q: asyncio.Queue[Frame] = asyncio.Queue(maxsize=128)
+        # Remember the loop the subscribers live on so threadpool
+        # publishers can target it. Subscribers always run on a loop.
+        self._loop = asyncio.get_running_loop()
+        async with self._lock:
+            self._subs.setdefault(run_id, set()).add(q)
+        return q
+
+    async def unsubscribe(
+        self, run_id: str, q: asyncio.Queue[Frame],
+    ) -> None:
+        async with self._lock:
+            subs = self._subs.get(run_id)
+            if subs is None:
+                return
+            subs.discard(q)
+            if not subs:
+                self._subs.pop(run_id, None)
+
+    async def publish(self, run_id: str, event: Frame) -> None:
+        """Best-effort fan-out. Does NOT raise on slow consumers — the
+        DB row already has the new state so a missed frame is a UI
+        annoyance, not a correctness bug."""
+        async with self._lock:
+            subs = list(self._subs.get(run_id, ()))
+        for q in subs:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.warning(
+                    "run_stream subscriber queue full for run %s; dropping",
+                    run_id,
+                )
+
+    def publish_threadsafe(self, run_id: str, event: Frame) -> None:
+        """Sync publish helper for callers running outside the loop
+        (e.g. the engine's threadpool wrappers around sync DB code).
+        Schedules the publish on the subscriber-side loop without
+        awaiting. No-op if no loop has ever subscribed (no listeners
+        could possibly receive the event anyway)."""
+        # Prefer the currently-running loop (covers callers that ARE on
+        # a loop but want a fire-and-forget publish). Threadpool callers
+        # have no running loop — fall back to the subscriber loop we
+        # captured on subscribe.
+        loop: asyncio.AbstractEventLoop | None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = self._loop
+        if loop is None or loop.is_closed():
+            # No subscribers have ever connected, or the captured loop
+            # has shut down — nothing to deliver. Skip the coroutine
+            # construction entirely so we don't trigger the
+            # "coroutine was never awaited" RuntimeWarning.
+            return
+        # asyncio.run_coroutine_threadsafe is the documented bridge for
+        # cross-thread coroutine scheduling. create_task only works from
+        # within the loop's own thread.
+        coro = self.publish(run_id, event)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError:
+            # Loop closed between is_closed() and submit (race). Close
+            # the unawaited coroutine to silence the warning.
+            coro.close()
+
+
+# Module-level singleton. There is one bus per Python process. Multi-
+# process deployments would need Redis pub/sub here in v2.
+RUN_BUS = _RunBus()
+
+
+async def stream(run_id: str) -> AsyncIterator[Frame]:
+    """Async iterator over events for a single run. Caller must wrap in
+    try/finally to guarantee unsubscribe — see run_stream.py."""
+    q = await RUN_BUS.subscribe(run_id)
+    try:
+        while True:
+            yield await q.get()
+    finally:
+        await RUN_BUS.unsubscribe(run_id, q)

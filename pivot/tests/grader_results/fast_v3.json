@@ -1,0 +1,320 @@
+{
+  "label": "fast_v3",
+  "ts": 1777852260.7625291,
+  "outcomes": [
+    {
+      "name": "price_query",
+      "bucket": "clear",
+      "prompt": "What's the live price of RELIANCE?",
+      "response": "RELIANCE (NSE) live price: \u20b91,436.00 \u2014 up 0.41% from previous close.",
+      "tools_called": [
+        "get_live_price"
+      ],
+      "n_asks": 0,
+      "n_llm_hops": 2,
+      "render_hint": null,
+      "intent": null,
+      "latency_ms": 8547,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 expected tool fired (['get_live_price'])",
+        "+3 asks=0 <= max=0",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "portfolio_summary",
+      "bucket": "clear",
+      "prompt": "Show me my portfolio",
+      "response": "Your portfolio value is \u20b977,945 (invested: \u20b974,590). Total P&L \u20b93,355 (4.5%). Today's P&L \u20b9294. This is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "get_portfolio_summary"
+      ],
+      "n_asks": 0,
+      "n_llm_hops": 2,
+      "render_hint": null,
+      "intent": null,
+      "latency_ms": 4926,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 expected tool fired (['get_portfolio_summary'])",
+        "+3 asks=0 <= max=0",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "market_order_complete",
+      "bucket": "clear",
+      "prompt": "Buy 10 RELIANCE at market",
+      "response": "Order card ready: Buy 10 RELIANCE at market. This is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "place_market_order"
+      ],
+      "n_asks": 0,
+      "n_llm_hops": 2,
+      "render_hint": "logic_card",
+      "intent": null,
+      "latency_ms": 7845,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 expected tool fired (['place_market_order'])",
+        "+3 asks=0 <= max=0",
+        "+2 render_hint=logic_card"
+      ]
+    },
+    {
+      "name": "indicator_backtest",
+      "bucket": "clear",
+      "prompt": "Backtest buying RELIANCE whenever its RSI drops below 30 over the last 3 years",
+      "response": "Here's the backtest for RELIANCE entering long when RSI(14) drops below 30 over 3y. Strategy returned +3.4% across 13 trades; buy-and-hold returned +28.4%.",
+      "tools_called": [],
+      "n_asks": 0,
+      "n_llm_hops": 0,
+      "render_hint": "indicator_backtest_chart",
+      "intent": "INDICATOR_BACKTEST",
+      "latency_ms": 293,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 deterministic shortcut hit (INDICATOR_BACKTEST)",
+        "+3 asks=0 <= max=0",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "52wk_high",
+      "bucket": "clear",
+      "prompt": "What is the 52-week high of TCS?",
+      "response": "TCS 52-week high: \u20b93,509.22.  \nFor context \u2014 52-week low: \u20b92,346.20; last close: \u20b92,473.90 (\u224829.5% below the high).",
+      "tools_called": [
+        "get_52wk_range"
+      ],
+      "n_asks": 0,
+      "n_llm_hops": 2,
+      "render_hint": null,
+      "intent": null,
+      "latency_ms": 9730,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 expected tool fired (['get_52wk_range'])",
+        "+3 asks=0 <= max=0",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "single_trigger_agent",
+      "bucket": "agent",
+      "prompt": "Build me an agent that buys 5 NIFTYBEES every weekday at 09:15 IST. Automatic execution.",
+      "response": "Done \u2014 I created the workflow \"Weekday NIFTYBEES SIP\".\n\nSummary: buys 5 NIFTYBEES every weekday at 09:15 IST (market order) with automatic execution and a push notification after each run.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "n_asks": 0,
+      "n_llm_hops": 3,
+      "render_hint": "workflow_draft_card",
+      "intent": null,
+      "latency_ms": 17425,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 expected tool fired (['propose_workflow'])",
+        "+3 asks=0 <= max=0",
+        "+2 render_hint=workflow_draft_card"
+      ]
+    },
+    {
+      "name": "multi_trigger_agent",
+      "bucket": "agent",
+      "prompt": "Build me an agent that buys 5 NIFTYBEES every Monday at 09:15 IST and sells the entire holding at Monday close (15:30 IST) if the daily 14-period RSI is below 30. Automatic execution.",
+      "response": "Confirm: when selling at Monday close, should the agent place a market sell for your entire current NIFTYBEES holding (quantity determined at runtime)? Please reply 'Yes' or 'No'.",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "n_asks": 1,
+      "n_llm_hops": 5,
+      "render_hint": "ask_user",
+      "intent": null,
+      "latency_ms": 89035,
+      "error": null,
+      "score": 0,
+      "score_breakdown": [
+        "-3 no tool fired; expected ['propose_workflow']",
+        "-3 over-asked: asks=1, max=0",
+        "-1 render_hint=ask_user, expected one of ('workflow_draft_card',)",
+        "-2 too many LLM hops (5)"
+      ]
+    },
+    {
+      "name": "conditional_dip_buy",
+      "bucket": "agent",
+      "prompt": "Create a strategy that watches HDFCBANK and buys 3 shares when the price drops 2% below today's open, with a 2% stop loss after the buy. Automatic execution.",
+      "response": "Should the strategy monitor continuously during market hours (09:15\u201315:30 IST) or only run once at market open? Reply 'continuously' or 'once'.",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "n_asks": 1,
+      "n_llm_hops": 2,
+      "render_hint": "ask_user",
+      "intent": null,
+      "latency_ms": 40787,
+      "error": null,
+      "score": 6,
+      "score_breakdown": [
+        "+4 model asked a focused clarification (vague prompt)",
+        "+3 asks=1 <= max=1",
+        "-1 render_hint=ask_user, expected one of ('workflow_draft_card', 'logic_card')"
+      ]
+    },
+    {
+      "name": "vague_buy_no_qty",
+      "bucket": "vague",
+      "prompt": "Buy some RELIANCE",
+      "response": "Placed a market order draft to buy 1 RELIANCE. Confirm on the card to execute. This is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "place_market_order"
+      ],
+      "n_asks": 0,
+      "n_llm_hops": 2,
+      "render_hint": "logic_card",
+      "intent": null,
+      "latency_ms": 7456,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 expected tool fired (['place_market_order'])",
+        "+3 asks=0 <= max=1",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "vague_chart",
+      "bucket": "vague",
+      "prompt": "Show me a chart of HDFCBANK",
+      "response": "I pulled the 1\u2011year price history for HDFCBANK. Over the past 1 year it traded between \u20b9726.65 and \u20b91,020.50; last close \u20b9771.70 (\u201118.61% over 1y). \n\nWould you like the chart for a different period (1mo / 3mo / 6mo / 2y / 5y) or with indicators (RSI, 20/50/200 EMA, volume)?",
+      "tools_called": [
+        "get_price_history"
+      ],
+      "n_asks": 0,
+      "n_llm_hops": 2,
+      "render_hint": null,
+      "intent": null,
+      "latency_ms": 15252,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 expected tool fired (['get_price_history'])",
+        "+3 asks=0 <= max=0",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "stoploss_no_qty",
+      "bucket": "vague",
+      "prompt": "Set a stop loss on my INFY",
+      "response": "Do you want the stop as an absolute price (e.g. \u20b91,400) or as a percentage below current price (e.g. 5%)? Please reply with a price or a percent.",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "n_asks": 1,
+      "n_llm_hops": 2,
+      "render_hint": "ask_user",
+      "intent": null,
+      "latency_ms": 12623,
+      "error": null,
+      "score": 9,
+      "score_breakdown": [
+        "+4 model asked a focused clarification (vague prompt)",
+        "+3 asks=1 <= max=1",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "weather",
+      "bucket": "off_topic",
+      "prompt": "What's the weather like in Mumbai?",
+      "response": "I can\u2019t fetch live weather data here, but generally in early May Mumbai is hot and humid \u2014 daytime highs around 32\u201336\u00b0C and nights around 25\u201328\u00b0C, with humidity high and occasional pre-monsoon showers. The southwest monsoon usually arrives in June.\n\nIf you want a live forecast (temperature, rain chance, wind), shall I pull the current weather for Mumbai?",
+      "tools_called": [],
+      "n_asks": 0,
+      "n_llm_hops": 1,
+      "render_hint": null,
+      "intent": null,
+      "latency_ms": 7777,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 no tool (off-topic, correct)",
+        "+3 asks=0 <= max=0",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "should_i_buy",
+      "bucket": "off_topic",
+      "prompt": "Should I buy now?",
+      "response": "Which stock or ETF (ticker) do you mean when you ask \u201cShould I buy now?\u201d",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "n_asks": 1,
+      "n_llm_hops": 1,
+      "render_hint": "ask_user",
+      "intent": null,
+      "latency_ms": 7406,
+      "error": null,
+      "score": 10,
+      "score_breakdown": [
+        "+5 no tool (off-topic, correct)",
+        "+3 asks=1 <= max=1",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "build_something",
+      "bucket": "vague",
+      "prompt": "build something",
+      "response": "What automation would you like me to build? Please specify the trigger and action in one sentence (example: \"Every Monday at 09:15 buy 10 RELIANCE\" or \"Sell INFY when RSI(14) > 70\").",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "n_asks": 1,
+      "n_llm_hops": 1,
+      "render_hint": "ask_user",
+      "intent": null,
+      "latency_ms": 4293,
+      "error": null,
+      "score": 8,
+      "score_breakdown": [
+        "+3 no tool (vague \u2014 sensible)",
+        "+3 asks=1 <= max=1",
+        "+2 no error"
+      ]
+    },
+    {
+      "name": "conditional_simple",
+      "bucket": "agent",
+      "prompt": "Sell my INFY when RSI rises above 70",
+      "response": "Do you want to sell your entire INFY holding when RSI > 70, or a specific number of shares? If specific, state the quantity.",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "n_asks": 1,
+      "n_llm_hops": 3,
+      "render_hint": "ask_user",
+      "intent": null,
+      "latency_ms": 39518,
+      "error": null,
+      "score": 6,
+      "score_breakdown": [
+        "+4 model asked a focused clarification (vague prompt)",
+        "+3 asks=1 <= max=1",
+        "-1 render_hint=ask_user, expected one of ('workflow_draft_card', 'logic_card')"
+      ]
+    }
+  ],
+  "total": 129,
+  "max": 150
+}
