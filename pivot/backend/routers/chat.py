@@ -260,7 +260,13 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
     if has_backtest_word and (parsed := _parse_open_close_backtest(body)):
         return await _run_open_close_backtest(**parsed)
 
-    # 6. "backtest …" with no parsable shape → deterministic
+    # 6. Calendar SIP backtest — "backtest SIP into HDFCBANK monthly
+    #    for 1 year", "backtest weekly SIP on RELIANCE for 3 years",
+    #    "backtest 5000 SIP into INFY every Monday for 2 years".
+    if has_backtest_word and (parsed := _parse_calendar_sip_backtest(body)):
+        return await _run_calendar_sip_backtest(**parsed)
+
+    # 7. "backtest …" with no parsable shape → deterministic
     #    capability-gap message. Without this, prompts like
     #    "backtest <something not yet supported>" used to fall
     #    through to the LLM, which would call run_backtest with a
@@ -358,6 +364,180 @@ async def _run_open_close_backtest(*, symbol: str, years: int) -> dict:
     }
 
 
+# Calendar SIP — "backtest SIP into HDFCBANK monthly for 1 year",
+# "backtest 5000 SIP into RELIANCE every Monday for 3 years",
+# "backtest weekly SIP on INFY for 2 years". Captures: optional
+# rupee installment, symbol, frequency cue, optional weekday or
+# day-of-month, optional years window. Symbol can appear before or
+# after the cadence keyword, hence two variants.
+_NL_SIP_RE_A = re.compile(
+    r"\bbacktest\b.{0,40}?"
+    r"(?:(?:rs\.?|inr|₹)?\s*(?P<amount>\d{2,7})\s*)?"
+    r"(?:rupee|rs\.?|inr|₹)?\s*"
+    r"\bsip\b"
+    # Optional amount AFTER "sip" — covers "sip 5000 rs in HDFCBANK".
+    r"(?:\s*(?:of|for|at)?\s*(?:rs\.?|inr|₹)?\s*"
+    r"(?P<amount2>\d{2,7})\s*(?:rs\.?|inr|₹|rupees?)?\s*)?"
+    r".{0,40}?\b(?:into|on|in|for)\s+"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\b"
+    r"(?:.{0,80}?\b(?P<freq>daily|weekly|monthly|every\s+(?P<weekday>"
+    r"monday|tuesday|wednesday|thursday|friday)|on\s+the\s+"
+    r"(?P<dom>\d{1,2})(?:st|nd|rd|th)?))?"
+    r"(?:.{0,80}?\b(?:for|over|in)\s+(?:the\s+)?(?:last|past)?\s*"
+    r"(?P<years>\d+)\s+years?\b)?",
+    re.IGNORECASE | re.DOTALL,
+)
+_NL_SIP_RE_B = re.compile(
+    r"\bbacktest\b.{0,40}?"
+    r"(?:(?:rs\.?|inr|₹)?\s*(?P<amount>\d{2,7})\s*)?"
+    r"(?P<freq>daily|weekly|monthly)\s+\bsip\b"
+    r"(?:\s*(?:of|for|at)?\s*(?:rs\.?|inr|₹)?\s*"
+    r"(?P<amount2>\d{2,7})\s*(?:rs\.?|inr|₹|rupees?)?\s*)?"
+    r".{0,40}?\b(?:into|on|in|for)\s+"
+    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\b"
+    r"(?:.{0,80}?\b(?:every\s+(?P<weekday>monday|tuesday|wednesday|thursday|friday)"
+    r"|on\s+the\s+(?P<dom>\d{1,2})(?:st|nd|rd|th)?))?"
+    r"(?:.{0,80}?\b(?:for|over|in)\s+(?:the\s+)?(?:last|past)?\s*"
+    r"(?P<years>\d+)\s+years?\b)?",
+    re.IGNORECASE | re.DOTALL,
+)
+_WEEKDAY_TO_INT = {
+    "monday": 0, "tuesday": 1, "wednesday": 2,
+    "thursday": 3, "friday": 4,
+}
+
+
+def _parse_calendar_sip_backtest(body: str) -> dict | None:
+    """Extract {symbol, frequency, day_of_week, day_of_month, amount,
+    years} from a free-form SIP backtest prompt. Returns None if no
+    SIP shape matches.
+
+    Heuristics:
+      - Default frequency = monthly (matches the broker UX default).
+      - "every Monday" → weekly + day_of_week=0.
+      - "on the 5th" → monthly + day_of_month=5.
+      - Default installment = ₹10k; ignore very small numbers
+        (< ₹100) since those are almost always referring to
+        something else (years, weekday ordinals).
+    """
+    for rx in (_NL_SIP_RE_B, _NL_SIP_RE_A):
+        m = rx.search(body)
+        if not m:
+            continue
+        sym = m.group("symbol").upper()
+        # SIP isn't a ticker; keep parsing if the regex picked it up
+        # because of weird word ordering.
+        if sym in {"SIP", "INTO", "EVERY", "MONTHLY", "WEEKLY", "DAILY"}:
+            continue
+        freq_raw = (m.group("freq") or "").lower().strip()
+        weekday = (m.groupdict().get("weekday") or "").lower().strip()
+        dom_str = (m.groupdict().get("dom") or "").strip()
+
+        if "every" in freq_raw or weekday:
+            frequency = "weekly"
+        elif freq_raw.startswith("on") or dom_str:
+            frequency = "monthly"
+        elif freq_raw in {"daily", "weekly", "monthly"}:
+            frequency = freq_raw
+        else:
+            frequency = "monthly"
+
+        day_of_week = _WEEKDAY_TO_INT.get(weekday) if weekday else None
+        try:
+            day_of_month = (
+                max(1, min(28, int(dom_str))) if dom_str else None
+            )
+        except ValueError:
+            day_of_month = None
+
+        years = int(m.group("years") or 1)
+        # Amount may appear before "sip" (₹5000 SIP) or after it
+        # (sip 5000 rs in …). Either group is fine; first non-empty wins.
+        amt_str = m.group("amount") or m.groupdict().get("amount2")
+        try:
+            amount = float(amt_str) if amt_str and int(amt_str) >= 100 else 10_000.0
+        except (TypeError, ValueError):
+            amount = 10_000.0
+
+        return {
+            "symbol": sym,
+            "frequency": frequency,
+            "day_of_week": day_of_week,
+            "day_of_month": day_of_month,
+            "installment": amount,
+            "years": years,
+        }
+    return None
+
+
+async def _run_calendar_sip_backtest(
+    *,
+    symbol: str,
+    frequency: str,
+    day_of_week: int | None,
+    day_of_month: int | None,
+    installment: float,
+    years: int,
+) -> dict:
+    """Call services.calendar_sip_backtest and shape the result for
+    the FE's FinancialBacktestCard (reused — no new component)."""
+    import asyncio
+    from backend.services.calendar_sip_backtest import run_calendar_sip_backtest
+
+    yf_period = f"{years}y"
+    try:
+        result = await asyncio.to_thread(
+            run_calendar_sip_backtest,
+            symbol=symbol,
+            frequency=frequency,  # type: ignore[arg-type]
+            day_of_week=day_of_week,
+            day_of_month=day_of_month,
+            installment=installment,
+            period=yf_period,
+        )
+    except ValueError as e:
+        return _slash_error(f"SIP backtest error: {e}")
+    except Exception as e:
+        return _slash_error(f"SIP backtest failed: {str(e)[:200]}")
+
+    cadence_label = frequency
+    if frequency == "weekly" and day_of_week is not None:
+        cadence_label = f"weekly (day-of-week {day_of_week})"
+    elif frequency == "monthly" and day_of_month is not None:
+        cadence_label = f"monthly (day-of-month {day_of_month})"
+    expression = (
+        f"₹{installment:,.0f} {cadence_label} SIP into {symbol} "
+        f"({years}y window)"
+    )
+    rebalance_label = {
+        "daily": "Daily", "weekly": "Weekly", "monthly": "Monthly",
+    }.get(frequency, frequency.title())
+    payload = {
+        "expression": expression,
+        "start": result.start_iso,
+        "end": result.end_iso,
+        "rebalance": rebalance_label,
+        "metrics": result.metrics,
+        "equity_curve": result.equity_curve,
+        "benchmark_curve": result.benchmark_curve,
+        "rebalances": [],
+        "n_trades": result.n_trades,
+        "warnings": [],
+    }
+    return {
+        "response": result.summary_text,
+        "intent": "CALENDAR_SIP_BACKTEST",
+        "expr_backtest_data": payload,
+        "raw_data": {
+            "_render_hint": "financial_backtest_chart",
+            **payload,
+        },
+        "screen_data": None, "backtest_data": None,
+        "chart_data": None, "logiccard": None,
+        "requires_clarification": False,
+    }
+
+
 # Indicator / fundamentals tokens — if any of these is in the body,
 # the strict regexes above SHOULD have matched (and we wouldn't be
 # here). Presence here means the user wrote a backtest ask in a
@@ -397,10 +577,13 @@ def _unsupported_backtest_message(body: str) -> dict:
             "- **Open → close intraday roundtrip** — e.g. "
             "`backtest buy open sell close on RELIANCE over the "
             "last 5 years`\n"
+            "- **Calendar SIP** (daily / weekly / monthly fixed-rupee "
+            "buy) — e.g. `backtest SIP into HDFCBANK monthly for "
+            "1 year`\n"
             "- **Fundamentals expression on the universe** — e.g. "
             "`backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31 "
             "quarterly`\n\n"
-            "Calendar (every Monday) and other order-flow shapes "
+            "Other order-flow shapes (event-driven, news, options) "
             "aren't backtestable yet — but I can draft a live agent "
             "for those. Which would you like?"
         )

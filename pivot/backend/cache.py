@@ -32,6 +32,33 @@ class MockRedis:
     def exists(self, key):
         return key in self._store
 
+    def rpush(self, key, *values):
+        lst = self._store.setdefault(key, [])
+        if not isinstance(lst, list):
+            lst = []
+            self._store[key] = lst
+        for v in values:
+            lst.append(v.encode() if isinstance(v, str) else v)
+        return len(lst)
+
+    def lrange(self, key, start, end):
+        lst = self._store.get(key, [])
+        if not isinstance(lst, list):
+            return []
+        if end == -1:
+            return lst[start:]
+        return lst[start:end + 1]
+
+    def ltrim(self, key, start, end):
+        lst = self._store.get(key)
+        if not isinstance(lst, list):
+            return True
+        self._store[key] = lst[start:] if end == -1 else lst[start:end + 1]
+        return True
+
+    def expire(self, key, seconds):
+        return key in self._store
+
     def ping(self):
         return True
 

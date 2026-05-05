@@ -4,7 +4,10 @@
       "Bash(py -3.11 --version)",
       "Bash(cp pivot/.env /tmp/pivot.env.backup)",
       "Bash(cp pivot-next/.env.local /tmp/pivot-next.env.local.backup)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(git stash *)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)"
     ]
   }
 }

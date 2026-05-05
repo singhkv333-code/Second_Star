@@ -2206,6 +2206,31 @@ def _format_recoverable_failure_question(
                 "me when the buy order fires* or *notify me at end of day "
                 "with the P&L*?"
             )
+        # External-event triggers (sports, weather, news outcomes,
+        # arbitrary "if X happens"). Pivot's trigger types are
+        # schedule / price / indicator / corporate-event / webhook —
+        # there is no sports-feed integration. Name the gap and offer
+        # the two viable workarounds: a webhook (if the user has their
+        # own feed) or a manual one-shot run.
+        if re.search(
+            r"\b(?:wins?|won|loses?|lost|beats?|defeats?|score[sd]?|"
+            r"match(?:es)?|game|tournament|election|weather|rains?|"
+            r"news\s+says|tweet|reddit|youtube)\b",
+            msg_lc,
+        ):
+            return (
+                "I can't wire that — Pivot's triggers fire on schedules, "
+                "price levels, technical indicators, corporate events, "
+                "or webhooks. Sports / news / arbitrary outcomes don't "
+                "have a feed I can subscribe to. Two ways to get close:\n"
+                "  • If you have a feed that POSTs the outcome, I can "
+                "wire a **webhook trigger** that runs your buy/sell when "
+                "it fires.\n"
+                "  • For one-off intent like *run this only today*, place "
+                "the orders manually now (or set a price-level GTT) — I "
+                "can draft those.\n"
+                "Which would you like?"
+            )
 
     if tool_name == "propose_workflow":
         if "trigger_price" in err_lc and "required" in err_lc:
