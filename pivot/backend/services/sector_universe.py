@@ -213,6 +213,117 @@ def normalize_sector(raw: str) -> Optional[SectorName]:
     return _SECTOR_ALIASES.get(key)
 
 
+# ── Theme → sector(s) mapping ──────────────────────────────────────
+#
+# Themes the user types ("AI stocks", "EV plays", "green energy") that
+# have no clean 1:1 sector in the static universe. Each theme maps to
+# one or more canonical sectors and a confidence label:
+#   - "exact"        → the theme IS the sector under a different name
+#                      (e.g. "semiconductors" ≈ IT in India today)
+#   - "approximate"  → caller should disclose the mapping to the user
+#                      because reasonable people would map it differently
+#                      (e.g. "AI" → IT misses some non-IT plays)
+#
+# Caller contract: if `confidence == "approximate"`, the chat layer
+# should mention the mapping ("I'll use IT, the closest sector") and
+# accept user pushback on the next turn rather than silently routing.
+@dataclass(frozen=True)
+class ThemeMapping:
+    sectors: tuple[SectorName, ...]
+    confidence: Literal["exact", "approximate"]
+    note: str
+
+
+_THEME_ALIASES: dict[str, ThemeMapping] = {
+    # AI / ML / data — Indian listed pure-plays barely exist; map to IT
+    # because that's where the revenue exposure lives, but flag it.
+    "ai": ThemeMapping(
+        ("it",), "approximate",
+        "no pure-play AI sector on NSE; using IT as the closest proxy",
+    ),
+    "artificial intelligence": ThemeMapping(
+        ("it",), "approximate",
+        "no pure-play AI sector on NSE; using IT as the closest proxy",
+    ),
+    "ml": ThemeMapping(
+        ("it",), "approximate", "ML mapped to IT (no pure-play sector)",
+    ),
+    "machine learning": ThemeMapping(
+        ("it",), "approximate", "ML mapped to IT (no pure-play sector)",
+    ),
+    "data": ThemeMapping(
+        ("it",), "approximate", "data theme mapped to IT",
+    ),
+    # EV — auto sector covers Tata Motors / M&M / TVS, all of which have
+    # meaningful EV revenue, but pure-play EVs are rare.
+    "ev": ThemeMapping(
+        ("auto",), "approximate",
+        "EV theme covered by auto sector top names (Tata Motors, M&M, TVS)",
+    ),
+    "electric vehicles": ThemeMapping(
+        ("auto",), "approximate",
+        "EV theme covered by auto sector top names",
+    ),
+    # Green / clean energy → energy sector (NTPC, Power Grid, ONGC) is
+    # an imperfect proxy. The user might mean only renewables.
+    "green": ThemeMapping(
+        ("energy",), "approximate",
+        "no dedicated renewables sector; using energy",
+    ),
+    "green energy": ThemeMapping(
+        ("energy",), "approximate",
+        "no dedicated renewables sector; using energy",
+    ),
+    "clean energy": ThemeMapping(
+        ("energy",), "approximate",
+        "no dedicated renewables sector; using energy",
+    ),
+    "renewable": ThemeMapping(
+        ("energy",), "approximate",
+        "no dedicated renewables sector; using energy",
+    ),
+    "renewables": ThemeMapping(
+        ("energy",), "approximate",
+        "no dedicated renewables sector; using energy",
+    ),
+    # Semiconductors — almost no pure plays; IT is the sole available
+    # bucket today. Approximate, not exact.
+    "semiconductor": ThemeMapping(
+        ("it",), "approximate",
+        "no pure-play semiconductor sector on NSE",
+    ),
+    "semiconductors": ThemeMapping(
+        ("it",), "approximate",
+        "no pure-play semiconductor sector on NSE",
+    ),
+    "chips": ThemeMapping(
+        ("it",), "approximate",
+        "no pure-play semiconductor sector on NSE",
+    ),
+    # Fintech — straddles private banks + IT; default to private_bank
+    # as the higher-AUM exposure.
+    "fintech": ThemeMapping(
+        ("private_bank", "it"), "approximate",
+        "fintech spans private banks + IT services in India",
+    ),
+}
+
+
+def resolve_theme(raw: str) -> Optional[ThemeMapping]:
+    """Map a free-form theme word ('AI', 'EV', 'green energy') to one
+    or more canonical sectors with a confidence label.
+
+    Returns None if the word isn't a known theme — the caller should
+    then check `normalize_sector` (it might be a sector phrase
+    proper) before falling back to ASK_USER. The split is intentional:
+    themes are interpretive ("approximately IT") while sectors are
+    definitional ("the IT bucket").
+    """
+    if not raw:
+        return None
+    return _THEME_ALIASES.get(raw.strip().lower())
+
+
 # ── Query ──────────────────────────────────────────────────────────
 
 

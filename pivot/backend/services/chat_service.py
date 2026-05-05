@@ -370,8 +370,37 @@ class ValueCoercionError(ValueError):
 # sentence), we clear pending and fall through to the LLM so the model
 # can produce a graceful confirmation.
 _RESUME_CANCEL_RE = re.compile(
-    r"^\s*(?:cancel|never\s*mind|nevermind|forget(?:\s+it)?|stop|abort|"
+    # Optional leading filler ("actually nevermind", "ok cancel",
+    # "wait, stop") — without this, the resume path missed common
+    # natural cancellations and the LLM defaulted to placing a
+    # 1-share order. Keep the filler list short and unambiguous.
+    r"^\s*(?:actually\s+|ok(?:ay)?[,.\s]+|alright[,.\s]+|"
+    r"wait[,.\s]+|hmm[,.\s]+|hold on[,.\s]+)?"
+    r"(?:cancel|never\s*mind|nevermind|forget(?:\s+it)?|stop|abort|"
     r"no(?:t)?(?:\s+anymore)?|drop\s+it|drop\s+that)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
+# Broader cancel regex used by `_try_cancel_active_draft`. Allows
+# trailing referents the user typically appends when there's a draft on
+# screen — "cancel that one", "scrap it", "delete the agent / draft",
+# "drop the workflow", "kill the basket". Deliberately more permissive
+# than `_RESUME_CANCEL_RE` (which gates value-resume off-ramps and
+# must not eat valid value replies).
+_CANCEL_DRAFT_RE = re.compile(
+    # Optional leading filler ("actually scrap that", "ok cancel",
+    # "wait, drop the workflow"). Mirrors _RESUME_CANCEL_RE so cancel
+    # behaviour is consistent whether or not a pending state is set.
+    r"^\s*(?:actually\s+|ok(?:ay)?[,.\s]+|alright[,.\s]+|"
+    r"wait[,.\s]+|hmm[,.\s]+|hold on[,.\s]+)?"
+    r"(?:"
+    r"cancel|scrap|kill|drop|delete|remove|abort|"
+    r"never\s*mind|nevermind|forget(?:\s+(?:it|that|this))?|"
+    r"throw\s+(?:it|that)\s+out"
+    r")\b"
+    r"(?:\s+(?:that|this|it|the|those|these))?"
+    r"(?:\s+(?:one|agent|draft|workflow|automation|basket|order|sip|alert|rule))?"
+    r"\s*[.!?]*\s*$",
     re.IGNORECASE,
 )
 # Conjunctions that signal "value PLUS modification" — fall through to
@@ -549,6 +578,75 @@ class ChatService:
             enum=mf.enum,
             asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         ))
+
+    def _try_cancel_active_draft(
+        self,
+        *,
+        message: str,
+        conv_id: str,
+        trace: TurnTrace,
+        turn_started: float,
+        breakdown: dict[str, int],
+    ) -> Optional["ChatTurn"]:
+        """Deterministic cancel for an unactivated draft.
+
+        Fires when there's no pending tool-call but an active_draft IS
+        cached AND the user typed a clean cancel intent. Clears the
+        draft and returns a confirmation ChatTurn — zero LLM hops.
+
+        Returns None when the cancel doesn't apply, so the caller falls
+        through to the normal LLM path. We deliberately do not handle
+        cancellation of *activated* agents here — that needs a tool
+        call against the workflow service, which the LLM is better at.
+        """
+        if not _CANCEL_DRAFT_RE.match(message.strip()):
+            return None
+        active = self.store.get_active_draft(conv_id)
+        if active is None:
+            return None
+        # An active pending state means the value-resume path will
+        # handle the cancel (it already clears active_draft too).
+        # Don't double-handle.
+        if self.store.get_pending(conv_id) is not None:
+            return None
+
+        # ActiveDraft stores the raw tool-args JSON; the LLM usually
+        # populates a "name" or "description" field. Pick the first
+        # short, human-shaped string for the cancellation reply.
+        draft_payload = active.draft if isinstance(active.draft, dict) else {}
+        draft_name = ""
+        for key in ("name", "title", "description"):
+            val = draft_payload.get(key)
+            if isinstance(val, str) and val.strip():
+                draft_name = val.strip().split("\n", 1)[0][:80]
+                break
+
+        self.store.clear_active_draft(conv_id)
+        # `name` is the positional event name on TurnTrace.event — don't
+        # collide with it when passing draft metadata.
+        trace.event("cancel.active_draft", tool=active.tool_name,
+                    draft_name=draft_name or "(unnamed)")
+
+        draft_label = f' "{draft_name}"' if draft_name else ""
+        reply = (
+            f"Cancelled the draft{draft_label}. "
+            "Tell me if you want to start over or build something different."
+        )
+        self.store.append(conv_id, message, reply)
+        total = int((time.monotonic() - turn_started) * 1000)
+        breakdown["total"] = total
+        _log_timing("cancel_draft", message, total, breakdown,
+                    tools=["cancel_draft"], note="deterministic-cancel")
+        trace.event("turn.end", total_ms=total,
+                    tools_called=["cancel_draft"], reason="cancel_draft")
+        trace.end()
+        return ChatTurn(
+            response=reply,
+            tools_called=["cancel_draft"],
+            raw_data={"_render_hint": "logic_card"},
+            latency_breakdown=breakdown,
+            latency_ms=total,
+        )
 
     async def _try_fast_resume(
         self,
@@ -776,6 +874,17 @@ class ChatService:
         )
         if resumed is not None:
             return resumed
+
+        # ── Deterministic cancel for an unactivated draft ──────────
+        # When the user types "cancel that one" / "scrap it" right after
+        # a propose_workflow draft, we don't need an LLM hop to figure
+        # out what to do. Clear the active draft and confirm.
+        cancelled = self._try_cancel_active_draft(
+            message=message, conv_id=conv_id, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if cancelled is not None:
+            return cancelled
 
         # ── Agentic loop setup ─────────────────────────────────────
         history = (
@@ -1395,6 +1504,29 @@ class ChatService:
                 "raw_data": resumed_turn.raw_data or None,
                 "latency_ms": resumed_turn.latency_ms,
                 "latency_breakdown": resumed_turn.latency_breakdown,
+            }
+            return
+
+        # Same cancel-active-draft gate as handle(). Streaming clients
+        # see a quick start → done sequence with the cancel_draft tool
+        # tag, no token deltas needed.
+        cancelled_turn = self._try_cancel_active_draft(
+            message=message, conv_id=conv_id, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if cancelled_turn is not None:
+            yield {"type": "start"}
+            yield {"type": "tool_start", "name": "cancel_draft"}
+            yield {"type": "tool_done", "name": "cancel_draft", "ok": True}
+            yield {"type": "delta", "text": cancelled_turn.response}
+            yield {
+                "type": "done",
+                "response": cancelled_turn.response,
+                "tools_called": cancelled_turn.tools_called,
+                "logiccard": cancelled_turn.logiccard,
+                "raw_data": cancelled_turn.raw_data or None,
+                "latency_ms": cancelled_turn.latency_ms,
+                "latency_breakdown": cancelled_turn.latency_breakdown,
             }
             return
 
@@ -2276,11 +2408,34 @@ def _format_recoverable_failure_question(
                 "set a 2% stop loss* — and I'll wire that up.\n"
                 "Which would you like?"
             )
+        # Catch-all for step-catalog rejections that don't match the
+        # specific patterns above. The previous "restate as when X do Y"
+        # message was too generic — users came back with the same shape
+        # and got the same error. Name what Pivot CAN trigger on, what
+        # it CAN do, and let the user pick a concrete combination.
         return (
-            "I started drafting that agent but the trigger or action "
-            "didn't fit Pivot's step catalog. Could you restate it as a "
-            "single sentence — *when X, do Y* — using a concrete price "
-            "level, time, or indicator threshold?"
+            "That step shape isn't in Pivot v1's catalog. Triggers "
+            "available today:\n"
+            "  • Schedule (cron / weekday / time-of-day)\n"
+            "  • Market-relative time (open / close ± minutes, "
+            "auto-handles early-close days)\n"
+            "  • Price crossing a fixed level (e.g. RELIANCE > ₹2,900)\n"
+            "  • Indicator threshold on a daily candle (RSI / SMA / EMA)\n\n"
+            "Fetches available today:\n"
+            "  • Quote, day-open, prior-close, indicator value\n"
+            "  • Intraday P&L from holdings (% and ₹)\n"
+            "  • Relative threshold (X% above/below day-open or "
+            "prior-close — produces an absolute price)\n"
+            "  • Sector screener (top N by market cap)\n\n"
+            "Actions available today:\n"
+            "  • Market / limit / stop-loss / GTT order\n"
+            "  • Square off intraday positions (all or per-symbol)\n"
+            "  • Allocate ₹ across a sector basket\n"
+            "  • Notify in-app\n\n"
+            "Not yet supported: real-time tick thresholds (poll-based "
+            "architecture), fundamentals screens (no PE/ROE provider "
+            "wired), multi-leg / pyramiding actions. Want me to draft "
+            "the closest supported shape?"
         )
     if tool_name in {"place_market_order", "place_limit_order"}:
         return (

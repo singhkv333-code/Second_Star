@@ -4,11 +4,19 @@ Every Sarvam / OpenAI call across the codebase goes through
 `build_system_prompt(role, user_context, extra_context)`. Auditing
 prompt content is now a single-file job.
 
-Three layers, in order:
+Four layers, in order:
   1. Identity + role-specific instructions (from role-keyed templates
      below or from system.md for the generic 'chat' role).
-  2. Domain primer (always included). Loaded from domain_primer.md.
-  3. User context (portfolio summary, active workflows) when supplied.
+  2. Calibration examples (chat role only). Loaded from
+     agentic_examples.json. Compact `prompt → tool → args [conf]`
+     mappings that demonstrate the right first-call decision plus
+     low-confidence cases that should ASK rather than guess. Caching
+     these in the system prompt prefix means OpenAI's prompt cache
+     keeps them warm — zero per-turn input-token cost after the first
+     call. They sit BEFORE per-turn / per-user blocks so they don't
+     break cache when downstream content shifts.
+  3. Domain primer (always included). Loaded from domain_primer.md.
+  4. User context (portfolio summary, active workflows) when supplied.
 
 Adding a new role: add an entry to ROLE_INSTRUCTIONS and call
 `build_system_prompt(role="my_new_role", ...)`. Prefer prose
@@ -16,6 +24,7 @@ instructions over enumerated rules — the model handles them better.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -111,10 +120,73 @@ def _load_chat_system_md() -> str:
     return _CHAT_FALLBACK
 
 
+@lru_cache(maxsize=1)
+def _load_agentic_examples() -> str:
+    """Render `agentic_examples.json` to a compact text block for the
+    system prompt.
+
+    Format per example (one block, separated by blank lines):
+
+        Ex N — <id> [conf=0.97]
+        user: "<prompt>"
+        → <tool>(<args>)
+        why: <note>
+
+    JSON is a verbose carrier — rendering as labelled lines saves
+    ~40% of tokens vs dumping the JSON wholesale. Confidence is
+    explicit so the model treats <0.6 cases as ASK_USER cues rather
+    than forcing a tool call. Returns "" if the file is missing so the
+    prompt still builds in dev environments without it.
+    """
+    p = PROMPTS_DIR / "agentic_examples.json"
+    if not p.exists():
+        return ""
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    examples = data.get("examples") or []
+    if not examples:
+        return ""
+
+    lines: list[str] = [
+        "## Calibration examples",
+        "",
+        "Each block shows the IDEAL first-call decision for one user "
+        "prompt. `conf` is the system's confidence the named tool is "
+        "the right one — when conf < 0.6, call ASK_USER instead of "
+        "the listed tool. The `_DETERMINISTIC_*` markers indicate the "
+        "runtime intercepts before the LLM hop; you should not see "
+        "those prompts at the LLM. `_compose_hint` shows the step "
+        "chain a propose_workflow draft should produce.",
+        "",
+    ]
+    for i, ex in enumerate(examples, start=1):
+        prompt = (ex.get("prompt") or "").strip()
+        tool = ex.get("tool") or "?"
+        args = ex.get("args") or {}
+        conf = ex.get("confidence")
+        note = (ex.get("note") or "").strip()
+        ex_id = ex.get("id") or f"ex_{i}"
+        try:
+            args_str = json.dumps(args, separators=(",", ":"))
+        except (TypeError, ValueError):
+            args_str = str(args)
+        conf_tag = f" [conf={conf:.2f}]" if isinstance(conf, (int, float)) else ""
+        lines.append(f"Ex {i} — {ex_id}{conf_tag}")
+        lines.append(f'user: "{prompt}"')
+        lines.append(f"→ {tool}({args_str})")
+        if note:
+            lines.append(f"why: {note}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
 def reload_prompts() -> None:
     """Tests and live edits clear caches without a process restart."""
     _load_domain_primer.cache_clear()
     _load_chat_system_md.cache_clear()
+    _load_agentic_examples.cache_clear()
 
 
 # ── Public entry point ──────────────────────────────────────────────
@@ -156,6 +228,13 @@ def build_system_prompt(
 
     if role == "chat":
         parts.append(_load_chat_system_md())
+        # Calibration examples live RIGHT AFTER the role instructions so
+        # they sit in the cached prefix. Not loaded for non-chat roles
+        # (propose_workflow has its own catalog block; narrate_tool_result
+        # doesn't make tool-call decisions).
+        examples_block = _load_agentic_examples()
+        if examples_block:
+            parts.append(examples_block)
     else:
         parts.append(ROLE_INSTRUCTIONS.get(role, _CHAT_FALLBACK).strip())
 

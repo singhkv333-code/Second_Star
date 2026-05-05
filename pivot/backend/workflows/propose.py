@@ -52,12 +52,30 @@ class DraftStep(BaseModel):
 
 class WorkflowDraft(BaseModel):
     """The chat returns this to the frontend; the frontend renders an
-    'Open in editor →' card and pre-fills the Agent panel on click."""
+    'Open in editor →' card and pre-fills the Agent panel on click.
+
+    ``valid_until`` is optional. When set, the scheduler skips firing
+    the workflow on or after that date — used for TTL-bound rules like
+    *"buy if RSI<30, valid till 30 June"*. The model resolves relative
+    phrases (*"end of the month"*, *"next Friday"*) to ISO YYYY-MM-DD
+    before emitting; the editor surfaces the field so the user can
+    override.
+    """
     name: str
     description: Optional[str] = None
     steps: list[DraftStep]
     rationale: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
+    valid_until: Optional[str] = Field(
+        default=None,
+        description=(
+            "ISO YYYY-MM-DD date after which the workflow auto-deactivates. "
+            "Set when the user attaches a TTL phrase ('valid till month "
+            "end', 'until 30 June', 'good for the week'). Resolve "
+            "relative dates to absolute before emitting. Leave null for "
+            "perpetual workflows."
+        ),
+    )
 
 
 # ── System prompt builder ────────────────────────────────────────────

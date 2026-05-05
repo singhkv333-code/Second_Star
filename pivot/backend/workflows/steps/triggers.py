@@ -21,6 +21,7 @@ from backend.workflows.schemas import (
     TriggerEventConfig,
     TriggerIndicatorConfig,
     TriggerManualConfig,
+    TriggerMarketRelativeTimeConfig,
     TriggerPriceConfig,
     TriggerScheduleConfig,
     TriggerWebhookConfig,
@@ -111,6 +112,26 @@ async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
 async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the user clicked Run now. The run row carries
     `triggered_by='manual'`."""
+    return None
+
+
+@register_step(
+    step_type="trigger.market_relative_time",
+    category="trigger",
+    label="At market open/close",
+    description="Fire at a fixed offset from the NSE open or close",
+    icon="clock",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerMarketRelativeTimeConfig,
+    output_schema=None,
+)
+async def execute_trigger_market_relative_time(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: by the time the engine reaches this executor, the
+    scheduler has already fired the run (same lifecycle as
+    `trigger.schedule`). The scheduler resolves the relative anchor to
+    a concrete cron at job-arming time — see
+    backend/workflows/scheduler.py:_arm_market_relative_time."""
     return None
 
 

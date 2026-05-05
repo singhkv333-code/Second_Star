@@ -83,11 +83,21 @@ FloatOrRef = Annotated[Union[float, str], BeforeValidator(_coerce_float_or_ref)]
 class _Strict(BaseModel):
     """Base for all step config models.
 
-    `extra='forbid'` so unknown keys are rejected with a clear error
-    rather than silently ignored. `populate_by_name=True` is irrelevant
-    here but keeps the door open for aliases later."""
+    Originally `extra='forbid'`, but we observed the planner LLM dropping
+    a draft over a single unrequested field on a single step (e.g. a
+    spurious `notify.message` step missing its `channel`, or a
+    `requires_approval` flag tacked onto a step type that doesn't carry
+    one). Rejecting the whole draft for one harmless extra field
+    produced a 21-second catalog-dump fallback for what was otherwise
+    a usable workflow. `extra='ignore'` keeps validation strict on
+    REQUIRED fields and types, but silently drops unknown keys so the
+    draft survives. The trade-off: genuine model mistakes on field
+    names won't surface as errors anymore — they'll be quietly dropped.
+    Acceptable for v1; revisit if we see it masking real bugs.
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    `populate_by_name=True` keeps the door open for aliases later."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 
 # ── Triggers ─────────────────────────────────────────────────────────
@@ -97,6 +107,53 @@ class TriggerScheduleConfig(_Strict):
     timezone: str = Field(
         default="Asia/Kolkata",
         description="IANA timezone, e.g. Asia/Kolkata",
+    )
+
+
+class TriggerMarketRelativeTimeConfig(_Strict):
+    """Schedule trigger anchored to NSE market hours rather than a
+    fixed wall-clock time.
+
+    User asks like *"5 minutes before close"* or *"at the open"* would
+    otherwise need the model to remember that NSE opens at 09:15 IST and
+    closes at 15:30 IST — fragile, and breaks on early-close days
+    (Diwali muhurat, special sessions). This trigger lets the model say
+    `{anchor: 'close', offset_minutes: -5}` and the scheduler resolves
+    to the correct concrete cron at job-registration time.
+
+    `days` defaults to NSE trading weekdays. `offset_minutes` is signed:
+    negative = before, positive = after. Resolution happens once at job
+    arming; the scheduler does NOT re-resolve daily, so if NSE shifts
+    its session times mid-week the workflow holds the old time until
+    the next save.
+    """
+    anchor: Literal["open", "close", "pre_open", "post_close"] = Field(
+        ...,
+        description=(
+            "Which market boundary to anchor to. open=09:15 IST, "
+            "close=15:30 IST, pre_open=09:00 IST, post_close=16:00 IST."
+        ),
+    )
+    offset_minutes: int = Field(
+        default=0, ge=-90, le=90,
+        description=(
+            "Signed minutes from the anchor. -5 = 5min before, "
+            "+30 = 30min after. Bounds keep us in/around market hours."
+        ),
+    )
+    days: list[Literal[
+        "monday", "tuesday", "wednesday", "thursday", "friday",
+        "weekday",
+    ]] = Field(
+        default_factory=lambda: ["weekday"],
+        description=(
+            "Days the trigger fires on. 'weekday' is shorthand for "
+            "Mon–Fri. Weekends and known holidays are always skipped."
+        ),
+    )
+    timezone: str = Field(
+        default="Asia/Kolkata",
+        description="IANA timezone; almost always Asia/Kolkata.",
     )
 
 
@@ -158,6 +215,39 @@ class FetchFundamentalConfig(_Strict):
 class FetchPortfolioConfig(_Strict):
     """No config — fetches the authenticated user's portfolio."""
     pass
+
+
+class FetchIntradayPnLConfig(_Strict):
+    """Compute realised + unrealised P&L from the user's holdings.
+
+    Drives risk-gate prompts like *"every weekday at 15:25, if my
+    intraday P&L < -2%, exit all MIS positions"*. The output is a
+    structured dict downstream `condition.numeric` can compare against:
+
+        {
+          "total_pct": -1.23,           # P&L as % of cost basis
+          "total_inr": -2456.0,         # absolute P&L in INR
+          "unrealised_inr": -2456.0,    # mark-to-market on open positions
+          "realised_inr": 0.0,          # closed-position P&L (today)
+          "cost_basis_inr": 200000.0,   # what you paid for the open lot
+          "by_symbol": {                # per-symbol breakdown
+            "RELIANCE": {"qty": 10, "avg": 2500.0, "ltp": 2475.0,
+                         "pnl_inr": -250.0, "pnl_pct": -1.0},
+            ...
+          }
+        }
+
+    `scope` selects which positions count. Default 'all' covers both
+    delivery (CNC) and intraday (MIS). 'intraday' restricts to MIS only
+    so a 'square off intraday' guard doesn't trip on long-term holders.
+    """
+    scope: Literal["all", "intraday", "delivery"] = Field(
+        default="all",
+        description=(
+            "Which positions to include. 'intraday' = MIS only, "
+            "'delivery' = CNC only, 'all' = both."
+        ),
+    )
 
 
 class FetchNewsConfig(_Strict):
@@ -393,11 +483,52 @@ class ActionAllocateNotionalConfig(_Strict):
     requires_approval: bool = False
 
 
+# ── Squareoff actions ─────────────────────────────────────────────────
+
+
+class ActionSquareoffAllIntradayConfig(_Strict):
+    """Exit all open intraday (MIS) positions with market sells.
+
+    Pairs with the EOD risk-gate pattern *"5 minutes before close, if
+    intraday P&L < -2%, exit all MIS"*. The executor walks live
+    positions, filters to product=MIS with non-zero net qty, and places
+    one market sell per leg under per-leg idempotent client_request_ids.
+
+    No config — scope is fixed (intraday only). For per-symbol exits
+    use ``action.squareoff_symbol``.
+    """
+    pass
+
+
+class ActionSquareoffSymbolConfig(_Strict):
+    """Exit a single symbol's open lot at market.
+
+    Used for per-symbol risk gates and basket trims. ``product`` selects
+    intraday vs delivery; defaults to MIS since "exit my X" is most
+    often an intraday cut.
+    """
+    symbol: str
+    product: Literal["MIS", "CNC"] = "MIS"
+
+
 # ── Communication ────────────────────────────────────────────────────
 
 class NotifyMessageConfig(_Strict):
-    channel: Literal["email", "sms", "push"]
-    template: str
+    # Defaults are deliberate: the planner LLM frequently appends an
+    # unrequested notify step at the tail of a workflow without
+    # bothering to fill `channel` or `template`. Rejecting the whole
+    # draft for that turned a usable workflow into a 21s catalog-dump
+    # fallback. With defaults, the step still validates and the user
+    # sees a generic in-app notification — they can rename or remove
+    # it from the editor.
+    channel: Literal["email", "sms", "push"] = Field(
+        default="push",
+        description="Default 'push' (in-app); the safest channel.",
+    )
+    template: str = Field(
+        default="Workflow {{ workflow.name }} fired.",
+        description="Defaults to a generic auto-generated message.",
+    )
     # vars is template-specific structured data: keys map to template
     # placeholders. Typed loosely to allow primitives + refs.
     vars: dict[str, Union[str, int, float, bool, None]] = Field(
@@ -406,7 +537,11 @@ class NotifyMessageConfig(_Strict):
 
 
 class NotifyLogConfig(_Strict):
-    message: str
+    message: str = Field(
+        default="Workflow step fired.",
+        description="Default to a non-empty placeholder so a missing "
+                    "message field doesn't reject the draft.",
+    )
 
 
 class WaitApprovalConfig(_Strict):

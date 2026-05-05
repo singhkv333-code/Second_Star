@@ -317,10 +317,11 @@ def _parse_open_close_backtest(body: str) -> dict | None:
     return None
 
 
-async def _run_open_close_backtest(*, symbol: str, years: int) -> dict:
+async def _run_open_close_backtest(*, symbol: str, years: int) -> Optional[dict]:
     """Call services.open_close_backtest and shape the result for the
     FE's FinancialBacktestCard (we reuse that card; no new component
-    needed)."""
+    needed). Returns None on data-fetch shortfall so the caller can
+    fall through to the LLM."""
     import asyncio
     from backend.services.open_close_backtest import run_open_close_backtest
 
@@ -330,6 +331,8 @@ async def _run_open_close_backtest(*, symbol: str, years: int) -> dict:
             run_open_close_backtest, symbol=symbol, period=yf_period,
         )
     except ValueError as e:
+        if "insufficient data" in str(e).lower():
+            return None
         return _slash_error(f"Open/close backtest error: {e}")
     except Exception as e:
         return _slash_error(f"Open/close backtest failed: {str(e)[:200]}")
@@ -878,7 +881,7 @@ def _heuristic_indicator_intent(body: str) -> dict | None:
     }
 
 
-async def _run_indicator_backtest_dict(gd: dict) -> dict:
+async def _run_indicator_backtest_dict(gd: dict) -> Optional[dict]:
     """Heuristic-parser variant — takes a plain dict instead of a regex
     match, otherwise identical to _run_indicator_backtest."""
     import asyncio
@@ -899,6 +902,13 @@ async def _run_indicator_backtest_dict(gd: dict) -> dict:
             threshold=threshold, period=yf_period,
         )
     except ValueError as e:
+        # Data-fetch shortfall (yfinance returned 0 bars, rate-limit,
+        # symbol mis-spelt) → fall through to the LLM hop with
+        # `run_backtest` available. Surfacing the raw error stalled
+        # the conversation; the LLM can at least explain or offer an
+        # alternative window/symbol.
+        if "insufficient data" in str(e).lower():
+            return None
         return _slash_error(f"Backtest error: {e}")
     except Exception as e:
         return _slash_error(f"Backtest failed: {str(e)[:200]}")
@@ -925,11 +935,14 @@ async def _run_indicator_backtest_dict(gd: dict) -> dict:
     }
 
 
-async def _run_indicator_backtest(m: "re.Match[str]") -> dict:
+async def _run_indicator_backtest(m: "re.Match[str]") -> Optional[dict]:
     """Convert a regex match into a call into
     `services.indicator_backtest.run_indicator_backtest`. The chat router
     runs in async context but the backtester is sync (CPU-bound +
-    yfinance HTTP); we offload via `asyncio.to_thread`."""
+    yfinance HTTP); we offload via `asyncio.to_thread`.
+
+    Returns None on data-fetch shortfalls so the caller falls through
+    to the LLM hop (which still has `run_backtest` available)."""
     import asyncio
     from backend.services.indicator_backtest import run_indicator_backtest
 
@@ -952,6 +965,8 @@ async def _run_indicator_backtest(m: "re.Match[str]") -> dict:
             threshold=threshold, period=yf_period,
         )
     except ValueError as e:
+        if "insufficient data" in str(e).lower():
+            return None
         return _slash_error(f"Backtest error: {e}")
     except Exception as e:
         return _slash_error(f"Backtest failed: {str(e)[:200]}")
