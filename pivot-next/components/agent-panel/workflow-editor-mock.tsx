@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type {
   Step,
   StepTypeCatalog,
@@ -410,8 +411,30 @@ export function WorkflowEditorMock({
         </div>
       </header>
 
-      {/* Step list + add buttons */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      {/* Step list + add buttons. Background gets a subtle grid for a
+          technical "canvas" feel — it's a CSS gradient, no extra
+          asset, no runtime cost. The mask gradient softens the edges
+          so the grid doesn't fight with the steps. */}
+      <div
+        className={cn(
+          "relative flex-1 overflow-y-auto px-6 py-5",
+        )}
+      >
+        <div
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-0",
+            "[background-image:linear-gradient(to_right,rgba(127,127,127,0.07)_1px,transparent_1px),linear-gradient(to_bottom,rgba(127,127,127,0.07)_1px,transparent_1px)]",
+            "[background-size:32px_32px]",
+            "[mask-image:radial-gradient(ellipse_at_center,black_55%,transparent_95%)]",
+          )}
+        />
+        {/* Faint vignette for depth */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background/40"
+        />
+        <div className="relative">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -454,6 +477,7 @@ export function WorkflowEditorMock({
             <Plus className="h-4 w-4" aria-hidden="true" />
             {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}
           </Button>
+        </div>
         </div>
       </div>
 

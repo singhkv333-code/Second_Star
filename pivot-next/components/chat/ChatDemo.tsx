@@ -15,10 +15,21 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, Loader2, Send } from "lucide-react";
+import {
+  Bot,
+  Command,
+  Loader2,
+  Paperclip,
+  Send,
+  Sparkles,
+  Workflow as WorkflowIcon,
+  LineChart,
+  Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import {
   WorkflowDraftCard,
   draftToWorkflow,
@@ -90,11 +101,20 @@ type SseEvent =
  * The caller owns the AbortController so it can cancel mid-stream.
  * On 401 this function wipes the JWT and reloads (same guard as callChat).
  */
+/** Optional mode hint the FE attaches to a chat request. The backend
+ * uses this to deterministically route tool selection — picking
+ * Automation forces the immediate-order family, Agent forces
+ * propose_workflow, Backtest forces the backtester paths.  When
+ * `null` the backend falls back to its inferred classifier. */
+export type ChatMode = "automation" | "agent" | "backtest" | null;
+
 async function* streamChat(
   userMessage: string,
   history: ChatHistoryMessage[],
   token: string | null,
   signal: AbortSignal,
+  conversationId: string,
+  mode: ChatMode,
 ): AsyncGenerator<SseEvent> {
   const base =
     (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
@@ -116,7 +136,19 @@ async function* streamChat(
   const res = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ messages, include_portfolio_context: true }),
+    body: JSON.stringify({
+      messages,
+      include_portfolio_context: true,
+      // Per-session conversation_id — generated once per ChatDemo
+      // mount in the React tree. The backend keys its Redis-stored
+      // active draft / pending clarification under this id, so a
+      // fresh session id ensures we never inherit yesterday's draft.
+      conversation_id: conversationId,
+      // Optional mode hint. When the user clicks Automation / Agent /
+      // Backtest below the composer, we pass that intent to the
+      // backend deterministically. Null = classifier decides.
+      mode,
+    }),
     cache: "no-store",
     signal,
   });
@@ -182,25 +214,83 @@ async function* streamChat(
 // ---------------------------------------------------------------------------
 
 /**
- * Quick "show me X" ticker shortcut. Three accepted shapes:
- *   1. bare ticker: "RELIANCE"
+ * Quick "show me X" ticker shortcut. Now CASE-INSENSITIVE — "RELIANCE",
+ * "Reliance", and "reliance" all open the snapshot card. Previously
+ * the bare-ticker regex only accepted uppercase, which surprised users
+ * who expected case-insensitive ticker recognition (PDF report:
+ * "stock widget triggers only when I type the ticker in CAPS").
+ *
+ * Accepted shapes:
+ *   1. bare ticker (case-insensitive): "RELIANCE", "Reliance", "reliance"
  *   2. snapshot phrase: "show me reliance", "what about TCS?", "INFY snapshot"
  *   3. with leading $: "$RELIANCE"
  *
- * If no phrase pattern matches we fall through to the LLM. The earlier
- * regex-only path missed everything except #1 and forced users to type
- * exactly the ticker — too narrow.
+ * Common-name aliases (zomato → ETERNAL after the IPO rebrand) are
+ * resolved here so users don't see "no quote available for ZOMATO.NSE".
+ *
+ * If no phrase pattern matches we fall through to the LLM.
  */
+
+/** Common-name → NSE-ticker aliases. Lowercased keys. */
+const TICKER_ALIASES: Record<string, string> = {
+  zomato: "ETERNAL",
+  // Eternal Limited (formerly Zomato) — listed under ETERNAL on NSE
+  // since the 2025 rebrand. Without this, the user typing "zomato"
+  // gets a "no quote" error (PDF report).
+  swiggy: "SWIGGY",
+  paytm: "PAYTM",
+  hdfc: "HDFCBANK",       // most-asked HDFC variant
+  icici: "ICICIBANK",
+  sbi: "SBIN",
+  hul: "HINDUNILVR",
+  "tata steel": "TATASTEEL",
+  "tata motors": "TATAMOTORS",
+  "tata power": "TATAPOWER",
+  "bajaj finance": "BAJFINANCE",
+  reliance: "RELIANCE",
+  infy: "INFY",
+  infosys: "INFY",
+  tcs: "TCS",
+};
+
+function resolveTickerAlias(raw: string): string {
+  const k = raw.trim().toLowerCase();
+  return TICKER_ALIASES[k] ?? raw.toUpperCase();
+}
+
 function extractTicker(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
 
-  // Bare ticker (the original case).
-  if (/^[A-Z]{2,12}$/.test(trimmed)) return trimmed;
+  // Strip a trailing "?" so "Reliance?" still snapshots.
+  const noQ = trimmed.replace(/\?+$/, "").trim();
+
+  // Bare ticker. Two acceptance branches so we don't snapshot common
+  // English words ("something", "anything") just because they look
+  // like tickers:
+  //   1. ALL-UPPERCASE — a deliberate ticker keystroke ("RELIANCE").
+  //   2. Alias hit — case-insensitive match against the alias map
+  //      ("Reliance", "zomato", "hdfc"). Mixed case without an
+  //      alias entry falls through to the LLM.
+  // M&M / L&T / BAJAJ-AUTO survive because they're uppercase or
+  // already aliased.
+  if (/^[A-Z][A-Z0-9&\-_]{1,14}$/.test(noQ)) {
+    const upper = noQ.toUpperCase();
+    if (STOPWORDS.has(upper)) return null;
+    return upper;
+  }
+  if (/^[A-Za-z][A-Za-z0-9&\- _]{1,19}$/.test(noQ)) {
+    const lower = noQ.toLowerCase();
+    if (TICKER_ALIASES[lower]) return TICKER_ALIASES[lower] ?? null;
+  }
 
   // $RELIANCE
-  const dollarMatch = /^\$([A-Z]{2,12})\b/.exec(trimmed);
-  if (dollarMatch) return dollarMatch[1] ?? null;
+  const dollarMatch = /^\$([A-Za-z]{2,15})\b/.exec(noQ);
+  if (dollarMatch) {
+    const sym = dollarMatch[1] ?? null;
+    if (!sym || STOPWORDS.has(sym.toUpperCase())) return null;
+    return resolveTickerAlias(sym);
+  }
 
   // Phrase patterns: require an explicit verb cue AND a short total
   // message length. Snapshot intents are phrases ("show me INFY",
@@ -209,12 +299,12 @@ function extractTicker(text: string): string | null {
   // a long workflow description would match `/(\w)\s+price/` and
   // mis-route to the snapshot card with the conjunction as the
   // ticker (e.g. "no quote available for IF.NSE").
-  if (trimmed.length > 40) return null;
+  if (noQ.length > 40) return null;
 
-  const lower = trimmed.toLowerCase();
+  const lower = noQ.toLowerCase();
   const phrasePatterns = [
-    /^(?:show|show me|what about|how(?:'s| is| about)|tell me about|price of|quote for|snapshot of|chart for)\s+([a-z]{2,12})\b/,
-    /^([a-z]{2,12})\s+(?:snapshot|quote|price|chart)\s*\??\s*$/,
+    /^(?:show|show me|what about|how(?:'s| is| about)|tell me (?:more )?about|price of|quote for|snapshot of|chart for)\s+([a-z]{2,15})\b/,
+    /^([a-z]{2,15})\s+(?:snapshot|quote|price|chart)\s*\??\s*$/,
   ];
   for (const re of phrasePatterns) {
     const m = re.exec(lower);
@@ -222,24 +312,34 @@ function extractTicker(text: string): string | null {
       const raw = m[1];
       if (!raw) continue;
       const candidate = raw.toUpperCase();
-      if (!STOPWORDS.has(candidate)) return candidate;
+      if (STOPWORDS.has(candidate)) continue;
+      return resolveTickerAlias(raw);
     }
   }
   return null;
 }
 
-/** Words that look like tickers but are clearly conversational filler. */
+/** Words that look like tickers but are clearly conversational filler.
+ *  Expanded with the cases reported in the PDF: "ALL" (treated as a
+ *  ticker on the exit-positions confirmation), "INTRADAY", and several
+ *  short follow-up replies that should never become snapshot cards. */
 const STOPWORDS = new Set([
   // Greetings / acknowledgements
   "HI", "HELLO", "HEY", "OK", "OKAY", "YES", "NO", "PLEASE", "THANKS", "BYE",
-  "SURE", "MAYBE",
+  "SURE", "MAYBE", "FINE",
   // Question words
-  "WHAT", "WHEN", "WHY", "WHO", "HOW",
+  "WHAT", "WHEN", "WHY", "WHO", "HOW", "WHICH", "WHERE",
   // Conjunctions / prepositions (caught when message slips past length gate)
   "IF", "AT", "ON", "IN", "BY", "AS", "IS", "OF", "TO", "OR", "AND", "BUT",
   "FOR", "WITH", "FROM", "THE", "AN", "BE",
   // Verb-ish words that look like tickers
-  "SHOW", "TELL", "BUY", "SELL", "RUN", "GET", "SET", "ADD",
+  "SHOW", "TELL", "BUY", "SELL", "RUN", "GET", "SET", "ADD", "EDIT",
+  // Quantifiers / scope words that surfaced as fake tickers in PDF
+  "ALL", "NONE", "ANY", "EVERY", "EACH", "BOTH",
+  // Order-type / scope qualifiers (PDF: "INTRADAY only" turned into a ticker)
+  "INTRADAY", "DELIVERY", "MIS", "CNC", "MARKET", "LIMIT", "GTT", "SL",
+  // Acknowledgement / clarification answers
+  "DONE", "GOT", "GOTIT", "ACTIVATE", "CONFIRM", "PROCEED", "CANCEL",
 ]);
 
 function getToken(): string | null {
@@ -408,12 +508,40 @@ type ChatDemoProps = {
   onPrefillConsumed?: () => void;
 };
 
+/** Per-mount session id. Generated once on component mount; sent
+ * with every chat request so the backend keys its Redis-stored
+ * active draft + pending clarification + conversation history
+ * under this id. A new ChatDemo mount = a fresh session = no
+ * inherited state from prior sessions.
+ *
+ * Why per-mount and not per-user: the backend used to key under
+ * `u{user_id}` which is stable for the user's lifetime, so opening
+ * a new chat the next day still resurfaced the prior session's
+ * workflow draft (PDF report). Per-mount fixes that root cause.
+ */
+function newSessionId(): string {
+  // crypto.randomUUID is available in modern browsers; fall back
+  // to a low-entropy random string for very old environments.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `s_${crypto.randomUUID()}`;
+  }
+  return `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoProps): React.ReactElement {
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  // Mode pill state. null = auto (classifier decides). Toggled from
+  // the pills below the composer. Persists across turns so the user
+  // can stay "in agent mode" while iterating on a workflow.
+  const [mode, setMode] = useState<ChatMode>(null);
   // Rolling history for the backend's conversation context
   const historyRef = useRef<ChatHistoryMessage[]>([]);
+  // Stable per-session id. Generated lazily inside useRef so it survives
+  // re-renders but is regenerated on a fresh mount.
+  const sessionIdRef = useRef<string>("");
+  if (!sessionIdRef.current) sessionIdRef.current = newSessionId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Scroll container — kept pinned to the bottom while messages stream
   // in, the same auto-follow behaviour ChatGPT/Claude use.
@@ -526,8 +654,22 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     setMessages((prev) => [...prev, { kind: "user", text: trimmed }]);
     setIntent("");
 
-    // Bare ticker shortcut — no API call.
-    const ticker = extractTicker(trimmed);
+    // Bare ticker shortcut — no API call. SKIP the shortcut when the
+    // last assistant turn ended with a clarification ask: a one-word
+    // reply ("ALL", "yes", "intraday only") is the answer to that
+    // question, not a snapshot request. Without this gate the user's
+    // "ALL" reply to "do you want all positions or intraday only?"
+    // got rendered as a `no quote available for ALL.NSE` error
+    // (PDF report).
+    const lastAssistant = [...historyRef.current]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    const lookedLikeClarification =
+      !!lastAssistant &&
+      /\?\s*$|please (?:share|specify|provide|confirm|reply|answer)|\bwhich\b|\bhow many\b|\b(all|intraday)\b/i
+        .test(lastAssistant.content.trim().slice(-300));
+
+    const ticker = lookedLikeClarification ? null : extractTicker(trimmed);
     if (ticker) {
       setMessages((prev) => [
         ...prev,
@@ -537,6 +679,24 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
           intro: `Here's a quick snapshot for ${ticker} — price, day range, and the basics are below.`,
         },
       ]);
+      // CRITICAL: seed the rolling history with synthetic turns so the
+      // BACKEND knows the user just looked at this ticker. Without this,
+      // typing "zomato" → snapshot → "buy 10 shares" sends an empty
+      // context to /chat and the LLM asks "which stock?". The user
+      // saw the ETERNAL card a turn ago — context resolution should
+      // be obvious. We fake the assistant turn the FE rendered locally
+      // so the LLM sees a coherent transcript.
+      historyRef.current = [
+        ...historyRef.current,
+        { role: "user" as const, content: trimmed },
+        {
+          role: "assistant" as const,
+          content: (
+            `Here's a quick snapshot for ${ticker}. ` +
+            `(Most recently mentioned ticker: ${ticker}.)`
+          ),
+        },
+      ].slice(-20);
       return;
     }
 
@@ -566,7 +726,14 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
       // set inside the setter above — wait one tick for the flush.
       await Promise.resolve();
 
-      const gen = streamChat(trimmed, historyRef.current, token, abortCtrl.signal);
+      const gen = streamChat(
+        trimmed,
+        historyRef.current,
+        token,
+        abortCtrl.signal,
+        sessionIdRef.current,
+        mode,
+      );
 
       for await (const event of gen) {
         switch (event.type) {
@@ -925,35 +1092,240 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
 
       {/* Pinned composer — sits below the scrolling thread, never moves
           while messages stream in. */}
-      <div className="shrink-0 border-t bg-background/80 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="rounded-xl border bg-card shadow-sm">
+      <div className="shrink-0 pb-5 pt-3">
+        <ChatComposer
+          textareaRef={textareaRef}
+          value={intent}
+          onChange={setIntent}
+          onKeyDown={handleKeyDown}
+          onSubmit={() => void submit(intent)}
+          loading={loading}
+          mode={mode}
+          onModeChange={setMode}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChatComposer — glassy pill composer with attachment + cmd icons,
+// Send button on the right, and a row of mode pills below
+// (Automation / Agent / Backtest). Inspired by the user's reference
+// image (Image #3 in the v1 design conversation).
+// ---------------------------------------------------------------------------
+
+type ModeMeta = {
+  id: Exclude<ChatMode, null>;
+  label: string;
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  /** Accent ring/glow when active. */
+  accent: string;
+  /** Hint shown on hover. */
+  description: string;
+};
+
+const MODES: ModeMeta[] = [
+  {
+    id: "automation",
+    label: "Automation",
+    icon: Zap,
+    accent:
+      "ring-amber-400/60 bg-amber-400/10 text-amber-200 [--accent:251,191,36]",
+    description: "Single deterministic action — buy, sell, GTT, SIP, square-off",
+  },
+  {
+    id: "agent",
+    label: "Agent",
+    icon: WorkflowIcon,
+    accent:
+      "ring-violet-400/60 bg-violet-400/10 text-violet-200 [--accent:167,139,250]",
+    description: "Multi-step workflow with triggers, fetches, conditions",
+  },
+  {
+    id: "backtest",
+    label: "Backtest",
+    icon: LineChart,
+    accent:
+      "ring-emerald-400/60 bg-emerald-400/10 text-emerald-200 [--accent:52,211,153]",
+    description: "Historical simulation on a strategy or expression",
+  },
+];
+
+function ChatComposer({
+  textareaRef,
+  value,
+  onChange,
+  onKeyDown,
+  onSubmit,
+  loading,
+  mode,
+  onModeChange,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  onChange: (v: string) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onSubmit: () => void;
+  loading: boolean;
+  mode: ChatMode;
+  onModeChange: (m: ChatMode) => void;
+}): React.ReactElement {
+  const activeMeta = mode ? MODES.find((m) => m.id === mode) : null;
+
+  return (
+    <div className="space-y-3" data-testid="chat-composer">
+      {/* Glassmorphism pill — the composer body. The double-border
+          + backdrop-blur + soft outer glow gives the liquid-glass feel
+          without depending on backdrop-filter being supported. */}
+      <div
+        className={cn(
+          "relative rounded-2xl border border-border/60",
+          "bg-card/60 backdrop-blur-xl",
+          "supports-[backdrop-filter]:bg-card/40",
+          "shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_32px_-8px_rgba(0,0,0,0.45)]",
+          "transition-all duration-200",
+          activeMeta &&
+            "ring-1 ring-[rgb(var(--accent)/0.45)] " +
+              "shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_32px_-4px_rgba(var(--accent),0.25)]",
+        )}
+        style={
+          activeMeta
+            ? ({
+                ["--accent" as string]: activeMeta.accent
+                  .match(/--accent:([^\]]+)/)?.[1]
+                  ?.trim(),
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
+        {/* Top sheen — subtle gradient that catches the "glass" reading
+            without becoming AI slop. Visible only in dark mode where
+            the contrast is strongest. */}
+        <div
+          aria-hidden={true}
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"
+        />
         <Textarea
           ref={textareaRef}
-          value={intent}
-          onChange={(e) => setIntent(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={PLACEHOLDER_TEXT}
-          className="min-h-[80px] resize-none rounded-b-none border-0 border-b focus-visible:ring-0 focus-visible:ring-offset-0 text-sm"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={
+            mode === "automation"
+              ? "What order should I place? — e.g. 'buy 10 RELIANCE at market'"
+              : mode === "agent"
+                ? "Describe an automated agent — e.g. 'every weekday 15:25, if cash > ₹50k, buy 5 NIFTYBEES'"
+                : mode === "backtest"
+                  ? "Describe a strategy to backtest — e.g. 'RELIANCE when RSI drops below 30 over 5 years'"
+                  : PLACEHOLDER_TEXT
+          }
+          className={cn(
+            "min-h-[88px] resize-none border-0 bg-transparent text-sm",
+            "rounded-2xl rounded-b-none",
+            "px-4 pt-4 pb-2",
+            "placeholder:text-muted-foreground/70",
+            "focus-visible:ring-0 focus-visible:ring-offset-0",
+          )}
           disabled={loading}
           data-testid="chat-textarea"
           aria-label="Describe your strategy"
         />
-        <div className="flex items-center justify-between px-3 py-2">
-          <p className="text-[11px] text-muted-foreground">
-            Cmd+Enter to send
-          </p>
+        {/* Hairline divider — pure light/dark border */}
+        <div className="h-px bg-border/50" aria-hidden={true} />
+        {/* Footer row: attachment + cmd hint left, Send right */}
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg",
+                "border border-border/50 bg-background/40 text-muted-foreground",
+                "hover:bg-background/70 hover:text-foreground transition-colors",
+              )}
+              aria-label="Attach"
+              tabIndex={-1}
+            >
+              <Paperclip className="h-3.5 w-3.5" aria-hidden={true} />
+            </button>
+            <span
+              className={cn(
+                "flex h-8 items-center gap-1 rounded-lg px-2",
+                "border border-border/50 bg-background/40 text-[11px]",
+                "text-muted-foreground tabular-nums",
+              )}
+              aria-label="Keyboard shortcut: Cmd+Enter"
+            >
+              <Command className="h-3 w-3" aria-hidden={true} />
+              <span className="hidden sm:inline">Enter</span>
+            </span>
+          </div>
           <Button
             size="sm"
-            onClick={() => void submit(intent)}
-            disabled={!intent.trim() || loading}
+            onClick={onSubmit}
+            disabled={!value.trim() || loading}
             data-testid="chat-submit-btn"
             aria-label="Send"
+            className={cn(
+              "h-8 rounded-lg px-3 gap-1.5",
+              activeMeta &&
+                "bg-[rgb(var(--accent))] text-background hover:bg-[rgb(var(--accent)/0.9)]",
+            )}
           >
-            <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden={true} />
-            Send
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />
+            ) : (
+              <Send className="h-3.5 w-3.5" aria-hidden={true} />
+            )}
+            <span>Send</span>
           </Button>
         </div>
       </div>
+
+      {/* Mode pills — Automation / Agent / Backtest. Click toggles
+          the mode (click again to deselect → auto). The active pill
+          gets a colored ring + light fill, matching its accent. */}
+      <div className="flex items-center justify-center gap-2">
+        {MODES.map((m) => {
+          const Icon = m.icon;
+          const isActive = mode === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onModeChange(isActive ? null : m.id)}
+              data-testid={`mode-${m.id}`}
+              data-active={isActive}
+              aria-pressed={isActive}
+              title={m.description}
+              className={cn(
+                "group relative inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
+                "text-[11px] font-medium transition-all duration-200",
+                "border bg-card/50 backdrop-blur-md",
+                "supports-[backdrop-filter]:bg-card/30",
+                isActive
+                  ? cn(
+                      "ring-1",
+                      m.accent,
+                      "border-transparent text-foreground",
+                    )
+                  : cn(
+                      "border-border/60 text-muted-foreground",
+                      "hover:text-foreground hover:border-border",
+                    ),
+              )}
+            >
+              <Icon className="h-3 w-3" aria-hidden={true} />
+              <span>{m.label}</span>
+              {isActive && (
+                <Sparkles
+                  className="h-2.5 w-2.5 opacity-70"
+                  aria-hidden={true}
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

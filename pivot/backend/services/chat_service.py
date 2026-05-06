@@ -60,6 +60,7 @@ from backend.prompts import build_system_prompt
 from backend.prompts.assembler import UserContext as PromptUserContext
 from backend.services.chat_trace import TurnTrace, start_turn
 from backend.services.conversation_store import (
+    CONV_PROMPT_WINDOW_TURNS,
     ActiveDraft,
     ConversationStore,
     PendingToolCall,
@@ -150,12 +151,37 @@ _AGENT_INTENT_RE = re.compile(
     r"\s*\d+\s*%"
     # "X% dip" / "5% drop" + ANY action verb — same fetch-required shape
     r"|\b\d+\s*%\s*(?:dip|drop|fall|rise|crash|gain)\b"
-    # Multi-action pattern in one fire — "buy at open AND sell at close",
-    # "buy X then sell Y" — needs a workflow with multiple actions.
+    # Multi-action pattern in one fire WITHOUT explicit quantities —
+    # "buy at open AND sell at close" / "buy then sell" — needs a
+    # workflow with multiple actions. The two-action-with-qtys-NOW
+    # case ("buy 7 RELIANCE and sell 2 ETERNAL") is intercepted
+    # earlier in `_classify_intent` and routed to automation, so
+    # it doesn't fall into this branch.
     r"|\b(?:buy|long)\b[^\.]{0,60}\b(?:and|then)\b[^\.]{0,60}\b(?:sell|exit|short)\b"
     # SIP that includes a condition is an agent (e.g. "SIP ₹5k every
     # Monday IF cash > ₹50k"). Plain SIP without 'if' is automation.
     r"|\bsip\b[^\.]{0,200}\bif\b",
+    re.IGNORECASE,
+)
+
+
+# "Two-action basket NOW" — buy X and sell Y in the same turn, both
+# carrying explicit quantities, with no scheduling / condition. The
+# previous AGENT regex caught this as a workflow, but the user's
+# intent (per PDF report) is two immediate market orders. We classify
+# it here so the LLM sees place_market_order in scope rather than
+# propose_workflow.
+_TWO_ACTION_NOW_RE = re.compile(
+    r"\b(?:buy|long)\b\s+\d+\s+\w+[^\.]{0,80}"
+    r"\b(?:and|&)\b[^\.]{0,80}"
+    r"\b(?:sell|exit|short)\b\s+\d+\s+\w+",
+    re.IGNORECASE,
+)
+_HAS_SCHEDULE_OR_CONDITION_RE = re.compile(
+    r"\bevery\s+(?:monday|tuesday|wednesday|thursday|friday|"
+    r"weekday|day|week|month|hour|minute)\b"
+    r"|\bif\b|\bwhen(?:ever)?\b|\buntil\b|\bafter\b"
+    r"|\bat\s+\d{1,2}:?\d{0,2}\s*(?:am|pm|ist)?\b",
     re.IGNORECASE,
 )
 
@@ -194,9 +220,21 @@ def _classify_intent(message: str) -> str:
     Agent wins ties — better to over-draft a workflow than misfire a
     single immediate tool. 'other' covers data lookups, conversation,
     explanations.
+
+    EXCEPT: a two-action basket NOW ("buy 7 reliance and sell 2
+    eternal") with no scheduling or conditional language is a pair
+    of immediate market orders, not a workflow. The previous regex
+    caught the buy+and+sell shape and routed it to propose_workflow,
+    which then asked for permission and built a daily 15:25 agent
+    around it (PDF report).
     """
     if not message:
         return "other"
+    if (
+        _TWO_ACTION_NOW_RE.search(message)
+        and not _HAS_SCHEDULE_OR_CONDITION_RE.search(message)
+    ):
+        return "automation"
     if _AGENT_INTENT_RE.search(message):
         return "agent"
     if _AUTOMATION_INTENT_RE.search(message):
@@ -209,6 +247,115 @@ def _looks_like_agent_intent(message: str) -> bool:
     distinction; this stays for the few existing call sites that
     just need the agent / not-agent boolean."""
     return _classify_intent(message) == "agent"
+
+
+# ── Independent-vs-dependent prompt detector ────────────────────────
+#
+# Drives whether to inject the cached active workflow draft into the
+# follow-up hint. Without this gate the model treated EVERY follow-up
+# turn as an amendment, mutating last hour's IREDA buy draft into a
+# RELIANCE sell when the user said "sell it" while looking at an
+# Eternal widget — and worse, suffixing a stale "Sell HDFCBANK at 10%
+# profit" card under a "pros and cons of Reliance" answer.
+#
+# The decision is structural — we look at the SHAPE of the message:
+#
+#   DEPENDENT (keep active_draft, treat as amendment):
+#     - Short imperatives that reference no new entity: "yes", "ok do
+#       it", "no 5", "make it 3 instead", "weekday only".
+#     - Pronoun-anchored: "change the qty", "set the trigger to 9:30",
+#       "swap RELIANCE with INFY".
+#     - Explicit amend verbs: "instead", "rename", "remove the email",
+#       "add an SL".
+#
+#   INDEPENDENT (drop active_draft, fresh ask):
+#     - New ticker query: "tell me about XYZ", "RELIANCE", "Eternal".
+#     - Conceptual question: "pros and cons", "what's a SIP", "explain".
+#     - New top-level intent verb that doesn't reference the draft:
+#       "exit my positions", "show portfolio", "am I overexposed", "run
+#       a backtest", "start a 2000 monthly sip".
+#
+# When in doubt: independent. The cost of a false-independent is one
+# extra LLM hop where the model rebuilds the draft from chat history;
+# the cost of a false-dependent is the user gets a workflow-card under
+# their unrelated answer (the most-reported failure shape).
+
+# Verbs / phrasings that indicate a fresh top-level intent. If ANY
+# match, we drop the active draft. Each entry is documented inline so
+# adding a new one is obvious.
+_INDEPENDENT_INTENT_RE = re.compile(
+    # Conceptual / informational asks
+    r"\bpros?\s+and\s+cons?\b"
+    r"|\bwhat\s+(?:is|are|does|do|can)\b"
+    r"|\bhow\s+(?:does|do|is|are|much|many)\b"
+    r"|\bwhy\s+(?:is|does|do|are|should)\b"
+    r"|\bdefine\b|\bexplain\b|\bcompare\b|\boverview\b"
+    # Portfolio / exposure introspection. The "over" / "under" branch
+    # also matches their compound forms ("overexposed", "underweight",
+    # "overweight") — \w* allows the suffix without breaking the leading
+    # \b anchor.
+    r"|\b(?:am\s+i|are\s+we)\b[^\.]{0,40}\b(?:over\w*|under\w*|too)\b"
+    r"|\bover[- ]?expos(?:ed|ure)\b|\bexpos(?:ed|ure)\b"
+    r"|\bshow\s+(?:my|me)\s+(?:portfolio|holdings|positions|p&?l)\b"
+    # Square-off / exit at the top level (not amendment-style)
+    r"|\bexit\s+(?:all\s+)?(?:my\s+)?positions?\b"
+    r"|\bsquare\s*off\b"
+    # Backtest top-level
+    r"|\b(?:run|do|start)\s+(?:a\s+)?backtest\b"
+    # SIP top-level — accept "start a 2000 monthly sip" with the
+    # amount inline. Earlier rule required no number between "a" and
+    # the cadence word and missed the most-typed shape.
+    r"|\bstart\s+a\s+(?:[\d,]+\s+)?(?:monthly|weekly|daily)\b"
+    r"|\bstart\s+a\s+sip\b"
+    # Bare data lookups: "tell me about X", "X price", "what's X at"
+    r"|\btell\s+me\s+(?:more\s+)?about\b"
+    r"|\bsnapshot\s+of\b|\bquote\s+for\b|\bprice\s+of\b"
+    # Help / capabilities
+    r"|\bwhat\s+can\s+you\s+do\b",
+    re.IGNORECASE,
+)
+
+# Verbs / phrasings that explicitly indicate the user IS amending the
+# active draft. When ANY match, we KEEP active_draft even if an
+# independent cue also matched (amend wins ties — explicit > inferred).
+_DEPENDENT_INTENT_RE = re.compile(
+    # Explicit amendment verbs
+    r"\b(?:instead|rather|change|modify|update|edit|tweak|adjust"
+    r"|rename|swap|replace|remove|drop|add|append|insert)\b"
+    # Pronoun reference to the draft
+    r"|\b(?:make\s+it|set\s+it|set\s+the|change\s+the|update\s+the)\b"
+    # "the trigger / the action / the SL / the qty" — refers to a draft slot
+    r"|\bthe\s+(?:trigger|action|condition|step|sl|stop[- ]?loss|"
+    r"quantity|qty|symbol|schedule|notification|email)\b"
+    # Common short amendment shapes
+    r"|^\s*(?:no\s+\d|yes|y|ok(?:ay)?|sure|do\s+it|go\s+ahead|"
+    r"activate|confirm|proceed|please)\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_independent_prompt(message: str) -> bool:
+    """True when the user's message is a fresh top-level intent rather
+    than an amendment to the active draft. Used to decide whether to
+    drop the cached workflow draft from the follow-up hint.
+
+    Returns False for empty / whitespace input — no signal, fall
+    through to default behaviour (keep draft, model decides).
+    """
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    # Explicit amend wins.
+    if _DEPENDENT_INTENT_RE.search(msg):
+        return False
+    if _INDEPENDENT_INTENT_RE.search(msg):
+        return True
+    # Bare ticker (e.g. "RELIANCE", "ETERNAL", "Reliance") is a fresh
+    # data-lookup intent — drop the draft. Length-bounded so it doesn't
+    # match short workflow descriptions.
+    if re.fullmatch(r"\$?[A-Za-z][A-Za-z0-9\-_]{1,15}\??", msg):
+        return True
+    return False
 
 
 @dataclass
@@ -305,6 +452,77 @@ def _build_user_context(ctx: "UserContext") -> Optional[PromptUserContext]:
         holdings_count=holdings_count,
         active_workflows_count=active_workflows,
     )
+
+
+def _format_mode_pin(mode: Optional[str]) -> str:
+    """Render the user's mode-pill choice as a hard system directive.
+
+    The FE composer has three pills (Automation / Agent / Backtest);
+    the active one is sent as `mode` on the chat request. When set,
+    this directive overrides the keyword classifier AND tells the
+    model which tool family to choose. Returns "" when no mode is
+    pinned (the classifier decides).
+
+    The strings are intentionally blunt — without them, the model
+    occasionally still drafts a workflow on an Automation pill turn
+    because a prior workflow draft was sitting in history. Pin the
+    user's intent at the system level so it dominates.
+    """
+    if mode == "automation":
+        return (
+            "## Active mode: AUTOMATION\n"
+            "The user clicked the AUTOMATION pill in the composer. "
+            "They want a SINGLE deterministic action, executed now or "
+            "as a one-off scheduled order. Call exactly ONE of the "
+            "immediate-order tools (`place_market_order`, "
+            "`place_limit_order`, `create_gtt_order`, `create_sl_order`, "
+            "`create_oco_order`, `create_dip_buy`, `create_sip`, "
+            "`squareoff_all_intraday`, `squareoff_symbol`, "
+            "`place_basket_order`).\n"
+            "Do NOT call `propose_workflow`. Do NOT amend a prior "
+            "workflow draft. If a workflow draft was on screen from a "
+            "previous turn, IGNORE it — the user has switched contexts. "
+            "If the user's request is ambiguous (e.g. no quantity), "
+            "call ASK_USER with one focused question."
+        )
+    if mode == "agent":
+        return (
+            "## Active mode: AGENT\n"
+            "The user clicked the AGENT pill in the composer. They "
+            "want a multi-step automated workflow (trigger + optional "
+            "fetch/condition + action(s) + notify). Call "
+            "`propose_workflow` with the full draft as structured "
+            "arguments. Do NOT use single-shot order tools — even if "
+            "the request looks simple, treat it as the action step "
+            "of a workflow."
+        )
+    if mode == "backtest":
+        return (
+            "## Active mode: BACKTEST\n"
+            "The user clicked the BACKTEST pill in the composer. They "
+            "want a historical simulation. Call `run_backtest` (or use "
+            "the deterministic backtest paths the chat router exposes). "
+            "Do NOT call any live-order tool. Do NOT call "
+            "`propose_workflow`. If the request lacks a clear "
+            "indicator/symbol/window, ASK_USER for the missing pieces."
+        )
+    return ""
+
+
+def _format_user_context_block(ctx: PromptUserContext) -> str:
+    """Render a PromptUserContext as the same '## User context' block
+    the assembler used to inline. Returns "" when there's nothing
+    useful to render (no fields populated).
+
+    Kept thin and stable so adjacent system messages can be cached
+    independently — small portfolio number changes only invalidate
+    THIS message's cache region, not the static prefix.
+    """
+    from backend.prompts.assembler import _format_user_context as _f
+    try:
+        return _f(ctx)
+    except Exception:
+        return ""
 
 
 def _history_to_llm_messages(history: list[dict[str, str]]) -> list[LLMMessage]:
@@ -543,6 +761,23 @@ class ChatService:
 
     def _client(self) -> LLMClient:
         return self._llm if self._llm is not None else get_llm_client()
+
+    def _reset_session(self, conv_id: str) -> None:
+        """Wipe per-conv state on a fresh-session signal.
+
+        Defensive: stub stores in tests can implement only a subset of
+        the ConversationStore surface (the relevant tests stub
+        get_history / append / get_pending / set_pending). We swallow
+        AttributeError so a partially-implemented store never breaks
+        production code that legitimately relies on these calls.
+        """
+        for attr in ("clear_active_draft", "clear_pending", "clear"):
+            fn = getattr(self.store, attr, None)
+            if callable(fn):
+                try:
+                    fn(conv_id)
+                except Exception:  # noqa: BLE001 — defensive, never blocks turn
+                    logger.debug("session reset: %s failed", attr, exc_info=True)
 
     def _stash_workflow_draft(
         self, conv_id: str, draft: dict, caption: str = "",
@@ -790,6 +1025,7 @@ class ChatService:
         ctx: UserContext,
         *,
         history_override: list[dict] | None = None,
+        mode_override: Optional[str] = None,
     ) -> ChatTurn:
         turn_started = time.monotonic()
         breakdown: dict[str, int] = {}
@@ -886,12 +1122,56 @@ class ChatService:
         if cancelled is not None:
             return cancelled
 
+        # ── Fresh-session eviction ─────────────────────────────────
+        # When the FE explicitly hands us an EMPTY history list, the
+        # user just opened a new chat. Any active draft / pending
+        # clarification still sitting in Redis from the prior session
+        # under this conv_id MUST go — it's another mechanism for the
+        # "old context bleeds into new chat" failure shape.
+        if history_override is not None and len(history_override) == 0:
+            self._reset_session(conv_id)
+
+        # ── Active-draft eviction (independent prompt, any turn) ───
+        # Evict an active workflow draft when the current message is
+        # a clearly independent top-level intent. Without this, even
+        # turns that are NOT clarification-followups (so the followup
+        # hint never fires) still let stale drafts leak — e.g. user
+        # asks "What are the pros and cons of Reliance?" three turns
+        # after building an HDFCBANK agent, and the model attaches
+        # the stale HDFCBANK card under its prose answer.
+        if _is_independent_prompt(message):
+            stale = self.store.get_active_draft(conv_id)
+            if stale is not None:
+                self.store.clear_active_draft(conv_id)
+                trace.event("active_draft.evicted",
+                            reason="independent_prompt_top",
+                            tool=stale.tool_name)
+
+        # ── Mode-override eviction (explicit user pill) ────────────
+        # When the user clicked Automation or Backtest in the composer,
+        # they EXPLICITLY want a non-workflow route. Drop any cached
+        # workflow draft so the amendment-hint path further down can't
+        # pull the LLM back into propose_workflow. (Agent mode keeps
+        # the draft — that's the "iterate on a workflow" loop.)
+        if mode_override in {"automation", "backtest"}:
+            stale = self.store.get_active_draft(conv_id)
+            if stale is not None:
+                self.store.clear_active_draft(conv_id)
+                trace.event("active_draft.evicted",
+                            reason=f"mode_override:{mode_override}",
+                            tool=stale.tool_name)
+
         # ── Agentic loop setup ─────────────────────────────────────
-        history = (
-            history_override
-            if history_override is not None
-            else self.store.get_history(conv_id, limit=20)
-        )
+        # History window. We CAP this at CONV_PROMPT_WINDOW_TURNS so a
+        # long conversation doesn't keep dragging stale tickers,
+        # stale drafts, and stale clarifications back into context.
+        # Storage stays at CONV_MAX_TURNS for transcript / debug.
+        if history_override is not None:
+            history = history_override[-(CONV_PROMPT_WINDOW_TURNS * 2):]
+        else:
+            history = self.store.get_history(
+                conv_id, limit=CONV_PROMPT_WINDOW_TURNS,
+            )
 
         client = self._client()
         # Per-hop tool router — narrows the visible tool surface from
@@ -902,8 +1182,17 @@ class ChatService:
         # ship a turn with zero tools.
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+        # User-supplied mode pill (Automation / Agent / Backtest from
+        # the FE composer) overrides the keyword classifier
+        # deterministically. Lets users force a route the regex would
+        # have got wrong — and short-circuits the "is this an
+        # automation or an agent?" guesswork the BE has to do otherwise.
+        if mode_override in {"automation", "agent", "backtest"}:
+            intent_kind = mode_override
+            trace.event("mode_override.applied", mode=mode_override)
         is_agent_intent = intent_kind == "agent"
         is_automation_intent = intent_kind == "automation"
+        is_backtest_intent = intent_kind == "backtest"
         # Tool-surface routing per intent class:
         #
         #   agent      → strip immediate-order tools (e.g. place_limit_order),
@@ -914,6 +1203,7 @@ class ChatService:
         #                squareoff are exactly what we want), and DROP
         #                propose_workflow so the model can't reach for it.
         #                A single-action ask shouldn't become a workflow.
+        #   backtest   → narrow to run_backtest + price-history reads.
         #   other      → leave the broad surface alone.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
             "place_market_order", "place_limit_order",
@@ -928,6 +1218,15 @@ class ChatService:
         elif is_automation_intent and selected_names is not None:
             selected_names = (selected_names - {"propose_workflow"}) | (
                 _IMMEDIATE_ORDER_TOOLS
+            )
+        elif is_backtest_intent and selected_names is not None:
+            # Backtest pill → narrow to backtest + read tools. Keep
+            # propose_workflow excluded (no agent-build mid-backtest)
+            # and orders excluded (no live trades from a backtest pill).
+            selected_names = (
+                (selected_names - _IMMEDIATE_ORDER_TOOLS - {"propose_workflow"})
+                | {"run_backtest", "get_price_history", "get_live_price",
+                   "get_52wk_range"}
             )
         tooldefs = _registry_tools_as_tooldefs(selected_names)
         # Route-stable cache key — a fresh hash of the routed toolset
@@ -996,7 +1295,40 @@ class ChatService:
         # but now I'm asking again").
         followup_hint: Optional[LLMMessage] = None
         original_intent: Optional[str] = None
+
+        # ── Active draft eviction (independent prompt) ────────────
+        # Always check the cached draft against the new message —
+        # independent of whether the prior turn was a clarification.
+        # Without this, "pros and cons of Reliance" three turns after
+        # building an HDFCBANK agent inherits the stale draft.
+        active = self.store.get_active_draft(conv_id)
+        if active is not None and _is_independent_prompt(message):
+            self.store.clear_active_draft(conv_id)
+            trace.event("active_draft.evicted",
+                        reason="independent_prompt",
+                        tool=active.tool_name)
+            active = None
+
+        # Build the workflow-hint payload once, reused below.
+        workflow_hint = ""
+        if active is not None and active.tool_name == "propose_workflow":
+            draft_json = json.dumps(active.draft, default=str)[:1800]
+            workflow_hint = (
+                " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
+                "Treat the user's reply as an AMENDMENT to this "
+                "draft — re-emit propose_workflow with the SAME "
+                "steps shape, only mutating the field(s) the user "
+                "addressed. Do NOT switch tools. Do NOT start a "
+                "new draft. Do NOT write a prose 'Do you want me to…?' "
+                "confirmation — the card IS the confirmation surface. "
+                "If the user is clearly proposing a wholly different "
+                "agent, supersede the draft. "
+                f"DRAFT JSON: {draft_json}."
+            )
+
         if history and _looks_like_clarification_followup(history):
+            # CLARIFICATION-FOLLOWUP path — the user is answering a
+            # question we asked. Carry the original intent forward.
             last_assistant = next(
                 (h for h in reversed(history)
                  if isinstance(h, dict) and h.get("role") == "assistant"),
@@ -1010,25 +1342,6 @@ class ChatService:
                 None,
             )
             original_intent = (first_user or {}).get("content") or ""
-            # Active-draft cache (replaces the prior history-regex
-            # scan). When propose_workflow last emitted a draft this
-            # conversation, we have its actual JSON — inject it into
-            # the hint so the model amends THIS shape instead of
-            # reconstructing from chat text.
-            active = self.store.get_active_draft(conv_id)
-            workflow_hint = ""
-            if active is not None and active.tool_name == "propose_workflow":
-                draft_json = json.dumps(active.draft, default=str)[:1800]
-                workflow_hint = (
-                    " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
-                    "Treat the user's reply as an AMENDMENT to this "
-                    "draft — re-emit propose_workflow with the SAME "
-                    "steps shape, only mutating the field(s) the user "
-                    "addressed. Do NOT switch tools. Do NOT start a "
-                    "new draft. If the user is clearly proposing a "
-                    "wholly different agent, supersede the draft. "
-                    f"DRAFT JSON: {draft_json}."
-                )
             followup_hint = LLMMessage(
                 role="system",
                 content=(
@@ -1050,13 +1363,55 @@ class ChatService:
                     "a second round."
                 ),
             )
+        elif active is not None and workflow_hint:
+            # AMENDMENT path — the prior turn wasn't a clarification but
+            # a workflow draft is on screen and the user is mutating it.
+            # Without this branch the LLM defaulted to text "do you want
+            # me to place…?" instead of re-emitting the propose_workflow
+            # tool with the new quantity (PDF user report 2026-05-05).
+            followup_hint = LLMMessage(
+                role="system",
+                content=(
+                    "AMENDMENT TURN. A workflow draft you produced last "
+                    "turn is on screen. The user's CURRENT message is "
+                    f'"{message}" — interpret it as a mutation of THAT '
+                    "draft and re-emit propose_workflow with the same "
+                    "structure and only the fields they changed updated. "
+                    + workflow_hint +
+                    " Re-emit the tool IMMEDIATELY. Do NOT respond with "
+                    "prose like 'Do you want me to…?' or 'Confirm: …' — "
+                    "the freshly emitted card is the confirmation surface."
+                ),
+            )
 
+        # Prompt-cache layout: static prefix FIRST (role rules +
+        # calibration examples + domain primer — same bytes on every
+        # turn for this route), per-user/per-turn payloads SECOND.
+        # OpenAI's prompt cache is keyed on prefix bytes, so anything
+        # that changes turn-to-turn (portfolio totals, the followup
+        # hint with the user's reply, the rolling history) MUST come
+        # after the cached static block. Previously user_context was
+        # baked into the first system message — every portfolio
+        # number change invalidated cache for that user.
         base_messages: list[LLMMessage] = [
             LLMMessage(
                 role="system",
-                content=build_system_prompt(role="chat", user_context=prompt_ctx),
+                content=build_system_prompt(role="chat", user_context=None),
             ),
         ]
+        if prompt_ctx is not None:
+            uc_block = _format_user_context_block(prompt_ctx)
+            if uc_block:
+                base_messages.append(LLMMessage(role="system", content=uc_block))
+        # Mode pin — explicit user pill from the FE composer. This is
+        # treated as a HARD route: the user clicked Automation, so the
+        # LLM must place an order, not draft a workflow. Without this
+        # message the BE-side tool narrowing alone wasn't enough — the
+        # model could still answer in prose or pull a workflow draft
+        # from the prior turn's history.
+        mode_pin = _format_mode_pin(mode_override)
+        if mode_pin:
+            base_messages.append(LLMMessage(role="system", content=mode_pin))
         if followup_hint is not None:
             base_messages.append(followup_hint)
 
@@ -1401,6 +1756,7 @@ class ChatService:
         ctx: UserContext,
         *,
         history_override: list[dict] | None = None,
+        mode_override: Optional[str] = None,
     ) -> AsyncIterator[dict]:
         from backend.llm.openai_client import LLMOpenAI, stream_openai
 
@@ -1530,12 +1886,36 @@ class ChatService:
             }
             return
 
+        # ── Fresh-session eviction (mirror of non-streaming path) ──
+        if history_override is not None and len(history_override) == 0:
+            self._reset_session(conv_id)
+
+        # ── Active-draft eviction (mirror of non-streaming path) ───
+        if _is_independent_prompt(message):
+            stale = self.store.get_active_draft(conv_id)
+            if stale is not None:
+                self.store.clear_active_draft(conv_id)
+                trace.event("active_draft.evicted",
+                            reason="independent_prompt_top",
+                            tool=stale.tool_name)
+
+        # ── Mode-override eviction (mirror of non-streaming path) ──
+        if mode_override in {"automation", "backtest"}:
+            stale = self.store.get_active_draft(conv_id)
+            if stale is not None:
+                self.store.clear_active_draft(conv_id)
+                trace.event("active_draft.evicted",
+                            reason=f"mode_override:{mode_override}",
+                            tool=stale.tool_name)
+
         # ── Agentic loop setup ─────────────────────────────────────
-        history = (
-            history_override
-            if history_override is not None
-            else self.store.get_history(conv_id, limit=20)
-        )
+        # Window-cap mirror of handle().
+        if history_override is not None:
+            history = history_override[-(CONV_PROMPT_WINDOW_TURNS * 2):]
+        else:
+            history = self.store.get_history(
+                conv_id, limit=CONV_PROMPT_WINDOW_TURNS,
+            )
 
         client = self._client()
         # Streaming is currently OpenAI-only (Sarvam doesn't true-stream
@@ -1545,7 +1925,9 @@ class ChatService:
 
         if not can_stream:
             turn = await self.handle(
-                message, conv_id, ctx, history_override=history_override,
+                message, conv_id, ctx,
+                history_override=history_override,
+                mode_override=mode_override,
             )
             yield {"type": "delta", "text": turn.response}
             yield {
@@ -1561,8 +1943,12 @@ class ChatService:
 
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+        if mode_override in {"automation", "agent", "backtest"}:
+            intent_kind = mode_override
+            trace.event("mode_override.applied", mode=mode_override)
         is_agent_intent = intent_kind == "agent"
         is_automation_intent = intent_kind == "automation"
+        is_backtest_intent = intent_kind == "backtest"
         # Streaming mirror of the non-streaming intent routing.
         # See handle() for the full rationale.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
@@ -1578,6 +1964,12 @@ class ChatService:
         elif is_automation_intent and selected_names is not None:
             selected_names = (selected_names - {"propose_workflow"}) | (
                 _IMMEDIATE_ORDER_TOOLS
+            )
+        elif is_backtest_intent and selected_names is not None:
+            selected_names = (
+                (selected_names - _IMMEDIATE_ORDER_TOOLS - {"propose_workflow"})
+                | {"run_backtest", "get_price_history", "get_live_price",
+                   "get_52wk_range"}
             )
         tooldefs = _registry_tools_as_tooldefs(selected_names)
         cache_key = cache_key_for(selected_names)
@@ -1607,6 +1999,32 @@ class ChatService:
         # Carries the original user request inline so the model can't
         # treat the answer as a fresh prompt.
         followup_hint_msg: Optional[LLMMessage] = None
+
+        # Same eviction + amend-vs-clarify split as the non-streaming
+        # path — see handle() for full rationale.
+        active = self.store.get_active_draft(conv_id)
+        if active is not None and _is_independent_prompt(message):
+            self.store.clear_active_draft(conv_id)
+            trace.event("active_draft.evicted",
+                        reason="independent_prompt",
+                        tool=active.tool_name)
+            active = None
+        workflow_hint = ""
+        if active is not None and active.tool_name == "propose_workflow":
+            draft_json = json.dumps(active.draft, default=str)[:1800]
+            workflow_hint = (
+                " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
+                "Treat the user's reply as an AMENDMENT to this "
+                "draft — re-emit propose_workflow with the SAME "
+                "steps shape, only mutating the field(s) the user "
+                "addressed. Do NOT switch tools. Do NOT start a "
+                "new draft. Do NOT write a prose 'Do you want me to…?' "
+                "confirmation — the card IS the confirmation surface. "
+                "If the user is clearly proposing a wholly different "
+                "agent, supersede the draft. "
+                f"DRAFT JSON: {draft_json}."
+            )
+
         if history and _looks_like_clarification_followup(history):
             last_assistant = next(
                 (h for h in reversed(history)
@@ -1620,20 +2038,6 @@ class ChatService:
                 None,
             )
             original_intent = (first_user or {}).get("content") or ""
-            active = self.store.get_active_draft(conv_id)
-            workflow_hint = ""
-            if active is not None and active.tool_name == "propose_workflow":
-                draft_json = json.dumps(active.draft, default=str)[:1800]
-                workflow_hint = (
-                    " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
-                    "Treat the user's reply as an AMENDMENT to this "
-                    "draft — re-emit propose_workflow with the SAME "
-                    "steps shape, only mutating the field(s) the user "
-                    "addressed. Do NOT switch tools. Do NOT start a "
-                    "new draft. If the user is clearly proposing a "
-                    "wholly different agent, supersede the draft. "
-                    f"DRAFT JSON: {draft_json}."
-                )
             followup_hint_msg = LLMMessage(
                 role="system",
                 content=(
@@ -1653,13 +2057,36 @@ class ChatService:
                     "order_type=market) rather than asking a second round."
                 ),
             )
+        elif active is not None and workflow_hint:
+            followup_hint_msg = LLMMessage(
+                role="system",
+                content=(
+                    "AMENDMENT TURN. A workflow draft you produced last "
+                    "turn is on screen. The user's CURRENT message is "
+                    f'"{message}" — interpret it as a mutation of THAT '
+                    "draft and re-emit propose_workflow with the same "
+                    "structure and only the fields they changed updated. "
+                    + workflow_hint +
+                    " Re-emit the tool IMMEDIATELY. Do NOT respond with "
+                    "prose like 'Do you want me to…?' or 'Confirm: …' — "
+                    "the freshly emitted card is the confirmation surface."
+                ),
+            )
 
+        # Same static-first layout as handle() — see comments there.
         base_msgs: list[LLMMessage] = [
             LLMMessage(
                 role="system",
-                content=build_system_prompt(role="chat", user_context=prompt_ctx),
+                content=build_system_prompt(role="chat", user_context=None),
             ),
         ]
+        if prompt_ctx is not None:
+            uc_block = _format_user_context_block(prompt_ctx)
+            if uc_block:
+                base_msgs.append(LLMMessage(role="system", content=uc_block))
+        mode_pin = _format_mode_pin(mode_override)
+        if mode_pin:
+            base_msgs.append(LLMMessage(role="system", content=mode_pin))
         if followup_hint_msg is not None:
             base_msgs.append(followup_hint_msg)
         messages: list[LLMMessage] = [
