@@ -40,11 +40,22 @@ logger = logging.getLogger(__name__)
 
 
 CONV_TTL_SECONDS = 60 * 60 * 24             # 24h
-CONV_MAX_TURNS = 20                          # last N turns kept
+CONV_MAX_TURNS = 20                          # last N turns kept (storage cap)
+# Per-turn prompt window — only the LAST N turns of stored history are
+# injected into the LLM call. Storage stays large for transcript / debug
+# but the prompt context never grows past this. Was 20: too long a tail
+# kept resurfacing stale tickers and stale drafts ("user typed RELIANCE
+# 5 turns ago, now asks 'sell it'" — model picked the wrong it).
+CONV_PROMPT_WINDOW_TURNS = 6
 CONV_PREFIX = "chat:conv:"
 PENDING_TTL_SECONDS = 60 * 10                # 10 min
 PENDING_PREFIX = "chat:pending:"
-ACTIVE_DRAFT_TTL_SECONDS = 60 * 60           # 1 h
+# Active workflow draft TTL: was 1h. A draft that hangs around for an
+# hour leaks into completely unrelated turns (PDF report case: a stale
+# "Sell HDFCBANK at 10% profit" draft appeared under a "pros and cons of
+# Reliance" answer). 10 min is enough to support natural amend-and-
+# activate flows without bleeding across topic shifts.
+ACTIVE_DRAFT_TTL_SECONDS = 60 * 10
 ACTIVE_DRAFT_PREFIX = "chat:active_draft:"
 
 

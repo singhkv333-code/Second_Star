@@ -36,6 +36,11 @@ class ChatRequest(BaseModel):
     messages: list                          # client-carried history (also used as conv_id seed)
     include_portfolio_context: bool = True
     conversation_id: Optional[str] = None   # explicit Redis key when client tracks it
+    # Optional mode hint from the FE (composer mode pills). When set,
+    # the chat service deterministically routes the tool surface to
+    # the matching family — bypassing the keyword classifier. None
+    # means "let the classifier decide", which is the default.
+    mode: Optional[str] = None              # "automation" | "agent" | "backtest"
 
 
 # ---- Helpers -----------------------------------------------------------
@@ -43,6 +48,11 @@ class ChatRequest(BaseModel):
 
 def _auth(authorization: str) -> int:
     if not authorization:
+        # In development mode fall back to the default dev user so the
+        # chat UI works without a login flow.
+        from backend.config import settings as _cfg
+        if getattr(_cfg, "app_env", "development") == "development":
+            return 1
         raise HTTPException(401, "Missing token")
     token = authorization.replace("Bearer ", "")
     user_id = get_user_id_from_token(token)
@@ -260,13 +270,14 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
     if has_backtest_word and (parsed := _parse_open_close_backtest(body)):
         return await _run_open_close_backtest(**parsed)
 
-    # 6. Calendar SIP backtest — "backtest SIP into HDFCBANK monthly
-    #    for 1 year", "backtest weekly SIP on RELIANCE for 3 years",
-    #    "backtest 5000 SIP into INFY every Monday for 2 years".
-    if has_backtest_word and (parsed := _parse_calendar_sip_backtest(body)):
-        return await _run_calendar_sip_backtest(**parsed)
+    # 5b. Weekly close → next-week open swing backtest.
+    #     "buy at last trading day of each week and sell at the open of
+    #     next week" / "buy weekly close sell next week open" /
+    #     "weekend hold on RELIANCE".
+    if has_backtest_word and (parsed := _parse_weekly_swing_backtest(body)):
+        return await _run_weekly_swing_backtest(**parsed)
 
-    # 7. "backtest …" with no parsable shape → deterministic
+    # 6. "backtest …" with no parsable shape → deterministic
     #    capability-gap message. Without this, prompts like
     #    "backtest <something not yet supported>" used to fall
     #    through to the LLM, which would call run_backtest with a
@@ -315,6 +326,151 @@ def _parse_open_close_backtest(body: str) -> dict | None:
             years = int(m.group("years") or 5)
             return {"symbol": sym, "years": years}
     return None
+
+
+# ── Weekly close → next-week open swing ─────────────────────────────
+#
+# Phrasings the user types:
+#   "buy at last trading day of each week and sell at open of next week"
+#   "buy weekly close sell next week open on RELIANCE"
+#   "buy on Friday close and sell on Monday open"
+#   "weekend hold on RELIANCE"
+#
+# We don't try to capture every variant; the gates are loose, and we
+# extract the symbol via verb-anchor like the indicator parser.
+
+_NL_WEEKLY_SWING_RE = re.compile(
+    r"\bbacktest\b.{0,200}?"
+    r"(?:"
+    # Pattern A: "last trading day of (each|the) week" + "open of (next|the next) week"
+    r"\blast\s+(?:trading\s+)?day\s+of\s+(?:each|every|the)\s+week\b"
+    r".{0,80}?\bopen\s+of\s+(?:next|the\s+next|the)\s+week\b"
+    # Pattern B: "weekly close" + "next week open"
+    r"|\bweekly\s+close\b.{0,80}?\bnext\s+week(?:\s+'?s)?\s+open\b"
+    # Pattern C: "Friday close" + "Monday open" (most common informal)
+    r"|\bfriday\s+(?:'?s\s+)?close\b.{0,40}?\bmonday\s+(?:'?s\s+)?open\b"
+    # Pattern D: "weekend hold"
+    r"|\bweekend\s+hold\b"
+    r")",
+    re.IGNORECASE | re.DOTALL,
+)
+_YEARS_BACKTEST_RE = re.compile(
+    r"\b(?:over|for|in)\s+(?:the\s+)?(?:last|past)\s+(?P<years>\d+)\s+years?\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_weekly_swing_backtest(body: str) -> dict | None:
+    """Extract {symbol, years} from a weekly-swing backtest request.
+    Returns None if no match.
+
+    Symbol extraction reuses the indicator-backtest verb-anchor logic
+    so phrasings like "buy reliance at the last trading day of each
+    week" find RELIANCE.
+    """
+    if not _NL_WEEKLY_SWING_RE.search(body):
+        return None
+
+    _STOP = {
+        "EACH", "EVERY", "THE", "NEXT", "LAST", "WEEK", "WEEKS",
+        "FRIDAY", "MONDAY", "OPEN", "CLOSE", "DAY", "DAYS",
+        "TRADING", "WEEKEND", "HOLD", "BUY", "BUYING", "BOUGHT",
+        "SELL", "SELLING", "SOLD", "ON", "FOR", "AT", "OF", "FROM",
+        "TO", "AND", "THEN", "BACKTEST", "RUN", "OVER", "PAST",
+        "YEARS", "YEAR", "MONTHS", "MONTH",
+    }
+
+    sym = None
+    # Walk every word-pair shaped (verb word) — non-overlapping — but
+    # also consider every word that DIRECTLY follows another verb.
+    # The earlier finditer-only approach missed "buying reliance"
+    # when "on buying" was matched first (regex doesn't backtrack into
+    # already-consumed positions). Strategy: tokenize, then for each
+    # verb token, look at the NEXT token; pick the first non-stopword.
+    tokens = [t for t in re.findall(r"[A-Za-z][A-Za-z0-9\-_]*", body)]
+    verbs = {"buy", "buying", "sell", "selling", "bought", "sold",
+             "on", "for", "of", "long", "short"}
+    for i, tok in enumerate(tokens[:-1]):
+        if tok.lower() in verbs:
+            nxt = tokens[i + 1]
+            cand = nxt.upper()
+            if cand not in _STOP and len(cand) >= 3:
+                sym = cand
+                break
+    if sym is None:
+        # Fallback: first ALL-CAPS token in the body that isn't a stopword.
+        for cap in re.finditer(r"\b([A-Z][A-Z0-9\-_]{2,15})\b", body):
+            cand = cap.group(1)
+            if cand not in _STOP:
+                sym = cand
+                break
+    if sym is None:
+        return None
+    # Resolve common-name aliases to canonical NSE tickers (zomato →
+    # ETERNAL, hdfc → HDFCBANK). Same map yfinance_service uses for
+    # snapshot resolution — keeps behaviour consistent across surfaces.
+    try:
+        from backend.market.yfinance_service import NAME_TO_TICKER
+        alias = NAME_TO_TICKER.get(sym.lower())
+        if alias and alias.upper() != sym:
+            sym = alias.upper()
+    except Exception:
+        pass
+    years_m = _YEARS_BACKTEST_RE.search(body)
+    years = int(years_m.group("years")) if years_m else 5
+    return {"symbol": sym, "years": years}
+
+
+async def _run_weekly_swing_backtest(*, symbol: str, years: int) -> Optional[dict]:
+    """Call services.open_close_backtest.run_weekly_swing_backtest and
+    shape the result for the FE's FinancialBacktestCard (same card as
+    the daily roundtrip — different summary text and different metrics).
+
+    Returns None on data-fetch shortfall so the LLM can take over.
+    """
+    import asyncio
+    from backend.services.open_close_backtest import run_weekly_swing_backtest
+
+    yf_period = f"{years}y"
+    try:
+        result = await asyncio.to_thread(
+            run_weekly_swing_backtest, symbol=symbol, period=yf_period,
+        )
+    except ValueError as e:
+        if "insufficient data" in str(e).lower():
+            return None
+        return _slash_error(f"Weekly-swing backtest error: {e}")
+    except Exception as e:
+        return _slash_error(f"Weekly-swing backtest failed: {str(e)[:200]}")
+
+    expression = (
+        f"buy {symbol} at last trading day's close, sell at "
+        f"next week's open ({years}y window)"
+    )
+    payload = {
+        "expression": expression,
+        "start": result.start_iso,
+        "end": result.end_iso,
+        "rebalance": "Weekly",
+        "metrics": result.metrics,
+        "equity_curve": result.equity_curve,
+        "benchmark_curve": result.benchmark_curve,
+        "rebalances": [],
+        "n_trades": result.n_trades,
+        "warnings": [],
+    }
+    return {
+        "response": result.summary_text,
+        "intent": "WEEKLY_SWING_BACKTEST",
+        "expr_backtest_data": payload,
+        "raw_data": {
+            "_render_hint": "financial_backtest_chart",
+            **payload,
+        },
+        "screen_data": None, "backtest_data": None,
+        "chart_data": None, "logiccard": None,
+        "requires_clarification": False,
+    }
 
 
 async def _run_open_close_backtest(*, symbol: str, years: int) -> Optional[dict]:
@@ -367,180 +523,6 @@ async def _run_open_close_backtest(*, symbol: str, years: int) -> Optional[dict]
     }
 
 
-# Calendar SIP — "backtest SIP into HDFCBANK monthly for 1 year",
-# "backtest 5000 SIP into RELIANCE every Monday for 3 years",
-# "backtest weekly SIP on INFY for 2 years". Captures: optional
-# rupee installment, symbol, frequency cue, optional weekday or
-# day-of-month, optional years window. Symbol can appear before or
-# after the cadence keyword, hence two variants.
-_NL_SIP_RE_A = re.compile(
-    r"\bbacktest\b.{0,40}?"
-    r"(?:(?:rs\.?|inr|₹)?\s*(?P<amount>\d{2,7})\s*)?"
-    r"(?:rupee|rs\.?|inr|₹)?\s*"
-    r"\bsip\b"
-    # Optional amount AFTER "sip" — covers "sip 5000 rs in HDFCBANK".
-    r"(?:\s*(?:of|for|at)?\s*(?:rs\.?|inr|₹)?\s*"
-    r"(?P<amount2>\d{2,7})\s*(?:rs\.?|inr|₹|rupees?)?\s*)?"
-    r".{0,40}?\b(?:into|on|in|for)\s+"
-    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\b"
-    r"(?:.{0,80}?\b(?P<freq>daily|weekly|monthly|every\s+(?P<weekday>"
-    r"monday|tuesday|wednesday|thursday|friday)|on\s+the\s+"
-    r"(?P<dom>\d{1,2})(?:st|nd|rd|th)?))?"
-    r"(?:.{0,80}?\b(?:for|over|in)\s+(?:the\s+)?(?:last|past)?\s*"
-    r"(?P<years>\d+)\s+years?\b)?",
-    re.IGNORECASE | re.DOTALL,
-)
-_NL_SIP_RE_B = re.compile(
-    r"\bbacktest\b.{0,40}?"
-    r"(?:(?:rs\.?|inr|₹)?\s*(?P<amount>\d{2,7})\s*)?"
-    r"(?P<freq>daily|weekly|monthly)\s+\bsip\b"
-    r"(?:\s*(?:of|for|at)?\s*(?:rs\.?|inr|₹)?\s*"
-    r"(?P<amount2>\d{2,7})\s*(?:rs\.?|inr|₹|rupees?)?\s*)?"
-    r".{0,40}?\b(?:into|on|in|for)\s+"
-    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\b"
-    r"(?:.{0,80}?\b(?:every\s+(?P<weekday>monday|tuesday|wednesday|thursday|friday)"
-    r"|on\s+the\s+(?P<dom>\d{1,2})(?:st|nd|rd|th)?))?"
-    r"(?:.{0,80}?\b(?:for|over|in)\s+(?:the\s+)?(?:last|past)?\s*"
-    r"(?P<years>\d+)\s+years?\b)?",
-    re.IGNORECASE | re.DOTALL,
-)
-_WEEKDAY_TO_INT = {
-    "monday": 0, "tuesday": 1, "wednesday": 2,
-    "thursday": 3, "friday": 4,
-}
-
-
-def _parse_calendar_sip_backtest(body: str) -> dict | None:
-    """Extract {symbol, frequency, day_of_week, day_of_month, amount,
-    years} from a free-form SIP backtest prompt. Returns None if no
-    SIP shape matches.
-
-    Heuristics:
-      - Default frequency = monthly (matches the broker UX default).
-      - "every Monday" → weekly + day_of_week=0.
-      - "on the 5th" → monthly + day_of_month=5.
-      - Default installment = ₹10k; ignore very small numbers
-        (< ₹100) since those are almost always referring to
-        something else (years, weekday ordinals).
-    """
-    for rx in (_NL_SIP_RE_B, _NL_SIP_RE_A):
-        m = rx.search(body)
-        if not m:
-            continue
-        sym = m.group("symbol").upper()
-        # SIP isn't a ticker; keep parsing if the regex picked it up
-        # because of weird word ordering.
-        if sym in {"SIP", "INTO", "EVERY", "MONTHLY", "WEEKLY", "DAILY"}:
-            continue
-        freq_raw = (m.group("freq") or "").lower().strip()
-        weekday = (m.groupdict().get("weekday") or "").lower().strip()
-        dom_str = (m.groupdict().get("dom") or "").strip()
-
-        if "every" in freq_raw or weekday:
-            frequency = "weekly"
-        elif freq_raw.startswith("on") or dom_str:
-            frequency = "monthly"
-        elif freq_raw in {"daily", "weekly", "monthly"}:
-            frequency = freq_raw
-        else:
-            frequency = "monthly"
-
-        day_of_week = _WEEKDAY_TO_INT.get(weekday) if weekday else None
-        try:
-            day_of_month = (
-                max(1, min(28, int(dom_str))) if dom_str else None
-            )
-        except ValueError:
-            day_of_month = None
-
-        years = int(m.group("years") or 1)
-        # Amount may appear before "sip" (₹5000 SIP) or after it
-        # (sip 5000 rs in …). Either group is fine; first non-empty wins.
-        amt_str = m.group("amount") or m.groupdict().get("amount2")
-        try:
-            amount = float(amt_str) if amt_str and int(amt_str) >= 100 else 10_000.0
-        except (TypeError, ValueError):
-            amount = 10_000.0
-
-        return {
-            "symbol": sym,
-            "frequency": frequency,
-            "day_of_week": day_of_week,
-            "day_of_month": day_of_month,
-            "installment": amount,
-            "years": years,
-        }
-    return None
-
-
-async def _run_calendar_sip_backtest(
-    *,
-    symbol: str,
-    frequency: str,
-    day_of_week: int | None,
-    day_of_month: int | None,
-    installment: float,
-    years: int,
-) -> dict:
-    """Call services.calendar_sip_backtest and shape the result for
-    the FE's FinancialBacktestCard (reused — no new component)."""
-    import asyncio
-    from backend.services.calendar_sip_backtest import run_calendar_sip_backtest
-
-    yf_period = f"{years}y"
-    try:
-        result = await asyncio.to_thread(
-            run_calendar_sip_backtest,
-            symbol=symbol,
-            frequency=frequency,  # type: ignore[arg-type]
-            day_of_week=day_of_week,
-            day_of_month=day_of_month,
-            installment=installment,
-            period=yf_period,
-        )
-    except ValueError as e:
-        return _slash_error(f"SIP backtest error: {e}")
-    except Exception as e:
-        return _slash_error(f"SIP backtest failed: {str(e)[:200]}")
-
-    cadence_label = frequency
-    if frequency == "weekly" and day_of_week is not None:
-        cadence_label = f"weekly (day-of-week {day_of_week})"
-    elif frequency == "monthly" and day_of_month is not None:
-        cadence_label = f"monthly (day-of-month {day_of_month})"
-    expression = (
-        f"₹{installment:,.0f} {cadence_label} SIP into {symbol} "
-        f"({years}y window)"
-    )
-    rebalance_label = {
-        "daily": "Daily", "weekly": "Weekly", "monthly": "Monthly",
-    }.get(frequency, frequency.title())
-    payload = {
-        "expression": expression,
-        "start": result.start_iso,
-        "end": result.end_iso,
-        "rebalance": rebalance_label,
-        "metrics": result.metrics,
-        "equity_curve": result.equity_curve,
-        "benchmark_curve": result.benchmark_curve,
-        "rebalances": [],
-        "n_trades": result.n_trades,
-        "warnings": [],
-    }
-    return {
-        "response": result.summary_text,
-        "intent": "CALENDAR_SIP_BACKTEST",
-        "expr_backtest_data": payload,
-        "raw_data": {
-            "_render_hint": "financial_backtest_chart",
-            **payload,
-        },
-        "screen_data": None, "backtest_data": None,
-        "chart_data": None, "logiccard": None,
-        "requires_clarification": False,
-    }
-
-
 # Indicator / fundamentals tokens — if any of these is in the body,
 # the strict regexes above SHOULD have matched (and we wouldn't be
 # here). Presence here means the user wrote a backtest ask in a
@@ -580,15 +562,16 @@ def _unsupported_backtest_message(body: str) -> dict:
             "- **Open → close intraday roundtrip** — e.g. "
             "`backtest buy open sell close on RELIANCE over the "
             "last 5 years`\n"
-            "- **Calendar SIP** (daily / weekly / monthly fixed-rupee "
-            "buy) — e.g. `backtest SIP into HDFCBANK monthly for "
-            "1 year`\n"
+            "- **Weekly close → next-week open swing** — e.g. "
+            "`backtest buying RELIANCE at the last trading day of "
+            "each week and selling at the open of next week over "
+            "the last 5 years` (weekend-hold variant)\n"
             "- **Fundamentals expression on the universe** — e.g. "
             "`backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31 "
             "quarterly`\n\n"
-            "Other order-flow shapes (event-driven, news, options) "
-            "aren't backtestable yet — but I can draft a live agent "
-            "for those. Which would you like?"
+            "Calendar SIPs (every Monday) and other order-flow "
+            "shapes aren't backtestable yet — but I can draft a "
+            "live agent for those. Which would you like?"
         )
     return {
         "response": text, "intent": "BACKTEST_UNSUPPORTED",
@@ -1251,8 +1234,14 @@ async def chat(
     ctx = UserContext(user_id=user_id, kite_token=kite_token, db=db, holdings=holdings)
     conv_id = _conv_id(request, user_id)
 
-    # The frontend currently sends the rolling history in `messages`. Until
-    # the client switches to using ``conversation_id`` we honour that.
+    # The frontend always sends the rolling history in `messages` — that
+    # IS the per-session window. We pass it through verbatim (capped to
+    # the last N pairs in the service) and DO NOT fall back to Redis-
+    # stored history when the FE's window is empty. This was the root
+    # cause of the "new chat starts with old context from a different
+    # workflow" bug in the PDF report — Redis kept 24h of history under
+    # the per-user conv_id, so opening a fresh chat with `messages=[]`
+    # in the request still resurfaced the prior session's draft.
     history = [
         {"role": m.get("role"), "content": m.get("content", "")}
         for m in (request.messages or [])
@@ -1263,7 +1252,10 @@ async def chat(
 
     turn = await _chat_service.handle(
         last_msg, conv_id, ctx,
-        history_override=history if history else None,
+        # Always pass the FE's history (even when empty) — this is the
+        # session boundary signal. None would re-hydrate from Redis.
+        history_override=history,
+        mode_override=request.mode,
     )
 
     if turn.sanitised:
@@ -1351,6 +1343,8 @@ async def chat_stream(
 
     ctx = UserContext(user_id=user_id, kite_token=kite_token, db=db, holdings=holdings)
     conv_id = _conv_id(request, user_id)
+    # Same per-session policy as the non-streaming path — see comment
+    # above. FE-supplied messages list IS the session history.
     history = [
         {"role": m.get("role"), "content": m.get("content", "")}
         for m in (request.messages or [])
@@ -1398,7 +1392,8 @@ async def chat_stream(
         try:
             async for event in _chat_service.handle_stream(
                 last_msg, conv_id, ctx,
-                history_override=history if history else None,
+                history_override=history,  # always honour FE-sent window
+                mode_override=request.mode,
             ):
                 # Hoist nested-tool render hints up to top level so the
                 # FE consumes the same shape as POST /chat. We only need

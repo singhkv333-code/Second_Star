@@ -372,6 +372,35 @@ def hydrate_basket_allocation(
     if limit < 1 or limit > 50:
         raise ValueError(f"limit must be 1..50; got {limit}")
 
+    # Normalise the sector so the LLM can pass natural phrasings like
+    # "mining", "mining stocks", "EV plays", "AI stocks" — the screener
+    # wants the canonical SectorName ("metals", "auto", "it"). Without
+    # normalisation, "build a similar SIP for mining stocks" fails
+    # validation because the screener can't find a sector named
+    # "mining stocks" (PDF report).
+    from backend.services.sector_universe import (
+        known_sectors, normalize_sector, resolve_theme,
+    )
+    raw_sector = (sector or "").strip()
+    raw_lc = raw_sector.lower()
+    # Strip trailing "stocks" / "shares" / "plays" / "names" so the
+    # alias map matches "mining" rather than "mining stocks".
+    for tail in (" stocks", " shares", " plays", " names", " companies"):
+        if raw_lc.endswith(tail):
+            raw_lc = raw_lc[: -len(tail)].rstrip()
+    canonical = normalize_sector(raw_lc)
+    if canonical is None:
+        # Try the theme path next ("AI", "EV", "renewables").
+        theme = resolve_theme(raw_lc)
+        if theme and theme.sectors:
+            canonical = theme.sectors[0]
+    if canonical is None:
+        raise ValueError(
+            f"sector '{raw_sector}' isn't in the universe. "
+            f"Try one of: {', '.join(known_sectors())}."
+        )
+    sector = canonical
+
     days_list = days or ["weekday"]
     minute, hour = _time_to_cron_minute_hour(schedule_time_ist)
     dow_field = _days_to_cron_field(days_list)

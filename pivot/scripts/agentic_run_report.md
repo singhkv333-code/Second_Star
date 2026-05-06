@@ -105,3 +105,4 @@ When the model gives up and shows the catalog (prompts 2, 5, 7), latency is 12â€
 - This report: `pivot/scripts/agentic_run_report.md`
 - Raw JSON output (full responses, step-by-step drafts, latency breakdowns): `pivot/scripts/agentic_run_raw.json`
 - Driver script (ephemeral, in /tmp): `/tmp/pivot_agentic_run.py`
+

@@ -118,35 +118,84 @@ def _lc(type_, action, symbol, details, explanation, *, register_payload=None):
 
 
 def _cached(symbol):
+    """Return the latest known price for `symbol`, in INR.
+
+    Lookup order:
+      1. Redis price cache (Kite tick stream populates this when a
+         user has an open session).
+      2. yfinance live quote — sourced from `market.yfinance_service`.
+         Cached internally for 1h to avoid hammering yfinance on
+         every order draft.
+      3. 0 — caller decides how to render an unknown price (we no
+         longer fall back to a 100 stub; that produced the misleading
+         "Est. Value ₹1,000" cards reported in the PDF).
+    """
     from backend.agents.context_injector import _cached_price
     d = _cached_price(symbol)
-    if not d:
-        return 0
+    if d:
+        try:
+            ltp = float(d.get("ltp", 0))
+            if ltp > 0:
+                return ltp
+        except (TypeError, ValueError):
+            pass
+    # Redis miss → yfinance. This is the source of truth per user's
+    # 2026-05-05 directive: any price-fetching path tied to an order
+    # execution goes through yfinance.
     try:
-        return float(d.get("ltp", 0))
-    except (TypeError, ValueError):
-        return 0
+        from backend.market.yfinance_service import (
+            fetch_price_history, resolve_symbol,
+        )
+        # 5-day daily history is plenty for a "latest close" signal,
+        # cheap, and already Redis-cached inside the helper. Falls
+        # through to a bare-symbol retry if .NS comes back empty.
+        records = fetch_price_history(symbol, period="5d", interval="1d")
+        if records:
+            last_close = records[-1].get("close")
+            if last_close:
+                try:
+                    return float(last_close)
+                except (TypeError, ValueError):
+                    pass
+        logger.debug("yfinance returned no rows for %s (resolved=%s)",
+                     symbol, resolve_symbol(symbol))
+    except Exception as e:
+        logger.warning("yfinance price lookup failed for %s: %s", symbol, e)
+    return 0
 
 
 # ── ORDERS ───────────────────────────────────────────────────────────────────
 
 async def _place_market_order(a, kt, db, uid):
     sym, qty, txn = a["symbol"].upper(), a["quantity"], a["transaction_type"]
-    est = _cached(sym) or 100
-    ok, err = validate_order_value(qty, est)
+    # Live price comes from yfinance via _cached() (Redis tick cache
+    # first, yfinance fallback). 0 means we genuinely don't have a
+    # quote — we render that as "—" rather than the old ₹100 stub
+    # that produced the misleading "Est. Value ₹1,000" card.
+    est = _cached(sym)
+    ok, err = validate_order_value(qty, est or 1)
     if not ok:
         return {"success": False, "error": err, "data": {}, "logiccard": None}
     product = a.get("product", "CNC")
+    est_value = f"₹{qty * est:,.0f}" if est else "—"
+    explanation = (
+        f"{'Buy' if txn == 'BUY' else 'Sell'} {qty} {sym} immediately at ~₹{est:,.2f}."
+        if est else
+        f"{'Buy' if txn == 'BUY' else 'Sell'} {qty} {sym} immediately at market "
+        "(live price unavailable — order will fill at the prevailing market price)."
+    )
     lc = _lc("market_order", txn, sym,
              [{"label": "Quantity", "value": str(qty)},
               {"label": "Order Type", "value": "MARKET"},
               {"label": "Product", "value": product},
-              {"label": "Est. Value", "value": f"₹{qty * est:,.0f}"}],
-             f"{'Buy' if txn == 'BUY' else 'Sell'} {qty} {sym} immediately at ~₹{est:,.2f}.",
+              {"label": "Est. Value", "value": est_value}],
+             explanation,
              register_payload={
                  "symbol": sym, "exchange": a.get("exchange", "NSE"),
                  "transaction_type": txn, "order_type": "MARKET",
-                 "quantity": int(qty), "price": float(est), "product": product,
+                 "quantity": int(qty),
+                 "price": float(est) if est else 0.0,
+                 "product": product,
              })
     return {"success": True, "data": {}, "logiccard": lc}
 

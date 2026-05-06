@@ -53,26 +53,13 @@ type SparklineState =
 const RANGES: SparklineRange[] = ["1D", "1W", "1M", "6M", "1Y", "5Y"];
 
 // ---------------------------------------------------------------------------
-// Recommendation derivation
+// (Recommendation pill removed.) Showing BUY / HOLD / SELL on a snapshot
+// card crosses Pivot's "no advisory" line — the user asked for a quote,
+// not a recommendation. Per PDF report, the pill was misleading and
+// based on intraday change_pct only. The card now leads with the
+// company name + ticker + sector, and lets price + chart speak for
+// themselves.
 // ---------------------------------------------------------------------------
-
-type Rec = "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL";
-
-function deriveRec(change_pct: number): Rec {
-  if (change_pct > 5) return "STRONG BUY";
-  if (change_pct > 1) return "BUY";
-  if (change_pct > -1) return "HOLD";
-  if (change_pct > -5) return "SELL";
-  return "STRONG SELL";
-}
-
-function recColor(rec: Rec): string {
-  if (rec === "STRONG BUY") return "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400";
-  if (rec === "BUY") return "bg-emerald-50/60 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-500";
-  if (rec === "HOLD") return "bg-muted text-muted-foreground";
-  if (rec === "SELL") return "bg-rose-50/60 text-rose-600 dark:bg-rose-950/30 dark:text-rose-500";
-  return "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400";
-}
 
 // ---------------------------------------------------------------------------
 // INR formatter
@@ -116,6 +103,39 @@ export function StockSnapshotCard({
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [sparkState, setSparkState] = useState<SparklineState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("1Y");
+
+  // Default actions when the parent didn't pass callbacks. Buy/Sell
+  // both route to the stock detail page (which already has order
+  // entry); Watchlist nudges to the same page until a dedicated
+  // endpoint exists. Previously these buttons were dead clicks when
+  // the card was rendered from chat (PDF report: "buttons on the
+  // widgets don't do anything").
+  //
+  // We use window.location instead of next/navigation's useRouter()
+  // because the card is rendered both inside the Next App Router (so
+  // a router IS mounted) and inside testing-library tests that mount
+  // the component bare. Calling useRouter() unconditionally throws
+  // "invariant expected app router to be mounted" in the test env;
+  // window.location works in both.
+  const navigate = (path: string): void => {
+    if (typeof window !== "undefined") {
+      window.location.assign(path);
+    }
+  };
+  const handleTrade = (sym: string, side: "buy" | "sell"): void => {
+    if (onTrade) {
+      onTrade(sym, side);
+      return;
+    }
+    navigate(`/stock/${encodeURIComponent(sym)}?action=${side}`);
+  };
+  const handleWatchlist = (sym: string): void => {
+    if (onWatchlist) {
+      onWatchlist(sym);
+      return;
+    }
+    navigate(`/stock/${encodeURIComponent(sym)}?watchlist=1`);
+  };
 
   useEffect(() => {
     setQuoteState({ kind: "loading" });
@@ -172,7 +192,21 @@ export function StockSnapshotCard({
 
   const { quote } = quoteState;
   const positive = quote.change >= 0;
-  const rec = deriveRec(quote.change_pct);
+  // Period-relative direction for the chart color: green if the
+  // selected range CLOSED higher than it opened, red otherwise. The
+  // header ▲/▼ pill stays driven by today's change. Without this,
+  // a stock that's up over 5Y but down today rendered the chart in
+  // red — confusing for users looking at the long-term shape (PDF
+  // report: "graph should be green for growth according to the
+  // timeline").
+  let periodPositive = positive;
+  if (sparkState.kind === "ok" && sparkState.points.length >= 2) {
+    const first = sparkState.points[0]?.v;
+    const last = sparkState.points[sparkState.points.length - 1]?.v;
+    if (typeof first === "number" && typeof last === "number") {
+      periodPositive = last >= first;
+    }
+  }
   const timeStr = new Date().toLocaleTimeString("en-IN", {
     hour: "2-digit",
     minute: "2-digit",
@@ -182,7 +216,7 @@ export function StockSnapshotCard({
 
   return (
     <div
-      className="w-full max-w-lg rounded-xl border bg-card shadow-sm overflow-hidden"
+      className="w-full max-w-sm rounded-xl border bg-card shadow-sm overflow-hidden"
       data-testid="stock-snapshot-card"
     >
       {/* Header */}
@@ -191,9 +225,6 @@ export function StockSnapshotCard({
           <div className="flex items-center gap-2">
             <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
               {quote.symbol}
-            </span>
-            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", recColor(rec))}>
-              {rec}
             </span>
           </div>
           <h3 className="mt-1 font-serif text-base font-semibold text-foreground">
@@ -261,7 +292,7 @@ export function StockSnapshotCard({
           {sparkState.kind === "ok" && sparkState.points.length > 0 && (
             <SparkAreaChart
               points={sparkState.points}
-              positive={positive}
+              positive={periodPositive}
             />
           )}
           {(sparkState.kind === "hidden" || (sparkState.kind === "ok" && sparkState.points.length === 0)) && (
@@ -289,7 +320,7 @@ export function StockSnapshotCard({
         <Button
           size="sm"
           className="flex-1 h-8 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
-          onClick={() => onTrade?.(symbol, "buy")}
+          onClick={() => handleTrade(symbol, "buy")}
           data-testid="buy-btn"
         >
           Buy
@@ -297,7 +328,7 @@ export function StockSnapshotCard({
         <Button
           size="sm"
           className="flex-1 h-8 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs"
-          onClick={() => onTrade?.(symbol, "sell")}
+          onClick={() => handleTrade(symbol, "sell")}
           data-testid="sell-btn"
         >
           Sell
@@ -306,7 +337,7 @@ export function StockSnapshotCard({
           variant="outline"
           size="sm"
           className="h-8 rounded-full px-3 text-xs"
-          onClick={() => onWatchlist?.(symbol)}
+          onClick={() => handleWatchlist(symbol)}
           data-testid="watchlist-btn"
           aria-label="Add to watchlist"
         >
