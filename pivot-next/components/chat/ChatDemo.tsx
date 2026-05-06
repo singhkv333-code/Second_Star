@@ -48,6 +48,10 @@ import {
   LogicCardChip,
   type LogicCard,
 } from "@/components/chat/LogicCardChip";
+import {
+  SyntheticSecurityCard,
+  type SyntheticSecurityPayload,
+} from "@/components/chat/SyntheticSecurityCard";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import type { Workflow } from "@/lib/types";
@@ -496,6 +500,7 @@ type Message =
   | { kind: "indicator_backtest"; payload: IndicatorBacktestPayload; intro: string }
   | { kind: "financial_backtest"; payload: FinancialBacktestPayload; intro: string }
   | { kind: "logic_card"; card: LogicCard; intro: string }
+  | { kind: "synthetic_security"; payload: SyntheticSecurityPayload; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
@@ -622,6 +627,12 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
       finalMessage = {
         kind: "logic_card",
         card: data.logiccard,
+        intro: data.response ?? "",
+      };
+    } else if (hint === "synthetic_security_card" && rawData) {
+      finalMessage = {
+        kind: "synthetic_security",
+        payload: rawData as unknown as SyntheticSecurityPayload,
         intro: data.response ?? "",
       };
     } else if (hint === "indicator_backtest_chart" && rawData) {
@@ -1050,6 +1061,23 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                   )}
                   <div className="flex justify-start">
                     <LogicCardChip card={msg.card} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "synthetic_security") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start gap-3">
+                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
+                        <AssistantMessage text={msg.intro} />
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <SyntheticSecurityCard payload={msg.payload} />
                   </div>
                 </div>
               );

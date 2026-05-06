@@ -5,10 +5,20 @@ Core of the Pivot platform. Calculates leg sizes, generates payoff tables.
 import asyncio
 import logging
 from typing import Optional
-from backend.agents.sizer import fetch_current_arb_yield, calculate_safety_leg, calculate_payoff_table
+from backend.agents.sizer import (
+    fetch_current_arb_yield,
+    calculate_safety_leg,
+    calculate_payoff_table,
+    calculate_barbell_allocation,
+    calculate_rebalance_triggers,
+    project_rebalancing_calendar,
+)
 from backend.agents.explainer import explain_strategy
-from backend.kite.market_data import get_nifty_level
+from backend.agents.yield_scanner import fetch_etf_nav
+from backend.kite.market_data import get_nifty_level, get_historical_ohlcv
 from backend.safety import MIN_CAPITAL_SAFEGROW, MAX_CAPITAL_SAFEGROW
+
+MIN_CAPITAL_BARBELL = 10000  # ETFs are cheap; allow small starts
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +173,91 @@ async def build_stormshield(capital: float, horizon_months: int = 6) -> dict:
     }
 
 
+async def build_barbell(capital: float, **_ignored) -> dict:
+    """
+    Barbell — Gold + Equity 50/50 with auto-rebalance.
+    50% GOLDBEES, 50% NIFTYBEES. Rebalance back to 50/50 if either leg
+    exceeds 60% of total portfolio value.
+    """
+    if capital < MIN_CAPITAL_BARBELL:
+        raise ValueError(f"Capital must be at least ₹{MIN_CAPITAL_BARBELL:,}")
+
+    gold_price, equity_price = await asyncio.gather(
+        fetch_etf_nav("GOLDBEES"),
+        fetch_etf_nav("NIFTYBEES"),
+    )
+
+    alloc = calculate_barbell_allocation(capital, gold_price, equity_price)
+    triggers = calculate_rebalance_triggers(gold_price, equity_price, 60.0)
+
+    # Pull ~3y daily history for the rebalancing calendar projection.
+    try:
+        loop = asyncio.get_event_loop()
+        gold_hist, equity_hist = await asyncio.gather(
+            loop.run_in_executor(None, get_historical_ohlcv, "GOLDBEES", "5y"),
+            loop.run_in_executor(None, get_historical_ohlcv, "NIFTYBEES", "5y"),
+        )
+    except Exception as e:
+        logger.warning(f"Barbell history fetch failed: {e}")
+        gold_hist, equity_hist = [], []
+
+    calendar = project_rebalancing_calendar(gold_hist, equity_hist, 60.0)
+
+    return {
+        "product_type": "barbell",
+        "display_name": "Barbell — Gold + Equity 50/50",
+        "capital": capital,
+        "legs": [
+            {
+                "label": "Gold Leg",
+                "type": "gold",
+                "instrument": f"GOLDBEES ({alloc['gold_units']} units @ ₹{gold_price:,.2f})",
+                "instrument_type": "etf",
+                "amount": alloc["gold_amount"],
+                "units": alloc["gold_units"],
+                "weight_pct": round(alloc["gold_weight"] * 100, 2),
+            },
+            {
+                "label": "Equity Leg",
+                "type": "equity",
+                "instrument": f"NIFTYBEES ({alloc['equity_units']} units @ ₹{equity_price:,.2f})",
+                "instrument_type": "etf",
+                "amount": alloc["equity_amount"],
+                "units": alloc["equity_units"],
+                "weight_pct": round(alloc["equity_weight"] * 100, 2),
+            },
+        ],
+        "cash_float": alloc["cash_float"],
+        "rebalance": {
+            "threshold_pct": triggers["threshold_pct"],
+            "rule": "Sell the overweight leg back to 50/50 whenever it exceeds 60% of portfolio.",
+            "gold_triggers": {
+                "up": triggers["gold_up_trigger_price"],
+                "down": triggers["gold_down_trigger_price"],
+            },
+            "equity_triggers": {
+                "up": triggers["equity_up_trigger_price"],
+                "down": triggers["equity_down_trigger_price"],
+            },
+        },
+        "rebalancing_calendar": calendar,
+        "tax_note": (
+            "STCG (20%) applies if ETF units are sold within 12 months of "
+            "purchase; LTCG (12.5% above ₹1.25L per FY) thereafter. Each "
+            "rebalance is a taxable event and resets the holding clock for "
+            "the units sold."
+        ),
+        "etf_prices": {
+            "GOLDBEES": round(gold_price, 2),
+            "NIFTYBEES": round(equity_price, 2),
+        },
+        "disclaimer": "This is automation of your instructions, not financial advice. Rebalancing has tax consequences; review before activating.",
+    }
+
+
 PRODUCT_BUILDERS = {
     "safegrow": build_safegrow,
     "earnmore": build_earnmore,
     "stormshield": build_stormshield,
+    "barbell": build_barbell,
 }

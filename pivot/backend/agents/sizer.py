@@ -116,3 +116,121 @@ def calculate_payoff_table(
         })
 
     return payoff
+
+
+# ── Barbell helpers ──────────────────────────────────────────────────────
+
+
+def calculate_barbell_allocation(
+    capital: float,
+    gold_price: float,
+    equity_price: float,
+) -> dict:
+    """Initial 50/50 split between GOLDBEES and NIFTYBEES.
+
+    Computes whole-unit holdings (no fractional ETFs on NSE), the rupee
+    amount actually deployed per leg, the residual cash float, and the
+    realised weights post-rounding.
+    """
+    target_each = capital * 0.50
+    gold_units = max(0, int(target_each // gold_price)) if gold_price > 0 else 0
+    equity_units = max(0, int(target_each // equity_price)) if equity_price > 0 else 0
+    gold_amount = round(gold_units * gold_price, 2)
+    equity_amount = round(equity_units * equity_price, 2)
+    deployed = gold_amount + equity_amount
+    cash_float = round(capital - deployed, 2)
+    total = deployed if deployed > 0 else 1.0
+    return {
+        "gold_units": gold_units,
+        "equity_units": equity_units,
+        "gold_amount": gold_amount,
+        "equity_amount": equity_amount,
+        "gold_weight": round(gold_amount / total, 4),
+        "equity_weight": round(equity_amount / total, 4),
+        "cash_float": cash_float,
+    }
+
+
+def calculate_rebalance_triggers(
+    gold_price: float,
+    equity_price: float,
+    threshold_pct: float = 60.0,
+) -> dict:
+    """Price levels at which the 50/50 Barbell hits the rebalance threshold.
+
+    Assumes the *other* leg stays at its current price — i.e. the price the
+    triggering leg has to reach in isolation for it to cross the threshold.
+    Useful for the rebalance trigger card.
+    """
+    ratio = (threshold_pct / 100.0) / (1 - threshold_pct / 100.0)
+    return {
+        "threshold_pct": threshold_pct,
+        "gold_up_trigger_price": round(gold_price * ratio, 2),
+        "gold_down_trigger_price": round(gold_price / ratio, 2),
+        "equity_up_trigger_price": round(equity_price * ratio, 2),
+        "equity_down_trigger_price": round(equity_price / ratio, 2),
+    }
+
+
+def project_rebalancing_calendar(
+    gold_history: list,
+    equity_history: list,
+    threshold_pct: float = 60.0,
+    lookback_years: int = 3,
+) -> dict:
+    """Replay the 50/60 rule against historical NAVs and report rebalance freq.
+
+    Each list entry is a dict with at least `close` (sorted oldest→newest).
+    Returns avg rebalances per year and a coarse next-window estimate.
+    """
+    if not gold_history or not equity_history:
+        return {
+            "avg_rebalances_per_year": None,
+            "next_window_estimate":
+                "Insufficient history to project a calendar; expect 1–2 "
+                "rebalances per year on a 50/60 rule historically.",
+            "lookback_years": lookback_years,
+        }
+
+    n = min(len(gold_history), len(equity_history))
+    threshold = threshold_pct / 100.0
+    rebalances = 0
+    gold_units = 1.0
+    equity_units = 1.0
+    # Initialise so each leg is exactly 50% of the starting portfolio.
+    g0 = float(gold_history[-n]["close"])
+    e0 = float(equity_history[-n]["close"])
+    if g0 <= 0 or e0 <= 0:
+        return {"avg_rebalances_per_year": None,
+                "next_window_estimate": "no data", "lookback_years": lookback_years}
+    equity_units = (gold_units * g0) / e0  # equal rupee at t=0
+
+    for i in range(-n, 0):
+        g_close = float(gold_history[i]["close"])
+        e_close = float(equity_history[i]["close"])
+        gold_val = gold_units * g_close
+        equity_val = equity_units * e_close
+        total = gold_val + equity_val
+        if total <= 0:
+            continue
+        if (gold_val / total) > threshold or (equity_val / total) > threshold:
+            rebalances += 1
+            half = total / 2.0
+            gold_units = half / g_close
+            equity_units = half / e_close
+
+    years_observed = max(1.0, n / 252.0)  # ~252 trading days/yr
+    avg_per_year = rebalances / years_observed
+    if avg_per_year >= 2:
+        window = "likely within 6 months"
+    elif avg_per_year >= 1:
+        window = "likely within 6–12 months"
+    else:
+        window = "likely beyond 12 months"
+
+    return {
+        "avg_rebalances_per_year": round(avg_per_year, 2),
+        "next_window_estimate": window,
+        "lookback_years": round(years_observed, 1),
+        "rebalances_observed": rebalances,
+    }

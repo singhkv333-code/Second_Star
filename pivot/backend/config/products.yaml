@@ -42,13 +42,35 @@ stormshield:
   name: StormShield
   type: bear_protection
   one_liner: >-
-    A Nifty put debit spread: long ATM put, short OTM put. Pays off when
-    Nifty falls between the two strikes; defined-risk hedge.
-  legs:
-    - long: nifty_atm_put
-      side: buy
-    - short: nifty_otm_put
-      side: sell
+    Mirror of SafeGrow — most of the principal goes into an arbitrage fund
+    that compounds back to par; a small slice buys a Nifty ATM put. Profits
+    when Nifty falls; capital returned if Nifty rises.
+  allocation:
+    arbitrage_fund_pct: 92.764
+    nifty_atm_put_pct: 7.236
+  tenor_months: 6
+  protected_capital_pct: 100
   notes: >-
-    Strike selection and net debit are quote-driven. Never invent strikes
-    or premiums; ask the user for inputs or reach for live option data.
+    The split is derived from the Indian arbitrage fund yield needed to gross
+    the safety leg back to par at maturity. High-conviction bear note —
+    growth leg expires worthless if Nifty rises.
+
+barbell:
+  name: Barbell
+  type: gold_equity_balance
+  one_liner: >-
+    50/50 split between gold and equity ETFs (GOLDBEES and NIFTYBEES). Auto
+    rebalance back to 50/50 whenever either leg drifts past 60% of the total
+    portfolio value.
+  allocation:
+    goldbees_pct: 50
+    niftybees_pct: 50
+  rebalance:
+    threshold_pct: 60
+    rule: >-
+      If either leg exceeds 60% of total portfolio value, sell the excess and
+      buy the underweight leg back to 50/50.
+  notes: >-
+    No options, no derivatives — pure ETF rebalancing. Each rebalance is a
+    taxable event; STCG (20%) applies if sold within 12 months, else LTCG
+    (12.5% above ₹1.25L). Rebalances reset the holding clock for sold units.

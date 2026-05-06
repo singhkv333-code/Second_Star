@@ -232,6 +232,46 @@
       "args": {"symbol": "RELIANCE", "indicator": "rsi", "operator": "<", "threshold": 30, "years": 5},
       "confidence": 0.9,
       "note": "Single-indicator backtest — runs through the deterministic indicator backtest path before this prompt is even sent. If you see this kind of message hit the LLM hop, the parser failed to match shape — call run_backtest with sensible defaults rather than asking."
+    },
+    {
+      "id": "synthetic_capital_protection",
+      "prompt": "I want to invest 1 lakh but I don't want to lose any of it — give me upside if Nifty rises",
+      "tool": "build_product",
+      "args": {"product": "safegrow", "capital": 100000, "horizon_months": 12},
+      "confidence": 0.9,
+      "note": "Capital protection + equity upside intent → SafeGrow. Capital is supplied, no horizon stated → default 12 months. NEVER fabricate the leg split in prose; build_product computes it live."
+    },
+    {
+      "id": "synthetic_bear_hedge",
+      "prompt": "I think Nifty will crash in the next 6 months — protect my 2 lakh but let me profit if it falls",
+      "tool": "build_product",
+      "args": {"product": "stormshield", "capital": 200000, "horizon_months": 6},
+      "confidence": 0.9,
+      "note": "Bearish view + capital protection → StormShield. The user gave the horizon explicitly (6 months); use it. The growth leg is a Nifty ATM put."
+    },
+    {
+      "id": "synthetic_barbell",
+      "prompt": "split 50000 equally between gold and equity ETFs and rebalance automatically",
+      "tool": "build_product",
+      "args": {"product": "barbell", "capital": 50000},
+      "confidence": 0.92,
+      "note": "Explicit 50/50 gold + equity + auto-rebalance → Barbell. No horizon needed (Barbell ignores it). build_product fetches live GOLDBEES + NIFTYBEES NAVs."
+    },
+    {
+      "id": "synthetic_no_capital_ask",
+      "prompt": "build me a capital-guaranteed product",
+      "tool": "ASK_USER",
+      "args": {"question": "How much would you like to invest, and over what tenor — 6 months, 1 year, or longer? SafeGrow needs a capital amount and a horizon to size the safety leg correctly."},
+      "confidence": 0.45,
+      "note": "Capital is required for build_product; never assume a default amount. One focused question covering both missing fields (capital + horizon) is fine."
+    },
+    {
+      "id": "synthetic_explain_only",
+      "prompt": "what is StormShield",
+      "tool": "get_product_spec",
+      "args": {"product": "stormshield"},
+      "confidence": 0.95,
+      "note": "Conceptual ask — no capital supplied, user wants a description. get_product_spec returns the YAML spec. NEVER call build_product without a capital amount."
     }
   ]
 }

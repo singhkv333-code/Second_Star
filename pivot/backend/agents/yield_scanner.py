@@ -5,6 +5,7 @@ No API keys needed — uses mfapi.in (free), yfinance (free), static FD rates.
 import httpx
 import logging
 import asyncio
+import yfinance as yf
 from backend.cache import redis_client
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,46 @@ async def get_all_yields() -> dict:
         "gsec_10y": 0.072,  # approximate, update from RBI weekly
         "rbi_repo_rate": 0.065,
     }
+
+
+_ETF_FALLBACK_PRICE = {
+    "GOLDBEES": 65.0,
+    "NIFTYBEES": 265.0,
+}
+
+
+async def fetch_etf_nav(symbol: str) -> float:
+    """Fetch latest ETF NAV (close price) via yfinance.
+
+    Cached for 30 minutes. Falls back to a sensible default if yfinance is
+    unreachable so Barbell sizing never crashes the chat hop.
+    """
+    sym = symbol.upper()
+    cache_key = f"etf:nav:{sym}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        try:
+            return float(cached)
+        except ValueError:
+            pass
+
+    fallback = _ETF_FALLBACK_PRICE.get(sym, 100.0)
+    try:
+        # yfinance is sync; offload so we don't block the event loop.
+        def _pull() -> float:
+            ticker = yf.Ticker(f"{sym}.NS")
+            df = ticker.history(period="5d", interval="1d")
+            if df.empty:
+                return 0.0
+            return float(df["Close"].iloc[-1])
+
+        price = await asyncio.get_event_loop().run_in_executor(None, _pull)
+        if price > 0:
+            redis_client.set(cache_key, str(price), ex=1800)
+            return price
+    except Exception as e:
+        logger.warning(f"ETF NAV fetch failed for {sym}: {e}. Using fallback.")
+    return fallback
 
 
 def calculate_after_tax_yield(gross_yield: float, instrument: str, tax_slab: float) -> float:

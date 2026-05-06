@@ -59,6 +59,7 @@ _REAL_TOOLS: set[str] = {
     "get_scheduler_status", "list_upcoming_jobs",
     # New v2 tools
     "get_product_spec",
+    "build_product",
     # Agent System (Workflows v1)
     "propose_workflow",
     # Macro tools — narrow alternatives to propose_workflow that
@@ -188,16 +189,40 @@ def _ensure_v2_tools_registered() -> None:
         "(e.g. 'what is SafeGrow', 'explain EarnMore', 'show StormShield'). "
         "Never call as a reflexive answer to 'what should I invest in'.",
         {"product": {"type": "string",
-                     "enum": ["safegrow", "earnmore", "stormshield"]}},
+                     "enum": ["safegrow", "earnmore", "stormshield", "barbell"]}},
         ["product"],
+    )
+
+    tool(
+        "build_product",
+        "Constructs a fully-sized synthetic security with live data: leg "
+        "amounts, instruments, payoff table, and disclaimer. Call this when "
+        "the user describes a goal that maps to a Pivot product AND has "
+        "supplied a capital amount. SafeGrow = capital protection + Nifty "
+        "upside (call). StormShield = capital protection + bear payoff "
+        "(put). Barbell = 50/50 gold/equity ETF auto-rebalance. Never "
+        "fabricate leg sizes — always call this tool to compute them. "
+        "If capital is missing, call ASK_USER instead.",
+        {
+            "product": {"type": "string",
+                        "enum": ["safegrow", "stormshield", "barbell"]},
+            "capital": {"type": "number", "minimum": 1000,
+                        "description": "Capital in INR (rupees)."},
+            "horizon_months": {"type": "integer", "minimum": 1, "maximum": 60,
+                               "description":
+                                   "Tenor in months. Required for safegrow "
+                                   "and stormshield; ignored for barbell."},
+        },
+        ["product", "capital"],
     )
 
     # Register handlers
     from backend.services._v2_tools import (
-        get_price_history, get_52wk_range, get_product_spec,
+        get_price_history, get_52wk_range, get_product_spec, build_product,
     )
     _V2_HANDLERS.update({
         "get_price_history": get_price_history,
         "get_52wk_range": get_52wk_range,
         "get_product_spec": get_product_spec,
+        "build_product": build_product,
     })

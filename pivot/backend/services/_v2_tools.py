@@ -113,3 +113,53 @@ async def get_product_spec(args: dict) -> dict:
                 "error": f"unknown product '{product}'"}
     spec = products[product]
     return {"available": True, "product": product, "spec": spec}
+
+
+# ---- build_product ------------------------------------------------------
+
+
+async def build_product(args: dict) -> dict:
+    """Constructs a fully-sized synthetic security via the structured builders.
+
+    Routes to the matching builder in `agents.structured_builder` based on
+    the `product` arg. SafeGrow and StormShield take a horizon; Barbell
+    ignores it. Errors are returned as a structured payload rather than
+    raised so the chat hop can narrate them.
+    """
+    from backend.agents.structured_builder import PRODUCT_BUILDERS
+
+    product = (args.get("product") or "").strip().lower()
+    capital = args.get("capital")
+    horizon_months = args.get("horizon_months") or 12
+
+    if product not in PRODUCT_BUILDERS:
+        return {"success": False,
+                "error": f"unknown product '{product}'",
+                "products_known": sorted(PRODUCT_BUILDERS.keys())}
+    if capital is None:
+        return {"success": False, "error": "capital is required (in INR)"}
+    try:
+        capital = float(capital)
+    except (TypeError, ValueError):
+        return {"success": False, "error": "capital must be a number"}
+    if capital <= 0:
+        return {"success": False, "error": "capital must be positive"}
+
+    try:
+        horizon_months = int(horizon_months)
+    except (TypeError, ValueError):
+        horizon_months = 12
+
+    builder = PRODUCT_BUILDERS[product]
+    try:
+        result = await builder(capital=capital, horizon_months=horizon_months)
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        logger.exception("build_product %s failed: %s", product, e)
+        return {"success": False, "error": f"could not build {product}: {e}"}
+
+    # Tag the result so the chat router lifts it to top-level raw_data
+    # and the frontend dispatcher renders the SyntheticSecurityCard
+    # instead of falling through to plain prose.
+    return {"success": True, "_render_hint": "synthetic_security_card", **result}
