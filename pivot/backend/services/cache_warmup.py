@@ -42,6 +42,11 @@ _WARMUP_MESSAGES: tuple[str, ...] = (
     "set up a SIP of 5000 in NIFTYBEES every month",  # SIP
     "compare yields on FDs and government bonds",     # YIELD_QUERY
     "today's top gainers",                      # TOP_MOVERS
+    # Analytics route signatures — all four hit different tool subsets.
+    "what's RELIANCE's RSI",                    # ANALYTICS_INDICATOR
+    "what's TCS Sharpe ratio",                  # ANALYTICS_PERFORMANCE
+    "rank RELIANCE TCS INFY by Sharpe",         # ANALYTICS_COMPARE
+    "correlation between TCS, INFY, WIPRO",     # ANALYTICS_CORRELATION
 )
 
 

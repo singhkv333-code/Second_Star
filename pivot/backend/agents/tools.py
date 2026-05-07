@@ -537,6 +537,87 @@ tool("get_top_movers",
      },
      [])
 
+# ── ANALYTICS / INDICATORS / RISK / COMPARISON ──────────────────────────────
+# Bridges to /core/ (indicator vault + calculations + data layer).
+
+tool("get_indicator",
+     "Compute a single technical indicator on an NSE-listed ticker over "
+     "the last few months of daily candles. Use for: 'what's RELIANCE's "
+     "RSI', 'TCS 50-day SMA', 'INFY MACD'. The `indicator` arg accepts "
+     "rsi/sma/ema/wma/macd/adx/supertrend/atr/bollinger/donchian/keltner/"
+     "obv/vwap/cci/mfi/stoch/williams_r/aroon/trix/roc/historical_vol. "
+     "`period` is the lookback (e.g. 14 for RSI(14), 50 for SMA(50)). "
+     "Output includes current_value, signal (bullish/bearish/neutral), "
+     "and an interpretation string.",
+     {
+         "symbol":         {"type": "string"},
+         "indicator":      {"type": "string"},
+         "period":         {"type": "integer", "minimum": 2, "maximum": 250, "default": 14},
+         "history_period": {"type": "string", "default": "6mo",
+                            "description": "yfinance period: 1mo|3mo|6mo|1y|2y|5y"},
+     },
+     ["symbol", "indicator"])
+
+tool("get_multiple_indicators",
+     "Compute several indicators for one ticker in a single call — saves "
+     "round-trips when the user asks for multiple ('RSI and MACD for "
+     "INFY', 'show me Bollinger Bands and ATR for TCS').",
+     {
+         "symbol":         {"type": "string"},
+         "indicators":     {"type": "array", "items": {"type": "string"}},
+         "history_period": {"type": "string", "default": "6mo"},
+     },
+     ["symbol", "indicators"])
+
+tool("get_performance_metrics",
+     "Risk-adjusted performance summary for one ticker over a period. "
+     "Returns a structured dict of total_return / annualised_return / "
+     "volatility / sharpe / sortino / max_drawdown / VaR. Use for: "
+     "'how risky is TCS', 'what's RELIANCE's Sharpe over 1 year', "
+     "'INFY drawdown last 5 years'.",
+     {
+         "symbol":   {"type": "string"},
+         "period":   {"type": "string", "default": "1y",
+                      "description": "1mo|3mo|6mo|1y|2y|5y|max"},
+         "metrics":  {"type": "array", "items": {"type": "string"},
+                      "description": "Subset of total_return/annualised_return/volatility/sharpe/sortino/max_drawdown/var. Empty = all."},
+     },
+     ["symbol"])
+
+tool("compare_performance",
+     "Rank a list of tickers by a chosen metric. Use for: 'rank "
+     "RELIANCE TCS INFY by Sharpe', 'which of these has best risk-"
+     "adjusted return last year', 'compare these stocks'. Returns the "
+     "full comparison table.",
+     {
+         "symbols":  {"type": "array", "items": {"type": "string"}},
+         "period":   {"type": "string", "default": "1y"},
+         "metric":   {"type": "string", "default": "sharpe",
+                      "enum": ["sharpe", "total_return", "volatility", "max_drawdown"]},
+     },
+     ["symbols"])
+
+tool("get_correlation_matrix",
+     "Pairwise return correlations across a basket of tickers. Use for: "
+     "'how correlated are TCS, INFY, WIPRO', 'diversification check on "
+     "my portfolio', 'which pairs are most correlated'.",
+     {
+         "symbols": {"type": "array", "items": {"type": "string"}},
+         "period":  {"type": "string", "default": "6mo"},
+     },
+     ["symbols"])
+
+tool("get_returns",
+     "Period return for one ticker. Use for: 'what's TCS up YTD', "
+     "'how has RELIANCE done over 5 years', 'INFY return last quarter'. "
+     "Set cumulative=true to also get the running cumulative-return curve.",
+     {
+         "symbol":     {"type": "string"},
+         "period":     {"type": "string", "default": "1y"},
+         "cumulative": {"type": "boolean", "default": False},
+     },
+     ["symbol"])
+
 # ── YIELDS ───────────────────────────────────────────────────────────────────
 
 tool("compare_yields",
@@ -1056,26 +1137,27 @@ tool("propose_workflow",
      "fast EMA < slow EMA, sell the entire RELIANCE holding.' }\n\n"
      "  // BUY-ONLY multi-indicator AND condition: 'buy ETERNAL when "
      "RSI<30 AND MACD line > signal line'. ONE branch. RSI is a fixed "
-     "threshold so we use trigger.indicator for it; MACD is "
-     "indicator-vs-indicator so we add fetch.indicator for both lines "
-     "+ condition.numeric. Conditions run in series; if any returns "
-     "false the branch halts before the action. NO sell branch — the "
-     "user did not ask for one.\n"
+     "threshold (use trigger.indicator). For MACD, fetch.indicator "
+     "with indicator='macd' returns the histogram (macd line minus "
+     "signal); histogram > 0 means line is above signal (bullish "
+     "crossover). NO sell branch — the user did not ask for one.\n"
+     "  IMPORTANT: fetch.indicator's `indicator` field accepts ONLY "
+     "`'rsi' | 'sma' | 'ema' | 'macd'`. Do NOT use `'macd_line'` or "
+     "`'macd_signal'` — those will fail validation. Use `'macd'` and "
+     "compare its histogram value against 0.\n"
      "  { name: 'ETERNAL: buy on RSI+MACD', steps: ["
      "{ step_type: 'trigger.indicator', config: { symbol: 'ETERNAL', "
      "indicator: 'rsi', period: 14, operator: '<', value: 30 } },"
      "{ step_type: 'fetch.indicator', config: { symbol: 'ETERNAL', "
-     "indicator: 'macd_line', period: 12 } },"
-     "{ step_type: 'fetch.indicator', config: { symbol: 'ETERNAL', "
-     "indicator: 'macd_signal', period: 9 } },"
+     "indicator: 'macd', period: 26 } },"
      "{ step_type: 'condition.numeric', config: { left: "
-     "'{{ context.1.value }}', operator: '>', right: "
-     "'{{ context.2.value }}' } },"
+     "'{{ context.1.value }}', operator: '>', right: 0 } },"
      "{ step_type: 'action.place_order', config: { symbol: 'ETERNAL', "
      "side: 'buy', quantity: 1, order_type: 'market' } } ], "
      "rationale: 'Daily indicator check on ETERNAL. Fires when RSI "
-     "is oversold AND MACD line is above its signal line; market "
-     "buy. No sell side — user did not request one.' }\n\n"
+     "is oversold AND MACD histogram (line minus signal) is positive "
+     "— i.e. MACD line above signal. Market buy. No sell side — user "
+     "did not request one.' }\n\n"
      "  // Intraday P&L stop: '5 min before close on weekdays, exit all "
      "MIS if my intraday P&L is below -2%'. Use trigger.market_relative_time "
      "for the timing — never hardcode 15:25; it would break on early-close "
@@ -1166,7 +1248,15 @@ tool("propose_scheduled_order",
      "scheduled action ('… AND sell at Monday close'), an indicator/"
      "price-conditional sell on top of the buy ('… and sells if RSI "
      "< 30'), or any second symbol — DO NOT call this macro. Bail to "
-     "propose_workflow so the draft can carry both branches.",
+     "propose_workflow so the draft can carry both branches.\n\n"
+     "**NO CONDITIONS / GUARDS supported.** This macro hydrates only "
+     "trigger.schedule + action.place_order (+ optional SL). If the "
+     "user's prompt has a CONDITION or GUARD on top of the schedule "
+     "— *'if my buying power is over ₹50,000'*, *'only when NIFTY is "
+     "up'*, *'unless cash is below X'*, *'as long as the position is "
+     "below Y'* — DO NOT call this macro. Use `propose_workflow` so "
+     "the draft can include `fetch.portfolio` + `condition.numeric` "
+     "before the `action.place_order` step.",
      {
          "symbol": {"type": "string"},
          "side": {"type": "string", "enum": ["buy", "sell"]},

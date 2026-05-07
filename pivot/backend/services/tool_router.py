@@ -34,8 +34,17 @@ from typing import Optional
 # on. Including the macros up-front means a "buy 5 NIFTYBEES every
 # weekday" prompt sees them even if the keyword router didn't classify
 # the message as agent-y.
+# `propose_workflow` is INTENTIONALLY excluded from this set. Its
+# tool schema is ~5,500 input tokens — including it on every turn
+# cost the cache prefix ~76% of its total budget. Router rules
+# below explicitly add `propose_workflow` whenever the message
+# carries an agent / order / build / threshold / basket / analytics
+# signal, so the model still sees it whenever it could plausibly
+# need it. The only paths that lose it are pure read-only intents
+# (price, portfolio summary, greetings, definitions) where you'd
+# never call it anyway. Net: ~5,500 tokens saved per non-agent
+# turn at zero functional cost.
 _ALWAYS_INCLUDE: frozenset[str] = frozenset({
-    "propose_workflow",
     "propose_scheduled_order",
     "propose_threshold_order",
     "propose_basket_allocation",
@@ -94,6 +103,46 @@ _RULES: list[_Rule] = [
         "get_live_price", "get_index_level", "get_ohlc", "get_market_status",
     ),
 
+    # ── Analytics: indicators / risk / comparison / correlation ──
+    # WHY this rule exists: prompts that mention an indicator name
+    # (RSI, MACD, ADX, Bollinger, Supertrend, ATR), a risk metric
+    # (Sharpe, Sortino, drawdown, volatility, VaR, beta), a return
+    # query ("how has X done", "X return", "YTD"), or a multi-stock
+    # comparison ("rank these by Sharpe", "correlated") need the
+    # /core/ analytics bridge tools. Without this rule those tools
+    # weren't surfaced and the model would either hallucinate the
+    # values or fall back to get_live_price.
+    _r(
+        # Indicator names (any of these → bring all indicator tools)
+        r"\bRSI\b|\bMACD\b|\bADX\b|\bSMA\b|\bEMA\b|\bWMA\b"
+        r"|\bBollinger\b|\bSupertrend\b|\bATR\b|\bKeltner\b|\bDonchian\b"
+        r"|\bOBV\b|\bVWAP\b|\bCCI\b|\bMFI\b|\bStochastic\b|\bWilliams\s*%R\b"
+        r"|\bAroon\b|\bIchimoku\b|\bTRIX\b|\bROC\b|\bChaikin\b"
+        r"|\bvolume[- ]?weighted\b|\bmoving\s+average\b"
+        # Risk / performance metrics
+        r"|\bSharpe\b|\bSortino\b|\bCalmar\b|\btreynor\b|\bbeta\b"
+        r"|\bvolatility\b|\bdrawdown\b|\bmax[- ]?dd\b|\bVaR\b|\bCVaR\b"
+        r"|\binformation\s+ratio\b|\bomega\s+ratio\b|\balpha\b"
+        r"|\brisk[- ]?adjusted\b|\bdownside\s+deviation\b"
+        # Casual risk / overbought-oversold phrasings.
+        # WHY: "how risky is X", "is X overbought rn" used to route to
+        # get_live_price / get_price_history, missing the analytics
+        # tools entirely. The strategic suite caught both.
+        r"|\b(?:how\s+)?risk(?:y|ier|iest)\b"
+        r"|\bover[- ]?bought\b|\bover[- ]?sold\b"
+        r"|\b(?:is|am|are)\s+\w+\s+(?:risky|safe|volatile|stable)\b"
+        # Return queries
+        r"|\bytd\b|\b(?:total|cumulative|annualised|annualized)\s+return\b"
+        r"|\bhow\s+has\s+\w+\s+(?:done|performed)\b"
+        # Multi-stock comparison / correlation
+        r"|\b(?:rank|compare|correlat\w*|covariance|diversif\w*)\b"
+        r"|\bmost\s+(?:correlated|uncorrelated)\b",
+        "get_indicator", "get_multiple_indicators",
+        "get_performance_metrics", "compare_performance",
+        "get_correlation_matrix", "get_returns",
+        "get_live_price", "get_price_history",
+    ),
+
     # ── Top gainers / losers ──────────────────────────────────────
     # WHY this rule exists: prompts like "today's top gainers" / "who's
     # moving most" need `get_top_movers` (read-only chat tool) and
@@ -147,6 +196,10 @@ _RULES: list[_Rule] = [
         "calculate_order_qty", "calculate_sl_price",
         "calculate_dip_price", "calculate_margin",
         "get_live_price",  # almost always needed alongside an order
+        # Order keywords frequently combine with conditions / schedules
+        # ("buy NIFTYBEES at open and sell at close"). Include
+        # propose_workflow so the model can build the multi-step shape.
+        "propose_workflow",
     ),
 
     # ── SIP (recurring investment) ────────────────────────────────

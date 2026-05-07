@@ -70,6 +70,13 @@ async def execute_tool(tool_name: str, arguments: dict,
         "get_market_status":          _get_market_status,
         "get_upcoming_events":        _get_upcoming_events,
         "get_top_movers":             _get_top_movers,
+        # /core/ analytics bridge
+        "get_indicator":              _get_indicator,
+        "get_multiple_indicators":    _get_multiple_indicators,
+        "get_performance_metrics":    _get_performance_metrics,
+        "compare_performance":        _compare_performance,
+        "get_correlation_matrix":     _get_correlation_matrix,
+        "get_returns":                _get_returns,
         "compare_yields":             _compare_yields,
         "get_yield_recommendation":   _get_yield_recommendation,
         "calculate_order_qty":        _calculate_order_qty,
@@ -754,6 +761,75 @@ async def _get_upcoming_events(a, kt, db, uid):
     return {"success": True,
             "data": {"message": "Connect TrueData for live event calendar"},
             "logiccard": None}
+
+
+# ── /core/ analytics bridge ──────────────────────────────────────────
+
+
+async def _get_indicator(a, kt, db, uid):
+    from backend.core.tools.strategy_tools import get_indicator
+    data = get_indicator(
+        symbol=a.get("symbol", ""),
+        indicator=a.get("indicator", ""),
+        period=int(a.get("period", 14)),
+        history_period=a.get("history_period", "6mo"),
+    )
+    success = "error" not in data
+    return {"success": success, "data": data, "logiccard": None}
+
+
+async def _get_multiple_indicators(a, kt, db, uid):
+    from backend.core.tools.strategy_tools import get_multiple_indicators
+    data = get_multiple_indicators(
+        symbol=a.get("symbol", ""),
+        indicators=a.get("indicators", []),
+        history_period=a.get("history_period", "6mo"),
+    )
+    success = "error" not in data
+    return {"success": success, "data": data, "logiccard": None}
+
+
+async def _get_performance_metrics(a, kt, db, uid):
+    from backend.core.tools.strategy_tools import get_performance_metrics
+    data = get_performance_metrics(
+        symbol=a.get("symbol", ""),
+        period=a.get("period", "1y"),
+        metrics=a.get("metrics") or None,
+    )
+    success = "error" not in data
+    return {"success": success, "data": data, "logiccard": None}
+
+
+async def _compare_performance(a, kt, db, uid):
+    from backend.core.tools.strategy_tools import compare_performance
+    data = compare_performance(
+        symbols=a.get("symbols", []),
+        period=a.get("period", "1y"),
+        metric=a.get("metric", "sharpe"),
+    )
+    success = "error" not in data
+    return {"success": success, "data": data, "logiccard": None}
+
+
+async def _get_correlation_matrix(a, kt, db, uid):
+    from backend.core.tools.strategy_tools import get_correlation_matrix
+    data = get_correlation_matrix(
+        symbols=a.get("symbols", []),
+        period=a.get("period", "6mo"),
+    )
+    success = "error" not in data
+    return {"success": success, "data": data, "logiccard": None}
+
+
+async def _get_returns(a, kt, db, uid):
+    from backend.core.tools.strategy_tools import get_returns
+    data = get_returns(
+        symbol=a.get("symbol", ""),
+        period=a.get("period", "1y"),
+        cumulative=bool(a.get("cumulative", False)),
+    )
+    success = "error" not in data
+    return {"success": success, "data": data, "logiccard": None}
 
 
 async def _get_top_movers(a, kt, db, uid):

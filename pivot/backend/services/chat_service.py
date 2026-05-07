@@ -588,6 +588,23 @@ _MACRO_AMENDMENT_TOOLS: frozenset[str] = frozenset({
     "propose_basket_allocation", "propose_holding_action",
 })
 
+# Tools that return structured data the FE can render as a card
+# directly. For these the model's prose can be a short ack because
+# the user sees the card. Currently this set is **macro-draft tools
+# only** — they emit a workflow_draft_card / logic_card the FE
+# renders.
+#
+# WHY analytics tools were REMOVED from this set: get_indicator /
+# compare_performance / get_correlation_matrix etc. don't have a
+# dedicated FE widget yet — their results render as plain text.
+# Compact-mode on those produced "Done — compare_performance ran"
+# with NO visible values. Letting the model write 200-300 tokens
+# of prose lets it quote the actual numbers (RSI 59.28, Sharpe
+# −3.44, etc.) so the user sees the answer.
+_COMPACT_PROSE_TOOLS: frozenset[str] = frozenset({
+    "get_top_movers",  # already has rich prose patterns from earlier
+})
+
 
 def _classify_intent(message: str) -> str:
     """Return one of {'agent', 'automation', 'other'}.
@@ -731,6 +748,25 @@ _INDEPENDENT_INTENT_RE = re.compile(
     r"|\bsnapshot\s+of\b|\bquote\s+for\b|\bprice\s+of\b"
     # Help / capabilities
     r"|\bwhat\s+can\s+you\s+do\b"
+    # Indicator / metric data lookups — "RSI of X", "MACD on Y",
+    # "Sharpe of Z", "drawdown for W". These are READ queries the
+    # user is asking about an instrument, NOT amendments to the
+    # draft on screen. Without this branch the model treated
+    # "The RSI of Reliance" after a draft as "amend the draft to
+    # trigger on RELIANCE RSI" — re-emitted the workflow with an
+    # RSI rule the user never asked for. Treating as fresh intent
+    # evicts the draft and routes to the analytics tool.
+    #
+    # Two phrase shapes covered:
+    #   - "<metric> of/on/for <ticker>"   ("RSI of Reliance")
+    #   - "<ticker>'s <metric>"            ("NIFTY's RSI")
+    #   - "<ticker> <metric>"              ("TCS Sharpe")
+    r"|\b(?:rsi|macd|sma|ema|adx|atr|cci|mfi|stoch(?:astic)?|"
+    r"bollinger|supertrend|williams|aroon|ichimoku|"
+    r"sharpe|sortino|drawdown|volatility|var|beta)\s+(?:of|on|for)\b"
+    r"|\b\w+'s\s+(?:rsi|macd|sma|ema|adx|atr|cci|mfi|"
+    r"sharpe|sortino|drawdown|volatility|beta)\b"
+    r"|\b(?:overbought|oversold)\b"
     # Vague continuation prompts. WHY these are independent: a user
     # typing "what else" / "anything else" / "what now" after seeing
     # an order or workflow card is asking the bot to surface options,
@@ -2368,7 +2404,12 @@ class ChatService:
                     # Compact-mode tracker: any macro draft tool that
                     # succeeded means the FE will render the card; the
                     # NEXT hop's prose can be one short line.
-                    if guarded.name in _STASH_DRAFT_TOOLS:
+                    # Extended to analytics tools — they return
+                    # structured {value, interpretation} dicts the FE
+                    # renders directly; restating them in 400 tokens
+                    # of prose is pure waste.
+                    if (guarded.name in _STASH_DRAFT_TOOLS
+                            or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
                     continue
 
@@ -3311,7 +3352,8 @@ class ChatService:
                         self._stash_workflow_draft(
                             conv_id, guarded.data, tool_name=guarded.name,
                         )
-                    if guarded.name in _STASH_DRAFT_TOOLS:
+                    if (guarded.name in _STASH_DRAFT_TOOLS
+                            or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
                     continue
 

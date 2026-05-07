@@ -48,6 +48,9 @@ _REAL_TOOLS: set[str] = {
     # Market data
     "get_live_price", "get_index_level", "get_ohlc", "get_market_status",
     "get_52wk_range", "get_price_history", "get_top_movers",
+    # /core/ analytics bridge — indicators / risk / comparison
+    "get_indicator", "get_multiple_indicators", "get_performance_metrics",
+    "compare_performance", "get_correlation_matrix", "get_returns",
     # Yields
     "compare_yields", "get_yield_recommendation",
     # Calculations
