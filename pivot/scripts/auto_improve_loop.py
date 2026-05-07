@@ -509,6 +509,294 @@ SESSIONS: list[Session] = [
              )),
     ]),
 
+    # ─── Session L: holdings-aware actions (NEW) ─────────────────
+    Session("s_holdings", "Holdings actions: exit / trim positions on indicator", turns=[
+        Turn("show_portfolio",
+             "Show me my portfolio.",
+             expects="get_portfolio_summary or get_holdings",
+             check=lambda d, h: (
+                 has_tool(d, "get_portfolio_summary", "get_holdings"),
+                 f"tools={d.get('tools_called')}",
+             )),
+        Turn("exit_position_on_rsi",
+             "Exit my entire INFY position when its RSI goes above 70.",
+             expects="propose_holding_action or propose_workflow with sell-all branch on INFY",
+             check=lambda d, h: (
+                 (has_tool(d, "propose_holding_action") and "infy" in (d.get("response") or "").lower())
+                 or (has_tool(d, "propose_workflow") and "infy" in workflow_text(d)),
+                 f"tools={d.get('tools_called')} steps={steps_of(d)}",
+             )),
+        Turn("trim_half",
+             "Actually make it sell only half the position.",
+             expects="amended action with quantity=half / 50% / 0.5",
+             check=lambda d, h: (
+                 has_tool(d, "propose_holding_action", "propose_workflow")
+                 and ("half" in (d.get("response") or "").lower()
+                      or "50" in (d.get("response") or "")
+                      or "0.5" in workflow_text(d)),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+    ]),
+
+    # ─── Session M: scheduling edge cases (NEW) ──────────────────
+    Session("s_schedule_edges", "Time-of-day variants: market-relative + named-day", turns=[
+        Turn("tuesday_230pm",
+             "Buy 5 NIFTYBEES every Tuesday at 2:30 PM.",
+             expects="trigger.schedule with day=tue, time=14:30",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_scheduled_order")
+                 and (
+                     ("tuesday" in workflow_text(d) or "tue" in workflow_text(d) or "2" in workflow_text(d))
+                     and ("14:30" in workflow_text(d) or "2:30" in workflow_text(d) or "tuesday" in (d.get("response") or "").lower())
+                 ),
+                 f"steps={steps_of(d)} resp={(d.get('response') or '')[:140]!r}",
+             )),
+        Turn("opening_bell",
+             "Buy 1 RELIANCE at the opening bell every weekday.",
+             expects="trigger.market_relative_time(open) or trigger.schedule(09:15)",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_scheduled_order")
+                 and (
+                     "market_relative_time" in steps_of(d)
+                     or "open" in workflow_text(d)
+                     or "9:15" in workflow_text(d) or "09:15" in workflow_text(d)
+                 ),
+                 f"steps={steps_of(d)} wf_has_open={'open' in workflow_text(d)}",
+             )),
+        Turn("squareoff_before_close",
+             "30 minutes before close, square off all my intraday positions.",
+             expects="propose_workflow with market_relative_time(close, -30) + squareoff",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow")
+                 and (
+                     "market_relative_time" in steps_of(d)
+                     or "squareoff" in workflow_text(d)
+                     or "intraday" in (d.get("response") or "").lower()
+                 ),
+                 f"steps={steps_of(d)} resp={(d.get('response') or '')[:140]!r}",
+             )),
+    ]),
+
+    # ─── Session N: AND / OR conditional composition (NEW) ───────
+    Session("s_logic", "AND / OR composition in entry rules", turns=[
+        Turn("and_double_indicator",
+             "Buy RELIANCE only when RSI is below 30 AND the 50-EMA is above the 200-EMA.",
+             expects="propose_workflow with two indicator gates + condition.numeric joining them",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow")
+                 and steps_of(d).count("fetch.indicator") + steps_of(d).count("trigger.indicator") >= 2
+                 and steps_of(d).count("condition.numeric") >= 1,
+                 f"steps={steps_of(d)}",
+             )),
+        Turn("or_exit",
+             "Sell INFY if RSI goes above 70 OR price drops 5% from peak.",
+             expects="propose_workflow with two trigger branches (RSI + price)",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow")
+                 and "trigger.indicator" in steps_of(d)
+                 and ("trigger.price" in steps_of(d) or "5" in workflow_text(d)),
+                 f"steps={steps_of(d)} has_price_trigger={'trigger.price' in steps_of(d)}",
+             )),
+        Turn("nested_with_index_gate",
+             "Buy NIFTYBEES when RSI is below 30, but only if NIFTY is up on the day.",
+             expects="must NAME the gap (NIFTY day-change isn't a wired condition primitive) OR offer closest fit",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow")
+                 or text_has(d, "isn't wired", "not wired", "closest", "approximation", "skip the nifty",
+                             "drop the nifty", "regime")
+                 or has_tool(d, "ASK_USER"),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+    ]),
+
+    # ─── Session O: notional / percentage quantity (NEW) ─────────
+    Session("s_notional_qty", "₹-amount and percentage-of-portfolio quantity", turns=[
+        Turn("rupee_notional",
+             "Buy ₹50,000 worth of HDFCBANK.",
+             expects="place_market_order with notional=50000 OR propose_workflow with action.allocate_notional",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order", "propose_workflow",
+                          "propose_threshold_order", "propose_basket_allocation")
+                 and ("50000" in workflow_text(d)
+                      or "₹50" in (d.get("response") or "")
+                      or "50,000" in (d.get("response") or "")
+                      or "50000" in (d.get("response") or "")),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+        Turn("portfolio_pct",
+             "Allocate 10 percent of my portfolio to NIFTYBEES every Monday at 9:20.",
+             expects="propose_workflow with fetch.portfolio + allocate_notional, OR honest gap",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_basket_allocation",
+                          "propose_scheduled_order")
+                 or text_has(d, "10 percent", "10%", "portfolio", "isn't wired", "closest"),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+        Turn("max_with_cash",
+             "Buy as much RELIANCE as I can with my available cash, up to ₹25,000.",
+             expects="must compute max-shares — propose_workflow / place_market_order with notional=25000",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order", "propose_workflow", "propose_threshold_order")
+                 and ("25000" in workflow_text(d)
+                      or "25,000" in (d.get("response") or "")
+                      or "25000" in (d.get("response") or "")
+                      or "₹25" in (d.get("response") or "")),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+    ]),
+
+    # ─── Session P: self-reference / capability questions (NEW) ──
+    Session("s_self_ref", "What can Pivot actually do?", turns=[
+        Turn("what_can_you_do",
+             "What can you do for me?",
+             expects="brief honest summary of capabilities — no fabrication, must not refuse",
+             check=lambda d, h: (
+                 len((d.get("response") or "")) > 80
+                 and text_has(d, "agent", "automation", "workflow", "indicator", "schedule", "buy", "stock"),
+                 f"resp_len={len(d.get('response') or '')} head={(d.get('response') or '')[:140]!r}",
+             )),
+        Turn("what_stocks",
+             "What stocks can you buy?",
+             expects="must mention NSE / Indian equities; should not name fabricated tickers",
+             check=lambda d, h: (
+                 text_has(d, "nse", "indian", "equit", "stock", "share", "list"),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+        Turn("options_q",
+             "Do you trade options or futures?",
+             expects="must clearly say no F&O / options support",
+             check=lambda d, h: (
+                 text_has(d, "no", "don't", "doesn't", "can't", "f&o", "option", "futures", "equity only",
+                         "cash equit"),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+    ]),
+
+    # ─── Session Q: index queries (NEW) ──────────────────────────
+    Session("s_index", "NIFTY / BANKNIFTY / SENSEX queries", turns=[
+        Turn("nifty_now",
+             "Where's NIFTY at right now?",
+             expects="get_index_level for NIFTY",
+             check=lambda d, h: (
+                 has_tool(d, "get_index_level", "get_live_price")
+                 and "nifty" in (d.get("response") or "").lower(),
+                 f"tools={d.get('tools_called')}",
+             )),
+        Turn("banknifty",
+             "BANKNIFTY level today?",
+             expects="get_index_level for BANKNIFTY",
+             check=lambda d, h: (
+                 has_tool(d, "get_index_level", "get_live_price")
+                 and ("banknifty" in (d.get("response") or "").lower()
+                      or "bank nifty" in (d.get("response") or "").lower()),
+                 f"tools={d.get('tools_called')}",
+             )),
+        Turn("market_breadth",
+             "What's the market doing today — broadly?",
+             expects="get_top_movers / get_index_level / market_status — descriptive answer",
+             check=lambda d, h: (
+                 has_tool(d, "get_top_movers", "get_index_level",
+                          "get_market_status", "get_live_price")
+                 and len(d.get("response") or "") > 60,
+                 f"tools={d.get('tools_called')} resp_len={len(d.get('response') or '')}",
+             )),
+    ]),
+
+    # ─── Session R: long deep conversation (NEW, 10 turns) ───────
+    # Tests sustained context handling: ticker drift, comparison,
+    # build agent referring back, iterative refinement, activation.
+    Session("s_deep", "10-turn deep flow: explore → compare → build → iterate → activate", turns=[
+        Turn("show_a",
+             "Show me HDFCBANK.",
+             expects="quote/info on HDFCBANK",
+             check=lambda d, h: (
+                 has_tool(d, "get_live_price", "get_stock_quote", "get_stock_history")
+                 and "hdfcbank" in (d.get("response") or "").lower(),
+                 f"tools={d.get('tools_called')}",
+             )),
+        Turn("show_b",
+             "And ICICIBANK?",
+             expects="quote on ICICIBANK",
+             check=lambda d, h: (
+                 has_tool(d, "get_live_price", "get_stock_quote", "get_stock_history")
+                 and ("icicibank" in (d.get("response") or "").lower()
+                      or "icici" in (d.get("response") or "").lower()),
+                 f"tools={d.get('tools_called')}",
+             )),
+        Turn("compare_them",
+             "Compare them on the last year.",
+             expects="compare_performance or two get_stock_history calls — both names visible",
+             check=lambda d, h: (
+                 has_tool(d, "compare_performance", "get_stock_history",
+                          "get_live_price", "get_returns")
+                 and "hdfc" in (d.get("response") or "").lower()
+                 and ("icici" in (d.get("response") or "").lower()),
+                 f"tools={d.get('tools_called')}",
+             )),
+        Turn("market_sidebar",
+             "What's the broader market doing?",
+             expects="market commentary — must NOT silently drop the HDFCBANK / ICICI focus",
+             check=lambda d, h: (
+                 len(d.get("response") or "") > 30,
+                 f"resp_len={len(d.get('response') or '')}",
+             )),
+        Turn("build_agent_dual",
+             "Build me an agent that buys whichever of those two has lower RSI today, when its RSI dips below 35.",
+             expects="propose_workflow drafting an agent on HDFCBANK or ICICIBANK; honest if can't pick the lower-RSI one dynamically",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow")
+                 and ("hdfcbank" in workflow_text(d) or "icicibank" in workflow_text(d)
+                      or "hdfc" in (d.get("response") or "").lower()),
+                 f"tools={d.get('tools_called')} steps={steps_of(d)}",
+             )),
+        Turn("amend_amount",
+             "Make it ₹25,000 each.",
+             expects="amended workflow with notional=25000",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_threshold_order",
+                          "propose_basket_allocation")
+                 and ("25000" in workflow_text(d) or "25,000" in (d.get("response") or "")
+                      or "25" in (d.get("response") or "")),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+        Turn("ask_about_stoploss",
+             "What about a stop loss?",
+             expects="must propose a sensible stop or ASK_USER for percent / level",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "ASK_USER")
+                 or text_has(d, "stop", "percent", "%", "below entry", "what level"),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+        Turn("set_stop_pct",
+             "Set 5% below entry.",
+             expects="amended workflow includes set_stoploss / 0.05 / 5%",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_threshold_order")
+                 and ("set_stoploss" in workflow_text(d)
+                      or "0.05" in workflow_text(d)
+                      or "5%" in (d.get("response") or "")
+                      or "stop" in (d.get("response") or "").lower()),
+                 f"steps={steps_of(d)}",
+             )),
+        Turn("filler_ack",
+             "Looks good.",
+             expects="brief ack or activate-prompt — no random new tool",
+             check=lambda d, h: (
+                 (not has_tool(d, "place_market_order", "create_sl_order"))
+                 and len(d.get("response") or "") < 600,
+                 f"tools={d.get('tools_called')} len={len(d.get('response') or '')}",
+             )),
+        Turn("activate_it",
+             "ok activate it",
+             expects="confirmation / activation flow — must not start a new draft",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow")
+                 or text_has(d, "activate", "activated", "save", "click", "review",
+                             "open the workflow"),
+                 f"resp={(d.get('response') or '')[:200]!r}",
+             )),
+    ]),
+
     # ─── Session K: messy real-world ─────────────────────────────
     Session("s_messy", "Messy / vague prompts", turns=[
         Turn("typo_quote",
