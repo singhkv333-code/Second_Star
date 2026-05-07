@@ -1019,6 +1019,211 @@ SESSIONS: list[Session] = [
              )),
     ]),
 
+    # ─── Session SHIP-1: first-time user onboarding (NEW) ───────
+    Session("s_newuser", "First-time user — exploration before any build", turns=[
+        Turn("opening_question",
+             "I'm new here. What does Pivot actually do?",
+             expects="brief honest summary; no fabrication; no unprompted product pushing",
+             check=lambda d, h: (
+                 len(d.get("response") or "") > 80
+                 and text_has(d, "pivot", "automation", "agent", "buy", "stock"),
+                 "len={}".format(len(d.get("response") or "")),
+             )),
+        Turn("can_i_simulate",
+             "Can I try this without using real money first?",
+             expects="honest answer about paper / backtest mode; mention what's testable",
+             check=lambda d, h: (
+                 text_has(d, "backtest", "paper", "simulate", "test", "without real",
+                          "before activate", "review"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("small_amount",
+             "I want to start small — like ₹5,000. What can I do?",
+             expects="must NOT fabricate stocks; should suggest ETFs / fractional / small-budget actions or ASK",
+             check=lambda d, h: (
+                 (text_has(d, "etf", "niftybees", "goldbees", "small", "fraction",
+                           "₹5", "5000", "ask", "depending"))
+                 and not re.search(r"buy\s+\d+\s+RELIANCE", (d.get("response") or ""), re.IGNORECASE),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("how_about_etf",
+             "OK, what's a good index ETF to start with on the NSE?",
+             expects="list NIFTYBEES / GOLDBEES / similar — NSE ETFs only, no fabricated tickers",
+             check=lambda d, h: (
+                 text_has(d, "niftybees", "goldbees", "junior", "etf"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("set_up_first_sip",
+             "Set me up to buy ₹5,000 of NIFTYBEES every month.",
+             expects="propose_workflow / propose_scheduled_order / create_sip on NIFTYBEES",
+             check=lambda d, h: (
+                 has_tool(d, "create_sip", "propose_workflow",
+                          "propose_scheduled_order", "place_market_order")
+                 and "niftybees" in workflow_text(d) + (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session SHIP-2: comparison-before-buy (NEW) ─────────────
+    Session("s_shopping", "Compare two stocks then commit to one", turns=[
+        Turn("compare_two_etfs",
+             "What's the difference between NIFTYBEES and JUNIORBEES?",
+             expects="explain the index each tracks; honest if data isn't pulled live",
+             check=lambda d, h: (
+                 text_has(d, "nifty", "junior", "next", "midcap", "large", "index", "etf"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("which_safer",
+             "Which one is less risky?",
+             expects="honest comparative answer; no concrete fabricated risk numbers",
+             check=lambda d, h: (
+                 text_has(d, "large", "more stable", "less", "volatil", "blue-chip",
+                          "safer", "depend"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("show_chart",
+             "Show me NIFTYBEES on the 1-year chart.",
+             expects="get_stock_history with 1y window on NIFTYBEES",
+             check=lambda d, h: (
+                 has_tool(d, "get_stock_history", "get_live_price")
+                 and "niftybees" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("decide",
+             "OK let's go with NIFTYBEES. Buy 10 shares now.",
+             expects="place_market_order(NIFTYBEES, qty=10)",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order")
+                 and "niftybees" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session SHIP-3: error recovery / cancel flow (NEW) ──────
+    Session("s_recovery", "User changes their mind mid-flow", turns=[
+        Turn("start_order",
+             "Buy 100 RELIANCE at market.",
+             expects="place_market_order draft",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order")
+                 and "reliance" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("cancel",
+             "Actually cancel that, never mind.",
+             expects="acknowledge cancel; clear the active draft",
+             check=lambda d, h: (
+                 text_has(d, "cancel", "discarded", "cleared", "ok", "got it", "no problem",
+                          "scrapped", "removed"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("verify_clean",
+             "Show me my pending orders.",
+             expects="list_pending_orders or honest summary; the cancelled one must NOT show",
+             check=lambda d, h: (
+                 has_tool(d, "list_pending_orders", "get_portfolio_summary",
+                          "list_strategies", "list_workflows")
+                 or text_has(d, "no pending", "nothing", "none", "no active", "no orders"),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session SHIP-4: real-world Indian phrasings (NEW) ───────
+    Session("s_indian_phrasings", "Hinglish-flavoured asks the FE typically transliterates", turns=[
+        Turn("price_ka_kya",
+             "reliance ka kya bhav hai abhi",
+             expects="must understand Hinglish — quote on RELIANCE",
+             check=lambda d, h: (
+                 has_tool(d, "get_live_price", "get_stock_quote")
+                 and "reliance" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("kal_top_gainer",
+             "kal ka top gainer kaun tha",
+             expects="should answer about yesterday's top gainer or honestly say couldn't find historical data",
+             check=lambda d, h: (
+                 has_tool(d, "get_top_movers", "get_stock_history")
+                 or text_has(d, "yesterday", "kal", "historical", "couldn't",
+                             "top gainer", "data"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("nifty_kahan",
+             "nifty kahan hai",
+             expects="get_index_level or get_live_price for NIFTY",
+             check=lambda d, h: (
+                 has_tool(d, "get_index_level", "get_live_price")
+                 and "nifty" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("portfolio_kaisa",
+             "mera portfolio kaisa chal raha hai",
+             expects="get_portfolio_summary",
+             check=lambda d, h: (
+                 has_tool(d, "get_portfolio_summary", "get_holdings"),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session SHIP-5: complex strategy build (NEW) ────────────
+    Session("s_complex", "Multi-leg strategy with iterative refinement", turns=[
+        Turn("complex_initial",
+             "Build me an agent that splits ₹50,000 across NIFTYBEES, GOLDBEES, ITBEES every Monday at 9:20.",
+             expects="propose_basket_allocation or propose_workflow with three symbols + weekly schedule",
+             check=lambda d, h: (
+                 has_tool(d, "propose_basket_allocation", "propose_workflow",
+                          "propose_scheduled_order")
+                 and (
+                     "niftybees" in workflow_text(d).lower()
+                     and "goldbees" in workflow_text(d).lower()
+                 ),
+                 "tools={} symbols_in_wf={}/{}/{}".format(
+                     d.get("tools_called"),
+                     "niftybees" in workflow_text(d).lower(),
+                     "goldbees" in workflow_text(d).lower(),
+                     "itbees" in workflow_text(d).lower(),
+                 ),
+             )),
+        Turn("amend_distribution",
+             "Make it 50% NIFTYBEES, 30% GOLDBEES, 20% ITBEES instead of equal.",
+             expects="amend with weighted allocation",
+             check=lambda d, h: (
+                 has_tool(d, "propose_basket_allocation", "propose_workflow",
+                          "propose_scheduled_order")
+                 and ("50" in workflow_text(d) or "0.5" in workflow_text(d)
+                      or "50%" in (d.get("response") or "")),
+                 "wt_50_in_resp={} wt_50_in_wf={}".format(
+                     "50%" in (d.get("response") or ""),
+                     "50" in workflow_text(d),
+                 ),
+             )),
+        Turn("add_pause_condition",
+             "But pause it if NIFTY drops more than 5% in a single day.",
+             expects="must NAME the gap (NIFTY-day-change isn't a wired condition primitive) OR offer closest fit",
+             check=lambda d, h: (
+                 has_tool(d, "propose_basket_allocation", "propose_workflow",
+                          "propose_scheduled_order")
+                 or text_has(d, "isn't wired", "not wired", "closest", "regime",
+                             "approximation", "skip", "drop the pause", "manual"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("ask_quote",
+             "What's the current NIFTYBEES price?",
+             expects="get_live_price for NIFTYBEES; must NOT silently re-emit the basket draft",
+             check=lambda d, h: (
+                 has_tool(d, "get_live_price", "get_stock_quote", "get_stock_history")
+                 and "niftybees" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("activate_basket",
+             "ok activate the basket strategy",
+             expects="affirmative ack — should reference the basket; must NOT spawn a brand new draft",
+             check=lambda d, h: (
+                 not (has_tool(d, "place_market_order", "create_sl_order"))
+                 and len(d.get("response") or "") < 600,
+                 "tools={} len={}".format(d.get("tools_called"), len(d.get("response") or "")),
+             )),
+    ]),
+
     # ─── Session R: long deep conversation (NEW, 10 turns) ───────
     # Tests sustained context handling: ticker drift, comparison,
     # build agent referring back, iterative refinement, activation.

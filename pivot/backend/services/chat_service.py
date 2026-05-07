@@ -114,6 +114,14 @@ _REASONING_LEAK_TELLS = (
     r"\bneed\s+(?:safe|to\s+be\s+careful)\b",
     r"\bfinal(?:ly|\s+answer|\s+response|\s+output)\b",
     r"\bstep[- ]?by[- ]?step\s*:\s*$",
+    # B6 leak signals — observed in s_two_agents T3 where the model
+    # narrated its own formatting decisions before the actual reply.
+    r"\bmust\s+be\s+(?:concise|professional|short|brief|polite)\b",
+    r"\bper\s+(?:the\s+)?(?:tool|tools|system|docs?|instruction|guidance)\b",
+    r"\bafter\s+a\s+(?:workflow\s+draft|tool\s+call|macro\s+draft)\b",
+    r"\binclude\s+(?:the\s+)?(?:symbol|action|disclaimer|caption)\s+and\b",
+    r"\band\s+then\s+(?:disclaimer|the\s+disclaimer)\b",
+    r"\bper\s+tool\s+docs\b",
 )
 _REASONING_LEAK_RE = re.compile(
     "|".join(_REASONING_LEAK_TELLS),
@@ -146,7 +154,25 @@ def _strip_reasoning_leakage(text: str) -> str:
                 seen += 1
                 if seen >= 2:
                     break
-        if seen >= 2:
+        # Drop on:
+        #   - >=2 tells (multi-sentence monologue), OR
+        #   - >=1 tell combined with an embedded quoted block (the
+        #     canonical B6 shape: 'Let's craft: "Drafted: NIFTYBEES…"'
+        #     where the quoted content is the model talking to itself), OR
+        #   - >=1 tell in a SHORT paragraph (<70 chars) — single
+        #     self-directive sentences like "Must be concise and
+        #     professional." that aren't directed at the user.
+        has_quoted = (para.count('"') >= 2 and seen >= 1) or (
+            para.count("'") >= 2
+            and seen >= 1
+            and re.search(r"['\"]\s*Drafted\s*[:\.]", para)
+        )
+        is_short_self_directive = (
+            seen >= 1
+            and len(para.strip()) < 70
+            and not re.search(r"\byou\b|\byour\b", para, re.IGNORECASE)
+        )
+        if seen >= 2 or has_quoted or is_short_self_directive:
             continue
         kept.append(para)
     return "\n\n".join(kept).strip()
