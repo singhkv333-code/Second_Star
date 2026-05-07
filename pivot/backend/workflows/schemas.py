@@ -80,6 +80,56 @@ IntOrRef = Annotated[Union[int, str], BeforeValidator(_coerce_int_or_ref)]
 FloatOrRef = Annotated[Union[float, str], BeforeValidator(_coerce_float_or_ref)]
 
 
+# English qualifier words that LLMs sometimes pull out of phrases like
+# "exit my ENTIRE INFY position" / "sell my WHOLE TCS holding" and pass
+# as the symbol — producing a workflow with `symbol: "ENTIRE"`. Reject
+# these explicitly so the validation_handler can surface a clean error
+# back to the LLM and force a re-emit with the actual NSE ticker.
+# See B1 in the auto-improve loop's expanded test bank.
+_RESERVED_NON_SYMBOLS: frozenset[str] = frozenset({
+    "ENTIRE", "ALL", "WHOLE", "FULL", "COMPLETE", "TOTAL",
+    "POSITION", "POSITIONS", "HOLDING", "HOLDINGS",
+    "STOCK", "STOCKS", "SHARES", "SHARE", "EQUITY", "PORTFOLIO",
+    "MY", "THE", "A", "AN", "ANY",
+    "OPEN", "CLOSE", "OPENING", "CLOSING",
+    "BUY", "SELL", "EXIT", "ENTER",
+    "NONE", "NULL", "TBD", "NA", "N/A",
+})
+
+
+def _validate_symbol(v: Any) -> Any:
+    """Reject obvious English-qualifier words used as ticker symbols.
+
+    Mustache refs pass through unchanged (`{{ ... }}`). Empty strings
+    are rejected. Otherwise the value is uppercased and checked against
+    `_RESERVED_NON_SYMBOLS`. The error message names the offending word
+    AND points the LLM to the right shape, which is what comes back via
+    validation_handler when the draft fails to validate.
+    """
+    if not isinstance(v, str):
+        return v
+    s = v.strip()
+    if not s:
+        raise ValueError("symbol cannot be empty")
+    if _is_mustache_ref(s):
+        return v
+    if s.upper() in _RESERVED_NON_SYMBOLS:
+        raise ValueError(
+            f"'{v}' is an English qualifier word, not a stock symbol. "
+            "Re-emit the workflow with the actual NSE ticker the user "
+            "named (e.g. RELIANCE, INFY, TCS, NIFTYBEES). Phrases like "
+            "'exit my entire INFY position' refer to ticker INFY, not "
+            "the word 'entire'."
+        )
+    return v
+
+
+# All step-config symbol fields use this so a draft with `symbol: "ENTIRE"`
+# fails validation cleanly instead of leaking a placeholder workflow to
+# the user. See B1 / B2 in scripts/auto_improve_loop.py s_holdings.
+Symbol = Annotated[str, BeforeValidator(_validate_symbol)]
+
+
 class _Strict(BaseModel):
     """Base for all step config models.
 
@@ -158,14 +208,14 @@ class TriggerMarketRelativeTimeConfig(_Strict):
 
 
 class TriggerPriceConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     operator: Literal[">", "<", "crosses_above", "crosses_below"]
     value: float
     exchange: Literal["NSE", "BSE"] = "NSE"
 
 
 class TriggerIndicatorConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     indicator: Literal["rsi", "sma", "ema", "macd"]
     period: int = Field(..., ge=1, le=500)
     operator: Literal[">", "<", "crosses_above", "crosses_below"]
@@ -197,18 +247,18 @@ class TriggerWebhookConfig(_Strict):
 # ── Data fetches ─────────────────────────────────────────────────────
 
 class FetchQuoteConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     exchange: Literal["NSE", "BSE"] = "NSE"
 
 
 class FetchIndicatorConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     indicator: Literal["rsi", "sma", "ema", "macd"]
     period: int = Field(..., ge=1, le=500)
 
 
 class FetchFundamentalConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     metric: Literal["pe", "roe", "mcap", "de"]
 
 
@@ -271,12 +321,12 @@ class FetchNewsConfig(_Strict):
 #                              level WITHOUT needing arithmetic in refs.
 
 class FetchDayOpenConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     exchange: Literal["NSE", "BSE"] = "NSE"
 
 
 class FetchPriorCloseConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     exchange: Literal["NSE", "BSE"] = "NSE"
     sessions_back: int = Field(
         default=1, ge=1, le=10,
@@ -338,7 +388,7 @@ class FetchRelativeThresholdConfig(_Strict):
       { symbol: 'RELIANCE', reference: 'day_open', offset_pct: -5 }
     The output `value` is an absolute price the next step's
     condition.numeric can compare against current price directly."""
-    symbol: str
+    symbol: Symbol
     reference: Literal["day_open", "prior_close", "prior_high", "prior_low"]
     offset_pct: float = Field(
         default=0.0, ge=-50.0, le=50.0,
@@ -363,7 +413,7 @@ class ConditionMarketStatusConfig(_Strict):
 
 
 class ConditionPositionConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     require: Literal["held", "not_held"]
 
 
@@ -376,7 +426,7 @@ class ConditionTimeWindowConfig(_Strict):
 # ── Actions ──────────────────────────────────────────────────────────
 
 class ActionPlaceOrderConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     side: Literal["buy", "sell"]
     # Accepts an integer share count, a Mustache reference (e.g.
     # `{{ context.5.holdings.NIFTYBEES.quantity }}` for "sell entire
@@ -417,7 +467,7 @@ class ActionCancelOrdersConfig(_Strict):
 
 
 class ActionSetStoplossConfig(_Strict):
-    symbol: str
+    symbol: Symbol
     # Either an absolute trigger_price OR a percentage offset below the
     # entry fill (resolved at execution time from the preceding
     # action.place_order). Exactly one must be supplied; the engine
@@ -457,7 +507,7 @@ class ActionSetStoplossConfig(_Strict):
 
 class ActionUpdateWatchlistConfig(_Strict):
     action: Literal["add", "remove"]
-    symbol: str
+    symbol: Symbol
 
 
 class ActionAllocateNotionalConfig(_Strict):
@@ -527,7 +577,7 @@ class ActionSquareoffSymbolConfig(_Strict):
     intraday vs delivery; defaults to MIS since "exit my X" is most
     often an intraday cut.
     """
-    symbol: str
+    symbol: Symbol
     product: Literal["MIS", "CNC"] = "MIS"
 
 

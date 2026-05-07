@@ -895,6 +895,19 @@ than asking when a sensible default exists. Common patterns:
 
 - "Sell entire holding" / "sell the holding" → use a `fetch.portfolio`
   step then reference `{{ context.<idx>.holdings.<SYMBOL>.quantity }}`.
+  **The symbol is the actual NSE ticker the user named, never the
+  qualifier word.** "Exit my entire INFY position" → symbol is `INFY`,
+  not `ENTIRE`. "Sell all my RELIANCE" → symbol is `RELIANCE`, not
+  `ALL`. "Liquidate my full TCS holding" → symbol is `TCS`, not `FULL`.
+  Worked example for *"Exit my entire INFY position when its RSI goes
+  above 70"*:
+    1. `trigger.indicator { symbol: INFY, indicator: rsi, period: 14, op: '>', value: 70 }`
+    2. `fetch.portfolio { mode: full }`
+    3. `action.place_order { symbol: INFY, side: sell, quantity: '{{ context.1.holdings.INFY.quantity }}', order_type: market }`
+  Words that are NEVER tickers: `ENTIRE`, `ALL`, `WHOLE`, `FULL`,
+  `COMPLETE`, `POSITION`, `HOLDING`, `MY`, `THE`, `BUY`, `SELL`,
+  `EXIT`. The schema validator will reject these — re-emit with the
+  actual ticker if you see a validation error mentioning a qualifier.
 - "Watches X" / "monitors X" → use `trigger.price` or
   `trigger.indicator` for continuous monitoring; don't ask "every day?".
 - Missing approval flag → `requires_approval: false` (automatic execution).

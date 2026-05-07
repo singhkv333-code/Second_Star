@@ -520,21 +520,24 @@ SESSIONS: list[Session] = [
              )),
         Turn("exit_position_on_rsi",
              "Exit my entire INFY position when its RSI goes above 70.",
-             expects="propose_holding_action or propose_workflow with sell-all branch on INFY",
+             expects="propose_holding_action or propose_workflow on INFY — must NOT parse 'ENTIRE' as the ticker",
              check=lambda d, h: (
-                 (has_tool(d, "propose_holding_action") and "infy" in (d.get("response") or "").lower())
-                 or (has_tool(d, "propose_workflow") and "infy" in workflow_text(d)),
-                 f"tools={d.get('tools_called')} steps={steps_of(d)}",
+                 has_tool(d, "propose_holding_action", "propose_workflow")
+                 and ('"entire"' not in workflow_text(d).lower())
+                 and ('symbol": "entire' not in workflow_text(d).lower()),
+                 "tools={} entire_in_wf={}".format(
+                     d.get("tools_called"),
+                     '"entire"' in workflow_text(d).lower(),
+                 ),
              )),
         Turn("trim_half",
              "Actually make it sell only half the position.",
-             expects="amended action with quantity=half / 50% / 0.5",
+             expects="amended action OR ASK_USER for half-share-count vs half-value — must NOT regress to 'ENTIRE' symbol",
              check=lambda d, h: (
-                 has_tool(d, "propose_holding_action", "propose_workflow")
-                 and ("half" in (d.get("response") or "").lower()
-                      or "50" in (d.get("response") or "")
-                      or "0.5" in workflow_text(d)),
-                 f"resp={(d.get('response') or '')[:200]!r}",
+                 (has_tool(d, "propose_holding_action", "propose_workflow", "ASK_USER")
+                  or text_has(d, "half", "50%", "0.5", "share count", "holding value"))
+                 and ('"entire"' not in workflow_text(d).lower()),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
              )),
     ]),
 
@@ -699,6 +702,320 @@ SESSIONS: list[Session] = [
                           "get_market_status", "get_live_price")
                  and len(d.get("response") or "") > 60,
                  f"tools={d.get('tools_called')} resp_len={len(d.get('response') or '')}",
+             )),
+    ]),
+
+    # ─── Session S: order-amend chain across tool types (NEW, 5T) ─
+    # Exercises cross-tool amendments: market → limit → market.
+    # The active-draft cache should track the tool-name change and the
+    # amendment hint should re-emit the CURRENT tool, not stick to the
+    # original.
+    Session("s_order_chain", "Order amend chain: market <-> limit, qty changes", turns=[
+        Turn("buy_market",
+             "Buy 10 RELIANCE at market.",
+             expects="place_market_order with symbol=RELIANCE, qty=10",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order")
+                 and "reliance" in (d.get("response") or "").lower(),
+                 "tools={} resp={!r}".format(d.get("tools_called"), (d.get("response") or "")[:100]),
+             )),
+        Turn("switch_to_limit",
+             "Make it a limit order at ₹1,450.",
+             expects="amend to place_limit_order, same qty=10, price=1450",
+             check=lambda d, h: (
+                 has_tool(d, "place_limit_order", "place_market_order")
+                 and ("1450" in (d.get("response") or "")
+                      or "1,450" in (d.get("response") or "")),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("change_qty",
+             "actually 5 shares",
+             expects="amend qty=5; tool can be limit or market depending on amendment fidelity",
+             check=lambda d, h: (
+                 has_tool(d, "place_limit_order", "place_market_order")
+                 and ("5" in (d.get("response") or "")),
+                 "tools={} resp={!r}".format(d.get("tools_called"), (d.get("response") or "")[:120]),
+             )),
+        Turn("back_to_market",
+             "scrap the limit price, just market it",
+             expects="amend back to place_market_order, qty=5",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order", "place_limit_order")
+                 and ("market" in (d.get("response") or "").lower()),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("activate",
+             "ok do it",
+             expects="affirmative ack — must NOT spawn a new draft from history",
+             check=lambda d, h: (
+                 not (has_tool(d, "propose_workflow", "propose_threshold_order")
+                      and len(steps_of(d)) > 0),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session T: multiple agents in one session (NEW, 8T) ─────
+    # Builds two distinct agents back-to-back. The second build must
+    # NOT pull state from the first (no NIFTYBEES carry-over into the
+    # INFY agent). Tests cross-agent isolation at the active-draft
+    # cache level.
+    Session("s_two_agents", "Build agent A → activate → build agent B, no cross-talk", turns=[
+        Turn("build_a",
+             "Build me an agent that buys NIFTYBEES whenever its RSI dips below 30.",
+             expects="propose_workflow OR propose_threshold_order on NIFTYBEES — both valid for single-condition RSI buy",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_threshold_order")
+                 and ("niftybees" in workflow_text(d)
+                      or "niftybees" in (d.get("response") or "").lower()),
+                 "tools={} resp_head={!r}".format(d.get("tools_called"), (d.get("response") or "")[:80]),
+             )),
+        Turn("amend_a_qty",
+             "Make it 5 shares.",
+             expects="amended NIFTYBEES workflow with quantity=5",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow")
+                 and "niftybees" in workflow_text(d),
+                 "wf_has_niftybees={}".format("niftybees" in workflow_text(d)),
+             )),
+        Turn("activate_a",
+             "ok save it",
+             expects="affirmative ack — no new draft",
+             check=lambda d, h: (
+                 not has_tool(d, "propose_threshold_order")
+                 and not (has_tool(d, "propose_workflow") and "infy" in workflow_text(d)),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("build_b",
+             "Now build a second one — sell INFY when its RSI goes above 70.",
+             expects="NEW propose_workflow on INFY; must NOT mention NIFTYBEES",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_holding_action")
+                 and ("infy" in workflow_text(d) or "infy" in (d.get("response") or "").lower())
+                 and "niftybees" not in (d.get("response") or "").lower()[:300],
+                 "infy_in_wf={} niftybees_in_resp_head={}".format(
+                     "infy" in workflow_text(d),
+                     "niftybees" in (d.get("response") or "").lower()[:300],
+                 ),
+             )),
+        Turn("amend_b_qty",
+             "Make it sell 3 shares.",
+             expects="amended INFY workflow with quantity=3 — not NIFTYBEES",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_holding_action")
+                 and ("infy" in workflow_text(d) or "infy" in (d.get("response") or "").lower())
+                 and "niftybees" not in workflow_text(d),
+                 "infy_in_wf={} niftybees_in_wf={}".format(
+                     "infy" in workflow_text(d),
+                     "niftybees" in workflow_text(d),
+                 ),
+             )),
+        Turn("activate_b",
+             "ok activate this one",
+             expects="affirmative ack",
+             check=lambda d, h: (
+                 not (has_tool(d, "propose_threshold_order")
+                      and "niftybees" in workflow_text(d)),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("recall_both",
+             "Show me both of my automations.",
+             expects="must list both — list_strategies / list_workflows / honest summary",
+             check=lambda d, h: (
+                 (has_tool(d, "list_strategies", "list_workflows")
+                  or text_has(d, "two", "both", "automation", "agent", "active"))
+                 and len(d.get("response") or "") > 30,
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("filler_thanks",
+             "thanks",
+             expects="brief ack — must not re-emit any draft",
+             check=lambda d, h: (
+                 not has_tool(d, "propose_workflow", "propose_threshold_order",
+                              "propose_holding_action", "place_market_order"),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session U: question-into-build (NEW, 5T) ────────────────
+    # Asks RSI for three tickers, then asks Pivot to build an agent
+    # over "those three". Tests context-carrying of a multi-ticker set
+    # into a workflow-build prompt.
+    Session("s_qna_build", "Q+A on three tickers → build agent over them", turns=[
+        Turn("rsi_a",
+             "Is RELIANCE oversold right now?",
+             expects="get_indicator (RSI) on RELIANCE",
+             check=lambda d, h: (
+                 has_tool(d, "get_indicator", "get_multiple_indicators")
+                 and "reliance" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("rsi_b",
+             "What about TCS?",
+             expects="get_indicator on TCS",
+             check=lambda d, h: (
+                 has_tool(d, "get_indicator", "get_multiple_indicators")
+                 and "tcs" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("rsi_c",
+             "And INFY?",
+             expects="get_indicator on INFY",
+             check=lambda d, h: (
+                 has_tool(d, "get_indicator", "get_multiple_indicators")
+                 and "infy" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("build_over_three",
+             "Build me an agent that buys whichever one of those three has the lowest RSI today, when its RSI dips below 30.",
+             expects="propose_workflow OR honest gap (Pivot can't pick lowest dynamically without screener); should NOT silently pick one",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "ASK_USER")
+                 or text_has(d, "isn't wired", "not wired", "closest", "screener", "fixed", "named",
+                             "rank", "compare"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("notional_each",
+             "Make it ₹15,000 per buy.",
+             expects="amended workflow with notional 15000 OR ASK_USER if previous was a clarification",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_threshold_order",
+                          "propose_basket_allocation", "ASK_USER")
+                 or text_has(d, "15000", "15,000", "₹15"),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session V: stop-loss variants (NEW, 5T) ─────────────────
+    # Tests stop-loss expression styles: percent, absolute, trailing.
+    # Trailing is NOT wired (gap honesty expected on that turn).
+    Session("s_sl_variants", "Stop-loss percent / absolute / trailing", turns=[
+        Turn("buy_first",
+             "Buy 10 RELIANCE.",
+             expects="place_market_order draft on RELIANCE",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order")
+                 and "reliance" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("sl_percent",
+             "Add a 5% stop loss below entry.",
+             expects="create_sl_order or amended order with stop_loss_pct=5 / 0.05",
+             check=lambda d, h: (
+                 has_tool(d, "create_sl_order", "place_market_order",
+                          "propose_workflow", "propose_threshold_order")
+                 and ("5%" in (d.get("response") or "")
+                      or "5 percent" in (d.get("response") or "").lower()
+                      or "0.05" in workflow_text(d)),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("sl_absolute",
+             "Actually use ₹1,430 as the stop instead.",
+             expects="amended SL with absolute price 1430",
+             check=lambda d, h: (
+                 has_tool(d, "create_sl_order", "place_market_order",
+                          "propose_workflow", "propose_threshold_order")
+                 and ("1430" in (d.get("response") or "")
+                      or "1,430" in (d.get("response") or "")),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("sl_trailing",
+             "What about a trailing 3% stop?",
+             expects="must say trailing isn't wired OR offer closest fit (regular SL)",
+             check=lambda d, h: (
+                 text_has(d, "trailing", "isn't wired", "not wired", "closest", "fixed", "regular stop",
+                          "doesn't support")
+                 or has_tool(d, "ASK_USER"),
+                 "resp={!r}".format((d.get("response") or "")[:200]),
+             )),
+        Turn("revert_5pct",
+             "ok use the 5% one then",
+             expects="amend back to 5% SL — no new tool from history",
+             check=lambda d, h: (
+                 has_tool(d, "create_sl_order", "place_market_order",
+                          "propose_workflow", "propose_threshold_order")
+                 or text_has(d, "5%", "5 percent", "0.05"),
+                 "tools={} resp={!r}".format(d.get("tools_called"), (d.get("response") or "")[:140]),
+             )),
+    ]),
+
+    # ─── Session W: clarification chain (NEW, 4T) ────────────────
+    # Tests the followup_hint path: each turn answers the previous
+    # ASK. The model should accumulate answers into a final draft.
+    Session("s_clarify_chain", "Build → ASK → answer → ASK → answer → draft", turns=[
+        Turn("vague_build",
+             "Build me an agent.",
+             expects="ASK_USER for what kind of agent",
+             check=lambda d, h: (
+                 has_tool(d, "ASK_USER")
+                 or text_has(d, "what would you like", "what kind", "tell me", "specifically",
+                             "for which", "what stock"),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("answer_what",
+             "buy NIFTYBEES",
+             expects="ASK_USER for trigger / when, OR a draft with default-trigger inferred — any macro tool is OK",
+             check=lambda d, h: (
+                 has_tool(d, "ASK_USER", "propose_workflow", "propose_threshold_order",
+                          "propose_scheduled_order")
+                 or text_has(d, "when", "trigger", "schedule", "every", "rsi", "what condition"),
+                 "tools={} resp={!r}".format(d.get("tools_called"), (d.get("response") or "")[:140]),
+             )),
+        Turn("answer_when",
+             "when RSI drops below 30",
+             expects="now full draft — any macro tool with NIFTYBEES + RSI<30",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_threshold_order",
+                          "propose_scheduled_order")
+                 and ("niftybees" in workflow_text(d)
+                      or "niftybees" in (d.get("response") or "").lower()),
+                 "tools={} steps={}".format(d.get("tools_called"), steps_of(d)),
+             )),
+        Turn("activate",
+             "ok save",
+             expects="affirmative ack — no new draft",
+             check=lambda d, h: (
+                 not (has_tool(d, "propose_workflow", "propose_threshold_order")
+                      and len(steps_of(d)) > 3),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+    ]),
+
+    # ─── Session X: order-then-automate (NEW, 4T) ────────────────
+    # User starts to place an order, pivots to building an automation
+    # of similar shape. Tests that the in-flight order draft cleanly
+    # gives way to the new workflow without leakage.
+    Session("s_order_to_agent", "Place order → switch to automation of same shape", turns=[
+        Turn("market_buy",
+             "Buy 5 INFY at market.",
+             expects="place_market_order draft on INFY",
+             check=lambda d, h: (
+                 has_tool(d, "place_market_order")
+                 and "infy" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("interrupt_check",
+             "Actually wait — show my current INFY position first.",
+             expects="get_portfolio_summary or get_holdings; the order draft can stay or be evicted",
+             check=lambda d, h: (
+                 has_tool(d, "get_portfolio_summary", "get_holdings", "get_holding_detail")
+                 and "infy" in (d.get("response") or "").lower(),
+                 "tools={}".format(d.get("tools_called")),
+             )),
+        Turn("pivot_to_automation",
+             "OK skip that order. Build an automation that buys 5 INFY every Monday at 9:30 instead.",
+             expects="propose_workflow OR propose_scheduled_order on INFY with Monday 9:30",
+             check=lambda d, h: (
+                 has_tool(d, "propose_workflow", "propose_scheduled_order")
+                 and "infy" in workflow_text(d),
+                 "steps={} infy_in_wf={}".format(steps_of(d), "infy" in workflow_text(d)),
+             )),
+        Turn("activate",
+             "ok activate",
+             expects="affirmative ack — must NOT re-spawn the original market-buy order",
+             check=lambda d, h: (
+                 not (has_tool(d, "place_market_order")
+                      and "5" in (d.get("response") or "")[:60]),
+                 "tools={} resp={!r}".format(d.get("tools_called"), (d.get("response") or "")[:140]),
              )),
     ]),
 
