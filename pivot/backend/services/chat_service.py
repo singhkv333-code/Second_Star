@@ -1729,6 +1729,29 @@ class ChatService:
                     logiccard=None, raw_data=None,
                     latency_ms=total, latency_breakdown=breakdown,
                 )
+            # Pure-affirmative WITHOUT an active draft: the user said "ok"
+            # / "yes" but there's nothing on screen to confirm. Without
+            # this branch, the LLM gets called with full conversation
+            # history and resurrects a recently-evicted draft from prior
+            # assistant messages — see the canonical bug: user builds a
+            # NIFTYBEES draft, asks an independent question (which evicts
+            # the draft), then says "ok" — the LLM finds the old draft
+            # in history and re-proposes it via propose_threshold_order.
+            # Short-circuit with a neutral ack to break the resurrection.
+            ack = "Got it. What would you like next?"
+            self.store.append(conv_id, message, ack)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["affirm_ack_no_draft"] = total
+            breakdown["total"] = total
+            _log_timing("affirm_ack_no_draft", message, total, breakdown, tools=[])
+            trace.event("turn.end", total_ms=total, tools_called=[],
+                        reason="pure_affirmative_no_active_draft")
+            trace.end()
+            return ChatTurn(
+                response=ack, tools_called=[],
+                logiccard=None, raw_data=None,
+                latency_ms=total, latency_breakdown=breakdown,
+            )
 
         # ── Fresh-session eviction ─────────────────────────────────
         # When the FE explicitly hands us an EMPTY history list, the
@@ -1793,6 +1816,31 @@ class ChatService:
         # ship a turn with zero tools.
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+
+        # ── Active-draft amendment guarantee ───────────────────────
+        # When a macro draft is on screen and the user's current message
+        # mutates it (e.g. "make it 5 shares" after a propose_workflow
+        # draft), the router may have produced a tool list that EXCLUDES
+        # the draft's own tool — the amendment-rule in tool_router.py only
+        # lists single-step order tools (place_market_order, create_sl_order,
+        # …) and does not include propose_workflow. The amendment hint
+        # injected later tells the LLM to re-emit `propose_workflow`, but
+        # the LLM cannot call a tool that isn't in its visible toolset, so
+        # it falls back to a different macro (propose_threshold_order /
+        # create_sl_order). The downstream effect: the FE workflow card
+        # silently downgrades to a single-step order card on amend, and
+        # the agent shape is lost.
+        active_for_routing = self.store.get_active_draft(conv_id)
+        if (active_for_routing is not None
+                and active_for_routing.tool_name in _MACRO_AMENDMENT_TOOLS
+                and selected_names is not None
+                and active_for_routing.tool_name not in selected_names):
+            selected_names = selected_names | {active_for_routing.tool_name}
+            trace.event(
+                "tools.forced_active_draft_tool",
+                tool=active_for_routing.tool_name,
+                reason="amendment_must_re-emit_same_macro",
+            )
 
         # WHY this strip exists: when an active draft was sitting in
         # cache at the start of this turn AND the user's message is
@@ -2744,6 +2792,29 @@ class ChatService:
                     "latency_breakdown": breakdown,
                 }
                 return
+            # Pure-affirmative without active draft (mirror of handle()).
+            # See the longer comment in handle() for rationale.
+            ack = "Got it. What would you like next?"
+            self.store.append(conv_id, message, ack)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["affirm_ack_no_draft"] = total
+            breakdown["total"] = total
+            _log_timing("affirm_ack_no_draft", message, total, breakdown, tools=[])
+            trace.event("turn.end", total_ms=total, tools_called=[],
+                        reason="pure_affirmative_no_active_draft")
+            trace.end()
+            yield {"type": "start"}
+            yield {"type": "delta", "text": ack}
+            yield {
+                "type": "done",
+                "response": ack,
+                "tools_called": [],
+                "logiccard": None,
+                "raw_data": None,
+                "latency_ms": total,
+                "latency_breakdown": breakdown,
+            }
+            return
 
         # ── Fresh-session eviction (mirror of non-streaming path) ──
         if history_override is not None and len(history_override) == 0:
@@ -2805,6 +2876,20 @@ class ChatService:
 
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+
+        # Active-draft amendment guarantee (mirror of non-streaming path).
+        # See the longer comment in `handle()` for rationale.
+        active_for_routing = self.store.get_active_draft(conv_id)
+        if (active_for_routing is not None
+                and active_for_routing.tool_name in _MACRO_AMENDMENT_TOOLS
+                and selected_names is not None
+                and active_for_routing.tool_name not in selected_names):
+            selected_names = selected_names | {active_for_routing.tool_name}
+            trace.event(
+                "tools.forced_active_draft_tool",
+                tool=active_for_routing.tool_name,
+                reason="amendment_must_re-emit_same_macro",
+            )
 
         # Typo-continuation guard (mirror of non-streaming path).
         # See _is_bare_typo_continuation for full rationale.
