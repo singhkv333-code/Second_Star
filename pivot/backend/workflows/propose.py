@@ -205,6 +205,16 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
                 f"step {idx}: two triggers in a row creates an empty "
                 f"branch — give the previous trigger at least one action"
             )
+        # Deterministic repair: numeric-string coercion, channel
+        # collapse to push, time-string → weekday cron. Applied
+        # in-place so the validated step + downstream executor see
+        # the repaired config. Saves an LLM retry hop on common
+        # LLM mistakes ("quantity": "ten", "channel": "email", etc.).
+        from backend.services.arg_repair import repair_step_config
+        repaired_cfg, _notes = repair_step_config(step.step_type, step.config or {})
+        if repaired_cfg is not step.config:
+            step.config = repaired_cfg
+
         try:
             defn.config_model.model_validate(step.config)
         except ValidationError as e:

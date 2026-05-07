@@ -66,6 +66,25 @@ _RULES: list[_Rule] = [
         "propose_workflow",
     ),
 
+    # ── Order-card quantity/price amendments ──────────────────────
+    # "make it 5", "no 3 shares", "actually 10", "change to ₹1950",
+    # "just 7 lots" — short edits the user types after seeing a logiccard.
+    # WHY this rule exists: these short phrases don't hit any keyword rule
+    # (no "buy", no "sell", no ticker), so the router returned only
+    # _FALLBACK_TOOLS (data-read tools). The LLM called get_live_price to
+    # estimate value but couldn't re-emit the order card — the user saw prose
+    # instead of an updated LogicCard with a Confirm button. Adding these
+    # amendment patterns brings the full order tool set back into scope.
+    _r(
+        r"\b(?:no|make\s+it|change\s+(?:it\s+)?to|actually|instead)\s*[₹]?\d+\s*(?:shares?|units?|lots?)?\b"
+        r"|\bjust\s+\d+\s+(?:shares?|units?|lots?)\b"
+        r"|\b\d+\s+(?:shares?|units?|lots?)\s+(?:instead|only|please)\b",
+        "place_market_order", "place_limit_order", "create_gtt_order",
+        "create_sl_order", "create_oco_order", "create_sip",
+        "squareoff_all_intraday", "squareoff_symbol",
+        "get_live_price",
+    ),
+
     # ── Live price / quote / OHLC ──────────────────────────────────
     _r(
         r"\b(price|quote|snapshot|ltp|last\s+traded|how\s+(much|is)\s+\w+\s+trading"
@@ -73,6 +92,23 @@ _RULES: list[_Rule] = [
         r"|nifty|sensex|banknifty)\b"
         r"|^\s*[A-Z]{2,12}\s*\??\s*$",
         "get_live_price", "get_index_level", "get_ohlc", "get_market_status",
+    ),
+
+    # ── Top gainers / losers ──────────────────────────────────────
+    # WHY this rule exists: prompts like "today's top gainers" / "who's
+    # moving most" need `get_top_movers` (read-only chat tool) and
+    # `propose_workflow` (when the prompt is "buy the top gainer at
+    # close..."). The order rule didn't match either case because the
+    # phrasing has no buy/sell verb, so the tool was unreachable.
+    _r(
+        r"\btop\s+(?:gainers?|losers?|movers?)\b"
+        r"|\bbiggest\s+(?:gainers?|losers?|movers?)\b"
+        r"|\bday'?s?\s+(?:top|biggest)\s+(?:gainers?|losers?|movers?)\b"
+        r"|\bgainer\s+of\s+the\s+day\b|\bloser\s+of\s+the\s+day\b"
+        r"|\bwho'?s?\s+(?:moving|gaining|losing)\s+most\b",
+        "get_top_movers",
+        "propose_workflow",
+        "place_market_order", "place_limit_order",  # for "buy top gainer..."
     ),
 
     # ── 52-week range, price history, charts ───────────────────────
@@ -84,12 +120,19 @@ _RULES: list[_Rule] = [
     ),
 
     # ── Portfolio / holdings / sector ──────────────────────────────
+    # WHY calculate_tax_impact is here: it was missing from every rule,
+    # so "what's the tax hit if I sell my RELIANCE" had no path to the
+    # right tool — the LLM grabbed `calculate_order_qty` (visible via the
+    # order rule) and produced a wrong number. Tax-impact questions
+    # virtually always co-occur with portfolio/holding language, so this
+    # is the natural rule to host it.
     _r(
         r"\b(portfolio|holdings|my\s+(stocks|positions|investments)"
         r"|sector\s+breakdown|allocation|p&?l|profit|loss"
-        r"|tax\s+(summary|impact|loss)|stcg|ltcg)\b",
+        r"|tax\s+(summary|impact|loss|hit)|stcg|ltcg)\b",
         "get_portfolio_summary", "get_holdings", "get_sector_breakdown",
         "get_holding_detail", "get_tax_summary", "get_active_products",
+        "calculate_tax_impact",
     ),
 
     # ── Order placement (immediate / limit / GTT) ─────────────────
@@ -113,6 +156,25 @@ _RULES: list[_Rule] = [
         "delete_sip", "pause_all_sips",
     ),
 
+    # ── Pause / resume / delete management commands ───────────────
+    # WHY this rule exists: a turn like "pause all of them" after the
+    # user has just listed their SIPs has no SIP keyword in it — the
+    # router sees only "pause all" and surfaces neither SIP nor
+    # strategy management tools. The model then picks
+    # `propose_scheduled_order` (a macro from _ALWAYS_INCLUDE) and
+    # produces a wrong card. Including the management verbs without
+    # requiring a domain keyword brings both the SIP and strategy
+    # pause/resume/delete tools into scope so pronoun resolution can
+    # land on the right one.
+    _r(
+        r"\b(pause|resume|delete|cancel|stop|kill)\s+(all|every|each|both|them|those|my)\b"
+        r"|\b(pause|resume|delete)\s+(it|that)\b",
+        "pause_sip", "resume_sip", "delete_sip", "pause_all_sips",
+        "list_sips",
+        "pause_strategy", "resume_strategy", "delete_strategy",
+        "list_strategies",
+    ),
+
     # ── Strategy automation (single-rule) ──────────────────────────
     _r(
         r"\b(strategy|strategies|automation|rule|monitor|watch\s+for|trigger)\b",
@@ -126,19 +188,72 @@ _RULES: list[_Rule] = [
         "run_backtest",
     ),
 
-    # ── Yields / cash parking ─────────────────────────────────────
+    # ── Sector basket / multi-stock allocation ────────────────────
+    # WHY this rule exists: prompts like "make me a basket of steel
+    # stocks with equal weightage and 1L to invest" don't trigger any
+    # of the order/strategy/SIP rules, so the only macro tools the
+    # model sees are the floor in _ALWAYS_INCLUDE. The model then has
+    # propose_basket_allocation in scope but no salience cue — and
+    # often picks propose_workflow instead. Surfacing a basket-shaped
+    # rule with the right tool family puts the macro front-and-center
+    # and pulls in the supporting screener/order tools.
     _r(
-        r"\byield(?:s|ed)?\b|fixed\s+deposit|\bfd\b|liquid\s+fund"
+        r"\bbasket\s+of\b"
+        r"|\b(?:invest|allocate|put|deploy|split)\b.{0,40}\b(?:across|equally|weighted)\b"
+        r"|\btop\s+\d+\s+(?:[a-z_]+\s+)?stocks?\b"
+        r"|\bequal\s+weight(?:age)?\b|\bmcap[- ]weighted\b|\bmarket[- ]cap\s+weighted\b"
+        r"|\bsector\s+(?:basket|allocation)\b",
+        "propose_basket_allocation",
+        "place_basket_order",
+        "get_live_price",
+    ),
+
+    # ── Yields / cash parking ─────────────────────────────────────
+    # WHY "fixed[- ]income" / "bond" / "sgb" / "recommend.*invest" added:
+    # "recommend the best fixed-income option for 2 years" matched none
+    # of the prior patterns — yield tools weren't surfaced and the model
+    # answered with prose that had no data. Bond and SGB are first-class
+    # retail-investor terms that share the recommendation surface.
+    _r(
+        r"\byield(?:s|ed)?\b|fixed\s+deposit|fixed[- ]income|\bfd\b|liquid\s+fund"
         r"|overnight\s+fund|park\s+(my|the)?\s*(cash|money|idle)"
-        r"|savings\s+account|after[- ]tax",
+        r"|savings\s+account|after[- ]tax|\bsgb\b|sovereign\s+gold"
+        r"|government\s+bond|\bg-?sec\b|treasury\s+bill|\bt-?bill\b"
+        r"|recommend\s+(?:the\s+)?(?:best\s+)?(?:fixed|bond|debt|safe)",
         "compare_yields", "get_yield_recommendation",
     ),
 
     # ── Scheduler status ──────────────────────────────────────────
+    # WHY "scheduled" / "what.*scheduled" / "what.*queued" added: the
+    # earlier rule only matched the literal word "scheduler" or
+    # "upcoming", missing the much more natural "what jobs are
+    # scheduled for today" and "what's queued up". Without these
+    # patterns the bot answered in prose with no data; the user
+    # couldn't see active automations.
     _r(
         r"\b(scheduler|next\s+(run|sip|job)|upcoming\s+(job|sip|task))\b"
-        r"|\bis\s+automation\s+(running|on)",
+        r"|\bis\s+automation\s+(running|on)"
+        r"|\b(?:what|which)\s+(?:jobs?|tasks?|automations?|agents?|runs?)\s+"
+        r"(?:are\s+)?(?:scheduled|queued|coming\s+up|upcoming|pending)\b"
+        r"|\bscheduled\s+(?:for\s+)?(?:today|tomorrow|this\s+week)\b",
         "get_scheduler_status", "list_upcoming_jobs",
+    ),
+
+    # ── Pending / open order listings ─────────────────────────────
+    # WHY this rule exists: the order rule includes `list_pending_orders`
+    # but only matches when an order verb (buy/sell/cancel/etc) is
+    # present. A bare "show me my pending orders" had no verb match,
+    # so the listing tools were absent and the bot returned empty
+    # tools_called. This rule surfaces the read-only listing tools
+    # for any "pending" / "open" / "active" order query.
+    _r(
+        r"\b(?:show|list|view|get|see|check|what(?:'s| is)|any)\b"
+        r".{0,30}\b(?:pending|open|active|outstanding|live|placed|unfilled)\b"
+        r".{0,15}\b(?:orders?|trades?|gtts?|positions?)\b"
+        r"|\b(?:my|the)\s+(?:pending|open|active|outstanding)\s+orders?\b"
+        r"|\bpending\s+orders?\b|\bopen\s+orders?\b",
+        "list_pending_orders", "list_gtt_orders",
+        "cancel_order", "cancel_gtt", "modify_order",
     ),
 
     # ── Pivot products (only when user explicitly names one) ──────

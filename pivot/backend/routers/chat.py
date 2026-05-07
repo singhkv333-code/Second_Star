@@ -198,6 +198,23 @@ _REBALANCE_WORD_MAP = {
 # not historical backtests. Now we require the literal word.
 _HAS_BACKTEST_WORD_RE = re.compile(r"\bbacktest(?:ed|ing|s)?\b", re.IGNORECASE)
 
+# Follow-up backtest patterns ("the same with X=25 instead of 30",
+# "again but with Y", "do it again"). These references depend on the
+# previous turn's backtest — the router's fast-path parsers can't see
+# the prior symbol/indicator, so they crash trying to extract one from
+# a message that doesn't contain it ("backtest the same with RSI
+# threshold 25 instead of 30" used to extract symbol="same" and blow up
+# yfinance with a type error). Let these fall through to the LLM, which
+# CAN read the prior turn's context.
+_FOLLOWUP_BT_RE = re.compile(
+    r"\bthe\s+same\b"
+    r"|\binstead\s+of\s+\d"
+    r"|\bsame\s+with\b"
+    r"|\bagain\s+with\b"
+    r"|\bbut\s+with\s+(?:rsi|sma|ema|threshold|period)",
+    re.IGNORECASE,
+)
+
 
 def _normalize_date_input(s: str) -> str:
     """Accept either a YYYY date (→ Jan 1) or full YYYY-MM-DD."""
@@ -238,6 +255,13 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
     #    "what if I had bought INFY" hijacked the LLM path and ran a
     #    backtest the user never asked for.
     has_backtest_word = bool(_HAS_BACKTEST_WORD_RE.search(body))
+    # Follow-up bypass: phrasings that reference a prior backtest
+    # ("the same with X", "instead of N") need conversation context
+    # the router can't see. Punt to the LLM. WHY at the top: any of
+    # the heuristic parsers below would otherwise extract garbage
+    # ("same" as symbol) and crash the backtester.
+    if has_backtest_word and _FOLLOWUP_BT_RE.search(body):
+        return None
     if has_backtest_word and not _looks_like_agent_intent(body):
         if (
             (m := _NL_IND_RE_A.match(body))
@@ -730,6 +754,13 @@ _SYMBOL_STOPWORDS = frozenset({
     "has", "had", "having", "but", "than", "then", "so", "yet",
     "though", "although", "while", "until", "since", "because",
     "after", "before", "during",
+    # Follow-up / continuation words. WHY: "backtest the same with RSI
+    # threshold 25 instead of 30" used to extract symbol="same" and
+    # crash the indicator backtester. With these added, the heuristic
+    # parser bails (no symbol), the message falls through to the LLM,
+    # which can call run_backtest with the previous symbol from context.
+    "same", "previous", "again", "instead", "threshold", "different",
+    "another", "other", "only", "just",
 })
 
 

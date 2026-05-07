@@ -18,6 +18,7 @@ frontend can surface the message verbatim — never fake data
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Literal
@@ -27,12 +28,24 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from backend.cache import redis_client
 from backend.database import get_db
 from backend.routers._deps import require_user
 from backend.routers._errors import http_error
 
 router = APIRouter(prefix="/api/markets", tags=["Markets"])
 logger = logging.getLogger(__name__)
+
+
+# WHY a 10-second TTL: index levels move tick-by-tick during market
+# hours but the dashboard / chat doesn't need sub-second freshness.
+# 10 s collapses bursts of repeat queries (e.g. "what's NIFTY",
+# "and SENSEX", "BANKNIFTY") from 4 yfinance round-trips into 1.
+# Outside market hours the value barely moves, so even a stale
+# 10 s read is harmless. Keep it short enough that the dashboard
+# never feels stuck.
+_INDEX_LEVEL_TTL_S = 10
+_INDEX_LEVEL_PREFIX = "index:level:"
 
 
 # ── Response models ──────────────────────────────────────────────────
@@ -100,8 +113,33 @@ _INDEX_TICKERS: list[tuple[str, str]] = [
 
 
 def _fetch_index(name: str, ticker_symbol: str) -> IndexQuote | None:
-    """Best-effort fetch via yfinance. Returns None on any failure so the
-    caller can omit the failed index without 500'ing the whole list."""
+    """Best-effort fetch via yfinance with a 10s Redis cache.
+
+    Returns None on any failure so the caller can omit the failed
+    index without 500'ing the whole list.
+
+    WHY caching here: the chat path (`get_index_level`) and the
+    dashboard both ask for these four indices repeatedly within
+    seconds. Without the cache, every query was a fresh yfinance
+    round-trip (~500-1500ms each) and risked rate-limiting on the
+    keyless yfinance endpoint. The Redis hit collapses the burst.
+    """
+    cache_key = f"{_INDEX_LEVEL_PREFIX}{ticker_symbol}"
+    try:
+        raw = redis_client.get(cache_key)
+        if raw:
+            data = json.loads(raw if isinstance(raw, str) else raw.decode())
+            return IndexQuote(
+                name=data["name"],
+                symbol=data["symbol"],
+                value=data["value"],
+                change=data["change"],
+                change_pct=data["change_pct"],
+                last_updated=datetime.fromisoformat(data["last_updated"]),
+            )
+    except Exception as e:
+        logger.debug("[markets] cache read miss for %s: %s", cache_key, e)
+
     try:
         ticker = yf.Ticker(ticker_symbol)
         hist = ticker.history(period="2d", interval="1d")
@@ -111,7 +149,7 @@ def _fetch_index(name: str, ticker_symbol: str) -> IndexQuote | None:
         prev_close = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else latest_close
         change = latest_close - prev_close
         change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
-        return IndexQuote(
+        quote = IndexQuote(
             name=name,
             symbol=ticker_symbol,
             value=round(latest_close, 2),
@@ -119,6 +157,22 @@ def _fetch_index(name: str, ticker_symbol: str) -> IndexQuote | None:
             change_pct=round(change_pct, 2),
             last_updated=datetime.now(timezone.utc),
         )
+        try:
+            redis_client.set(
+                cache_key,
+                json.dumps({
+                    "name": quote.name,
+                    "symbol": quote.symbol,
+                    "value": quote.value,
+                    "change": quote.change,
+                    "change_pct": quote.change_pct,
+                    "last_updated": quote.last_updated.isoformat(),
+                }),
+                ex=_INDEX_LEVEL_TTL_S,
+            )
+        except Exception as e:
+            logger.debug("[markets] cache write failed for %s: %s", cache_key, e)
+        return quote
     except Exception as e:
         logger.warning("[markets] index fetch failed for %s (%s): %s",
                        name, ticker_symbol, e)

@@ -287,6 +287,26 @@ class FetchPriorCloseConfig(_Strict):
     )
 
 
+class FetchTopMoversConfig(_Strict):
+    """Top gainers / losers in a universe (currently NIFTY 50).
+
+    Drives prompts like *"buy the top gainer of the day at close"*.
+    Output is a list of {symbol, ltp, change_pct, seed?} rows that
+    downstream `action.place_order` can consume via Mustache ref to
+    enter the chosen symbol.
+    """
+    direction: Literal["gainers", "losers"] = Field(
+        default="gainers",
+        description="`gainers` for the largest positive % movers today; "
+                    "`losers` for the largest negative.",
+    )
+    universe: Literal["nifty50"] = Field(
+        default="nifty50",
+        description="Stock universe to rank. Only `nifty50` is wired in v1.",
+    )
+    limit: int = Field(default=1, ge=1, le=20)
+
+
 class FetchScreenerConfig(_Strict):
     """Filter + rank the sector universe.
 
@@ -521,9 +541,23 @@ class NotifyMessageConfig(_Strict):
     # fallback. With defaults, the step still validates and the user
     # sees a generic in-app notification — they can rename or remove
     # it from the editor.
-    channel: Literal["email", "sms", "push"] = Field(
+    #
+    # WHY this is `Literal["push"]` and not the broader email/sms/push:
+    # Pivot v1's email and SMS surfaces are NOT wired (notify.py just
+    # logs to stdout for non-push channels). The earlier permissive
+    # enum let the model pass channel='email' through, the workflow
+    # validated, and the user was told "I'll send you an email" — but
+    # the agent silently logged instead of delivering. Restricting to
+    # push at the schema layer means an email/sms emit fails
+    # validation, which routes through the existing email-aware
+    # canned reject in chat_service that names the gap and offers
+    # in-app instead. Honest UX over silent downgrade.
+    channel: Literal["push"] = Field(
         default="push",
-        description="Default 'push' (in-app); the safest channel.",
+        description=(
+            "In-app push only. Pivot v1 does NOT send email, SMS, "
+            "WhatsApp, or Slack — those channels aren't wired."
+        ),
     )
     template: str = Field(
         default="Workflow {{ workflow.name }} fired.",

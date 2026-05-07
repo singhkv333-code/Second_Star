@@ -243,6 +243,16 @@ async def startup():
     except Exception as e:
         logger.warning(f"Scheduler failed to start: {e}")
 
+    # WHY this is fire-and-forget: warmup is a token cost we'd rather
+    # spend in the background after the server is serving traffic
+    # than block startup on. The function logs its own outcomes; if
+    # it fails the app still works (just no p99 cache benefit).
+    try:
+        from backend.services.cache_warmup import schedule_warmup_after_startup
+        schedule_warmup_after_startup()
+    except Exception as e:
+        logger.info(f"Cache warmup scheduling skipped: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown():

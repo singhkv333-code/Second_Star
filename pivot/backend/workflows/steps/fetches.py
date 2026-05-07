@@ -29,6 +29,7 @@ from backend.workflows.schemas import (
     FetchQuoteConfig,
     FetchRelativeThresholdConfig,
     FetchScreenerConfig,
+    FetchTopMoversConfig,
 )
 
 
@@ -766,4 +767,61 @@ async def execute_fetch_screener(ctx: Any) -> Optional[dict[str, Any]]:
         "sector_resolved": (
             normalize_sector(sector_input) if sector_input else None
         ),
+    }
+
+
+# ── Top movers (gainers / losers) ─────────────────────────────────────
+
+
+@register_step(
+    step_type="fetch.top_movers",
+    category="fetch",
+    label="Top gainers / losers",
+    description=(
+        "Today's biggest movers in NIFTY 50. Use to drive prompts "
+        "like 'buy the top gainer at close' or 'short the day's "
+        "top loser'."
+    ),
+    icon="trending-up",
+    max_retries=1,
+    trigger_only=False,
+    config_model=FetchTopMoversConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "symbols": {"type": "array", "items": {"type": "string"}},
+            "ranked": {"type": "array"},
+            "n": {"type": "integer"},
+            "direction": {"type": "string"},
+            "seeded": {"type": "boolean"},
+        },
+        "required": ["symbols", "n", "direction"],
+    },
+)
+async def execute_fetch_top_movers(ctx: Any) -> Optional[dict[str, Any]]:
+    """Pulls top gainers / losers from yfinance via
+    `backend.services.top_movers.get_top_movers`. yfinance access is
+    blocking; the engine awaits us, so the call cost is the network
+    round-trip (one batched download for ~50 symbols).
+
+    When yfinance fails, the underlying service returns a curated
+    seed list with `seed=True` on each row — the workflow continues
+    to fire on stale data rather than 503-ing the whole run, and the
+    UI / model can disclose seeded values to the user.
+    """
+    from backend.services.top_movers import get_top_movers
+
+    cfg = ctx.config
+    rows = get_top_movers(
+        direction=cfg.get("direction", "gainers"),
+        universe=cfg.get("universe", "nifty50"),
+        limit=int(cfg.get("limit", 1)),
+    )
+    seeded = bool(rows and rows[0].get("seed"))
+    return {
+        "symbols": [r["symbol"] for r in rows],
+        "ranked": rows,
+        "n": len(rows),
+        "direction": cfg.get("direction", "gainers"),
+        "seeded": seeded,
     }

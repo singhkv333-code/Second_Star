@@ -303,7 +303,13 @@ function extractTicker(text: string): string | null {
 
   const lower = noQ.toLowerCase();
   const phrasePatterns = [
-    /^(?:show|show me|what about|how(?:'s| is| about)|tell me (?:more )?about|price of|quote for|snapshot of|chart for)\s+([a-z]{2,15})\b/,
+    // "tell me about X" is intentionally NOT in this list — it's a
+    // description-class request that the backend handles with prose
+    // + an optional snapshot. Routing it client-side to the bare
+    // snapshot card hid the model's description (system.md has a
+    // dedicated rule for this shape). Snapshot shortcuts here cover
+    // explicit snapshot/price/chart asks only.
+    /^(?:show|show me|what about|how(?:'s| is| about)|price of|quote for|snapshot of|chart for)\s+([a-z]{2,15})\b/,
     /^([a-z]{2,15})\s+(?:snapshot|quote|price|chart)\s*\??\s*$/,
   ];
   for (const re of phrasePatterns) {

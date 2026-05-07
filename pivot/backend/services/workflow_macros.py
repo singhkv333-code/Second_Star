@@ -230,14 +230,18 @@ def hydrate_threshold_order(
     Yields trigger.{indicator|price} → action.place_order, plus
     action.set_stoploss when sl_pct is given.
     """
-    if quantity is None and notional_inr is None:
-        raise ValueError(
-            "threshold_order: must specify quantity or notional_inr"
-        )
     if quantity is not None and notional_inr is not None:
         raise ValueError(
             "threshold_order: specify either quantity OR notional_inr"
         )
+    # Default to 1 share when the user didn't specify a size.
+    # WHY: "Buy RELIANCE when RSI goes below 30" carries no quantity. The
+    # LLM sometimes infers quantity=1 (TCS worked), sometimes omits it
+    # (RELIANCE failed validation → "I couldn't complete that"). The LLM is
+    # nondeterministic on this. Defaulting here makes the macro robust — the
+    # card surfaces the value and the user can edit before confirming.
+    if quantity is None and notional_inr is None:
+        quantity = 1
     sym = str(symbol).strip().upper()
     side_low = side.lower()
 

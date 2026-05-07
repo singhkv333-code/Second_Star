@@ -69,6 +69,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "get_52wk_range":             _generic_confirm,
         "get_market_status":          _get_market_status,
         "get_upcoming_events":        _get_upcoming_events,
+        "get_top_movers":             _get_top_movers,
         "compare_yields":             _compare_yields,
         "get_yield_recommendation":   _get_yield_recommendation,
         "calculate_order_qty":        _calculate_order_qty,
@@ -628,19 +629,21 @@ async def _delete_strategy(a, kt, db, uid):
 # ── PORTFOLIO ────────────────────────────────────────────────────────────────
 
 async def _get_portfolio_summary(a, kt, db, uid):
-    from backend.kite.portfolio import get_portfolio_summary
-    return {"success": True, "data": get_portfolio_summary(kt), "logiccard": None}
+    # WHY cached: chat sessions ask portfolio questions in bursts; the
+    # 30s TTL collapses 3-5 broker round-trips into 1 within a thought.
+    from backend.services.portfolio_cache import get_summary_cached
+    return {"success": True, "data": get_summary_cached(uid, kt), "logiccard": None}
 
 
 async def _get_holdings(a, kt, db, uid):
-    from backend.kite.portfolio import get_holdings
-    return {"success": True, "data": {"holdings": get_holdings(kt)}, "logiccard": None}
+    from backend.services.portfolio_cache import get_holdings_cached
+    return {"success": True, "data": {"holdings": get_holdings_cached(uid, kt)}, "logiccard": None}
 
 
 async def _get_sector_breakdown(a, kt, db, uid):
     from backend.routers.portfolio import SECTOR_MAP
-    from backend.kite.portfolio import get_holdings
-    holdings = get_holdings(kt)
+    from backend.services.portfolio_cache import get_holdings_cached
+    holdings = get_holdings_cached(uid, kt)
     totals = {}
     total = 0
     for h in holdings:
@@ -656,17 +659,17 @@ async def _get_sector_breakdown(a, kt, db, uid):
 
 
 async def _get_holding_detail(a, kt, db, uid):
-    from backend.kite.portfolio import get_holdings
+    from backend.services.portfolio_cache import get_holdings_cached
     sym = a["symbol"].upper()
-    holdings = get_holdings(kt)
+    holdings = get_holdings_cached(uid, kt)
     h = next((x for x in holdings if x["tradingsymbol"] == sym), None)
     return {"success": True, "data": h or {"error": f"{sym} not in portfolio"},
             "logiccard": None}
 
 
 async def _get_tax_summary(a, kt, db, uid):
-    from backend.kite.portfolio import get_holdings
-    holdings = get_holdings(kt)
+    from backend.services.portfolio_cache import get_holdings_cached
+    holdings = get_holdings_cached(uid, kt)
     candidates = [{"symbol": h["tradingsymbol"], "unrealised_loss": h["pnl"]}
                   for h in holdings if h.get("pnl", 0) < 0]
     return {"success": True, "data": {"loss_harvest_candidates": candidates}, "logiccard": None}
@@ -751,6 +754,33 @@ async def _get_upcoming_events(a, kt, db, uid):
     return {"success": True,
             "data": {"message": "Connect TrueData for live event calendar"},
             "logiccard": None}
+
+
+async def _get_top_movers(a, kt, db, uid):
+    # WHY synchronous service call inside async tool: yfinance.download
+    # blocks but the existing fetch.quote pattern does the same — engine
+    # awaits us, the network round-trip is the bottleneck. The Redis
+    # cache absorbs subsequent calls within 60s.
+    from backend.services.top_movers import get_top_movers
+    rows = get_top_movers(
+        direction=a.get("direction", "gainers"),
+        limit=int(a.get("limit", 5)),
+    )
+    seeded = bool(rows and rows[0].get("seed"))
+    return {
+        "success": True,
+        "data": {
+            "direction": a.get("direction", "gainers"),
+            "rows": rows,
+            "n": len(rows),
+            "seeded": seeded,
+            "note": (
+                "Note: yfinance unavailable — these are seeded values."
+                if seeded else None
+            ),
+        },
+        "logiccard": None,
+    }
 
 
 # ── YIELDS ───────────────────────────────────────────────────────────────────

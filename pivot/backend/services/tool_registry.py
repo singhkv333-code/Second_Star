@@ -47,7 +47,7 @@ _REAL_TOOLS: set[str] = {
     "get_holding_detail", "get_tax_summary", "get_active_products",
     # Market data
     "get_live_price", "get_index_level", "get_ohlc", "get_market_status",
-    "get_52wk_range", "get_price_history",
+    "get_52wk_range", "get_price_history", "get_top_movers",
     # Yields
     "compare_yields", "get_yield_recommendation",
     # Calculations
@@ -110,6 +110,15 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
     # Merge declarative defaults so v2 handlers also get optional fields
     # auto-filled (exchange, etc.). User-supplied values win.
     merged = {**get_tool_defaults(name), **(args or {})}
+
+    # Deterministic repair pass: catch numeric strings ("ten", "10 shares"),
+    # non-push channels ("email" → "push"), and other minor LLM mistakes
+    # before Pydantic validation. Saves an LLM hop per repaired failure.
+    # Notes are logged inside repair_tool_args; we don't persist them on
+    # `merged` because tools with strict Pydantic schemas would reject
+    # the extra key.
+    from backend.services.arg_repair import repair_tool_args
+    merged, _repair_notes = repair_tool_args(name, merged)
 
     if name in _V2_HANDLERS:
         try:

@@ -87,6 +87,69 @@ logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_RE = re.compile(r"<[A-Z][A-Z0-9_]*>")
 _TOOL_CALL_BLOCK_RE = re.compile(r"<TOOL_CALL>.*?(?:</TOOL_CALL>|$)", re.DOTALL | re.IGNORECASE)
+
+
+# Internal-reasoning leak detector. WHY this exists: GPT-5 with
+# reasoning_effort='minimal' or 'low' on long conversations sometimes
+# writes its planning monologue into the visible output instead of the
+# reasoning trace. Observed leakage: "This is a long and complex
+# conversation. The user now says: '...'. We must answer succinctly.
+# Earlier guidance: ... Let's craft final."
+#
+# A paragraph is treated as a leak if it contains TWO OR MORE of these
+# meta-language signals in close proximity (within ~400 chars). One
+# signal alone could be legitimate ("let me show you the chart"); two
+# together is unmistakably internal monologue.
+_REASONING_LEAK_TELLS = (
+    r"\bthe\s+user\s+(?:now\s+)?(?:says|asks|wants|asked|is\s+asking|wants\s+to)\b",
+    r"\bwe\s+(?:must|should|need\s+to|will|'ll)\b",
+    r"\bi\s+(?:must|should|need\s+to|'ll|will)\s+(?:answer|reply|respond|provide|include|note|ensure|craft)\b",
+    r"\blet'?s\s+(?:craft|finalise|finalize|provide|answer|respond)\b",
+    r"\blet\s+me\s+(?:think|craft|provide|reason)\b",
+    r"\bearlier\s+(?:guidance|said|noted|context)\b",
+    r"\bmust\s+include\b",
+    r"\bnot\s+sure\b.*\?",
+    r"\bthis\s+is\s+a\s+long\s+and\s+complex\s+conversation\b",
+    r"\bkeep\s+(?:concise|it\s+short)\b",
+    r"\bneed\s+(?:safe|to\s+be\s+careful)\b",
+    r"\bfinal(?:ly|\s+answer|\s+response|\s+output)\b",
+    r"\bstep[- ]?by[- ]?step\s*:\s*$",
+)
+_REASONING_LEAK_RE = re.compile(
+    "|".join(_REASONING_LEAK_TELLS),
+    re.IGNORECASE,
+)
+
+
+def _strip_reasoning_leakage(text: str) -> str:
+    """Remove paragraphs that look like the model's internal reasoning
+    leaked into the user-facing output.
+
+    Strategy: split on blank lines (paragraphs). For each paragraph,
+    count meta-language tells. Drop the paragraph if the count is >=2.
+    This preserves legitimate sentences that happen to mention "the
+    user" or "we should" once, while reliably catching multi-sentence
+    monologues.
+    """
+    if not text:
+        return text
+    paragraphs = re.split(r"\n\s*\n", text)
+    kept: list[str] = []
+    for para in paragraphs:
+        if not para.strip():
+            continue
+        # Count distinct tells in the paragraph (cap at one per pattern
+        # so a single repeated phrase doesn't trigger).
+        seen = 0
+        for pat in _REASONING_LEAK_TELLS:
+            if re.search(pat, para, re.IGNORECASE):
+                seen += 1
+                if seen >= 2:
+                    break
+        if seen >= 2:
+            continue
+        kept.append(para)
+    return "\n\n".join(kept).strip()
 _GENERIC_FALLBACK = "Sorry, I had trouble with that — could you rephrase?"
 _LLM_UNAVAILABLE = (
     "The AI backend is temporarily unavailable. You can still:\n"
@@ -103,6 +166,23 @@ _LATENT_GREETING_RE = re.compile(
 # trigger. The agentic loop is allowed to call several tools in a
 # row but not run away.
 _MAX_TOOL_CALLS = 8
+
+
+# Compact-draft mode: after a macro draft tool succeeds, the FE
+# already has the structured draft to render — the model's prose
+# acknowledgment can be a single short line. The default 1500-token
+# budget routinely produced 500-1000 token rationale prose that
+# duplicated information on the card. Tightening the budget for the
+# post-macro-draft hop cuts agent-turn output cost ~60-75% and shaves
+# 6-10s of wall-clock on long agent drafts.
+#
+# Toggle: PIVOT_COMPACT_DRAFTS=0 disables (defaults ON). Honoured at
+# import time so a deployment can flip it without code change.
+import os as _os
+_COMPACT_DRAFTS = _os.environ.get(
+    "PIVOT_COMPACT_DRAFTS", "1",
+).lower() not in ("0", "false", "off", "no")
+_COMPACT_POST_MACRO_MAX_OUTPUT = 250
 
 
 # ── Intent classification: automation vs agent vs other ─────────────
@@ -160,7 +240,18 @@ _AGENT_INTENT_RE = re.compile(
     r"|\b(?:buy|long)\b[^\.]{0,60}\b(?:and|then)\b[^\.]{0,60}\b(?:sell|exit|short)\b"
     # SIP that includes a condition is an agent (e.g. "SIP ₹5k every
     # Monday IF cash > ₹50k"). Plain SIP without 'if' is automation.
-    r"|\bsip\b[^\.]{0,200}\bif\b",
+    r"|\bsip\b[^\.]{0,200}\bif\b"
+    # Schedule + conditional: "every X ... if ..." always needs a runtime
+    # fetch/condition step before the action → agent, not a single tool.
+    # WHY this rule exists: "every weekday at 3:55 PM if buying power > 50k,
+    # buy RELIANCE" was being matched by _AUTOMATION_INTENT_RE's
+    # "every weekday ... buy" tail, classifying it as "automation" and
+    # stripping propose_workflow from the tool surface. The LLM then told the
+    # user "the multi-step workflow tool is not available in this chat" —
+    # a tool-name leak AND the wrong answer. Adding "every X ... if" here
+    # catches it as agent (checked first), keeping propose_workflow in scope.
+    r"|\bevery\s+(?:weekday|monday|tuesday|wednesday|thursday|friday|day|week)\b"
+    r"[^\.]{0,300}\bif\b",
     re.IGNORECASE,
 )
 
@@ -188,8 +279,14 @@ _HAS_SCHEDULE_OR_CONDITION_RE = re.compile(
 _AUTOMATION_INTENT_RE = re.compile(
     # Imperative buy/sell with quantity (no condition keywords here)
     r"\b(?:buy|sell)\s+\d+\s+[A-Z][A-Z0-9\-_]{1,15}\b"
-    # Imperative buy/sell at market / now / today
-    r"|\b(?:buy|sell)\b[^\.]{0,30}\b(?:at\s+market|right\s+now|today)\b"
+    # Imperative buy/sell at market / at open / now / today — one-time action.
+    # WHY "at open" is here: "buy reliance at open. 10 shares" was classified
+    # as "other" (no explicit qty+ticker pattern, no "every weekday"). The LLM
+    # then saw propose_workflow in scope and interpreted "at open" as "9:15 AM
+    # every day", creating a daily agent instead of a one-time order. Adding
+    # "at open" here makes it "automation", stripping all workflow macros so
+    # the LLM asks "one-time or recurring?" instead of drafting a daily agent.
+    r"|\b(?:buy|sell)\b[^\.]{0,30}\b(?:at\s+(?:market|open)|right\s+now|today)\b"
     # Limit order with explicit price
     r"|\b(?:buy|sell)\b[^\.]{0,40}\b(?:at|@)\s*(?:rs\.?|₹|inr)?\s*\d{2,}\b"
     # GTT / SL / take-profit setup at an ABSOLUTE price ("at ₹1400")
@@ -212,6 +309,284 @@ _AUTOMATION_INTENT_RE = re.compile(
     r"day|week)\b[^\.]{0,80}\b(?:buy|sell|invest)\b\s+",
     re.IGNORECASE,
 )
+
+
+# Advisory question patterns — "should I reduce X?", "do you think Y?",
+# "is it worth buying Z?". When these fire on "other" intent, we strip
+# workflow macro tools so the LLM can't call propose_workflow to "helpfully"
+# attach a rebalancing agent to an informational answer.
+# WHY: "should I reduce that exposure?" after sector breakdown data was
+# calling propose_workflow (system prompt rule "never attach a draft to an
+# informational answer" is prose-only guidance the LLM ignores under
+# some context pressures). Tool-surface removal enforces it structurally.
+_ADVISORY_INTENT_RE = re.compile(
+    r"\bshould\s+i\b"
+    r"|\bwould\s+(?:it\s+be|you\s+recommend)\b"
+    r"|\bis\s+it\s+(?:worth|wise|safe|good|bad)\b"
+    r"|\bdo\s+you\s+(?:think|recommend|suggest)\b"
+    r"|\bwhat\s+do\s+you\s+think\b",
+    re.IGNORECASE,
+)
+
+
+# Under-specified agent-build detector. WHY this exists: prompts like
+# "build an agent for it" / "make me an agent for ETERNAL" arrive
+# carrying a build verb but ZERO action / trigger / quantity / threshold
+# information. The model used to fill in fabricated defaults
+# (quantity=10, generic schedule, place_order action) and emit a draft
+# the user never asked for. With this detector matched, we relax
+# `tool_choice` from "required" to "auto" so ASK_USER becomes the
+# natural choice — and a system-prompt rule tells the model to ask
+# one focused question rather than invent a workflow.
+#
+# Match shape:
+#   has any agent-build verb ("build", "make", "create", "set up",
+#   "agent", "workflow", "automation"), AND
+#   does NOT have an action verb (buy/sell/short/exit/sip/order),
+#   does NOT have a trigger keyword (when/every/if/at/rsi/sma/ema/
+#                                       price/cron/schedule), and
+#   does NOT have an explicit numeric (₹/quantity/%/digit).
+def _is_underspecified_agent_build(message: str) -> bool:
+    msg = (message or "").strip().lower()
+    if not msg:
+        return False
+    has_build = bool(re.search(
+        r"\b(?:build|make|create|set\s*up|design|spin\s+up)\b"
+        r"|\b(?:an?\s+|some\s+)?(?:agent|workflow|automation|strategy|rule|bot)\b",
+        msg,
+    ))
+    if not has_build:
+        return False
+    has_action = bool(re.search(
+        r"\b(?:buy|sell|short|exit|sip|order|place|squareoff|"
+        r"square\s+off|stop[-\s]?loss|sl|hold|alert|notify|allocate|"
+        r"split|invest|trim|book)\b",
+        msg,
+    ))
+    has_trigger = bool(re.search(
+        r"\b(?:when|every|if|whenever|at\s+(?:open|close|\d)|"
+        r"rsi|sma|ema|macd|cross(?:es|ed|ing)?|above|below|drops?|"
+        r"rises?|crosses?|hits?|breaches?|touches?|reaches?|"
+        r"weekday|monday|tuesday|wednesday|thursday|friday|"
+        r"daily|weekly|monthly|hourly|cron|schedule)\b",
+        msg,
+    ))
+    has_numeric = bool(re.search(r"\d", msg)) or "₹" in msg or "%" in msg
+    return not (has_action or has_trigger or has_numeric)
+
+
+# Filler-reply detector. WHY this exists: when the bot just asked a
+# clarification ("What should the agent do — buy on a schedule, RSI
+# trigger, alert?") and the user replies with "hmm" / "ok" / "you
+# decide" / "whatever", the model interpreted it as "pick a default
+# and emit". It then fabricated a propose_scheduled_order with
+# weekday-09:15-1share — a workflow the user never specified.
+#
+# The right behaviour is: re-ask one focused question OR continue the
+# conversation in prose. Treat filler-after-question as still-
+# underspec at the routing layer (strip macros, tool_choice=auto).
+_FILLER_REPLY_RE = re.compile(
+    r"^\s*(?:"
+    # Pure interjections — clearly non-committal.
+    r"hmm+|huh+|uh+|um+|er+|hm+|aha+|"
+    r"idk|i\s+don'?t\s+know|not\s+sure|no\s+idea|no\s+pref(?:erence)?|"
+    # "you decide" family — explicitly handing off the choice.
+    r"you\s+(?:decide|choose|pick)|your\s+(?:choice|call|pick)|"
+    r"whatever|doesn'?t\s+matter|don'?t\s+care|either\s+(?:works|is\s+fine)|"
+    r"any(?:thing)?\s+(?:works|is\s+fine|of\s+(?:them|those))|"
+    r"(?:any|all)\s+of\s+(?:the\s+)?(?:above|those|them)|"
+    # Genuinely uncertain — these don't commit. (Note: "sure",
+    # "fine", "ok", "alright", "yes" are NOT in this list — they're
+    # AFFIRMATIVES to a yes/no question and the user expects the
+    # bot to PROCEED, not re-ask. Stripping macros on those would
+    # block the model from emitting the draft the user just OK'd.)
+    r"maybe|perhaps|"
+    # Single reaction words — non-committal.
+    r"lol|haha|wow|nice|cool"
+    r")\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+
+# F&O / options / futures detection. WHY: Pivot v1 only routes cash-
+# equity orders. When the user mentions options, calls, puts, futures,
+# strikes, expiry, premium, or F&O explicitly, the model used to
+# either say "I can do that" (lie — there are no F&O tools wired) or
+# silently draft a workflow that would fail at execution. Pre-LLM
+# detection strips order/macro tools and forces the model to name
+# the gap honestly.
+_FNO_RE = re.compile(
+    r"\bf\s*&?\s*o\b"  # f&o, fno, F&O
+    r"|\boptions?\b|\bcalls?\b|\bputs?\b|\bfutures?\b"
+    r"|\bstraddles?\b|\bstrangles?\b|\bspreads?\b"
+    r"|\bcondor\b|\bbutterfly\b|\bcollars?\b"
+    r"|\bstrike\s+price\b|\bexpiry\b|\bATM\b|\bITM\b|\bOTM\b"
+    r"|\bcall\s+option\b|\bput\s+option\b"
+    r"|\bweekly\s+(?:call|put|option)\b"
+    r"|\b(?:nifty|banknifty|finnifty)\s+(?:call|put|option|future)\b",
+    re.IGNORECASE,
+)
+
+
+def _mentions_fno(message: str) -> bool:
+    return bool(_FNO_RE.search(message or ""))
+
+
+# Contradiction detector — "buy AND sell same symbol same time".
+# Pivot can do paired buy/sell with different triggers (multi-branch
+# workflow), but a literal "buy and sell at the same time" is
+# self-cancelling — should ASK_USER, never silently pick one or
+# draft both as a workflow.
+# WHY tightened to specific time-words: the prior regex matched
+# "at the same DAY'S close" which is a perfectly valid two-branch
+# workflow (buy at open, sell at the same day's close). Require an
+# explicit simultaneity word — "time"/"moment"/"instant"/"second" —
+# so multi-branch workflows that share a day don't trip the gate.
+_CONTRADICTION_RE = re.compile(
+    r"\b(?:buy|sell)\b.{0,80}\b(?:and|while|plus|along)\b.{0,30}"
+    r"\b(?:sell|buy)\b.{0,40}"
+    r"\b(?:simultaneously|"
+    r"at\s+the\s+same\s+(?:time|moment|instant|second)|"
+    r"at\s+the\s+exact\s+same|"
+    r"at\s+once|right\s+now"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_buy_sell_contradiction(message: str) -> bool:
+    return bool(_CONTRADICTION_RE.search(message or ""))
+
+
+def _is_filler_reply(message: str) -> bool:
+    """True when the user's reply is filler / non-committal — should
+    not trigger a fabricated default. Conservative: only matches when
+    the WHOLE message is filler; "hmm, let me think about RSI" is
+    not filler (the model can pick up "RSI")."""
+    return bool(_FILLER_REPLY_RE.match(message or ""))
+
+
+def _prev_assistant_was_question(history: list) -> bool:
+    """True when the most recent assistant turn asked the user a
+    question. Looks at the WHOLE response (not just the last char)
+    because the model often appends a sentence after the question
+    ("...or alert you? Also specify the amount.") — pure
+    `endswith("?")` would miss those.
+
+    Heuristic: a `?` anywhere in the LAST PARAGRAPH of the assistant
+    message, OR the message contains a clarifying-question phrase
+    that's a strong tell ("what should", "which", "how many", "do
+    you want", "could you").
+    """
+    for h in reversed(history or []):
+        if h.get("role") != "assistant":
+            continue
+        content = (h.get("content") or "").strip()
+        if not content:
+            return False
+        # Question mark anywhere in the last paragraph (last 400 chars).
+        tail = content[-400:].lower()
+        if "?" in tail:
+            return True
+        # Phrase-level cues for clarifying questions even when the
+        # punctuation is missing or mangled.
+        if any(p in tail for p in (
+            "what should", "what would you like",
+            "which one", "which would",
+            "how many", "how much",
+            "do you want", "would you like",
+            "could you", "can you confirm", "tell me",
+        )):
+            return True
+        return False
+    return False
+# Bare-token typo / filler detector. WHY this exists: when an active
+# order or workflow card is on screen and the user types a short
+# alphabetic single-token message that isn't a recognized affirmative,
+# negation, ticker or verb (the canonical bug: "nothung" — typo for
+# "nothing"), the model would re-emit the prior card from conversation
+# history. Stripping order + macro tools when this pattern matches AND
+# a draft was sitting in cache prevents the spurious re-emit; the
+# model is forced to either fetch (if it is a ticker) or prose-reply.
+#
+# Anchors: 3-12 chars, alphabetic only, optional trailing "?". Mixed
+# case (lowercase user typing OR all-caps tickers like RELIANCE both
+# match) — we differentiate by the stripping-only-when-active-draft
+# guard rather than by case.
+_BARE_TOKEN_RE = re.compile(r"^\s*[A-Za-z]{3,12}\s*\??\s*$")
+
+# Tokens that ARE bare alphabetic strings but are recognized
+# verbs / affirmatives / negations / fillers — never strip on these
+# because the model already knows what to do with them.
+_BARE_TOKEN_KNOWN_KEYWORDS: frozenset[str] = frozenset({
+    "yes", "yep", "yup", "yeah", "yea", "y", "sure", "ok", "okay",
+    "fine", "good", "great", "perfect",
+    "no", "nope", "nah", "n",
+    "cancel", "stop", "exit", "quit", "kill", "end", "done", "abort",
+    "help", "wait", "hold", "pause", "back", "skip", "next", "more",
+    "less", "redo", "undo",
+    "confirm", "activate", "save", "register", "execute", "run",
+    "go", "start", "begin", "now", "later", "soon",
+    "thanks", "thank", "thx", "ty", "cheers", "great",
+    "buy", "sell", "exit", "short", "long", "hold",
+})
+
+# Order + macro tool families to strip on the typo-guard path.
+# Read-only / data tools stay in scope so the model can still answer
+# the message naturally if the bare token IS a real ticker.
+_ORDER_AND_MACRO_TOOLS: frozenset[str] = frozenset({
+    "propose_workflow", "propose_scheduled_order",
+    "propose_threshold_order", "propose_basket_allocation",
+    "propose_holding_action",
+    "place_market_order", "place_limit_order", "create_gtt_order",
+    "create_sl_order", "create_oco_order", "create_dip_buy",
+    "place_basket_order", "create_sip", "create_strategy",
+    "squareoff_all_intraday", "squareoff_symbol",
+})
+
+
+def _is_bare_typo_continuation(message: str) -> bool:
+    """True for short single-token alphabetic messages that aren't a
+    known affirmative / verb / continuation keyword.
+
+    Used together with `had_active_draft_at_entry` to decide whether
+    to strip order + macro tools so the model can't re-emit the prior
+    card on a typo'd follow-up.
+    """
+    msg = (message or "").strip()
+    if not _BARE_TOKEN_RE.match(msg):
+        return False
+    base = re.sub(r"[?!.,;:\s]+$", "", msg).lower()
+    return base not in _BARE_TOKEN_KNOWN_KEYWORDS
+
+
+# Exception: even advisory language shouldn't strip macros when the user
+# explicitly wants to build/set up an automation. If present, workflow
+# tools stay in scope despite the advisory phrasing.
+_ADVISORY_WORKFLOW_EXCEPTION_RE = re.compile(
+    r"\bset\s+up\b|\bbuild\b|\bcreate\b"
+    r"|\bstrategy\b|\bagent\b|\bautomation\b|\bworkflow\b|\bsip\b"
+    r"|\bevery\s+(?:monday|tuesday|weekday|day|week)\b"
+    r"|\bwhen\s+(?:rsi|sma|ema|price)\b",
+    re.IGNORECASE,
+)
+
+# Tools whose successful call should have the draft stashed so the next
+# turn gets an amendment hint. propose_workflow is the primary case;
+# propose_threshold_order and propose_scheduled_order also produce
+# editable draft cards the user may want to amend.
+_STASH_DRAFT_TOOLS: frozenset[str] = frozenset({
+    "propose_workflow",
+    "propose_threshold_order",
+    "propose_scheduled_order",
+})
+
+# All macro tools that produce draft cards — superset of _STASH_DRAFT_TOOLS.
+# Used to build the amendment hint for any active macro draft type.
+_MACRO_AMENDMENT_TOOLS: frozenset[str] = frozenset({
+    "propose_workflow", "propose_threshold_order", "propose_scheduled_order",
+    "propose_basket_allocation", "propose_holding_action",
+})
 
 
 def _classify_intent(message: str) -> str:
@@ -240,6 +615,50 @@ def _classify_intent(message: str) -> str:
     if _AUTOMATION_INTENT_RE.search(message):
         return "automation"
     return "other"
+
+
+# Short affirmative patterns — single words or garbled typos that mean "yes"
+# when they appear as a reply to a prior assistant question. If matched, the
+# caller should treat the response as context-confirming, not as a new ticker.
+_SHORT_AFFIRMATIVE_RE = re.compile(
+    r"^(?:yes|yep|yeah|yup|ya|yah|sure|ok|okay|k|yse|ues|ye|yer|sur|pls|please|fine|alright|y)\.?$",
+    re.IGNORECASE,
+)
+
+# Order-intent keywords in recent history — signals the prior turns were about
+# placing an immediate order, so a follow-up affirmative must stay "automation".
+_ORDER_VERB_RE = re.compile(r"\b(buy|sell|order|place|purchase|short)\b", re.IGNORECASE)
+
+
+def _is_post_order_clarification(message: str, history: list[dict]) -> bool:
+    """Return True when the current message is a short affirmative replying
+    to an ASK_USER turn that was triggered by an order intent.
+
+    WHY this exists: "yes, SWIGGY on NSE" after the bot asked "which ticker
+    for Swiggy?" used to be classified as 'other' (no order verb in the
+    current message), putting propose_workflow back in scope. The LLM then
+    upgraded a one-time buy to a recurring workflow. This helper detects that
+    pattern and returns True → caller forces 'automation' intent.
+    """
+    if not history or len(history) < 2:
+        return False
+    # Last two messages: penultimate user, last assistant
+    last_assistant = next(
+        (m["content"] for m in reversed(history) if m["role"] == "assistant"), ""
+    )
+    # Did the assistant just ask a clarifying question?
+    if "?" not in last_assistant:
+        return False
+    # Is the current message a short affirmative OR contains a ticker name
+    # after yes/no (e.g. "yes, SWIGGY")?
+    msg_stripped = message.strip()
+    if len(msg_stripped) > 40:
+        return False  # too long to be a simple confirmation
+    # Does the recent user history contain an order verb?
+    recent_user_msgs = " ".join(
+        m["content"] for m in history if m["role"] == "user"
+    )
+    return bool(_ORDER_VERB_RE.search(recent_user_msgs))
 
 
 def _looks_like_agent_intent(message: str) -> bool:
@@ -311,25 +730,101 @@ _INDEPENDENT_INTENT_RE = re.compile(
     r"|\btell\s+me\s+(?:more\s+)?about\b"
     r"|\bsnapshot\s+of\b|\bquote\s+for\b|\bprice\s+of\b"
     # Help / capabilities
-    r"|\bwhat\s+can\s+you\s+do\b",
+    r"|\bwhat\s+can\s+you\s+do\b"
+    # Vague continuation prompts. WHY these are independent: a user
+    # typing "what else" / "anything else" / "what now" after seeing
+    # an order or workflow card is asking the bot to surface options,
+    # NOT to amend the active draft. Without this branch the model
+    # interpreted "what else" as an amendment cue, called
+    # propose_workflow with placeholder values, validation rejected
+    # it, and the canned "step shape isn't in Pivot v1's catalog"
+    # message fired. Treating these as fresh intent evicts the draft
+    # and lets the fast-path (or the model) handle them as a
+    # conversational ask.
+    r"|\bwhat\s+else\b|\banything\s+else\b"
+    r"|\bwhat\s+(?:now|next)\b|\bnow\s+what\b"
+    r"|^\s*(?:and\s+now|next)\??\s*$"
+    # Fresh agent-build / workflow-build top-level intents. WHY: when
+    # the user types "make me an agent that buys X at open and sells
+    # at close…" while a stale draft for a DIFFERENT symbol is sitting
+    # in active_draft from a prior turn, the amendment path was being
+    # taken — so the model re-emitted the old draft instead of
+    # building the new one. These phrases are unambiguously fresh
+    # top-level intents; they should always evict the prior draft.
+    r"|\b(?:build|make|create|set\s*up|design|spin\s+up)\s+"
+    r"(?:me\s+)?(?:an?|some)\s+(?:agent|workflow|automation|strategy|rule|bot|sip)\b"
+    r"|\bmake\s+(?:an?|some)\s+(?:agent|workflow|automation)\s+that\b"
+    r"|\b(?:agent|workflow|automation)\s+that\s+(?:buys?|sells?|alerts?|notifies)\b",
     re.IGNORECASE,
 )
 
 # Verbs / phrasings that explicitly indicate the user IS amending the
 # active draft. When ANY match, we KEEP active_draft even if an
 # independent cue also matched (amend wins ties — explicit > inferred).
+# Pure affirmatives — user is acknowledging the draft on screen, NOT
+# proposing a change. Distinguished from amendments ("make it 5",
+# "no 3 instead") which DO need re-emit. WHY this matters: the
+# previous code lumped these into _DEPENDENT_INTENT_RE, which then
+# forced tool_choice="required" on the next hop — re-emitting the
+# same draft with identical args. Wasted token cost AND wasted
+# latency for zero behavioural change. Treat pure affirmatives as a
+# no-op → return a one-line acknowledgement, skip the LLM.
+_PURE_AFFIRMATIVE_RE = re.compile(
+    r"^\s*(?:"
+    r"yes|y|yeah|yep|yup|"
+    r"ok(?:ay)?|sure|fine|alright|"
+    r"got\s+it|sounds\s+good|looks\s+good|"
+    r"perfect|great|cool|nice|"
+    r"do\s+it|go\s+ahead|proceed|let'?s\s+go|"
+    r"activate|confirm|"
+    r"please|ty|thanks?"
+    r")\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_pure_affirmative(message: str) -> bool:
+    """True for bare 'ok' / 'yes' / 'sure' / 'do it' that ACKNOWLEDGES
+    a draft without proposing any change. The active draft on screen
+    is already what the user wants — re-emitting it is waste.
+    """
+    return bool(_PURE_AFFIRMATIVE_RE.match(message or ""))
+
+
 _DEPENDENT_INTENT_RE = re.compile(
     # Explicit amendment verbs
     r"\b(?:instead|rather|change|modify|update|edit|tweak|adjust"
-    r"|rename|swap|replace|remove|drop|add|append|insert)\b"
+    r"|rename|swap|replace|remove|drop|add|append|insert"
+    # WHY "switch" / "convert" added: "switch to limit at 1450" /
+    # "convert to a SIP" are amendment phrasings the prior regex
+    # missed — the model then produced prose instead of re-emitting
+    # the draft as a different order type.
+    r"|switch|convert|turn\s+(?:it|that|this))\b"
     # Pronoun reference to the draft
     r"|\b(?:make\s+it|set\s+it|set\s+the|change\s+the|update\s+the)\b"
     # "the trigger / the action / the SL / the qty" — refers to a draft slot
     r"|\bthe\s+(?:trigger|action|condition|step|sl|stop[- ]?loss|"
     r"quantity|qty|symbol|schedule|notification|email)\b"
-    # Common short amendment shapes
-    r"|^\s*(?:no\s+\d|yes|y|ok(?:ay)?|sure|do\s+it|go\s+ahead|"
-    r"activate|confirm|proceed|please)\s*[.!?]?\s*$",
+    # Common short amendment shapes that DO carry a change
+    # ("no 5" = "no, make it 5"). Pure affirmatives (yes/ok/sure/etc.)
+    # are handled separately via _PURE_AFFIRMATIVE_RE — keeping them
+    # OUT of this regex stops tool_choice="required" from forcing a
+    # wasted re-emit of the same draft.
+    r"|^\s*no\s+\d+\s*[.!?]?\s*$"
+    # Stepwise-emission patterns (T17/T18 fix). After accumulating
+    # symbol → trigger → action across turns, the user's final piece
+    # ("for 5 shares" / "valid for 30 days" / "at ₹420") used to fall
+    # through both regexes and the model produced prose with NO
+    # tool emit. These patterns mark the closing field as an
+    # amendment so tool_choice="required" forces the macro to emit.
+    r"|\bfor\s+\d+\s+(?:shares?|units?|lots?)\b"
+    r"|^\s*\d+\s+(?:shares?|units?|lots?|qty)\s*[.!?]?\s*$"
+    r"|\bvalid\s+(?:for|until|till|through)\b"
+    r"|\bexpir(?:e|es|ing)\s+(?:in|on|after|by)\b"
+    r"|\bgood\s+(?:for|till|until)\s+\d"
+    r"|\b(?:until|till)\s+(?:end\s+of|next|this)\b"
+    r"|\bat\s+[₹$]?\s*\d[\d,]*(?:\.\d+)?\s*[.!?]?\s*$"
+    r"|^\s*₹\s*\d[\d,]*(?:\.\d+)?\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
 
@@ -486,15 +981,43 @@ def _format_mode_pin(mode: Optional[str]) -> str:
             "call ASK_USER with one focused question."
         )
     if mode == "agent":
+        # WHY this is broader than "call propose_workflow" only: the
+        # user-stated rule is "first try the agent shape, fall back if
+        # it really doesn't fit". Hard-pinning to propose_workflow
+        # caused two known failures: (a) sector baskets ("basket of
+        # steel stocks") got generic workflows instead of the
+        # propose_basket_allocation macro, producing a worse FE card;
+        # (b) holding-action shapes ("set 2% SL on my INFY") were
+        # forced into propose_workflow when propose_holding_action
+        # is the dedicated macro. The four macro tools below are all
+        # AGENT-shaped — they emit workflow drafts with proper trigger
+        # /fetch/action structure — so allowing them keeps the
+        # multi-step intent without losing the right card type. We
+        # still forbid plain single-shot order tools (place_market_order
+        # etc.) because those would collapse a workflow ask into a
+        # one-off order. ASK_USER stays available for genuine
+        # ambiguity.
         return (
             "## Active mode: AGENT\n"
             "The user clicked the AGENT pill in the composer. They "
             "want a multi-step automated workflow (trigger + optional "
-            "fetch/condition + action(s) + notify). Call "
-            "`propose_workflow` with the full draft as structured "
-            "arguments. Do NOT use single-shot order tools — even if "
-            "the request looks simple, treat it as the action step "
-            "of a workflow."
+            "fetch/condition + action(s) + notify). Use one of: "
+            "`propose_workflow` (general), `propose_basket_allocation` "
+            "(sector basket), `propose_holding_action` (sell/SL on an "
+            "existing holding), `propose_threshold_order` (price or "
+            "indicator threshold), or `propose_scheduled_order` "
+            "(time-based recurring buy/sell). Pick the most specific "
+            "macro that fits the request — falling back to "
+            "`propose_workflow` only when none of the macros do.\n"
+            "Do NOT use single-shot order tools (`place_market_order`, "
+            "`place_limit_order`, `create_gtt_order`, `create_sl_order`, "
+            "`create_sip`, etc.) — even if the request looks simple, "
+            "treat it as the action step of a workflow.\n"
+            "If the request genuinely cannot be expressed as any "
+            "agent shape (no trigger, no condition, single immediate "
+            "action with all parameters supplied), call ASK_USER once "
+            "to confirm the user wants an automation rather than a "
+            "one-shot order."
         )
     if mode == "backtest":
         return (
@@ -614,7 +1137,17 @@ _CANCEL_DRAFT_RE = re.compile(
     r"(?:"
     r"cancel|scrap|kill|drop|delete|remove|abort|"
     r"never\s*mind|nevermind|forget(?:\s+(?:it|that|this))?|"
-    r"throw\s+(?:it|that)\s+out"
+    r"throw\s+(?:it|that)\s+out|"
+    # Bare negation as a yes/no answer to a "proceed?" question.
+    # WHY: the user trace showed the bot asking "do you want X — reply
+    # 'yes' to proceed" and a bare "no" was being interpreted as "no
+    # don't change the symbol, ship the original draft" — exactly
+    # the wrong outcome. Treat bare "no" / "nope" / "nah" / "no thanks"
+    # as a cancel against any active draft so the user can opt out
+    # cleanly. The pattern still anchors on string-end so longer
+    # messages ("no buy 5 INFY instead") don't accidentally cancel.
+    r"no(?:pe)?|nah|no\s+thanks?|no\s+thank\s+you|"
+    r"don'?t|do\s+not"
     r")\b"
     r"(?:\s+(?:that|this|it|the|those|these))?"
     r"(?:\s+(?:one|agent|draft|workflow|automation|basket|order|sip|alert|rule))?"
@@ -781,15 +1314,26 @@ class ChatService:
 
     def _stash_workflow_draft(
         self, conv_id: str, draft: dict, caption: str = "",
+        tool_name: str = "propose_workflow",
     ) -> None:
         """Cache the just-emitted workflow draft for the next turn's
         followup hint. Single source of truth — call from every place
         a draft becomes the user's pending agent (skeleton fast-path,
-        agentic loop success, macro fallback)."""
+        agentic loop success, macro fallback).
+
+        WHY tool_name param: propose_threshold_order and
+        propose_scheduled_order also produce draft cards the user amends.
+        We need the actual tool_name so the amendment hint on the next
+        turn tells the LLM to re-emit the RIGHT tool, not propose_workflow.
+        Previously hardcoded to "propose_workflow" — that caused "make it
+        5 shares" after a threshold order to get no amendment hint (the
+        stash was never set), so the LLM produced prose instead of calling
+        propose_threshold_order again.
+        """
         if not draft:
             return
         self.store.set_active_draft(conv_id, ActiveDraft(
-            tool_name="propose_workflow",
+            tool_name=tool_name,
             draft=draft,
             last_caption=caption[:400],
             created_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1122,6 +1666,34 @@ class ChatService:
         if cancelled is not None:
             return cancelled
 
+        # ── Pure-affirmative + active draft → ack-only fast-path ──
+        # When the user types "ok" / "yes" / "sure" / "got it" with
+        # a draft already on screen, they're acknowledging — not
+        # asking for a change. Re-emitting the macro tool produces
+        # the same card with the same args. Wasted ~5-10s of LLM
+        # latency and ~22K input tokens for zero behavioural change.
+        # Short-circuit with a one-line acknowledgement.
+        if _is_pure_affirmative(message):
+            existing = self.store.get_active_draft(conv_id)
+            if existing is not None:
+                ack = (
+                    "Got it — the draft above is what you'll activate. "
+                    "Click **Save & activate** in the card when you're ready."
+                )
+                self.store.append(conv_id, message, ack)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["affirm_ack"] = total
+                breakdown["total"] = total
+                _log_timing("affirm_ack", message, total, breakdown, tools=[])
+                trace.event("turn.end", total_ms=total, tools_called=[],
+                            reason="pure_affirmative_ack")
+                trace.end()
+                return ChatTurn(
+                    response=ack, tools_called=[],
+                    logiccard=None, raw_data=None,
+                    latency_ms=total, latency_breakdown=breakdown,
+                )
+
         # ── Fresh-session eviction ─────────────────────────────────
         # When the FE explicitly hands us an EMPTY history list, the
         # user just opened a new chat. Any active draft / pending
@@ -1139,6 +1711,9 @@ class ChatService:
         # asks "What are the pros and cons of Reliance?" three turns
         # after building an HDFCBANK agent, and the model attaches
         # the stale HDFCBANK card under its prose answer.
+        had_active_draft_at_entry = (
+            self.store.get_active_draft(conv_id) is not None
+        )
         if _is_independent_prompt(message):
             stale = self.store.get_active_draft(conv_id)
             if stale is not None:
@@ -1182,6 +1757,35 @@ class ChatService:
         # ship a turn with zero tools.
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+
+        # WHY this strip exists: when an active draft was sitting in
+        # cache at the start of this turn AND the user's message is
+        # a short bare alphabetic token that isn't a recognized verb /
+        # affirmative / negation (the canonical bug: "nothung" — typo
+        # for "nothing"), the model would re-emit the prior card from
+        # conversation history. Stripping order + macro tools forces
+        # the model to either fetch (if the token IS a real ticker)
+        # or prose-reply / ask for clarification.
+        if (had_active_draft_at_entry
+                and selected_names is not None
+                and _is_bare_typo_continuation(message)
+                and not _DEPENDENT_INTENT_RE.search(message)):
+            selected_names = selected_names - _ORDER_AND_MACRO_TOOLS
+            trace.event(
+                "tools.stripped_typo_continuation",
+                stripped=sorted(_ORDER_AND_MACRO_TOOLS),
+                reason="bare_token_with_active_draft",
+            )
+        # Post-order-clarification override: if the current message is a
+        # short affirmative (e.g. "yes, SWIGGY on NSE") replying to a bot
+        # question that was triggered by an order intent, force "automation"
+        # so workflow macros are stripped and place_market_order stays in scope.
+        # WHY: without this, "yes, SWIGGY on NSE" is classified as "other",
+        # propose_workflow stays in scope, and the LLM upgrades a one-time
+        # buy into a recurring workflow draft.
+        if intent_kind == "other" and _is_post_order_clarification(message, history):
+            intent_kind = "automation"
+            trace.event("intent.post_clarification_order_override")
         # User-supplied mode pill (Automation / Agent / Backtest from
         # the FE composer) overrides the keyword classifier
         # deterministically. Lets users force a route the regex would
@@ -1216,7 +1820,21 @@ class ChatService:
                 "propose_workflow",
             }
         elif is_automation_intent and selected_names is not None:
-            selected_names = (selected_names - {"propose_workflow"}) | (
+            # Automation = single immediate action. Remove ALL workflow/macro
+            # tools — not just propose_workflow — so the LLM can't fall back
+            # to a scheduled/threshold draft instead of an immediate tool call.
+            # WHY all four macros: propose_scheduled_order is in _ALWAYS_INCLUDE
+            # so it survives the "remove propose_workflow" pass. "buy reliance
+            # at open" → the LLM then sees propose_scheduled_order and interprets
+            # "at open" as "9:15 AM on schedule", creating a DAILY recurring
+            # order instead of asking "one-time or recurring?". Removing all
+            # macros here forces the LLM to use place_market_order or ASK_USER.
+            _ALL_MACRO_TOOLS = frozenset({
+                "propose_workflow", "propose_scheduled_order",
+                "propose_threshold_order", "propose_basket_allocation",
+                "propose_holding_action",
+            })
+            selected_names = (selected_names - _ALL_MACRO_TOOLS) | (
                 _IMMEDIATE_ORDER_TOOLS
             )
         elif is_backtest_intent and selected_names is not None:
@@ -1228,6 +1846,23 @@ class ChatService:
                 | {"run_backtest", "get_price_history", "get_live_price",
                    "get_52wk_range"}
             )
+        # Advisory questions in "other" intent: strip workflow macros.
+        # WHY: "should I reduce that exposure?" after portfolio data was
+        # calling propose_workflow. The system prompt "never attach a
+        # workflow draft to an informational answer" is prose-only — LLM
+        # ignores it. Remove the tools to enforce the rule structurally.
+        # Exception: advisory phrasing + workflow-building keywords (e.g.
+        # "should I set up an RSI strategy") keeps macros in scope.
+        if (intent_kind == "other"
+                and selected_names is not None
+                and _ADVISORY_INTENT_RE.search(message)
+                and not _ADVISORY_WORKFLOW_EXCEPTION_RE.search(message)):
+            _ALL_MACRO_TOOLS = frozenset({
+                "propose_workflow", "propose_scheduled_order",
+                "propose_threshold_order", "propose_basket_allocation",
+                "propose_holding_action",
+            })
+            selected_names = selected_names - _ALL_MACRO_TOOLS
         tooldefs = _registry_tools_as_tooldefs(selected_names)
         # Route-stable cache key — a fresh hash of the routed toolset
         # so each unique route caches its own system + tools prefix.
@@ -1252,6 +1887,56 @@ class ChatService:
         agent_tool_choice: Literal["auto", "required"] = (
             "required" if is_agent_intent else "auto"
         )
+        # Underspec relaxation: "build me an agent for X" with no action /
+        # trigger / quantity is genuinely ambiguous — we want ASK_USER,
+        # not a fabricated draft. We do TWO things:
+        #   (a) drop tool_choice to "auto" so ASK_USER is selectable,
+        #   (b) strip macro tools from scope so the model literally
+        #       cannot emit `propose_workflow` even if it wanted to.
+        # Without (b) the model still picked propose_workflow with
+        # fabricated defaults, citing "I have a symbol from history"
+        # — overriding the system-prompt rule that says ASK first.
+        # Removing macros structurally is the only reliable enforcement.
+        is_underspec_agent = is_agent_intent and _is_underspecified_agent_build(message)
+        # Filler reply after our own clarification question is the same
+        # class of underspec: user gave us nothing new, we shouldn't
+        # fabricate a default. Treat it identically to "build an agent
+        # for X" with no other context.
+        is_filler_after_q = (
+            _is_filler_reply(message) and _prev_assistant_was_question(history)
+        )
+        # F&O gating: strip ALL order/macro tools when the message
+        # mentions options/futures/strikes/expiry. Forces the model
+        # to fall through to ASK_USER or prose explaining F&O isn't
+        # wired in v1.
+        mentions_fno = _mentions_fno(message)
+        # Contradiction gating: "buy AND sell same time" — strip
+        # macros so the model can't draft both, force ASK_USER.
+        is_contradiction = _is_buy_sell_contradiction(message)
+
+        if is_underspec_agent or is_filler_after_q or mentions_fno or is_contradiction:
+            agent_tool_choice = "auto"
+            if selected_names is not None:
+                _UNDERSPEC_STRIP = frozenset({
+                    "propose_workflow", "propose_scheduled_order",
+                    "propose_threshold_order", "propose_basket_allocation",
+                    "propose_holding_action",
+                })
+                if mentions_fno:
+                    # Also strip immediate-order tools so the model can't
+                    # hallucinate a place_market_order on an options ticker.
+                    _UNDERSPEC_STRIP = _UNDERSPEC_STRIP | frozenset({
+                        "place_market_order", "place_limit_order",
+                        "create_gtt_order", "create_sl_order",
+                        "create_oco_order", "create_dip_buy",
+                        "place_basket_order", "create_sip",
+                    })
+                selected_names = selected_names - _UNDERSPEC_STRIP
+                # selected_names was already converted to tooldefs above
+                # before this strip. Rebuild the tooldefs to reflect the
+                # narrower set actually sent to the LLM on the first hop.
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                cache_key = cache_key_for(selected_names)
         # Reasoning-effort: "low" universally except for agent turns
         # which run "minimal". We tried bumping to "medium" earlier
         # for propose_workflow turns; quality went up modestly but
@@ -1276,6 +1961,7 @@ class ChatService:
             max_output_tokens=max_output,
             tool_choice=agent_tool_choice,
             agent_intent=is_agent_intent,
+            underspec_agent=is_underspec_agent,
         )
 
         prompt_ctx = _build_user_context(ctx)
@@ -1310,21 +1996,46 @@ class ChatService:
             active = None
 
         # Build the workflow-hint payload once, reused below.
+        # WHY extended to all macro tools: previously only "propose_workflow"
+        # was handled here, so "make it 5 shares" after a propose_threshold_order
+        # draft got no amendment hint → LLM produced prose instead of re-emitting
+        # the tool. Now any active macro-draft type (threshold, scheduled, etc.)
+        # triggers the hint, naming the CORRECT tool to re-emit.
         workflow_hint = ""
-        if active is not None and active.tool_name == "propose_workflow":
+        if active is not None and active.tool_name in _MACRO_AMENDMENT_TOOLS:
             draft_json = json.dumps(active.draft, default=str)[:1800]
+            tool_label = active.tool_name
+            hint_verb = (
+                "Re-emit propose_workflow with the SAME steps shape, only "
+                "mutating the field(s) the user addressed. If the user is "
+                "clearly proposing a wholly different agent, supersede."
+                if tool_label == "propose_workflow" else
+                f"Re-emit `{tool_label}` with ALL parameters from the draft, "
+                "only updating the field(s) the user changed. Do NOT switch to "
+                "a different tool (e.g. do NOT call propose_workflow instead)."
+            )
             workflow_hint = (
-                " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
-                "Treat the user's reply as an AMENDMENT to this "
-                "draft — re-emit propose_workflow with the SAME "
-                "steps shape, only mutating the field(s) the user "
-                "addressed. Do NOT switch tools. Do NOT start a "
-                "new draft. Do NOT write a prose 'Do you want me to…?' "
-                "confirmation — the card IS the confirmation surface. "
-                "If the user is clearly proposing a wholly different "
-                "agent, supersede the draft. "
+                f" ACTIVE {tool_label.upper().replace('_', ' ')} DRAFT from "
+                f"a prior turn. Treat the user's reply as an AMENDMENT — "
+                + hint_verb +
+                " Do NOT switch tools. Do NOT write prose. Do NOT call "
+                "ASK_USER for non-essential fields (approval, defaults, "
+                "stop-loss style) — the user can edit those on the card. "
+                "The card is the confirmation surface. "
                 f"DRAFT JSON: {draft_json}."
             )
+
+        # For amendment turns with an active macro draft, force tool_choice
+        # so the LLM MUST call the tool instead of describing the change.
+        # WHY: "make it 5 shares" after propose_threshold_order was producing
+        # prose ("I've updated the draft") with no actual tool call — the draft
+        # card on the FE never changed. tool_choice="required" on hop 1
+        # prevents that prose-only response.
+        if (not is_agent_intent
+                and active is not None
+                and workflow_hint
+                and _DEPENDENT_INTENT_RE.search(message)):
+            agent_tool_choice = "required"
 
         if history and _looks_like_clarification_followup(history):
             # CLARIFICATION-FOLLOWUP path — the user is answering a
@@ -1365,18 +2076,19 @@ class ChatService:
             )
         elif active is not None and workflow_hint:
             # AMENDMENT path — the prior turn wasn't a clarification but
-            # a workflow draft is on screen and the user is mutating it.
-            # Without this branch the LLM defaulted to text "do you want
-            # me to place…?" instead of re-emitting the propose_workflow
-            # tool with the new quantity (PDF user report 2026-05-05).
+            # a macro draft is on screen and the user is mutating it.
+            # WHY: LLM defaulted to text "do you want me to place…?"
+            # instead of re-emitting the tool. The hint + required
+            # tool_choice (set above) together fix this.
+            tool_label = active.tool_name
             followup_hint = LLMMessage(
                 role="system",
                 content=(
-                    "AMENDMENT TURN. A workflow draft you produced last "
-                    "turn is on screen. The user's CURRENT message is "
-                    f'"{message}" — interpret it as a mutation of THAT '
-                    "draft and re-emit propose_workflow with the same "
-                    "structure and only the fields they changed updated. "
+                    f"AMENDMENT TURN. A `{tool_label}` draft is on screen. "
+                    f"The user's CURRENT message is \"{message}\" — interpret "
+                    "it as a mutation of THAT draft and re-emit "
+                    f"`{tool_label}` with the same structure, only the "
+                    "changed fields updated. "
                     + workflow_hint +
                     " Re-emit the tool IMMEDIATELY. Do NOT respond with "
                     "prose like 'Do you want me to…?' or 'Confirm: …' — "
@@ -1415,6 +2127,41 @@ class ChatService:
         if followup_hint is not None:
             base_messages.append(followup_hint)
 
+        # WHY this directive: when we stripped macro tools because the
+        # request is underspec / filler, the model would fall back to
+        # describing a "draft" in plain prose ("Name: ... Trigger: ...
+        # Action: ..."). That's worse than fabricating a real card —
+        # the user sees agent-shaped text but no Activate button, no
+        # editable fields, and no commitment surface. This hard
+        # directive tells the model: in this state, ASK_USER is the
+        # ONLY correct action.
+        if is_underspec_agent or is_filler_after_q:
+            base_messages.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Underspec / filler reply — ASK_USER, do NOT "
+                    "describe a draft\n"
+                    "The user did not specify enough to draft a "
+                    "workflow, AND macro draft tools have been "
+                    "removed from your tool set for this turn. Do "
+                    "NOT describe a draft in prose ('Name: ...', "
+                    "'Trigger: ...', 'Action: ...'). Do NOT promise "
+                    "a draft 'in the app' — there is no separate app "
+                    "you're handing off to.\n\n"
+                    "Call `ASK_USER` with ONE focused, specific "
+                    "question. Examples:\n"
+                    "- 'Want to start with a daily SIP of ₹1,000 in "
+                    "ETERNAL?'\n"
+                    "- 'Roughly what amount per trade — ₹500, "
+                    "₹5,000, or larger?'\n"
+                    "- 'Should it buy on a fixed schedule (e.g. every "
+                    "Monday at 09:15) or wait for a price/RSI "
+                    "trigger?'\n"
+                    "Pick the simplest option as a suggestion the "
+                    "user can confirm or change."
+                ),
+            ))
+
         messages: list[LLMMessage] = [
             *base_messages,
             *_history_to_llm_messages(history),
@@ -1425,6 +2172,11 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # Track whether the previous hop emitted a macro-draft tool —
+        # used to shrink max_output on the post-draft prose hop in
+        # compact mode (the FE already has the card; prose can be
+        # one short line).
+        last_was_macro_draft = False
         # Track the most recent tool error so the circuit-breaker
         # fallback can surface a specific reason instead of a generic
         # "I had trouble". The user's "internal step-format issue"
@@ -1443,15 +2195,24 @@ class ChatService:
             hop_tool_choice: Literal["auto", "required"] = (
                 agent_tool_choice if hop_index == 1 else "auto"
             )
+            # Compact-draft hop budget: when we just emitted a macro
+            # draft tool, the next prose hop only needs ~50 words.
+            hop_max_output = (
+                _COMPACT_POST_MACRO_MAX_OUTPUT
+                if (_COMPACT_DRAFTS and last_was_macro_draft)
+                else max_output
+            )
             trace.event("llm.call", hop=hop_index, reasoning_effort=effort,
                         tools_offered=len(tooldefs),
-                        tool_choice=hop_tool_choice)
+                        tool_choice=hop_tool_choice,
+                        max_output_tokens=hop_max_output,
+                        compact_post_macro=(_COMPACT_DRAFTS and last_was_macro_draft))
             try:
                 response = await client.complete(
                     messages=messages,
                     tools=tooldefs,
                     tool_choice=hop_tool_choice,
-                    max_output_tokens=max_output,
+                    max_output_tokens=hop_max_output,
                     reasoning_effort=effort,
                     temperature=0.2,
                     prompt_cache_key=cache_key,
@@ -1593,10 +2354,22 @@ class ChatService:
                         logiccard = guarded.logiccard
                     if guarded.data:
                         raw_data[guarded.name] = guarded.data
-                    # Cache the active draft when propose_workflow
+                    # Cache the active draft when any macro-draft tool
                     # succeeds so the next turn can amend it directly.
-                    if guarded.name == "propose_workflow" and guarded.data:
-                        self._stash_workflow_draft(conv_id, guarded.data)
+                    # WHY extended beyond propose_workflow: propose_threshold_order
+                    # and propose_scheduled_order also produce editable draft
+                    # cards. Without stashing them, "make it 5 shares" after a
+                    # threshold order got no amendment hint — the LLM produced
+                    # prose instead of calling propose_threshold_order again.
+                    if guarded.name in _STASH_DRAFT_TOOLS and guarded.data:
+                        self._stash_workflow_draft(
+                            conv_id, guarded.data, tool_name=guarded.name,
+                        )
+                    # Compact-mode tracker: any macro draft tool that
+                    # succeeded means the FE will render the card; the
+                    # NEXT hop's prose can be one short line.
+                    if guarded.name in _STASH_DRAFT_TOOLS:
+                        last_was_macro_draft = True
                     continue
 
                 # Tool error path.
@@ -1674,6 +2447,22 @@ class ChatService:
                     error=guarded.error or "",
                     user_message=message,
                 )
+                # WHY this varies the message: when the SAME generic
+                # fallback would fire two turns in a row (e.g. user
+                # types rubbish after the first failure), repeating
+                # the same canned question is dead UX. Detect the
+                # repeat against the prior assistant turn and pivot
+                # to a reset-style prompt with concrete examples.
+                last_asst_text = next(
+                    (
+                        h.get("content", "")
+                        for h in reversed(history)
+                        if h.get("role") == "assistant"
+                    ),
+                    None,
+                )
+                if _is_repeat_fallback(question, last_asst_text):
+                    question = _vary_repeat_fallback(message)
                 self.store.append(conv_id, message, question)
                 self.store.clear_pending(conv_id)
                 total = int((time.monotonic() - turn_started) * 1000)
@@ -1886,11 +2675,43 @@ class ChatService:
             }
             return
 
+        # ── Pure-affirmative + active draft (mirror of non-stream) ──
+        if _is_pure_affirmative(message):
+            existing = self.store.get_active_draft(conv_id)
+            if existing is not None:
+                ack = (
+                    "Got it — the draft above is what you'll activate. "
+                    "Click **Save & activate** in the card when you're ready."
+                )
+                self.store.append(conv_id, message, ack)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["affirm_ack"] = total
+                breakdown["total"] = total
+                _log_timing("affirm_ack", message, total, breakdown, tools=[])
+                trace.event("turn.end", total_ms=total, tools_called=[],
+                            reason="pure_affirmative_ack")
+                trace.end()
+                yield {"type": "start"}
+                yield {"type": "delta", "text": ack}
+                yield {
+                    "type": "done",
+                    "response": ack,
+                    "tools_called": [],
+                    "logiccard": None,
+                    "raw_data": None,
+                    "latency_ms": total,
+                    "latency_breakdown": breakdown,
+                }
+                return
+
         # ── Fresh-session eviction (mirror of non-streaming path) ──
         if history_override is not None and len(history_override) == 0:
             self._reset_session(conv_id)
 
         # ── Active-draft eviction (mirror of non-streaming path) ───
+        had_active_draft_at_entry = (
+            self.store.get_active_draft(conv_id) is not None
+        )
         if _is_independent_prompt(message):
             stale = self.store.get_active_draft(conv_id)
             if stale is not None:
@@ -1943,6 +2764,24 @@ class ChatService:
 
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+
+        # Typo-continuation guard (mirror of non-streaming path).
+        # See _is_bare_typo_continuation for full rationale.
+        if (had_active_draft_at_entry
+                and selected_names is not None
+                and _is_bare_typo_continuation(message)
+                and not _DEPENDENT_INTENT_RE.search(message)):
+            selected_names = selected_names - _ORDER_AND_MACRO_TOOLS
+            trace.event(
+                "tools.stripped_typo_continuation",
+                stripped=sorted(_ORDER_AND_MACRO_TOOLS),
+                reason="bare_token_with_active_draft",
+            )
+
+        # Mirror of non-streaming post-order-clarification override.
+        if intent_kind == "other" and _is_post_order_clarification(message, history):
+            intent_kind = "automation"
+            trace.event("intent.post_clarification_order_override")
         if mode_override in {"automation", "agent", "backtest"}:
             intent_kind = mode_override
             trace.event("mode_override.applied", mode=mode_override)
@@ -1962,7 +2801,14 @@ class ChatService:
                 "propose_workflow",
             }
         elif is_automation_intent and selected_names is not None:
-            selected_names = (selected_names - {"propose_workflow"}) | (
+            # Mirror of non-streaming path. See comment there for WHY all
+            # four macro tools are removed, not just propose_workflow.
+            _ALL_MACRO_TOOLS = frozenset({
+                "propose_workflow", "propose_scheduled_order",
+                "propose_threshold_order", "propose_basket_allocation",
+                "propose_holding_action",
+            })
+            selected_names = (selected_names - _ALL_MACRO_TOOLS) | (
                 _IMMEDIATE_ORDER_TOOLS
             )
         elif is_backtest_intent and selected_names is not None:
@@ -1971,6 +2817,17 @@ class ChatService:
                 | {"run_backtest", "get_price_history", "get_live_price",
                    "get_52wk_range"}
             )
+        # Mirror of non-streaming advisory-strip — see handle() for WHY.
+        if (intent_kind == "other"
+                and selected_names is not None
+                and _ADVISORY_INTENT_RE.search(message)
+                and not _ADVISORY_WORKFLOW_EXCEPTION_RE.search(message)):
+            _ALL_MACRO_TOOLS = frozenset({
+                "propose_workflow", "propose_scheduled_order",
+                "propose_threshold_order", "propose_basket_allocation",
+                "propose_holding_action",
+            })
+            selected_names = selected_names - _ALL_MACRO_TOOLS
         tooldefs = _registry_tools_as_tooldefs(selected_names)
         cache_key = cache_key_for(selected_names)
         # A1 + B4 (mirror of non-streaming path): when the message
@@ -1979,6 +2836,35 @@ class ChatService:
         agent_tool_choice: Literal["auto", "required"] = (
             "required" if is_agent_intent else "auto"
         )
+        # Underspec relaxation (mirror of non-streaming path).
+        # Two-step enforcement: relax tool_choice + strip macros so
+        # propose_workflow can't fabricate defaults from history.
+        # Plus filler-reply-after-question, F&O detection, and
+        # buy/sell contradiction (same class — strip + force ASK).
+        is_underspec_agent = is_agent_intent and _is_underspecified_agent_build(message)
+        is_filler_after_q = (
+            _is_filler_reply(message) and _prev_assistant_was_question(history)
+        )
+        mentions_fno = _mentions_fno(message)
+        is_contradiction = _is_buy_sell_contradiction(message)
+        if is_underspec_agent or is_filler_after_q or mentions_fno or is_contradiction:
+            agent_tool_choice = "auto"
+            if selected_names is not None:
+                _UNDERSPEC_STRIP = frozenset({
+                    "propose_workflow", "propose_scheduled_order",
+                    "propose_threshold_order", "propose_basket_allocation",
+                    "propose_holding_action",
+                })
+                if mentions_fno:
+                    _UNDERSPEC_STRIP = _UNDERSPEC_STRIP | frozenset({
+                        "place_market_order", "place_limit_order",
+                        "create_gtt_order", "create_sl_order",
+                        "create_oco_order", "create_dip_buy",
+                        "place_basket_order", "create_sip",
+                    })
+                selected_names = selected_names - _UNDERSPEC_STRIP
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                cache_key = cache_key_for(selected_names)
         effort: ReasoningEffort = "minimal" if is_agent_intent else "low"
         max_output: int = 1500
         # Same scoped retry budget as the non-streaming path.
@@ -1992,6 +2878,7 @@ class ChatService:
             reasoning_effort=effort,
             tool_choice=agent_tool_choice,
             agent_intent=is_agent_intent,
+            underspec_agent=is_underspec_agent,
         )
 
         prompt_ctx = _build_user_context(ctx)
@@ -2009,21 +2896,39 @@ class ChatService:
                         reason="independent_prompt",
                         tool=active.tool_name)
             active = None
+        # Mirror of non-streaming workflow_hint — extended to all macro
+        # draft types (propose_threshold_order, propose_scheduled_order, etc.).
+        # See handle() for WHY.
         workflow_hint = ""
-        if active is not None and active.tool_name == "propose_workflow":
+        if active is not None and active.tool_name in _MACRO_AMENDMENT_TOOLS:
             draft_json = json.dumps(active.draft, default=str)[:1800]
+            tool_label = active.tool_name
+            hint_verb = (
+                "Re-emit propose_workflow with the SAME steps shape, only "
+                "mutating the field(s) the user addressed. If the user is "
+                "clearly proposing a wholly different agent, supersede."
+                if tool_label == "propose_workflow" else
+                f"Re-emit `{tool_label}` with ALL parameters from the draft, "
+                "only updating the field(s) the user changed. Do NOT switch to "
+                "a different tool (e.g. do NOT call propose_workflow instead)."
+            )
             workflow_hint = (
-                " ACTIVE WORKFLOW DRAFT exists from a prior turn. "
-                "Treat the user's reply as an AMENDMENT to this "
-                "draft — re-emit propose_workflow with the SAME "
-                "steps shape, only mutating the field(s) the user "
-                "addressed. Do NOT switch tools. Do NOT start a "
-                "new draft. Do NOT write a prose 'Do you want me to…?' "
-                "confirmation — the card IS the confirmation surface. "
-                "If the user is clearly proposing a wholly different "
-                "agent, supersede the draft. "
+                f" ACTIVE {tool_label.upper().replace('_', ' ')} DRAFT from "
+                f"a prior turn. Treat the user's reply as an AMENDMENT — "
+                + hint_verb +
+                " Do NOT switch tools. Do NOT write prose. Do NOT call "
+                "ASK_USER for non-essential fields (approval, defaults, "
+                "stop-loss style) — the user can edit those on the card. "
+                "The card is the confirmation surface. "
                 f"DRAFT JSON: {draft_json}."
             )
+
+        # Force tool_choice="required" on amendment turns — see handle().
+        if (not is_agent_intent
+                and active is not None
+                and workflow_hint
+                and _DEPENDENT_INTENT_RE.search(message)):
+            agent_tool_choice = "required"
 
         if history and _looks_like_clarification_followup(history):
             last_assistant = next(
@@ -2058,14 +2963,15 @@ class ChatService:
                 ),
             )
         elif active is not None and workflow_hint:
+            tool_label = active.tool_name
             followup_hint_msg = LLMMessage(
                 role="system",
                 content=(
-                    "AMENDMENT TURN. A workflow draft you produced last "
-                    "turn is on screen. The user's CURRENT message is "
-                    f'"{message}" — interpret it as a mutation of THAT '
-                    "draft and re-emit propose_workflow with the same "
-                    "structure and only the fields they changed updated. "
+                    f"AMENDMENT TURN. A `{tool_label}` draft is on screen. "
+                    f"The user's CURRENT message is \"{message}\" — interpret "
+                    "it as a mutation of THAT draft and re-emit "
+                    f"`{tool_label}` with the same structure, only the "
+                    "changed fields updated. "
                     + workflow_hint +
                     " Re-emit the tool IMMEDIATELY. Do NOT respond with "
                     "prose like 'Do you want me to…?' or 'Confirm: …' — "
@@ -2089,6 +2995,20 @@ class ChatService:
             base_msgs.append(LLMMessage(role="system", content=mode_pin))
         if followup_hint_msg is not None:
             base_msgs.append(followup_hint_msg)
+        # Mirror of non-streaming underspec/filler hint.
+        if is_underspec_agent or is_filler_after_q:
+            base_msgs.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Underspec / filler reply — ASK_USER, do NOT "
+                    "describe a draft\n"
+                    "Macro draft tools have been removed from your "
+                    "tool set for this turn. Do NOT describe a draft "
+                    "in prose. Do NOT promise a draft 'in the app'. "
+                    "Call `ASK_USER` with ONE focused question, "
+                    "naming the simplest option as a suggestion."
+                ),
+            ))
         messages: list[LLMMessage] = [
             *base_msgs,
             *_history_to_llm_messages(history),
@@ -2100,6 +3020,8 @@ class ChatService:
         raw_data: dict = {}
         hop_index = 0
         accumulated_text = ""
+        # Mirror of the non-streaming path's compact-draft tracker.
+        last_was_macro_draft = False
         # Track the most recent tool error so the streaming
         # circuit-breaker can surface it to the user.
         last_tool_error: Optional[str] = None
@@ -2112,10 +3034,17 @@ class ChatService:
             hop_tool_choice: Literal["auto", "required"] = (
                 agent_tool_choice if hop_index == 1 else "auto"
             )
+            hop_max_output = (
+                _COMPACT_POST_MACRO_MAX_OUTPUT
+                if (_COMPACT_DRAFTS and last_was_macro_draft)
+                else max_output
+            )
             trace.event(
                 "llm.stream", hop=hop_index,
                 reasoning_effort=effort, tools_offered=len(tooldefs),
                 tool_choice=hop_tool_choice,
+                max_output_tokens=hop_max_output,
+                compact_post_macro=(_COMPACT_DRAFTS and last_was_macro_draft),
             )
 
             text_parts: list[str] = []
@@ -2133,7 +3062,7 @@ class ChatService:
                 messages=messages,
                 tools=tooldefs,
                 tool_choice=hop_tool_choice,
-                max_output_tokens=max_output,
+                max_output_tokens=hop_max_output,
                 reasoning_effort=effort,
                 temperature=0.2,
                 prompt_cache_key=cache_key,
@@ -2376,8 +3305,14 @@ class ChatService:
                         logiccard = guarded.logiccard
                     if guarded.data:
                         raw_data[guarded.name] = guarded.data
-                    if guarded.name == "propose_workflow" and guarded.data:
-                        self._stash_workflow_draft(conv_id, guarded.data)
+                    # Mirror of non-streaming path: stash any macro-draft tool
+                    # so the next turn gets the right amendment hint.
+                    if guarded.name in _STASH_DRAFT_TOOLS and guarded.data:
+                        self._stash_workflow_draft(
+                            conv_id, guarded.data, tool_name=guarded.name,
+                        )
+                    if guarded.name in _STASH_DRAFT_TOOLS:
+                        last_was_macro_draft = True
                     continue
 
                 last_tool_error = f"{guarded.name}: {guarded.error}"
@@ -2447,6 +3382,17 @@ class ChatService:
                     error=guarded.error or "",
                     user_message=message,
                 )
+                # Stream-path mirror of the repeat-fallback variation.
+                last_asst_text = next(
+                    (
+                        h.get("content", "")
+                        for h in reversed(history)
+                        if h.get("role") == "assistant"
+                    ),
+                    None,
+                )
+                if _is_repeat_fallback(question, last_asst_text):
+                    question = _vary_repeat_fallback(message)
                 self.store.append(conv_id, message, question)
                 self.store.clear_pending(conv_id)
                 total = int((time.monotonic() - turn_started) * 1000)
@@ -2706,6 +3652,138 @@ def _try_macro_fallback(message: str) -> Optional[dict]:
     return None
 
 
+def _conversational_unsupported_reply(user_message_lower: str) -> str:
+    """Build a tailored, plain-language reply when a workflow draft
+    can't be expressed exactly as the user described.
+
+    The previous canned response dumped the full step catalog with
+    internal jargon ("cron", "fetch.relative_threshold",
+    "condition.numeric", "trigger.market_relative_time"). That was
+    correct internally but read like an error log. This helper picks
+    cues from the user's message and offers a concrete, supported
+    alternative the user can say yes to.
+
+    Always returns a complete short reply — no bullet-point catalogs.
+    """
+    msg = (user_message_lower or "").strip()
+
+    # ── Cue: weekly conditional sell ("sell if up by end of week").
+    # Pivot can do scheduled sells AND profit-threshold sells, but
+    # not both natively in one rule. Offer both as separate paths.
+    has_weekly_anchor = bool(re.search(
+        r"\bend\s+of\s+(?:the\s+)?week\b"
+        r"|\b(?:by|on|every|next)\s+(?:the\s+)?friday\b"
+        r"|\bweekly\b|\bweek[- ]?end\b",
+        msg,
+    ))
+    has_conditional_verb = bool(re.search(
+        r"\bif\s+(?:it|the|up|i|gain|profit|positive)\b"
+        r"|\b(?:increased|increase|rises|rose|risen|gained|gain|"
+        r"profit(?:able|s|ed)?|positive)\b",
+        msg,
+    ))
+    weekly_conditional = has_weekly_anchor and has_conditional_verb
+
+    has_basket = (
+        "basket" in msg
+        or "across" in msg
+        or "top " in msg
+        or any(s in msg for s in (" steel", " banking", " it stocks",
+                                   " auto stocks", " pharma", " fmcg",
+                                   " metals", " energy", " cement"))
+    )
+    if weekly_conditional and has_basket:
+        return (
+            "That one's two rules in one — Pivot can do each part on "
+            "its own but not stitch them together yet. Pick how you "
+            "want to start:\n\n"
+            "1. **Just the daily basket** — I draft the buy side now "
+            "(e.g. *₹1,000 of top steel stocks every weekday*). You "
+            "manage the weekly exit yourself.\n"
+            "2. **Profit-take rule on a specific stock** — I set up "
+            "*sell when up X%* on a single ticker, not a whole basket.\n"
+            "3. **Scheduled Friday review** — every Friday at close, "
+            "I notify you with the basket's P&L so you can sell "
+            "manually.\n\n"
+            "Which one should I draft?"
+        )
+
+    # ── Cue: portfolio-relative or runtime-relative thresholds
+    # ("if my P&L is up 5%", "5% below yesterday's close").
+    runtime_relative = any(p in msg for p in (
+        "yesterday", "yesterday's", "previous close", "prior close",
+        "today's open", "the open", "5% below", "10% below",
+        "below open", "above open",
+    ))
+    if runtime_relative:
+        return (
+            "Pivot's triggers fire on absolute prices or fixed indicator "
+            "levels — they can't anchor to *yesterday's close* or *today's "
+            "open* directly. The closest supported shape is a daily "
+            "checkpoint: every morning at 09:30 I check the price and "
+            "act if it's X% off the open. Want me to draft that, or "
+            "switch to a fixed price level instead?"
+        )
+
+    # ── Cue: P&L-conditional / "if profitable" / "if up X%".
+    pnl_conditional = any(p in msg for p in (
+        "if up", "if profitable", "if i'm up", "if my position is up",
+        "if it's up", "+X%", "profit-take", "take profit",
+    ))
+    if pnl_conditional:
+        return (
+            "I can do *sell when X is up Y%* on a single ticker or set "
+            "a stop-loss with a percentage offset, but not a portfolio-"
+            "wide *if any position is up* trigger yet. Tell me the "
+            "ticker and the % gain you want to lock in and I'll wire "
+            "it up."
+        )
+
+    # ── Cue: per-lot / fundamentals / multi-leg requests.
+    if any(p in msg for p in (
+        "pe ratio", "p/e ratio", "earnings", "eps", "roe", "fundamental",
+        "screen by", "screen for stocks",
+    )):
+        return (
+            "Fundamentals screening (P/E, ROE, EPS) isn't wired in "
+            "yet — Pivot only screens by sector and market cap today. "
+            "Want me to use a sector basket instead, or pick specific "
+            "tickers and I'll set up the rule on those?"
+        )
+
+    if any(p in msg for p in (
+        "options", "calls", "puts", "futures", "f&o", "expiry",
+        "straddle", "strangle", "call ", "put ",
+    )):
+        return (
+            "F&O — options and futures — isn't wired into v1; only "
+            "cash equity orders go through Pivot today. Want me to "
+            "draft this on the underlying instead, or skip for now?"
+        )
+
+    if any(p in msg for p in (
+        "tick", "every second", "every minute", "real-time",
+        "real time", "live trigger", "intraday alert",
+    )):
+        return (
+            "Pivot checks prices on a schedule, not on every tick — "
+            "the most frequent meaningful trigger is once-per-minute. "
+            "Tell me the price level (e.g. *if RELIANCE drops below "
+            "₹2,800*) and I'll set up a check that runs every minute "
+            "during market hours."
+        )
+
+    # ── Generic fall-through: short, friendly, no jargon.
+    return (
+        "I couldn't fit that exactly as you described it. Pivot's best "
+        "at: time-based actions (every weekday at 9:15, every Monday at "
+        "close), threshold-based actions (when RSI < 30, when price "
+        "crosses ₹X), and sector basket buys. Tell me which part "
+        "matters most and I'll draft the closest fit — or share a "
+        "simpler version of the same idea."
+    )
+
+
 def _format_recoverable_failure_question(
     *, tool_name: str, error: str, user_message: str = "",
 ) -> str:
@@ -2785,12 +3863,25 @@ def _format_recoverable_failure_question(
                 "could you tell me the day(s) and time? e.g. 'every "
                 "weekday at 09:15 IST'."
             )
-        # Runtime-relative threshold ("5% below Monday's open" / "below
-        # previous close" / "X% drop from yesterday"). Workflows v1
-        # triggers all need static price levels — these references
-        # require fetching Monday's open at fire time which the trigger
-        # types don't support today. Rather than say "structural issue",
-        # name the gap and offer the two viable alternatives.
+        # WHY this message was widened to mention market_relative_time:
+        # the prior version listed only "absolute price" and "daily
+        # checkpoint" alternatives, which made the user think
+        # "1 hour after open" / "2 PM" were unsupported. Both ARE
+        # supported via trigger.market_relative_time and trigger.schedule
+        # respectively — the model just produced an invalid trigger
+        # shape and the validator rejected it. The right user-facing
+        # nudge is to name the actually-supported triggers, including
+        # market-relative time, and let the user pick.
+        # WHY this whole branch was rewritten: the previous responses
+        # were architecture dumps — bullet lists naming "cron",
+        # "trigger.market_relative_time", "fetch.relative_threshold +
+        # condition.numeric", "step-catalog rejections". Users don't
+        # want internals; they want a conversational reply that
+        # acknowledges what they asked, names what part is hard in
+        # plain English, and offers a concrete next step. The new
+        # messages also try to extract specific cues from the user's
+        # message ("basket", "if up by end of week", "stop loss") so
+        # the alternative we offer is tailored, not generic.
         if any(
             tok in err_lc
             for tok in ("operator", "value", "trigger.price",
@@ -2798,56 +3889,90 @@ def _format_recoverable_failure_question(
         ) or any(
             tok in err_lc for tok in ("input should be", "extra inputs", "literal_error")
         ):
+            return _conversational_unsupported_reply(msg_lc)
+
+        # Short-message gate: vague follow-up that the model
+        # mis-routed to propose_workflow. Stay friendly, not bullet-y.
+        if msg_lc and len(msg_lc.strip()) <= 30:
             return (
-                "That request doesn't fit Pivot's trigger types — they "
-                "need a fixed price level or a fixed indicator threshold "
-                "(RSI < 30, EMA cross, etc.). Two ways to express what "
-                "you want:\n"
-                "  • Pick an absolute price (e.g. *trigger when RELIANCE "
-                "drops below ₹2,800*), or\n"
-                "  • Use a daily-checkpoint shape — *every weekday at "
-                "09:30, if price is more than 5% below the day's open, "
-                "set a 2% stop loss* — and I'll wire that up.\n"
-                "Which would you like?"
+                "I'm not sure what to draft from that. Tell me what you'd "
+                "like — for example, *\"buy 10 RELIANCE every weekday at "
+                "09:15\"* or *\"alert me when NIFTY drops 2%\"*."
             )
-        # Catch-all for step-catalog rejections that don't match the
-        # specific patterns above. The previous "restate as when X do Y"
-        # message was too generic — users came back with the same shape
-        # and got the same error. Name what Pivot CAN trigger on, what
-        # it CAN do, and let the user pick a concrete combination.
-        return (
-            "That step shape isn't in Pivot v1's catalog. Triggers "
-            "available today:\n"
-            "  • Schedule (cron / weekday / time-of-day)\n"
-            "  • Market-relative time (open / close ± minutes, "
-            "auto-handles early-close days)\n"
-            "  • Price crossing a fixed level (e.g. RELIANCE > ₹2,900)\n"
-            "  • Indicator threshold on a daily candle (RSI / SMA / EMA)\n\n"
-            "Fetches available today:\n"
-            "  • Quote, day-open, prior-close, indicator value\n"
-            "  • Intraday P&L from holdings (% and ₹)\n"
-            "  • Relative threshold (X% above/below day-open or "
-            "prior-close — produces an absolute price)\n"
-            "  • Sector screener (top N by market cap)\n\n"
-            "Actions available today:\n"
-            "  • Market / limit / stop-loss / GTT order\n"
-            "  • Square off intraday positions (all or per-symbol)\n"
-            "  • Allocate ₹ across a sector basket\n"
-            "  • Notify in-app\n\n"
-            "Not yet supported: real-time tick thresholds (poll-based "
-            "architecture), fundamentals screens (no PE/ROE provider "
-            "wired), multi-leg / pyramiding actions. Want me to draft "
-            "the closest supported shape?"
-        )
+
+        return _conversational_unsupported_reply(msg_lc)
     if tool_name in {"place_market_order", "place_limit_order"}:
         return (
             "I couldn't place that order from what was given — could you "
             "confirm the symbol, quantity, and (for limit orders) the "
             "limit price?"
         )
+    # WHY this branch exists: when get_live_price fails on an unknown
+    # ticker (e.g. "XYZFAKE123"), the fallback used to be the generic
+    # "I couldn't complete that — give me values". That hides the
+    # actual problem — the ticker isn't in the data feed. Naming the
+    # symbol gives the user something to act on.
+    if tool_name in {"get_live_price", "get_ohlc", "get_52wk_range",
+                     "get_index_level"}:
+        # Try to extract the symbol the user mentioned for a more
+        # specific message.
+        sym_match = re.search(
+            r"\b([A-Z][A-Z0-9&\-_]{1,14})\b",
+            (user_message or "").upper(),
+        )
+        sym = sym_match.group(1) if sym_match else "that symbol"
+        return (
+            f"I couldn't find price data for `{sym}` on NSE. Double-"
+            f"check the ticker spelling — Pivot covers NSE-listed "
+            f"equities only."
+        )
     return (
-        f"I couldn't run `{tool_name}` with the values I had. "
-        "Could you restate that with specific values?"
+        "I couldn't complete that — could you give me the specific "
+        "values (symbol, quantity, price if relevant)?"
+    )
+
+
+# Phrases the user-facing fallback messages start with. Used to detect
+# when the same canned response would fire two turns in a row — at
+# which point we vary it so the user doesn't see the same text bounced
+# back like a stuck record.
+_GENERIC_FALLBACK_PREFIXES: tuple[str, ...] = (
+    "i couldn't complete that",
+    "i couldn't place that order",
+    "i couldn't draft that",
+    "that step shape isn't in pivot",
+    "i'm not sure what to draft",
+)
+
+
+def _is_repeat_fallback(canned: str, last_assistant_msg: Optional[str]) -> bool:
+    """True when `canned` would repeat the gist of the prior assistant
+    turn. Compared on the leading prefix so paraphrase variants still
+    register as duplicates.
+    """
+    if not canned or not last_assistant_msg:
+        return False
+    a = canned.strip().lower()[:60]
+    b = last_assistant_msg.strip().lower()[:200]
+    if not any(p in b for p in _GENERIC_FALLBACK_PREFIXES):
+        return False
+    if not any(p in a for p in _GENERIC_FALLBACK_PREFIXES):
+        return False
+    # Repeat if both messages start with the same fallback prefix.
+    return any(a.startswith(p) and p in b for p in _GENERIC_FALLBACK_PREFIXES)
+
+
+def _vary_repeat_fallback(user_msg: str) -> str:
+    """Return a varied fallback when the canned message would otherwise
+    repeat last turn. Doesn't try to answer the request — just pivots
+    the conversation so the user isn't stuck on the same wall.
+    """
+    return (
+        "Let's reset. Tell me concretely what you're after — for example, "
+        "*\"buy 10 RELIANCE at market\"*, *\"build an agent that buys "
+        "TCS every Monday at 9:15\"*, or *\"show me today's top "
+        "gainers\"*. If you wanted something Pivot v1 doesn't support "
+        "yet, say so and I'll suggest the closest fit."
     )
 
 
@@ -2956,13 +4081,20 @@ def _ensure_widget_caption(
 
 
 def _post_process(text: str) -> tuple[str, bool]:
-    """Defence-in-depth: strip leaked tool-call blocks / placeholders.
+    """Defence-in-depth: strip leaked tool-call blocks / placeholders /
+    internal-reasoning monologue.
     Returns (cleaned, was_sanitised)."""
     if not text:
         return _GENERIC_FALLBACK, True
     original = text
     text = _TOOL_CALL_BLOCK_RE.sub("", text)
     text = _PLACEHOLDER_RE.sub("", text)
+    # WHY this strip runs BEFORE the latent-greeting check: a leaked
+    # reasoning paragraph can include greeting-shaped phrases ("Hi,
+    # the user now says...") that would trip the latent-greeting
+    # rule and replace the entire response with the generic fallback,
+    # erasing legitimate text that came after the leak.
+    text = _strip_reasoning_leakage(text)
     if _LATENT_GREETING_RE.search(text):
         text = _GENERIC_FALLBACK
     text = text.strip()

@@ -17,7 +17,7 @@ TOOL_SUBSETS = {
     "ORDER_FNO":         ["place_futures_order", "place_options_order", "place_multileg_options", "roll_futures_position", "get_option_chain", "get_option_greeks", "get_margin_required"],
     "ORDER_MANAGE":      ["cancel_order", "modify_order", "list_pending_orders", "list_gtt_orders", "cancel_gtt", "squareoff_all_intraday", "squareoff_symbol"],
     "PORTFOLIO_QUERY":   ["get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_holding_detail", "get_tax_summary", "get_active_products"],
-    "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_option_chain"],
+    "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain"],
     "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
     "WORKFLOW_PROPOSE":  ["propose_workflow"],
@@ -77,21 +77,33 @@ tool("place_market_order",
      "Do NOT use when the user gave a colloquial company name that could "
      "map to multiple tickers (Tata, M&M, HDFC) — call ASK_USER first. "
      "Always requires user confirmation before execution.\n\n"
+     "TICKER INFERENCE — use these directly WITHOUT asking:\n"
+     "  'Swiggy'        → SWIGGY   (listed NSE Nov 2024)\n"
+     "  'Zomato'/'Eternal' → ETERNAL (Zomato rebranded, trades as ETERNAL)\n"
+     "  'Hyundai India' → HYUNDAI\n"
+     "  'HDFC Bank'     → HDFCBANK\n"
+     "  'HDFC Life'     → HDFCLIFE\n"
+     "  'State Bank'/'SBI' → SBIN\n"
+     "  'Nifty Bees'/'NIFTY ETF' → NIFTYBEES\n"
+     "Only call ASK_USER when the name genuinely maps to multiple listed "
+     "entities (bare 'Tata', bare 'HDFC', bare 'Adani', 'M&M').\n\n"
      "Examples (fill from these shapes):\n"
      "  user: 'buy 10 RELIANCE at market'\n"
      "  → place_market_order(symbol='RELIANCE', transaction_type='BUY', "
+     "quantity=10)\n"
+     "  user: 'buy 10 swiggy'\n"
+     "  → place_market_order(symbol='SWIGGY', transaction_type='BUY', "
      "quantity=10)\n"
      "  user: 'sell my 5 TCS now'\n"
      "  → place_market_order(symbol='TCS', transaction_type='SELL', "
      "quantity=5, product='CNC')",
      {
          "symbol":           {"type": "string", "description":
-                              "NSE ticker, uppercase, e.g. 'INFY' or 'RELIANCE'. "
-                              "If the user said a colloquial name and the ticker "
-                              "is unambiguous (TCS, INFY, RELIANCE), infer it. "
-                              "If ambiguous (Tata, M&M, HDFC, Adani), call "
-                              "ASK_USER instead of guessing — picking the wrong "
-                              "ticker places a real order on the wrong stock."},
+                              "NSE ticker, uppercase. Infer from company name: "
+                              "Swiggy→SWIGGY, Zomato/Eternal→ETERNAL, Infosys→INFY, "
+                              "HDFC Bank→HDFCBANK, SBI→SBIN, TCS→TCS, Wipro→WIPRO. "
+                              "ASK_USER only for genuine ambiguity (bare 'Tata', "
+                              "bare 'HDFC', bare 'Adani', 'M&M')."},
          "transaction_type": {"type": "string", "enum": ["BUY", "SELL"],
                               "description": "BUY or SELL — uppercase only."},
          "quantity":         {"type": "integer", "minimum": 1, "description":
@@ -506,6 +518,25 @@ tool("get_upcoming_events",
      "Returns upcoming earnings, RBI meeting dates, ex-dividend dates, F&O expiry dates.",
      {}, [])
 
+tool("get_top_movers",
+     "Today's top gainers or losers in NIFTY 50, ranked by intraday "
+     "% change. Use for prompts like 'top gainers today', 'who's "
+     "moving most', 'today's biggest losers'. Backed by yfinance with "
+     "a 60s cache; falls back to a curated seed list when yfinance is "
+     "unavailable (rows tagged `seed: true`). The universe is always "
+     "NIFTY 50 — do NOT call ASK_USER to ask which universe or how "
+     "many; the defaults are correct (gainers, limit=5). Only use "
+     "ASK_USER if the user explicitly asks about a different index "
+     "(e.g. 'NIFTY 100', 'Bank Nifty') which isn't supported in v1.",
+     {
+         "direction": {
+             "type": "string", "enum": ["gainers", "losers"],
+             "default": "gainers",
+         },
+         "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+     },
+     [])
+
 # ── YIELDS ───────────────────────────────────────────────────────────────────
 
 tool("compare_yields",
@@ -767,6 +798,13 @@ tool("propose_workflow",
      "offset_pct: number } "
      "(output: { value: ABSOLUTE price level, reference_value, "
      "reference_label })\n"
+     "  - fetch.top_movers: { direction: 'gainers'|'losers' (default "
+     "'gainers'), universe?: 'nifty50' (default), limit?: 1-20 (default 1) } "
+     "(output: { symbols, ranked: [{symbol, ltp, change_pct, seed?}], "
+     "n, direction, seeded }) — use for 'top gainer of the day at "
+     "close' / 'sell today's biggest loser at open' patterns. The "
+     "first-row symbol is referenced as `{{ context.<idx>.symbols.0 }}` "
+     "or `{{ context.<idx>.ranked.0.symbol }}` by the next step.\n"
      "  - fetch.screener: { sector?, mcap_min_cr?, mcap_max_cr?, "
      "sort_by?: 'mcap'|'symbol', limit?: 10 } "
      "(output: { symbols: [...], ranked: [{symbol, name, sector, mcap_cr}], "
@@ -800,8 +838,11 @@ tool("propose_workflow",
      "P&L-gated exits.\n"
      "  - action.squareoff_symbol: { symbol, product?: 'MIS'|'CNC' } — "
      "exits a single symbol's open lot.\n"
-     "  - notify.message: { channel: 'email'|'sms'|'push', template, "
-     "vars?: {} }\n\n"
+     "  - notify.message: { channel: 'push' (in-app ONLY — Pivot v1 "
+     "does NOT send email, SMS, WhatsApp, or Slack; if the user asks "
+     "for email/SMS, set channel='push' and tell the user in your "
+     "response that those channels aren't wired yet, the agent will "
+     "notify in-app instead), template, vars?: {} }\n\n"
      "STOP-LOSS: when the user says '2% stop loss' / 'X% SL' / 'stop "
      "below entry', use action.set_stoploss with `trigger_offset_pct` "
      "(a number like 2). Use `trigger_price` only when the user gave "
@@ -833,6 +874,21 @@ tool("propose_workflow",
      "do NOT add an SL step. Add steps the user did not request only "
      "when the workflow is unworkable without them (e.g. fetch.portfolio "
      "before referencing holdings).\n\n"
+     "**HARD RULE: NEVER add a SELL branch when the user only asked "
+     "to BUY.** The crossover example below shows a buy + sell pair "
+     "for educational completeness, but it is NOT a template — it is "
+     "the shape only when the user explicitly asks for both. If the "
+     "user said *'buy ETERNAL when RSI<30 and MACD crosses signal'*, "
+     "the workflow has ONE branch (the buy). No sell. No reverse-RSI "
+     "exit. No reverse-MACD exit. Same goes for buy-only entries with "
+     "any other indicator combination. Adding an unprompted sell is "
+     "the most-reported failure shape; the agent ends up exiting the "
+     "user's position when they did not consent to that.\n\n"
+     "MULTI-CONDITION BUY (e.g. 'buy when RSI<30 AND MACD crosses "
+     "signal') uses ONE branch with multiple `condition.numeric` "
+     "steps in series. The engine evaluates conditions in order; if "
+     "any returns false, the branch halts before the action. Do NOT "
+     "split a multi-condition buy into multiple branches.\n\n"
      "NEVER add notify.message, notify.log, or any other notification "
      "step unless the user explicitly asked for one ('notify me', "
      "'alert me', 'send a push'). Order placement and squareoff "
@@ -961,11 +1017,15 @@ tool("propose_workflow",
      "order_type: 'market' } } ], "
      "rationale: 'Branch 1 buys 5 at Mon open. Branch 2 fetches the "
      "current NIFTYBEES holding and sells the whole lot at Tue close.' }\n\n"
-     "  // Indicator-vs-indicator crossover: 'buy 10 RELIANCE when "
-     "50-EMA crosses above 200-EMA, sell when it crosses back below'. "
-     "trigger.indicator only compares against a fixed level, so we use "
-     "trigger.schedule (poll daily after close) + two fetch.indicator "
-     "steps + condition.numeric. Two branches in one workflow.\n"
+     "  // Indicator-vs-indicator crossover with EXPLICIT buy AND "
+     "reverse-sell ('buy 10 RELIANCE when 50-EMA crosses above "
+     "200-EMA, **and sell when it crosses back below**'). The user "
+     "asked for BOTH directions, so two branches. trigger.indicator "
+     "only compares against a fixed level, so we use trigger.schedule "
+     "(poll daily after close) + two fetch.indicator steps + "
+     "condition.numeric. Two branches in one workflow. **If the user "
+     "did NOT mention a sell, drop Branch 2 entirely — emit only "
+     "Branch 1.**\n"
      "  { name: 'RELIANCE 50/200 EMA crossover', steps: ["
      "{ step_type: 'trigger.schedule', config: { cron: '35 15 * * 1-5', "
      "timezone: 'Asia/Kolkata' } },"
@@ -994,6 +1054,28 @@ tool("propose_workflow",
      "rationale: 'Daily close-of-session check via trigger.schedule. "
      "Branch 1: when fast EMA > slow EMA, market buy. Branch 2: when "
      "fast EMA < slow EMA, sell the entire RELIANCE holding.' }\n\n"
+     "  // BUY-ONLY multi-indicator AND condition: 'buy ETERNAL when "
+     "RSI<30 AND MACD line > signal line'. ONE branch. RSI is a fixed "
+     "threshold so we use trigger.indicator for it; MACD is "
+     "indicator-vs-indicator so we add fetch.indicator for both lines "
+     "+ condition.numeric. Conditions run in series; if any returns "
+     "false the branch halts before the action. NO sell branch — the "
+     "user did not ask for one.\n"
+     "  { name: 'ETERNAL: buy on RSI+MACD', steps: ["
+     "{ step_type: 'trigger.indicator', config: { symbol: 'ETERNAL', "
+     "indicator: 'rsi', period: 14, operator: '<', value: 30 } },"
+     "{ step_type: 'fetch.indicator', config: { symbol: 'ETERNAL', "
+     "indicator: 'macd_line', period: 12 } },"
+     "{ step_type: 'fetch.indicator', config: { symbol: 'ETERNAL', "
+     "indicator: 'macd_signal', period: 9 } },"
+     "{ step_type: 'condition.numeric', config: { left: "
+     "'{{ context.1.value }}', operator: '>', right: "
+     "'{{ context.2.value }}' } },"
+     "{ step_type: 'action.place_order', config: { symbol: 'ETERNAL', "
+     "side: 'buy', quantity: 1, order_type: 'market' } } ], "
+     "rationale: 'Daily indicator check on ETERNAL. Fires when RSI "
+     "is oversold AND MACD line is above its signal line; market "
+     "buy. No sell side — user did not request one.' }\n\n"
      "  // Intraday P&L stop: '5 min before close on weekdays, exit all "
      "MIS if my intraday P&L is below -2%'. Use trigger.market_relative_time "
      "for the timing — never hardcode 15:25; it would break on early-close "

@@ -4,6 +4,9 @@ from backend.database import get_db
 from backend.models import User, ProductPosition
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.kite.portfolio import get_holdings, get_portfolio_summary, get_margins
+from backend.services.portfolio_cache import (
+    get_summary_cached, get_holdings_cached,
+)
 from backend.agents.yield_scanner import get_all_yields, calculate_after_tax_yield
 import json
 
@@ -40,14 +43,18 @@ def get_kite_token(user_id: int, db: Session) -> str:
 @router.get("/summary")
 def portfolio_summary(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
     token = get_kite_token(user_id, db)
-    return get_portfolio_summary(token)
+    # WHY cached: dashboard polls + chat reads share this endpoint;
+    # 30s TTL collapses bursts.
+    return get_summary_cached(user_id, token)
 
 
 @router.get("/holdings")
 def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
     token = get_kite_token(user_id, db)
-    holdings = get_holdings(token)
-    # Enrich with sector data
+    holdings = list(get_holdings_cached(user_id, token))
+    # Enrich with sector data (mutates the cached list — copy first
+    # so we don't pollute the cached payload across requests).
+    holdings = [dict(h) for h in holdings]
     for h in holdings:
         h["sector"] = SECTOR_MAP.get(h["tradingsymbol"], "Other")
     return holdings
@@ -56,7 +63,7 @@ def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depend
 @router.get("/sector")
 def sector_breakdown(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
     token = get_kite_token(user_id, db)
-    holdings = get_holdings(token)
+    holdings = get_holdings_cached(user_id, token)
     sector_totals = {}
     total_value = 0
     for h in holdings:
