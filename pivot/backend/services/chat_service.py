@@ -1755,29 +1755,59 @@ class ChatService:
                     logiccard=None, raw_data=None,
                     latency_ms=total, latency_breakdown=breakdown,
                 )
-            # Pure-affirmative WITHOUT an active draft: the user said "ok"
-            # / "yes" but there's nothing on screen to confirm. Without
-            # this branch, the LLM gets called with full conversation
-            # history and resurrects a recently-evicted draft from prior
-            # assistant messages — see the canonical bug: user builds a
-            # NIFTYBEES draft, asks an independent question (which evicts
-            # the draft), then says "ok" — the LLM finds the old draft
-            # in history and re-proposes it via propose_threshold_order.
-            # Short-circuit with a neutral ack to break the resurrection.
-            ack = "Got it. What would you like next?"
-            self.store.append(conv_id, message, ack)
-            total = int((time.monotonic() - turn_started) * 1000)
-            breakdown["affirm_ack_no_draft"] = total
-            breakdown["total"] = total
-            _log_timing("affirm_ack_no_draft", message, total, breakdown, tools=[])
-            trace.event("turn.end", total_ms=total, tools_called=[],
-                        reason="pure_affirmative_no_active_draft")
-            trace.end()
-            return ChatTurn(
-                response=ack, tools_called=[],
-                logiccard=None, raw_data=None,
-                latency_ms=total, latency_breakdown=breakdown,
+            # Pure-affirmative WITHOUT an active draft.
+            #
+            # Historic bug this branch fixes: user builds a NIFTYBEES draft,
+            # asks an independent question (which evicts the draft), then
+            # says "ok" — the LLM resurrects the old draft from prior
+            # assistant messages. Short-circuit with a neutral ack.
+            #
+            # CLARIFICATION-PHASE EXCEPTION: the user can also say "sure"
+            # / "yes" while answering a clarification the bot just asked
+            # ("Should I map AI → IT? How much per run?"). In that flow
+            # the active-draft cache is also empty (nothing has been
+            # drafted yet), but the affirmative is meaningful — it's
+            # consenting to the clarification's defaults. Eating it with
+            # a generic "What would you like next?" is a UX failure:
+            # user said yes, bot acted like they said nothing.
+            #
+            # Detect the clarification phase via:
+            #   - explicit pending state (set by ASK_USER tool calls), OR
+            #   - the prior assistant turn matching the clarification
+            #     cue regex (catches free-form prose questions the LLM
+            #     emits without a tool).
+            # If either fires, fall through to the LLM hop so the
+            # followup_hint path can merge "yes/sure" with the original
+            # ask.
+            in_clarification_phase = (
+                self.store.get_pending(conv_id) is not None
             )
+            if not in_clarification_phase:
+                # Cheap history peek — only need the most recent assistant
+                # turn for the cue regex.
+                recent = self.store.get_history(conv_id, limit=1)
+                if recent and _looks_like_clarification_followup(recent):
+                    in_clarification_phase = True
+            if not in_clarification_phase:
+                ack = "Got it. What would you like next?"
+                self.store.append(conv_id, message, ack)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["affirm_ack_no_draft"] = total
+                breakdown["total"] = total
+                _log_timing("affirm_ack_no_draft", message, total,
+                            breakdown, tools=[])
+                trace.event("turn.end", total_ms=total, tools_called=[],
+                            reason="pure_affirmative_no_active_draft")
+                trace.end()
+                return ChatTurn(
+                    response=ack, tools_called=[],
+                    logiccard=None, raw_data=None,
+                    latency_ms=total, latency_breakdown=breakdown,
+                )
+            # Fall through: clarification is pending, let the LLM hop
+            # merge the affirmative with the original ask.
+            trace.event("affirmative.clarification_pending",
+                        reason="not_short-circuiting")
 
         # ── Fresh-session eviction ─────────────────────────────────
         # When the FE explicitly hands us an EMPTY history list, the
@@ -2819,28 +2849,42 @@ class ChatService:
                 }
                 return
             # Pure-affirmative without active draft (mirror of handle()).
-            # See the longer comment in handle() for rationale.
-            ack = "Got it. What would you like next?"
-            self.store.append(conv_id, message, ack)
-            total = int((time.monotonic() - turn_started) * 1000)
-            breakdown["affirm_ack_no_draft"] = total
-            breakdown["total"] = total
-            _log_timing("affirm_ack_no_draft", message, total, breakdown, tools=[])
-            trace.event("turn.end", total_ms=total, tools_called=[],
-                        reason="pure_affirmative_no_active_draft")
-            trace.end()
-            yield {"type": "start"}
-            yield {"type": "delta", "text": ack}
-            yield {
-                "type": "done",
-                "response": ack,
-                "tools_called": [],
-                "logiccard": None,
-                "raw_data": None,
-                "latency_ms": total,
-                "latency_breakdown": breakdown,
-            }
-            return
+            # See the longer comment in handle() for rationale, including
+            # the clarification-phase exception.
+            in_clarification_phase = (
+                self.store.get_pending(conv_id) is not None
+            )
+            if not in_clarification_phase:
+                recent = self.store.get_history(conv_id, limit=1)
+                if recent and _looks_like_clarification_followup(recent):
+                    in_clarification_phase = True
+            if in_clarification_phase:
+                trace.event("affirmative.clarification_pending",
+                            reason="not_short-circuiting")
+                # Fall through to the streaming LLM hop below.
+            else:
+                ack = "Got it. What would you like next?"
+                self.store.append(conv_id, message, ack)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["affirm_ack_no_draft"] = total
+                breakdown["total"] = total
+                _log_timing("affirm_ack_no_draft", message, total,
+                            breakdown, tools=[])
+                trace.event("turn.end", total_ms=total, tools_called=[],
+                            reason="pure_affirmative_no_active_draft")
+                trace.end()
+                yield {"type": "start"}
+                yield {"type": "delta", "text": ack}
+                yield {
+                    "type": "done",
+                    "response": ack,
+                    "tools_called": [],
+                    "logiccard": None,
+                    "raw_data": None,
+                    "latency_ms": total,
+                    "latency_breakdown": breakdown,
+                }
+                return
 
         # ── Fresh-session eviction (mirror of non-streaming path) ──
         if history_override is not None and len(history_override) == 0:
