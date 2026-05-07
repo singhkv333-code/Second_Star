@@ -11,6 +11,7 @@ from backend.cache import redis_client
 from backend.auth.router import router as auth_router
 from backend.routers.orders import router as orders_router
 from backend.routers.chat import router as chat_router
+from backend.routers.chat_v2 import router as chat_v2_router
 from backend.routers.sip import router as sip_router
 from backend.routers.strategy import router as strategy_router
 from backend.routers.products import router as products_router
@@ -58,6 +59,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(chat_router)
+app.include_router(chat_v2_router)
 app.include_router(sip_router)
 app.include_router(strategy_router)
 app.include_router(products_router)
