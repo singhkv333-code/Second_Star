@@ -14,10 +14,9 @@
 
 import { useEffect, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { Bot, ExternalLink, RefreshCw } from "lucide-react";
+import { Bot, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import { getWorkflow, listRuns, listWorkflows } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowSummary } from "@/lib/types";
@@ -71,16 +70,25 @@ function categoryLabel(cat: string): string {
   return MAP[cat] ?? "Strategy";
 }
 
-/** Category pill color classes. */
-function categoryColor(cat: string): string {
+/** Category footer-pill color (a CSS color used for the 1px border,
+ *  the 5px dot, and the label text). Mirrors Quartr's CATEGORY_COLOR
+ *  map but extended for pivot's category set. */
+function categoryHex(cat: string): string {
   const MAP: Record<string, string> = {
-    CASH: "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400",
-    RESEARCH: "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400",
-    RISK: "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
-    INCOME: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400",
-    AGENT: "bg-muted text-muted-foreground",
+    CASH: "#60a5fa",      // blue
+    RESEARCH: "#a78bfa",  // violet
+    RISK: "var(--color-loss)",
+    INCOME: "var(--color-profit)",
+    AGENT: "var(--text-secondary)",
   };
-  return MAP[cat] ?? "bg-muted text-muted-foreground";
+  return MAP[cat] ?? "var(--text-secondary)";
+}
+
+/** Status pill color — Quartr's STATUS_COLOR mapping. */
+function statusHex(status: AgentStatus): string {
+  if (status === "RUNNING") return "var(--color-profit)";
+  if (status === "BLOCKED") return "var(--color-loss)";
+  return "var(--text-tertiary)";
 }
 
 // ---------------------------------------------------------------------------
@@ -145,25 +153,30 @@ export function ActiveAgentsRail({
 
   return (
     <aside
-      className="flex flex-col gap-3"
+      className="flex flex-col"
       aria-label="Active Agents"
       data-testid="active-agents-rail"
+      style={{ gap: 14 }}
     >
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold tracking-tight text-foreground">
+      {/* Heading — matches frontend-quartr/.../ActiveAgentsRail.jsx
+          font-display weight-display 18px tracking -0.02em, no refresh
+          control. */}
+      <div
+        className="flex items-center"
+        style={{ marginBottom: 4 }}
+      >
+        <h2
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: "var(--weight-display)" as unknown as number,
+            fontSize: 18,
+            letterSpacing: "-0.02em",
+            color: "var(--text-primary)",
+            margin: 0,
+          }}
+        >
           Active Agents
         </h2>
-        {state.kind !== "loading" && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={load}
-            aria-label="Refresh agents"
-          >
-            <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" aria-hidden={true} />
-          </Button>
-        )}
       </div>
 
       {state.kind === "loading" && <AgentRailSkeleton />}
@@ -244,108 +257,200 @@ function AgentCardItem({
     ? formatDistanceToNow(parseISO(workflow.next_run_at), { addSuffix: true })
     : null;
 
+  const statusColor = statusHex(agentStatus);
+  const catColor = categoryHex(category);
+  const catLabel = categoryLabel(category);
+  const titleText = workflow.name.endsWith(".") ? workflow.name : `${workflow.name}.`;
+  const nextValue = nextRun ?? (workflow.next_run_at === null ? "On trigger" : "Manual");
+
   return (
     <div
-      className="flex flex-col gap-2.5 rounded-xl border bg-card px-4 py-3.5"
       data-testid={`agent-card-${workflow.id}`}
+      className="flex flex-col text-[var(--text-primary)]"
+      style={{
+        background: "var(--bg-primary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: 0,
+        transition: "border-color 0.25s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--glass-border-hover)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--glass-border)"; }}
     >
-      {/* Header line */}
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      {/* Top strip — AGENT NN / CATEGORY · STATUS pill */}
+      <div
+        className="flex items-center justify-between"
+        style={{
+          padding: "10px 14px",
+          borderBottom: "2px solid var(--glass-border-hover)",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 10,
+            letterSpacing: "0.18em",
+            fontWeight: 600,
+            color: "var(--text-secondary)",
+          }}
+        >
           AGENT {String(seq).padStart(2, "0")} / {category}
         </span>
         <StatusPill status={agentStatus} />
       </div>
 
-      {/* Workflow name */}
-      <h3 className="font-serif text-sm font-semibold leading-snug text-foreground">
-        {workflow.name.endsWith(".") ? workflow.name : `${workflow.name}.`}
-      </h3>
+      {/* Body */}
+      <div style={{ padding: "14px 14px 12px", flex: 1 }}>
+        <h3
+          className="m-0"
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 17,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.15,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+          }}
+        >
+          {titleText}
+        </h3>
 
-      {/* Description */}
-      {workflow.description && (
-        <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-          {workflow.description}
-        </p>
-      )}
+        {workflow.description && (
+          <p
+            className="line-clamp-2"
+            style={{
+              margin: "8px 0 12px",
+              fontSize: 12.5,
+              lineHeight: 1.5,
+              color: "var(--text-secondary)",
+              fontFamily: "var(--font-ui)",
+            }}
+          >
+            {workflow.description}
+          </p>
+        )}
 
-      {/* Key:value rows */}
-      <div className="space-y-0.5">
-        <KVRow label="MODEL" value="Pivot Engine" />
-        <KVRow label="LAST" value={lastRunAgo ?? "Never"} />
-        <KVRow
-          label="NEXT"
-          value={nextRun ?? (workflow.next_run_at === null ? "On trigger" : "Manual")}
-        />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "auto 1fr",
+            rowGap: 4,
+            columnGap: 12,
+            fontSize: 11,
+            fontFamily: "var(--font-ui)",
+          }}
+        >
+          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>MODEL</span>
+          <span style={{ color: "var(--text-secondary)" }}>Pivot Engine</span>
+          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>LAST</span>
+          <span style={{ color: "var(--text-secondary)" }}>{lastRunAgo ?? "Never"}</span>
+          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>NEXT</span>
+          <span style={{ color: "var(--text-secondary)" }}>{nextValue}</span>
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-0.5">
+      {/* Footer — VIEW AGENT button + category pill */}
+      <div
+        className="flex items-center justify-between"
+        style={{
+          padding: "9px 14px",
+          background: "var(--bg-elevated)",
+          borderTop: "1px solid var(--glass-border)",
+        }}
+      >
         <button
           type="button"
           onClick={handleOpen}
           disabled={opening}
-          className="flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
           aria-label={`View agent: ${workflow.name}`}
           data-testid={`view-agent-${workflow.id}`}
+          className="inline-flex items-center"
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            color: "var(--text-secondary)",
+            fontFamily: "var(--font-ui)",
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: "0.12em",
+            cursor: opening ? "not-allowed" : "pointer",
+            opacity: opening ? 0.5 : 1,
+            transition: "color 0.2s var(--ease-quartr)",
+            gap: 6,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
         >
-          <ExternalLink className="h-3 w-3" aria-hidden={true} />
+          <Play size={9} fill="currentColor" strokeWidth={0} aria-hidden={true} />
           VIEW AGENT
         </button>
+
         <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-medium",
-            categoryColor(category),
-          )}
+          className="inline-flex items-center"
+          style={{
+            gap: 5,
+            padding: "3px 9px",
+            borderRadius: "var(--radius-pill)",
+            background: "var(--surface-active)",
+            border: `1px solid ${catColor}`,
+            fontFamily: "var(--font-ui)",
+            fontSize: 10.5,
+            fontWeight: 500,
+            color: catColor,
+            whiteSpace: "nowrap",
+          }}
         >
-          {categoryLabel(category)}
+          <span
+            aria-hidden={true}
+            style={{
+              width: 5,
+              height: 5,
+              borderRadius: "50%",
+              background: catColor,
+            }}
+          />
+          {catLabel}
         </span>
       </div>
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Status pill
 // ---------------------------------------------------------------------------
 
 function StatusPill({ status }: { status: AgentStatus }): React.ReactElement {
-  if (status === "RUNNING") {
-    return (
-      <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden={true} />
-        Running
-      </span>
-    );
-  }
-  if (status === "BLOCKED") {
-    return (
-      <span className="flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-rose-700 dark:bg-rose-950/50 dark:text-rose-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden={true} />
-        Blocked
-      </span>
-    );
-  }
+  // Quartr's status indicator is a colored dot + uppercase label, no
+  // pill background — the color *is* the signal. Running gets the
+  // pulse-quartr animation defined in globals.css.
+  const color = statusHex(status);
+  const pulse = status === "RUNNING";
   return (
-    <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
-      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" aria-hidden={true} />
-      Idle
+    <span
+      className="inline-flex items-center"
+      style={{
+        gap: 5,
+        fontFamily: "var(--font-ui)",
+        fontSize: 10,
+        letterSpacing: "0.18em",
+        fontWeight: 600,
+        color,
+      }}
+    >
+      <span
+        aria-hidden={true}
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: color,
+          animation: pulse ? "pulse-quartr 1.6s ease-in-out infinite" : "none",
+        }}
+      />
+      {status}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// KV row
-// ---------------------------------------------------------------------------
-
-function KVRow({ label, value }: { label: string; value: string }): React.ReactElement {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="w-12 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      <span className="truncate text-[11px] text-foreground">{value}</span>
-    </div>
   );
 }
 

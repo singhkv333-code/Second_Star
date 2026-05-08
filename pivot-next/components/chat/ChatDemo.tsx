@@ -16,17 +16,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowUp,
   Bot,
-  Command,
+  Copy,
   Loader2,
-  Paperclip,
-  Send,
-  Sparkles,
+  RotateCw,
+  Square,
   Workflow as WorkflowIcon,
   LineChart,
   Zap,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -48,6 +47,10 @@ import {
   LogicCardChip,
   type LogicCard,
 } from "@/components/chat/LogicCardChip";
+import {
+  SyntheticSecurityCard,
+  type SyntheticSecurityPayload,
+} from "@/components/chat/SyntheticSecurityCard";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import type { Workflow } from "@/lib/types";
@@ -303,13 +306,7 @@ function extractTicker(text: string): string | null {
 
   const lower = noQ.toLowerCase();
   const phrasePatterns = [
-    // "tell me about X" is intentionally NOT in this list — it's a
-    // description-class request that the backend handles with prose
-    // + an optional snapshot. Routing it client-side to the bare
-    // snapshot card hid the model's description (system.md has a
-    // dedicated rule for this shape). Snapshot shortcuts here cover
-    // explicit snapshot/price/chart asks only.
-    /^(?:show|show me|what about|how(?:'s| is| about)|price of|quote for|snapshot of|chart for)\s+([a-z]{2,15})\b/,
+    /^(?:show|show me|what about|how(?:'s| is| about)|tell me (?:more )?about|price of|quote for|snapshot of|chart for)\s+([a-z]{2,15})\b/,
     /^([a-z]{2,15})\s+(?:snapshot|quote|price|chart)\s*\??\s*$/,
   ];
   for (const re of phrasePatterns) {
@@ -358,7 +355,12 @@ function getToken(): string | null {
 }
 
 const PLACEHOLDER_TEXT =
-  "Describe your strategy, e.g. \"Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.\"";
+  "Ask Pivot anything about your portfolio, markets, or strategies…";
+
+/** Maximum visual height of the chat textarea in pixels. Past this it
+ * gains a vertical scrollbar; under it the textarea autosizes silently
+ * (no scrollbar) — ChatGPT's pattern. */
+const MAX_TEXTAREA_PX = 200;
 
 const EXAMPLE_PROMPT =
   "Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.";
@@ -441,6 +443,129 @@ const TOOL_STATUS: Record<string, string> = {
  * derives from the most recent `tools` and `hasText` props. The user
  * asked for a clean way to track time themselves and see what stage
  * the LLM is at — this is that widget. */
+/**
+ * Witty finance-themed loading verbs. One word each — single-token
+ * present participles ("-ing" verbs) that read like an analyst
+ * working through a step. Cycles in randomized order so each
+ * session feels different. Add liberally.
+ */
+const WITTY_PHRASES: readonly string[] = [
+  "Triangulating",
+  "Stress-testing",
+  "Sniffing",
+  "Discounting",
+  "Rebalancing",
+  "Backsolving",
+  "Interrogating",
+  "Tagging",
+  "Hedging",
+  "Compounding",
+  "Sweeping",
+  "Repricing",
+  "Unwinding",
+  "Calibrating",
+  "Auditing",
+  "Debriefing",
+  "Scoring",
+  "Pricing",
+  "Cross-checking",
+  "Arbitraging",
+  "Anchoring",
+  "Smoothing",
+  "Profiling",
+  "Tracing",
+  "Spreading",
+  "Scaling",
+  "De-risking",
+  "Backtesting",
+  "Pulling",
+  "Skewing",
+  "Crunching",
+  "Reconciling",
+  "Front-running",
+  "Trimming",
+  "Forecasting",
+  "Indexing",
+  "Stitching",
+  "Quantifying",
+  "Diversifying",
+  "Marking",
+  "Modelling",
+  "Benchmarking",
+  "Annotating",
+  "Synthesising",
+  "Filtering",
+];
+
+/** Fisher-Yates shuffle. Used once per loader mount so two adjacent
+ *  cycles don't repeat in the same order. */
+function shufflePhrases(src: readonly string[]): string[] {
+  const a = src.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
+}
+
+/** Mini price-chart ticker — three bars rising/falling on
+ *  independent periods so the trio reads as a live equalizer
+ *  / volume strip rather than a wheel. Replaces the spinner. */
+function WittyTicker(): React.ReactElement {
+  return (
+    <span
+      className="inline-flex items-end"
+      style={{ gap: 2, height: 14 }}
+      aria-hidden={true}
+    >
+      <span className="witty-bar" />
+      <span className="witty-bar" />
+      <span className="witty-bar" />
+    </span>
+  );
+}
+
+/** Cycling phrase. Re-keys on every change so the CSS animation
+ *  re-plays for the fade+slide-in. Pause behavior: when `paused` is
+ *  true (e.g. text is now streaming), we freeze on the current phrase
+ *  and let the parent take over. Interval jitters between 2.0s and
+ *  3.0s so the cadence doesn't feel mechanical. */
+function WittyPhrase({ paused = false }: { paused?: boolean }): React.ReactElement {
+  const queue = useRef<string[]>(shufflePhrases(WITTY_PHRASES));
+  const [phrase, setPhrase] = useState<string>(() => queue.current[0] ?? "Thinking");
+
+  useEffect(() => {
+    if (paused) return;
+    let cursor = 1;
+    const tick = (): void => {
+      if (cursor >= queue.current.length) {
+        queue.current = shufflePhrases(WITTY_PHRASES);
+        cursor = 0;
+      }
+      setPhrase(queue.current[cursor]!);
+      cursor += 1;
+    };
+    // Random first-phrase dwell time so two parallel mounts don't
+    // breathe in lockstep. Subsequent dwells re-roll inside the
+    // setTimeout chain.
+    let timer: number = window.setTimeout(function loop() {
+      tick();
+      timer = window.setTimeout(loop, 2000 + Math.random() * 1000);
+    }, 2000 + Math.random() * 1000);
+    return () => window.clearTimeout(timer);
+  }, [paused]);
+
+  return (
+    <span
+      key={phrase}
+      className="witty-phrase"
+      style={{ display: "inline-block" }}
+    >
+      {phrase}…
+    </span>
+  );
+}
+
 function StreamingStatusBar({
   startedAt,
   tools,
@@ -457,30 +582,35 @@ function StreamingStatusBar({
   }, []);
   const elapsedSec = Math.max(0, Math.round((now - startedAt) / 1000));
 
-  // Pick the most informative status sentence:
-  //   1. If text deltas have started → "Writing reply"
-  //   2. Else if a tool is currently running → its friendly label
-  //   3. Else if every tool finished but no text yet → "Wrapping up"
-  //   4. Else (nothing has happened) → "Thinking"
-  let sentence = "Thinking";
+  // Decide what to show:
+  //   • Tool actively running          → use the tool's literal label
+  //     so the user knows what's running (not a witty phrase).
+  //   • Text is streaming              → "Writing reply"; phrases stop.
+  //   • Otherwise (thinking/wrap-up)   → cycle witty phrases.
+  const pending = tools.find((t) => t.ok === undefined);
+  let mode: "phrases" | "literal" = "phrases";
+  let literal = "";
   if (hasText) {
-    sentence = "Writing reply";
-  } else {
-    const pending = tools.find((t) => t.ok === undefined);
-    if (pending) {
-      sentence = TOOL_STATUS[pending.name] ?? `Running ${pending.name}`;
-    } else if (tools.length > 0) {
-      sentence = "Wrapping up";
-    }
+    mode = "literal";
+    literal = "Writing reply";
+  } else if (pending) {
+    mode = "literal";
+    literal = TOOL_STATUS[pending.name] ?? `Running ${pending.name}`;
   }
 
   return (
     <div
-      className="flex items-center gap-2 text-xs text-muted-foreground"
+      className="flex items-center gap-3 text-xs text-muted-foreground"
       data-testid="streaming-status"
     >
-      <Loader2 className="h-3 w-3 animate-spin" aria-hidden={true} />
-      <span>{sentence}…</span>
+      <WittyTicker />
+      {mode === "literal" ? (
+        <span key={literal} className="witty-phrase">
+          {literal}…
+        </span>
+      ) : (
+        <WittyPhrase />
+      )}
       <span aria-hidden={true} className="text-muted-foreground/60">·</span>
       <span className="tabular-nums" aria-label={`${elapsedSec} seconds elapsed`}>
         {elapsedSec}s
@@ -491,7 +621,7 @@ function StreamingStatusBar({
 
 
 type Message =
-  | { kind: "user"; text: string }
+  | { kind: "user"; text: string; timestamp?: string }
   | { kind: "assistant"; text: string }
   /** Transient streaming bubble — replaced by a final kind on `done`.
    * `startedAt` is the unix-ms timestamp when the bubble was created;
@@ -502,16 +632,31 @@ type Message =
   | { kind: "indicator_backtest"; payload: IndicatorBacktestPayload; intro: string }
   | { kind: "financial_backtest"; payload: FinancialBacktestPayload; intro: string }
   | { kind: "logic_card"; card: LogicCard; intro: string }
+  | { kind: "synthetic_security"; payload: SyntheticSecurityPayload; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
 type ChatDemoProps = {
   /** Called when user clicks "Open in editor →" on a draft card. */
   onOpenEditor: (workflow: Workflow) => void;
-  /** Optional prompt prefilled from dashboard chips. Auto-submits on mount. */
+  /** Optional prompt prefilled into the textarea. */
   prefill?: string;
+  /** When true, a non-empty `prefill` is sent through the chat
+   * pipeline immediately on arrival (used by dashboard quick-action
+   * chips). When false (the default), the prefill only populates the
+   * textarea so the user can edit before pressing Send. */
+  prefillAutoSubmit?: boolean;
   /** Called after the prefill has been consumed so parent can clear it. */
   onPrefillConsumed?: () => void;
+  /** Custom intro shown above the composer when no messages have been
+   * sent yet. Replaces the default "Describe your strategy" card. The
+   * dashboard passes its greeting + index strip + action chips here. */
+  intro?: React.ReactNode;
+  /** Notifies the parent whenever the conversation transitions between
+   * "empty" and "active" (≥1 message). The dashboard uses this signal
+   * to hide ancillary rails (e.g. Active Agents) once a chat has
+   * started so the chat column can fill the freed width. */
+  onActiveChange?: (active: boolean) => void;
 };
 
 /** Per-mount session id. Generated once on component mount; sent
@@ -534,7 +679,14 @@ function newSessionId(): string {
   return `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoProps): React.ReactElement {
+export function ChatDemo({
+  onOpenEditor,
+  prefill,
+  prefillAutoSubmit = false,
+  onPrefillConsumed,
+  intro,
+  onActiveChange,
+}: ChatDemoProps): React.ReactElement {
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -553,15 +705,27 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
   // in, the same auto-follow behaviour ChatGPT/Claude use.
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  /** Holds the in-flight AbortController so the composer's Stop button
+   *  can cancel the SSE stream mid-response. Cleared in submit()'s
+   *  finally block. */
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Consume prefill once when it arrives
+  // Consume prefill once when it arrives. With `prefillAutoSubmit`, the
+  // prefill is sent through the chat pipeline immediately (dashboard
+  // quick-action chips). Otherwise it just populates the textarea so
+  // the user can edit before pressing Send.
   useEffect(() => {
-    if (prefill) {
+    if (!prefill) return;
+    if (prefillAutoSubmit) {
+      onPrefillConsumed?.();
+      void submit(prefill);
+    } else {
       setIntent(prefill);
       onPrefillConsumed?.();
       textareaRef.current?.focus();
     }
-  }, [prefill, onPrefillConsumed]);
+
+  }, [prefill, prefillAutoSubmit, onPrefillConsumed]);
 
   // Track whether the user is at the bottom. If they scroll up to read
   // earlier output, we stop auto-scrolling so we don't yank them down.
@@ -575,6 +739,25 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Tell the parent when the conversation flips between empty and active.
+  useEffect(() => {
+    onActiveChange?.(messages.length > 0);
+  }, [messages.length, onActiveChange]);
+
+  // ChatGPT-style autosize: every keystroke resets the textarea's
+  // height to its scrollHeight so it grows with content and shrinks
+  // back when content is deleted. Capped at MAX_TEXTAREA_PX; only at
+  // the cap do we surface a scrollbar (until then `overflow-y: hidden`
+  // hides any residual scroll affordance).
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, MAX_TEXTAREA_PX);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_PX ? "auto" : "hidden";
+  }, [intent]);
 
   // Auto-scroll to the bottom whenever messages change (new message,
   // streaming delta) — but only if the user hasn't scrolled away.
@@ -630,6 +813,12 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
         card: data.logiccard,
         intro: data.response ?? "",
       };
+    } else if (hint === "synthetic_security_card" && rawData) {
+      finalMessage = {
+        kind: "synthetic_security",
+        payload: rawData as unknown as SyntheticSecurityPayload,
+        intro: data.response ?? "",
+      };
     } else if (hint === "indicator_backtest_chart" && rawData) {
       finalMessage = {
         kind: "indicator_backtest",
@@ -657,7 +846,10 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
-    setMessages((prev) => [...prev, { kind: "user", text: trimmed }]);
+    setMessages((prev) => [
+      ...prev,
+      { kind: "user", text: trimmed, timestamp: new Date().toISOString() },
+    ]);
     setIntent("");
 
     // Bare ticker shortcut — no API call. SKIP the shortcut when the
@@ -713,6 +905,7 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     let streamingIdx = -1;
 
     const abortCtrl = new AbortController();
+    abortRef.current = abortCtrl;
 
     try {
       const token = getToken();
@@ -843,7 +1036,26 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
     } finally {
       setLoading(false);
       abortCtrl.abort();
+      if (abortRef.current === abortCtrl) abortRef.current = null;
     }
+  };
+
+  /** Stop button handler: cancels the in-flight SSE stream mid-response.
+   *  The streaming bubble is replaced with whatever text has arrived so
+   *  far so the user keeps the partial answer. */
+  const stop = (): void => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    // Convert any "streaming" bubble into a final "assistant" so the
+    // partial markdown stays readable and the status bar disappears.
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.kind === "streaming"
+          ? { kind: "assistant", text: m.text || "_(stopped)_" }
+          : m,
+      ),
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -864,29 +1076,38 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
           stays pinned at the bottom (ChatGPT/Claude-style). */}
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto pt-6 pb-4"
+        className="quartr-no-scrollbar flex-1 min-h-0 overflow-y-auto pt-6 pb-4"
         data-testid="chat-scroll"
       >
-      {/* Intro (only shown before any messages) */}
+      {/* Intro (only shown before any messages). Callers can pass a
+          custom node — e.g. the dashboard's greeting + index strip +
+          quick-action chips — via the `intro` prop. The min-h-full +
+          centered flex makes the empty-state cluster sit visually
+          centered between the topbar and the docked composer instead
+          of clinging to the top of the scroll region. */}
       {messages.length === 0 && (
-        <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
-          <Bot
-            className="mx-auto mb-3 h-8 w-8 text-muted-foreground"
-            aria-hidden={true}
-          />
-          <p className="text-sm font-medium">Describe your strategy</p>
-          <p className="mx-auto mt-1.5 max-w-sm text-xs text-muted-foreground">
-            Type below and the AI will propose a structured workflow you can
-            review and activate.
-          </p>
-          <button
-            type="button"
-            className="mt-3 text-xs text-primary hover:underline"
-            onClick={handleExampleClick}
-            data-testid="example-prompt-btn"
-          >
-            Try: RELIANCE 3:55 PM buy example
-          </button>
+        <div className="flex min-h-full flex-col items-center justify-center">
+          {intro ?? (
+            <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
+              <Bot
+                className="mx-auto mb-3 h-8 w-8 text-muted-foreground"
+                aria-hidden={true}
+              />
+              <p className="text-sm font-medium">Describe your strategy</p>
+              <p className="mx-auto mt-1.5 max-w-sm text-xs text-muted-foreground">
+                Type below and the AI will propose a structured workflow you can
+                review and activate.
+              </p>
+              <button
+                type="button"
+                className="mt-3 text-xs text-primary hover:underline"
+                onClick={handleExampleClick}
+                data-testid="example-prompt-btn"
+              >
+                Try: RELIANCE 3:55 PM buy example
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -894,23 +1115,34 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
       {messages.length > 0 && (
         <div className="flex flex-col gap-6" data-testid="chat-messages">
           {messages.map((msg, idx) => {
+            // Retry on an assistant message re-submits the most recent
+            // user message above it. Walking backwards gives us the
+            // closest preceding user turn.
+            const priorUserMessage = ((): string | null => {
+              for (let i = idx - 1; i >= 0; i--) {
+                const m = messages[i];
+                if (m && m.kind === "user") return m.text;
+              }
+              return null;
+            })();
+            const onRetryAssistant = priorUserMessage
+              ? () => void submit(priorUserMessage)
+              : null;
+
             if (msg.kind === "user") {
               return (
-                <div key={idx} className="flex justify-end">
-                  <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-2.5 text-sm leading-6 text-primary-foreground">
-                    {msg.text}
-                  </div>
-                </div>
+                <UserBubble
+                  key={idx}
+                  text={msg.text}
+                  timestamp={msg.timestamp}
+                  onRetry={() => void submit(msg.text)}
+                />
               );
             }
             if (msg.kind === "streaming") {
               return (
                 <div key={idx} className="flex justify-start">
-                  <div className="flex w-full items-start gap-3">
-                    <Bot
-                      className="mt-1 h-5 w-5 shrink-0 text-muted-foreground"
-                      aria-hidden={true}
-                    />
+                  <div className="flex w-full items-start">
                     <div className="w-full max-w-3xl">
                       {/* Status row stays — shows what the model is
                           doing + elapsed counter — but flows above the
@@ -921,11 +1153,22 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                         hasText={msg.text.length > 0}
                       />
                       {msg.text ? (
+                        // While text is streaming we still want copy/retry
+                        // available the moment any text exists, so wrap
+                        // in AssistantBubble. The bubble's hover row is
+                        // gated on text.length > 0 so it won't render an
+                        // empty action strip during the first delta.
                         <div className="mt-2">
-                          <AssistantMessage text={msg.text} />
+                          <AssistantBubble
+                            text={msg.text}
+                            onRetry={onRetryAssistant}
+                          >
+                            <AssistantMessage text={msg.text} />
+                          </AssistantBubble>
                         </div>
                       ) : (
-                        /* No text yet — show skeleton while first delta arrives */
+                        /* No text yet — show shimmer placeholder while
+                           first delta arrives. */
                         <div className="mt-3 flex flex-col gap-1.5 py-0.5">
                           <Skeleton className="h-3 w-40" />
                           <Skeleton className="h-3 w-28" />
@@ -941,9 +1184,10 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex w-full items-start gap-3">
-                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <AssistantMessage text={msg.intro} />
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
                       </div>
                     </div>
                   )}
@@ -983,9 +1227,10 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
             if (msg.kind === "assistant") {
               return (
                 <div key={idx} className="flex justify-start">
-                  <div className="flex w-full items-start gap-3">
-                    <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
-                    <AssistantMessage text={msg.text} />
+                  <div className="flex w-full items-start">
+                    <AssistantBubble text={msg.text} onRetry={onRetryAssistant}>
+                      <AssistantMessage text={msg.text} />
+                    </AssistantBubble>
                   </div>
                 </div>
               );
@@ -995,9 +1240,10 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex w-full items-start gap-3">
-                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <AssistantMessage text={msg.intro} />
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
                       </div>
                     </div>
                   )}
@@ -1012,9 +1258,10 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex w-full items-start gap-3">
-                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <AssistantMessage text={msg.intro} />
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
                       </div>
                     </div>
                   )}
@@ -1031,9 +1278,10 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex w-full items-start gap-3">
-                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <AssistantMessage text={msg.intro} />
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
                       </div>
                     </div>
                   )}
@@ -1048,14 +1296,33 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
                     <div className="flex justify-start">
-                      <div className="flex w-full items-start gap-3">
-                        <Bot className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden={true} />
-                        <AssistantMessage text={msg.intro} />
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
                       </div>
                     </div>
                   )}
                   <div className="flex justify-start">
                     <LogicCardChip card={msg.card} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "synthetic_security") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <SyntheticSecurityCard payload={msg.payload} />
                   </div>
                 </div>
               );
@@ -1074,8 +1341,11 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
             );
           })}
 
-          {/* Loading indicator shown only when loading=true but no streaming bubble
-              exists yet (race guard for the one-tick gap before streamingIdx is set). */}
+          {/* Pre-stream loading bubble — shown only when loading=true but no
+              streaming bubble exists yet (race guard for the one-tick gap
+              before streamingIdx is set). Uses the witty phrase rotator
+              instead of skeleton bars so the wait reads as "the analyst is
+              working" rather than "frame is loading." */}
           {loading && !messages.some((m) => m.kind === "streaming") && (
             <div
               className="flex justify-start"
@@ -1083,12 +1353,38 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
               aria-live="polite"
               aria-label="Generating response"
             >
-              <div className="flex items-center gap-2 rounded-xl border bg-card px-4 py-3">
-                <Bot className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden={true} />
-                <div className="flex flex-col gap-1.5">
-                  <Skeleton className="h-3 w-48" />
-                  <Skeleton className="h-3 w-32" />
-                </div>
+              <div
+                className="inline-flex items-center"
+                style={{
+                  gap: 12,
+                  padding: "10px 14px",
+                  borderRadius: "var(--radius-md)",
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--glass-border)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 13,
+                  color: "var(--text-secondary)",
+                  position: "relative",
+                  overflow: "hidden",
+                }}
+              >
+                <WittyTicker />
+                <WittyPhrase />
+                {/* Subtle shimmer across the bubble's bottom edge so
+                    something is always animating even when the phrase
+                    is between cycles. */}
+                <span
+                  aria-hidden={true}
+                  className="witty-shimmer"
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 2,
+                    pointerEvents: "none",
+                  }}
+                />
               </div>
             </div>
           )}
@@ -1105,6 +1401,7 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
           onChange={setIntent}
           onKeyDown={handleKeyDown}
           onSubmit={() => void submit(intent)}
+          onStop={stop}
           loading={loading}
           mode={mode}
           onModeChange={setMode}
@@ -1124,9 +1421,7 @@ export function ChatDemo({ onOpenEditor, prefill, onPrefillConsumed }: ChatDemoP
 type ModeMeta = {
   id: Exclude<ChatMode, null>;
   label: string;
-  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-  /** Accent ring/glow when active. */
-  accent: string;
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
   /** Hint shown on hover. */
   description: string;
 };
@@ -1136,27 +1431,264 @@ const MODES: ModeMeta[] = [
     id: "automation",
     label: "Automation",
     icon: Zap,
-    accent:
-      "ring-amber-400/60 bg-amber-400/10 text-amber-200 [--accent:251,191,36]",
     description: "Single deterministic action — buy, sell, GTT, SIP, square-off",
   },
   {
     id: "agent",
     label: "Agent",
     icon: WorkflowIcon,
-    accent:
-      "ring-violet-400/60 bg-violet-400/10 text-violet-200 [--accent:167,139,250]",
     description: "Multi-step workflow with triggers, fetches, conditions",
   },
   {
     id: "backtest",
     label: "Backtest",
     icon: LineChart,
-    accent:
-      "ring-emerald-400/60 bg-emerald-400/10 text-emerald-200 [--accent:52,211,153]",
     description: "Historical simulation on a strategy or expression",
   },
 ];
+
+// ---------------------------------------------------------------------------
+// UserBubble — Quartr-style user message with asymmetric radius and a
+// hover-only action row beneath (date · retry · copy). The retry handler
+// re-runs `submit(text)` with the original message; copy writes to the
+// system clipboard via navigator.clipboard.
+// ---------------------------------------------------------------------------
+
+function fmtBubbleDate(iso?: string): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function UserBubble({
+  text,
+  timestamp,
+  onRetry,
+}: {
+  text: string;
+  timestamp?: string;
+  onRetry: () => void;
+}): React.ReactElement {
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (): Promise<void> => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex flex-col items-end"
+      style={{ marginBottom: 4 }}
+    >
+      <div
+        className="whitespace-pre-wrap"
+        style={{
+          maxWidth: "78%",
+          padding: "12px 18px",
+          borderRadius: "16px 16px 2px 16px",
+          background: "var(--bg-elevated)",
+          border: "none",
+          fontSize: 14.5,
+          color: "var(--text-primary)",
+          lineHeight: 1.5,
+          fontFamily: "var(--font-ui)",
+          wordBreak: "break-word",
+        }}
+      >
+        {text}
+      </div>
+
+      {/* Hover-only action row */}
+      <div
+        className="flex items-center"
+        style={{
+          marginTop: 6,
+          gap: 6,
+          color: "var(--text-tertiary)",
+          opacity: hovered ? 1 : 0,
+          transition: "opacity 0.18s var(--ease-quartr)",
+          pointerEvents: hovered ? "auto" : "none",
+        }}
+      >
+        {timestamp && (
+          <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+            {fmtBubbleDate(timestamp)}
+          </span>
+        )}
+        <ActionIconButton label="Retry" onClick={onRetry}>
+          <RotateCw size={14} strokeWidth={2} aria-hidden={true} />
+        </ActionIconButton>
+        <ActionIconButton
+          label={copied ? "Copied" : "Copy"}
+          onClick={() => void handleCopy()}
+        >
+          <Copy size={14} strokeWidth={2} aria-hidden={true} />
+        </ActionIconButton>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Copy `text` to the user's system clipboard. Tries the modern
+ * Clipboard API first; on failure (insecure context, headless
+ * browser, missing permission, etc.) falls back to a hidden
+ * <textarea> + document.execCommand("copy"). Returns true when
+ * the write succeeded, false otherwise.
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      /* fall through to execCommand path */
+    }
+  }
+  if (typeof document === "undefined") return false;
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.left = "0";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * AssistantBubble — wrapper around an assistant message body that
+ * shows a hover-only action row (Copy · Retry) beneath. Mirrors the
+ * UserBubble pattern but lives on the left side of the thread.
+ *
+ * `text` is the plain string the Copy button writes to clipboard.
+ * `onRetry` re-runs the most recent user message that triggered
+ * this response — wired by the parent so the bubble itself doesn't
+ * need to know about the message history.
+ */
+function AssistantBubble({
+  text,
+  onRetry,
+  children,
+}: {
+  text: string;
+  onRetry: (() => void) | null;
+  children: React.ReactNode;
+}): React.ReactElement {
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (): Promise<void> => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex flex-col items-start"
+      style={{ width: "100%" }}
+    >
+      {children}
+      {/* Hover-only action row — only rendered when there's something
+          worth copying. Streaming-in-progress bubbles pass empty text
+          and skip the row entirely. */}
+      {text.length > 0 && (
+        <div
+          className="flex items-center"
+          style={{
+            marginTop: 6,
+            gap: 6,
+            color: "var(--text-tertiary)",
+            opacity: hovered ? 1 : 0,
+            transition: "opacity 0.18s var(--ease-quartr)",
+            pointerEvents: hovered ? "auto" : "none",
+          }}
+        >
+          <ActionIconButton
+            label={copied ? "Copied" : "Copy"}
+            onClick={() => void handleCopy()}
+          >
+            <Copy size={14} strokeWidth={2} aria-hidden={true} />
+          </ActionIconButton>
+          {onRetry && (
+            <ActionIconButton label="Retry" onClick={onRetry}>
+              <RotateCw size={14} strokeWidth={2} aria-hidden={true} />
+            </ActionIconButton>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionIconButton({
+  children,
+  label,
+  onClick,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className="inline-flex items-center justify-center"
+      style={{
+        width: 28,
+        height: 28,
+        background: "transparent",
+        border: "none",
+        borderRadius: "var(--radius-sm)",
+        color: "var(--text-tertiary)",
+        cursor: "pointer",
+        transition:
+          "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = "var(--text-primary)";
+        e.currentTarget.style.background = "var(--bg-elevated)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = "var(--text-tertiary)";
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 function ChatComposer({
   textareaRef,
@@ -1164,6 +1696,7 @@ function ChatComposer({
   onChange,
   onKeyDown,
   onSubmit,
+  onStop,
   loading,
   mode,
   onModeChange,
@@ -1173,125 +1706,119 @@ function ChatComposer({
   onChange: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onSubmit: () => void;
+  /** Cancel the in-flight SSE stream. Wired only when `loading` flips
+   *  the right-side button into its Stop state. */
+  onStop: () => void;
   loading: boolean;
   mode: ChatMode;
   onModeChange: (m: ChatMode) => void;
 }): React.ReactElement {
-  const activeMeta = mode ? MODES.find((m) => m.id === mode) : null;
+  // The right-side button is in one of three states:
+  //   • idle     — empty input, button is dim, disabled
+  //   • ready    — input has text, button is ink-fill, sends on click
+  //   • loading  — response in flight, button shows Square (stop)
+  const canSend = !!value.trim() && !loading;
+  const showStop = loading;
+  const [focused, setFocused] = useState(false);
 
   return (
     <div className="space-y-3" data-testid="chat-composer">
-      {/* Glassmorphism pill — the composer body. The double-border
-          + backdrop-blur + soft outer glow gives the liquid-glass feel
-          without depending on backdrop-filter being supported. */}
+      {/* Quartr-style composer pill — single rounded shell, leading
+          textarea + trailing controls cluster (paperclip · Cmd+Enter
+          hint · circular send). Mirrors frontend-quartr's ChatLanding
+          composer with theme-aware tokens. */}
       <div
-        className={cn(
-          "relative rounded-2xl border border-border/60",
-          "bg-card/60 backdrop-blur-xl",
-          "supports-[backdrop-filter]:bg-card/40",
-          "shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_32px_-8px_rgba(0,0,0,0.45)]",
-          "transition-all duration-200",
-          activeMeta &&
-            "ring-1 ring-[rgb(var(--accent)/0.45)] " +
-              "shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_32px_-4px_rgba(var(--accent),0.25)]",
-        )}
-        style={
-          activeMeta
-            ? ({
-                ["--accent" as string]: activeMeta.accent
-                  .match(/--accent:([^\]]+)/)?.[1]
-                  ?.trim(),
-              } as React.CSSProperties)
-            : undefined
-        }
+        className="flex items-center"
+        style={{
+          gap: 10,
+          background: "var(--bg-primary)",
+          // Quartr composer is a true pill with padding 4/4/4/20.
+          borderRadius: "var(--radius-pill)",
+          border: `1px solid ${focused ? "var(--glass-border-focus)" : "var(--glass-border)"}`,
+          padding: "4px 4px 4px 20px",
+          transition: "border-color 0.2s var(--ease-quartr)",
+        }}
       >
-        {/* Top sheen — subtle gradient that catches the "glass" reading
-            without becoming AI slop. Visible only in dark mode where
-            the contrast is strongest. */}
-        <div
-          aria-hidden={true}
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"
-        />
+
         <Textarea
           ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           placeholder={
             mode === "automation"
               ? "What order should I place? — e.g. 'buy 10 RELIANCE at market'"
               : mode === "agent"
-                ? "Describe an automated agent — e.g. 'every weekday 15:25, if cash > ₹50k, buy 5 NIFTYBEES'"
+                ? "Describe an automation — e.g. 'every weekday 15:25 buy 5 NIFTYBEES'"
                 : mode === "backtest"
-                  ? "Describe a strategy to backtest — e.g. 'RELIANCE when RSI drops below 30 over 5 years'"
+                  ? "Describe a strategy to backtest — e.g. 'RELIANCE when RSI < 30'"
                   : PLACEHOLDER_TEXT
           }
+          rows={1}
           className={cn(
-            "min-h-[88px] resize-none border-0 bg-transparent text-sm",
-            "rounded-2xl rounded-b-none",
-            "px-4 pt-4 pb-2",
-            "placeholder:text-muted-foreground/70",
+            "flex-1 resize-none border-0 bg-transparent shadow-none",
+            "!min-h-[44px]",
             "focus-visible:ring-0 focus-visible:ring-offset-0",
+            "px-2 py-3",
           )}
-          disabled={loading}
+          style={{
+            background: "transparent",
+            color: "var(--text-primary)",
+            fontFamily: "var(--font-ui)",
+            fontSize: 14,
+            lineHeight: "20px",
+            overflowY: "hidden",
+            maxHeight: MAX_TEXTAREA_PX,
+          }}
+          // Stay typable even while a response is streaming — the user
+          // should be able to compose their next message in parallel.
           data-testid="chat-textarea"
           aria-label="Describe your strategy"
         />
-        {/* Hairline divider — pure light/dark border */}
-        <div className="h-px bg-border/50" aria-hidden={true} />
-        {/* Footer row: attachment + cmd hint left, Send right */}
-        <div className="flex items-center justify-between gap-2 px-3 py-2">
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-lg",
-                "border border-border/50 bg-background/40 text-muted-foreground",
-                "hover:bg-background/70 hover:text-foreground transition-colors",
-              )}
-              aria-label="Attach"
-              tabIndex={-1}
-            >
-              <Paperclip className="h-3.5 w-3.5" aria-hidden={true} />
-            </button>
-            <span
-              className={cn(
-                "flex h-8 items-center gap-1 rounded-lg px-2",
-                "border border-border/50 bg-background/40 text-[11px]",
-                "text-muted-foreground tabular-nums",
-              )}
-              aria-label="Keyboard shortcut: Cmd+Enter"
-            >
-              <Command className="h-3 w-3" aria-hidden={true} />
-              <span className="hidden sm:inline">Enter</span>
-            </span>
-          </div>
-          <Button
-            size="sm"
-            onClick={onSubmit}
-            disabled={!value.trim() || loading}
-            data-testid="chat-submit-btn"
-            aria-label="Send"
-            className={cn(
-              "h-8 rounded-lg px-3 gap-1.5",
-              activeMeta &&
-                "bg-[rgb(var(--accent))] text-background hover:bg-[rgb(var(--accent)/0.9)]",
-            )}
-          >
-            {loading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />
-            ) : (
-              <Send className="h-3.5 w-3.5" aria-hidden={true} />
-            )}
-            <span>Send</span>
-          </Button>
-        </div>
+
+        {/* Trailing — circular Send button (idle/ready) OR Stop button
+            (while a response is streaming). Same geometry, different
+            icon/handler. ChatGPT pattern: a Square stops the stream and
+            keeps the partial answer. */}
+        <button
+          type="button"
+          onClick={showStop ? onStop : onSubmit}
+          disabled={!showStop && !canSend}
+          data-testid={showStop ? "chat-stop-btn" : "chat-submit-btn"}
+          aria-label={showStop ? "Stop response" : "Send"}
+          className="flex shrink-0 items-center justify-center"
+          style={{
+            width: 40,
+            height: 40,
+            background: showStop || canSend ? "var(--text-primary)" : "var(--bg-elevated)",
+            color: showStop || canSend ? "var(--bg-primary)" : "var(--text-disabled)",
+            border: "none",
+            borderRadius: "var(--radius-pill)",
+            cursor: showStop || canSend ? "pointer" : "not-allowed",
+            transition:
+              "color 0.18s var(--ease-quartr), background-color 0.2s var(--ease-quartr), transform 0.18s var(--ease-quartr)",
+          }}
+        >
+          {showStop ? (
+            // 12×12 filled square — the ChatGPT stop glyph.
+            <Square
+              size={14}
+              strokeWidth={0}
+              fill="currentColor"
+              aria-hidden={true}
+              style={{ borderRadius: 2 }}
+            />
+          ) : (
+            <ArrowUp size={18} strokeWidth={2} aria-hidden={true} />
+          )}
+        </button>
       </div>
 
-      {/* Mode pills — Automation / Agent / Backtest. Click toggles
-          the mode (click again to deselect → auto). The active pill
-          gets a colored ring + light fill, matching its accent. */}
-      <div className="flex items-center justify-center gap-2">
+      {/* Mode pills — Automation / Agent / Backtest (extras kept). Quartr-styled
+          so they read as a quiet row rather than glassy chips. */}
+      <div className="flex items-center justify-center" style={{ gap: 8 }}>
         {MODES.map((m) => {
           const Icon = m.icon;
           const isActive = mode === m.id;
@@ -1304,31 +1831,34 @@ function ChatComposer({
               data-active={isActive}
               aria-pressed={isActive}
               title={m.description}
-              className={cn(
-                "group relative inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
-                "text-[11px] font-medium transition-all duration-200",
-                "border bg-card/50 backdrop-blur-md",
-                "supports-[backdrop-filter]:bg-card/30",
-                isActive
-                  ? cn(
-                      "ring-1",
-                      m.accent,
-                      "border-transparent text-foreground",
-                    )
-                  : cn(
-                      "border-border/60 text-muted-foreground",
-                      "hover:text-foreground hover:border-border",
-                    ),
-              )}
+              className="inline-flex items-center"
+              style={{
+                // Borderless mode pills — same active treatment as the
+                // sidebar nav: subtle elevated bg + ink text. No border.
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: "var(--radius-pill)",
+                background: isActive ? "var(--surface-active)" : "transparent",
+                border: "none",
+                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 11.5,
+                fontWeight: 500,
+                cursor: "pointer",
+                transition:
+                  "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
+              }}
+              onMouseEnter={(e) => {
+                if (isActive) return;
+                e.currentTarget.style.color = "var(--text-primary)";
+              }}
+              onMouseLeave={(e) => {
+                if (isActive) return;
+                e.currentTarget.style.color = "var(--text-secondary)";
+              }}
             >
-              <Icon className="h-3 w-3" aria-hidden={true} />
+              <Icon size={12} strokeWidth={2} aria-hidden={true} />
               <span>{m.label}</span>
-              {isActive && (
-                <Sparkles
-                  className="h-2.5 w-2.5 opacity-70"
-                  aria-hidden={true}
-                />
-              )}
             </button>
           );
         })}

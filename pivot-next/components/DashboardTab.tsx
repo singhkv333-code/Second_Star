@@ -1,30 +1,35 @@
 "use client";
 
 /**
- * DashboardTab — Quartr-style premium home dashboard.
+ * DashboardTab — Quartr-design chat surface.
  *
- * Center pane: 4 index cards (NIFTY 50 / SENSEX / BANK NIFTY / NIFTY MIDCAP 100),
- * greeting, action chips, and a big chat input.
+ * Until the user sends their first message we render a Quartr-style
+ * landing: 4 index cards on a strip, a large serif greeting, and a row
+ * of pill-shaped quick-action chips. Once a message lands `ChatDemo`
+ * hides the intro and the transcript fills the pane with the composer
+ * pinned at the bottom.
+ *
+ * Visual port from frontend-quartr/src/components/chat/ChatLanding.jsx
+ * with the dark-only Quartr palette converted to a light/dark theme that
+ * follows the global theme toggle. Visual/CSS only — no JS interactions
+ * change.
  *
  * Data sources:
  *   - GET /api/markets/indices  — index strip
- *   - GET /auth/me              — greeting name
+ *   - GET /auth/me              — greeting initial
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  ArrowRight,
-  BarChart2,
-  BookOpen,
+  Activity,
+  ArrowUpRight,
   CalendarDays,
-  Heart,
+  FileText,
   Newspaper,
-  Rocket,
   TrendingUp,
+  Workflow,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import {
   getMarketIndices,
   getMe,
@@ -32,22 +37,27 @@ import {
   type UserProfile,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { ChatDemo } from "@/components/chat/ChatDemo";
+import type { Workflow as WorkflowT } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type DashboardTabProps = {
-  /** Called when user submits the chat input — parent routes to chat tab. */
-  onSubmitPrompt: (prompt: string) => void;
-  /** Called when user clicks Calendar chip — parent switches to calendar tab. */
+  /** Open the workflow editor panel (forwarded to ChatDemo). */
+  onOpenWorkflow: (workflow: WorkflowT) => void;
+  /** Called when user clicks the Agents Calendar chip — parent switches tab. */
   onOpenCalendar: () => void;
+  /** Forwarded from ChatDemo: true once the user has sent ≥1 message.
+   * AppShell uses this to hide the Active Agents rail. */
+  onChatActiveChange?: (active: boolean) => void;
 };
 
 type IndicesState =
   | { kind: "loading" }
   | { kind: "ok"; items: IndexQuote[] }
-  | { kind: "hidden" }; // 503 — hide silently
+  | { kind: "hidden" };
 
 type MeState =
   | { kind: "loading" }
@@ -55,36 +65,42 @@ type MeState =
   | { kind: "fallback"; name: string };
 
 // ---------------------------------------------------------------------------
-// Action chips
+// Action chips — labels mirrored from frontend-quartr/.../ChatLanding.jsx
+// (icons aligned 1:1 with that file).
 // ---------------------------------------------------------------------------
 
 type ChipDef = {
   label: string;
-  Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties; "aria-hidden"?: boolean }>;
   prompt?: string;
   action?: "calendar";
 };
 
 const ACTION_CHIPS: ChipDef[] = [
-  { label: "Generate Report", Icon: BookOpen, prompt: "Generate a portfolio performance report for this week." },
-  { label: "Run Agent", Icon: Rocket, prompt: "Show me my active agents and their last run status." },
-  { label: "Portfolio Health", Icon: Heart, prompt: "Analyze my portfolio health and suggest any rebalancing." },
-  { label: "Market Pulse", Icon: TrendingUp, prompt: "Give me a market pulse summary for today." },
-  { label: "Top Movers", Icon: BarChart2, prompt: "What are the top movers in NIFTY 50 today?" },
-  { label: "Earnings Calendar", Icon: CalendarDays, action: "calendar" },
-  { label: "News Digest", Icon: Newspaper, prompt: "Summarize today's top financial news." },
+  { label: "Generate Report",   Icon: FileText,     prompt: "Generate a portfolio performance report for this week." },
+  { label: "Run Agent",         Icon: Workflow,     prompt: "Show me my active agents and their last run status." },
+  { label: "Portfolio Health",  Icon: Activity,     prompt: "Analyze my portfolio health and suggest any rebalancing." },
+  { label: "Market Pulse",      Icon: TrendingUp,   prompt: "Give me a market pulse summary for today." },
+  { label: "Top Movers",        Icon: ArrowUpRight, prompt: "What are the top movers in NIFTY 50 today?" },
+  { label: "Agents Calendar", Icon: CalendarDays, action: "calendar" },
+  { label: "News Digest",       Icon: Newspaper,    prompt: "Summarize today's top financial news." },
 ];
 
 // ---------------------------------------------------------------------------
-// INR formatter
+// Helpers
 // ---------------------------------------------------------------------------
 
-function fmtValue(n: number): string {
-  // For index values, skip currency symbol and use plain number formatting
+function fmtIndexValue(n: number): string {
   return new Intl.NumberFormat("en-IN", {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
   }).format(n);
+}
+
+function fmtChange(change: number, pct: number): string {
+  const sign = change >= 0 ? "+" : "−";
+  const abs = Math.abs(change).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  return `${sign}${abs} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)`;
 }
 
 function getHourGreeting(): string {
@@ -94,24 +110,40 @@ function getHourGreeting(): string {
   return "Good Evening";
 }
 
+/** Pick the friendliest display name we can: prefer the user's first
+ *  name (full_name split on whitespace), fall back to the email prefix
+ *  before the @ sign, then to "there". Mirrors the greeting's
+ *  conversational tone. */
+function getDisplayName(name: string | null | undefined, email: string | null | undefined): string {
+  const trimmed = (name || "").trim();
+  if (trimmed) return trimmed.split(/\s+/)[0]!;
+  const e = (email || "").trim();
+  if (e) {
+    const local = e.split("@")[0]!;
+    // De-clutter auto-registered demo accounts like "demo_motpgygl_..."
+    if (/^demo[_\d]/i.test(local)) return "there";
+    return local;
+  }
+  return "there";
+}
+
 // ---------------------------------------------------------------------------
 // DashboardTab
 // ---------------------------------------------------------------------------
 
 export function DashboardTab({
-  onSubmitPrompt,
+  onOpenWorkflow,
   onOpenCalendar,
+  onChatActiveChange,
 }: DashboardTabProps): React.ReactElement {
   const [indices, setIndices] = useState<IndicesState>({ kind: "loading" });
   const [me, setMe] = useState<MeState>({ kind: "loading" });
-  const [prompt, setPrompt] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     getMarketIndices()
       .then((result) => {
         if (isError(result)) {
-          // Any error — hide strip, don't block dashboard
           setIndices({ kind: "hidden" });
           return;
         }
@@ -125,12 +157,7 @@ export function DashboardTab({
           setMe({ kind: "fallback", name: "Trader" });
           return;
         }
-        const p = result.data;
-        const displayName =
-          p.full_name && p.full_name.trim().length > 0
-            ? p.full_name.split(" ")[0]
-            : p.email.split("@")[0];
-        setMe({ kind: "ok", profile: { ...p, full_name: displayName ?? null } });
+        setMe({ kind: "ok", profile: result.data });
       })
       .catch(() => setMe({ kind: "fallback", name: "Trader" }));
   }, []);
@@ -138,7 +165,7 @@ export function DashboardTab({
   const greeting = getHourGreeting();
   const displayName =
     me.kind === "ok"
-      ? (me.profile.full_name ?? "Trader")
+      ? getDisplayName(me.profile.full_name, me.profile.email)
       : me.kind === "fallback"
         ? me.name
         : null;
@@ -148,116 +175,121 @@ export function DashboardTab({
       onOpenCalendar();
       return;
     }
-    if (chip.prompt) {
-      onSubmitPrompt(chip.prompt);
-    }
+    if (chip.prompt) setPendingPrompt(chip.prompt);
   };
 
-  const handleSubmit = (): void => {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
-    onSubmitPrompt(trimmed);
-    setPrompt("");
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-8" data-testid="dashboard-tab">
-      {/* Index strip */}
-      <IndexStrip state={indices} />
-
-      {/* Greeting */}
-      <div>
-        {displayName ? (
-          <h1
-            className="font-serif text-3xl font-semibold tracking-tight text-foreground"
-            data-testid="dashboard-greeting"
-          >
-            {greeting}, {displayName}!
-          </h1>
-        ) : (
-          <Skeleton className="h-9 w-64" data-testid="greeting-loading" />
-        )}
-        <p className="mt-1 text-sm text-muted-foreground">
-          {new Date().toLocaleDateString("en-IN", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </p>
+  // ── Quartr-style empty-state intro: index strip on top, greeting +
+  //    quick-action chips centered. The dashboard intro replaces
+  //    ChatDemo's default tip card via the `intro` prop.
+  //    Index strip docks to the top via absolute positioning so the
+  //    greeting/chips can vertically centre in the remaining space.
+  const intro = (
+    <div
+      className="relative flex w-full flex-col items-center"
+      style={{ gap: 28 }}
+      data-testid="dashboard-intro"
+    >
+      {/* Index strip — pinned to the top of the chat area */}
+      <div className="w-full" style={{ marginBottom: 8 }}>
+        <IndexStrip state={indices} />
       </div>
 
-      {/* Action chips */}
+      {/* Greeting — Fraunces, 36–46px, weight 550, tight tracking */}
+      {displayName !== null ? (
+        <h1 className="q-greeting" data-testid="dashboard-greeting">
+          {greeting}, {displayName}!
+        </h1>
+      ) : (
+        <Skeleton style={{ height: 46, width: 360 }} data-testid="greeting-loading" />
+      )}
+
+      {/* Quick action pills */}
       <div
-        className="flex flex-wrap gap-2"
+        className="flex w-full flex-wrap items-center justify-center"
+        style={{ gap: 8, maxWidth: 820 }}
         role="group"
         aria-label="Quick actions"
       >
         {ACTION_CHIPS.map((chip) => (
-          <button
-            key={chip.label}
-            type="button"
-            onClick={() => handleChipClick(chip)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-full border bg-card px-3.5 py-1.5",
-              "text-xs font-medium text-foreground",
-              "hover:bg-muted/60 hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "transition-colors",
-            )}
-          >
-            <chip.Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden={true} />
-            {chip.label}
-          </button>
+          <ActionChip key={chip.label} chip={chip} onClick={() => handleChipClick(chip)} />
         ))}
       </div>
+    </div>
+  );
 
-      {/* Big chat input */}
-      <div className="rounded-2xl border bg-card shadow-sm">
-        <textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask Pivot anything about your portfolio, markets, or strategies…"
-          rows={3}
-          aria-label="Chat input"
-          data-testid="dashboard-chat-input"
-          className={cn(
-            "w-full resize-none rounded-t-2xl bg-transparent px-5 pt-4 pb-2",
-            "text-sm placeholder:text-muted-foreground/60",
-            "focus:outline-none",
-          )}
-        />
-        <div className="flex items-center justify-between border-t px-4 py-2.5">
-          <span className="text-[11px] text-muted-foreground">
-            Cmd+Enter to send
-          </span>
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!prompt.trim()}
-            className="h-7 gap-1.5 rounded-full px-3 text-xs"
-            aria-label="Send message"
-            data-testid="dashboard-chat-submit"
-          >
-            Send
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden={true} />
-          </Button>
-        </div>
-      </div>
+  return (
+    <div
+      className="flex h-full min-h-0 w-full flex-col"
+      data-testid="dashboard-tab"
+      style={{ background: "var(--bg-base)" }}
+    >
+      <ChatDemo
+        onOpenEditor={onOpenWorkflow}
+        intro={intro}
+        prefill={pendingPrompt}
+        prefillAutoSubmit
+        onPrefillConsumed={() => setPendingPrompt(undefined)}
+        onActiveChange={onChatActiveChange}
+      />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Index strip
+// ActionChip — Quartr pill with leading icon, hover lifts surface
+// ---------------------------------------------------------------------------
+
+function ActionChip({
+  chip,
+  onClick,
+}: {
+  chip: ChipDef;
+  onClick: () => void;
+}): React.ReactElement {
+  const { Icon, label } = chip;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center"
+      style={{
+        gap: 8,
+        padding: "9px 14px",
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-pill)",
+        color: "var(--text-secondary)",
+        fontFamily: "var(--font-ui)",
+        fontSize: 13,
+        fontWeight: "var(--weight-medium)" as unknown as number,
+        cursor: "pointer",
+        transition:
+          "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr), border-color 0.35s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = "var(--text-primary)";
+        e.currentTarget.style.borderColor = "var(--glass-border-hover)";
+        e.currentTarget.style.background = "var(--bg-elevated)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = "var(--text-secondary)";
+        e.currentTarget.style.borderColor = "var(--glass-border)";
+        e.currentTarget.style.background = "var(--bg-base)";
+      }}
+    >
+      <Icon
+        size={14}
+        strokeWidth={1.75}
+        style={{ color: "var(--text-tertiary)" }}
+        aria-hidden={true}
+      />
+      {label}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Index strip — Quartr cards
 // ---------------------------------------------------------------------------
 
 function IndexStrip({ state }: { state: IndicesState }): React.ReactElement | null {
@@ -266,12 +298,16 @@ function IndexStrip({ state }: { state: IndicesState }): React.ReactElement | nu
   if (state.kind === "loading") {
     return (
       <div
-        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+        className="grid"
+        style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}
         data-testid="index-strip-loading"
         aria-label="Loading market indices"
       >
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 rounded-xl" />
+          <Skeleton
+            key={i}
+            style={{ height: 96, borderRadius: "var(--radius-md)" }}
+          />
         ))}
       </div>
     );
@@ -279,7 +315,8 @@ function IndexStrip({ state }: { state: IndicesState }): React.ReactElement | nu
 
   return (
     <div
-      className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+      className="grid"
+      style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}
       data-testid="index-strip"
       role="list"
       aria-label="Market indices"
@@ -295,39 +332,49 @@ function IndexCard({ quote }: { quote: IndexQuote }): React.ReactElement {
   const positive = quote.change >= 0;
   return (
     <div
-      className="flex flex-col gap-1 rounded-xl border bg-card px-4 py-3"
       role="listitem"
-      aria-label={`${quote.name}: ${fmtValue(quote.value)}`}
+      aria-label={`${quote.name}: ${fmtIndexValue(quote.value)}`}
+      className="flex flex-col"
+      style={{
+        gap: 8,
+        padding: "14px 16px",
+        background: "var(--bg-primary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-md)",
+        transition: "border-color 0.35s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--glass-border-hover)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--glass-border)"; }}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div
+        className="q-uppercase-label truncate"
+        style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+      >
         {quote.name}
-      </span>
-      <span className="font-serif text-xl font-semibold tabular-nums text-foreground">
-        {fmtValue(quote.value)}
-      </span>
-      <div className="flex items-center gap-1.5">
-        <span
-          className={cn(
-            "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
-            positive
-              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400"
-              : "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400",
-          )}
-        >
-          {positive ? "+" : ""}
-          {quote.change_pct.toFixed(2)}%
-        </span>
-        <span
-          className={cn(
-            "text-[10px] tabular-nums",
-            positive
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-rose-600 dark:text-rose-400",
-          )}
-        >
-          {positive ? "+" : ""}
-          {fmtValue(quote.change)}
-        </span>
+      </div>
+      <div
+        className="q-display tabular-nums"
+        style={{ fontSize: 18, lineHeight: 1.1, color: "var(--text-primary)" }}
+      >
+        {fmtIndexValue(quote.value)}
+      </div>
+      <div
+        className="self-start q-mono"
+        style={{
+          padding: "3px 8px",
+          borderRadius: "var(--radius-xs)",
+          fontSize: 11.5,
+          fontWeight: "var(--weight-medium)" as unknown as number,
+          background: positive
+            ? "rgba(16, 185, 129, 0.12)"
+            : "rgba(239, 68, 68, 0.12)",
+          color: positive ? "var(--color-profit)" : "var(--color-loss)",
+          border: positive
+            ? "1px solid rgba(16, 185, 129, 0.25)"
+            : "1px solid rgba(239, 68, 68, 0.25)",
+        }}
+      >
+        {fmtChange(quote.change, quote.change_pct)}
       </div>
     </div>
   );

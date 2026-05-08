@@ -1,5 +1,9 @@
-import { StockDetailPage } from "@/components/StockDetailPage";
+import { StockSymbolView } from "./view";
 
-export default function Page({ params }: { params: { symbol: string } }) {
-  return <StockDetailPage symbol={params.symbol.toUpperCase()} />;
+// Next.js 15: route params are now async.
+type Params = Promise<{ symbol: string }>;
+
+export default async function Page({ params }: { params: Params }) {
+  const { symbol } = await params;
+  return <StockSymbolView symbol={symbol.toUpperCase()} />;
 }

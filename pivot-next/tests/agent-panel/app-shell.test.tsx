@@ -1,7 +1,7 @@
 /**
  * Tests for AppShell — left sidebar navigation + tab switching.
  *
- * Covers sidebar rendering, default tab (dashboard), click-to-switch behavior,
+ * Covers sidebar rendering, default tab (chat), click-to-switch behavior,
  * URL hash sync, and the chat demo surface. We don't deep-test the individual
  * tabs (each has its own test file); we just verify AppShell mounts the right
  * content for the active tab.
@@ -61,12 +61,13 @@ describe("AppShell", () => {
     expect(screen.getByTestId("nav-agents")).toBeInTheDocument();
     expect(screen.getByTestId("nav-calendar")).toBeInTheDocument();
     expect(screen.getByTestId("nav-portfolio")).toBeInTheDocument();
-    expect(screen.getByTestId("nav-dashboard")).toBeInTheDocument();
+    // The old Dashboard tab is now the Chat tab.
+    expect(screen.queryByTestId("nav-dashboard")).toBeNull();
   });
 
-  it("defaults to the Dashboard tab", async () => {
+  it("defaults to the Chat tab", async () => {
     render(<AppShell />);
-    expect(screen.getByTestId("nav-dashboard")).toHaveAttribute(
+    expect(screen.getByTestId("nav-chat")).toHaveAttribute(
       "aria-current", "page",
     );
     await waitFor(() =>
@@ -86,12 +87,17 @@ describe("AppShell", () => {
     expect(window.location.hash).toBe("#portfolio");
   });
 
-  it("Chat nav item renders the demo surface with a textarea", () => {
+  it("Chat tab hosts the chat composer + dashboard intro", () => {
     render(<AppShell />);
-    fireEvent.click(screen.getByTestId("nav-chat"));
+    // Chat is the default tab, so the chat surface is already mounted.
+    expect(screen.getByTestId("dashboard-tab")).toBeInTheDocument();
     expect(screen.getByTestId("chat-demo")).toBeInTheDocument();
     expect(screen.getByTestId("chat-textarea")).toBeInTheDocument();
     expect(screen.getByTestId("chat-submit-btn")).toBeInTheDocument();
+    // Mode pills (Automation / Agent / Backtest) live below the composer.
+    expect(screen.getByTestId("mode-automation")).toBeInTheDocument();
+    expect(screen.getByTestId("mode-agent")).toBeInTheDocument();
+    expect(screen.getByTestId("mode-backtest")).toBeInTheDocument();
   });
 
   it("Calendar nav item mounts the calendar tab", async () => {
@@ -110,10 +116,10 @@ describe("AppShell", () => {
     );
   });
 
-  it("ignores an unknown URL hash and falls back to dashboard", async () => {
+  it("ignores an unknown URL hash and falls back to chat", async () => {
     window.history.replaceState(null, "", "#nonsense");
     render(<AppShell />);
-    expect(screen.getByTestId("nav-dashboard")).toHaveAttribute(
+    expect(screen.getByTestId("nav-chat")).toHaveAttribute(
       "aria-current", "page",
     );
     await waitFor(() =>

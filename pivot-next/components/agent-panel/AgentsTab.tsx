@@ -9,7 +9,7 @@
  * Card design: file-folder style with:
  *   - Header bar: FILE NNN / QUANT|INCOME|etc + RISK pill
  *   - Serif title ending with a period
- *   - KEY:VALUE rows: METHOD / UNIVERSE / CADENCE / TURNOVER / MIN TICKET
+ *   - KEY:VALUE rows: METHOD / UNIVERSE / CADENCE
  *   - Footer: VIEW AGENT link + CAGR placeholder
  */
 
@@ -18,13 +18,12 @@ import { formatDistanceToNow, parseISO } from "date-fns";
 import {
   AlertCircle,
   Bot,
-  ExternalLink,
+  Play,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import { createWorkflow, getWorkflow, listWorkflows } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
@@ -45,7 +44,6 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "active", label: "Active" },
   { value: "paused", label: "Paused" },
   { value: "draft", label: "Draft" },
-  { value: "archived", label: "Archived" },
 ];
 
 type FetchState =
@@ -78,26 +76,36 @@ function deriveRisk(wf: WorkflowSummary): RiskLevel {
   return "MEDIUM RISK";
 }
 
-function riskColor(risk: RiskLevel): string {
-  if (risk === "HIGH RISK") return "text-rose-700 dark:text-rose-400";
-  if (risk === "MEDIUM RISK") return "text-amber-700 dark:text-amber-400";
-  return "text-muted-foreground";
-}
-
 /** Derive METHOD from description (truncated) or name. */
 function deriveMethod(wf: WorkflowSummary): string {
   if (wf.description) return wf.description.slice(0, 60) + (wf.description.length > 60 ? "…" : "");
   return wf.name;
 }
 
-/** Derive UNIVERSE heuristic from name/description. */
+/** Derive UNIVERSE heuristic from name/description. Pulls the most
+ *  plausible NSE ticker out of the workflow's free text. Tokens that
+ *  are common English words (cadence/action verbs) are excluded so
+ *  short tickers like TCS / RIL aren't shadowed by words like
+ *  MONTHLY or WEEKLY. */
 function deriveUniverse(wf: WorkflowSummary): string {
   const text = `${wf.name} ${wf.description ?? ""}`.toUpperCase();
   const nseMatch = text.match(/\b([A-Z]{2,12})\b/g);
   const knownIndices = ["NIFTY", "SENSEX", "BANKNIFTY"];
+  // English-words / domain verbs that match the ticker regex but are
+  // not real tickers. Add to this list rather than tightening the
+  // length filter — TCS / SBI / RIL are 3-letter tickers we DO want.
+  const NON_TICKER_WORDS = new Set([
+    "EVERY", "WEEKDAY", "WEEKLY", "MONTHLY", "DAILY", "MONDAY", "TUESDAY",
+    "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
+    "MARKET", "BUYING", "POWER", "EMAIL", "PRICE", "FETCH", "NOTIFY",
+    "MORNING", "AFTERNOON", "EVENING", "NIGHT",
+    "AT", "ON", "IF", "THE", "AND", "FOR", "BUY", "SELL", "SIP",
+    "LIMIT", "ORDER", "QUANTITY", "AMOUNT",
+    "AM", "PM", "IST", "UTC",
+  ]);
   for (const m of nseMatch ?? []) {
     if (knownIndices.includes(m)) return "NIFTY 50";
-    if (m.length >= 4 && m.length <= 10 && !["EVERY", "WEEKDAY", "MARKET", "BUYING", "POWER", "EMAIL", "PRICE", "FETCH", "NOTIFY"].includes(m)) {
+    if (m.length >= 3 && m.length <= 10 && !NON_TICKER_WORDS.has(m)) {
       return m;
     }
   }
@@ -186,22 +194,53 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
   };
 
   return (
-    <div className="flex flex-col gap-4" data-testid="agents-tab">
-      {/* Filter chips */}
-      <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter agents">
-        {FILTERS.map((f) => (
-          <Button
-            key={f.value}
-            variant={filter === f.value ? "default" : "outline"}
-            size="sm"
-            className="h-7 rounded-full px-3 text-xs"
-            onClick={() => setFilter(f.value)}
-            aria-pressed={filter === f.value}
-            data-testid={`filter-${f.value}`}
-          >
-            {f.label}
-          </Button>
-        ))}
+    <div className="flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
+      {/* Page heading — Quartr serif */}
+      <h1
+        className="q-serif"
+        style={{
+          fontSize: 22,
+          letterSpacing: "-0.025em",
+          color: "var(--text-primary)",
+          margin: 0,
+        }}
+      >
+        Active Agents
+      </h1>
+
+      {/* Filter chips — Quartr pills */}
+      <div
+        className="flex flex-wrap items-center"
+        style={{ gap: 6 }}
+        role="group"
+        aria-label="Filter agents"
+      >
+        {FILTERS.map((f) => {
+          const active = filter === f.value;
+          return (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setFilter(f.value)}
+              aria-pressed={active}
+              data-testid={`filter-${f.value}`}
+              style={{
+                padding: "6px 12px",
+                background: active ? "var(--text-primary)" : "transparent",
+                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
+                borderRadius: "var(--radius-pill)",
+                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: "all 0.2s var(--ease-quartr)",
+              }}
+            >
+              {f.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* States */}
@@ -263,12 +302,16 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
 
       {state.kind === "ok" && state.items.length > 0 && (
         <div
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           data-testid="agents-list"
           role="list"
+          style={{ gap: 14 }}
         >
           {state.items.map((wf, idx) => (
-            <div key={wf.id} role="listitem">
+            // h-full makes the cell stretch to the tallest row, so the
+            // card inside always reaches full height and the footer
+            // (VIEW AGENT) stays bottom-aligned across rows.
+            <div key={wf.id} role="listitem" className="h-full">
               <AgentFileCard
                 workflow={wf}
                 seq={idx + 1}
@@ -287,6 +330,14 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
 // AgentFileCard — file-folder style
 // ---------------------------------------------------------------------------
 
+/** Map pivot's RiskLevel to a CSS color value (Quartr's source uses
+ *  --color-loss for the risk strip, regardless of level). */
+function riskHex(risk: RiskLevel): string {
+  if (risk === "HIGH RISK") return "var(--color-loss)";
+  if (risk === "MEDIUM RISK") return "var(--color-warn)";
+  return "var(--text-tertiary)";
+}
+
 function AgentFileCard({
   workflow,
   seq,
@@ -303,88 +354,204 @@ function AgentFileCard({
   const method = deriveMethod(workflow);
   const universe = deriveUniverse(workflow);
   const cadence = deriveCadence(workflow);
-  const lastRunAgo = workflow.last_run_at
-    ? formatDistanceToNow(parseISO(workflow.last_run_at), { addSuffix: true })
-    : null;
+  const titleText = workflow.name.endsWith(".") ? workflow.name : `${workflow.name}.`;
 
   return (
     <div
-      className={cn(
-        "flex flex-col rounded-xl border bg-card shadow-sm overflow-hidden",
-        "hover:shadow-md transition-shadow",
-        isOpening && "opacity-60",
-      )}
       data-testid={`agent-card-${workflow.id}`}
+      className="flex h-full flex-col"
+      style={{
+        background: "var(--bg-primary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: 0,
+        fontFamily: "var(--font-ui)",
+        position: "relative",
+        opacity: isOpening ? 0.6 : 1,
+        color: "var(--text-primary)",
+        transition: "border-color 0.25s var(--ease-quartr), opacity 0.2s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--glass-border-hover)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--glass-border)"; }}
     >
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b bg-muted/30 px-3.5 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      {/* Top bar — FILE NNN / FAMILY · RISK */}
+      <div
+        className="flex items-center justify-between"
+        style={{
+          padding: "12px 16px",
+          borderBottom: "2px solid var(--glass-border-hover)",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 10,
+            letterSpacing: "0.18em",
+            fontWeight: 600,
+            color: "var(--text-secondary)",
+          }}
+        >
           FILE {String(seq).padStart(3, "0")} / {category}
         </span>
-        <span className={cn("text-[10px] font-semibold uppercase tracking-wide", riskColor(risk))}>
+        <span
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 10,
+            letterSpacing: "0.18em",
+            fontWeight: 600,
+            color: riskHex(risk),
+          }}
+        >
           {risk}
         </span>
       </div>
 
-      {/* Body */}
-      <div className="flex flex-col gap-3 p-4">
-        {/* Serif title */}
-        <h3 className="font-serif text-sm font-semibold leading-snug text-foreground">
-          {workflow.name.endsWith(".") ? workflow.name : `${workflow.name}.`}
+      {/* Body — flex column. The slack goes BETWEEN the sparkline and
+          the KV grid so the KV labels (METHOD/UNIVERSE/...) line up
+          across cards in the same row, no matter how short the title
+          or description is. */}
+      <div className="flex flex-col" style={{ padding: 16, flex: 1 }}>
+        <h3
+          className="m-0"
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 26,
+            letterSpacing: "-0.025em",
+            lineHeight: 1.05,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+          }}
+        >
+          {titleText}
         </h3>
 
-        {/* KV rows */}
-        <div className="space-y-1">
-          <CardKV label="METHOD" value={method} />
-          <CardKV label="UNIVERSE" value={universe} />
-          <CardKV label="CADENCE" value={cadence} />
-          <CardKV label="TURNOVER" value="—" />
-          <CardKV label="MIN TICKET" value="—" />
-        </div>
+        <Sparkline seed={workflow.id} positive={true} />
 
-        {/* Last run line */}
-        {lastRunAgo && (
-          <p className="text-[10px] text-muted-foreground">
-            Last run {lastRunAgo}
-          </p>
-        )}
-      </div>
+        {/* Spacer — soaks up the height difference between cards so
+            the KV grid below is bottom-aligned to the footer. */}
+        <div style={{ flex: 1 }} aria-hidden={true} />
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t px-3.5 py-2.5">
-        <button
-          type="button"
-          onClick={onSelect}
-          disabled={isOpening}
-          aria-label={`View agent: ${workflow.name}`}
-          data-testid={`agent-row-${workflow.id}`}
-          className={cn(
-            "flex items-center gap-1 text-[11px] font-semibold text-primary",
-            "hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            "disabled:opacity-50",
-          )}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "auto 1fr",
+            rowGap: 6,
+            columnGap: 14,
+            marginTop: 4,
+            fontSize: 12,
+            fontFamily: "var(--font-ui)",
+          }}
         >
-          <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          VIEW AGENT
-        </button>
-        <span className="text-[10px] text-muted-foreground">CAGR —</span>
+          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>METHOD</span>
+          <span style={{ color: "var(--text-secondary)" }}>{method}</span>
+          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>UNIVERSE</span>
+          <span style={{ color: "var(--text-secondary)" }}>{universe}</span>
+          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>CADENCE</span>
+          <span style={{ color: "var(--text-secondary)" }}>{cadence}</span>
+        </div>
       </div>
+
+      {/* Footer button — full-width clickable strip */}
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={isOpening}
+        aria-label={`View agent: ${workflow.name}`}
+        data-testid={`agent-row-${workflow.id}`}
+        className="flex items-center justify-between"
+        style={{
+          padding: "10px 16px",
+          background: "var(--bg-elevated)",
+          color: "var(--text-primary)",
+          border: "none",
+          borderTop: "1px solid var(--glass-border)",
+          textAlign: "left",
+          cursor: isOpening ? "wait" : "pointer",
+          opacity: isOpening ? 0.6 : 1,
+          transition: "background-color 0.25s var(--ease-quartr)",
+        }}
+        onMouseEnter={(e) => { if (!isOpening) e.currentTarget.style.background = "var(--bg-secondary)"; }}
+        onMouseLeave={(e) => { if (!isOpening) e.currentTarget.style.background = "var(--bg-elevated)"; }}
+      >
+        <span
+          className="inline-flex items-center"
+          style={{
+            gap: 6,
+            fontFamily: "var(--font-ui)",
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: "0.1em",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <Play size={10} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+          VIEW AGENT
+        </span>
+      </button>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Card KV row
+// Sparkline — deterministic seeded series, mirrors FQ's StrategyList::Sparkline
 // ---------------------------------------------------------------------------
 
-function CardKV({ label, value }: { label: string; value: string }): React.ReactElement {
+function Sparkline({ seed, positive }: { seed: string; positive: boolean }): React.ReactElement {
+  const POINTS = 40;
+  const W = 280;
+  const H = 56;
+  const numericSeed = String(seed || "x")
+    .split("")
+    .reduce((a, c) => a + c.charCodeAt(0), 0);
+
+  let v = 50;
+  const series: number[] = [];
+  for (let i = 0; i < POINTS; i++) {
+    const r = Math.sin((i + numericSeed) * 0.41) + Math.cos((i + numericSeed) * 0.19);
+    v += (positive ? 0.45 : -0.4) + r * 1.4;
+    series.push(v);
+  }
+
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const span = Math.max(1, max - min);
+
+  const xAt = (i: number): number => (i / (POINTS - 1)) * W;
+  const yAt = (val: number): number => H - ((val - min) / span) * (H - 6) - 3;
+
+  const linePath = series
+    .map((val, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(val).toFixed(1)}`)
+    .join(" ");
+  const areaPath = `${linePath} L ${W} ${H} L 0 ${H} Z`;
+  const gradId = `spark-${numericSeed}`;
+  const stroke = positive ? "var(--color-profit)" : "var(--color-loss)";
+  const fillTop = positive ? "rgba(16, 185, 129, 0.22)" : "rgba(239, 68, 68, 0.22)";
+  const fillBot = positive ? "rgba(16, 185, 129, 0)" : "rgba(239, 68, 68, 0)";
+
   return (
-    <div className="flex items-baseline gap-2">
-      <span className="w-20 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      <span className="min-w-0 truncate text-[11px] text-foreground">{value}</span>
-    </div>
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width="100%"
+      height={H}
+      preserveAspectRatio="none"
+      style={{ display: "block", marginTop: 14 }}
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={fillTop} />
+          <stop offset="100%" stopColor={fillBot} />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gradId})`} />
+      <path
+        d={linePath}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
   );
 }
 
