@@ -28,6 +28,12 @@ import httpx
 
 BASE = "http://127.0.0.1:8000"
 TRACE_PATH = "/tmp/pivot_llm_trace.jsonl"
+
+# v1 = "/chat", v2 = "/chat/v2". Set with LOOP_ENDPOINT=v2 to point
+# the bank at the new pipeline. Default v1 for back-compat.
+import os as _os  # local alias to avoid shadowing the module-level os
+_ENDPOINT_VERSION = _os.environ.get("LOOP_ENDPOINT", "v1").lower()
+CHAT_PATH = "/chat/v2" if _ENDPOINT_VERSION == "v2" else "/chat"
 COST_PATH = "/tmp/cost_tracker.json"
 JOURNAL_PATH = "/tmp/loop_journal.md"
 
@@ -80,7 +86,7 @@ def chat(messages: list[dict], cid: str) -> tuple[dict, int]:
     t0 = time.time()
     try:
         r = httpx.post(
-            f"{BASE}/chat",
+            f"{BASE}{CHAT_PATH}",
             json={"messages": messages, "conversation_id": cid, "mode": None},
             timeout=90,
         )

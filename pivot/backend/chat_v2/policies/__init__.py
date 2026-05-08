@@ -170,15 +170,21 @@ def policy_for(ctx: ConvContext) -> StatePolicy:
     if ctx.state == ConvState.DRAFTING:
         kind = ctx.macro_kind or MacroKind.WORKFLOW
         macro_tools = _macro_tools_for(kind)
-        # If an order draft of a specific tool is on screen, pin
-        # tool_choice to that tool so amendments re-emit the right shape.
+        # tool_choice="required" — the model MUST call a tool (either
+        # the macro to draft / re-emit, ASK_USER to clarify, or a
+        # read tool to fetch data first). Without this the model
+        # often writes the draft as prose markdown text and skips
+        # the tool entirely, leaving the FE with no card to render.
+        # This was the dominant failure in the v2 baseline run
+        # (10+ turns across s_order_chain / s_sl_variants / s_logic /
+        # s_schedule_edges).
         if kind == MacroKind.ORDER and ctx.macro_tool:
-            tool_choice: Union[str, dict] = {
-                "type": "function",
-                "function": {"name": ctx.macro_tool},
-            }
+            # Pin to the active order tool — but the LLMOpenAI client
+            # downgrades dict tool_choice to "auto"; keep "required"
+            # so the model is at least forced to call SOMETHING.
+            tool_choice: Union[str, dict] = "required"
         else:
-            tool_choice = "auto"
+            tool_choice = "required"
 
         return StatePolicy(
             state_label=f"drafting_{kind.value}",
@@ -191,6 +197,23 @@ def policy_for(ctx: ConvContext) -> StatePolicy:
         )
 
     if ctx.state == ConvState.AWAITING_CLARIFICATION:
+        # If we know which macro the user originally asked for (set
+        # by BuildIntent / ToolEmitted before the clarification fired),
+        # pin the palette to that family. Prevents the smoke-test
+        # T4 bug where "make it 5 shares" after a workflow build
+        # ASK_USER emitted propose_threshold_order. Falls back to the
+        # full macro set when macro_kind is unknown.
+        if ctx.macro_kind is not None:
+            macro_palette = _macro_tools_for(ctx.macro_kind)
+            return StatePolicy(
+                state_label=f"clarifying_{ctx.macro_kind.value}",
+                tools=macro_palette + READ_TOOLS + SYNTHETIC,
+                tool_choice="auto",
+                system_block=base + "\n\n" + _load("clarifying"),
+                max_output_tokens=1200,
+                reasoning_effort="low",
+                cache_key=f"pivot-chat-v2-clarifying-{ctx.macro_kind.value}",
+            )
         return StatePolicy(
             state_label="clarifying",
             tools=(
