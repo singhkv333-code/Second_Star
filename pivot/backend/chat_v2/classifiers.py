@@ -118,7 +118,36 @@ _BUILD_INTENT_RE = re.compile(
 )
 
 
+# Workflow-shaped imperative — buy/sell with a recurring schedule
+# ("every Monday at 9:15", "every weekday at the open") OR an
+# indicator/price condition ("when RSI < 30", "if price drops 5%").
+# These need propose_workflow not place_market_order, even though
+# the verb is "buy". Detect FIRST, before the order classifier.
+_SCHEDULED_OR_CONDITIONAL_RE = re.compile(
+    r"\b(?:"
+    # Recurring schedules
+    r"every\s+(?:monday|tuesday|wednesday|thursday|friday|weekday|day|week|morning|evening)"
+    r"|every\s+(?:trading\s+)?(?:day|week|month)"
+    r"|every\s+\d"
+    r"|each\s+(?:monday|tuesday|wednesday|thursday|friday|weekday|day|week)"
+    # Indicator triggers
+    r"|when(?:ever)?\s+(?:its?\s+)?(?:rsi|macd|sma|ema|price)"
+    r"|if\s+(?:its?\s+)?(?:rsi|macd|sma|ema|price)"
+    # Price / market-relative time triggers
+    r"|when(?:ever)?\s+\w+\s+(?:drops?|falls?|crosses?|rises?)"
+    r"|\b\d+\s+min(?:ute)?s?\s+(?:before|after)\s+(?:close|open|market)"
+    r"|at\s+the\s+(?:open(?:ing\s+bell)?|close)"
+    # Stop-loss + buy combinations -> workflow
+    r"|with\s+a?\s*\d+%?\s*(?:stop|stop[-\s]?loss|trailing)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 # Order intent — direct buy/sell ("buy 10 RELIANCE", "place order").
+# Checked AFTER the schedule/conditional detector above so a phrase
+# like "buy 5 NIFTYBEES every Tuesday at 2:30 PM" routes to workflow,
+# not order.
 _ORDER_INTENT_RE = re.compile(
     r"\b(?:"
     r"buy|sell|short|exit|squareoff|square\s+off|"
@@ -127,6 +156,13 @@ _ORDER_INTENT_RE = re.compile(
     r")\s+\d?\s*",
     re.IGNORECASE,
 )
+
+
+def _is_workflow_shaped(msg: str) -> bool:
+    """Buy/sell with a recurring schedule, an indicator condition, or
+    a stop-loss in one breath needs propose_workflow, not a single-shot
+    order tool."""
+    return bool(_SCHEDULED_OR_CONDITIONAL_RE.search(msg or ""))
 
 
 # "Independent intent" while a draft is on screen — phrases that
@@ -247,9 +283,17 @@ def classify(message: str, ctx: ConvContext) -> Event:
         # ambiguous text as an edit to the existing draft.
         return Amendment(user_message=message)
 
-    # 7. Build / order imperatives push us into DRAFTING.
+    # 7a. Workflow-shaped imperatives — buy/sell + schedule, condition,
+    # or stop-loss combo. Routes to DRAFTING(workflow) so the model
+    # sees propose_workflow, not the single-shot order tools.
+    if _is_workflow_shaped(msg):
+        return BuildIntent(user_message=message, likely_macro="workflow")
+
+    # 7b. Pure build imperatives ("build an agent", "create automation").
     if _is_build_intent(msg):
         return BuildIntent(user_message=message, likely_macro="workflow")
+
+    # 7c. Direct one-shot orders ("buy 10 RELIANCE at market").
     if _is_order_intent(msg):
         return BuildIntent(user_message=message, likely_macro="order")
 

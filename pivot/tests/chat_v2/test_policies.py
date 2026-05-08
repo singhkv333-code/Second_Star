@@ -65,9 +65,10 @@ def test_drafting_order_pin():
     assert "place_limit_order" in p.tools
     assert "place_market_order" in p.tools
     assert "propose_workflow" not in p.tools
-    # tool_choice pinned to the active order tool
-    assert isinstance(p.tool_choice, dict)
-    assert p.tool_choice["function"]["name"] == "place_limit_order"
+    # tool_choice="required" forces the model to call SOMETHING (the
+    # macro tool, ASK_USER, or a read tool) — prevents writing the
+    # draft as prose markdown.
+    assert p.tool_choice == "required"
 
 
 def test_clarifying_has_all_macros():
