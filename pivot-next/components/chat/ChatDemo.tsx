@@ -1052,7 +1052,7 @@ export function ChatDemo({
     setMessages((prev) =>
       prev.map((m) =>
         m.kind === "streaming"
-          ? { kind: "assistant", text: m.text || "_(stopped)_" }
+          ? { kind: "assistant", text: m.text || "_(interrupted)_" }
           : m,
       ),
     );

@@ -31,6 +31,7 @@ import {
   Moon,
   Newspaper,
   PieChart,
+  Plus,
   Search,
   Settings,
   Sun,
@@ -201,6 +202,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // hides the Active Agents rail in that state so the chat column
   // takes the freed width (Quartr-style).
   const [chatActive, setChatActive] = useState(false);
+  // Bumped by the "New chat" button to remount DashboardTab/ChatDemo
+  // and start a fresh session (clears messages + conversation_id).
+  const [chatResetKey, setChatResetKey] = useState(0);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Hash + theme init
@@ -353,22 +357,74 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               {children}
             </div>
           ) : active === "chat" ? (
-            <div
-              className="mx-auto flex h-full w-full min-h-0 flex-col px-6"
-              style={{
-                // Smoothly lengthen the chat column when a conversation
-                // starts (from 48rem to 64rem). Animating max-width via
-                // CSS transition keeps the position stable; only the
-                // right edge moves outward.
-                maxWidth: chatActive ? "64rem" : "48rem",
-                transition: "max-width 500ms cubic-bezier(0.22, 1, 0.36, 1)",
-              }}
-            >
-              <DashboardTab
-                onOpenWorkflow={openWorkflow}
-                onOpenCalendar={() => goTab("calendar")}
-                onChatActiveChange={setChatActive}
-              />
+            <div className="relative flex h-full w-full min-h-0">
+              {/* Floating "New chat" button — pinned to the top-right
+                  of the entire chat surface (not the thread column),
+                  so it doesn't collide with right-aligned user bubbles.
+                  Bumping `chatResetKey` remounts DashboardTab, which
+                  clears messages and starts a new session. */}
+              {chatActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChatActive(false);
+                    setChatResetKey((k) => k + 1);
+                  }}
+                  aria-label="Start new chat"
+                  data-testid="new-chat-btn"
+                  className="absolute z-10 inline-flex items-center"
+                  style={{
+                    top: 14,
+                    right: 18,
+                    gap: 6,
+                    height: 32,
+                    padding: "0 12px",
+                    background: "var(--bg-base)",
+                    border: "1px solid var(--glass-border)",
+                    borderRadius: "999px",
+                    color: "var(--text-secondary)",
+                    fontFamily: "var(--font-ui)",
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    transition:
+                      "color 0.18s var(--ease-quartr), border-color 0.18s var(--ease-quartr), background-color 0.18s var(--ease-quartr)",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = "var(--text-primary)";
+                    e.currentTarget.style.background = "var(--bg-elevated)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                    e.currentTarget.style.background = "var(--bg-base)";
+                  }}
+                >
+                  <Plus size={14} strokeWidth={2} aria-hidden="true" />
+                  New chat
+                </button>
+              )}
+              <div
+                className="mx-auto flex h-full w-full min-h-0 flex-col px-6"
+                style={{
+                  // Smoothly lengthen the chat column when a
+                  // conversation starts (from 48rem to 64rem). Top
+                  // padding pushes the thread below the floating
+                  // "New chat" button so the first user bubble doesn't
+                  // crash into it.
+                  maxWidth: chatActive ? "64rem" : "48rem",
+                  paddingTop: chatActive ? 56 : 0,
+                  transition:
+                    "max-width 500ms cubic-bezier(0.22, 1, 0.36, 1), padding-top 220ms var(--ease-quartr)",
+                }}
+              >
+                <DashboardTab
+                  key={chatResetKey}
+                  onOpenWorkflow={openWorkflow}
+                  onOpenCalendar={() => goTab("calendar")}
+                  onChatActiveChange={setChatActive}
+                />
+              </div>
             </div>
           ) : active === "calendar" ? (
             // Calendar gets full pane height (the day panel + month grid

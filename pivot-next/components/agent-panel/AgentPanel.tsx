@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Bot, X } from "lucide-react";
+import { AlertCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useStepCatalog } from "@/components/agent-panel/use-step-catalog";
@@ -116,9 +116,18 @@ export function AgentPanel({
 
       <div className="flex h-full w-full flex-col">
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Bot className="h-4 w-4 text-primary" aria-hidden="true" />
-            <span className="text-sm font-medium">Agent</span>
+          <div className="flex items-center">
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: "var(--weight-display)" as unknown as number,
+                fontSize: 18,
+                letterSpacing: "-0.02em",
+                color: "var(--text-primary)",
+              }}
+            >
+              Agent
+            </span>
           </div>
           <Button
             variant="ghost"
