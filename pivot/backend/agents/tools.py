@@ -24,7 +24,7 @@ TOOL_SUBSETS = {
     "SIP_MANAGE":        ["list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
     "YIELD_QUERY":       ["compare_yields", "get_yield_recommendation"],
     "CALCULATION":       ["calculate_order_qty", "calculate_tax_impact", "calculate_sl_price", "calculate_dip_price", "calculate_margin"],
-    "BACKTEST":          ["run_backtest"],
+    "BACKTEST":          ["backtest_workflow"],
     "SCHEDULER":         ["get_scheduler_status", "list_upcoming_jobs"],
     "GENERAL":           [],
 }
@@ -688,20 +688,20 @@ tool("calculate_margin",
 # ── BACKTEST ─────────────────────────────────────────────────────────────────
 
 tool("run_backtest",
-     "Runs a STRATEGY simulation on daily-close historical data. "
-     "Use ONLY when the user names a supported strategy_type below "
-     "AND can express the trigger as a numeric threshold (e.g. RSI "
-     "< 30, price drops 5%). "
-     "Do NOT use for time-of-day strategies (open/close roundtrips, "
-     "intraday, EOD entries) — those aren't supported. "
-     "Do NOT use for calendar strategies (every Monday, every "
-     "weekday) — those are AGENTS, not backtests; route them to "
-     "propose_workflow. "
+     "LEGACY single-indicator backtest. Use ONLY for the simplest "
+     "RSI / price-cross-SMA / price-drop / SIP-style cases that match "
+     "one of the four `strategy_type` enum values exactly. For ANY "
+     "other backtest — multi-indicator, MACD, Supertrend, Bollinger, "
+     "stoch, cross-asset, with stoploss/squareoff, calendar+condition "
+     "combos — use `backtest_workflow` instead.\n\n"
+     "PREFER `backtest_workflow` when the user names: macd, supertrend, "
+     "bollinger / bb, stoch, mfi, cci, williams_r, atr, keltner, "
+     "donchian, aroon, psar, roc, trix, obv, vwap, wma — or chains "
+     "two conditions ('RSI < 30 AND volume spike') — or wants a "
+     "stoploss / squareoff / time-of-day exit — or trades a different "
+     "symbol than the trigger watches.\n\n"
      "Do NOT use for fundamentals expressions (PE < 15, ROE > 18) — "
-     "those go through the deterministic `/expr-backtest` slash "
-     "command, not this tool. "
-     "If none of these apply, do NOT call this tool — call ASK_USER "
-     "to clarify what kind of backtest the user means.",
+     "those go through the deterministic `/expr-backtest` slash command.",
      {
          "symbol":            {"type": "string", "description":
                                "NSE ticker, uppercase. Single stock only — "
@@ -793,6 +793,12 @@ _PROPOSE_STEPS_SCHEMA, _PROPOSE_STEP_TYPES = _build_propose_workflow_schema()
 tool("propose_workflow",
      "FALLBACK workflow builder for AGENTS — multi-step workflows "
      "with runtime fetches, conditions, or multiple actions per fire.\n\n"
+     "DO NOT call this for BACKTESTS. Backtest prompts ('backtest …', "
+     "'how would X have done', 'simulate …', 'what if I had bought …') "
+     "go to `backtest_workflow`, which uses the SAME `steps[]` schema "
+     "but runs over historical data and returns a chart card. "
+     "propose_workflow registers an ACTIVE strategy that fires going "
+     "forward — wrong intent for a backtest.\n\n"
      "Do NOT call this for AUTOMATION (single deterministic action "
      "where the user supplied all parameters). Automation goes to the "
      "matching single tool:\n"
@@ -849,10 +855,17 @@ tool("propose_workflow",
      "over hardcoded 09:15 / 15:30 cron — it auto-handles muhurat / "
      "early-close days.\n"
      "  - trigger.price: { symbol, operator: '>'|'<'|'>='|'<=', value }\n"
-     "  - trigger.indicator: { symbol, indicator: 'rsi'|'sma'|'ema', "
-     "period: 14, operator, value }. NOTE: `value` is a FIXED price/"
-     "indicator level (e.g. 30 for RSI, ₹1500 for SMA crossing). It is "
-     "NOT a second indicator. For indicator-vs-indicator crossovers "
+     "  - trigger.indicator: { symbol, indicator, period: int, "
+     "operator, value }. `indicator` is one of: rsi, sma, ema, wma, "
+     "macd, adx, supertrend, bollinger (bb), stoch, stoch_rsi, cci, "
+     "mfi, williams_r, atr, keltner, donchian, aroon, psar, roc, "
+     "trix, obv, vwap. For oscillators (rsi/macd/bollinger/stoch/cci/"
+     "mfi/williams_r/roc/adx/aroon/trix/stoch_rsi/supertrend/atr/obv) "
+     "compare the indicator value against `value`; for price-relative "
+     "(sma/ema/wma/psar/keltner/donchian/vwap) compare CLOSE vs the "
+     "indicator (set value=0). NOTE: `value` is a FIXED level (e.g. "
+     "30 for RSI, 0 for SMA crossing, 0 for MACD-hist crossover). It "
+     "is NOT a second indicator. For indicator-vs-indicator crossovers "
      "(50-EMA crossing 200-EMA, fast-MA above slow-MA) this trigger "
      "alone is INSUFFICIENT — see the EMA-cross-EMA example below.\n"
      "  - fetch.portfolio: {} (output: { buying_power: number, "
@@ -1216,6 +1229,194 @@ tool("propose_workflow",
                  "emitting. Leave unset (omit the field) for "
                  "perpetual workflows. The scheduler stops firing the "
                  "workflow at 23:59 IST on this date."
+             ),
+         },
+     },
+     ["name", "steps"])
+
+
+# ── BACKTEST WORKFLOW (simulate; do NOT activate) ────────────────────
+#
+# Mirror of propose_workflow's step schema, routed to the workflow
+# backtester instead of the activation registry. The model picks this
+# whenever the user says "backtest …" / "how would X have done" /
+# "simulate …" — anything historical-counterfactual. Returns the same
+# IndicatorBacktestResult chart card the indicator backtester emits.
+#
+# WHY a separate tool: previously, "backtest …" prompts caused the model
+# to call propose_workflow, which renders an Activate-this-strategy card
+# rather than a backtest chart. Users got a draft when they asked for a
+# simulation. Splitting the tools makes the intent unambiguous.
+
+tool("backtest_workflow",
+     "SIMULATES a strategy on historical daily-close data. Use for "
+     "ANY 'backtest …' / 'how would X have done …' / 'simulate …' / "
+     "'what if I had bought X when …' prompt that fits the workflow "
+     "shape. Returns a chart card (price + equity + signals + metrics + "
+     "buy-and-hold benchmark).\n\n"
+     "USE THIS — NOT propose_workflow — for backtests. propose_workflow "
+     "registers an ACTIVE workflow; backtest_workflow runs the SAME "
+     "draft over historical data and shows the chart. They share the "
+     "exact `steps[]` schema, so emit the same step list you'd give "
+     "propose_workflow.\n\n"
+     "USE THIS — NOT run_backtest — for any indicator beyond RSI/SMA/EMA, "
+     "any multi-condition strategy, any cross-asset workflow ('buy A "
+     "when B's RSI < 30'), any workflow with stoploss / squareoff / "
+     "condition.position / condition.time_window. run_backtest is the "
+     "legacy single-indicator path retained only for the simplest RSI/"
+     "SMA/EMA threshold cases.\n\n"
+     "Supported indicators (registry-validated): rsi, sma, ema, wma, "
+     "macd (histogram, threshold 0 = signal-line cross), adx, "
+     "supertrend (direction, threshold 0 = trend flip), bollinger / bb "
+     "(%B, 0 = lower band, 1 = upper), stoch (%K), stoch_rsi, cci, "
+     "mfi, williams_r, atr, keltner, donchian, aroon (oscillator), "
+     "psar, roc, trix, obv, vwap.\n\n"
+     "Supported actions:\n"
+     "  - action.place_order (config: symbol, side, quantity, "
+     "order_type, product: 'CNC'|'MIS' — MIS for intraday)\n"
+     "  - action.set_stoploss (trigger_price OR trigger_offset_pct; "
+     "set `trailing: true` with trigger_offset_pct for a ratcheting "
+     "trail e.g. '20% trailing stop')\n"
+     "  - action.set_takeprofit (mirror of set_stoploss on the upside; "
+     "fires when HIGH ≥ trigger; e.g. '30% take-profit target')\n"
+     "  - action.squareoff_symbol\n"
+     "  - action.squareoff_all_intraday\n\n"
+     "Supported fetches (resolved to a value at each bar via "
+     "`{{ context.<idx>.<field> }}` in downstream condition.numeric):\n"
+     "  - fetch.quote → {open, high, low, close, volume, ltp}\n"
+     "  - fetch.indicator → {value} (any registry indicator)\n"
+     "  - fetch.day_open → {value} (today's open)\n"
+     "  - fetch.prior_close → {value} (yesterday's close)\n"
+     "  - fetch.rolling_high(lookback, multiplier) → {value} = "
+     "max(High, lookback bars) × multiplier. Use multiplier=0.9 to "
+     "express '10% below the 20-day high' in ONE step (condition."
+     "numeric can't do arithmetic).\n"
+     "  - fetch.rolling_low(lookback, multiplier) → mirror.\n"
+     "  - fetch.relative_threshold → {value} (offset from day_open / "
+     "prior_close / prior_high / prior_low).\n\n"
+     "Supported conditions: condition.numeric, condition.position, "
+     "condition.market_status, condition.time_window — all gate "
+     "execution as they would live.\n\n"
+     "EXAMPLE — 'backtest buying TCS when MACD crosses signal line':\n"
+     "  steps = [\n"
+     "    { step_type: 'trigger.indicator', config: { symbol: 'TCS', "
+     "indicator: 'macd', period: 26, operator: 'crosses_above', "
+     "value: 0 } },\n"
+     "    { step_type: 'action.place_order', config: { symbol: 'TCS', "
+     "side: 'buy', quantity: 10, order_type: 'market' } },\n"
+     "    { step_type: 'trigger.indicator', config: { symbol: 'TCS', "
+     "indicator: 'macd', period: 26, operator: 'crosses_below', "
+     "value: 0 } },\n"
+     "    { step_type: 'action.place_order', config: { symbol: 'TCS', "
+     "side: 'sell', quantity: 10, order_type: 'market' } },\n"
+     "  ]\n\n"
+     "EXAMPLE — 'backtest buying TCS when RSI crosses 30, sell when "
+     "RSI falls below 70':\n"
+     "  Two branches, RSI<30 → buy, RSI>70 → sell. (Note: 'RSI falls "
+     "below 70' from a high reading IS the natural sell signal — use "
+     "operator 'crosses_below' value 70 to capture the moment it dips.)\n\n"
+     "EXAMPLE — INTRADAY OPEN→CLOSE ROUNDTRIP ('buy at open, sell at "
+     "close every day, 1 share, last 1 year'):\n"
+     "  Pattern: schedule trigger at market open → place MIS buy → "
+     "schedule trigger at market close → squareoff_symbol. The MIS "
+     "product tags the position as intraday so the squareoff finds it. "
+     "Squareoff fills at the bar's CLOSE; place_order fills at the "
+     "bar's OPEN — so net P&L per day is (close − open) × qty less "
+     "friction.\n"
+     "  steps = [\n"
+     "    { step_index: 0, step_type: 'trigger.schedule', config: { "
+     "cron: '15 9 * * 1-5', timezone: 'Asia/Kolkata' } },\n"
+     "    { step_index: 1, step_type: 'action.place_order', config: { "
+     "symbol: 'TCS', side: 'buy', quantity: 1, order_type: 'market', "
+     "product: 'MIS' } },\n"
+     "    { step_index: 2, step_type: 'trigger.schedule', config: { "
+     "cron: '25 15 * * 1-5', timezone: 'Asia/Kolkata' } },\n"
+     "    { step_index: 3, step_type: 'action.squareoff_symbol', "
+     "config: { symbol: 'TCS', product: 'MIS' } },\n"
+     "  ]\n"
+     "  period = '1y'\n\n"
+     "EXAMPLE — MULTI-CONDITION ENTRY (the canonical compound shape — "
+     "'buy TCS when RSI<30 AND price<SMA(50) AND volume>VolumeMA(20), "
+     "sell when RSI>65, last 3 years'):\n"
+     "  Trigger fires on the FIRST signal (RSI<30). The other "
+     "conditions (price<SMA50, volume>VolumeMA20) chain as "
+     "fetch.indicator → condition.numeric pairs after the trigger so "
+     "the buy only fires when ALL three hold on the same bar. Use "
+     "Mustache refs `{{ context.<step_index>.value }}` to read the "
+     "fetch output.\n"
+     "  steps = [\n"
+     "    { step_index: 0, step_type: 'trigger.indicator', config: { "
+     "symbol: 'TCS', indicator: 'rsi', period: 14, operator: '<', "
+     "value: 30 } },\n"
+     "    { step_index: 1, step_type: 'fetch.quote', config: { "
+     "symbol: 'TCS' } },\n"
+     "    { step_index: 2, step_type: 'fetch.indicator', config: { "
+     "symbol: 'TCS', indicator: 'sma', period: 50 } },\n"
+     "    { step_index: 3, step_type: 'condition.numeric', config: { "
+     "left: '{{ context.1.close }}', operator: '<', right: '{{ "
+     "context.2.value }}' } },\n"
+     "    { step_index: 4, step_type: 'fetch.indicator', config: { "
+     "symbol: 'TCS', indicator: 'volume', period: 0 } },\n"
+     "    { step_index: 5, step_type: 'fetch.indicator', config: { "
+     "symbol: 'TCS', indicator: 'volume_ma', period: 20 } },\n"
+     "    { step_index: 6, step_type: 'condition.numeric', config: { "
+     "left: '{{ context.4.value }}', operator: '>', right: '{{ "
+     "context.5.value }}' } },\n"
+     "    { step_index: 7, step_type: 'action.place_order', config: { "
+     "symbol: 'TCS', side: 'buy', quantity: 10, order_type: 'market' "
+     "} },\n"
+     "    { step_index: 8, step_type: 'trigger.indicator', config: { "
+     "symbol: 'TCS', indicator: 'rsi', period: 14, operator: "
+     "'crosses_above', value: 65 } },\n"
+     "    { step_index: 9, step_type: 'action.place_order', config: { "
+     "symbol: 'TCS', side: 'sell', quantity: 10, order_type: 'market' "
+     "} },\n"
+     "  ]\n"
+     "  period = '3y'\n\n"
+     "Pattern: chain as many fetch + condition pairs as the user "
+     "asked for AFTER the trigger. The trigger fires one bar at a "
+     "time; the conditions then gate whether the action runs on that "
+     "bar. NEVER ask the user for clarification on a multi-condition "
+     "backtest just because it's complex — emit the workflow.\n\n"
+     "Defaults: period='5y' (the historical window), name=auto. Multi-"
+     "symbol workflows fetch each feed independently; the chart anchors "
+     "on the first place_order's symbol.",
+     {
+         "name": {
+             "type": "string",
+             "description": "Short name for the chart card (e.g. 'TCS MACD signal cross').",
+         },
+         "steps": _PROPOSE_STEPS_SCHEMA,
+         "period": {
+             "type": "string",
+             "enum": ["1y", "2y", "3y", "5y", "10y"],
+             "default": "5y",
+             "description": (
+                 "Historical lookback window. Defaults to 5y. Use shorter "
+                 "windows for symbols listed within the last few years."
+             ),
+         },
+         "start_date": {
+             "type": "string",
+             "description": (
+                 "OPTIONAL ISO YYYY-MM-DD. Clip the backtest to a fixed "
+                 "window AFTER the period fetch. Use for event-driven "
+                 "asks like '4 weeks around 2022-02-24' (Russia-Ukraine "
+                 "macro shock) — pass start_date='2022-02-10', "
+                 "end_date='2022-03-10'."
+             ),
+         },
+         "end_date": {
+             "type": "string",
+             "description": "OPTIONAL ISO YYYY-MM-DD end of the window.",
+         },
+         "benchmark_symbol": {
+             "type": "string",
+             "description": (
+                 "OPTIONAL symbol to use as the buy-and-hold benchmark "
+                 "(default: the trade symbol). For baskets / pairs, "
+                 "pass NIFTYBEES (NIFTY 50 ETF) or BANKBEES so the "
+                 "comparison is fair."
              ),
          },
      },

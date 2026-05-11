@@ -56,8 +56,15 @@ _REAL_TOOLS: set[str] = {
     # Calculations
     "calculate_order_qty", "calculate_tax_impact", "calculate_sl_price",
     "calculate_dip_price", "calculate_margin",
-    # Backtest
-    "run_backtest",
+    # Backtest. `run_backtest` is the legacy single-indicator tool —
+    # excluded from the chat tool registry entirely because its
+    # required `trigger_condition` field is too abstract for free-form
+    # prompts and the LLM gets stuck in "Got it — what's the trigger
+    # condition?" clarification loops. backtest_workflow uses the
+    # same steps[] schema as propose_workflow, which the LLM handles
+    # natively. The legacy tool is still importable from Python for
+    # the REST `/api/backtest/run` endpoint and test scripts.
+    "backtest_workflow",
     # Scheduler
     "get_scheduler_status", "list_upcoming_jobs",
     # New v2 tools

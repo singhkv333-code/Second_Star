@@ -614,39 +614,22 @@ def _compute_indicator_sync(
 ) -> Optional[float]:
     """Sync version of the fetch.indicator computation, suitable for
     the watcher (which runs DB / network in worker threads). Returns
-    the latest value or None on insufficient data."""
+    the latest value or None on insufficient data.
+
+    Delegates to ``backend.services.backtest_indicators`` so the live
+    watcher and the backtest engine compute the same scalar for the
+    same (indicator, period) pair — adding an indicator anywhere makes
+    it instantly fire-able here."""
     import pandas as pd  # type: ignore[import-untyped]
-    import pandas_ta_classic as ta  # type: ignore[import-untyped]
 
     from backend.kite.market_data import get_historical_ohlcv
+    from backend.services.backtest_indicators import latest_value
 
     bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
-    if len(bars) < period + 5:
+    if len(bars) < max(int(period or 0) + 5, 20):
         return None
     df = pd.DataFrame(bars)
-    if "close" not in df.columns:
-        return None
-
-    if indicator == "rsi":
-        s = ta.rsi(df["close"], length=period)
-    elif indicator == "sma":
-        s = ta.sma(df["close"], length=period)
-    elif indicator == "ema":
-        s = ta.ema(df["close"], length=period)
-    elif indicator == "macd":
-        macd_df = ta.macd(df["close"], fast=12, slow=max(period, 13), signal=9)
-        if macd_df is None or macd_df.empty:
-            return None
-        col = next((c for c in macd_df.columns if c.startswith("MACDh_")), None)
-        if col is None:
-            return None
-        s = macd_df[col]
-    else:
-        return None
-
-    if s is None or s.dropna().empty:
-        return None
-    return float(s.dropna().iloc[-1])
+    return latest_value(df, indicator, period)
 
 
 def _persist_last_value(

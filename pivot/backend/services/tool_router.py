@@ -236,9 +236,16 @@ _RULES: list[_Rule] = [
     ),
 
     # ── Backtest ──────────────────────────────────────────────────
+    # ONLY backtest_workflow is exposed for chat backtest intents.
+    # run_backtest is the legacy single-indicator tool whose required
+    # `trigger_condition` field made the LLM ask "what's the trigger
+    # condition?" for every compound query. It's still in ALL_TOOLS so
+    # programmatic callers (test scripts, REST integration tests) can
+    # use it, but the chat router never surfaces it.
     _r(
-        r"\bback\s*test(?:ed|ing)?\b|\bsimulate\b|\bif\s+i\s+had\s+(bought|invested)",
-        "run_backtest",
+        r"\bback\s*test(?:ed|ing)?\b|\bsimulate\b|\bif\s+i\s+had\s+(bought|invested)"
+        r"|\bhow\s+(?:would|did)\b.{0,40}\b(?:perform(?:ed)?|do(?:ne)?|fare(?:d)?)\b",
+        "backtest_workflow",
     ),
 
     # ── Sector basket / multi-stock allocation ────────────────────
@@ -332,7 +339,7 @@ _RULES: list[_Rule] = [
 _FALLBACK_TOOLS: frozenset[str] = frozenset({
     "get_live_price", "get_portfolio_summary", "get_holdings",
     "get_market_status", "get_price_history",
-    "run_backtest",
+    "backtest_workflow",
 })
 
 

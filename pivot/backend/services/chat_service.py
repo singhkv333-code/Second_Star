@@ -1059,11 +1059,15 @@ def _format_mode_pin(mode: Optional[str]) -> str:
         return (
             "## Active mode: BACKTEST\n"
             "The user clicked the BACKTEST pill in the composer. They "
-            "want a historical simulation. Call `run_backtest` (or use "
-            "the deterministic backtest paths the chat router exposes). "
-            "Do NOT call any live-order tool. Do NOT call "
-            "`propose_workflow`. If the request lacks a clear "
-            "indicator/symbol/window, ASK_USER for the missing pieces."
+            "want a historical simulation. Call `backtest_workflow` "
+            "with the full `steps[]` shape (same schema as "
+            "propose_workflow). Do NOT call `run_backtest` (legacy, "
+            "single-indicator only) and do NOT call any live-order "
+            "tool. Do NOT call `propose_workflow` (that registers an "
+            "active strategy, not a backtest). If the user already "
+            "answered every clarification, emit the workflow draft and "
+            "run it — do NOT loop on ASK_USER once the entry / exit / "
+            "window / capital are all stated."
         )
     return ""
 
@@ -1877,10 +1881,20 @@ class ChatService:
             # Backtest pill → narrow to backtest + read tools. Keep
             # propose_workflow excluded (no agent-build mid-backtest)
             # and orders excluded (no live trades from a backtest pill).
+            # ALSO exclude run_backtest — the legacy single-indicator
+            # tool drags the LLM into "what's the trigger_condition?"
+            # clarification loops because trigger_condition is required
+            # but the schema is too abstract for the LLM to fill from
+            # free-form prose. backtest_workflow uses the propose-
+            # workflow steps[] shape which the LLM already knows.
             selected_names = (
-                (selected_names - _IMMEDIATE_ORDER_TOOLS - {"propose_workflow"})
-                | {"run_backtest", "get_price_history", "get_live_price",
-                   "get_52wk_range"}
+                (
+                    selected_names
+                    - _IMMEDIATE_ORDER_TOOLS
+                    - {"propose_workflow", "run_backtest"}
+                )
+                | {"backtest_workflow", "get_price_history",
+                   "get_live_price", "get_52wk_range"}
             )
         # Advisory questions in "other" intent: strip workflow macros.
         # WHY: "should I reduce that exposure?" after portfolio data was
@@ -2421,7 +2435,14 @@ class ChatService:
                 # macro fallback, then deterministic question. All
                 # other tools fail single-shot — no LLM retry.
                 last_tool_error = f"{guarded.name}: {guarded.error}"
-                if guarded.name == "propose_workflow":
+                # backtest_workflow gets the same self-correction pass
+                # as propose_workflow: the LLM sees the validation
+                # error and tries once more before we fall to a user-
+                # facing clarification. WHY: backtest_workflow uses the
+                # same steps[] schema as propose_workflow, and the most
+                # common failure mode (invalid step shape) is one the
+                # LLM can self-fix in a single hop.
+                if guarded.name in {"propose_workflow", "backtest_workflow"}:
                     propose_workflow_attempts += 1
                     if propose_workflow_attempts < _PROPOSE_WORKFLOW_MAX_ATTEMPTS:
                         # Append the error as a tool-result message and
@@ -2435,11 +2456,12 @@ class ChatService:
                             content=tool_msg_content,
                         ))
                         trace.event(
-                            "propose_workflow.retry",
+                            f"{guarded.name}.retry",
                             attempt=propose_workflow_attempts,
                             error=(guarded.error or "")[:160],
                         )
                         continue
+                if guarded.name == "propose_workflow":
                     # Out of retries — try macro fallback first.
                     fb_draft = _try_macro_fallback(message)
                     if fb_draft is not None:
@@ -2488,12 +2510,19 @@ class ChatService:
                     error=guarded.error or "",
                     user_message=message,
                 )
+                # Generic fall-through → ask the LLM for a tailored,
+                # prompt-aware clarification (vs. a hardcoded template).
+                if question == _LLM_CLARIFY_SENTINEL:
+                    question = await _llm_clarification(
+                        client=client,
+                        user_message=message,
+                        tool_name=guarded.name,
+                        error=guarded.error or "",
+                        history=history,
+                    )
                 # WHY this varies the message: when the SAME generic
-                # fallback would fire two turns in a row (e.g. user
-                # types rubbish after the first failure), repeating
-                # the same canned question is dead UX. Detect the
-                # repeat against the prior assistant turn and pivot
-                # to a reset-style prompt with concrete examples.
+                # fallback would fire two turns in a row, repeating
+                # the same canned question is dead UX.
                 last_asst_text = next(
                     (
                         h.get("content", "")
@@ -2853,10 +2882,16 @@ class ChatService:
                 _IMMEDIATE_ORDER_TOOLS
             )
         elif is_backtest_intent and selected_names is not None:
+            # Mirror of the non-streaming backtest-pill narrowing. See
+            # handle() for WHY run_backtest is excluded.
             selected_names = (
-                (selected_names - _IMMEDIATE_ORDER_TOOLS - {"propose_workflow"})
-                | {"run_backtest", "get_price_history", "get_live_price",
-                   "get_52wk_range"}
+                (
+                    selected_names
+                    - _IMMEDIATE_ORDER_TOOLS
+                    - {"propose_workflow", "run_backtest"}
+                )
+                | {"backtest_workflow", "get_price_history",
+                   "get_live_price", "get_52wk_range"}
             )
         # Mirror of non-streaming advisory-strip — see handle() for WHY.
         if (intent_kind == "other"
@@ -3358,7 +3393,10 @@ class ChatService:
                     continue
 
                 last_tool_error = f"{guarded.name}: {guarded.error}"
-                if guarded.name == "propose_workflow":
+                # See non-streaming twin: backtest_workflow shares the
+                # steps[] schema with propose_workflow, so it gets the
+                # same single self-correction hop on validation errors.
+                if guarded.name in {"propose_workflow", "backtest_workflow"}:
                     propose_workflow_attempts += 1
                     if propose_workflow_attempts < _PROPOSE_WORKFLOW_MAX_ATTEMPTS:
                         tool_msg_content = _summarise_tool_result(guarded)
@@ -3369,11 +3407,12 @@ class ChatService:
                             content=tool_msg_content,
                         ))
                         trace.event(
-                            "propose_workflow.retry",
+                            f"{guarded.name}.retry",
                             attempt=propose_workflow_attempts,
                             error=(guarded.error or "")[:160],
                         )
                         continue
+                if guarded.name == "propose_workflow":
                     fb_draft = _try_macro_fallback(message)
                     if fb_draft is not None:
                         fb_text = (
@@ -3424,6 +3463,17 @@ class ChatService:
                     error=guarded.error or "",
                     user_message=message,
                 )
+                # Stream-path mirror: route generic fall-through to the
+                # LLM clarifier so the reply is tailored to the user's
+                # actual prompt instead of a hardcoded template.
+                if question == _LLM_CLARIFY_SENTINEL:
+                    question = await _llm_clarification(
+                        client=client,
+                        user_message=message,
+                        tool_name=guarded.name,
+                        error=guarded.error or "",
+                        history=history,
+                    )
                 # Stream-path mirror of the repeat-fallback variation.
                 last_asst_text = next(
                     (
@@ -3815,14 +3865,257 @@ def _conversational_unsupported_reply(user_message_lower: str) -> str:
             "during market hours."
         )
 
-    # ── Generic fall-through: short, friendly, no jargon.
+    # ── Generic fall-through: route to the LLM clarification helper.
+    # The sentinel is replaced by the async wrapper at the call site
+    # with an LLM-generated, prompt-aware reply.
+    return _LLM_CLARIFY_SENTINEL
+
+
+# Sentinel returned by the (still-sync) deterministic dispatch when none
+# of the specific user-side mistakes were detected and the right move is
+# to ask the LLM for a custom clarification. The async wrapper around
+# this function notices the sentinel and routes to _llm_clarification.
+_LLM_CLARIFY_SENTINEL = "<<LLM_CLARIFY>>"
+
+
+# Light NSE-ticker / window / side keyword extractor over recent user
+# turns. Output is a small bulleted summary the clarification LLM can
+# reuse so it never invents AAPL/2020-01-01 placeholders when the user
+# already named specifics. Kept regex-only (no spaCy) — the cost is a
+# few microseconds per turn and the win is preventing hallucinated
+# substitutions in clarification replies.
+_TICKER_RE = re.compile(r"\b([A-Z][A-Z0-9&]{1,14})\b")
+_WINDOW_RES = [
+    re.compile(r"\b(\d+\s*(?:trading\s*)?(?:day|days|month|months|year|years|y|yr|yrs|mo))\b", re.IGNORECASE),
+    re.compile(r"\b(last\s+\d+\s*(?:day|days|month|months|year|years|trading\s*days?))\b", re.IGNORECASE),
+    re.compile(r"\b(recent\s+\d+\s*(?:day|days|trading\s*days?))\b", re.IGNORECASE),
+    re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
+]
+_SIDE_RE = re.compile(
+    r"\b(buy(?:ing)?\s+at\s+(?:open|close)|sell(?:ing)?\s+at\s+(?:open|close)|"
+    r"long|short|cover|squareoff|round\s*trip|reverse(?:\s+(?:the\s+)?strategy)?)\b",
+    re.IGNORECASE,
+)
+_QTY_RE = re.compile(r"\b(\d+)\s*(?:share|shares|qty|lots?)\b", re.IGNORECASE)
+_NOISE_WORDS = {
+    "I", "A", "AN", "THE", "AND", "OR", "NOT", "WITH", "FOR", "TO", "ON",
+    "IN", "AT", "BY", "OF", "IT", "ITS", "OK", "OKAY", "YES", "NO",
+    "RUN", "PLOT", "RSI", "MACD", "SMA", "EMA", "VS", "BACKTEST", "BUY",
+    "SELL", "OPEN", "CLOSE", "OHLC", "NSE", "BSE", "NIFTY", "USD", "INR",
+}
+
+
+def _extract_prior_specifics(history: list[dict] | None, latest: str) -> str:
+    """Return a compact bullet list of user-stated specifics gathered
+    across the conversation. Used in clarification prompts to anchor
+    the LLM to what the user ALREADY said.
+
+    Conservative on tickers — we only surface tokens that look like
+    Indian equity tickers (2-15 uppercase chars) and that are NOT in
+    the noise list. The clarification LLM uses these as 'do not
+    substitute' anchors.
+    """
+    texts: list[str] = []
+    for h in (history or []):
+        if isinstance(h, dict) and h.get("role") == "user":
+            c = (h.get("content") or "").strip()
+            if c:
+                texts.append(c)
+    if latest:
+        texts.append(latest)
+    if not texts:
+        return ""
+
+    blob = "\n".join(texts[-10:])
+    tickers: list[str] = []
+    for m in _TICKER_RE.finditer(blob):
+        tok = m.group(1)
+        if tok in _NOISE_WORDS or len(tok) < 3:
+            continue
+        if tok not in tickers:
+            tickers.append(tok)
+    windows: list[str] = []
+    for pat in _WINDOW_RES:
+        for m in pat.finditer(blob):
+            w = m.group(1).strip()
+            if w and w not in windows:
+                windows.append(w)
+    sides = sorted({m.group(1).lower() for m in _SIDE_RE.finditer(blob)})
+    qtys = sorted({m.group(1) for m in _QTY_RE.finditer(blob)})
+
+    bullets: list[str] = []
+    if tickers:
+        bullets.append(f"  • Symbol(s) named: {', '.join(tickers[:5])}")
+    if windows:
+        bullets.append(f"  • Time window(s) named: {', '.join(windows[:3])}")
+    if sides:
+        bullets.append(f"  • Strategy / side cues: {', '.join(sides[:5])}")
+    if qtys:
+        bullets.append(f"  • Quantities named: {', '.join(qtys[:3])} share(s)")
+    return "\n".join(bullets)
+
+
+def _count_recent_clarifications(history: list[dict] | None) -> int:
+    """Count consecutive assistant turns (from the end of history) that
+    look like clarification questions. Used to detect when we're stuck
+    in a 'ask, user replies, ask again' loop — at which point we
+    switch tone and offer to run with defaults rather than asking yet
+    another question."""
+    count = 0
+    for h in reversed(history or []):
+        if not isinstance(h, dict):
+            continue
+        role = h.get("role")
+        if role == "user":
+            # A user reply between two assistant turns doesn't break
+            # the consecutive count — it IS the reply to the previous
+            # clarification. We only break when we see an assistant
+            # turn that is NOT a clarification (i.e. it ran a tool /
+            # gave a real answer).
+            continue
+        if role == "assistant":
+            content = (h.get("content") or "").strip()
+            if not content:
+                continue
+            tail = content[-400:]
+            if _CLARIFICATION_CUES_RE.search(tail):
+                count += 1
+            else:
+                break
+        else:
+            # system or tool turn — ignore
+            continue
+    return count
+
+
+async def _llm_clarification(
+    *,
+    client: LLMClient,
+    user_message: str,
+    tool_name: str,
+    error: str = "",
+    history: list[dict] | None = None,
+) -> str:
+    """Ask the LLM to write a 1–3 sentence clarification for a failed
+    chat request. Used INSTEAD of a hardcoded template when we can't
+    name a specific user-side mistake.
+
+    History-aware: the user's prior turns and our prior clarifications
+    are sent as actual chat turns so the model sees the conversation
+    arc, not just the latest message. Without this, replies like "yes
+    run" or "i meant 252 trading days" lose all context and the model
+    hallucinates ticker/date placeholders from training data.
+    """
+    capability = {
+        "backtest_workflow": (
+            "simulate a trading strategy on historical price data and "
+            "show a chart with returns, trade signals, and buy-and-hold "
+            "benchmark"
+        ),
+        "propose_workflow": (
+            "build a saved automation that runs going forward — a "
+            "recurring or trigger-based agent"
+        ),
+        "place_market_order": "place an immediate market order via the broker",
+        "place_limit_order": "place a limit order with a target price",
+        "create_sip": "set up a recurring investment on a schedule",
+        "create_gtt_order": "place a long-lived limit / stop order",
+        "run_backtest": (
+            "simulate a trading strategy on historical price data"
+        ),
+    }.get(tool_name, "act on your request")
+
+    # Compact transcript of the prior turns — the model sees the user's
+    # *cumulative* ask (original prompt + their replies to our earlier
+    # clarifications), not just the latest message. Cap at the last 8
+    # turns so the prompt stays small.
+    history_msgs: list[LLMMessage] = []
+    for h in (history or [])[-8:]:
+        role = h.get("role")
+        content = (h.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            history_msgs.append(LLMMessage(role=role, content=content[:600]))
+
+    prior_specifics = _extract_prior_specifics(history, user_message)
+
+    # Count how many of OUR last turns were clarifications. If we've
+    # already asked 2+ in a row, the user is justifiably frustrated —
+    # change the tone and offer to run with reasonable defaults rather
+    # than asking another question.
+    consecutive_clarifications = _count_recent_clarifications(history)
+
+    system_prompt = (
+        "You are Pivot's chat assistant. A user request just failed to "
+        "execute. Write a SHORT reply (1–3 sentences, max 70 words).\n\n"
+        "You are seeing the FULL conversation. Use it. The user has "
+        "been progressively narrowing their ask across turns — your "
+        "reply must reflect what they have ALREADY said, not restart "
+        "from zero.\n\n"
+        "RULES:\n"
+        "  • Reuse specifics the user already gave (ticker, window, "
+        "strategy, side). NEVER substitute a different ticker (no "
+        "AAPL if they said TCS) or a different window (no '2020-01-01 "
+        "to 2022-12-31' if they said 'last 252 trading days').\n"
+        "  • If the conversation already names everything needed, say "
+        "so plainly and offer to run it as-is with one named default "
+        "filled in — do NOT ask another question.\n"
+        "  • If something genuinely IS ambiguous, name ONE specific "
+        "thing in plain English and propose a single concrete "
+        "interpretation using THEIR specifics.\n"
+        "  • No code-flavoured words: 'tool', 'function', 'parameter', "
+        "'field', 'required', 'missing argument', 'JSON', 'schema', "
+        "'config', 'workflow draft'.\n"
+        "  • Flowing prose, no bullet points, no headers.\n"
+        "  • Vary the opening — never start with 'I couldn't complete "
+        "that' or 'You want to'.\n"
+        + (
+            "\nIMPORTANT: you have already asked the user "
+            f"{consecutive_clarifications} clarification(s) in a row. "
+            "Do NOT ask another one. Instead, write a reply that "
+            "commits to a specific interpretation using their stated "
+            "specifics, fills any genuinely missing detail with a "
+            "reasonable default, and offers to run it. Phrase it as "
+            "'Going to run X with Y — sound right?'.\n"
+            if consecutive_clarifications >= 2
+            else ""
+        )
+    )
+
+    user_prompt = (
+        f"The user is trying to: {capability}.\n\n"
+        f"Their latest message in this turn: \"{user_message}\"\n\n"
+        f"What you already know from the conversation above:\n"
+        f"{prior_specifics or '  (no specifics extracted)'}\n\n"
+        f"Internal reason it didn't run (for your context only — do "
+        f"NOT echo this back): {error or 'request was ambiguous.'}\n\n"
+        "Write the reply now."
+    )
+
+    try:
+        msgs: list[LLMMessage] = [LLMMessage(role="system", content=system_prompt)]
+        msgs.extend(history_msgs)
+        msgs.append(LLMMessage(role="user", content=user_prompt))
+        resp = await client.complete(
+            messages=msgs,
+            tools=None,
+            tool_choice="none",
+            max_output_tokens=220,
+            temperature=0.4,
+            reasoning_effort="minimal",
+            prompt_cache_key="clarify_failed_call_v2",
+        )
+        text = (resp.content or "").strip()
+        if text:
+            return text
+    except Exception as e:
+        logger.info("clarification LLM call failed: %s", e)
+
+    # Final fallback — still nicer than the old hardcoded template
+    # because it paraphrases the user's intent.
     return (
-        "I couldn't fit that exactly as you described it. Pivot's best "
-        "at: time-based actions (every weekday at 9:15, every Monday at "
-        "close), threshold-based actions (when RSI < 30, when price "
-        "crosses ₹X), and sector basket buys. Tell me which part "
-        "matters most and I'll draft the closest fit — or share a "
-        "simpler version of the same idea."
+        f"I hit a snag working out the {capability} for that. Could you "
+        "rephrase with one or two concrete details — the exact ticker, "
+        "the trigger condition, and the time window?"
     )
 
 
@@ -3968,10 +4261,7 @@ def _format_recoverable_failure_question(
             f"check the ticker spelling — Pivot covers NSE-listed "
             f"equities only."
         )
-    return (
-        "I couldn't complete that — could you give me the specific "
-        "values (symbol, quantity, price if relevant)?"
-    )
+    return _LLM_CLARIFY_SENTINEL
 
 
 # Phrases the user-facing fallback messages start with. Used to detect

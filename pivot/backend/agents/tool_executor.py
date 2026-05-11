@@ -46,6 +46,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "pause_all_sips":             _pause_all_sips,
         "create_strategy":            _create_strategy,
         "propose_workflow":           _propose_workflow,
+        "backtest_workflow":          _backtest_workflow,
         "propose_scheduled_order":    _propose_scheduled_order,
         "propose_threshold_order":    _propose_threshold_order,
         "propose_basket_allocation":  _propose_basket_allocation,
@@ -539,6 +540,111 @@ async def _propose_workflow(a, kt, db, uid):
     payload = draft.model_dump()
     payload["_render_hint"] = "workflow_draft_card"
     return {"success": True, "data": payload, "logiccard": None}
+
+
+async def _backtest_workflow(a, kt, db, uid):
+    """Validate a workflow draft AND simulate it on historical bars.
+
+    Mirrors `_propose_workflow`'s arg shape (the LLM emits the same
+    `name + steps[]` structure) but, instead of returning a draft card
+    for activation, runs the steps through
+    ``backend.services.workflow_backtester.backtest_workflow`` and
+    returns the IndicatorBacktestResult chart payload.
+
+    On eligibility failure (unsupported step type, fundamentals fetch,
+    etc.) we surface the backtester's reason verbatim — the chat hop
+    can then ask the user to restate.
+    """
+    import asyncio
+
+    from backend.services.workflow_backtester import (
+        backtest_workflow as run_workflow_bt,
+    )
+    from backend.workflows.propose import (
+        ProposalValidationError,
+        validate_draft_against_registry,
+    )
+
+    a = a or {}
+    steps = a.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return {
+            "success": False,
+            "error": (
+                "backtest_workflow needs `steps[]` — emit the same shape "
+                "you'd give propose_workflow."
+            ),
+            "data": {},
+            "logiccard": None,
+        }
+
+    # Validate the draft so we surface a clean error for malformed
+    # configs (missing fields, bad enum values) rather than crashing
+    # mid-simulation. The validator returns a WorkflowDraft; we only
+    # need the validated step dicts the backtester consumes.
+    try:
+        draft = validate_draft_against_registry(a)
+    except ProposalValidationError as e:
+        return {
+            "success": False,
+            "error": str(e)[:300],
+            "data": {},
+            "logiccard": None,
+        }
+
+    name = a.get("name") or draft.name or "Workflow"
+    period = str(a.get("period") or "5y")
+    start_date = a.get("start_date") or None
+    end_date = a.get("end_date") or None
+    benchmark_symbol = a.get("benchmark_symbol") or None
+
+    validated_steps = [s.model_dump() for s in draft.steps]
+    try:
+        result = await asyncio.to_thread(
+            run_workflow_bt,
+            validated_steps,
+            period=period,
+            name=name,
+            start_date=start_date,
+            end_date=end_date,
+            benchmark_symbol=benchmark_symbol,
+        )
+    except ValueError as e:
+        return {
+            "success": False,
+            "error": f"backtest failed: {e}",
+            "data": {},
+            "logiccard": None,
+        }
+    except Exception as e:
+        logger.error("backtest_workflow exec failed: %s", e)
+        return {
+            "success": False,
+            "error": f"backtest failed: {str(e)[:200]}",
+            "data": {},
+            "logiccard": None,
+        }
+
+    return {
+        "success": True,
+        "data": {
+            "_render_hint": "indicator_backtest_chart",
+            "symbol": result.symbol,
+            "indicator": result.indicator,
+            "indicator_period": result.indicator_period,
+            "operator": result.operator,
+            "threshold": result.threshold,
+            "period_label": result.period_label,
+            "price_curve": result.price_curve,
+            "equity_curve": result.equity_curve,
+            "indicator_curve": result.indicator_curve,
+            "signals": result.signals,
+            "metrics": result.metrics,
+            "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+            "summary_text": result.summary_text,
+        },
+        "logiccard": None,
+    }
 
 
 # ── Macro tool executors ────────────────────────────────────────────

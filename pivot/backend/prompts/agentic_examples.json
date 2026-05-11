@@ -228,10 +228,38 @@
     {
       "id": "backtest_simple",
       "prompt": "backtest buy when RSI < 30 on RELIANCE over the last 5 years",
-      "tool": "_DETERMINISTIC_BACKTEST",
-      "args": {"symbol": "RELIANCE", "indicator": "rsi", "operator": "<", "threshold": 30, "years": 5},
-      "confidence": 0.9,
-      "note": "Single-indicator backtest — runs through the deterministic indicator backtest path before this prompt is even sent. If you see this kind of message hit the LLM hop, the parser failed to match shape — call run_backtest with sensible defaults rather than asking."
+      "tool": "backtest_workflow",
+      "args": {
+        "name": "RELIANCE RSI dip-buy",
+        "period": "5y",
+        "steps": [
+          {"step_index": 0, "step_type": "trigger.indicator", "config": {"symbol": "RELIANCE", "indicator": "rsi", "period": 14, "operator": "<", "value": 30}},
+          {"step_index": 1, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 10, "order_type": "market"}}
+        ]
+      },
+      "confidence": 0.95,
+      "note": "Single-indicator backtest. ALWAYS call backtest_workflow with the full steps[] shape (same schema as propose_workflow). NEVER call run_backtest — that legacy tool's trigger_condition field is too abstract for free-form prompts and forces the chat into 'Got it — what's the trigger condition?' clarification loops."
+    },
+    {
+      "id": "backtest_multi_condition",
+      "prompt": "Buying reliance when the price drops below 1400 and RSI drops below 50 and selling when RSI climbs back above 50",
+      "tool": "backtest_workflow",
+      "args": {
+        "name": "RELIANCE price+RSI dip buy",
+        "period": "1y",
+        "steps": [
+          {"step_index": 0, "step_type": "trigger.price", "config": {"symbol": "RELIANCE", "operator": "<", "value": 1400}},
+          {"step_index": 1, "step_type": "fetch.indicator", "config": {"symbol": "RELIANCE", "indicator": "rsi", "period": 14}},
+          {"step_index": 2, "step_type": "condition.numeric", "config": {"left": "{{ context.1.value }}", "operator": "<", "right": 50}},
+          {"step_index": 3, "step_type": "condition.position", "config": {"symbol": "RELIANCE", "require": "not_held"}},
+          {"step_index": 4, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 10, "order_type": "market"}},
+          {"step_index": 5, "step_type": "trigger.indicator", "config": {"symbol": "RELIANCE", "indicator": "rsi", "period": 14, "operator": "crosses_above", "value": 50}},
+          {"step_index": 6, "step_type": "condition.position", "config": {"symbol": "RELIANCE", "require": "held"}},
+          {"step_index": 7, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "sell", "quantity": 10, "order_type": "market"}}
+        ]
+      },
+      "confidence": 0.95,
+      "note": "Compound condition (price AND RSI) — the trigger fires on the FIRST signal (price < 1400), then fetch.indicator + condition.numeric chain the second condition. Exit is its own branch on RSI crosses_above 50. Emit the workflow IMMEDIATELY when the user confirms defaults — do NOT ask 'what's the trigger condition?' again after the user has already said 'yes'."
     }
   ]
 }

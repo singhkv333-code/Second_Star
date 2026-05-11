@@ -28,6 +28,9 @@ from backend.workflows.schemas import (
     FetchPriorCloseConfig,
     FetchQuoteConfig,
     FetchRelativeThresholdConfig,
+    FetchRollingHighConfig,
+    FetchRollingLowConfig,
+    FetchSpreadZScoreConfig,
     FetchScreenerConfig,
     FetchTopMoversConfig,
 )
@@ -153,70 +156,44 @@ async def execute_fetch_quote(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
-    """Compute a technical indicator (RSI / SMA / EMA / MACD) for a
-    symbol. Pulls historical OHLCV via yfinance (keyless) and runs
-    pandas_ta_classic. Returns the latest indicator value + asof.
+    """Compute a technical indicator for a symbol via the unified
+    ``backend.services.backtest_indicators`` registry.
 
-    For MACD we return the macd-minus-signal value (the histogram-style
-    delta) — that's the most useful single-number output for a
-    threshold trigger ('macd > 0' = bullish crossover).
+    Supports every indicator the registry knows about (rsi, sma, ema,
+    wma, macd, adx, supertrend, bollinger, stoch, stoch_rsi, cci, mfi,
+    williams_r, atr, keltner, donchian, aroon, psar, roc, trix, obv,
+    vwap …). The returned ``value`` is the canonical scalar — for
+    composite indicators that means histogram (MACD), %B (Bollinger),
+    direction (Supertrend), %K (Stochastic) etc. — see the registry
+    for the full mapping.
     """
     from datetime import datetime, timezone
 
     import pandas as pd  # type: ignore[import-untyped]
-    import pandas_ta_classic as ta  # type: ignore[import-untyped]
 
     from backend.kite.market_data import get_historical_ohlcv
+    from backend.services.backtest_indicators import (
+        compute_series, get_spec,
+    )
 
     cfg = ctx.config
     symbol = str(cfg["symbol"]).upper()
     indicator = str(cfg["indicator"]).lower()
     period = int(cfg["period"])
 
-    # Need enough history for the indicator. RSI needs ~period+1; MACD
-    # default 26+9. Pull 6 months for headroom.
+    spec = get_spec(indicator)
+    if spec is None:
+        raise ValueError(f"unsupported indicator: {indicator!r}")
+
     bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
-    if len(bars) < period + 5:
+    if len(bars) < max(period + 5, 30):
         raise NotYetAvailableError(
             f"fetch.indicator: not enough history for {symbol} "
-            f"({len(bars)} bars; need {period + 5}+)"
+            f"({len(bars)} bars; need {max(period + 5, 30)}+)"
         )
 
     df = pd.DataFrame(bars)
-    if "close" not in df.columns:
-        raise NotYetAvailableError(
-            f"fetch.indicator: history for {symbol} missing 'close' column"
-        )
-
-    series: Optional[pd.Series] = None
-    if indicator == "rsi":
-        series = ta.rsi(df["close"], length=period)
-    elif indicator == "sma":
-        series = ta.sma(df["close"], length=period)
-    elif indicator == "ema":
-        series = ta.ema(df["close"], length=period)
-    elif indicator == "macd":
-        # Standard MACD with the user-supplied period as the slow EMA.
-        # Returns a DataFrame with MACD/MACDh/MACDs columns; we use
-        # the histogram (macd - signal).
-        macd_df = ta.macd(df["close"], fast=12, slow=max(period, 13), signal=9)
-        if macd_df is None or macd_df.empty:
-            raise NotYetAvailableError(
-                f"fetch.indicator: MACD computation returned empty for {symbol}"
-            )
-        # Histogram column name pattern: MACDh_12_26_9
-        hist_col = next(
-            (c for c in macd_df.columns if c.startswith("MACDh_")),
-            None,
-        )
-        if hist_col is None:
-            raise NotYetAvailableError(
-                "fetch.indicator: MACD output missing histogram column"
-            )
-        series = macd_df[hist_col]
-    else:
-        raise ValueError(f"unsupported indicator: {indicator!r}")
-
+    series = compute_series(df, indicator, period)
     if series is None or series.dropna().empty:
         raise NotYetAvailableError(
             f"fetch.indicator: {indicator}({period}) on {symbol} "
@@ -601,6 +578,164 @@ async def execute_fetch_prior_close(ctx: Any) -> Optional[dict[str, Any]]:
         "value": price,
         "session_date": session,
         "sessions_back": sessions_back,
+    }
+
+
+@register_step(
+    step_type="fetch.rolling_high",
+    category="fetch",
+    label="Get rolling N-day high",
+    description=(
+        "Highest HIGH over the last N daily bars — the recent peak."
+    ),
+    icon="trending-up",
+    max_retries=3,
+    trigger_only=False,
+    config_model=FetchRollingHighConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "value": {"type": "number"},
+            "lookback": {"type": "integer"},
+        },
+        "required": ["value"],
+    },
+)
+async def execute_fetch_rolling_high(ctx: Any) -> Optional[dict[str, Any]]:
+    """Highest HIGH across the last `lookback` trading days × multiplier.
+    Pairs with condition.numeric for "X% off the recent high" rules."""
+    import pandas as pd  # type: ignore[import-untyped]
+    from backend.kite.market_data import get_historical_ohlcv
+
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    lookback = int(cfg.get("lookback", 20))
+    multiplier = float(cfg.get("multiplier", 1.0))
+    bars = get_historical_ohlcv(symbol, period="1y", interval="1d") or []
+    if len(bars) < lookback:
+        raise NotYetAvailableError(
+            f"fetch.rolling_high: need {lookback} bars for {symbol}, "
+            f"got {len(bars)}"
+        )
+    df = pd.DataFrame(bars[-lookback:])
+    high_col = "high" if "high" in df.columns else "High"
+    return {
+        "value": float(df[high_col].astype(float).max()) * multiplier,
+        "lookback": lookback,
+        "multiplier": multiplier,
+    }
+
+
+@register_step(
+    step_type="fetch.rolling_low",
+    category="fetch",
+    label="Get rolling N-day low",
+    description=(
+        "Lowest LOW over the last N daily bars — the recent trough."
+    ),
+    icon="trending-down",
+    max_retries=3,
+    trigger_only=False,
+    config_model=FetchRollingLowConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "value": {"type": "number"},
+            "lookback": {"type": "integer"},
+        },
+        "required": ["value"],
+    },
+)
+async def execute_fetch_rolling_low(ctx: Any) -> Optional[dict[str, Any]]:
+    """Lowest LOW across the last `lookback` trading days × multiplier."""
+    import pandas as pd  # type: ignore[import-untyped]
+    from backend.kite.market_data import get_historical_ohlcv
+
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    lookback = int(cfg.get("lookback", 20))
+    multiplier = float(cfg.get("multiplier", 1.0))
+    bars = get_historical_ohlcv(symbol, period="1y", interval="1d") or []
+    if len(bars) < lookback:
+        raise NotYetAvailableError(
+            f"fetch.rolling_low: need {lookback} bars for {symbol}, "
+            f"got {len(bars)}"
+        )
+    df = pd.DataFrame(bars[-lookback:])
+    low_col = "low" if "low" in df.columns else "Low"
+    return {
+        "value": float(df[low_col].astype(float).min()) * multiplier,
+        "lookback": lookback,
+        "multiplier": multiplier,
+    }
+
+
+@register_step(
+    step_type="fetch.spread_z_score",
+    category="fetch",
+    label="Compute spread z-score",
+    description=(
+        "Z-score of (close_a − close_b) spread over a rolling window."
+    ),
+    icon="git-compare",
+    max_retries=3,
+    trigger_only=False,
+    config_model=FetchSpreadZScoreConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "value": {"type": "number"},
+            "spread": {"type": "number"},
+            "mean": {"type": "number"},
+            "std": {"type": "number"},
+        },
+        "required": ["value"],
+    },
+)
+async def execute_fetch_spread_z_score(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Compute the z-score of the close-price spread between two symbols
+    over a rolling window. Returns the latest z-score for pairs-trade
+    entry / exit gating.
+
+    Symmetric: swapping symbol_a and symbol_b flips the sign of the
+    z-score. By convention, positive z means symbol_a is rich relative
+    to symbol_b.
+    """
+    import pandas as pd  # type: ignore[import-untyped]
+    from backend.kite.market_data import get_historical_ohlcv
+
+    cfg = ctx.config
+    sym_a = str(cfg["symbol_a"]).upper()
+    sym_b = str(cfg["symbol_b"]).upper()
+    lookback = int(cfg.get("lookback", 30))
+
+    bars_a = get_historical_ohlcv(sym_a, period="6mo", interval="1d") or []
+    bars_b = get_historical_ohlcv(sym_b, period="6mo", interval="1d") or []
+    if len(bars_a) < lookback + 5 or len(bars_b) < lookback + 5:
+        raise NotYetAvailableError(
+            f"fetch.spread_z_score: need {lookback + 5} bars each for "
+            f"{sym_a}/{sym_b}; got {len(bars_a)}/{len(bars_b)}"
+        )
+    df_a = pd.DataFrame(bars_a).set_index("date")["close"].astype(float)
+    df_b = pd.DataFrame(bars_b).set_index("date")["close"].astype(float)
+    spread = (df_a - df_b).dropna()
+    if len(spread) < lookback:
+        raise NotYetAvailableError(
+            f"fetch.spread_z_score: spread has {len(spread)} aligned "
+            f"bars; need {lookback}"
+        )
+    window = spread.iloc[-lookback:]
+    mean = float(window.mean())
+    std = float(window.std(ddof=0))
+    current = float(spread.iloc[-1])
+    z = (current - mean) / std if std > 0 else 0.0
+    return {
+        "value": z,
+        "spread": current,
+        "mean": mean,
+        "std": std,
     }
 
 

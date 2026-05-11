@@ -30,7 +30,10 @@ from backend.workflows.schemas import (
     ActionAllocateNotionalConfig,
     ActionCancelOrdersConfig,
     ActionPlaceOrderConfig,
+    ActionAllocateBasketConfig,
     ActionSetStoplossConfig,
+    ActionSetTakeprofitConfig,
+    ActionSquareoffAllConfig,
     ActionSquareoffAllIntradayConfig,
     ActionSquareoffSymbolConfig,
     ActionUpdateWatchlistConfig,
@@ -243,7 +246,7 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
         quantity=quantity,
         order_type=order_type,
         price=price,
-        product="CNC",
+        product=str(cfg.get("product", "CNC")).upper(),
         tag=f"wf_{ctx.client_request_id[:16]}",
     )
 
@@ -415,6 +418,262 @@ async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
     return {
         "trigger_id": str(result.get("trigger_id", "")),
         "client_request_id": ctx.client_request_id,
+    }
+
+
+@register_step(
+    step_type="action.set_takeprofit",
+    category="action",
+    label="Set take-profit",
+    description="Place a take-profit sell order on a holding",
+    icon="target",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSetTakeprofitConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "trigger_id": {"type": "string"},
+            "client_request_id": {"type": "string"},
+        },
+        "required": ["trigger_id"],
+    },
+)
+async def execute_action_set_takeprofit(ctx: Any) -> Optional[dict[str, Any]]:
+    """Live executor: places a GTT sell at the trigger_price (Kite has no
+    distinct take-profit type — same primitive as set_stoploss).
+
+    Resolution mirrors set_stoploss but ABOVE the entry:
+      - ``trigger_price`` (absolute) → as-is.
+      - ``trigger_offset_pct`` → entry_fill * (1 + pct/100).
+
+    Backtest sim: handled by workflow_backtester._execute_branch which
+    registers a take-profit alongside any stoploss; on each subsequent
+    bar, if HIGH ≥ trigger_price the position fills at trigger.
+    """
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    qty = cfg.get("quantity")
+    token = _kite_token_for_run(ctx)
+
+    trigger_price = cfg.get("trigger_price")
+    if trigger_price is None and cfg.get("trigger_offset_pct") is not None:
+        pct = float(cfg["trigger_offset_pct"])
+        entry = _resolve_entry_price_for_sl(ctx, symbol, token)
+        trigger_price = round(entry * (1 + pct / 100.0), 2)
+    elif trigger_price is None:
+        raise ValueError(
+            "action.set_takeprofit: neither trigger_price nor "
+            "trigger_offset_pct supplied"
+        )
+    trigger_price = float(trigger_price)
+
+    if qty is None:
+        from backend.services.portfolio import get_user_portfolio
+        portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
+        holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
+        for h in holdings:
+            if str(h.get("tradingsymbol", "")).upper() == symbol:
+                qty = int(h.get("quantity", 0))
+                break
+    if not qty or int(qty) <= 0:
+        raise ValueError(
+            f"action.set_takeprofit: no quantity specified and no "
+            f"holding of {symbol} found"
+        )
+
+    result = place_gtt_order(
+        access_token=token,
+        tradingsymbol=symbol,
+        exchange="NSE",
+        transaction_type="SELL",
+        quantity=int(qty),
+        trigger_price=trigger_price,
+        limit_price=trigger_price,
+        last_price=trigger_price,
+    )
+    return {
+        "trigger_id": str(result.get("trigger_id", "")),
+        "client_request_id": ctx.client_request_id,
+    }
+
+
+@register_step(
+    step_type="action.allocate_basket",
+    category="action",
+    label="Open weighted basket",
+    description=(
+        "Open a weighted basket of long and/or short positions in one "
+        "step (synthetic-security pattern)."
+    ),
+    icon="layers",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionAllocateBasketConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "legs": {"type": "array"},
+            "total_deployed_inr": {"type": "number"},
+            "n_filled": {"type": "integer"},
+        },
+        "required": ["legs", "n_filled"],
+    },
+)
+async def execute_action_allocate_basket(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Live executor for weighted baskets.
+
+    Splits ``total_inr`` across legs by ``weight``, fetches each leg's
+    LTP in a single Kite quote round-trip, converts to share counts,
+    and places one order per leg under per-leg client_request_ids.
+
+    Short legs raise NotImplementedError on the live path — Pivot v1
+    doesn't broker live shorts on equities. The backtester DOES simulate
+    them; for live trading the workflow validator should refuse to
+    activate any draft with a short leg.
+    """
+    from backend.kite.market_data import get_live_quote
+
+    cfg = ctx.config
+    legs_cfg = cfg["legs"]
+    total_inr = float(cfg["total_inr"])
+    order_type = str(cfg.get("order_type", "market")).upper()
+    token = _kite_token_for_run(ctx)
+
+    # Reject shorts on the live path.
+    short_legs = [
+        leg for leg in legs_cfg if str(leg.get("side", "long")) == "short"
+    ]
+    if short_legs:
+        raise NotImplementedError(
+            "action.allocate_basket: live shorts not yet supported "
+            f"(short legs: {[l['symbol'] for l in short_legs]}). "
+            "Backtest is fine; activate without short legs to go live."
+        )
+
+    # Normalise weights so they sum to 1.
+    weights_sum = sum(float(leg["weight"]) for leg in legs_cfg) or 1.0
+    instruments = [f"NSE:{leg['symbol'].upper()}" for leg in legs_cfg]
+    quotes = get_live_quote(token, instruments) or {}
+
+    placed: list[dict[str, Any]] = []
+    deployed = 0.0
+    parent_req = ctx.client_request_id
+    for leg in legs_cfg:
+        sym = str(leg["symbol"]).upper()
+        weight = float(leg["weight"]) / weights_sum
+        slice_inr = total_inr * weight
+        ltp = float((quotes.get(f"NSE:{sym}") or {}).get("last_price", 0) or 0)
+        if ltp <= 0:
+            placed.append({"symbol": sym, "status": "no_price"})
+            continue
+        qty = int(slice_inr // ltp)
+        if qty <= 0:
+            placed.append({"symbol": sym, "status": "slice_too_small"})
+            continue
+        leg_tag = f"basket_{parent_req[:10]}_{sym[:10]}"
+        try:
+            r = place_order(
+                access_token=token,
+                tradingsymbol=sym,
+                exchange="NSE",
+                transaction_type="BUY",
+                quantity=qty,
+                order_type=order_type,
+                price=None,
+                product="CNC",
+                tag=leg_tag,
+            )
+        except Exception as e:
+            placed.append({"symbol": sym, "status": "failed", "error": str(e)[:200]})
+            continue
+        fill = float(r.get("average_price") or ltp)
+        deployed += fill * qty
+        placed.append({
+            "symbol": sym, "side": "long", "qty": qty,
+            "weight": weight, "slice_inr": round(slice_inr, 2),
+            "fill_price": fill, "status": str(r.get("status", "")),
+            "order_id": str(r.get("order_id", "")),
+        })
+
+    return {
+        "legs": placed,
+        "n_filled": sum(1 for o in placed if o.get("status") not in {"failed", "no_price", "slice_too_small"}),
+        "total_deployed_inr": round(deployed, 2),
+        "client_request_id": parent_req,
+    }
+
+
+@register_step(
+    step_type="action.squareoff_all",
+    category="action",
+    label="Square off everything",
+    description=(
+        "Close every open position — long AND short — at the trigger "
+        "bar's close. Companion exit step for action.allocate_basket."
+    ),
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffAllConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "n_filled": {"type": "integer"},
+        },
+        "required": ["orders", "n_filled"],
+    },
+)
+async def execute_action_squareoff_all(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Close every open position. Walks Kite positions (both products),
+    sends opposite-side market orders to flatten each. Backtest fills
+    at close (consistent with squareoff_all_intraday); live executor
+    matches the broker's standard squareoff path."""
+    from backend.kite.portfolio import get_positions
+
+    token = _kite_token_for_run(ctx)
+    positions = get_positions(token)
+    legs = _build_squareoff_legs(
+        positions, product_filter="MIS", symbol_filter=None,
+    ) + _build_squareoff_legs(
+        positions, product_filter="CNC", symbol_filter=None,
+    )
+    parent_req = (
+        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}:{ctx.attempts}"
+    )
+    placed: list[dict] = []
+    skipped: list[dict] = []
+    for i, leg in enumerate(legs):
+        leg_req = f"{parent_req}:leg{i}:{leg['symbol']}"
+        try:
+            r = place_order(
+                access_token=token,
+                tradingsymbol=leg["symbol"],
+                exchange=leg["exchange"],
+                transaction_type=leg["transaction_type"],
+                quantity=leg["quantity"],
+                product=leg.get("product", "CNC"),
+                order_type="MARKET",
+                client_request_id=leg_req,
+            )
+            placed.append({
+                "symbol": leg["symbol"],
+                "side": leg["transaction_type"],
+                "qty": leg["quantity"],
+                "order_id": str(r.get("order_id", "")),
+            })
+        except Exception as e:
+            skipped.append({"symbol": leg["symbol"], "reason": str(e)[:160]})
+    return {
+        "orders": placed,
+        "skipped": skipped,
+        "n_filled": len(placed),
+        "scope": "all",
     }
 
 
