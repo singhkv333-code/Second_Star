@@ -178,6 +178,7 @@ class LLMOpenAI(LLMClient):
             reasoning_effort=reasoning_effort,
             prompt_cache_key=prompt_cache_key,
             max_output_tokens=max_output_tokens,
+            provider=self.provider_name,
         )
 
         if not self._api_key:
@@ -396,6 +397,7 @@ async def stream_openai(
         reasoning_effort=reasoning_effort,
         prompt_cache_key=prompt_cache_key,
         max_output_tokens=max_output_tokens,
+        provider=client.provider_name,
     )
 
     if not client._api_key:

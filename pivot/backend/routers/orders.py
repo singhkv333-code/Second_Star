@@ -8,6 +8,7 @@ from backend.models import TradeLog, User
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.kite import orders as kite_orders
 from backend.kite import portfolio as kite_portfolio
+from backend.kite.auth import read_kite_access_token
 from backend.agents.explainer import explain_order
 from backend.safety import validate_order_value, is_market_open, REQUIRE_CONFIRMATION
 from backend.utils.time_utils import format_ist, now_ist
@@ -129,7 +130,7 @@ async def confirm_order(
     user = db.query(User).filter(User.id == user_id).first()
     kite_token = "mock_token"
     if user and user.kite_session:
-        kite_token = user.kite_session.access_token
+        kite_token = read_kite_access_token(user.kite_session) or "mock_token"
 
     result = kite_orders.place_order(
         access_token=kite_token,
@@ -329,7 +330,11 @@ async def create_gtt_order(
             "is_confirmed": False,
         }
     user = db.query(User).filter(User.id == user_id).first()
-    kite_token = user.kite_session.access_token if user and user.kite_session else "mock"
+    kite_token = (
+        read_kite_access_token(user.kite_session)
+        if user and user.kite_session
+        else "mock"
+    ) or "mock"
     return kite_orders.place_gtt_order(
         access_token=kite_token,
         tradingsymbol=request.tradingsymbol,

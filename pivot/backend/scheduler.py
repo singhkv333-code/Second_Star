@@ -144,6 +144,7 @@ async def execute_due_sips():
     Places market orders via Kite. Updates next_execution_at in DB.
     """
     from backend.database import SessionLocal
+    from backend.kite.auth import read_kite_access_token
     from backend.models import SIPSchedule, TradeLog, User
     from backend.kite.orders import place_order
     from backend.cache import get_redis
@@ -187,10 +188,10 @@ async def execute_due_sips():
 
                 user = db.query(User).filter(User.id == sip.user_id).first()
                 kite_token = (
-                    user.kite_session.access_token
+                    read_kite_access_token(user.kite_session)
                     if user and user.kite_session
-                    else "mock_token"
-                )
+                    else ""
+                ) or "mock_token"
 
                 result = place_order(
                     access_token=kite_token,

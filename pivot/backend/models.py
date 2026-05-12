@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     JSON,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -493,3 +494,29 @@ class ConversationMessage(Base):
     )
 
     conversation = relationship("Conversation", back_populates="messages")
+
+
+class LlmUsage(Base):
+    """One row per LLM API call. Drives cost dashboards.
+
+    Indexed for the two queries we'll actually run:
+      - "spend by user in the last 24h"
+      - "spend by model in the last 7d"
+    """
+    __tablename__ = "llm_usage"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    conversation_id = Column(String(64), nullable=True, index=True)
+    turn_id = Column(String(64), nullable=True)
+    request_id = Column(String(64), nullable=True, index=True)
+    endpoint = Column(String(64), nullable=False)    # "chat", "propose", "router", "agentic", ...
+    provider = Column(String(32), nullable=False)    # "openai" | "sarvam"
+    model = Column(String(64), nullable=False)
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    reasoning_tokens = Column(Integer, nullable=False, default=0)
+    total_tokens = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Numeric(12, 6), nullable=False, default=0)
+    latency_ms = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)

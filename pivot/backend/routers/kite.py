@@ -35,10 +35,12 @@ from backend.kite.auth import (
     exchange_request_token,
     get_login_url,
     masked_credentials_status,
+    read_kite_access_token,
     set_kite_credentials,
     verify_token_valid,
 )
 from backend.models import KiteSession, User
+from backend.security.encryption import get_cipher
 
 router = APIRouter(prefix="/kite", tags=["Kite"])
 
@@ -103,8 +105,20 @@ def _upsert_session(db: Session, user_id: int, *, access_token: str,
     if session is None:
         session = KiteSession(user_id=user_id)
         db.add(session)
-    session.access_token = access_token
-    session.request_token = request_token
+    # Encrypt at-rest if a cipher is configured. Plaintext is preserved
+    # in dev (no KITE_TOKEN_ENC_KEY) so contributors don't need to
+    # manage a key locally.
+    cipher = get_cipher()
+    if cipher is not None:
+        stored_access = cipher.encrypt(access_token) or ""
+        stored_request = (
+            cipher.encrypt(request_token) if request_token else request_token
+        )
+    else:
+        stored_access = access_token
+        stored_request = request_token
+    session.access_token = stored_access
+    session.request_token = stored_request
     session.kite_user_id = kite_user_id
     session.login_time = now
     # Kite tokens expire daily at 06:00 IST, but we don't try to be precise —
@@ -342,7 +356,7 @@ def kite_place_test_order(
         )
 
     common = dict(
-        access_token=session.access_token,
+        access_token=read_kite_access_token(session),
         tradingsymbol="TCS",
         exchange="BSE",
         transaction_type="BUY",
@@ -387,7 +401,7 @@ def kite_cancel_test_order(
         raise HTTPException(status_code=400, detail="No Kite session.")
     try:
         result = kite_orders.cancel_order(
-            access_token=session.access_token,
+            access_token=read_kite_access_token(session),
             order_id=body.order_id,
             variety=body.variety,
         )
@@ -408,7 +422,7 @@ def kite_verify(
     session = user.kite_session
     if not session or not session.is_active:
         return {"valid": False, "connected": False, "mock_mode": KITE_MOCK_MODE}
-    valid = verify_token_valid(session.access_token)
+    valid = verify_token_valid(read_kite_access_token(session))
     if not valid:
         session.is_active = False
         db.commit()

@@ -53,7 +53,10 @@ def _kite_token_for_run(ctx: Any) -> str:
         .first()
     )
     if user and user.kite_session and user.kite_session.access_token:
-        return str(user.kite_session.access_token)
+        from backend.kite.auth import read_kite_access_token
+        token = read_kite_access_token(user.kite_session)
+        if token:
+            return token
     return "mock_token"
 
 

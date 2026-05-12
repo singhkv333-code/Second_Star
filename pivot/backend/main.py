@@ -1,11 +1,24 @@
+# ruff: noqa: E402
+# Logging must be configured before the rest of the backend is imported
+# so every module-level `logging.getLogger(__name__)` inherits the
+# structlog-backed root handler. That forces the call ordering you see
+# below — the file-level noqa silences ruff's import-position checker.
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-import logging
+import structlog
 
 from backend.config import settings
+from backend.observability.logging_setup import configure_logging
+from backend.observability.request_context import RequestContextMiddleware
+
+configure_logging()
+from backend.observability.sentry_setup import configure_sentry
+configure_sentry()
+logger = structlog.get_logger(__name__)
+
 from backend.database import SessionLocal
 from backend.cache import redis_client
 from backend.auth.router import router as auth_router
@@ -36,9 +49,6 @@ from backend.routers.stock_automations import router as stock_automations_router
 from backend.routers.news import router as news_router
 from backend.routers.admin import router as admin_router
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 app = FastAPI(
     title="Pivot API",
     description="AI-powered investing platform for Indian retail investors",
@@ -54,6 +64,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Per-request context middleware. Must be registered AFTER CORS so
+# preflight (OPTIONS) responses also carry an X-Request-ID header.
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(auth_router)
 app.include_router(orders_router)

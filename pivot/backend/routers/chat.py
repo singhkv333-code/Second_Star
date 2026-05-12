@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
+from backend.kite.auth import read_kite_access_token
 from backend.models import User
 from backend.services.chat_service import ChatService, UserContext
 
@@ -71,7 +72,7 @@ def _last_user_message(messages: list) -> str:
 def _kite_token_for(db: Session, user_id: int) -> str:
     user = db.query(User).filter(User.id == user_id).first()
     if user and getattr(user, "kite_session", None):
-        return user.kite_session.access_token
+        return read_kite_access_token(user.kite_session) or "mock_token"
     return "mock_token"
 
 

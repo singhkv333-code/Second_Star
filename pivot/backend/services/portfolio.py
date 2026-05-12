@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from backend.kite.auth import read_kite_access_token
 from backend.kite.portfolio import (
     get_holdings,
     get_margins,
@@ -27,7 +28,7 @@ def _kite_token_for_user(user_id: int, db: Session) -> str:
     up the mock data path. Mirrors routers/portfolio.py."""
     user = db.query(User).filter(User.id == user_id).first()
     if user and user.kite_session and user.kite_session.access_token:
-        return str(user.kite_session.access_token)
+        return read_kite_access_token(user.kite_session) or "mock_token"
     return "mock_token"
 
 

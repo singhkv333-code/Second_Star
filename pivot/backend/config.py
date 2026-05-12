@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Kite
     kite_api_key: str = ""
     kite_api_secret: str = ""
+    # Phase 0: token encryption at rest. Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    kite_token_enc_key: str = ""
 
     # AI
     sarvam_api_key: str = ""
@@ -35,8 +38,15 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     app_version: str = "0.1.0"
+    # Phase 0: error reporting. Leave dsn blank to disable.
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"
     frontend_url: str = "http://localhost:5173"
+
+    # --- Observability ----------------------------------------------------------
+    log_format: str = "console"   # "json" | "console"
+    log_level: str = "INFO"
 
     @property
     def allowed_origins_list(self) -> list[str]:

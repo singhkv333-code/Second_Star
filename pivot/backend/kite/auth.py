@@ -12,6 +12,7 @@ from typing import Optional
 import pyotp
 
 from backend.config import settings
+from backend.security.encryption import get_cipher
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,31 @@ def get_authenticated_kite(access_token: str):
     kite = KiteConnect(api_key=settings.kite_api_key)  # type: ignore[misc]
     kite.set_access_token(access_token)
     return kite
+
+
+def read_kite_access_token(session: Optional["object"]) -> str:
+    """Return the plaintext access_token from a KiteSession row.
+
+    Decrypts at-rest ciphertext through the process-wide
+    :class:`TokenCipher` when one is configured. Tolerates legacy
+    plaintext rows (the cipher's ``decrypt`` short-circuits when the
+    Fernet prefix is missing), so this is safe to call both before and
+    after the encryption migration runs.
+
+    Returns an empty string when ``session`` is falsy or the column is
+    NULL — callers can then route to mock mode via the existing
+    ``"mock_token"`` shim.
+    """
+    if session is None:
+        return ""
+    raw = getattr(session, "access_token", None)
+    if not raw:
+        return ""
+    cipher = get_cipher()
+    if cipher is None:
+        return str(raw)
+    plain = cipher.decrypt(str(raw))
+    return plain or ""
 
 
 def verify_token_valid(access_token: str) -> bool:

@@ -26,6 +26,7 @@ from typing import Any, Literal, Optional
 import httpx
 
 from backend.config import settings
+from backend.llm._trace import CallTrace
 from backend.llm.base import (
     FinishReason,
     LLMClient,
@@ -191,126 +192,161 @@ class LLMSarvam(LLMClient):
         response_format: Optional[Literal["json_object"]] = None,
         prompt_cache_key: Optional[str] = None,  # noqa: ARG002 — Sarvam has no prompt cache
     ) -> LLMResponse:
-        if self._mock_mode:
-            return self._mock_response(messages)
-
-        # Find or split the system message; we re-prepend our own
-        # tool-instruction text after it.
-        system_text = ""
-        body_msgs: list[LLMMessage] = []
-        for m in messages:
-            if m.role == "system" and not system_text:
-                system_text = m.content
-            else:
-                body_msgs.append(m)
-        if tools:
-            instruction = _build_tool_instruction(tools)
-            system_text = f"{system_text}\n\n{instruction}" if system_text else instruction
-            if max_output_tokens < 600:
-                max_output_tokens = 600
-
-        payload_messages = _messages_to_payload(body_msgs, system_text)
-
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": payload_messages,
-            "temperature": temperature,
-            "max_tokens": max_output_tokens,
-        }
-        if response_format == "json_object":
-            payload["response_format"] = {"type": "json_object"}
-
-        truncation_retried = False
-        started = time.monotonic()
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
-                    response = await client.post(
-                        SARVAM_API_URL,
-                        headers={
-                            "Authorization": f"Bearer {self._api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        json=payload,
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    choice = data["choices"][0]["message"]
-                    raw = choice.get("content") or ""
-                    cleaned = _strip_think_blocks(raw)
-
-                    tool_call: Optional[dict[str, Any]] = None
-                    if tools:
-                        cleaned, tool_call = _extract_emulated_tool_call(cleaned)
-
-                    if (not tool_call and not truncation_retried
-                            and _is_truncated(raw, cleaned)):
-                        truncation_retried = True
-                        payload["max_tokens"] = min(payload["max_tokens"] * 3, 2048)
-                        logger.warning(
-                            "Sarvam truncated; retrying with max_tokens=%d",
-                            payload["max_tokens"],
-                        )
-                        continue
-
-                    latency_ms = int((time.monotonic() - started) * 1000)
-                    usage = data.get("usage") or {}
-                    return LLMResponse(
-                        content=cleaned or None,
-                        tool_calls=(
-                            [{
-                                "id": "sarvam_emulated_0",
-                                "name": tool_call["name"],
-                                "arguments": tool_call["arguments"],
-                            }] if tool_call else None
-                        ),
-                        finish_reason="tool_calls" if tool_call else "stop",
-                        input_tokens=int(usage.get("prompt_tokens", 0) or 0),
-                        output_tokens=int(usage.get("completion_tokens", 0) or 0),
-                        latency_ms=latency_ms,
-                        model=data.get("model", self.model),
-                        raw=data,
-                    )
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429 and attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                if (
-                    e.response.status_code == 422
-                    and attempt < MAX_RETRIES - 1
-                    and "context window" in e.response.text.lower()
-                ):
-                    payload["max_tokens"] = max(300, payload["max_tokens"] // 2)
-                    logger.warning(
-                        "Sarvam 422 context overflow; retrying with max_tokens=%d",
-                        payload["max_tokens"],
-                    )
-                    continue
-                logger.error("Sarvam %s: %s", e.response.status_code, e.response.text[:300])
-                return LLMResponse(
-                    content=f"Sarvam {e.response.status_code}: {e.response.text[:200]}",
-                    finish_reason="error",
-                    model=self.model,
-                    raw={"http_status": e.response.status_code, "body": e.response.text[:500]},
-                )
-            except Exception as e:
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(1)
-                    continue
-                logger.error("Sarvam failed after %d attempts: %s", MAX_RETRIES, e)
-                return LLMResponse(
-                    content=f"Sarvam transport error: {type(e).__name__}: {e}",
-                    finish_reason="error",
-                    model=self.model,
-                    raw={"transport_error": str(e)},
-                )
-
-        return LLMResponse(
-            content="Sarvam exhausted retries",
-            finish_reason="error",
+        # CallTrace wraps the whole call: it owns the cost-ledger hand-off
+        # in __exit__. We MUST call ``t.set_response(...)`` before each
+        # return path so the ledger sees the token counts; the try/finally
+        # below is the belt-and-brace for unexpected exception escapes.
+        trace = CallTrace(
+            kind="complete",
+            messages=messages,
+            tools=tools,
             model=self.model,
+            reasoning_effort=reasoning_effort,
+            prompt_cache_key=prompt_cache_key,
+            max_output_tokens=max_output_tokens,
+            provider=self.provider_name,
         )
+
+        final_response: Optional[LLMResponse] = None
+        with trace as t:
+            try:
+                if self._mock_mode:
+                    final_response = self._mock_response(messages)
+                    t.set_response(final_response)
+                    return final_response
+
+                # Find or split the system message; we re-prepend our own
+                # tool-instruction text after it.
+                system_text = ""
+                body_msgs: list[LLMMessage] = []
+                for m in messages:
+                    if m.role == "system" and not system_text:
+                        system_text = m.content
+                    else:
+                        body_msgs.append(m)
+                if tools:
+                    instruction = _build_tool_instruction(tools)
+                    system_text = f"{system_text}\n\n{instruction}" if system_text else instruction
+                    if max_output_tokens < 600:
+                        max_output_tokens = 600
+
+                payload_messages = _messages_to_payload(body_msgs, system_text)
+
+                payload: dict[str, Any] = {
+                    "model": self.model,
+                    "messages": payload_messages,
+                    "temperature": temperature,
+                    "max_tokens": max_output_tokens,
+                }
+                if response_format == "json_object":
+                    payload["response_format"] = {"type": "json_object"}
+
+                truncation_retried = False
+                started = time.monotonic()
+
+                for attempt in range(MAX_RETRIES):
+                    try:
+                        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+                            response = await client.post(
+                                SARVAM_API_URL,
+                                headers={
+                                    "Authorization": f"Bearer {self._api_key}",
+                                    "Content-Type": "application/json",
+                                },
+                                json=payload,
+                            )
+                            response.raise_for_status()
+                            data = response.json()
+                            choice = data["choices"][0]["message"]
+                            raw = choice.get("content") or ""
+                            cleaned = _strip_think_blocks(raw)
+
+                            tool_call: Optional[dict[str, Any]] = None
+                            if tools:
+                                cleaned, tool_call = _extract_emulated_tool_call(cleaned)
+
+                            if (not tool_call and not truncation_retried
+                                    and _is_truncated(raw, cleaned)):
+                                truncation_retried = True
+                                payload["max_tokens"] = min(payload["max_tokens"] * 3, 2048)
+                                logger.warning(
+                                    "Sarvam truncated; retrying with max_tokens=%d",
+                                    payload["max_tokens"],
+                                )
+                                continue
+
+                            latency_ms = int((time.monotonic() - started) * 1000)
+                            usage = data.get("usage") or {}
+                            final_response = LLMResponse(
+                                content=cleaned or None,
+                                tool_calls=(
+                                    [{
+                                        "id": "sarvam_emulated_0",
+                                        "name": tool_call["name"],
+                                        "arguments": tool_call["arguments"],
+                                    }] if tool_call else None
+                                ),
+                                finish_reason="tool_calls" if tool_call else "stop",
+                                input_tokens=int(usage.get("prompt_tokens", 0) or 0),
+                                output_tokens=int(usage.get("completion_tokens", 0) or 0),
+                                latency_ms=latency_ms,
+                                model=data.get("model", self.model),
+                                raw=data,
+                            )
+                            t.set_response(final_response)
+                            return final_response
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code == 429 and attempt < MAX_RETRIES - 1:
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        if (
+                            e.response.status_code == 422
+                            and attempt < MAX_RETRIES - 1
+                            and "context window" in e.response.text.lower()
+                        ):
+                            payload["max_tokens"] = max(300, payload["max_tokens"] // 2)
+                            logger.warning(
+                                "Sarvam 422 context overflow; retrying with max_tokens=%d",
+                                payload["max_tokens"],
+                            )
+                            continue
+                        logger.error("Sarvam %s: %s", e.response.status_code, e.response.text[:300])
+                        final_response = LLMResponse(
+                            content=f"Sarvam {e.response.status_code}: {e.response.text[:200]}",
+                            finish_reason="error",
+                            model=self.model,
+                            raw={"http_status": e.response.status_code, "body": e.response.text[:500]},
+                        )
+                        t.set_response(final_response)
+                        return final_response
+                    except Exception as e:
+                        if attempt < MAX_RETRIES - 1:
+                            await asyncio.sleep(1)
+                            continue
+                        logger.error("Sarvam failed after %d attempts: %s", MAX_RETRIES, e)
+                        final_response = LLMResponse(
+                            content=f"Sarvam transport error: {type(e).__name__}: {e}",
+                            finish_reason="error",
+                            model=self.model,
+                            raw={"transport_error": str(e)},
+                        )
+                        t.set_response(final_response)
+                        return final_response
+
+                final_response = LLMResponse(
+                    content="Sarvam exhausted retries",
+                    finish_reason="error",
+                    model=self.model,
+                )
+                t.set_response(final_response)
+                return final_response
+            finally:
+                # If an unexpected exception escapes the loop entirely
+                # (e.g. an asyncio.CancelledError), make sure the trace
+                # still sees whatever partial response we constructed so
+                # the cost ledger row reflects what happened.
+                if final_response is not None:
+                    t.set_response(final_response)
 
     def _mock_response(self, messages: list[LLMMessage]) -> LLMResponse:
         last = next((m.content for m in reversed(messages) if m.role == "user"), "")

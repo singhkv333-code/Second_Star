@@ -47,8 +47,12 @@ pytz==2024.2
 # JSON Schema validation (workflow step config validation, draft 2020-12)
 jsonschema==4.23.0
 
-# Logging
+# Logging + observability
 structlog==24.4.0
+sentry-sdk[fastapi]==2.18.0
+
+# Encryption (Fernet for Kite tokens at rest)
+cryptography==43.0.1
 
 # Testing
 pytest==8.3.3

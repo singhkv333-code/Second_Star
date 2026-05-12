@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import User, ProductPosition
 from backend.auth.jwt_handler import get_user_id_from_token
+from backend.kite.auth import read_kite_access_token
 from backend.kite.portfolio import get_holdings, get_portfolio_summary, get_margins
 from backend.services.portfolio_cache import (
     get_summary_cached, get_holdings_cached,
@@ -36,7 +37,7 @@ def get_user_id(authorization: str = Header(None)) -> int:
 def get_kite_token(user_id: int, db: Session) -> str:
     user = db.query(User).filter(User.id == user_id).first()
     if user and user.kite_session and user.kite_session.access_token:
-        return user.kite_session.access_token
+        return read_kite_access_token(user.kite_session) or "mock_token"
     return "mock_token"
 
 
