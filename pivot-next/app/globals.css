@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;550;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -99,12 +99,19 @@
     --color-profit: #059669;
     --color-loss:   #dc2626;
     --color-warn:   #d97706;
+    --pivot-blue:   #051650;
+    --price-line:   #0f172a;
 
     /* Typography */
     --font-display: 'Inter', system-ui, sans-serif;
     --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, monospace;
     --font-ui:      'Inter', system-ui, sans-serif;
-    --font-serif:   'Fraunces', 'Times New Roman', Georgia, serif;
+    --font-serif:   'Newsreader', 'Times New Roman', Georgia, serif;
+
+    /* Experiment slot — applied ONLY to the topbar Pivot wordmark and
+       the chat greeting ("Good morning, …"). Swap this single value to
+       try different serifs without touching component code. */
+    --font-experiment: 'Newsreader', Georgia, serif;
     --weight-display: 550;
     --weight-medium:  500;
     --weight-bold:    700;
@@ -201,6 +208,8 @@
     --color-profit: #10b981;
     --color-loss:   #ef4444;
     --color-warn:   #f59e0b;
+    --pivot-blue:   #60a5fa;
+    --price-line:   #e2e8f0;
   }
 }
 
@@ -251,6 +260,19 @@
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+@keyframes draftCardIn-quartr {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes stepIn-quartr {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes savedCheck-quartr {
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { opacity: 1; transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
 
 /* ─── Quartr utility classes (used by chat surface + topbar) ───────── */
 .q-display {
@@ -266,7 +288,7 @@
 .q-mono { font-family: var(--font-mono); }
 
 .q-greeting {
-  font-family: var(--font-serif);
+  font-family: var(--font-experiment);
   font-weight: var(--weight-display);
   font-size: clamp(36px, 4vw, 46px);
   letter-spacing: -0.04em;
@@ -359,4 +381,29 @@
   );
   background-size: 200% 100%;
   animation: wittyShimmer 2.4s linear infinite;
+}
+
+/* Hide native browser clear button on the topbar global search; we
+   render a Lucide X clear control next to the input that matches the
+   rest of the chrome's typography. */
+.global-search-input::-webkit-search-cancel-button,
+.global-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.global-search-input::-ms-clear,
+.global-search-input::-ms-reveal {
+  display: none;
+}
+
+/* Inline "Copied" badge animation — slides up + fades in when the
+   copy button flips state, sits next to the icon for ~1.5s. */
+@keyframes copyToast {
+  0%   { opacity: 0; transform: translateY(4px); }
+  20%  { opacity: 1; transform: translateY(0);   }
+  80%  { opacity: 1; transform: translateY(0);   }
+  100% { opacity: 0; transform: translateY(-2px); }
+}
+.copy-toast {
+  animation: copyToast 1.5s var(--ease-quartr) forwards;
 }

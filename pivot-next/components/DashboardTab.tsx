@@ -194,7 +194,7 @@ export function DashboardTab({
         <IndexStrip state={indices} />
       </div>
 
-      {/* Greeting — Fraunces, 36–46px, weight 550, tight tracking */}
+      {/* Greeting — serif (--font-experiment), 36–46px, weight 550, tight tracking */}
       {displayName !== null ? (
         <h1 className="q-greeting" data-testid="dashboard-greeting">
           {greeting}, {displayName}!
@@ -372,6 +372,7 @@ function IndexCard({ quote }: { quote: IndexQuote }): React.ReactElement {
           border: positive
             ? "1px solid rgba(16, 185, 129, 0.25)"
             : "1px solid rgba(239, 68, 68, 0.25)",
+          whiteSpace: "nowrap",
         }}
       >
         {fmtChange(quote.change, quote.change_pct)}

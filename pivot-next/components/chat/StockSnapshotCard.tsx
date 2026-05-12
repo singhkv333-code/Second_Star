@@ -7,10 +7,6 @@
  * Data sources:
  *   GET /api/markets/quote/{symbol}     — price, OHLC, 52w, mcap, PE
  *   GET /api/markets/sparkline/{symbol} — area-fill chart with range chips
- *
- * Recommendation pill: derived from change_pct rule-of-thumb.
- * Buy/Sell buttons: open AgentPanel with a prefilled one-step workflow.
- * Watchlist button: POST action.update_watchlist workflow.
  */
 
 import { useEffect, useState } from "react";
@@ -34,9 +30,7 @@ import { isError } from "@/lib/types";
 export type StockSnapshotCardProps = {
   symbol: string;
   exchange?: "NSE" | "BSE";
-  /** Called when user clicks Buy or Sell — parent opens AgentPanel with draft. */
   onTrade?: (symbol: string, side: "buy" | "sell") => void;
-  /** Called when user clicks Watchlist. */
   onWatchlist?: (symbol: string) => void;
 };
 
@@ -53,16 +47,7 @@ type SparklineState =
 const RANGES: SparklineRange[] = ["1D", "1W", "1M", "6M", "1Y", "5Y"];
 
 // ---------------------------------------------------------------------------
-// (Recommendation pill removed.) Showing BUY / HOLD / SELL on a snapshot
-// card crosses Pivot's "no advisory" line — the user asked for a quote,
-// not a recommendation. Per PDF report, the pill was misleading and
-// based on intraday change_pct only. The card now leads with the
-// company name + ticker + sector, and lets price + chart speak for
-// themselves.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// INR formatter
+// Formatters
 // ---------------------------------------------------------------------------
 
 function fmtINR(n: number | null | undefined): string {
@@ -104,19 +89,8 @@ export function StockSnapshotCard({
   const [sparkState, setSparkState] = useState<SparklineState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("1Y");
 
-  // Default actions when the parent didn't pass callbacks. Buy/Sell
-  // both route to the stock detail page (which already has order
-  // entry); Watchlist nudges to the same page until a dedicated
-  // endpoint exists. Previously these buttons were dead clicks when
-  // the card was rendered from chat (PDF report: "buttons on the
-  // widgets don't do anything").
-  //
-  // We use window.location instead of next/navigation's useRouter()
-  // because the card is rendered both inside the Next App Router (so
-  // a router IS mounted) and inside testing-library tests that mount
-  // the component bare. Calling useRouter() unconditionally throws
-  // "invariant expected app router to be mounted" in the test env;
-  // window.location works in both.
+  // window.location instead of useRouter so the card mounts cleanly under
+  // testing-library (no app-router context).
   const navigate = (path: string): void => {
     if (typeof window !== "undefined") {
       window.location.assign(path);
@@ -168,11 +142,11 @@ export function StockSnapshotCard({
   if (quoteState.kind === "loading") {
     return (
       <div
-        className="flex w-full max-w-lg items-center justify-center rounded-xl border bg-card p-8"
+        className="flex w-full max-w-md items-center justify-center rounded-[14px] border border-border/70 bg-card p-10"
         data-testid="stock-snapshot-loading"
         aria-label="Loading stock snapshot"
       >
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden={true} />
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden={true} />
       </div>
     );
   }
@@ -180,7 +154,7 @@ export function StockSnapshotCard({
   if (quoteState.kind === "error") {
     return (
       <div
-        className="flex w-full max-w-lg items-center gap-2 rounded-xl border bg-card px-4 py-3"
+        className="flex w-full max-w-md items-center gap-2 rounded-[14px] border border-border/70 bg-card px-4 py-3"
         role="alert"
         data-testid="stock-snapshot-error"
       >
@@ -192,13 +166,8 @@ export function StockSnapshotCard({
 
   const { quote } = quoteState;
   const positive = quote.change >= 0;
-  // Period-relative direction for the chart color: green if the
-  // selected range CLOSED higher than it opened, red otherwise. The
-  // header ▲/▼ pill stays driven by today's change. Without this,
-  // a stock that's up over 5Y but down today rendered the chart in
-  // red — confusing for users looking at the long-term shape (PDF
-  // report: "graph should be green for growth according to the
-  // timeline").
+  // Color the chart by the selected period's direction, not today's tick —
+  // a 5Y up trend that's red on the day shouldn't render the chart red.
   let periodPositive = positive;
   if (sparkState.kind === "ok" && sparkState.points.length >= 2) {
     const first = sparkState.points[0]?.v;
@@ -216,63 +185,78 @@ export function StockSnapshotCard({
 
   return (
     <div
-      className="w-full max-w-sm rounded-xl border bg-card shadow-sm overflow-hidden"
+      className="w-full max-w-md overflow-hidden rounded-[14px] border border-border/70 bg-card"
       data-testid="stock-snapshot-card"
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 px-4 pt-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
-              {quote.symbol}
+      {/* Header — eyebrow chip + serif company name + price block */}
+      <div className="flex items-start justify-between gap-4 px-5 pt-4 pb-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="q-uppercase-label !text-[10px]">
+              {quote.exchange} · {quote.sector ?? "Equity"}
             </span>
           </div>
-          <h3 className="mt-1 font-serif text-base font-semibold text-foreground">
+          <h3 className="mt-1.5 truncate text-[17px] leading-tight font-semibold tracking-tight text-foreground">
             {quote.name || quote.symbol}
           </h3>
-          <p className="text-[11px] text-muted-foreground">
-            {quote.symbol} · {quote.exchange} · {quote.sector ?? "EQUITY"}
+          <p className="mt-0.5 font-mono text-[10.5px] uppercase tracking-wider text-muted-foreground">
+            {quote.symbol}
           </p>
         </div>
 
-        {/* Price */}
         <div className="text-right shrink-0">
-          <p className="font-serif text-xl font-semibold tabular-nums text-foreground">
+          <p className="text-[20px] leading-none font-semibold tabular-nums text-foreground tracking-tight">
             {fmtINR(quote.ltp)}
           </p>
-          <div className="flex items-center justify-end gap-1 mt-0.5">
+          <div className="mt-1.5 flex items-center justify-end gap-1">
             {positive ? (
-              <TrendingUp className="h-3.5 w-3.5 text-emerald-500" aria-hidden={true} />
+              <TrendingUp className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden={true} />
             ) : (
-              <TrendingDown className="h-3.5 w-3.5 text-rose-500" aria-hidden={true} />
+              <TrendingDown className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" aria-hidden={true} />
             )}
             <span
               className={cn(
-                "text-xs font-medium tabular-nums",
+                "text-[11.5px] font-medium tabular-nums",
                 positive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
               )}
             >
               {positive ? "+" : ""}{fmtINR(quote.change)} ({positive ? "+" : ""}{fmtNum(quote.change_pct)}%)
             </span>
           </div>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Today · {timeStr} IST</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground/80">{timeStr} IST</p>
         </div>
       </div>
 
-      {/* Sparkline */}
-      <div className="px-4 pt-3">
-        {/* Range chips */}
-        <div className="flex items-center gap-1 mb-2">
+      {/* Sparkline — full bleed */}
+      <div className="px-5">
+        <div className="h-[88px]">
+          {sparkState.kind === "loading" && (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" aria-hidden={true} />
+            </div>
+          )}
+          {sparkState.kind === "ok" && sparkState.points.length > 0 && (
+            <SparkAreaChart points={sparkState.points} positive={periodPositive} />
+          )}
+          {(sparkState.kind === "hidden" || (sparkState.kind === "ok" && sparkState.points.length === 0)) && (
+            <div className="flex h-full items-center justify-center">
+              <Minus className="h-4 w-4 text-muted-foreground/30" aria-hidden={true} />
+            </div>
+          )}
+        </div>
+
+        {/* Range chips — flat, segmented */}
+        <div className="mt-2 flex items-center justify-between gap-1 pb-3">
           {RANGES.map((r) => (
             <button
               key={r}
               type="button"
               onClick={() => setRange(r)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors",
+                "flex-1 rounded-md py-1 text-[10.5px] font-medium tracking-wide transition-colors",
                 r === range
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               aria-pressed={r === range}
               data-testid={`range-${r}`}
@@ -281,45 +265,27 @@ export function StockSnapshotCard({
             </button>
           ))}
         </div>
-
-        {/* Chart area */}
-        <div className="h-24">
-          {sparkState.kind === "loading" && (
-            <div className="flex h-full items-center justify-center">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden={true} />
-            </div>
-          )}
-          {sparkState.kind === "ok" && sparkState.points.length > 0 && (
-            <SparkAreaChart
-              points={sparkState.points}
-              positive={periodPositive}
-            />
-          )}
-          {(sparkState.kind === "hidden" || (sparkState.kind === "ok" && sparkState.points.length === 0)) && (
-            <div className="flex h-full items-center justify-center">
-              <Minus className="h-4 w-4 text-muted-foreground/40" aria-hidden={true} />
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Stat grid */}
-      <div className="grid grid-cols-4 gap-px border-y bg-border mx-4 my-3 rounded-lg overflow-hidden">
-        <StatCell label="OPEN" value={fmtINR(quote.open)} />
-        <StatCell label="DAY HIGH" value={fmtINR(quote.high)} />
-        <StatCell label="DAY LOW" value={fmtINR(quote.low)} />
-        <StatCell label="VOLUME" value={fmtNum(quote.volume, 0)} />
-        <StatCell label="52W HIGH" value={fmtINR(quote.week_52_high)} />
-        <StatCell label="52W LOW" value={fmtINR(quote.week_52_low)} />
-        <StatCell label="MKT CAP" value={fmtLarge(quote.market_cap)} />
-        <StatCell label="P/E" value={quote.pe_ratio != null ? fmtNum(quote.pe_ratio, 1) : "—"} />
+      {/* Stat grid — hairline dividers, no fills */}
+      <div className="grid grid-cols-4 border-t border-border/60">
+        <StatCell label="Open" value={fmtINR(quote.open)} />
+        <StatCell label="High" value={fmtINR(quote.high)} />
+        <StatCell label="Low" value={fmtINR(quote.low)} />
+        <StatCell label="Volume" value={fmtNum(quote.volume, 0)} last />
+      </div>
+      <div className="grid grid-cols-4 border-t border-border/60">
+        <StatCell label="52w high" value={fmtINR(quote.week_52_high)} />
+        <StatCell label="52w low" value={fmtINR(quote.week_52_low)} />
+        <StatCell label="Mkt cap" value={fmtLarge(quote.market_cap)} />
+        <StatCell label="P/E" value={quote.pe_ratio != null ? fmtNum(quote.pe_ratio, 1) : "—"} last />
       </div>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-2 px-4 pb-4">
+      {/* Action bar */}
+      <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-3">
         <Button
           size="sm"
-          className="flex-1 h-8 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+          className="h-8 flex-1 rounded-full bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90"
           onClick={() => handleTrade(symbol, "buy")}
           data-testid="buy-btn"
         >
@@ -327,22 +293,22 @@ export function StockSnapshotCard({
         </Button>
         <Button
           size="sm"
-          className="flex-1 h-8 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs"
+          variant="outline"
+          className="h-8 flex-1 rounded-full text-[12px] font-medium border-border/70"
           onClick={() => handleTrade(symbol, "sell")}
           data-testid="sell-btn"
         >
           Sell
         </Button>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
-          className="h-8 rounded-full px-3 text-xs"
+          className="h-8 rounded-full px-3 text-[12px] font-medium text-muted-foreground hover:text-foreground"
           onClick={() => handleWatchlist(symbol)}
           data-testid="watchlist-btn"
           aria-label="Add to watchlist"
         >
-          <BookmarkPlus className="h-3.5 w-3.5 mr-1" aria-hidden={true} />
-          Watchlist
+          <BookmarkPlus className="h-3.5 w-3.5" aria-hidden={true} />
         </Button>
       </div>
     </div>
@@ -366,9 +332,9 @@ function SparkAreaChart({
   const range = max - min || 1;
 
   const W = 400;
-  const H = 80;
+  const H = 88;
   const PADDING_X = 2;
-  const PADDING_Y = 4;
+  const PADDING_Y = 6;
 
   const normalize = (v: number): number =>
     H - PADDING_Y - ((v - min) / range) * (H - PADDING_Y * 2);
@@ -383,7 +349,7 @@ function SparkAreaChart({
     `${xs[xs.length - 1]},${H}`,
   ].join(" ");
 
-  const color = positive ? "#10b981" : "#f43f5e"; // emerald-500 / rose-500
+  const color = positive ? "#10b981" : "#f43f5e";
 
   return (
     <svg
@@ -394,14 +360,13 @@ function SparkAreaChart({
     >
       <defs>
         <linearGradient id={`spark-grad-${positive ? "up" : "dn"}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.25} />
-          <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+          <stop offset="0%" stopColor={color} stopOpacity={0.18} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
       </defs>
       <polygon
         points={areaPoints}
         fill={`url(#spark-grad-${positive ? "up" : "dn"})`}
-        className="dark:opacity-70"
       />
       <polyline
         points={linePoints}
@@ -419,13 +384,28 @@ function SparkAreaChart({
 // Stat cell
 // ---------------------------------------------------------------------------
 
-function StatCell({ label, value }: { label: string; value: string }): React.ReactElement {
+function StatCell({
+  label,
+  value,
+  last,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}): React.ReactElement {
   return (
-    <div className="flex flex-col gap-0.5 bg-background px-2.5 py-2">
-      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div
+      className={cn(
+        "flex flex-col gap-0.5 px-3 py-2.5",
+        !last && "border-r border-border/60",
+      )}
+    >
+      <span className="text-[9.5px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
-      <span className="text-[11px] font-medium tabular-nums text-foreground">{value}</span>
+      <span className="text-[12px] font-medium tabular-nums text-foreground">
+        {value}
+      </span>
     </div>
   );
 }

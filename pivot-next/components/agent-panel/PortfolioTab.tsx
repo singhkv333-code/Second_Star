@@ -80,9 +80,18 @@ const SECTOR_MAP: Record<string, string> = {
   GOLDBEES: "Commodities",
 };
 
+// Vibrant Pivot palette — saturated 500-tier hexes, no violet/indigo/
+// fuchsia. Sky leads (brand accent), then emerald · amber · rose · cyan
+// · lime · teal · yellow for variety without going purple.
 const PALETTE = [
-  "#6366f1", "#22d3ee", "#f97316", "#10b981", "#ef4444",
-  "#a855f7", "#f59e0b", "#ec4899", "#14b8a6", "#84cc16", "#3b82f6",
+  "var(--pivot-blue)", // sky-500
+  "#10b981", // emerald-500
+  "#f59e0b", // amber-500
+  "#f43f5e", // rose-500
+  "#06b6d4", // cyan-500
+  "#84cc16", // lime-500
+  "#14b8a6", // teal-500
+  "#eab308", // yellow-500
 ];
 
 // ---------------------------------------------------------------------------
@@ -441,19 +450,35 @@ function PerformanceSvg({
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
 
-  const all = [...port, ...bench];
+  // Downsample to a fixed number of segments so the polyline reads as
+  // discrete straight lines (like a typical stock chart), not a dense
+  // ~365-point trace that visually averages into a smooth curve.
+  const TARGET_SEGMENTS = 52;
+  const downsample = (s: number[]): number[] => {
+    if (s.length <= TARGET_SEGMENTS + 1) return s;
+    const out: number[] = [];
+    for (let i = 0; i <= TARGET_SEGMENTS; i++) {
+      const idx = Math.round((i / TARGET_SEGMENTS) * (s.length - 1));
+      out.push(s[idx]!);
+    }
+    return out;
+  };
+  const portDs = downsample(port);
+  const benchDs = downsample(bench);
+
+  const all = [...portDs, ...benchDs];
   const minV = Math.min(...all);
   const maxV = Math.max(...all);
   const span = Math.max(1, maxV - minV);
 
-  const xAt = (i: number): number => padL + (i / (port.length - 1)) * innerW;
+  const xAt = (i: number): number => padL + (i / (portDs.length - 1)) * innerW;
   const yAt = (v: number): number => padT + (1 - (v - minV) / span) * innerH;
 
   const buildPath = (s: number[]): string =>
     s.map((v, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ");
-  const portPath = buildPath(port);
-  const benchPath = buildPath(bench);
-  const areaPath = `${portPath} L ${xAt(port.length - 1).toFixed(1)} ${(padT + innerH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(padT + innerH).toFixed(1)} Z`;
+  const portPath = buildPath(portDs);
+  const benchPath = buildPath(benchDs);
+  const areaPath = `${portPath} L ${xAt(portDs.length - 1).toFixed(1)} ${(padT + innerH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(padT + innerH).toFixed(1)} Z`;
 
   const yTicks = 4;
   const yLabels = Array.from({ length: yTicks }, (_, i) => {
@@ -465,6 +490,12 @@ function PerformanceSvg({
   const portReturnPct = ((port[port.length - 1]! - port[0]!) / port[0]!) * 100;
   const benchReturnPct = ((bench[bench.length - 1]! - bench[0]!) / bench[0]!) * 100;
   const alphaPct = portReturnPct - benchReturnPct;
+
+  // Green when portfolio is up over the range, red when down. Matches the
+  // P/L colors used everywhere else (--color-profit / --color-loss).
+  const isUp = portReturnPct >= 0;
+  const lineColor = isUp ? "var(--color-profit)" : "var(--color-loss)";
+  const fillStopColor = isUp ? "#10b981" : "#ef4444";
 
   return (
     <>
@@ -478,8 +509,8 @@ function PerformanceSvg({
         >
           <defs>
             <linearGradient id="perf-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#f97316" stopOpacity="0.20" />
-              <stop offset="100%" stopColor="#f97316" stopOpacity="0" />
+              <stop offset="0%" stopColor={fillStopColor} stopOpacity="0.18" />
+              <stop offset="100%" stopColor={fillStopColor} stopOpacity="0" />
             </linearGradient>
           </defs>
           {yLabels.map(({ y }, i) => (
@@ -500,16 +531,17 @@ function PerformanceSvg({
             stroke="var(--text-disabled)"
             strokeWidth="1.25"
             strokeDasharray="3 4"
+            strokeLinejoin="miter"
             vectorEffect="non-scaling-stroke"
           />
           <path d={areaPath} fill="url(#perf-fill)" />
           <path
             d={portPath}
             fill="none"
-            stroke="#f97316"
+            stroke={lineColor}
             strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            strokeLinecap="butt"
+            strokeLinejoin="miter"
             vectorEffect="non-scaling-stroke"
           />
         </svg>
@@ -523,8 +555,9 @@ function PerformanceSvg({
               width: padL - 10,
               transform: "translateY(-50%)",
               textAlign: "right",
-              fontFamily: "var(--font-mono)",
-              fontSize: 10.5,
+              fontFamily: "var(--font-ui)",
+              fontSize: 11,
+              fontVariantNumeric: "tabular-nums",
               color: "var(--text-tertiary)",
               lineHeight: 1,
               pointerEvents: "none",
@@ -577,7 +610,7 @@ function PerformanceSvg({
         </span>
         <PerfStat label="portfolio" value={portReturnPct} />
         <PerfStat label="benchmark" value={benchReturnPct} />
-        <PerfStat label="alpha" value={alphaPct} highlight />
+        <PerfStat label="alpha" value={alphaPct} />
       </div>
     </>
   );
@@ -586,16 +619,12 @@ function PerformanceSvg({
 function PerfStat({
   label,
   value,
-  highlight,
 }: {
   label: string;
   value: number;
-  highlight?: boolean;
 }): React.ReactElement {
   const pos = value >= 0;
-  const color = highlight
-    ? pos ? "#f97316" : "var(--color-loss)"
-    : pos ? "var(--color-profit)" : "var(--color-loss)";
+  const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
     <span className="inline-flex items-center" style={{ gap: 6, fontFamily: "var(--font-mono)" }}>
       <span style={{ color }}>
@@ -1097,9 +1126,13 @@ function DiversificationScore({ holdings }: { holdings: Holding[] }): React.Reac
           <ScoreBar
             label="Your Portfolio Score"
             value={score}
-            color={aboveMedian ? "var(--color-profit)" : "var(--color-loss)"}
+            color={aboveMedian ? "var(--pivot-blue)" : "var(--color-loss)"}
           />
-          <ScoreBar label="Community Score" value={COMMUNITY_SCORE} color="var(--text-secondary)" />
+          <ScoreBar
+            label="Community Score"
+            value={COMMUNITY_SCORE}
+            color="var(--text-secondary)"
+          />
         </div>
         <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
           Your portfolio&apos;s diversification score is{" "}
@@ -1109,7 +1142,7 @@ function DiversificationScore({ holdings }: { holdings: Holding[] }): React.Reac
           meaning your holdings are{" "}
           <strong
             style={{
-              color: aboveMedian ? "var(--color-profit)" : "var(--color-loss)",
+              color: aboveMedian ? "var(--pivot-blue)" : "var(--color-loss)",
               fontWeight: 550,
             }}
           >

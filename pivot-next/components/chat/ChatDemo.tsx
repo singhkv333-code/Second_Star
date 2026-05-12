@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   Bot,
+  Check,
   Copy,
   Loader2,
   RotateCw,
@@ -1511,16 +1512,17 @@ function UserBubble({
         {text}
       </div>
 
-      {/* Hover-only action row */}
+      {/* Hover-only action row — also stays visible briefly after a
+          successful copy so the "Copied" toast has a chance to read. */}
       <div
         className="flex items-center"
         style={{
           marginTop: 6,
           gap: 6,
           color: "var(--text-tertiary)",
-          opacity: hovered ? 1 : 0,
+          opacity: hovered || copied ? 1 : 0,
           transition: "opacity 0.18s var(--ease-quartr)",
-          pointerEvents: hovered ? "auto" : "none",
+          pointerEvents: hovered || copied ? "auto" : "none",
         }}
       >
         {timestamp && (
@@ -1535,8 +1537,33 @@ function UserBubble({
           label={copied ? "Copied" : "Copy"}
           onClick={() => void handleCopy()}
         >
-          <Copy size={14} strokeWidth={2} aria-hidden={true} />
+          {copied ? (
+            <Check
+              size={14}
+              strokeWidth={2.5}
+              aria-hidden={true}
+            />
+          ) : (
+            <Copy size={14} strokeWidth={2} aria-hidden={true} />
+          )}
         </ActionIconButton>
+        {/* Inline confirmation badge — shown for ~1.5s after a
+            successful copy so the click registers visually even when
+            the cursor leaves the hover row immediately. */}
+        {copied && (
+          <span
+            className="copy-toast"
+            style={{
+              fontSize: 11.5,
+              fontWeight: 500,
+              color: "var(--text-tertiary)",
+              fontFamily: "var(--font-ui)",
+              letterSpacing: "0.01em",
+            }}
+          >
+            Copied
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1619,7 +1646,9 @@ function AssistantBubble({
       {children}
       {/* Hover-only action row — only rendered when there's something
           worth copying. Streaming-in-progress bubbles pass empty text
-          and skip the row entirely. */}
+          and skip the row entirely. The row also stays visible for
+          ~1.5s after a successful copy so the "Copied" badge has a
+          chance to read even if the cursor leaves immediately. */}
       {text.length > 0 && (
         <div
           className="flex items-center"
@@ -1627,21 +1656,43 @@ function AssistantBubble({
             marginTop: 6,
             gap: 6,
             color: "var(--text-tertiary)",
-            opacity: hovered ? 1 : 0,
+            opacity: hovered || copied ? 1 : 0,
             transition: "opacity 0.18s var(--ease-quartr)",
-            pointerEvents: hovered ? "auto" : "none",
+            pointerEvents: hovered || copied ? "auto" : "none",
           }}
         >
           <ActionIconButton
             label={copied ? "Copied" : "Copy"}
             onClick={() => void handleCopy()}
           >
-            <Copy size={14} strokeWidth={2} aria-hidden={true} />
+            {copied ? (
+              <Check
+                size={14}
+                strokeWidth={2.5}
+                aria-hidden={true}
+              />
+            ) : (
+              <Copy size={14} strokeWidth={2} aria-hidden={true} />
+            )}
           </ActionIconButton>
           {onRetry && (
             <ActionIconButton label="Retry" onClick={onRetry}>
               <RotateCw size={14} strokeWidth={2} aria-hidden={true} />
             </ActionIconButton>
+          )}
+          {copied && (
+            <span
+              className="copy-toast"
+              style={{
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: "var(--text-tertiary)",
+                fontFamily: "var(--font-ui)",
+                letterSpacing: "0.01em",
+              }}
+            >
+              Copied
+            </span>
           )}
         </div>
       )}

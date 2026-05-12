@@ -18,14 +18,12 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Loader2, Plus } from "lucide-react";
+import { ArrowLeft, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import type {
   Step,
   StepTypeCatalog,
@@ -296,8 +294,13 @@ export function WorkflowEditorMock({
     return (
       <div className="flex h-full flex-col">
         <div className="border-b px-6 py-3">
-          <Button variant="ghost" size="sm" onClick={() => setShowRunHistory(false)}>
-            ← Back to editor
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Back to editor"
+            onClick={() => setShowRunHistory(false)}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
         <div className="flex-1 overflow-hidden">
@@ -323,46 +326,51 @@ export function WorkflowEditorMock({
 
   return (
     <div className="relative flex h-full flex-col">
-      {/* Header: name (largest type), description, status, action buttons */}
-      <header className="border-b px-6 py-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1 space-y-2">
-            <Input
-              aria-label="Workflow name"
-              value={workflow.name}
-              onChange={(e) =>
-                setWorkflow((w) => ({ ...w, name: e.target.value }))
-              }
-              className="border-0 bg-transparent px-0 text-xl font-semibold tracking-tight shadow-none focus-visible:ring-0"
-            />
-            <Textarea
-              aria-label="Workflow description"
-              value={workflow.description ?? ""}
-              onChange={(e) =>
-                setWorkflow((w) => ({
-                  ...w,
-                  description: e.target.value || null,
-                }))
-              }
-              rows={2}
-              placeholder="Describe what this agent does…"
-              className="resize-none border-0 bg-transparent px-0 text-sm text-muted-foreground shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <Badge variant={status.tone === "success" ? "success" : status.tone === "warning" ? "warning" : "muted"}>
-            {status.label}
-          </Badge>
+      {/* Header — chat-card style: chip + status pill, then title, then
+          description, then a primary CTA pill with ghost secondaries. */}
+      <header className="shrink-0 px-6 pt-6 pb-5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+            Agent
+          </span>
+          <StatusPill status={workflow.status} label={status.label} />
         </div>
+
+        <div className="mt-4 space-y-1.5">
+          <Input
+            aria-label="Workflow name"
+            value={workflow.name}
+            onChange={(e) =>
+              setWorkflow((w) => ({ ...w, name: e.target.value }))
+            }
+            className="h-auto border-0 bg-transparent px-0 py-0 text-[20px] font-semibold leading-[1.2] tracking-tight shadow-none focus-visible:ring-0"
+          />
+          <Textarea
+            aria-label="Workflow description"
+            value={workflow.description ?? ""}
+            onChange={(e) =>
+              setWorkflow((w) => ({
+                ...w,
+                description: e.target.value || null,
+              }))
+            }
+            rows={2}
+            placeholder="Describe what this agent does…"
+            className="min-h-0 resize-none border-0 bg-transparent px-0 py-0 text-[12.5px] leading-relaxed text-muted-foreground shadow-none focus-visible:ring-0"
+          />
+        </div>
+
         {actionError && (
           <p
             role="alert"
-            className="mt-2 rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
+            className="mt-3 rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
             data-testid="editor-action-error"
           >
             {actionError}
           </p>
         )}
-        <div className="mt-4 flex items-center gap-2 flex-wrap">
+
+        <div className="mt-5 flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="default"
@@ -411,73 +419,47 @@ export function WorkflowEditorMock({
         </div>
       </header>
 
-      {/* Step list + add buttons. Background gets a subtle grid for a
-          technical "canvas" feel — it's a CSS gradient, no extra
-          asset, no runtime cost. The mask gradient softens the edges
-          so the grid doesn't fight with the steps. */}
-      <div
-        className={cn(
-          "relative flex-1 overflow-y-auto px-6 py-5",
-        )}
-      >
-        <div
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute inset-0",
-            "[background-image:linear-gradient(to_right,rgba(127,127,127,0.07)_1px,transparent_1px),linear-gradient(to_bottom,rgba(127,127,127,0.07)_1px,transparent_1px)]",
-            "[background-size:32px_32px]",
-            "[mask-image:radial-gradient(ellipse_at_center,black_55%,transparent_95%)]",
-          )}
-        />
-        {/* Faint vignette for depth */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background/40"
-        />
-        <div className="relative">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={workflow.steps.map((s) => s.id)}
-            strategy={verticalListSortingStrategy}
+      {/* Step list + add button. Calm vertical stack of tiles, no dividers.
+          The Add step button is pinned to the bottom of the box (outside the
+          scroll region) so it stays reachable no matter how many steps. */}
+      <div className="flex flex-1 min-h-0 flex-col border-t border-border/40 bg-muted/20">
+        <div className="flex-1 overflow-y-auto px-5 pt-5 pb-3">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
           >
-            <ol className="space-y-3">
-              {workflow.steps.map((step, idx) => (
-                <li key={step.id}>
-                  <SortableStepRow
-                    step={step}
-                    catalogEntry={
-                      findStepType(catalog, step.step_type)
-                    }
-                    onConfigure={() => setEditingStepId(step.id)}
-                  />
-                  {idx < workflow.steps.length - 1 && (
-                    <AddStepDivider
-                      label={`Add step after step ${idx + 1}`}
-                      onClick={() => setPickerInsertIndex(idx + 1)}
+            <SortableContext
+              items={workflow.steps.map((s) => s.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ol className="space-y-3">
+                {workflow.steps.map((step) => (
+                  <li key={step.id}>
+                    <SortableStepRow
+                      step={step}
+                      catalogEntry={
+                        findStepType(catalog, step.step_type)
+                      }
+                      onConfigure={() => setEditingStepId(step.id)}
                     />
-                  )}
-                </li>
-              ))}
-            </ol>
-          </SortableContext>
-        </DndContext>
+                  </li>
+                ))}
+              </ol>
+            </SortableContext>
+          </DndContext>
+        </div>
 
-        <div className="mt-4">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full justify-center"
+        <div className="shrink-0 px-5 pt-2 pb-5">
+          <button
+            type="button"
             onClick={() => setPickerInsertIndex(workflow.steps.length)}
             data-testid="add-step-button"
+            className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-background hover:text-foreground"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}
-          </Button>
-        </div>
+          </button>
         </div>
       </div>
 
@@ -535,25 +517,43 @@ function SortableStepRow({
   );
 }
 
-function AddStepDivider({
+/** Status pill mirroring the chat card's active/draft/paused chip. */
+function StatusPill({
+  status,
   label,
-  onClick,
 }: {
+  status: WorkflowStatus;
   label: string;
-  onClick: () => void;
 }): React.ReactElement {
-  return (
-    <div className="relative my-2 flex items-center justify-center">
-      <span className="absolute inset-x-0 top-1/2 -z-10 h-px bg-border/60" />
-      <button
-        type="button"
-        aria-label={label}
-        onClick={onClick}
-        className="flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  if (status === "active") {
+    return (
+      <span
+        data-testid="agent-active-pill"
+        className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium bg-transparent"
+        style={{ borderColor: "#4CAF50", color: "#4CAF50" }}
       >
-        <Plus className="h-3 w-3" aria-hidden="true" />
-      </button>
-    </div>
+        <span
+          aria-hidden="true"
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ background: "#4CAF50" }}
+        />
+        {label}
+      </span>
+    );
+  }
+  if (status === "paused") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-300">
+        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+      {label}
+    </span>
   );
 }
 

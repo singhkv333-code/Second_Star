@@ -23,8 +23,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart2,
+  Bug,
   CalendarDays,
+  ChevronLeft,
+  ExternalLink,
+  FileText,
   HelpCircle,
+  Keyboard,
   LogOut,
   MessageSquare,
   Monitor,
@@ -34,7 +39,9 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Sun,
+  X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
@@ -499,6 +506,11 @@ function TopHeader({
   metrics: MetricState;
   accountInitial: string;
 }): React.ReactElement {
+  // Local state drives the custom Lucide-X clear control. The native
+  // browser "search" input renders its own (blue, ugly) clear button
+  // — we hide that via the global-search-input class and render our
+  // own only when the field has text.
+  const [searchValue, setSearchValue] = useState("");
   return (
     <header
       className="flex shrink-0 items-center gap-6 px-5"
@@ -508,14 +520,17 @@ function TopHeader({
         borderBottom: "1px solid var(--glass-border)",
       }}
     >
-      {/* Brand — serif logotype, fixed-width slot */}
+      {/* Brand — serif logotype, fixed-width slot. Uses --font-experiment
+          so we can swap typefaces in one place (globals.css) while we
+          decide on the final brand serif. */}
       <div
-        className="flex shrink-0 items-center gap-2.5 pl-1"
+        className="flex shrink-0 items-center pl-1"
         style={{
           width: 200,
-          fontFamily: "var(--font-serif)",
+          gap: 0,
+          fontFamily: "var(--font-experiment)",
           fontWeight: "var(--weight-display)" as unknown as number,
-          fontSize: 18,
+          fontSize: 22,
           letterSpacing: "-0.02em",
           color: "var(--text-primary)",
         }}
@@ -544,7 +559,10 @@ function TopHeader({
             />
           );
         })()}
-        Pivot
+        {/* Negative margin pulls "pivot" back over the transparent
+            right padding baked into the logo PNG. Adjust the px value
+            to taste — more negative = closer. */}
+        <span style={{ marginLeft: -2 }}>pivot</span>
       </div>
 
       {/* Search — Quartr pill, sized + bordered, no Tailwind background. */}
@@ -569,10 +587,12 @@ function TopHeader({
         />
         <input
           type="search"
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
           placeholder="Search stocks, strategies, conversations…"
           aria-label="Global search"
           data-testid="global-search"
-          className="flex-1 outline-none"
+          className="global-search-input flex-1 outline-none"
           style={{
             background: "transparent",
             border: "none",
@@ -581,6 +601,35 @@ function TopHeader({
             fontSize: 13,
           }}
         />
+        {searchValue.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSearchValue("")}
+            aria-label="Clear search"
+            className="inline-flex shrink-0 items-center justify-center"
+            style={{
+              width: 20,
+              height: 20,
+              background: "transparent",
+              border: "none",
+              borderRadius: "999px",
+              color: "var(--text-tertiary)",
+              cursor: "pointer",
+              padding: 0,
+              transition: "color 0.18s var(--ease-quartr), background-color 0.18s var(--ease-quartr)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--text-primary)";
+              e.currentTarget.style.background = "var(--surface-hover)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--text-tertiary)";
+              e.currentTarget.style.background = "transparent";
+            }}
+          >
+            <X size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Right cluster — metric stack + account menu */}
@@ -614,16 +663,35 @@ function AccountMenu({
   initial: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const helpCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelHelpClose = useCallback(() => {
+    if (helpCloseTimer.current) {
+      clearTimeout(helpCloseTimer.current);
+      helpCloseTimer.current = null;
+    }
+  }, []);
+  const scheduleHelpClose = useCallback(() => {
+    cancelHelpClose();
+    helpCloseTimer.current = setTimeout(() => setHelpOpen(false), 120);
+  }, [cancelHelpClose]);
 
   // Close on outside click + Escape
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setHelpOpen(false);
+      }
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        setHelpOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -632,6 +700,12 @@ function AccountMenu({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) setHelpOpen(false);
+  }, [open]);
+
+  useEffect(() => () => cancelHelpClose(), [cancelHelpClose]);
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -689,7 +763,87 @@ function AccountMenu({
           }}
         >
           <MenuItem icon={Settings} label="Settings" onClick={() => setOpen(false)} />
-          <MenuItem icon={HelpCircle} label="Help" onClick={() => setOpen(false)} />
+          <div
+            style={{ position: "relative" }}
+            onMouseEnter={() => {
+              cancelHelpClose();
+              setHelpOpen(true);
+            }}
+            onMouseLeave={scheduleHelpClose}
+          >
+            <MenuItem
+              icon={HelpCircle}
+              label="Help"
+              hasChevron={true}
+              active={helpOpen}
+              onClick={() => setHelpOpen((v) => !v)}
+            />
+            {helpOpen && (
+              <div
+                role="menu"
+                data-testid="account-menu-help-submenu"
+                onMouseEnter={cancelHelpClose}
+                onMouseLeave={scheduleHelpClose}
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: "calc(100% + 6px)",
+                  minWidth: 200,
+                  padding: 4,
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--glass-border)",
+                  borderRadius: "var(--radius-md)",
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+                  zIndex: 60,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <MenuItem
+                  icon={ShieldCheck}
+                  label="Privacy Policy"
+                  hasExternalArrow={true}
+                  onClick={() => {
+                    setHelpOpen(false);
+                    setOpen(false);
+                  }}
+                />
+                <MenuItem
+                  icon={FileText}
+                  label="Terms of Service"
+                  hasExternalArrow={true}
+                  onClick={() => {
+                    setHelpOpen(false);
+                    setOpen(false);
+                  }}
+                />
+                <MenuItem
+                  icon={Bug}
+                  label="Report a bug"
+                  onClick={() => {
+                    setHelpOpen(false);
+                    setOpen(false);
+                  }}
+                />
+                <div
+                  aria-hidden={true}
+                  style={{
+                    height: 1,
+                    background: "var(--glass-border)",
+                    margin: "4px 6px",
+                  }}
+                />
+                <MenuItem
+                  icon={Keyboard}
+                  label="Keyboard shortcuts"
+                  onClick={() => {
+                    setHelpOpen(false);
+                    setOpen(false);
+                  }}
+                />
+              </div>
+            )}
+          </div>
           <MenuItem icon={LogOut} label="Log out" onClick={() => setOpen(false)} />
 
           {/* Divider */}
@@ -744,24 +898,35 @@ function MenuItem({
   icon: Icon,
   label,
   onClick,
+  hasChevron = false,
+  hasExternalArrow = false,
+  active = false,
 }: {
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+  icon?: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
   onClick: () => void;
+  hasChevron?: boolean;
+  hasExternalArrow?: boolean;
+  active?: boolean;
 }): React.ReactElement {
+  const trailing = hasChevron ? (
+    <ChevronLeft size={14} strokeWidth={2} aria-hidden={true} />
+  ) : hasExternalArrow ? (
+    <ExternalLink size={12} strokeWidth={2} aria-hidden={true} />
+  ) : null;
   return (
     <button
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="inline-flex items-center"
+      className="inline-flex items-center w-full"
       style={{
         gap: 10,
         padding: "8px 10px",
-        background: "transparent",
+        background: active ? "var(--bg-elevated)" : "transparent",
         border: "none",
         borderRadius: "var(--radius-sm)",
-        color: "var(--text-secondary)",
+        color: active ? "var(--text-primary)" : "var(--text-secondary)",
         fontFamily: "var(--font-ui)",
         fontSize: 13,
         fontWeight: 500,
@@ -774,12 +939,14 @@ function MenuItem({
         e.currentTarget.style.color = "var(--text-primary)";
       }}
       onMouseLeave={(e) => {
+        if (active) return;
         e.currentTarget.style.background = "transparent";
         e.currentTarget.style.color = "var(--text-secondary)";
       }}
     >
-      <Icon size={14} strokeWidth={2} />
-      {label}
+      {Icon ? <Icon size={14} strokeWidth={2} /> : null}
+      <span style={{ flex: 1 }}>{label}</span>
+      {trailing}
     </button>
   );
 }

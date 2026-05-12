@@ -12,9 +12,9 @@ import {
 import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
 import type { Workflow } from "@/lib/types";
 
-const MIN_WIDTH = 420;
+const MIN_WIDTH = 380;
 const MAX_WIDTH = 920;
-const DEFAULT_WIDTH = 560;
+const DEFAULT_WIDTH = 460;
 
 export type AgentPanelProps = {
   open: boolean;
@@ -49,6 +49,7 @@ export function AgentPanel({
 }: AgentPanelProps): React.ReactElement | null {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
 
   // Esc-to-close.
   useEffect(() => {
@@ -61,6 +62,40 @@ export function AgentPanel({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [open, onOpenChange]);
+
+  // Click-outside-to-close. We attach on the next tick so the click that
+  // opened the panel (e.g. "Open in editor" in chat) doesn't immediately
+  // close it. Clicks inside portaled popovers/dialogs/menus that the panel
+  // spawns (StepTypePicker, StepConfigDrawer, Radix dropdowns) render
+  // outside the panel DOM — we treat those as "inside" so they don't dismiss
+  // the panel either.
+  useEffect(() => {
+    if (!open) return;
+    let armed = false;
+    const armId = window.setTimeout(() => {
+      armed = true;
+    }, 0);
+    const onPointerDown = (e: PointerEvent) => {
+      if (!armed) return;
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      // Ignore clicks landing inside Radix portals (popovers, dropdowns,
+      // dialogs) so the panel doesn't close when the user interacts with
+      // a control it spawned.
+      if (target instanceof Element) {
+        if (target.closest("[role='dialog'], [role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-sonner-toaster]")) {
+          return;
+        }
+      }
+      onOpenChange(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.clearTimeout(armId);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
   }, [open, onOpenChange]);
 
   const onPointerMove = useCallback((e: PointerEvent) => {
@@ -95,13 +130,14 @@ export function AgentPanel({
 
   return (
     <aside
+      ref={panelRef}
       role="dialog"
       aria-label="Agent panel"
       aria-modal="false"
       style={{ width }}
       className={cn(
         "fixed inset-y-0 right-0 z-40 flex border-l bg-background shadow-xl",
-        "min-w-[420px] max-w-[920px]",
+        "min-w-[380px] max-w-[920px]",
       )}
       data-testid="agent-panel"
     >

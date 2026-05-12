@@ -1,33 +1,34 @@
 "use client";
 
 /**
- * AgentsTab — Quartr-style agent catalog card grid.
+ * AgentsTab — agent catalog grid.
  *
- * Per docs/UI_TABS_V1.md §1 + Day 7 redesign (image 4).
- * Lists GET /api/workflows with filter chips. Clicking a card opens AgentPanel.
+ * Card design mirrors the mini agent card in ActiveAgentsRail on the
+ * dashboard: soft rounded-2xl surface with a category chip + status
+ * pill in the header, the workflow name as the hero, the existing
+ * deterministic sparkline preserved as the visual focal point, and
+ * three muted KV rows beneath. The whole card is clickable.
  *
- * Card design: file-folder style with:
- *   - Header bar: FILE NNN / QUANT|INCOME|etc + RISK pill
- *   - Serif title ending with a period
- *   - KEY:VALUE rows: METHOD / UNIVERSE / CADENCE
- *   - Footer: VIEW AGENT link + CAGR placeholder
+ * Single brand green (#4CAF50) is used for the Active status pill, in
+ * lockstep with WorkflowDraftCard / InlineRunCard / ActiveAgentsRail.
  */
 
 import { useEffect, useState } from "react";
-import { formatDistanceToNow, parseISO } from "date-fns";
 import {
   AlertCircle,
   Bot,
-  Play,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { createWorkflow, getWorkflow, listWorkflows } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
+
+const BRAND_GREEN = "#4CAF50";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,34 +53,46 @@ type FetchState =
   | { kind: "ok"; items: WorkflowSummary[] };
 
 // ---------------------------------------------------------------------------
-// Category derivation (from name/description)
+// Category derivation (from name/description). Matches the vocabulary used
+// by ActiveAgentsRail so the same workflow reads as the same category on
+// the dashboard and in the catalog grid.
 // ---------------------------------------------------------------------------
 
-type Category = "QUANT" | "INCOME" | "TACTICAL" | "EVENT" | "PASSIVE";
-type RiskLevel = "HIGH RISK" | "MEDIUM RISK" | "LOW RISK";
+type Category = "STRATEGY" | "INCOME" | "RISK" | "RESEARCH" | "CASH";
 
 function deriveCategory(wf: WorkflowSummary): Category {
   const text = `${wf.name} ${wf.description ?? ""}`.toLowerCase();
-  if (text.includes("dividend") || text.includes("income") || text.includes("yield")) return "INCOME";
-  if (text.includes("event") || text.includes("earnings") || text.includes("ipo")) return "EVENT";
-  if (text.includes("passive") || text.includes("index") || text.includes("etf")) return "PASSIVE";
-  if (text.includes("tactical") || text.includes("swing") || text.includes("breakout")) return "TACTICAL";
-  return "QUANT";
+  if (text.includes("cash") || text.includes("sweep") || text.includes("fund")) return "CASH";
+  if (text.includes("research") || text.includes("report") || text.includes("analyse") || text.includes("analyze")) return "RESEARCH";
+  if (text.includes("risk") || text.includes("hedge")) return "RISK";
+  if (text.includes("income") || text.includes("dividend") || text.includes("yield")) return "INCOME";
+  return "STRATEGY";
 }
 
-/** Derive risk: without full step data, use description heuristics. */
-function deriveRisk(wf: WorkflowSummary): RiskLevel {
-  const text = `${wf.name} ${wf.description ?? ""}`.toLowerCase();
-  if (text.includes("approval") || text.includes("review")) return "MEDIUM RISK";
-  if (text.includes("notify") || text.includes("fetch") || text.includes("monitor") || text.includes("watch")) return "LOW RISK";
-  if (text.includes("buy") || text.includes("sell") || text.includes("order") || text.includes("trade")) return "HIGH RISK";
-  return "MEDIUM RISK";
+function categoryLabel(cat: Category): string {
+  const MAP: Record<Category, string> = {
+    STRATEGY: "Strategy",
+    INCOME: "Income",
+    RISK: "Risk",
+    RESEARCH: "Research",
+    CASH: "Fund Management",
+  };
+  return MAP[cat];
 }
 
-/** Derive METHOD from description (truncated) or name. */
-function deriveMethod(wf: WorkflowSummary): string {
-  if (wf.description) return wf.description.slice(0, 60) + (wf.description.length > 60 ? "…" : "");
-  return wf.name;
+function categoryChipClass(cat: Category): string {
+  switch (cat) {
+    case "CASH":
+      return "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300";
+    case "RESEARCH":
+      return "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300";
+    case "RISK":
+      return "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300";
+    case "INCOME":
+      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
 }
 
 /** Derive UNIVERSE heuristic from name/description. Pulls the most
@@ -302,19 +315,14 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
 
       {state.kind === "ok" && state.items.length > 0 && (
         <div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           data-testid="agents-list"
           role="list"
-          style={{ gap: 14 }}
         >
-          {state.items.map((wf, idx) => (
-            // h-full makes the cell stretch to the tallest row, so the
-            // card inside always reaches full height and the footer
-            // (VIEW AGENT) stays bottom-aligned across rows.
+          {state.items.map((wf) => (
             <div key={wf.id} role="listitem" className="h-full">
-              <AgentFileCard
+              <AgentMiniCard
                 workflow={wf}
-                seq={idx + 1}
                 isOpening={openingId === wf.id}
                 onSelect={() => handleSelect(wf.id)}
               />
@@ -327,167 +335,184 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
 }
 
 // ---------------------------------------------------------------------------
-// AgentFileCard — file-folder style
+// AgentMiniCard — same shape as ActiveAgentsRail.AgentCardItem.
+//   - Soft rounded-2xl surface, hairline border, low-key drop shadow
+//   - Category chip + status pill row at the top
+//   - Workflow name as the hero (line-clamp-2)
+//   - Existing deterministic sparkline preserved as the visual focal point
+//   - Three muted KV rows beneath: Method / Universe / Cadence
+//   - Whole card is clickable; agent-row-{id} testid points at the
+//     clickable root so the existing test still works
 // ---------------------------------------------------------------------------
 
-/** Map pivot's RiskLevel to a CSS color value (Quartr's source uses
- *  --color-loss for the risk strip, regardless of level). */
-function riskHex(risk: RiskLevel): string {
-  if (risk === "HIGH RISK") return "var(--color-loss)";
-  if (risk === "MEDIUM RISK") return "var(--color-warn)";
-  return "var(--text-tertiary)";
-}
-
-function AgentFileCard({
+function AgentMiniCard({
   workflow,
-  seq,
   isOpening,
   onSelect,
 }: {
   workflow: WorkflowSummary;
-  seq: number;
   isOpening: boolean;
   onSelect: () => void;
 }): React.ReactElement {
   const category = deriveCategory(workflow);
-  const risk = deriveRisk(workflow);
-  const method = deriveMethod(workflow);
   const universe = deriveUniverse(workflow);
   const cadence = deriveCadence(workflow);
-  const titleText = workflow.name.endsWith(".") ? workflow.name : `${workflow.name}.`;
+  const description = workflow.description ?? null;
+
+  const handleKey = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect();
+    }
+  };
 
   return (
     <div
       data-testid={`agent-card-${workflow.id}`}
-      className="flex h-full flex-col"
-      style={{
-        background: "var(--bg-primary)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: 0,
-        fontFamily: "var(--font-ui)",
-        position: "relative",
-        opacity: isOpening ? 0.6 : 1,
-        color: "var(--text-primary)",
-        transition: "border-color 0.25s var(--ease-quartr), opacity 0.2s var(--ease-quartr)",
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--glass-border-hover)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--glass-border)"; }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open agent: ${workflow.name}`}
+      onClick={onSelect}
+      onKeyDown={handleKey}
+      className={cn(
+        "group flex h-full cursor-pointer flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
+        "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
+        "transition-colors hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        isOpening && "opacity-70",
+      )}
     >
-      {/* Top bar — FILE NNN / FAMILY · RISK */}
-      <div
-        className="flex items-center justify-between"
-        style={{
-          padding: "12px 16px",
-          borderBottom: "2px solid var(--glass-border-hover)",
-        }}
-      >
+      {/* Header: category chip + status pill */}
+      <div className="flex items-center justify-between gap-3">
         <span
-          style={{
-            fontFamily: "var(--font-ui)",
-            fontSize: 10,
-            letterSpacing: "0.18em",
-            fontWeight: 600,
-            color: "var(--text-secondary)",
-          }}
+          className={cn(
+            "inline-flex items-center rounded-md px-2.5 py-0.5 text-[11px] font-medium tracking-tight",
+            categoryChipClass(category),
+          )}
         >
-          FILE {String(seq).padStart(3, "0")} / {category}
+          {categoryLabel(category)}
         </span>
-        <span
-          style={{
-            fontFamily: "var(--font-ui)",
-            fontSize: 10,
-            letterSpacing: "0.18em",
-            fontWeight: 600,
-            color: riskHex(risk),
-          }}
-        >
-          {risk}
-        </span>
+        <WorkflowStatusPill status={workflow.status} />
       </div>
 
-      {/* Body — flex column. The slack goes BETWEEN the sparkline and
-          the KV grid so the KV labels (METHOD/UNIVERSE/...) line up
-          across cards in the same row, no matter how short the title
-          or description is. */}
-      <div className="flex flex-col" style={{ padding: 16, flex: 1 }}>
-        <h3
-          className="m-0"
-          style={{
-            fontFamily: "var(--font-ui)",
-            fontSize: 26,
-            letterSpacing: "-0.025em",
-            lineHeight: 1.05,
-            fontWeight: 600,
-            color: "var(--text-primary)",
-          }}
-        >
-          {titleText}
-        </h3>
+      {/* Title */}
+      <h3 className="m-0 line-clamp-2 text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
+        {workflow.name}
+      </h3>
 
-        <Sparkline seed={workflow.id} positive={true} />
+      {/* Sparkline — preserved verbatim. */}
+      <Sparkline seed={workflow.id} positive={true} />
 
-        {/* Spacer — soaks up the height difference between cards so
-            the KV grid below is bottom-aligned to the footer. */}
-        <div style={{ flex: 1 }} aria-hidden={true} />
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "auto 1fr",
-            rowGap: 6,
-            columnGap: 14,
-            marginTop: 4,
-            fontSize: 12,
-            fontFamily: "var(--font-ui)",
-          }}
-        >
-          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>METHOD</span>
-          <span style={{ color: "var(--text-secondary)" }}>{method}</span>
-          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>UNIVERSE</span>
-          <span style={{ color: "var(--text-secondary)" }}>{universe}</span>
-          <span style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>CADENCE</span>
-          <span style={{ color: "var(--text-secondary)" }}>{cadence}</span>
-        </div>
+      {/* KV rows — same muted rhythm as the checklist in
+          ActiveAgentsRail.AgentCardItem. */}
+      <div className="mt-auto flex flex-col gap-1.5 border-t border-border/40 pt-3 text-[12px]">
+        <KvRow label="Method" value={description ?? "Manual workflow"} />
+        <KvRow label="Universe" value={universe} />
+        <KvRow label="Cadence" value={cadence} />
       </div>
 
-      {/* Footer button — full-width clickable strip */}
+      {/* Hidden interaction sentinel — preserves the existing
+          `agent-row-{id}` testid contract from the previous file-card
+          design while keeping the whole card clickable. */}
       <button
         type="button"
-        onClick={onSelect}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
         disabled={isOpening}
         aria-label={`View agent: ${workflow.name}`}
         data-testid={`agent-row-${workflow.id}`}
-        className="flex items-center justify-between"
-        style={{
-          padding: "10px 16px",
-          background: "var(--bg-elevated)",
-          color: "var(--text-primary)",
-          border: "none",
-          borderTop: "1px solid var(--glass-border)",
-          textAlign: "left",
-          cursor: isOpening ? "wait" : "pointer",
-          opacity: isOpening ? 0.6 : 1,
-          transition: "background-color 0.25s var(--ease-quartr)",
-        }}
-        onMouseEnter={(e) => { if (!isOpening) e.currentTarget.style.background = "var(--bg-secondary)"; }}
-        onMouseLeave={(e) => { if (!isOpening) e.currentTarget.style.background = "var(--bg-elevated)"; }}
+        className="sr-only"
       >
-        <span
-          className="inline-flex items-center"
-          style={{
-            gap: 6,
-            fontFamily: "var(--font-ui)",
-            fontSize: 10,
-            fontWeight: 600,
-            letterSpacing: "0.1em",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <Play size={10} fill="currentColor" strokeWidth={0} aria-hidden="true" />
-          VIEW AGENT
-        </span>
+        View agent
       </button>
     </div>
+  );
+}
+
+function KvRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground/70">{label}</span>
+      <span className="min-w-0 truncate text-right text-foreground/85">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WorkflowStatusPill — single brand-green Active pill, muted Paused / Draft.
+// Same shape used everywhere else in the agent widget family.
+// ---------------------------------------------------------------------------
+
+function WorkflowStatusPill({
+  status,
+}: {
+  status: WorkflowStatus;
+}): React.ReactElement {
+  if (status === "active") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full border bg-transparent px-2.5 py-1 text-[11px] font-medium"
+        style={{ borderColor: BRAND_GREEN, color: BRAND_GREEN }}
+      >
+        <span
+          aria-hidden={true}
+          className="h-1.5 w-1.5 rounded-full"
+          style={{
+            background: BRAND_GREEN,
+            animation: "pulse-quartr 1.6s ease-in-out infinite",
+          }}
+        />
+        Active
+      </span>
+    );
+  }
+  const palette: Record<
+    Exclude<WorkflowStatus, "active">,
+    { dot: string; label: string; bg: string; text: string }
+  > = {
+    paused: {
+      dot: "bg-amber-500",
+      label: "Paused",
+      bg: "bg-amber-50 dark:bg-amber-500/10",
+      text: "text-amber-700 dark:text-amber-300",
+    },
+    draft: {
+      dot: "bg-muted-foreground/60",
+      label: "Draft",
+      bg: "bg-muted",
+      text: "text-muted-foreground",
+    },
+    archived: {
+      dot: "bg-muted-foreground/40",
+      label: "Archived",
+      bg: "bg-muted",
+      text: "text-muted-foreground/80",
+    },
+  };
+  const p = palette[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium",
+        p.bg,
+        p.text,
+      )}
+    >
+      <span
+        aria-hidden={true}
+        className={cn("h-1.5 w-1.5 rounded-full", p.dot)}
+      />
+      {p.label}
+    </span>
   );
 }
 
@@ -562,11 +587,11 @@ function Sparkline({ seed, positive }: { seed: string; positive: boolean }): Rea
 function AgentsGridSkeleton(): React.ReactElement {
   return (
     <div
-      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
       data-testid="agents-loading"
     >
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-52 w-full rounded-xl" />
+        <Skeleton key={i} className="h-64 w-full rounded-2xl" />
       ))}
     </div>
   );
