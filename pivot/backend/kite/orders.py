@@ -25,6 +25,7 @@ def place_order(
     product: str = "CNC",   # CNC (delivery) or MIS (intraday) or NRML (F&O)
     trigger_price: Optional[float] = None,
     tag: str = "pivot",
+    variety: str = "regular",  # "regular", "amo", "co", "iceberg", "auction"
 ) -> dict:
     """
     Place a single order via Kite.
@@ -50,10 +51,15 @@ def place_order(
             product=product,
             trigger_price=trigger_price,
             tag=tag,
-            variety=kite.VARIETY_REGULAR,
+            variety=variety,
         )
-        logger.info(f"Order placed: {order_id}")
-        return {"order_id": order_id, "status": "PENDING", "message": "Order placed successfully"}
+        logger.info(f"Order placed: {order_id} (variety={variety})")
+        return {
+            "order_id": order_id,
+            "status": "PENDING",
+            "variety": variety,
+            "message": "Order placed successfully",
+        }
     except Exception as e:
         logger.error(f"Order placement failed: {e}")
         raise
@@ -103,10 +109,10 @@ def get_orders(access_token: str) -> list:
     return kite.orders()
 
 
-def cancel_order(access_token: str, order_id: str) -> dict:
+def cancel_order(access_token: str, order_id: str, variety: str = "regular") -> dict:
     """Cancel a pending order."""
     if KITE_MOCK_MODE:
         return {"order_id": order_id, "status": "CANCELLED"}
     kite = get_authenticated_kite(access_token)
-    kite.cancel_order(variety="regular", order_id=order_id)
-    return {"order_id": order_id, "status": "CANCELLED"}
+    kite.cancel_order(variety=variety, order_id=order_id)
+    return {"order_id": order_id, "status": "CANCELLED", "variety": variety}

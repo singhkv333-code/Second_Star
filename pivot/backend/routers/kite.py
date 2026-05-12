@@ -25,15 +25,26 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.database import get_db
 from backend.auth.jwt_handler import get_user_id_from_token
+from pydantic import BaseModel, Field
+
+from backend.kite import auth as kite_auth
+from backend.kite import orders as kite_orders
 from backend.kite.auth import (
     KITE_MOCK_MODE,
+    clear_kite_credentials,
     exchange_request_token,
     get_login_url,
+    masked_credentials_status,
+    set_kite_credentials,
     verify_token_valid,
 )
 from backend.models import KiteSession, User
 
 router = APIRouter(prefix="/kite", tags=["Kite"])
+
+# Compatibility alias for Kite developer apps whose configured Redirect URL is
+# `/callback` (without the `/kite/` prefix). Mounted on the app in main.py.
+callback_alias_router = APIRouter(tags=["Kite"])
 
 
 KITE_STATE_PURPOSE = "kite_oauth_state"
@@ -123,6 +134,51 @@ def _session_payload(session: KiteSession | None) -> dict:
     }
 
 
+class KiteCredentialsBody(BaseModel):
+    """Body for POST /kite/credentials — both fields required by Kite policy."""
+    api_key: str = Field(..., min_length=1, description="Kite Connect API key")
+    api_secret: str = Field(..., min_length=1, description="Kite Connect API secret")
+
+
+@router.get("/credentials")
+def kite_get_credentials(
+    authorization: str | None = Header(None), db: Session = Depends(get_db)
+):
+    """Return masked Kite API credential state (never the raw secret)."""
+    _require_user(authorization, db)
+    return masked_credentials_status()
+
+
+@router.post("/credentials")
+def kite_set_credentials(
+    body: KiteCredentialsBody,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Inject Kite API key + secret at runtime. Flips the backend out of mock mode
+    immediately — subsequent /kite/login_url and order placements will hit the
+    real Kite Connect API.
+    """
+    _require_user(authorization, db)
+    try:
+        status = set_kite_credentials(body.api_key, body.api_secret)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return status
+
+
+@router.delete("/credentials")
+def kite_delete_credentials(
+    authorization: str | None = Header(None), db: Session = Depends(get_db)
+):
+    """Wipe runtime Kite credentials and revert to mock mode."""
+    _require_user(authorization, db)
+    return clear_kite_credentials()
+
+
 @router.get("/status")
 def kite_status(authorization: str | None = Header(None), db: Session = Depends(get_db)):
     """Return the current Kite connection state for the authenticated user."""
@@ -178,12 +234,11 @@ def kite_connect_mock(
     return _session_payload(session)
 
 
-@router.get("/callback")
-def kite_callback(
-    request_token: str = Query(...),
-    state: str | None = Query(None),
-    status: str | None = Query(None),
-    db: Session = Depends(get_db),
+def _handle_kite_callback(
+    request_token: str,
+    state: str | None,
+    status: str | None,
+    db: Session,
 ):
     """
     Public callback hit by Zerodha after the user logs in. We can't require an
@@ -216,6 +271,32 @@ def kite_callback(
     return _frontend_redirect({"kite": "connected"})
 
 
+@router.get("/callback")
+def kite_callback(
+    request_token: str = Query(...),
+    state: str | None = Query(None),
+    status: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Kite OAuth redirect target (canonical path under /kite)."""
+    return _handle_kite_callback(request_token, state, status, db)
+
+
+@callback_alias_router.get("/callback")
+def kite_callback_alias(
+    request_token: str = Query(...),
+    state: str | None = Query(None),
+    status: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Same as GET /kite/callback. Mounted at /callback for Kite developer apps
+    whose configured Redirect URL is `<host>/callback` instead of
+    `<host>/kite/callback`.
+    """
+    return _handle_kite_callback(request_token, state, status, db)
+
+
 @router.delete("/session")
 def kite_disconnect(
     authorization: str | None = Header(None), db: Session = Depends(get_db)
@@ -230,6 +311,89 @@ def kite_disconnect(
     db.delete(session)
     db.commit()
     return {"connected": False, "mock_mode": KITE_MOCK_MODE}
+
+
+class KiteCancelBody(BaseModel):
+    order_id: str = Field(..., min_length=1)
+    variety: str = Field("regular", description="regular | amo | co")
+
+
+@router.post("/test-order")
+def kite_place_test_order(
+    authorization: str | None = Header(None), db: Session = Depends(get_db)
+):
+    """
+    Place a hard-coded safe test order: LIMIT BUY 1 TCS @ ₹3500.
+    Well below market, won't fill — proves the wire end-to-end through this
+    backend (credentials → access_token → kite.place_order).
+    Falls back from `regular` to `amo` variety when markets are closed.
+    """
+    user = _require_user(authorization, db)
+    if kite_auth.KITE_MOCK_MODE:
+        raise HTTPException(
+            status_code=400,
+            detail="Backend is in mock mode. Save real Kite credentials first.",
+        )
+    session = user.kite_session
+    if not session or not session.access_token:
+        raise HTTPException(
+            status_code=400,
+            detail="No Kite session — click 'Connect to Zerodha' first.",
+        )
+
+    common = dict(
+        access_token=session.access_token,
+        tradingsymbol="TCS",
+        exchange="BSE",
+        transaction_type="BUY",
+        quantity=1,
+        order_type="LIMIT",
+        price=3500.0,
+        product="CNC",
+        tag="pivot-test",
+    )
+
+    try:
+        result = kite_orders.place_order(**common, variety="regular")
+        return {**result, "variety": "regular"}
+    except Exception as regular_exc:
+        # Markets closed (after 15:30 IST) → regular orders are rejected.
+        # Retry as AMO so we still demonstrate end-to-end placement.
+        try:
+            result = kite_orders.place_order(**common, variety="amo")
+            return {**result, "variety": "amo", "regular_error": str(regular_exc)}
+        except Exception as amo_exc:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Kite rejected both regular and AMO. "
+                    f"regular={regular_exc}; amo={amo_exc}"
+                ),
+            )
+
+
+@router.post("/test-order/cancel")
+def kite_cancel_test_order(
+    body: KiteCancelBody,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Cancel a previously-placed test order (variety must match)."""
+    user = _require_user(authorization, db)
+    if kite_auth.KITE_MOCK_MODE:
+        raise HTTPException(status_code=400, detail="Backend is in mock mode.")
+    session = user.kite_session
+    if not session or not session.access_token:
+        raise HTTPException(status_code=400, detail="No Kite session.")
+    try:
+        result = kite_orders.cancel_order(
+            access_token=session.access_token,
+            order_id=body.order_id,
+            variety=body.variety,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Cancel failed: {exc}")
 
 
 @router.get("/verify")

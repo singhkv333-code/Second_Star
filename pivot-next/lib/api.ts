@@ -203,14 +203,36 @@ async function _doRequest<T>(
       // render SignInPrompt. One reload, not a polling loop.
       window.location.reload();
     }
-    const envelope = (parsed ?? {}) as { error?: Partial<ErrorBody> };
+    // Two body shapes from this backend:
+    //   - Canonical envelope (Agent System routes under /api/*):
+    //       { error: { code, message, details } }
+    //   - FastAPI default (legacy routes like /auth, /kite, /orders, /portfolio):
+    //       { detail: "string" }  or  { detail: [pydantic-style errors] }
+    // We accept either so legacy errors surface their real message.
+    const envelope = (parsed ?? {}) as {
+      error?: Partial<ErrorBody>;
+      detail?: unknown;
+    };
     const err = envelope.error ?? {};
+    let legacyMessage: string | undefined;
+    if (typeof envelope.detail === "string") {
+      legacyMessage = envelope.detail;
+    } else if (Array.isArray(envelope.detail) && envelope.detail.length > 0) {
+      const first = envelope.detail[0] as { msg?: string } | undefined;
+      legacyMessage = first?.msg;
+    }
     return {
       error: {
         code: err.code ?? `http_${res.status}`,
         message:
-          err.message ?? `Request failed with status ${res.status}`,
-        details: err.details,
+          err.message ??
+          legacyMessage ??
+          `Request failed with status ${res.status}`,
+        details:
+          err.details ??
+          (envelope.detail !== undefined && typeof envelope.detail !== "string"
+            ? (envelope.detail as Record<string, unknown>)
+            : undefined),
       },
     };
   }
@@ -642,6 +664,101 @@ export function getSparkline(
     `/markets/sparkline/${encodeURIComponent(symbol)}`,
     { query: { range } },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Kite credentials — runtime API key/secret injection.
+// Backed by /kite/credentials (GET masked status, POST set, DELETE clear).
+// Both fields are required by Kite Connect policy.
+// ---------------------------------------------------------------------------
+
+export type KiteCredentialsStatus = {
+  mock_mode: boolean;
+  has_api_key: boolean;
+  has_api_secret: boolean;
+  api_key_masked: string;
+};
+
+export function getKiteCredentials(): Promise<ApiResult<KiteCredentialsStatus>> {
+  return requestLegacy<KiteCredentialsStatus>("/kite/credentials");
+}
+
+export function setKiteCredentials(
+  api_key: string,
+  api_secret: string,
+): Promise<ApiResult<KiteCredentialsStatus>> {
+  return requestLegacy<KiteCredentialsStatus>("/kite/credentials", {
+    method: "POST",
+    body: { api_key, api_secret },
+  });
+}
+
+export function clearKiteCredentials(): Promise<ApiResult<KiteCredentialsStatus>> {
+  return requestLegacy<KiteCredentialsStatus>("/kite/credentials", {
+    method: "DELETE",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Kite OAuth — login URL + connection status
+// ---------------------------------------------------------------------------
+
+export type KiteLoginUrl = {
+  mock_mode: boolean;
+  login_url: string | null;
+  state: string;
+};
+
+export type KiteStatus = {
+  connected: boolean;
+  mock_mode: boolean;
+  kite_user_id: string | null;
+  login_time: string | null;
+  expires_at?: string | null;
+};
+
+export function getKiteLoginUrl(): Promise<ApiResult<KiteLoginUrl>> {
+  return requestLegacy<KiteLoginUrl>("/kite/login_url");
+}
+
+export function getKiteStatus(): Promise<ApiResult<KiteStatus>> {
+  return requestLegacy<KiteStatus>("/kite/status");
+}
+
+export function disconnectKite(): Promise<ApiResult<KiteStatus>> {
+  return requestLegacy<KiteStatus>("/kite/session", { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Kite end-to-end smoke test — place + cancel a known-safe order.
+// ---------------------------------------------------------------------------
+
+export type KiteTestOrderResult = {
+  order_id: string;
+  status: string;
+  variety: string;
+  message?: string;
+  regular_error?: string;
+};
+
+export type KiteCancelResult = {
+  order_id: string;
+  status: string;
+  variety?: string;
+};
+
+export function placeKiteTestOrder(): Promise<ApiResult<KiteTestOrderResult>> {
+  return requestLegacy<KiteTestOrderResult>("/kite/test-order", { method: "POST" });
+}
+
+export function cancelKiteTestOrder(
+  order_id: string,
+  variety: string,
+): Promise<ApiResult<KiteCancelResult>> {
+  return requestLegacy<KiteCancelResult>("/kite/test-order/cancel", {
+    method: "POST",
+    body: { order_id, variety },
+  });
 }
 
 // ---------------------------------------------------------------------------

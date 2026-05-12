@@ -30,6 +30,7 @@ import {
   FileText,
   HelpCircle,
   Keyboard,
+  KeyRound,
   LogOut,
   MessageSquare,
   Monitor,
@@ -44,6 +45,10 @@ import {
   X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
+import {
+  KiteCredentialsPanel,
+  type KiteOAuthResult,
+} from "@/components/KiteCredentialsPanel";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { CalendarTab } from "@/components/CalendarTab";
@@ -199,6 +204,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [active, setActive] = useState<TabKey>(DEFAULT_TAB);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(undefined);
+  const [kitePanelOpen, setKitePanelOpen] = useState(false);
+  const [kiteOauthResult, setKiteOauthResult] = useState<KiteOAuthResult | null>(
+    null,
+  );
   const [metrics, setMetrics] = useState<MetricState>({ kind: "loading" });
   const [theme, setTheme] = useState<Theme>("system");
   const [conversations, setConversations] = useState<ConvEntry[]>([]);
@@ -260,6 +269,34 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         if (letter) setAccountInitial(letter.toUpperCase());
       } catch { /* silent */ }
     })();
+
+    // Detect Kite OAuth return trip — `/kite/callback` redirects here with
+    // ?kite=connected or ?kite=error&reason=…. Auto-open the credentials
+    // panel with the outcome, then strip the params so refreshes don't
+    // re-surface old state.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const kite = params.get("kite");
+      if (kite === "connected") {
+        setKiteOauthResult({ kind: "connected" });
+        setKitePanelOpen(true);
+      } else if (kite === "error") {
+        setKiteOauthResult({
+          kind: "error",
+          reason: params.get("reason") ?? "unknown",
+        });
+        setKitePanelOpen(true);
+      }
+      if (kite) {
+        params.delete("kite");
+        params.delete("reason");
+        const qs = params.toString();
+        const next = `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`;
+        window.history.replaceState(null, "", next);
+      }
+    } catch {
+      /* ignore */
+    }
 
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -339,6 +376,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onChooseTheme={chooseTheme}
         metrics={metrics}
         accountInitial={accountInitial}
+        onOpenKite={() => setKitePanelOpen(true)}
       />
 
       {/* Body: sidebar + content */}
@@ -482,6 +520,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         initialWorkflow={panelWorkflow}
       />
 
+      <KiteCredentialsPanel
+        open={kitePanelOpen}
+        onOpenChange={(next) => {
+          setKitePanelOpen(next);
+          if (!next) setKiteOauthResult(null);
+        }}
+        oauthResult={kiteOauthResult}
+      />
+
       <CommandPalette
         conversations={conversations}
         onNavigate={goTab}
@@ -500,11 +547,13 @@ function TopHeader({
   onChooseTheme,
   metrics,
   accountInitial,
+  onOpenKite,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
   metrics: MetricState;
   accountInitial: string;
+  onOpenKite: () => void;
 }): React.ReactElement {
   // Local state drives the custom Lucide-X clear control. The native
   // browser "search" input renders its own (blue, ugly) clear button
@@ -639,6 +688,7 @@ function TopHeader({
           theme={theme}
           onChooseTheme={onChooseTheme}
           initial={accountInitial}
+          onOpenKite={onOpenKite}
         />
       </div>
     </header>
@@ -657,10 +707,12 @@ function AccountMenu({
   theme,
   onChooseTheme,
   initial,
+  onOpenKite,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
   initial: string;
+  onOpenKite: () => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -762,6 +814,15 @@ function AccountMenu({
             flexDirection: "column",
           }}
         >
+          <MenuItem
+            icon={KeyRound}
+            label="Kite credentials"
+            onClick={() => {
+              setOpen(false);
+              onOpenKite();
+            }}
+            testId="menu-kite-credentials"
+          />
           <MenuItem icon={Settings} label="Settings" onClick={() => setOpen(false)} />
           <div
             style={{ position: "relative" }}
@@ -901,6 +962,7 @@ function MenuItem({
   hasChevron = false,
   hasExternalArrow = false,
   active = false,
+  testId,
 }: {
   icon?: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
@@ -908,6 +970,7 @@ function MenuItem({
   hasChevron?: boolean;
   hasExternalArrow?: boolean;
   active?: boolean;
+  testId?: string;
 }): React.ReactElement {
   const trailing = hasChevron ? (
     <ChevronLeft size={14} strokeWidth={2} aria-hidden={true} />
@@ -918,6 +981,7 @@ function MenuItem({
     <button
       type="button"
       role="menuitem"
+      data-testid={testId}
       onClick={onClick}
       className="inline-flex items-center w-full"
       style={{
