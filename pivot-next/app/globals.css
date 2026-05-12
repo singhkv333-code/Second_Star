@@ -100,6 +100,7 @@
     --color-loss:   #dc2626;
     --color-warn:   #d97706;
     --pivot-blue:   #051650;
+    --price-line:   #0f172a;
 
     /* Typography */
     --font-display: 'Inter', system-ui, sans-serif;
@@ -208,6 +209,7 @@
     --color-loss:   #ef4444;
     --color-warn:   #f59e0b;
     --pivot-blue:   #60a5fa;
+    --price-line:   #e2e8f0;
   }
 }
 

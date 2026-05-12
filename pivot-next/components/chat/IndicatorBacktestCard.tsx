@@ -494,7 +494,7 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
           label="Price"
           testId="price-chart"
           points={price_curve}
-          color="rgb(15 23 42)"
+          color="var(--price-line)"
         />
         <InlineThumb
           label={`${indicator.toUpperCase()}(${indicator_period})`}
