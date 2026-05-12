@@ -1,24 +1,22 @@
 "use client";
 
 /**
- * AgentsTab — Quartr-style agent catalog card grid.
+ * AgentsTab — agent catalog grid.
  *
- * Per docs/UI_TABS_V1.md §1 + Day 7 redesign (image 4).
- * Lists GET /api/workflows with filter chips. Clicking a card opens AgentPanel.
+ * Card design mirrors the mini agent card in ActiveAgentsRail on the
+ * dashboard: soft rounded-2xl surface with a category chip + status
+ * pill in the header, the workflow name as the hero, the existing
+ * deterministic sparkline preserved as the visual focal point, and
+ * three muted KV rows beneath. The whole card is clickable.
  *
- * Card design: file-folder style with:
- *   - Header bar: FILE NNN / QUANT|INCOME|etc + RISK pill
- *   - Serif title ending with a period
- *   - KEY:VALUE rows: METHOD / UNIVERSE / CADENCE / TURNOVER / MIN TICKET
- *   - Footer: VIEW AGENT link + CAGR placeholder
+ * Single brand green (#4CAF50) is used for the Active status pill, in
+ * lockstep with WorkflowDraftCard / InlineRunCard / ActiveAgentsRail.
  */
 
 import { useEffect, useState } from "react";
-import { formatDistanceToNow, parseISO } from "date-fns";
 import {
   AlertCircle,
   Bot,
-  ExternalLink,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
@@ -29,6 +27,8 @@ import { createWorkflow, getWorkflow, listWorkflows } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
+
+const BRAND_GREEN = "#4CAF50";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,7 +45,6 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "active", label: "Active" },
   { value: "paused", label: "Paused" },
   { value: "draft", label: "Draft" },
-  { value: "archived", label: "Archived" },
 ];
 
 type FetchState =
@@ -54,50 +53,72 @@ type FetchState =
   | { kind: "ok"; items: WorkflowSummary[] };
 
 // ---------------------------------------------------------------------------
-// Category derivation (from name/description)
+// Category derivation (from name/description). Matches the vocabulary used
+// by ActiveAgentsRail so the same workflow reads as the same category on
+// the dashboard and in the catalog grid.
 // ---------------------------------------------------------------------------
 
-type Category = "QUANT" | "INCOME" | "TACTICAL" | "EVENT" | "PASSIVE";
-type RiskLevel = "HIGH RISK" | "MEDIUM RISK" | "LOW RISK";
+type Category = "STRATEGY" | "INCOME" | "RISK" | "RESEARCH" | "CASH";
 
 function deriveCategory(wf: WorkflowSummary): Category {
   const text = `${wf.name} ${wf.description ?? ""}`.toLowerCase();
-  if (text.includes("dividend") || text.includes("income") || text.includes("yield")) return "INCOME";
-  if (text.includes("event") || text.includes("earnings") || text.includes("ipo")) return "EVENT";
-  if (text.includes("passive") || text.includes("index") || text.includes("etf")) return "PASSIVE";
-  if (text.includes("tactical") || text.includes("swing") || text.includes("breakout")) return "TACTICAL";
-  return "QUANT";
+  if (text.includes("cash") || text.includes("sweep") || text.includes("fund")) return "CASH";
+  if (text.includes("research") || text.includes("report") || text.includes("analyse") || text.includes("analyze")) return "RESEARCH";
+  if (text.includes("risk") || text.includes("hedge")) return "RISK";
+  if (text.includes("income") || text.includes("dividend") || text.includes("yield")) return "INCOME";
+  return "STRATEGY";
 }
 
-/** Derive risk: without full step data, use description heuristics. */
-function deriveRisk(wf: WorkflowSummary): RiskLevel {
-  const text = `${wf.name} ${wf.description ?? ""}`.toLowerCase();
-  if (text.includes("approval") || text.includes("review")) return "MEDIUM RISK";
-  if (text.includes("notify") || text.includes("fetch") || text.includes("monitor") || text.includes("watch")) return "LOW RISK";
-  if (text.includes("buy") || text.includes("sell") || text.includes("order") || text.includes("trade")) return "HIGH RISK";
-  return "MEDIUM RISK";
+function categoryLabel(cat: Category): string {
+  const MAP: Record<Category, string> = {
+    STRATEGY: "Strategy",
+    INCOME: "Income",
+    RISK: "Risk",
+    RESEARCH: "Research",
+    CASH: "Fund Management",
+  };
+  return MAP[cat];
 }
 
-function riskColor(risk: RiskLevel): string {
-  if (risk === "HIGH RISK") return "text-rose-700 dark:text-rose-400";
-  if (risk === "MEDIUM RISK") return "text-amber-700 dark:text-amber-400";
-  return "text-muted-foreground";
+function categoryChipClass(cat: Category): string {
+  switch (cat) {
+    case "CASH":
+      return "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300";
+    case "RESEARCH":
+      return "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300";
+    case "RISK":
+      return "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300";
+    case "INCOME":
+      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
 }
 
-/** Derive METHOD from description (truncated) or name. */
-function deriveMethod(wf: WorkflowSummary): string {
-  if (wf.description) return wf.description.slice(0, 60) + (wf.description.length > 60 ? "…" : "");
-  return wf.name;
-}
-
-/** Derive UNIVERSE heuristic from name/description. */
+/** Derive UNIVERSE heuristic from name/description. Pulls the most
+ *  plausible NSE ticker out of the workflow's free text. Tokens that
+ *  are common English words (cadence/action verbs) are excluded so
+ *  short tickers like TCS / RIL aren't shadowed by words like
+ *  MONTHLY or WEEKLY. */
 function deriveUniverse(wf: WorkflowSummary): string {
   const text = `${wf.name} ${wf.description ?? ""}`.toUpperCase();
   const nseMatch = text.match(/\b([A-Z]{2,12})\b/g);
   const knownIndices = ["NIFTY", "SENSEX", "BANKNIFTY"];
+  // English-words / domain verbs that match the ticker regex but are
+  // not real tickers. Add to this list rather than tightening the
+  // length filter — TCS / SBI / RIL are 3-letter tickers we DO want.
+  const NON_TICKER_WORDS = new Set([
+    "EVERY", "WEEKDAY", "WEEKLY", "MONTHLY", "DAILY", "MONDAY", "TUESDAY",
+    "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
+    "MARKET", "BUYING", "POWER", "EMAIL", "PRICE", "FETCH", "NOTIFY",
+    "MORNING", "AFTERNOON", "EVENING", "NIGHT",
+    "AT", "ON", "IF", "THE", "AND", "FOR", "BUY", "SELL", "SIP",
+    "LIMIT", "ORDER", "QUANTITY", "AMOUNT",
+    "AM", "PM", "IST", "UTC",
+  ]);
   for (const m of nseMatch ?? []) {
     if (knownIndices.includes(m)) return "NIFTY 50";
-    if (m.length >= 4 && m.length <= 10 && !["EVERY", "WEEKDAY", "MARKET", "BUYING", "POWER", "EMAIL", "PRICE", "FETCH", "NOTIFY"].includes(m)) {
+    if (m.length >= 3 && m.length <= 10 && !NON_TICKER_WORDS.has(m)) {
       return m;
     }
   }
@@ -186,22 +207,53 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
   };
 
   return (
-    <div className="flex flex-col gap-4" data-testid="agents-tab">
-      {/* Filter chips */}
-      <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter agents">
-        {FILTERS.map((f) => (
-          <Button
-            key={f.value}
-            variant={filter === f.value ? "default" : "outline"}
-            size="sm"
-            className="h-7 rounded-full px-3 text-xs"
-            onClick={() => setFilter(f.value)}
-            aria-pressed={filter === f.value}
-            data-testid={`filter-${f.value}`}
-          >
-            {f.label}
-          </Button>
-        ))}
+    <div className="flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
+      {/* Page heading — Quartr serif */}
+      <h1
+        className="q-serif"
+        style={{
+          fontSize: 22,
+          letterSpacing: "-0.025em",
+          color: "var(--text-primary)",
+          margin: 0,
+        }}
+      >
+        Active Agents
+      </h1>
+
+      {/* Filter chips — Quartr pills */}
+      <div
+        className="flex flex-wrap items-center"
+        style={{ gap: 6 }}
+        role="group"
+        aria-label="Filter agents"
+      >
+        {FILTERS.map((f) => {
+          const active = filter === f.value;
+          return (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setFilter(f.value)}
+              aria-pressed={active}
+              data-testid={`filter-${f.value}`}
+              style={{
+                padding: "6px 12px",
+                background: active ? "var(--text-primary)" : "transparent",
+                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
+                borderRadius: "var(--radius-pill)",
+                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: "all 0.2s var(--ease-quartr)",
+              }}
+            >
+              {f.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* States */}
@@ -263,15 +315,14 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
 
       {state.kind === "ok" && state.items.length > 0 && (
         <div
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           data-testid="agents-list"
           role="list"
         >
-          {state.items.map((wf, idx) => (
-            <div key={wf.id} role="listitem">
-              <AgentFileCard
+          {state.items.map((wf) => (
+            <div key={wf.id} role="listitem" className="h-full">
+              <AgentMiniCard
                 workflow={wf}
-                seq={idx + 1}
                 isOpening={openingId === wf.id}
                 onSelect={() => handleSelect(wf.id)}
               />
@@ -284,107 +335,248 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
 }
 
 // ---------------------------------------------------------------------------
-// AgentFileCard — file-folder style
+// AgentMiniCard — same shape as ActiveAgentsRail.AgentCardItem.
+//   - Soft rounded-2xl surface, hairline border, low-key drop shadow
+//   - Category chip + status pill row at the top
+//   - Workflow name as the hero (line-clamp-2)
+//   - Existing deterministic sparkline preserved as the visual focal point
+//   - Three muted KV rows beneath: Method / Universe / Cadence
+//   - Whole card is clickable; agent-row-{id} testid points at the
+//     clickable root so the existing test still works
 // ---------------------------------------------------------------------------
 
-function AgentFileCard({
+function AgentMiniCard({
   workflow,
-  seq,
   isOpening,
   onSelect,
 }: {
   workflow: WorkflowSummary;
-  seq: number;
   isOpening: boolean;
   onSelect: () => void;
 }): React.ReactElement {
   const category = deriveCategory(workflow);
-  const risk = deriveRisk(workflow);
-  const method = deriveMethod(workflow);
   const universe = deriveUniverse(workflow);
   const cadence = deriveCadence(workflow);
-  const lastRunAgo = workflow.last_run_at
-    ? formatDistanceToNow(parseISO(workflow.last_run_at), { addSuffix: true })
-    : null;
+  const description = workflow.description ?? null;
+
+  const handleKey = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect();
+    }
+  };
 
   return (
     <div
-      className={cn(
-        "flex flex-col rounded-xl border bg-card shadow-sm overflow-hidden",
-        "hover:shadow-md transition-shadow",
-        isOpening && "opacity-60",
-      )}
       data-testid={`agent-card-${workflow.id}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open agent: ${workflow.name}`}
+      onClick={onSelect}
+      onKeyDown={handleKey}
+      className={cn(
+        "group flex h-full cursor-pointer flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
+        "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
+        "transition-colors hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        isOpening && "opacity-70",
+      )}
     >
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b bg-muted/30 px-3.5 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          FILE {String(seq).padStart(3, "0")} / {category}
-        </span>
-        <span className={cn("text-[10px] font-semibold uppercase tracking-wide", riskColor(risk))}>
-          {risk}
-        </span>
-      </div>
-
-      {/* Body */}
-      <div className="flex flex-col gap-3 p-4">
-        {/* Serif title */}
-        <h3 className="font-serif text-sm font-semibold leading-snug text-foreground">
-          {workflow.name.endsWith(".") ? workflow.name : `${workflow.name}.`}
-        </h3>
-
-        {/* KV rows */}
-        <div className="space-y-1">
-          <CardKV label="METHOD" value={method} />
-          <CardKV label="UNIVERSE" value={universe} />
-          <CardKV label="CADENCE" value={cadence} />
-          <CardKV label="TURNOVER" value="—" />
-          <CardKV label="MIN TICKET" value="—" />
-        </div>
-
-        {/* Last run line */}
-        {lastRunAgo && (
-          <p className="text-[10px] text-muted-foreground">
-            Last run {lastRunAgo}
-          </p>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t px-3.5 py-2.5">
-        <button
-          type="button"
-          onClick={onSelect}
-          disabled={isOpening}
-          aria-label={`View agent: ${workflow.name}`}
-          data-testid={`agent-row-${workflow.id}`}
+      {/* Header: category chip + status pill */}
+      <div className="flex items-center justify-between gap-3">
+        <span
           className={cn(
-            "flex items-center gap-1 text-[11px] font-semibold text-primary",
-            "hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            "disabled:opacity-50",
+            "inline-flex items-center rounded-md px-2.5 py-0.5 text-[11px] font-medium tracking-tight",
+            categoryChipClass(category),
           )}
         >
-          <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          VIEW AGENT
-        </button>
-        <span className="text-[10px] text-muted-foreground">CAGR —</span>
+          {categoryLabel(category)}
+        </span>
+        <WorkflowStatusPill status={workflow.status} />
       </div>
+
+      {/* Title */}
+      <h3 className="m-0 line-clamp-2 text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
+        {workflow.name}
+      </h3>
+
+      {/* Sparkline — preserved verbatim. */}
+      <Sparkline seed={workflow.id} positive={true} />
+
+      {/* KV rows — same muted rhythm as the checklist in
+          ActiveAgentsRail.AgentCardItem. */}
+      <div className="mt-auto flex flex-col gap-1.5 border-t border-border/40 pt-3 text-[12px]">
+        <KvRow label="Method" value={description ?? "Manual workflow"} />
+        <KvRow label="Universe" value={universe} />
+        <KvRow label="Cadence" value={cadence} />
+      </div>
+
+      {/* Hidden interaction sentinel — preserves the existing
+          `agent-row-{id}` testid contract from the previous file-card
+          design while keeping the whole card clickable. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+        disabled={isOpening}
+        aria-label={`View agent: ${workflow.name}`}
+        data-testid={`agent-row-${workflow.id}`}
+        className="sr-only"
+      >
+        View agent
+      </button>
+    </div>
+  );
+}
+
+function KvRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground/70">{label}</span>
+      <span className="min-w-0 truncate text-right text-foreground/85">
+        {value}
+      </span>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Card KV row
+// WorkflowStatusPill — single brand-green Active pill, muted Paused / Draft.
+// Same shape used everywhere else in the agent widget family.
 // ---------------------------------------------------------------------------
 
-function CardKV({ label, value }: { label: string; value: string }): React.ReactElement {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="w-20 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
+function WorkflowStatusPill({
+  status,
+}: {
+  status: WorkflowStatus;
+}): React.ReactElement {
+  if (status === "active") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full border bg-transparent px-2.5 py-1 text-[11px] font-medium"
+        style={{ borderColor: BRAND_GREEN, color: BRAND_GREEN }}
+      >
+        <span
+          aria-hidden={true}
+          className="h-1.5 w-1.5 rounded-full"
+          style={{
+            background: BRAND_GREEN,
+            animation: "pulse-quartr 1.6s ease-in-out infinite",
+          }}
+        />
+        Active
       </span>
-      <span className="min-w-0 truncate text-[11px] text-foreground">{value}</span>
-    </div>
+    );
+  }
+  const palette: Record<
+    Exclude<WorkflowStatus, "active">,
+    { dot: string; label: string; bg: string; text: string }
+  > = {
+    paused: {
+      dot: "bg-amber-500",
+      label: "Paused",
+      bg: "bg-amber-50 dark:bg-amber-500/10",
+      text: "text-amber-700 dark:text-amber-300",
+    },
+    draft: {
+      dot: "bg-muted-foreground/60",
+      label: "Draft",
+      bg: "bg-muted",
+      text: "text-muted-foreground",
+    },
+    archived: {
+      dot: "bg-muted-foreground/40",
+      label: "Archived",
+      bg: "bg-muted",
+      text: "text-muted-foreground/80",
+    },
+  };
+  const p = palette[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium",
+        p.bg,
+        p.text,
+      )}
+    >
+      <span
+        aria-hidden={true}
+        className={cn("h-1.5 w-1.5 rounded-full", p.dot)}
+      />
+      {p.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sparkline — deterministic seeded series, mirrors FQ's StrategyList::Sparkline
+// ---------------------------------------------------------------------------
+
+function Sparkline({ seed, positive }: { seed: string; positive: boolean }): React.ReactElement {
+  const POINTS = 40;
+  const W = 280;
+  const H = 56;
+  const numericSeed = String(seed || "x")
+    .split("")
+    .reduce((a, c) => a + c.charCodeAt(0), 0);
+
+  let v = 50;
+  const series: number[] = [];
+  for (let i = 0; i < POINTS; i++) {
+    const r = Math.sin((i + numericSeed) * 0.41) + Math.cos((i + numericSeed) * 0.19);
+    v += (positive ? 0.45 : -0.4) + r * 1.4;
+    series.push(v);
+  }
+
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const span = Math.max(1, max - min);
+
+  const xAt = (i: number): number => (i / (POINTS - 1)) * W;
+  const yAt = (val: number): number => H - ((val - min) / span) * (H - 6) - 3;
+
+  const linePath = series
+    .map((val, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(val).toFixed(1)}`)
+    .join(" ");
+  const areaPath = `${linePath} L ${W} ${H} L 0 ${H} Z`;
+  const gradId = `spark-${numericSeed}`;
+  const stroke = positive ? "var(--color-profit)" : "var(--color-loss)";
+  const fillTop = positive ? "rgba(16, 185, 129, 0.22)" : "rgba(239, 68, 68, 0.22)";
+  const fillBot = positive ? "rgba(16, 185, 129, 0)" : "rgba(239, 68, 68, 0)";
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width="100%"
+      height={H}
+      preserveAspectRatio="none"
+      style={{ display: "block", marginTop: 14 }}
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={fillTop} />
+          <stop offset="100%" stopColor={fillBot} />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gradId})`} />
+      <path
+        d={linePath}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
   );
 }
 
@@ -395,11 +587,11 @@ function CardKV({ label, value }: { label: string; value: string }): React.React
 function AgentsGridSkeleton(): React.ReactElement {
   return (
     <div
-      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
       data-testid="agents-loading"
     >
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-52 w-full rounded-xl" />
+        <Skeleton key={i} className="h-64 w-full rounded-2xl" />
       ))}
     </div>
   );

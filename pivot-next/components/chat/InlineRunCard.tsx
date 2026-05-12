@@ -1,38 +1,41 @@
 "use client";
 
 /**
- * InlineRunCard — public.com-style live-run checklist embedded directly
- * in the chat thread. Mounted after WorkflowDraftCard's "Save & activate"
- * triggers a manual run; subscribes to the run's WS stream and shows
- * step-by-step progress with the same status styling as RunView, but
- * compact (no header chrome, no expand panes, no approval banner —
- * those live in the full agent panel).
+ * InlineRunCard — live-run checklist embedded directly in the chat thread.
+ * Mounted after WorkflowDraftCard's "Save & activate" triggers a manual
+ * run; subscribes to the run's WS stream and shows step-by-step progress.
  *
- * Reference: Image #3 in the v1 design conversation.
+ * Design language matches WorkflowDraftCard: rounded-3xl card, soft shadow,
+ * sky tag chip + status pill in the header, large title, tile-style step
+ * rows, single brand green (#4CAF50) for positive state, ShieldAlert
+ * disclaimer footer. Step tiles use the same skeleton as the draft card —
+ * just with live status sub-lines (Running… / Succeeded · Xs / Failed /
+ * Awaiting / Skipped) instead of a static state.
  */
 
 import {
+  AlertCircle,
   CheckCircle2,
-  CircleDashed,
   ExternalLink,
   Loader2,
   PauseCircle,
+  ShieldAlert,
   XCircle,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StepIcon } from "@/components/agent-panel/step-icon";
 import { useRunStream } from "@/lib/use-run-stream";
 import { useStepCatalog } from "@/components/agent-panel/use-step-catalog";
 import { findStepType } from "@/lib/mock-catalog";
 import { cn } from "@/lib/utils";
-import type { Run, RunStepStatus, StepTypeCatalog } from "@/lib/types";
+import type { Run, RunStep, RunStepStatus, StepTypeCatalog } from "@/lib/types";
+
+// Single brand green — kept in lockstep with WorkflowDraftCard.
+const BRAND_GREEN = "#4CAF50";
 
 export type InlineRunCardProps = {
   runId: string;
   workflowName: string;
-  /** Optional: parent passes this to open the full agent panel for the workflow. */
   onOpenFullView?: () => void;
 };
 
@@ -49,12 +52,13 @@ export function InlineRunCard({
       <div
         role="alert"
         data-testid="inline-run-error"
-        className="my-2 w-full max-w-md rounded-xl border border-destructive/40 bg-destructive/5 p-4"
+        className="my-2 w-full max-w-[440px] rounded-3xl border border-destructive/40 bg-destructive/5 px-6 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
       >
-        <p className="text-sm font-medium text-destructive">
+        <p className="inline-flex items-center gap-1.5 text-[13px] font-medium text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
           Couldn&apos;t connect to live run
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">{error.message}</p>
+        <p className="mt-1.5 text-[12px] text-muted-foreground">{error.message}</p>
       </div>
     );
   }
@@ -63,233 +67,354 @@ export function InlineRunCard({
     return <InlineRunCardSkeleton />;
   }
 
+  const isPositiveTerminal = run.status === "succeeded";
+  const isFailed = run.status === "failed";
+
   return (
     <div
-      className={cn(
-        "relative my-1.5 w-full max-w-sm overflow-hidden rounded-xl",
-        "border border-border/60",
-        "bg-card/55 backdrop-blur-xl supports-[backdrop-filter]:bg-card/35",
-        "shadow-[0_1px_0_rgba(255,255,255,0.05)_inset,0_12px_36px_-16px_rgba(0,0,0,0.55),0_2px_10px_-6px_rgba(0,0,0,0.3)]",
-      )}
       data-testid="inline-run-card"
       role="region"
       aria-label={`Live run: ${workflowName}`}
+      className={cn(
+        "my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card",
+        "transition-all duration-500 ease-out",
+        isPositiveTerminal
+          ? "shadow-[0_1px_2px_rgba(76,175,80,0.08),0_18px_36px_-18px_rgba(76,175,80,0.22)]"
+          : "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
+      )}
+      style={{
+        animation: "draftCardIn-quartr 360ms cubic-bezier(0.22, 1, 0.36, 1) both",
+      }}
     >
-      {/* Top-edge sheen */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"
-      />
-
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2.5 px-3.5 pt-3 pb-2.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-1.5 py-0",
-                "text-[9px] font-medium uppercase tracking-wider",
-                "bg-violet-400/10 text-violet-300 ring-1 ring-violet-400/30",
-              )}
-            >
+      <div className="flex flex-col">
+        <div className="flex flex-col gap-5 px-6 pt-6 pb-5">
+          {/* HEADER — Run · manual chip on the left, run-status pill +
+              optional reconnecting indicator on the right. */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
               Run · {run.triggered_by}
             </span>
-            <RunStatusPill status={run.status} />
+            <div className="flex items-center gap-1.5">
+              {isReconnecting && (
+                <span
+                  data-testid="inline-run-reconnecting"
+                  role="status"
+                  className="inline-flex items-center gap-1 rounded-full bg-amber-100/80 px-2 py-0.5 text-[10.5px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                >
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden="true" />
+                  reconnecting
+                </span>
+              )}
+              <RunStatusPill status={run.status} />
+            </div>
           </div>
-          <h3 className="mt-1 truncate text-[13px] font-semibold leading-snug">
+
+          {/* TITLE — runHeadline keeps the existing copy contract
+              (`Running · …`, `Completed · …`, `Failed · …`, etc). */}
+          <h3 className="text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
             {runHeadline(run, workflowName)}
           </h3>
-        </div>
-        {isReconnecting && (
-          <span
-            data-testid="inline-run-reconnecting"
-            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-400/10 px-1.5 py-0 text-[9px] font-medium text-amber-300 ring-1 ring-amber-400/30"
-            role="status"
+
+          {/* STEP LIST — tile style identical to WorkflowDraftCard. */}
+          <ol
+            className="m-0 flex flex-col gap-2"
+            data-testid="inline-run-steps"
           >
-            <Loader2 className="h-2 w-2 animate-spin" aria-hidden="true" />
-            reconnecting
-          </span>
+            {run.steps.map((step, idx) => (
+              <InlineStepRow
+                key={step.step_index}
+                step={step}
+                index={idx}
+                catalog={catalogState.catalog}
+              />
+            ))}
+          </ol>
+
+          {/* Secondary action — same ghost text-link rhythm as the draft
+              card's Backtest / Open in editor row. */}
+          {onOpenFullView && (
+            <div className="flex items-center justify-center text-[11.5px]">
+              <button
+                type="button"
+                onClick={onOpenFullView}
+                data-testid="inline-run-open-full"
+                className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              >
+                <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                View full run
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* DISCLAIMER — same as WorkflowDraftCard. Tone shifts to a soft
+            failure tint when the run failed so the disclaimer doubles as
+            a quiet negative signal. */}
+        <div
+          className={cn(
+            "flex items-center gap-1.5 border-t border-border/40 px-6 py-2.5",
+            isFailed
+              ? "bg-rose-50/40 dark:bg-rose-500/[0.04]"
+              : "bg-amber-50/40 dark:bg-amber-500/[0.04]",
+          )}
+        >
+          <ShieldAlert
+            className={cn(
+              "h-3 w-3 shrink-0",
+              isFailed
+                ? "text-rose-600/80 dark:text-rose-400/80"
+                : "text-amber-600/80 dark:text-amber-400/80",
+            )}
+            aria-hidden="true"
+          />
+          <p
+            className={cn(
+              "text-[11px] leading-snug",
+              isFailed
+                ? "text-rose-700/90 dark:text-rose-300/90"
+                : "text-amber-700/90 dark:text-amber-300/90",
+            )}
+          >
+            This is automation of your instructions, not financial advice.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InlineStepRow — tile-style row, mirrors WorkflowDraftCard.DraftStepRow.
+// Status sub-line under the step label tells the live story:
+//   succeeded  → "Succeeded · Xs"
+//   running    → "Running…"
+//   pending    → no sub-line (the dim chrome is signal enough)
+//   failed     → "Failed"
+//   skipped    → "Skipped"
+//   awaiting   → "Awaiting approval"
+// ---------------------------------------------------------------------------
+
+function InlineStepRow({
+  step,
+  index,
+  catalog,
+}: {
+  step: RunStep;
+  index: number;
+  catalog: StepTypeCatalog;
+}): React.ReactElement {
+  const def = findStepType(catalog, step.step_type);
+  const label = def?.label ?? step.step_type;
+  const iconName = def?.icon ?? "circle-dot";
+
+  const isSucceeded = step.status === "succeeded";
+  const isRunning = step.status === "running";
+  const isFailed = step.status === "failed";
+  const isAwaiting = step.status === "awaiting_approval";
+  const isSkipped = step.status === "skipped";
+  const isPending = step.status === "pending";
+
+  // Tile-level styling — succeeded uses brand green, running uses a
+  // softer brand-green pulse, failed uses rose, awaiting uses amber.
+  // Pending/skipped keep the neutral tile shell.
+  const tileStyle: React.CSSProperties = (() => {
+    if (isSucceeded || isRunning) {
+      return {
+        borderColor: `${BRAND_GREEN}66`,
+        backgroundColor: `${BRAND_GREEN}14`,
+      };
+    }
+    return {};
+  })();
+
+  const tileClass = cn(
+    "flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors",
+    !isSucceeded && !isRunning && !isFailed && !isAwaiting && "border-border/50 bg-card",
+    isFailed && "border-rose-500/40 bg-rose-50/60 dark:border-rose-500/30 dark:bg-rose-500/[0.06]",
+    isAwaiting && "border-amber-500/40 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/[0.06]",
+    isSkipped && "opacity-60",
+  );
+
+  const iconChipStyle: React.CSSProperties =
+    isSucceeded || isRunning
+      ? { backgroundColor: `${BRAND_GREEN}26`, color: BRAND_GREEN }
+      : {};
+
+  const iconChipClass = cn(
+    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+    !isSucceeded && !isRunning && !isFailed && !isAwaiting && "bg-muted/70 text-muted-foreground",
+    isFailed && "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400",
+    isAwaiting && "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
+  );
+
+  return (
+    <li
+      data-testid={`inline-step-${step.step_index}`}
+      data-status={step.status}
+      className={tileClass}
+      style={{
+        animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
+        animationDelay: `${index * 50}ms`,
+        ...tileStyle,
+      }}
+    >
+      <span aria-hidden="true" className={iconChipClass} style={iconChipStyle}>
+        <StepIcon name={iconName} className="h-4 w-4" />
+      </span>
+
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span
+          className={cn(
+            "truncate text-[13px] font-medium tracking-tight text-foreground",
+            isSkipped && "italic text-muted-foreground",
+          )}
+        >
+          {label}
+        </span>
+        {!isPending && (
+          <StepStatusLine
+            step={step}
+            brandGreen={BRAND_GREEN}
+          />
         )}
       </div>
+    </li>
+  );
+}
 
-      {/* Step timeline — vertical track + status rings, mirroring the
-          public.com "Activate your Agent" pattern. */}
-      <ol
-        className="relative border-t border-border/40 px-3.5 pt-3 pb-2 space-y-2"
-        data-testid="inline-run-steps"
+function StepStatusLine({
+  step,
+  brandGreen,
+}: {
+  step: RunStep;
+  brandGreen: string;
+}): React.ReactElement | null {
+  const baseClass = "inline-flex items-center gap-1 text-[11px]";
+
+  switch (step.status) {
+    case "succeeded": {
+      const seconds = elapsedSeconds(step);
+      return (
+        <span className={baseClass} style={{ color: brandGreen }}>
+          <CheckCircle2 className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          Succeeded
+          {seconds !== null && ` · ${seconds}s`}
+          {step.attempts > 1 && ` · ${step.attempts} attempts`}
+        </span>
+      );
+    }
+    case "running":
+      return (
+        <span className={baseClass} style={{ color: brandGreen }}>
+          <Loader2
+            className="h-3 w-3 shrink-0 animate-spin"
+            strokeWidth={2.25}
+            aria-hidden="true"
+          />
+          Running…
+        </span>
+      );
+    case "failed":
+      return (
+        <span className={`${baseClass} text-rose-700 dark:text-rose-400`}>
+          <XCircle className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          Failed
+          {step.attempts > 1 && ` · ${step.attempts} attempts`}
+        </span>
+      );
+    case "awaiting_approval":
+      return (
+        <span className={`${baseClass} text-amber-700 dark:text-amber-400`}>
+          <PauseCircle className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          Awaiting approval
+        </span>
+      );
+    case "skipped":
+      return (
+        <span className={`${baseClass} text-muted-foreground/70`}>Skipped</span>
+      );
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RunStatusPill — succeeded uses the same #4CAF50 solid pill as the
+// WorkflowDraftCard "Active" pill; everything else gets a soft tinted
+// pill in the appropriate tone.
+// ---------------------------------------------------------------------------
+
+function RunStatusPill({ status }: { status: Run["status"] }): React.ReactElement {
+  if (status === "succeeded") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full border bg-transparent px-2.5 py-1 text-[11px] font-medium"
+        style={{ borderColor: BRAND_GREEN, color: BRAND_GREEN }}
+      >
+        <CheckCircle2 className="h-2.5 w-2.5 shrink-0" strokeWidth={3} aria-hidden="true" />
+        succeeded
+      </span>
+    );
+  }
+  if (status === "running") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full border bg-transparent px-2.5 py-1 text-[11px] font-medium"
+        style={{ borderColor: BRAND_GREEN, color: BRAND_GREEN }}
       >
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute left-[23px] top-5 bottom-5 w-px bg-gradient-to-b from-border/0 via-border/70 to-border/0"
+          className="h-1.5 w-1.5 rounded-full"
+          style={{
+            background: BRAND_GREEN,
+            animation: "pulse-quartr 1.6s ease-in-out infinite",
+          }}
         />
-        {run.steps.map((step) => (
-          <li key={step.step_index}>
-            <InlineStepRow
-              stepIndex={step.step_index}
-              stepType={step.step_type}
-              status={step.status}
-              attempts={step.attempts}
-              catalog={catalogState.catalog}
-            />
-          </li>
-        ))}
-      </ol>
-
-      {/* CTA */}
-      {onOpenFullView && (
-        <div className="border-t border-border/40 px-3.5 py-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 w-full justify-between text-[10.5px]"
-            onClick={onOpenFullView}
-            data-testid="inline-run-open-full"
-          >
-            <span>View full run</span>
-            <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InlineStepRow({
-  stepIndex,
-  stepType,
-  status,
-  attempts,
-  catalog,
-}: {
-  stepIndex: number;
-  stepType: string;
-  status: RunStepStatus;
-  attempts: number;
-  catalog: StepTypeCatalog;
-}): React.ReactElement {
-  const def = findStepType(catalog, stepType);
-  const presentation = STEP_TONE[status];
-  const rightLabel = STEP_RIGHT_LABEL[status];
-
+        running
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+        <XCircle className="h-2.5 w-2.5" aria-hidden="true" />
+        failed
+      </span>
+    );
+  }
+  if (status === "awaiting_approval") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+        <PauseCircle className="h-2.5 w-2.5" aria-hidden="true" />
+        awaiting
+      </span>
+    );
+  }
   return (
-    <div
-      className="relative flex items-center gap-2.5 pl-0"
-      data-testid={`inline-step-${stepIndex}`}
-      data-status={status}
-    >
-      {/* Timeline ring */}
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
       <span
-        className={cn(
-          "relative z-10 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full",
-          presentation.ring,
-        )}
         aria-hidden="true"
-      >
-        {status === "succeeded" ? (
-          <CheckCircle2
-            className="h-[14px] w-[14px] text-emerald-400"
-            strokeWidth={2.5}
-          />
-        ) : status === "running" ? (
-          <>
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" />
-          </>
-        ) : status === "failed" ? (
-          <XCircle className="h-[14px] w-[14px] text-rose-400" strokeWidth={2.5} />
-        ) : status === "awaiting_approval" ? (
-          <PauseCircle className="h-[14px] w-[14px] text-amber-300" strokeWidth={2.5} />
-        ) : (
-          <CircleDashed className="h-2.5 w-2.5 text-muted-foreground/50" />
-        )}
-      </span>
-      {/* Body */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground"
-            aria-hidden="true"
-          >
-            <StepIcon name={def?.icon ?? "circle-dot"} className="h-2.5 w-2.5" />
-          </span>
-          <span
-            className={cn(
-              "truncate text-[11px] font-medium",
-              status === "skipped" && "italic text-muted-foreground",
-            )}
-          >
-            {def?.label ?? stepType}
-          </span>
-          <span
-            className="shrink-0 rounded-full border border-border/60 bg-card/40 px-1 py-0 text-[8px] font-medium uppercase tracking-wider text-muted-foreground/80"
-            aria-hidden="true"
-          >
-            {stepIndex + 1}
-          </span>
-        </div>
-        {attempts > 1 && (
-          <p className="mt-0.5 text-[9px] text-muted-foreground/80">
-            {attempts} attempts
-          </p>
-        )}
-      </div>
-      {/* Right-aligned status label */}
-      <span
-        className={cn(
-          "shrink-0 text-[9.5px] font-medium tabular-nums",
-          presentation.rightText,
-        )}
-      >
-        {rightLabel}
-      </span>
-    </div>
-  );
-}
-
-function RunStatusPill({ status }: { status: Run["status"] }): React.ReactElement {
-  const tone = RUN_STATUS_TONE[status];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full px-1.5 py-0 text-[10px] font-medium",
-        tone.bg,
-        tone.text,
-      )}
-    >
-      {tone.icon}
-      <span className="capitalize">{statusLabel(status)}</span>
+        className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50"
+      />
+      {statusLabel(status)}
     </span>
   );
-}
-
-function StatusIcon({ status }: { status: RunStepStatus }): React.ReactElement {
-  switch (status) {
-    case "running":
-      return <Loader2 className="h-2.5 w-2.5 animate-spin text-info" aria-hidden="true" />;
-    case "succeeded":
-      return <CheckCircle2 className="h-2.5 w-2.5 text-success" aria-hidden="true" />;
-    case "failed":
-      return <XCircle className="h-2.5 w-2.5 text-destructive" aria-hidden="true" />;
-    case "awaiting_approval":
-      return <PauseCircle className="h-2.5 w-2.5 text-warning" aria-hidden="true" />;
-    case "skipped":
-    case "pending":
-    default:
-      return <CircleDashed className="h-2.5 w-2.5 text-muted-foreground" aria-hidden="true" />;
-  }
 }
 
 function InlineRunCardSkeleton(): React.ReactElement {
   return (
     <div
-      className="my-2 w-full max-w-md rounded-xl border bg-card p-4 shadow-sm"
       data-testid="inline-run-skeleton"
+      className="my-2 w-full max-w-[440px] rounded-3xl border border-border/50 bg-card px-6 py-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
     >
-      <Skeleton className="h-3 w-24" />
-      <Skeleton className="mt-2 h-4 w-44" />
-      <div className="mt-3 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-5 w-20 rounded-md" />
+        <Skeleton className="h-6 w-16 rounded-full" />
+      </div>
+      <Skeleton className="mt-5 h-6 w-3/4 rounded-md" />
+      <div className="mt-5 space-y-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-9 w-full rounded-lg" />
+          <Skeleton key={i} className="h-14 w-full rounded-xl" />
         ))}
       </div>
     </div>
@@ -297,86 +422,15 @@ function InlineRunCardSkeleton(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// Style maps — kept local to this file so the inline card can stay smaller
-// than RunView's full-screen palette
+// Helpers
 // ---------------------------------------------------------------------------
 
-// Style map per run-step status. Used to colour the timeline ring +
-// the right-side status label. The ring class also encodes whether
-// the cell needs a soft fill.
-const STEP_TONE: Record<
-  RunStepStatus,
-  { ring: string; rightText: string }
-> = {
-  pending: {
-    ring: "bg-card/60 ring-1 ring-border/60",
-    rightText: "text-muted-foreground/80",
-  },
-  running: {
-    ring: "bg-emerald-400/15 ring-2 ring-emerald-400/70",
-    rightText: "text-emerald-300",
-  },
-  succeeded: {
-    ring: "bg-emerald-400/10 ring-1 ring-emerald-400/40",
-    rightText: "text-muted-foreground/80",
-  },
-  failed: {
-    ring: "bg-rose-400/10 ring-1 ring-rose-400/50",
-    rightText: "text-rose-300",
-  },
-  skipped: {
-    ring: "bg-card/40 ring-1 ring-border/60",
-    rightText: "text-muted-foreground/60",
-  },
-  awaiting_approval: {
-    ring: "bg-amber-400/10 ring-1 ring-amber-400/50",
-    rightText: "text-amber-300",
-  },
-};
-
-// Human-friendly right-side label per status. Mirrors the
-// public.com pattern ("Happening now", "Today, 3:35 PM",
-// "Scheduled for 3:59 PM"). We don't have per-step timestamps
-// from the run yet, so we fall back to status-shaped phrases.
-const STEP_RIGHT_LABEL: Record<RunStepStatus, string> = {
-  pending: "Upcoming",
-  running: "Happening now",
-  succeeded: "Done",
-  failed: "Failed",
-  skipped: "Skipped",
-  awaiting_approval: "Awaiting approval",
-};
-
-const RUN_STATUS_TONE: Record<
-  Run["status"],
-  { bg: string; text: string; icon: React.ReactElement }
-> = {
-  running: {
-    bg: "bg-info/10",
-    text: "text-info",
-    icon: <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden="true" />,
-  },
-  succeeded: {
-    bg: "bg-success/10",
-    text: "text-success",
-    icon: <CheckCircle2 className="h-2.5 w-2.5" aria-hidden="true" />,
-  },
-  failed: {
-    bg: "bg-destructive/10",
-    text: "text-destructive",
-    icon: <XCircle className="h-2.5 w-2.5" aria-hidden="true" />,
-  },
-  cancelled: {
-    bg: "bg-muted",
-    text: "text-muted-foreground",
-    icon: <CircleDashed className="h-2.5 w-2.5" aria-hidden="true" />,
-  },
-  awaiting_approval: {
-    bg: "bg-warning/10",
-    text: "text-warning",
-    icon: <PauseCircle className="h-2.5 w-2.5" aria-hidden="true" />,
-  },
-};
+function elapsedSeconds(step: RunStep): number | null {
+  if (!step.started_at || !step.finished_at) return null;
+  const ms = new Date(step.finished_at).getTime() - new Date(step.started_at).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.max(0, Math.round(ms / 1000));
+}
 
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ");

@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -13,7 +15,11 @@
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 9%;
 
-    --primary: 222 89% 55%; /* Pivot accent — single accent color */
+    /* Tailwind "primary" rebinds to Quartr's ink color so legacy
+       references (bg-primary / text-primary / hover:bg-primary/90)
+       resolve to the Quartr neutral, not blue. CTAs that used
+       blue now sit in ink-on-paper, matching Quartr exactly. */
+    --primary: 240 4% 5%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 0 0% 96%;
@@ -39,31 +45,111 @@
 
     --border: 0 0% 90%;
     --input: 0 0% 90%;
-    --ring: 222 89% 55%;
+    --ring: 240 4% 30%;
 
     --radius: 0.625rem;
+
+    /* ─── Quartr tokens — LIGHT mode (mirror of the dark palette).
+           In dark mode --bg-base is near-black #0d0d0e (NOT pure black) and
+           the warm grey #1f2127 lives in --bg-elevated as the active/hover
+           tint. Light mode mirrors that: --bg-base is near-pure white and
+           the warm grey moves into --bg-elevated where it does the same
+           job — used only for sidebar-active / hover / selected states. */
+    --bg-base:       #ffffff;   /* page bg — paper white */
+    --bg-primary:    #fbfbfc;   /* card surface — very subtle tint */
+    --bg-secondary:  #f6f6f8;
+    --bg-card:       #fbfbfc;
+    --bg-elevated:   #ececee;   /* hover / active — the warm grey */
+
+    --glass-bg:           #fbfbfc;
+    --glass-bg-hover:     #f6f6f8;
+    --glass-bg-active:    #ececee;
+    --glass-border:       rgba(15, 18, 22, 0.08);
+    --glass-border-hover: rgba(15, 18, 22, 0.16);
+    --glass-border-focus: rgba(15, 18, 22, 0.32);
+
+    /* Theme-aware active/hover tints. In dark mode this is the
+       rgba(255,255,255,0.04) Quartr uses for active sidebar items;
+       light-mode mirror is the same opacity over the ink color so the
+       result reads as a faint grey wash. Use this everywhere we want
+       the "subtle elevated bg" treatment (sidebar nav active, theme
+       icon active, calendar selected cell, mode pill active). */
+    --surface-hover:  rgba(15, 18, 22, 0.03);
+    --surface-active: rgba(15, 18, 22, 0.06);
+
+    --text-primary:   #0d0d0e;   /* near-black ink */
+    --text-secondary: #4d555c;   /* mid-grey */
+    --text-tertiary:  #6b7280;
+    --text-disabled:  #9aa1a8;
+
+    /* Topbar metric-strip labels ("Portfolio value", "Day P&L"…). On
+       white bg `--text-tertiary` reads as too faint, so we alias the
+       label color to `--text-secondary` here. The dark-mode override
+       below keeps it on `--text-tertiary` where the contrast is fine. */
+    --metric-label: var(--text-secondary);
+
+    /* CTA on light = the dark ink itself, mirroring Quartr's "white CTA on dark" */
+    --shadow-cta:
+      rgba(0, 0, 0, 0)    0px 20px 6px 0px,
+      rgba(0, 0, 0, 0.02) 0px 13px 5px 0px,
+      rgba(0, 0, 0, 0.04) 0px  7px 4px 0px,
+      rgba(0, 0, 0, 0.06) 0px  3px 3px 0px,
+      rgba(0, 0, 0, 0.08) 0px  1px 2px 0px;
+
+    --color-profit: #059669;
+    --color-loss:   #dc2626;
+    --color-warn:   #d97706;
+    --pivot-blue:   #051650;
+
+    /* Typography */
+    --font-display: 'Inter', system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    --font-ui:      'Inter', system-ui, sans-serif;
+    --font-serif:   'Newsreader', 'Times New Roman', Georgia, serif;
+
+    /* Experiment slot — applied ONLY to the topbar Pivot wordmark and
+       the chat greeting ("Good morning, …"). Swap this single value to
+       try different serifs without touching component code. */
+    --font-experiment: 'Newsreader', Georgia, serif;
+    --weight-display: 550;
+    --weight-medium:  500;
+    --weight-bold:    700;
+
+    /* Geometry — Quartr radii */
+    --radius-xs:   4px;
+    --radius-sm:   8px;
+    --radius-md:   12px;
+    --radius-lg:   16px;
+    --radius-xl:   24px;
+    --radius-pill: 9999px;
+
+    --ease-quartr: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-tw:     cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .dark {
-    --background: 0 0% 7%;
+    --background: 0 0% 5%;
     --foreground: 0 0% 96%;
 
-    --card: 0 0% 9%;
+    --card: 0 0% 7%;
     --card-foreground: 0 0% 96%;
 
-    --popover: 0 0% 9%;
+    --popover: 0 0% 7%;
     --popover-foreground: 0 0% 96%;
 
-    --primary: 222 89% 60%;
-    --primary-foreground: 0 0% 100%;
+    /* In dark mode Tailwind primary becomes Quartr's off-white text
+       (#fbfcfc) — a true Quartr "white-on-dark" CTA. Buttons that
+       used to fill blue now fill with the off-white ink. */
+    --primary: 180 7% 99%;
+    --primary-foreground: 240 4% 5%;
 
-    --secondary: 0 0% 14%;
+    --secondary: 0 0% 10%;
     --secondary-foreground: 0 0% 96%;
 
-    --muted: 0 0% 14%;
+    --muted: 0 0% 10%;
     --muted-foreground: 0 0% 60%;
 
-    --accent: 0 0% 14%;
+    --accent: 0 0% 10%;
     --accent-foreground: 0 0% 96%;
 
     --destructive: 0 72% 55%;
@@ -78,9 +164,50 @@
     --info: 217 91% 65%;
     --info-foreground: 0 0% 100%;
 
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
+    --border: 0 0% 14%;
+    --input: 0 0% 14%;
     --ring: 222 89% 60%;
+
+    /* ─── Quartr dark tokens — exact extracted values ─── */
+    --bg-base:       #0d0d0e;
+    --bg-primary:    #111212;
+    --bg-secondary:  #15161a;
+    --bg-card:       #181a1f;
+    --bg-elevated:   #1f2127;
+
+    --glass-bg:           #111212;
+    --glass-bg-hover:     #181a1f;
+    --glass-bg-active:    #1f2127;
+    --glass-border:       rgba(255, 255, 255, 0.06);
+    --glass-border-hover: rgba(255, 255, 255, 0.12);
+    --glass-border-focus: rgba(255, 255, 255, 0.24);
+
+    /* Theme-aware active/hover tints — mirrors the values defined in
+       :root for light mode. In dark, these are the white-over-black
+       washes Quartr uses on active sidebar items / hover surfaces. */
+    --surface-hover:  rgba(255, 255, 255, 0.02);
+    --surface-active: rgba(255, 255, 255, 0.04);
+
+    --text-primary:   #fbfcfc;
+    --text-secondary: #8f98a1;
+    --text-tertiary:  #6b7280;
+    --text-disabled:  #485259;
+
+    /* Dark mode keeps metric-strip labels at tertiary — contrast is
+       fine against the deep-grey topbar. */
+    --metric-label: var(--text-tertiary);
+
+    --shadow-cta:
+      rgba(0, 0, 0, 0)    0px 20px 6px 0px,
+      rgba(0, 0, 0, 0.01) 0px 13px 5px 0px,
+      rgba(0, 0, 0, 0.03) 0px  7px 4px 0px,
+      rgba(0, 0, 0, 0.05) 0px  3px 3px 0px,
+      rgba(0, 0, 0, 0.06) 0px  1px 2px 0px;
+
+    --color-profit: #10b981;
+    --color-loss:   #ef4444;
+    --color-warn:   #f59e0b;
+    --pivot-blue:   #60a5fa;
   }
 }
 
@@ -88,8 +215,193 @@
   * {
     @apply border-border;
   }
+  html, body {
+    height: 100%;
+    /* Lock the document scroll so only the inner panes (main content,
+       sidebar conversation list, Active Agents rail) handle scrolling.
+       Without this, the topbar + sidebar can drift on long pages. */
+    overflow: hidden;
+  }
   body {
-    @apply bg-background text-foreground antialiased;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-feature-settings: "cv11", "ss01";
   }
+
+  /* Scrollbars — light-mode-aware */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--glass-border-hover);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--glass-border-focus); }
+  ::selection { background: var(--glass-border-hover); color: var(--text-primary); }
+
+  /* Hide the scrollbar entirely inside the chat scroll region (the
+     transcript still scrolls; just no visible scrollbar). Mirrors the
+     ChatGPT/Quartr "no scrollbar" reading. Apply via opt-in class
+     so other surfaces keep their thin scrollbars. */
+  .quartr-no-scrollbar { scrollbar-width: none; }
+  .quartr-no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+}
+
+/* ─── Quartr animations ────────────────────────────────────────────── */
+@keyframes pulse-quartr {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.85); }
+}
+@keyframes fadeUp-quartr {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes draftCardIn-quartr {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes stepIn-quartr {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes savedCheck-quartr {
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { opacity: 1; transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* ─── Quartr utility classes (used by chat surface + topbar) ───────── */
+.q-display {
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  letter-spacing: -0.025em;
+}
+.q-serif {
+  font-family: var(--font-serif);
+  font-weight: var(--weight-display);
+  letter-spacing: -0.04em;
+}
+.q-mono { font-family: var(--font-mono); }
+
+.q-greeting {
+  font-family: var(--font-experiment);
+  font-weight: var(--weight-display);
+  font-size: clamp(36px, 4vw, 46px);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: var(--text-primary);
+  text-align: center;
+  margin: 0;
+}
+
+.q-uppercase-label {
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* ─── Witty loader (chat thinking state) ──────────────────────────── */
+
+/* Phrase swap: a fade + tiny upward slide both ways. The component
+   keys on the phrase so the element remounts → these animations play
+   on every cycle. */
+@keyframes wittyPhraseIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* Three-bar ticker — playful price-chart style indicator. Each
+   bar scales its Y between 30% and 100% so the trio reads as a
+   tiny live chart pulsing next to the phrase. Different periods
+   per bar so they never lock into a synchronised wave. */
+@keyframes wittyBar1 {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1);   }
+}
+@keyframes wittyBar2 {
+  0%, 100% { transform: scaleY(0.5); }
+  35%      { transform: scaleY(1);   }
+  70%      { transform: scaleY(0.4); }
+}
+@keyframes wittyBar3 {
+  0%, 100% { transform: scaleY(0.4); }
+  40%      { transform: scaleY(0.8); }
+  80%      { transform: scaleY(1);   }
+}
+
+/* Animated gradient bar — a thin shimmer that sweeps left-to-right
+   underneath the phrase, used in the pre-stream skeleton variant. */
+@keyframes wittyShimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.witty-phrase {
+  animation: wittyPhraseIn 380ms var(--ease-quartr) both;
+}
+
+/* Mini-chart bars used by `WittyTicker`. Each bar scales its
+   transform-origin to the bottom so growth reads visually as
+   "rising volume" rather than "stretching from the middle". */
+.witty-bar {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  border-radius: 1.5px;
+  background: var(--text-secondary);
+  transform-origin: bottom;
+  will-change: transform;
+}
+.witty-bar:nth-child(1) {
+  animation: wittyBar1 1.05s ease-in-out infinite;
+}
+.witty-bar:nth-child(2) {
+  animation: wittyBar2 1.25s ease-in-out infinite;
+  animation-delay: 0.08s;
+}
+.witty-bar:nth-child(3) {
+  animation: wittyBar3 0.95s ease-in-out infinite;
+  animation-delay: 0.18s;
+}
+
+.witty-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--surface-active) 30%,
+    var(--surface-hover) 50%,
+    var(--surface-active) 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: wittyShimmer 2.4s linear infinite;
+}
+
+/* Hide native browser clear button on the topbar global search; we
+   render a Lucide X clear control next to the input that matches the
+   rest of the chrome's typography. */
+.global-search-input::-webkit-search-cancel-button,
+.global-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.global-search-input::-ms-clear,
+.global-search-input::-ms-reveal {
+  display: none;
+}
+
+/* Inline "Copied" badge animation — slides up + fades in when the
+   copy button flips state, sits next to the icon for ~1.5s. */
+@keyframes copyToast {
+  0%   { opacity: 0; transform: translateY(4px); }
+  20%  { opacity: 1; transform: translateY(0);   }
+  80%  { opacity: 1; transform: translateY(0);   }
+  100% { opacity: 0; transform: translateY(-2px); }
+}
+.copy-toast {
+  animation: copyToast 1.5s var(--ease-quartr) forwards;
 }

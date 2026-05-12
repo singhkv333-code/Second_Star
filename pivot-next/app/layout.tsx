@@ -6,6 +6,10 @@ import { AppBootstrap } from "@/components/AppBootstrap";
 export const metadata: Metadata = {
   title: "Pivot — Agent System",
   description: "Build, review, and run autonomous trading agents.",
+  // Favicon + apple-touch-icon are wired via the Next.js App Router
+  // file convention: app/icon.svg and app/apple-icon.png. No explicit
+  // `icons` field is needed; Next bakes <link rel="icon"> tags into
+  // <head> with content-hashed URLs that defeat browser cache.
 };
 
 export default function RootLayout({
