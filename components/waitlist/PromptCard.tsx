@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * PhoneChat — iPhone-style mock that plays a looping scripted chat
- * between the user and Pivot.
+ * PromptCard — mobile alternative to PhoneChat. Curved-edge card that
+ * cycles through the same scripted prompts + Pivot replies, without the
+ * phone frame chrome.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -21,7 +22,7 @@ const SCRIPT: Turn[] = [
   { role: "assistant", text: "Running 5-year backtest… 42 trades, 61% win-rate, 14.2% CAGR." },
 ];
 
-export function PhoneChat(): React.ReactElement {
+export function PromptCard(): React.ReactElement {
   const [visible, setVisible] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -68,47 +69,44 @@ export function PhoneChat(): React.ReactElement {
   const turns = SCRIPT.slice(0, visible);
 
   return (
-    <div className="relative mx-auto h-[600px] w-[300px] sm:h-[640px] sm:w-[320px]">
-      <div className="absolute inset-0 rounded-[44px] bg-[#0d0d0e] p-[10px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.4),0_10px_30px_-10px_rgba(0,0,0,0.2)]">
-        <div className="relative h-full w-full overflow-hidden rounded-[36px] bg-white">
-          <div className="absolute left-1/2 top-2 z-10 h-6 w-28 -translate-x-1/2 rounded-full bg-[#0d0d0e]" />
+    <div className="relative mx-auto w-full max-w-[440px]">
+      <div className="relative overflow-hidden rounded-[28px] border border-black/[0.06] bg-white p-4 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.25),0_6px_20px_-10px_rgba(0,0,0,0.12)] sm:rounded-[32px] sm:p-5">
+        <div className="flex items-center gap-2 pb-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/pivot-light.png"
+            alt="Pivot"
+            width={44}
+            height={44}
+            style={{ display: "block", objectFit: "contain" }}
+          />
+          <span className="text-[13px] font-medium tracking-tight text-[#0d0d0e]">
+            Pivot
+          </span>
+        </div>
 
-          <div className="h-10" />
-
-          <div className="flex items-center px-5 pb-1 pt-1">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/pivot-light.png"
-              alt="Pivot"
-              width={56}
-              height={56}
-              style={{ display: "block", objectFit: "contain" }}
-            />
+        <div
+          ref={scrollRef}
+          className="h-[320px] overflow-y-auto pb-3 pr-1 pt-1 [scrollbar-width:none] sm:h-[360px] [&::-webkit-scrollbar]:hidden"
+        >
+          <div className="flex flex-col gap-3.5">
+            {turns.map((t, idx) =>
+              t.role === "user" ? (
+                <UserTurn key={idx} text={t.text} />
+              ) : (
+                <AssistantTurn key={idx} text={t.text} />
+              ),
+            )}
+            {loading && <Loader />}
           </div>
+        </div>
 
-          <div
-            ref={scrollRef}
-            className="h-[calc(100%-118px)] overflow-y-auto px-4 pb-4 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            <div className="flex flex-col gap-4">
-              {turns.map((t, idx) =>
-                t.role === "user" ? (
-                  <UserTurn key={idx} text={t.text} />
-                ) : (
-                  <AssistantTurn key={idx} text={t.text} />
-                ),
-              )}
-              {loading && <Loader />}
-            </div>
-          </div>
-
-          <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-full border border-black/[0.08] bg-white px-4 py-2.5 shadow-sm">
-            <span className="flex-1 truncate text-[12px] text-[#9aa1a8]">
-              Ask Pivot anything…
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#0d0d0e]">
-              <ArrowUp size={14} strokeWidth={2.25} color="white" />
-            </div>
+        <div className="mt-2 flex items-center gap-2 rounded-full border border-black/[0.08] bg-white px-4 py-2.5 shadow-sm">
+          <span className="flex-1 truncate text-[13px] text-[#9aa1a8]">
+            Ask Pivot anything…
+          </span>
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#0d0d0e]">
+            <ArrowUp size={14} strokeWidth={2.25} color="white" />
           </div>
         </div>
       </div>
@@ -122,11 +120,11 @@ function UserTurn({ text }: { text: string }): React.ReactElement {
       <div
         className="whitespace-pre-wrap"
         style={{
-          maxWidth: "82%",
-          padding: "8px 12px",
-          borderRadius: "14px 14px 2px 14px",
+          maxWidth: "85%",
+          padding: "9px 13px",
+          borderRadius: "16px 16px 4px 16px",
           background: "#ececee",
-          fontSize: 12.5,
+          fontSize: 13,
           color: "#0d0d0e",
           lineHeight: 1.45,
           wordBreak: "break-word",
@@ -142,7 +140,7 @@ function AssistantTurn({ text }: { text: string }): React.ReactElement {
   return (
     <div className="animate-[bubbleIn_280ms_cubic-bezier(0.22,1,0.36,1)_both]">
       <p
-        className="text-[12.5px] text-[#0d0d0e]"
+        className="text-[13px] text-[#0d0d0e]"
         style={{ lineHeight: 1.55 }}
       >
         {text}

@@ -7,88 +7,56 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUp } from "lucide-react";
+import { Reveal } from "@/components/waitlist/scroll-fx";
 
 type Capability = {
-  kind: "action" | "alert" | "research" | "agent" | "build";
-  prompts: string[];
+  kind: "alert" | "action" | "research" | "backtest" | "build" | "agent" | "portfolio";
+  prompt: string;
   top: string;
   left: string;
 };
 
-const CAPABILITIES: Capability[] = [
-  {
-    kind: "action",
-    top: "22%",
-    left: "8%",
-    prompts: [
-      "Buy ₹50k of QQQ at market open",
-      "Sell 200 RELIANCE at limit ₹2,840",
-      "Place SIP of ₹10k in NIFTY BeES",
-    ],
-  },
-  {
-    kind: "alert",
-    top: "14%",
-    left: "62%",
-    prompts: [
-      "Alert me if TSLA drops 5% intraday",
-      "Ping me when AAPL hits all-time high",
-      "Notify me on RBI rate decision",
-    ],
-  },
-  {
-    kind: "research",
-    top: "55%",
-    left: "14%",
-    prompts: [
-      "Summarise INFY Q3 earnings",
-      "Compare ICICI Bank vs HDFC Bank",
-      "What's driving today's NIFTY move?",
-    ],
-  },
-  {
-    kind: "agent",
-    top: "82%",
-    left: "78%",
-    prompts: [
-      "Run my CPI hedge agent",
-      "Square off losers above 8% drawdown",
-      "Sweep cash above ₹20k into bonds",
-    ],
-  },
-  {
-    kind: "build",
-    top: "38%",
-    left: "78%",
-    prompts: [
-      "Build a barbell on TQQQ + BIL",
-      "Create a covered-call security on NIFTY",
-      "Design a momentum basket of 10 stocks",
-    ],
-  },
-  {
-    kind: "action",
-    top: "82%",
-    left: "18%",
-    prompts: [
-      "Backtest 50/200 SMA on RELIANCE",
-      "Backtest RSI(14) mean reversion",
-      "Stress-test my portfolio for -10% NIFTY",
-    ],
-  },
+type CapabilitySeed = Omit<Capability, "top" | "left">;
+
+const CAPABILITY_SEEDS: CapabilitySeed[] = [
+  { kind: "alert", prompt: "Alert me if BANKNIFTY drops by 5%" },
+  { kind: "action", prompt: "Buy ₹50K of TECHM" },
+  { kind: "build", prompt: "Build me a capital-protective security with equity exposure" },
+  { kind: "agent", prompt: "Create an agent that buys SBIN on open and sells at close daily" },
+  { kind: "portfolio", prompt: "Analyze my portfolio and suggest any rebalancing" },
+  { kind: "backtest", prompt: "Backtest buy when RSI<30 and sell when RSI>70 on JSWSTEEL" },
+  { kind: "research", prompt: "Give me a list of all pharma stocks whose P/E < 25" },
 ];
 
+// Place tiles on an ellipse around the central title + chatbox.
+// Angle 0 = right, sweeps clockwise. Starts at -90° (top) and goes around.
+const ELLIPSE = { cx: 50, cy: 50, rx: 40, ry: 33 };
+
+const N = CAPABILITY_SEEDS.length;
+const STEP = 360 / N;
+// Offset by half a step so tiles flank (not cover) the central title.
+const START_ANGLE = -90 - STEP / 2;
+
+const CAPABILITIES: Capability[] = CAPABILITY_SEEDS.map((seed, i) => {
+  const angle = (START_ANGLE + STEP * i) * (Math.PI / 180);
+  const left = ELLIPSE.cx + ELLIPSE.rx * Math.cos(angle);
+  const top = ELLIPSE.cy + ELLIPSE.ry * Math.sin(angle);
+  return { ...seed, top: `${top.toFixed(2)}%`, left: `${left.toFixed(2)}%` };
+});
+
 const LABEL: Record<Capability["kind"], string> = {
-  action: "action",
   alert: "alert",
+  action: "action",
   research: "research",
-  agent: "agent",
+  backtest: "backtest",
   build: "build",
+  agent: "agent",
+  portfolio: "portfolio",
 };
 
 export function CapabilityCanvas(): React.ReactElement {
   return (
-    <div data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] text-white">
+    <div data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] py-20 text-white sm:py-28 lg:py-32">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.06)_0%,transparent_55%)]"
@@ -96,35 +64,39 @@ export function CapabilityCanvas(): React.ReactElement {
 
       <MovingLines />
 
-      <div aria-hidden className="pointer-events-none absolute inset-0">
-        {CAPABILITIES.map((c, idx) => (
-          <Tile key={idx} cap={c} index={idx} />
-        ))}
-      </div>
-
-      <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-6 py-44 text-center sm:py-60">
-        <div className="mb-8 inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-white/70">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
-          one assistant for everything investing
+      <div className="relative">
+        <div aria-hidden className="pointer-events-none absolute inset-0 hidden lg:block">
+          {CAPABILITIES.map((c, idx) => (
+            <Tile key={idx} cap={c} index={idx} />
+          ))}
         </div>
-        <h2 className="font-serif text-[44px] leading-[1.05] tracking-[-0.04em] text-white sm:text-[64px]">
-          Hey! Pivot
-        </h2>
 
-        <ShowcaseChatbox />
+        <Reveal className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 py-16 text-center sm:px-6 sm:py-24 lg:py-48">
+          <div className="mb-6 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-white/70 sm:mb-8 sm:text-[11px]">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
+            one assistant for everything investing
+          </div>
+          <h2 className="font-serif text-[40px] leading-[1.04] tracking-[-0.03em] text-white sm:text-[56px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[64px]">
+            Hey! Pivot
+          </h2>
+
+          <ShowcaseChatbox />
+
+          <MobileCapabilityList />
+        </Reveal>
       </div>
     </div>
   );
 }
 
 const SHOWCASE_SUFFIXES = [
-  "build me a low-volatility SIP basket",
-  "buy ₹50k of QQQ at market open tomorrow",
-  "alert me if NIFTY drops 2% in a single day",
-  "backtest a 50/200 SMA crossover on RELIANCE",
-  "create a covered-call security on NIFTY",
-  "summarise INFY's last earnings call",
-  "square off losers above 8% drawdown",
+  "alert me if BANKNIFTY drops by 5%",
+  "buy ₹50K of TECHM",
+  "build me a capital-protective security with equity exposure",
+  "create an agent that buys SBIN on open and sells at close daily",
+  "analyze my portfolio and suggest any rebalancing",
+  "backtest buy when RSI<30 and sell when RSI>70 on JSWSTEEL",
+  "give me a list of all pharma stocks whose P/E < 25",
 ];
 
 function ShowcaseChatbox(): React.ReactElement {
@@ -143,25 +115,23 @@ function ShowcaseChatbox(): React.ReactElement {
   }, []);
 
   return (
-    <div className="mt-12 w-full max-w-2xl">
+    <div className="mt-8 w-full max-w-2xl sm:mt-12">
       <div
-        className="flex items-center"
+        className="flex items-center gap-2 px-3 py-1 sm:gap-2.5 sm:px-5"
         style={{
-          gap: 10,
           background: "rgba(255,255,255,0.04)",
           borderRadius: 9999,
           border: "1px solid rgba(255,255,255,0.12)",
-          padding: "4px 4px 4px 20px",
+          paddingTop: 4,
+          paddingBottom: 4,
           backdropFilter: "blur(8px)",
           WebkitBackdropFilter: "blur(8px)",
         }}
       >
         <div
-          className="flex-1 truncate text-left"
+          className="flex-1 truncate text-left text-[13px] leading-[36px] sm:text-[14px] sm:leading-[44px]"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 14,
-            lineHeight: "44px",
             color: "rgba(255,255,255,0.9)",
           }}
         >
@@ -190,18 +160,37 @@ function ShowcaseChatbox(): React.ReactElement {
         </div>
 
         <div
-          className="flex shrink-0 items-center justify-center"
+          className="flex h-8 w-8 shrink-0 items-center justify-center sm:h-10 sm:w-10"
           style={{
-            width: 40,
-            height: 40,
             borderRadius: 9999,
             background: "#ffffff",
             color: "#0d0d0e",
           }}
         >
-          <ArrowUp size={18} strokeWidth={2} aria-hidden={true} />
+          <ArrowUp size={16} strokeWidth={2} aria-hidden={true} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function MobileCapabilityList(): React.ReactElement {
+  return (
+    <div className="mt-10 grid w-full grid-cols-1 gap-3 sm:mt-12 sm:grid-cols-2 lg:hidden">
+      {CAPABILITIES.map((c, idx) => (
+        <div
+          key={idx}
+          className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 text-left backdrop-blur-sm"
+        >
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/80">
+            <Bolt />
+            {LABEL[c.kind]}
+          </div>
+          <div className="text-[13px] leading-snug text-white/85">
+            {c.prompt}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -214,14 +203,14 @@ function Tile({ cap }: { cap: Capability; index: number }): React.ReactElement {
     >
       <div className="mx-auto mb-2 h-1.5 w-1.5 rounded-full bg-white/60 shadow-[0_0_8px_rgba(255,255,255,0.5)]" />
 
-      <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/80 backdrop-blur-sm">
+      <div className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/80 backdrop-blur-sm">
         <Bolt />
         {LABEL[cap.kind]}
       </div>
 
       <div className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 backdrop-blur-sm">
-        <div className="max-w-[220px] text-[12.5px] leading-snug text-white/85">
-          {cap.prompts[0]}
+        <div className="max-w-[240px] text-[12.5px] leading-snug text-white/85">
+          {cap.prompt}
         </div>
       </div>
     </div>

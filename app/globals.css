@@ -142,3 +142,41 @@
   from { stroke-dashoffset: 28; }
   to   { stroke-dashoffset: 0;  }
 }
+@keyframes stepIn-quartr {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes borderTrace {
+  from { --angle: 0deg; }
+  to   { --angle: 360deg; }
+}
+
+/* Footer wordmark reveal — astor.app-style mask rise.
+   The mask container clips overflow vertically; the inner span starts
+   below its own height and translates to 0 to reveal letter-by-letter. */
+.wordmark-mask {
+  overflow: hidden;
+  display: block;
+}
+.wordmark-reveal {
+  display: block;
+  transform: translateY(110%);
+  transition: transform 1500ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: 120ms;
+  will-change: transform;
+}
+.wordmark-reveal.is-visible {
+  transform: translateY(0);
+}
+
+/* Generic fade-up on enter — used for section blocks via the Reveal helper. */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translate3d(0, 20px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);    }
+}

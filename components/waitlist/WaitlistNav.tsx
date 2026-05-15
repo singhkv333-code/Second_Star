@@ -65,7 +65,7 @@ export function WaitlistNav(): React.ReactElement {
   const pillBg = isDark ? "#f0ede5" : "#0d0d0e";
   const pillInk = isDark ? "#0d0d0e" : "#ffffff";
 
-  const STRIPE = 16;
+  const STRIPE = typeof window !== "undefined" && window.innerWidth < 640 ? 10 : 16;
 
   return (
     <header
@@ -85,15 +85,14 @@ export function WaitlistNav(): React.ReactElement {
           "background-color 400ms ease, color 400ms ease, border-color 400ms ease, padding-top 320ms cubic-bezier(0.22,1,0.36,1), padding-bottom 320ms cubic-bezier(0.22,1,0.36,1), box-shadow 320ms cubic-bezier(0.22,1,0.36,1)",
       }}
     >
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6">
         <Link
           href="/"
-          className="flex items-center"
+          className="flex items-center text-[18px] sm:text-[22px]"
           style={{
             gap: 0,
             fontFamily: "var(--font-experiment)",
             fontWeight: 550,
-            fontSize: 22,
             letterSpacing: "-0.02em",
             color: "inherit",
           }}
@@ -104,7 +103,7 @@ export function WaitlistNav(): React.ReactElement {
             alt="Pivot"
             width={55}
             height={55}
-            className="shrink-0"
+            className="h-10 w-10 shrink-0 sm:h-[55px] sm:w-[55px]"
             style={{
               display: "block",
               objectFit: "contain",
@@ -117,19 +116,20 @@ export function WaitlistNav(): React.ReactElement {
 
         <a
           href="#waitlist"
-          className="inline-flex items-center rounded-full text-[13px] font-medium hover:opacity-90"
+          className="inline-flex items-center rounded-full text-[12.5px] font-medium hover:opacity-90 sm:text-[13px]"
           style={{
-            paddingLeft: 16,
-            paddingRight: 16,
-            paddingTop: 8,
-            paddingBottom: 8,
+            paddingLeft: 14,
+            paddingRight: 14,
+            paddingTop: 7,
+            paddingBottom: 7,
             background: pillBg,
             color: pillInk,
             transition:
               "background-color 400ms ease, color 400ms ease, opacity 200ms ease",
           }}
         >
-          Join the Waitlist
+          <span className="sm:hidden">Join Waitlist</span>
+          <span className="hidden sm:inline">Join the Waitlist</span>
         </a>
       </div>
     </header>

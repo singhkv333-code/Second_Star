@@ -11,8 +11,18 @@
  * - WaitlistFormBlock: the final dark CTA with email capture.
  */
 
-import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Square, ArrowUp } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Square,
+  ArrowUp,
+  CalendarClock,
+  GitBranch,
+  ShoppingCart,
+  TrendingUp,
+} from "lucide-react";
+import { Reveal } from "@/components/waitlist/scroll-fx";
 
 // ─── How it works ───────────────────────────────────────────────────────
 
@@ -23,50 +33,167 @@ type HowStep = {
   preview: React.ReactNode;
 };
 
+type WorkflowStep = {
+  iconName: "calendar-clock" | "git-branch" | "shopping-cart" | "trending-up";
+  kind: string;
+  label: string;
+};
+
+type OrderScenario = {
+  exchange: string;
+  sector: string;
+  name: string;
+  ticker: string;
+  tag?: string;
+  price: string;
+  deltaPct: string;
+  side: "BUY" | "SELL";
+  sideVerb: string;
+  qty: string;
+  totalLabel: string;
+  total: string;
+  trend: "up" | "down";
+};
+
+type Scenario = {
+  prompt: string;
+  workflowTitle: string;
+  steps: [WorkflowStep, WorkflowStep, WorkflowStep];
+  order: OrderScenario;
+};
+
+const SCENARIOS: Scenario[] = [
+  {
+    prompt: "Hey! Pivot, Buy 7 shares of TATASTEEL when it drops below 140",
+    workflowTitle: "TATASTEEL dip buy",
+    steps: [
+      { iconName: "trending-up", kind: "Trigger", label: "TATASTEEL price ≤ ₹140" },
+      { iconName: "git-branch", kind: "Condition", label: "Confirm dip on NSE feed" },
+      { iconName: "shopping-cart", kind: "Action", label: "Buy 7 shares of TATASTEEL" },
+    ],
+    order: {
+      exchange: "NSE",
+      sector: "Steel",
+      name: "Tata Steel Ltd",
+      ticker: "TATASTEEL",
+      price: "₹139.90",
+      deltaPct: "▼ 1.08%",
+      side: "BUY",
+      sideVerb: "Bought at",
+      qty: "7",
+      totalLabel: "₹139.90",
+      total: "₹979.30",
+      trend: "down",
+    },
+  },
+  {
+    prompt:
+      "Hey! Pivot, start a monthly SIP of ₹5,000 in HDFCBANK whenever RBI cuts repo rate",
+    workflowTitle: "Repo-rate SIP",
+    steps: [
+      { iconName: "calendar-clock", kind: "Trigger", label: "When RBI cuts repo rate" },
+      { iconName: "git-branch", kind: "Condition", label: "Cut is confirmed by RBI" },
+      { iconName: "shopping-cart", kind: "Action", label: "Buy ₹5,000 of HDFCBANK" },
+    ],
+    order: {
+      exchange: "NSE",
+      sector: "Bank",
+      name: "HDFC Bank Ltd",
+      ticker: "HDFCBANK",
+      tag: "SIP · Monthly",
+      price: "₹1,612.40",
+      deltaPct: "▲ 0.42%",
+      side: "BUY",
+      sideVerb: "Bought at",
+      qty: "3.1",
+      totalLabel: "₹1,612.40",
+      total: "₹5,000",
+      trend: "up",
+    },
+  },
+  {
+    prompt: "Hey! Pivot, sell all my ETERNAL shares if it crosses ₹300",
+    workflowTitle: "ETERNAL take-profit",
+    steps: [
+      { iconName: "trending-up", kind: "Trigger", label: "ETERNAL price ≥ ₹300" },
+      { iconName: "git-branch", kind: "Condition", label: "Confirm crossover holds" },
+      { iconName: "shopping-cart", kind: "Action", label: "Sell all ETERNAL shares" },
+    ],
+    order: {
+      exchange: "NSE",
+      sector: "Consumer",
+      name: "Eternal Ltd",
+      ticker: "ETERNAL",
+      price: "₹301.20",
+      deltaPct: "▲ 0.84%",
+      side: "SELL",
+      sideVerb: "Sold at",
+      qty: "40",
+      totalLabel: "₹301.20",
+      total: "₹12,048",
+      trend: "up",
+    },
+  },
+];
+
 export function HowItWorksSection(): React.ReactElement {
+  const [idx, setIdx] = useState(0);
+  const scenario = SCENARIOS[idx]!;
+
+  const handlePromptDone = (): void => {
+    setIdx((i) => (i + 1) % SCENARIOS.length);
+  };
+
   const steps: HowStep[] = [
     {
       n: "01",
       title: "You enter a prompt",
       body: "Describe what you want in plain English — buy, sell, alert, automate, or build a strategy.",
-      preview: <PromptPreview />,
+      preview: <PromptPreview prompt={scenario.prompt} onDone={handlePromptDone} />,
     },
     {
       n: "02",
       title: "Pivot tracks the market",
       body: "Pivot watches prices, signals, and macro events 24/7, waiting for your conditions to fire.",
-      preview: <TrackingPreview />,
+      preview: (
+        <TrackingPreview
+          key={`track-${idx}`}
+          title={scenario.workflowTitle}
+          steps={scenario.steps}
+        />
+      ),
     },
     {
       n: "03",
       title: "Pivot executes the trade",
       body: "When the moment arrives, Pivot places the order through your brokerage and reports back.",
-      preview: <OrderPlacedPreview />,
+      preview: <OrderPlacedPreview key={`order-${idx}`} order={scenario.order} />,
     },
   ];
 
   return (
-    <section className="bg-white px-6 py-[6.5rem] sm:py-[7.5rem]">
+    <section id="how-it-works" className="scroll-mt-24 bg-white px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
       <div className="mx-auto max-w-6xl">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="mb-4 inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#4d555c]">
+        <Reveal className="mx-auto max-w-2xl text-center">
+          <div className="mb-4 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-[#4d555c] sm:text-[11px]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#4d555c]" />
-            World&apos;s first AI Native investment platform
+            <span className="hidden sm:inline">World&apos;s first AI Native investment platform</span>
+            <span className="sm:hidden">AI Native investment platform</span>
           </div>
-          <h2 className="font-serif text-[42px] leading-[1.05] tracking-[-0.04em] text-[#0d0d0e] sm:text-[56px]">
+          <h2 className="font-serif text-[36px] leading-[1.04] tracking-[-0.03em] text-[#0d0d0e] sm:text-[48px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[56px]">
             How it works
           </h2>
-          <p className="mt-5 text-[15px] leading-7 text-[#4d555c]">
+          <p className="mt-4 text-[14.5px] leading-[1.6] text-[#4d555c] sm:mt-5 sm:text-[15px] sm:leading-7">
             Three steps from idea to executed trade. No charts, no manual
             monitoring, no order tickets.
           </p>
-        </div>
+        </Reveal>
 
-        <div className="mt-14 grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <Reveal delay={120} className="mt-10 grid grid-cols-1 gap-5 sm:mt-14 sm:grid-cols-3">
           {steps.map((s) => (
             <HowStepCard key={s.n} step={s} />
           ))}
-        </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -78,11 +205,11 @@ function HowStepCard({ step }: { step: HowStep }): React.ReactElement {
       <div className="relative h-[280px] overflow-hidden rounded-2xl bg-[#0d0d0e]">
         {step.preview}
       </div>
-      <div className="flex flex-1 flex-col pt-6">
+      <div className="flex flex-1 flex-col pt-5">
         <span className="font-serif text-[22px] leading-none tracking-[-0.02em] text-[#8a8f96]">
           {step.n}
         </span>
-        <h3 className="mt-4 text-[18px] font-semibold tracking-tight text-[#0d0d0e]">
+        <h3 className="mt-3 text-[18px] font-semibold tracking-tight text-[#0d0d0e]">
           {step.title}
         </h3>
         <p className="mt-2 flex-1 text-[13.5px] leading-6 text-[#4d555c]">
@@ -93,44 +220,49 @@ function HowStepCard({ step }: { step: HowStep }): React.ReactElement {
   );
 }
 
-const PROMPT_SUFFIX = "Buy 7 shares of TATASTEEL when it drops below 140";
-const PROMPT_FULL = `Hey! Pivot, ${PROMPT_SUFFIX}`;
-
-function PromptPreview(): React.ReactElement {
+function PromptPreview({
+  prompt,
+  onDone,
+}: {
+  prompt: string;
+  onDone: () => void;
+}): React.ReactElement {
   const [chars, setChars] = useState(0);
   const [sent, setSent] = useState(false);
   const [caret, setCaret] = useState(true);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
 
   useEffect(() => {
+    setChars(0);
+    setSent(false);
     const blink = setInterval(() => setCaret((v) => !v), 520);
     let timer: ReturnType<typeof setTimeout>;
 
     const tick = (next: number) => {
-      if (next <= PROMPT_FULL.length) {
+      if (next <= prompt.length) {
         setChars(next);
-        timer = setTimeout(() => tick(next + 1), 70);
+        timer = setTimeout(() => tick(next + 1), 50);
         return;
       }
       timer = setTimeout(() => {
         setSent(true);
         timer = setTimeout(() => {
-          setSent(false);
-          setChars(0);
-          timer = setTimeout(() => tick(1), 700);
-        }, 2600);
-      }, 500);
+          onDoneRef.current();
+        }, 3000);
+      }, 450);
     };
 
-    timer = setTimeout(() => tick(1), 600);
+    timer = setTimeout(() => tick(1), 500);
     return () => {
       clearInterval(blink);
       clearTimeout(timer);
     };
-  }, []);
+  }, [prompt]);
 
   const heyPart = "Hey! Pivot,";
-  const typedHey = PROMPT_FULL.slice(0, Math.min(chars, heyPart.length));
-  const typedRest = chars > heyPart.length ? PROMPT_FULL.slice(heyPart.length, chars) : "";
+  const typedHey = prompt.slice(0, Math.min(chars, heyPart.length));
+  const typedRest = chars > heyPart.length ? prompt.slice(heyPart.length, chars) : "";
 
   return (
     <div className="relative flex h-full flex-col justify-end p-5">
@@ -160,7 +292,7 @@ function PromptPreview(): React.ReactElement {
               wordBreak: "break-word",
             }}
           >
-            {PROMPT_FULL}
+            {prompt}
           </div>
         )}
       </div>
@@ -240,181 +372,89 @@ function PromptPreview(): React.ReactElement {
   );
 }
 
-function TrackingPreview(): React.ReactElement {
-  const TRIGGER = 140;
-  const priceToY = (p: number): number => ((145 - p) / 7) * 100;
-  const triggerY = priceToY(TRIGGER);
-  const SEED: number[] = [
-    143.2, 142.9, 143.4, 142.6, 142.1, 142.4, 141.7, 141.9,
-    141.3, 141.6, 141.0, 141.2, 140.8, 141.1, 140.6, 141.0,
-    140.4, 140.7,
-  ];
-
-  const [prices, setPrices] = useState<number[]>(() => [...SEED, 141.2]);
-  const [ageSec, setAgeSec] = useState<number>(2);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setPrices((prev) => {
-        const last = prev[prev.length - 1] ?? 141;
-        const drift = 140.8;
-        const noise = (Math.random() - 0.5) * 0.4;
-        let next = last + (drift - last) * 0.18 + noise;
-        if (next < 140.15) next = 140.15 + Math.random() * 0.2;
-        if (next > 142.4) next = 142.4 - Math.random() * 0.2;
-        return [...prev.slice(1), Number(next.toFixed(2))];
-      });
-      setAgeSec(0);
-    }, 1800);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => setAgeSec((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const last = prices[prices.length - 1] ?? 141;
-  const prev = prices[prices.length - 2] ?? last;
-  const delta = last - prev;
-  const deltaPct = (delta / prev) * 100;
-  const fmt2 = (n: number): string => n.toFixed(2);
-  const fmtDelta = (n: number): string => (n >= 0 ? `+${fmt2(n)}` : fmt2(n));
-  const isDown = delta < 0;
-  const deltaColor = isDown ? "text-rose-300" : "text-emerald-300";
-
-  return (
-    <div className="relative flex h-full flex-col px-5 py-4">
-      <div>
-        <div className="text-[9px] font-medium uppercase tracking-[0.16em] text-white/45">
-          NSE · Equity
-        </div>
-        <div className="mt-0.5 text-[14px] font-semibold tracking-tight text-white">
-          TATASTEEL
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-baseline gap-2">
-        <span
-          key={`p-${last}`}
-          className="text-[26px] font-semibold leading-none tracking-tight tabular-nums text-white"
-          style={{ animation: "tickFade 220ms ease-out both" }}
-        >
-          ₹{fmt2(last)}
-        </span>
-        <span
-          key={`d-${last}`}
-          className={`text-[10px] font-medium tabular-nums ${deltaColor}`}
-          style={{ animation: "tickFade 220ms ease-out both" }}
-        >
-          {fmtDelta(delta)} · {fmtDelta(deltaPct)}%
-        </span>
-      </div>
-
-      <div className="relative mt-4 flex-1">
-        <TrackingChart prices={prices} priceToY={priceToY} triggerY={triggerY} />
-      </div>
-
-      <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2.5 text-[10.5px] text-white/55">
-        <span>Trigger when price &lt; ₹{fmt2(TRIGGER)}</span>
-        <span className="tabular-nums text-white/35">
-          Updated {ageSec}s ago
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function TrackingChart({
-  prices,
-  priceToY,
-  triggerY,
+function TrackingPreview({
+  title,
+  steps,
 }: {
-  prices: number[];
-  priceToY: (p: number) => number;
-  triggerY: number;
+  title: string;
+  steps: WorkflowStep[];
 }): React.ReactElement {
-  const stepX = 100 / (prices.length - 1);
-  const pts: [number, number][] = prices.map((p, i) => [i * stepX, priceToY(p)]);
-  const d = pts
-    .map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(2)},${p[1].toFixed(2)}`)
-    .join(" ");
-  const dFill = `${d} L100,100 L0,100 Z`;
-  const lastPt = pts[pts.length - 1] ?? [100, 50];
+  const renderIcon = (name: WorkflowStep["iconName"]): React.ReactNode => {
+    const cls = "h-3.5 w-3.5";
+    if (name === "calendar-clock") return <CalendarClock className={cls} aria-hidden />;
+    if (name === "git-branch") return <GitBranch className={cls} aria-hidden />;
+    if (name === "shopping-cart") return <ShoppingCart className={cls} aria-hidden />;
+    return <TrendingUp className={cls} aria-hidden />;
+  };
 
   return (
-    <div className="relative h-full w-full">
-      <svg
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        className="absolute inset-0 h-full w-full"
-        aria-hidden
-      >
-        <defs>
-          <linearGradient id="watch-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(255,255,255,0.18)" />
-            <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-          </linearGradient>
-        </defs>
+    <div className="relative flex h-full flex-col px-4 py-4">
+      <div className="min-w-0">
+        <div className="text-[9px] font-medium uppercase tracking-[0.16em] text-white/45">
+          Workflow · Draft
+        </div>
+        <div className="mt-0.5 truncate text-[13px] font-semibold tracking-tight text-white">
+          {title}
+        </div>
+      </div>
 
-        <path
-          d={dFill}
-          fill="url(#watch-fill)"
-          style={{ transition: "d 800ms ease" }}
-        />
-        <path
-          d={d}
-          fill="none"
-          stroke="rgba(255,255,255,0.85)"
-          strokeWidth="0.9"
-          vectorEffect="non-scaling-stroke"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ transition: "d 800ms ease" }}
-        />
-
-        <line
-          x1="0"
-          y1={triggerY}
-          x2="100"
-          y2={triggerY}
-          stroke="rgba(244,114,128,0.65)"
-          strokeWidth="0.6"
-          strokeDasharray="2 2"
-          vectorEffect="non-scaling-stroke"
-        />
-
-        <circle
-          cx={lastPt[0]}
-          cy={lastPt[1]}
-          r="2.4"
-          fill="rgba(255,255,255,0.18)"
-          style={{
-            transition: "cx 800ms ease, cy 800ms ease",
-            animation: "watchPulse 1.8s ease-out infinite",
-            transformOrigin: `${lastPt[0]}px ${lastPt[1]}px`,
-          }}
-        />
-        <circle
-          cx={lastPt[0]}
-          cy={lastPt[1]}
-          r="1.1"
-          fill="rgba(255,255,255,0.95)"
-          style={{ transition: "cx 800ms ease, cy 800ms ease" }}
-        />
-      </svg>
-
-      <span
-        className="absolute right-0 -translate-y-1/2 rounded-sm bg-rose-400/15 px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-rose-300"
-        style={{ top: `${triggerY}%` }}
-      >
-        Trigger ₹140
-      </span>
+      <ol className="mt-3 flex flex-1 flex-col gap-1.5">
+        {steps.map((s, i) => (
+          <li
+            key={i}
+            className="relative rounded-lg opacity-0"
+            style={{
+              animation: "stepIn-quartr 420ms cubic-bezier(0.22,1,0.36,1) both",
+              animationDelay: `${i * 420}ms`,
+            }}
+          >
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-lg"
+              style={{
+                padding: 1,
+                background:
+                  "conic-gradient(from var(--angle), transparent 0deg, transparent 280deg, rgba(255,255,255,0.85) 320deg, rgba(255,255,255,0.0) 360deg)",
+                WebkitMask:
+                  "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                WebkitMaskComposite: "xor",
+                maskComposite: "exclude",
+                animation: `borderTrace 2.6s linear infinite`,
+                animationDelay: `${i * 420 + 520}ms`,
+              }}
+            />
+            <div className="relative flex items-center gap-2.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
+              <span
+                aria-hidden
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-white/75"
+              >
+                {renderIcon(s.iconName)}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[8.5px] font-medium uppercase tracking-[0.14em] text-white/40">
+                  {s.kind}
+                </span>
+                <span className="truncate text-[11.5px] font-medium tracking-tight text-white">
+                  {s.label}
+                </span>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
 
-function OrderPlacedPreview(): React.ReactElement {
+function OrderPlacedPreview({ order }: { order: OrderScenario }): React.ReactElement {
+  const isSell = order.side === "SELL";
+  const isDown = order.trend === "down";
+  const deltaTint = isDown
+    ? "bg-rose-400/15 text-rose-300"
+    : "bg-emerald-400/15 text-emerald-300";
+  const sideTint = isSell ? "text-rose-300" : "text-emerald-300";
+  const sideDot = isSell ? "bg-rose-400" : "bg-emerald-400";
+
   return (
     <div className="relative flex h-full items-center justify-center p-3">
       <div
@@ -427,45 +467,56 @@ function OrderPlacedPreview(): React.ReactElement {
         <div className="flex items-start justify-between gap-3 px-3.5 pt-2.5 pb-1.5">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[8.5px] font-medium uppercase tracking-wider text-white/55">
-              <span>NSE</span>
+              <span>{order.exchange}</span>
               <span className="text-white/30">·</span>
-              <span>Steel</span>
+              <span>{order.sector}</span>
             </div>
             <div className="mt-0.5 truncate text-[12.5px] font-semibold tracking-tight text-white">
-              Tata Steel Ltd
+              {order.name}
             </div>
-            <div className="text-[9px] font-medium tracking-wider text-white/45">
-              TATASTEEL
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-medium tracking-wider text-white/45">
+                {order.ticker}
+              </span>
+              {order.tag && (
+                <span className="inline-flex items-center rounded-sm bg-emerald-400/15 px-1 py-[1px] text-[8.5px] font-medium tracking-wider text-emerald-300">
+                  {order.tag}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex flex-col items-end">
             <div className="text-[12px] font-semibold tabular-nums text-white">
-              ₹139.90
+              {order.price}
             </div>
-            <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-rose-400/15 px-1.5 py-[1px] text-[8.5px] font-medium tabular-nums text-rose-300">
-              ▼ 1.08%
+            <div
+              className={`mt-0.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-[1px] text-[8.5px] font-medium tabular-nums ${deltaTint}`}
+            >
+              {order.deltaPct}
             </div>
           </div>
         </div>
 
         <div className="px-3.5 pb-1.5">
-          <MiniSpark />
+          <MiniSpark trend={order.trend} />
         </div>
 
         <div className="flex items-center justify-between px-3.5 pt-1 pb-2">
-          <span className="inline-flex items-center gap-1 text-[8.5px] font-medium uppercase tracking-wider tabular-nums text-emerald-300">
-            <span className="h-1 w-1 rounded-full bg-emerald-400" aria-hidden />
-            BUY · Bought at
+          <span
+            className={`inline-flex items-center gap-1 text-[8.5px] font-medium uppercase tracking-wider tabular-nums ${sideTint}`}
+          >
+            <span className={`h-1 w-1 rounded-full ${sideDot}`} aria-hidden />
+            {order.side} · {order.sideVerb}
           </span>
           <span className="text-[11px] font-semibold tabular-nums text-white">
-            ₹139.90
+            {order.totalLabel}
           </span>
         </div>
 
         <dl className="grid grid-cols-3 border-t border-white/[0.08]">
-          <StatCell label="Qty" value="7" />
-          <StatCell label="Price" value="₹139.90" hasDivider />
-          <StatCell label="Total" value="₹979.30" hasDivider />
+          <StatCell label="Qty" value={order.qty} />
+          <StatCell label="Price" value={order.totalLabel} hasDivider />
+          <StatCell label="Total" value={order.total} hasDivider />
         </dl>
 
         <div className="border-t border-white/[0.08] px-3.5 py-2">
@@ -480,14 +531,8 @@ function OrderPlacedPreview(): React.ReactElement {
 }
 
 function DrawCheck(): React.ReactElement {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 3200);
-    return () => clearInterval(id);
-  }, []);
   return (
     <svg
-      key={tick}
       width="14"
       height="14"
       viewBox="0 0 24 24"
@@ -534,13 +579,24 @@ function StatCell({
   );
 }
 
-function MiniSpark(): React.ReactElement {
-  const points: [number, number][] = [
+function MiniSpark({ trend }: { trend: "up" | "down" }): React.ReactElement {
+  const upPoints: [number, number][] = [
+    [0, 18], [4, 17],  [8, 18], [12, 16], [16, 17], [20, 15],
+    [24, 16], [28, 14], [32, 15], [36, 13], [40, 14], [44, 12],
+    [48, 13], [52, 11], [56, 12], [60, 10], [64, 11], [68, 9],
+    [72, 8],  [76, 9],  [80, 7],  [84, 6],  [88, 5],  [92, 4],
+  ];
+  const downPoints: [number, number][] = [
     [0, 4],  [4, 5],   [8, 4],  [12, 6],  [16, 5],  [20, 7],
     [24, 6], [28, 8],  [32, 7], [36, 9],  [40, 8],  [44, 10],
     [48, 9], [52, 11], [56, 10], [60, 12], [64, 11], [68, 13],
     [72, 14], [76, 13], [80, 15], [84, 16], [88, 17], [92, 18],
   ];
+  const points = trend === "up" ? upPoints : downPoints;
+  const stroke = trend === "up" ? "rgb(74,222,128)" : "rgb(244,114,128)";
+  const fillTop = trend === "up" ? "rgba(74,222,128,0.35)" : "rgba(244,114,128,0.35)";
+  const fillBottom = trend === "up" ? "rgba(74,222,128,0)" : "rgba(244,114,128,0)";
+  const gradId = `spark-fill-${trend}`;
   const d = points
     .map((p, i) => `${i === 0 ? "M" : "L"}${p[0]},${p[1]}`)
     .join(" ");
@@ -554,22 +610,13 @@ function MiniSpark(): React.ReactElement {
       aria-hidden
     >
       <defs>
-        <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(244,114,128,0.35)" />
-          <stop offset="100%" stopColor="rgba(244,114,128,0)" />
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={fillTop} />
+          <stop offset="100%" stopColor={fillBottom} />
         </linearGradient>
       </defs>
-      <path d={dFill} fill="url(#spark-fill)" />
-      <path d={d} fill="none" stroke="rgb(244,114,128)" strokeWidth="1.25" />
-    </svg>
-  );
-}
-
-function Bolt({ large }: { large?: boolean } = {}): React.ReactElement {
-  const size = large ? 14 : 9;
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
+      <path d={dFill} fill={`url(#${gradId})`} />
+      <path d={d} fill="none" stroke={stroke} strokeWidth="1.25" />
     </svg>
   );
 }
@@ -579,24 +626,30 @@ function Bolt({ large }: { large?: boolean } = {}): React.ReactElement {
 type Security = {
   name: string;
   type: string;
+  prompt: string;
   description: string;
   stats: { label: string; value: string }[];
 };
 
 const SECURITIES: Security[] = [
   {
-    name: "Barbell",
+    name: "Capital Shield",
     type: "Two-leg structured",
+    prompt:
+      "I want to create a security wherein I don't lose my money but still earn some upside if markets go up.",
     description:
-      "90% in short-duration T-bills, 10% in 3x leveraged QQQ. Capped downside, asymmetric upside.",
+      "88% in short-duration debt, 12% in long-dated NIFTY 50 call options. Near-full downside protection with equity upside participation.",
     stats: [
-      { label: "Yield", value: "5.1%" },
-      { label: "Max DD", value: "−4.2%" },
+      { label: "Floor", value: "97%" },
+      { label: "Upside Cap", value: "+18%/yr" },
+      { label: "Max DD", value: "−3%" },
     ],
   },
   {
     name: "Covered Call NIFTY",
     type: "Income overlay",
+    prompt:
+      "I already hold NIFTY. Create a security through which I can earn some extra monthly income from it.",
     description:
       "Long NIFTY 50 with monthly OTM call selling. Generates premium against a tracked index core.",
     stats: [
@@ -605,20 +658,23 @@ const SECURITIES: Security[] = [
     ],
   },
   {
-    name: "Momentum Basket",
-    type: "Equal-weight basket",
+    name: "Gold Barbell",
+    type: "Two-leg structured",
+    prompt:
+      "I want a security in which gold is my safety net with a little aggressive equity on the side.",
     description:
-      "Top 10 NSE names ranked by 12-1 momentum, rebalanced monthly. Tilted toward winners, no shorts.",
+      "75% in GOLD ETFs, 25% in 2x leveraged NIFTY ETF. Hard-asset stability with a leveraged equity kicker on the side.",
     stats: [
-      { label: "Names", value: "10" },
-      { label: "Rebal", value: "Monthly" },
+      { label: "Gold Alloc", value: "75%" },
+      { label: "Max DD", value: "−18%" },
+      { label: "Rebal", value: "Quarterly" },
     ],
   },
 ];
 
 export function BuildSecuritiesSection(): React.ReactElement {
   return (
-    <section data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] px-6 py-28 text-white sm:py-36">
+    <section data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] px-5 py-20 text-white sm:px-6 sm:py-28 lg:py-32">
       <DriftOrbs />
 
       <div
@@ -632,25 +688,25 @@ export function BuildSecuritiesSection(): React.ReactElement {
       />
 
       <div className="relative z-10 mx-auto max-w-6xl">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="mb-4 inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-white/70">
+        <Reveal className="mx-auto max-w-2xl text-center">
+          <div className="mb-4 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-white/70 sm:text-[11px]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
             create
           </div>
-          <h2 className="font-serif text-[42px] leading-[1.05] tracking-[-0.04em] text-white sm:text-[56px]">
+          <h2 className="font-serif text-[36px] leading-[1.04] tracking-[-0.03em] text-white sm:text-[48px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[56px]">
             Build your own securities
           </h2>
-          <p className="mt-5 text-[15px] leading-7 text-white/65">
+          <p className="mt-4 text-[14.5px] leading-[1.6] text-white/65 sm:mt-5 sm:text-[15px] sm:leading-7">
             Describe a payoff in plain English. Pivot composes the legs,
             sizes them to your risk, and tracks them as a single position.
           </p>
-        </div>
+        </Reveal>
 
-        <div className="mt-14 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <Reveal delay={120} className="mt-10 grid grid-cols-1 gap-5 sm:mt-14 sm:grid-cols-2 lg:grid-cols-3">
           {SECURITIES.map((s) => (
             <SecurityCard key={s.name} sec={s} />
           ))}
-        </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -704,8 +760,21 @@ function DriftOrbs(): React.ReactElement {
 
 function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
   return (
-    <div className="group flex flex-col rounded-2xl border border-white/[0.08] bg-white/[0.035] p-6 backdrop-blur-sm transition-all hover:border-white/20 hover:bg-white/[0.06]">
-      <div className="flex items-center justify-between">
+    <div className="group flex flex-col rounded-2xl bg-white/[0.035] p-5 backdrop-blur-sm transition-all hover:bg-white/[0.06] sm:p-6">
+      <div className="flex justify-end">
+        <div
+          className="max-w-[88%] text-[12.5px] leading-snug text-white/85"
+          style={{
+            padding: "9px 13px",
+            borderRadius: "14px 14px 2px 14px",
+            background: "rgba(255,255,255,0.08)",
+            fontFamily: "var(--font-ui)",
+          }}
+        >
+          {sec.prompt}
+        </div>
+      </div>
+      <div className="mt-6 flex items-center justify-between">
         <span className="text-[10px] font-medium uppercase tracking-wider text-white/55">
           {sec.type}
         </span>
@@ -725,13 +794,13 @@ function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
       <p className="mt-2 flex-1 text-[13px] leading-6 text-white/65">
         {sec.description}
       </p>
-      <div className="mt-5 flex items-center gap-6 border-t border-white/[0.08] pt-4">
+      <div className="mt-6 flex items-center justify-between gap-3 border-t border-white/[0.08] pt-5 sm:gap-6">
         {sec.stats.map((st) => (
           <div key={st.label}>
             <div className="text-[10px] uppercase tracking-wider text-white/45">
               {st.label}
             </div>
-            <div className="mt-0.5 text-[14px] font-semibold text-white">
+            <div className="mt-0.5 text-[13.5px] font-semibold text-white sm:text-[14px]">
               {st.value}
             </div>
           </div>
@@ -746,50 +815,41 @@ function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
 type Agent = {
   title: string;
   body: string;
-  tags: string[];
   featured?: boolean;
 };
 
 const AGENTS: Agent[] = [
   {
-    title: "Fed rate cut protection",
-    body: "If the Fed cuts rates, trim 10% of bank stocks and rotate into my high-growth tech holdings.",
-    tags: ["Market Monitoring", "Trading Strategy"],
+    title: "Geopolitical crude hedge",
+    body: "If China attacks Taiwan, buy crude oil futures.",
   },
   {
-    title: "$5k covered calls",
-    body: "Sell 10 covered calls on PLTR (strike: $50, 30 DTE).",
-    tags: ["Trading Strategies"],
+    title: "Budget defence play",
+    body: "If the Government of India raises defence expenditure in this year's budget, invest ₹20,000 in Hindustan Aeronautics Ltd.",
   },
   {
-    title: "CPI hedge",
-    body: "Sell 10% of my consumer-staples portfolio and reinvest the proceeds into my high-growth tech stocks if CPI is >4% next month.",
-    tags: ["Market Monitoring", "Risk Management"],
+    title: "Inflation gold tilt",
+    body: "If CPI for this month prints above 6%, increase the weightage of gold in my portfolio by 10%.",
   },
   {
-    title: "Retail Therapy",
-    body: "Track my retail holdings. When they are all down 10% from 30-day high, buy $100 of each.",
-    tags: ["Trading Strategy", "Market Monitoring"],
+    title: "Crude spike IOC buy",
+    body: "If crude oil price crosses $100 per barrel, buy 10 shares of Indian Oil.",
   },
   {
-    title: "Idle cash management",
-    body: "Sweep any cash over $20,000 in from my checking account to my bond account.",
-    tags: ["Fund Management"],
+    title: "Repo cut bank rotation",
+    body: "If RBI cuts the repo rate, buy 100 shares of UBI.",
   },
   {
-    title: "Earnings drift",
-    body: "After AAPL prints, buy 1% of the position if guidance beats and revenue grows >8% YoY.",
-    tags: ["Market Monitoring", "Trading Strategy"],
+    title: "Earnings momentum buy",
+    body: "Watch Bajaj Finance earnings — if earnings increase by more than 5% from the previous year, buy 15 shares.",
   },
   {
-    title: "Volatility shield",
-    body: "If VIX closes above 25 for two sessions, rotate 15% of equities into short-duration treasuries.",
-    tags: ["Risk Management"],
+    title: "Wartime defence ETF",
+    body: "If India goes into a war with any nation, invest ₹50,000 into a defence ETF.",
   },
   {
-    title: "Dividend harvest",
-    body: "Sweep declared dividends into a 60/40 ETF basket on the day they land in cash.",
-    tags: ["Fund Management"],
+    title: "ETERNAL profitability buy",
+    body: "Buy ETERNAL if they announce an EBITDA-positive quarter.",
   },
 ];
 
@@ -815,24 +875,24 @@ export function EventTriggersSection(): React.ReactElement {
   };
 
   return (
-    <section className="bg-white px-6 pb-28 pt-28 sm:pb-36 sm:pt-36">
+    <section className="bg-white px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
       <div className="mx-auto max-w-6xl">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="mb-4 inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#4d555c]">
+        <Reveal className="mx-auto max-w-2xl text-center">
+          <div className="mb-4 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-[#4d555c] sm:text-[11px]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#4d555c]" />
             automate
           </div>
-          <h2 className="font-serif text-[42px] leading-[1.05] tracking-[-0.04em] text-[#0d0d0e] sm:text-[56px]">
+          <h2 className="font-serif text-[36px] leading-[1.04] tracking-[-0.03em] text-[#0d0d0e] sm:text-[48px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[56px]">
             Set event-based triggers
           </h2>
-          <p className="mt-5 text-[15px] leading-7 text-[#4d555c]">
+          <p className="mt-4 text-[14.5px] leading-[1.6] text-[#4d555c] sm:mt-5 sm:text-[15px] sm:leading-7">
             Wire an agent to a real-world signal — earnings, macro prints,
             price moves — and Pivot executes the plan you described.
           </p>
-        </div>
+        </Reveal>
 
-        <div className="relative mt-14">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:grid-rows-[260px]">
+        <div className="relative mt-10 sm:mt-14">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:grid-rows-[220px]">
             {visibleAgents.map((a, i) => {
               const isEntering = i === enteringSlot;
               const key = isEntering ? `enter-${tick}` : `slot-${i}`;
@@ -881,6 +941,25 @@ export function EventTriggersSection(): React.ReactElement {
               <ChevronRight size={18} strokeWidth={2} />
             </button>
           </div>
+
+          <div className="mt-6 flex items-center justify-center gap-3 lg:hidden">
+            <button
+              type="button"
+              aria-label="Previous agents"
+              onClick={() => step(-1)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-[#0d0d0e] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] transition active:bg-black active:text-white"
+            >
+              <ChevronLeft size={18} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              aria-label="Next agents"
+              onClick={() => step(1)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-[#0d0d0e] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] transition active:bg-black active:text-white"
+            >
+              <ChevronRight size={18} strokeWidth={2} />
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -892,8 +971,8 @@ function AgentCard({ agent }: { agent: Agent }): React.ReactElement {
     return (
       <div className="relative flex h-full flex-col rounded-2xl border border-[#0d0d0e] bg-[#0d0d0e] p-5 text-white shadow-[0_20px_50px_-20px_rgba(0,0,0,0.5)] lg:scale-[1.05]">
         <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-1 rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-white">
-            <Bolt /> Agent
+          <span className="inline-flex items-center rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-white">
+            Agent
           </span>
           <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#0d0d0e]">
             Featured
@@ -905,23 +984,13 @@ function AgentCard({ agent }: { agent: Agent }): React.ReactElement {
         <p className="mt-2 flex-1 text-[12px] leading-5 text-white/75">
           {agent.body}
         </p>
-        <div className="mt-4 flex flex-wrap gap-1.5">
-          {agent.tags.map((t) => (
-            <span
-              key={t}
-              className="rounded-full border border-white/15 bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/80"
-            >
-              {t}
-            </span>
-          ))}
-        </div>
       </div>
     );
   }
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-black/[0.08] bg-white p-5 transition-all hover:border-black/20">
-      <span className="inline-flex w-fit items-center gap-1 rounded-md bg-black/[0.05] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-[#4d555c]">
-        <Bolt /> Agent
+    <div className="flex h-full flex-col rounded-2xl bg-white p-5 shadow-[0_-4px_16px_-8px_rgba(15,23,42,0.08),0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.10)] transition-all hover:shadow-[0_-6px_20px_-8px_rgba(15,23,42,0.10),0_2px_4px_rgba(15,23,42,0.06),0_14px_32px_-14px_rgba(15,23,42,0.16)]">
+      <span className="inline-flex w-fit items-center rounded-md bg-black/[0.05] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-[#4d555c]">
+        Agent
       </span>
       <h3 className="mt-3 text-[14px] font-semibold tracking-tight text-[#0d0d0e]">
         {agent.title}
@@ -929,16 +998,6 @@ function AgentCard({ agent }: { agent: Agent }): React.ReactElement {
       <p className="mt-2 flex-1 text-[11.5px] leading-5 text-[#4d555c]">
         {agent.body}
       </p>
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {agent.tags.map((t) => (
-          <span
-            key={t}
-            className="rounded-full border border-black/[0.08] bg-[#f6f6f8] px-2 py-0.5 text-[9.5px] text-[#4d555c]"
-          >
-            {t}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
@@ -948,28 +1007,36 @@ function AgentCard({ agent }: { agent: Agent }): React.ReactElement {
 const FAQS: { q: string; a: string }[] = [
   {
     q: "What is Pivot?",
-    a: "Pivot is an agentic investing assistant. You describe what you want — buy, sell, alert, rebalance, research — and Pivot plans the execution, runs it, and reports back.",
+    a: "Pivot is an agentic investing assistant. You describe what you want, whether it's a buy, sell, alert, rebalance, or research, and Pivot plans the execution, runs it, and reports back.",
   },
   {
     q: "How does Pivot place trades?",
-    a: "Pivot connects to your brokerage. Every order is queued for your approval until you switch a specific agent or workflow to autonomous mode.",
+    a: "Pivot connects to your brokerage. You approve the workflow or the trade, and Pivot places the order on your behalf. You are always in full control.",
   },
   {
     q: "Can I backtest my ideas?",
-    a: "Yes. Describe a strategy in plain English and Pivot runs it on historical data, surfaces win-rate, drawdown, and CAGR, and lets you tune parameters from there.",
+    a: "Yes. Describe a strategy in plain English and Pivot runs it on historical data, surfaces win-rate, drawdown, and CAGR.",
+  },
+  {
+    q: "What kind of strategies can I set up through Pivot?",
+    a: "Anything driven by technicals or fundamentals of a stock, event-based triggers like macro prints, geopolitical events, or earnings, and any kind of price action. The build-your-own-securities feature is currently in development and will be available later.",
+  },
+  {
+    q: "Can Pivot handle SIPs and recurring investments?",
+    a: "Yes. You can set up SIPs on any stock, ETF, or basket, on any cadence you want, and Pivot will execute them on schedule.",
   },
   {
     q: "Is my money safe?",
-    a: "Your funds stay with your regulated brokerage. Pivot never custodies cash or securities — it only orchestrates instructions you approve.",
+    a: "Your funds stay with your regulated brokerage. Pivot never custodies cash or securities; it only orchestrates instructions you approve.",
   },
 ];
 
 export function FAQSection(): React.ReactElement {
   const [open, setOpen] = useState<number | null>(0);
   return (
-    <section className="bg-white px-6 py-28">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-[280px_1fr]">
-        <h2 className="font-serif text-[36px] leading-[1.05] tracking-[-0.04em] text-[#0d0d0e] sm:text-[44px]">
+    <section className="bg-white px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
+      <Reveal className="mx-auto grid max-w-6xl grid-cols-1 gap-8 sm:gap-12 lg:grid-cols-[280px_1fr]">
+        <h2 className="font-serif text-[32px] leading-[1.04] tracking-[-0.03em] text-[#0d0d0e] sm:text-[40px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[44px]">
           FAQs
         </h2>
         <div className="divide-y divide-black/[0.08] border-t border-black/[0.08]">
@@ -980,10 +1047,10 @@ export function FAQSection(): React.ReactElement {
                 <button
                   type="button"
                   onClick={() => setOpen(isOpen ? null : i)}
-                  className="flex w-full items-center justify-between gap-6 text-left"
+                  className="flex w-full items-center justify-between gap-4 text-left sm:gap-6"
                   aria-expanded={isOpen}
                 >
-                  <span className="text-[16px] font-medium text-[#0d0d0e]">
+                  <span className="text-[15px] font-medium text-[#0d0d0e] sm:text-[16px]">
                     {f.q}
                   </span>
                   <span
@@ -1006,7 +1073,7 @@ export function FAQSection(): React.ReactElement {
                   }}
                 >
                   <div className="overflow-hidden">
-                    <p className="mt-3 max-w-2xl text-[14px] leading-7 text-[#4d555c]">
+                    <p className="mt-3 max-w-2xl text-[13.5px] leading-[1.65] text-[#4d555c] sm:text-[14px] sm:leading-7">
                       {f.a}
                     </p>
                   </div>
@@ -1015,7 +1082,7 @@ export function FAQSection(): React.ReactElement {
             );
           })}
         </div>
-      </div>
+      </Reveal>
     </section>
   );
 }
@@ -1033,12 +1100,12 @@ export function WaitlistFormBlock(): React.ReactElement {
   };
 
   return (
-    <section data-nav-theme="dark" className="bg-[#0d0d0e] px-6 py-20 text-white sm:py-24">
-      <div className="mx-auto max-w-3xl text-center">
-        <h2 className="font-serif text-[44px] leading-[1.05] tracking-[-0.04em] sm:text-[64px]">
+    <section data-nav-theme="dark" className="bg-[#0d0d0e] px-5 py-20 text-white sm:px-6 sm:py-28 lg:py-32">
+      <Reveal className="mx-auto max-w-3xl text-center">
+        <h2 className="font-serif text-[38px] leading-[1.04] tracking-[-0.03em] sm:text-[52px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[64px]">
           One message.
         </h2>
-        <h2 className="font-serif italic text-[44px] leading-[1.05] tracking-[-0.04em] text-white/85 sm:text-[64px]">
+        <h2 className="font-serif italic text-[38px] leading-[1.04] tracking-[-0.03em] text-white/85 sm:text-[52px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[64px]">
           That&apos;s all it takes.
         </h2>
 
@@ -1052,7 +1119,7 @@ export function WaitlistFormBlock(): React.ReactElement {
         ) : (
           <form
             onSubmit={onSubmit}
-            className="mx-auto mt-10 flex max-w-md flex-col items-center gap-3 rounded-full border border-white/10 bg-white/[0.04] p-1.5 sm:flex-row"
+            className="mx-auto mt-10 flex max-w-md flex-col items-center gap-3 rounded-full border border-white/10 bg-white/[0.04] p-1.5 sm:flex-row sm:gap-1.5"
           >
             <input
               type="email"
@@ -1066,11 +1133,11 @@ export function WaitlistFormBlock(): React.ReactElement {
               type="submit"
               className="w-full whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-[14px] font-medium text-[#0d0d0e] transition-opacity hover:opacity-90 sm:w-auto"
             >
-              Request access
+              Join the Waitlist
             </button>
           </form>
         )}
-      </div>
+      </Reveal>
     </section>
   );
 }
@@ -1086,8 +1153,39 @@ function CheckIcon(): React.ReactElement {
 // ─── Big wordmark footer ──────────────────────────────────────────
 
 export function WordmarkFooter(): React.ReactElement {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const wordRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const word = wordRef.current;
+    if (!sentinel || !word) return;
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      word.classList.add("is-visible");
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            word.classList.add("is-visible");
+            obs.disconnect();
+            break;
+          }
+        }
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -10% 0px" },
+    );
+    obs.observe(sentinel);
+    return () => obs.disconnect();
+  }, []);
+
   return (
-    <footer data-nav-theme="dark" className="relative overflow-hidden bg-[#0a0a0b] text-white">
+    <footer ref={sentinelRef} data-nav-theme="dark" className="relative overflow-hidden bg-[#0a0a0b] text-white">
       <div aria-hidden className="pointer-events-none absolute inset-0">
         {[20, 50, 80].map((leftPct, i) => (
           <div
@@ -1107,50 +1205,21 @@ export function WordmarkFooter(): React.ReactElement {
         ))}
       </div>
 
-      <div className="relative mx-auto flex max-w-7xl flex-col items-center gap-10 px-6 pb-6 pt-24">
-        <div
-          aria-hidden
-          className="grid w-full grid-cols-1 gap-10 text-[13px] text-transparent sm:grid-cols-3"
-        >
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.14em] text-transparent">
-              &nbsp;
-            </div>
-            <ul className="mt-3 space-y-2">
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-            </ul>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.14em] text-transparent">
-              &nbsp;
-            </div>
-            <ul className="mt-3 space-y-2">
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-            </ul>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.14em] text-transparent">
-              &nbsp;
-            </div>
-            <ul className="mt-3 space-y-2">
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-              <li>&nbsp;</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="-mb-[6vw] w-full select-none text-center leading-[0.85]">
+      <div className="relative mx-auto flex max-w-7xl flex-col items-center px-5 pb-8 pt-10 sm:px-6 sm:pb-10 sm:pt-16">
+        <div className="wordmark-mask w-full select-none pb-2 text-center leading-[0.95]">
           <span
-            className="block font-serif italic tracking-[-0.05em] text-white"
-            style={{ fontSize: "clamp(140px, 24vw, 380px)" }}
+            ref={wordRef}
+            className="wordmark-reveal font-serif italic tracking-[-0.05em]"
+            style={{
+              fontSize: "clamp(110px, 19vw, 300px)",
+              backgroundImage:
+                "linear-gradient(to bottom, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.55) 55%, rgba(255,255,255,0.08) 100%)",
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              color: "transparent",
+              paddingTop: "0.12em",
+              paddingBottom: "0.08em",
+            }}
           >
             Pivot.
           </span>
