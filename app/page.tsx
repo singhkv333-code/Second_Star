@@ -1,6 +1,7 @@
 import { Hero } from "@/components/waitlist/Hero";
 import { WaitlistNav } from "@/components/waitlist/WaitlistNav";
 import { CapabilityCanvas } from "@/components/waitlist/CapabilityCanvas";
+import { DesktopScale } from "@/components/waitlist/DesktopScale";
 import {
   BuildSecuritiesSection,
   EventTriggersSection,
@@ -13,6 +14,7 @@ import {
 export default function WaitlistPage(): React.ReactElement {
   return (
     <main className="min-h-screen bg-white text-[#0d0d0e]">
+      <DesktopScale />
       <WaitlistNav />
       <Hero />
       <HowItWorksSection />
