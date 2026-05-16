@@ -14,6 +14,16 @@ import Link from "next/link";
 export function WaitlistNav(): React.ReactElement {
   const [scrolled, setScrolled] = useState(false);
   const [isDark, setIsDark] = useState(false);
+  // SSR-safe: start with the desktop value to match server render, then
+  // narrow to the mobile value after mount based on the actual viewport.
+  const [stripe, setStripe] = useState(16);
+
+  useEffect(() => {
+    const updateStripe = () => setStripe(window.innerWidth < 640 ? 10 : 16);
+    updateStripe();
+    window.addEventListener("resize", updateStripe);
+    return () => window.removeEventListener("resize", updateStripe);
+  }, []);
 
   useEffect(() => {
     let darkSections: Element[] | null = null;
@@ -65,8 +75,6 @@ export function WaitlistNav(): React.ReactElement {
   const pillBg = isDark ? "#f0ede5" : "#0d0d0e";
   const pillInk = isDark ? "#0d0d0e" : "#ffffff";
 
-  const STRIPE = typeof window !== "undefined" && window.innerWidth < 640 ? 10 : 16;
-
   return (
     <header
       className="sticky top-0 z-50 w-full"
@@ -79,8 +87,8 @@ export function WaitlistNav(): React.ReactElement {
         boxShadow: scrolled
           ? "0 6px 20px -10px rgba(0,0,0,0.10)"
           : "none",
-        paddingTop: scrolled ? 0 : STRIPE,
-        paddingBottom: scrolled ? 0 : STRIPE,
+        paddingTop: scrolled ? 0 : stripe,
+        paddingBottom: scrolled ? 0 : stripe,
         transition:
           "background-color 400ms ease, color 400ms ease, border-color 400ms ease, padding-top 320ms cubic-bezier(0.22,1,0.36,1), padding-bottom 320ms cubic-bezier(0.22,1,0.36,1), box-shadow 320ms cubic-bezier(0.22,1,0.36,1)",
       }}

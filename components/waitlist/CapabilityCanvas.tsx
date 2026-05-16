@@ -56,7 +56,7 @@ const LABEL: Record<Capability["kind"], string> = {
 
 export function CapabilityCanvas(): React.ReactElement {
   return (
-    <div data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] py-20 text-white sm:py-28 lg:py-32">
+    <div data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] py-14 text-white sm:py-28 lg:py-32">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.06)_0%,transparent_55%)]"
@@ -71,7 +71,7 @@ export function CapabilityCanvas(): React.ReactElement {
           ))}
         </div>
 
-        <Reveal className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 py-16 text-center sm:px-6 sm:py-24 lg:py-48">
+        <Reveal className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 py-10 text-center sm:px-6 sm:py-24 lg:py-48">
           <div className="mb-6 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-white/70 sm:mb-8 sm:text-[11px]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
             one assistant for everything investing
@@ -175,23 +175,47 @@ function ShowcaseChatbox(): React.ReactElement {
 }
 
 function MobileCapabilityList(): React.ReactElement {
+  // Mobile (<sm): 2-col compact grid, drop the most technical example to keep it tight.
+  // sm and up: original single/double column with full padding.
+  const mobileItems = CAPABILITIES.filter((c) => c.kind !== "backtest");
   return (
-    <div className="mt-10 grid w-full grid-cols-1 gap-3 sm:mt-12 sm:grid-cols-2 lg:hidden">
-      {CAPABILITIES.map((c, idx) => (
-        <div
-          key={idx}
-          className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 text-left backdrop-blur-sm"
-        >
-          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/80">
-            <Bolt />
-            {LABEL[c.kind]}
+    <>
+      {/* Mobile: tight 2-col grid */}
+      <div className="mt-8 grid w-full grid-cols-2 gap-2.5 sm:hidden">
+        {mobileItems.map((c, idx) => (
+          <div
+            key={idx}
+            className="flex flex-col rounded-xl border border-white/[0.08] bg-white/[0.035] p-2.5 text-left backdrop-blur-sm"
+          >
+            <div className="mb-1.5 inline-flex w-fit items-center gap-1 rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-white/80">
+              <Bolt />
+              {LABEL[c.kind]}
+            </div>
+            <div className="text-[11.5px] leading-[1.35] text-white/85">
+              {c.prompt}
+            </div>
           </div>
-          <div className="text-[13px] leading-snug text-white/85">
-            {c.prompt}
+        ))}
+      </div>
+
+      {/* Tablet and up (sm – lg): original layout */}
+      <div className="mt-10 hidden w-full grid-cols-1 gap-3 sm:mt-12 sm:grid sm:grid-cols-2 lg:hidden">
+        {CAPABILITIES.map((c, idx) => (
+          <div
+            key={idx}
+            className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 text-left backdrop-blur-sm"
+          >
+            <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white/80">
+              <Bolt />
+              {LABEL[c.kind]}
+            </div>
+            <div className="text-[13px] leading-snug text-white/85">
+              {c.prompt}
+            </div>
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }
 

@@ -172,7 +172,7 @@ export function HowItWorksSection(): React.ReactElement {
   ];
 
   return (
-    <section id="how-it-works" className="scroll-mt-24 bg-white px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
+    <section id="how-it-works" className="scroll-mt-24 bg-white px-5 py-14 sm:px-6 sm:py-28 lg:py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mx-auto max-w-2xl text-center">
           <div className="mb-4 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-[#4d555c] sm:text-[11px]">
@@ -189,7 +189,7 @@ export function HowItWorksSection(): React.ReactElement {
           </p>
         </Reveal>
 
-        <Reveal delay={120} className="mt-10 grid grid-cols-1 gap-5 sm:mt-14 sm:grid-cols-3">
+        <Reveal delay={120} className="mt-8 grid grid-cols-1 gap-4 sm:mt-14 sm:gap-5 sm:grid-cols-3">
           {steps.map((s) => (
             <HowStepCard key={s.n} step={s} />
           ))}
@@ -202,17 +202,17 @@ export function HowItWorksSection(): React.ReactElement {
 function HowStepCard({ step }: { step: HowStep }): React.ReactElement {
   return (
     <div className="flex h-full flex-col">
-      <div className="relative h-[280px] overflow-hidden rounded-2xl bg-[#0d0d0e]">
+      <div className="relative h-[220px] overflow-hidden rounded-2xl bg-[#0d0d0e] sm:h-[280px]">
         {step.preview}
       </div>
-      <div className="flex flex-1 flex-col pt-5">
-        <span className="font-serif text-[22px] leading-none tracking-[-0.02em] text-[#8a8f96]">
+      <div className="flex flex-1 flex-col pt-3.5 sm:pt-5">
+        <span className="font-serif text-[20px] leading-none tracking-[-0.02em] text-[#8a8f96] sm:text-[22px]">
           {step.n}
         </span>
-        <h3 className="mt-3 text-[18px] font-semibold tracking-tight text-[#0d0d0e]">
+        <h3 className="mt-2 text-[16px] font-semibold tracking-tight text-[#0d0d0e] sm:mt-3 sm:text-[18px]">
           {step.title}
         </h3>
-        <p className="mt-2 flex-1 text-[13.5px] leading-6 text-[#4d555c]">
+        <p className="mt-1.5 flex-1 text-[12.5px] leading-[1.5] text-[#4d555c] sm:mt-2 sm:text-[13.5px] sm:leading-6">
           {step.body}
         </p>
       </div>
@@ -674,7 +674,7 @@ const SECURITIES: Security[] = [
 
 export function BuildSecuritiesSection(): React.ReactElement {
   return (
-    <section data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] px-5 py-20 text-white sm:px-6 sm:py-28 lg:py-32">
+    <section data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] px-5 py-14 text-white sm:px-6 sm:py-28 lg:py-32">
       <DriftOrbs />
 
       <div
@@ -760,12 +760,12 @@ function DriftOrbs(): React.ReactElement {
 
 function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
   return (
-    <div className="group flex flex-col rounded-2xl bg-white/[0.035] p-5 backdrop-blur-sm transition-all hover:bg-white/[0.06] sm:p-6">
+    <div className="group flex flex-col rounded-2xl bg-white/[0.035] p-4 backdrop-blur-sm transition-all hover:bg-white/[0.06] sm:p-6">
       <div className="flex justify-end">
         <div
-          className="max-w-[88%] text-[12.5px] leading-snug text-white/85"
+          className="max-w-[88%] text-[11.5px] leading-snug text-white/85 sm:text-[12.5px]"
           style={{
-            padding: "9px 13px",
+            padding: "8px 11px",
             borderRadius: "14px 14px 2px 14px",
             background: "rgba(255,255,255,0.08)",
             fontFamily: "var(--font-ui)",
@@ -774,7 +774,7 @@ function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
           {sec.prompt}
         </div>
       </div>
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-4 flex items-center justify-between sm:mt-6">
         <span className="text-[10px] font-medium uppercase tracking-wider text-white/55">
           {sec.type}
         </span>
@@ -784,23 +784,23 @@ function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
           alt="Pivot"
           width={44}
           height={44}
-          className="shrink-0"
+          className="h-8 w-8 shrink-0 sm:h-11 sm:w-11"
           style={{ display: "block", objectFit: "contain" }}
         />
       </div>
-      <h3 className="mt-4 text-[20px] font-semibold tracking-tight text-white">
+      <h3 className="mt-3 text-[17px] font-semibold tracking-tight text-white sm:mt-4 sm:text-[20px]">
         {sec.name}
       </h3>
-      <p className="mt-2 flex-1 text-[13px] leading-6 text-white/65">
+      <p className="mt-1.5 flex-1 text-[12px] leading-[1.55] text-white/65 sm:mt-2 sm:text-[13px] sm:leading-6">
         {sec.description}
       </p>
-      <div className="mt-6 flex items-center justify-between gap-3 border-t border-white/[0.08] pt-5 sm:gap-6">
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.08] pt-3.5 sm:mt-6 sm:gap-6 sm:pt-5">
         {sec.stats.map((st) => (
           <div key={st.label}>
-            <div className="text-[10px] uppercase tracking-wider text-white/45">
+            <div className="text-[9.5px] uppercase tracking-wider text-white/45 sm:text-[10px]">
               {st.label}
             </div>
-            <div className="mt-0.5 text-[13.5px] font-semibold text-white sm:text-[14px]">
+            <div className="mt-0.5 text-[12.5px] font-semibold text-white sm:text-[14px]">
               {st.value}
             </div>
           </div>
@@ -874,10 +874,81 @@ export function EventTriggersSection(): React.ReactElement {
     setTick((t) => t + 1);
   };
 
+  // Mobile carousel — 5 copies of the list so the user always has left/right
+  // peeks and plenty of headroom in both directions without any silent
+  // teleport gymnastics. Centered card on scroll becomes the featured one.
+  const mobileScrollRef = useRef<HTMLDivElement | null>(null);
+  const MOBILE_COPIES = 5;
+  const mobileTripled = Array.from({ length: MOBILE_COPIES }, () => AGENTS).flat();
+  const MIDDLE_START = AGENTS.length * Math.floor(MOBILE_COPIES / 2);
+  const [centeredIdx, setCenteredIdx] = useState<number>(MIDDLE_START);
+  const centeredIdxRef = useRef<number>(MIDDLE_START);
+  centeredIdxRef.current = centeredIdx;
+
+  const scrollToCardIdx = (idx: number, behavior: ScrollBehavior): void => {
+    const el = mobileScrollRef.current;
+    if (!el) return;
+    const cards = el.querySelectorAll<HTMLElement>("[data-mobile-agent-card]");
+    const target = cards[idx];
+    if (!target) return;
+    el.scrollTo({
+      left: target.offsetLeft - (el.clientWidth - target.offsetWidth) / 2,
+      behavior,
+    });
+  };
+
+  // Initial position: middle copy, first card. Run once after mount.
+  useEffect(() => {
+    scrollToCardIdx(MIDDLE_START, "auto");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Track which card is centered as the user scrolls so the featured style
+  // can follow it. No silent reset — the buffer copies handle the headroom.
+  useEffect(() => {
+    const el = mobileScrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    const compute = () => {
+      const cards = el.querySelectorAll<HTMLElement>("[data-mobile-agent-card]");
+      if (!cards.length) return;
+      const center = el.scrollLeft + el.clientWidth / 2;
+      let nearest = 0;
+      let minDist = Infinity;
+      cards.forEach((c, i) => {
+        const cc = c.offsetLeft + c.offsetWidth / 2;
+        const d = Math.abs(cc - center);
+        if (d < minDist) {
+          minDist = d;
+          nearest = i;
+        }
+      });
+      if (nearest !== centeredIdxRef.current) setCenteredIdx(nearest);
+    };
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(compute);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  const scrollMobile = (d: 1 | -1): void => {
+    const el = mobileScrollRef.current;
+    if (!el) return;
+    const cards = el.querySelectorAll<HTMLElement>("[data-mobile-agent-card]");
+    if (!cards.length) return;
+    const nextIdx = Math.max(0, Math.min(cards.length - 1, centeredIdx + d));
+    scrollToCardIdx(nextIdx, "smooth");
+  };
+
   return (
-    <section className="bg-white px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
+    <section className="bg-white py-14 sm:px-6 sm:py-28 lg:py-32">
       <div className="mx-auto max-w-6xl">
-        <Reveal className="mx-auto max-w-2xl text-center">
+        <Reveal className="mx-auto max-w-2xl px-5 text-center sm:px-0">
           <div className="mb-4 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-[#4d555c] sm:text-[11px]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#4d555c]" />
             automate
@@ -891,7 +962,45 @@ export function EventTriggersSection(): React.ReactElement {
           </p>
         </Reveal>
 
-        <div className="relative mt-10 sm:mt-14">
+        {/* Mobile horizontal carousel: 1 card centered with peek on both sides */}
+        <div className="relative mt-8 sm:hidden">
+          <div
+            ref={mobileScrollRef}
+            className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-[14vw] pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {mobileTripled.map((a, i) => (
+              <div
+                key={i}
+                data-mobile-agent-card
+                className="h-[260px] w-[72vw] flex-none snap-center"
+              >
+                <MobileAgentCard agent={a} featured={i === centeredIdx} />
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 flex items-center justify-center gap-3 px-5">
+            <button
+              type="button"
+              aria-label="Previous agent"
+              onClick={() => scrollMobile(-1)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-[#0d0d0e] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] transition active:bg-black active:text-white"
+            >
+              <ChevronLeft size={18} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              aria-label="Next agent"
+              onClick={() => scrollMobile(1)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-[#0d0d0e] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] transition active:bg-black active:text-white"
+            >
+              <ChevronRight size={18} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+
+        {/* Desktop grid (sm+) — original layout */}
+        <div className="relative mt-10 hidden px-5 sm:mt-14 sm:block sm:px-0">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:grid-rows-[220px]">
             {visibleAgents.map((a, i) => {
               const isEntering = i === enteringSlot;
@@ -966,6 +1075,48 @@ export function EventTriggersSection(): React.ReactElement {
   );
 }
 
+function MobileAgentCard({
+  agent,
+  featured,
+}: {
+  agent: Agent;
+  featured: boolean;
+}): React.ReactElement {
+  if (featured) {
+    return (
+      <div className="flex h-full flex-col rounded-2xl border border-[#0d0d0e] bg-[#0d0d0e] p-6 text-white shadow-[0_20px_50px_-20px_rgba(0,0,0,0.5)]">
+        <div className="flex items-center justify-between">
+          <span className="inline-flex items-center rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+            Agent
+          </span>
+          <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#0d0d0e]">
+            Featured
+          </span>
+        </div>
+        <h3 className="mt-5 text-[19px] font-semibold leading-tight tracking-tight">
+          {agent.title}
+        </h3>
+        <p className="mt-3 flex-1 text-[13.5px] leading-[1.55] text-white/75">
+          {agent.body}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full flex-col rounded-2xl bg-white p-6 shadow-[0_-4px_16px_-8px_rgba(15,23,42,0.08),0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.10)]">
+      <span className="inline-flex w-fit items-center rounded-md bg-black/[0.05] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[#4d555c]">
+        Agent
+      </span>
+      <h3 className="mt-5 text-[18px] font-semibold leading-tight tracking-tight text-[#0d0d0e]">
+        {agent.title}
+      </h3>
+      <p className="mt-3 flex-1 text-[13.5px] leading-[1.55] text-[#4d555c]">
+        {agent.body}
+      </p>
+    </div>
+  );
+}
+
 function AgentCard({ agent }: { agent: Agent }): React.ReactElement {
   if (agent.featured) {
     return (
@@ -1034,7 +1185,7 @@ const FAQS: { q: string; a: string }[] = [
 export function FAQSection(): React.ReactElement {
   const [open, setOpen] = useState<number | null>(0);
   return (
-    <section className="bg-white px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
+    <section className="bg-white px-5 py-14 sm:px-6 sm:py-28 lg:py-32">
       <Reveal className="mx-auto grid max-w-6xl grid-cols-1 gap-8 sm:gap-12 lg:grid-cols-[280px_1fr]">
         <h2 className="font-serif text-[32px] leading-[1.04] tracking-[-0.03em] text-[#0d0d0e] sm:text-[40px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[44px]">
           FAQs
@@ -1100,7 +1251,7 @@ export function WaitlistFormBlock(): React.ReactElement {
   };
 
   return (
-    <section data-nav-theme="dark" className="bg-[#0d0d0e] px-5 py-20 text-white sm:px-6 sm:py-28 lg:py-32">
+    <section data-nav-theme="dark" className="bg-[#0d0d0e] px-5 py-14 text-white sm:px-6 sm:py-28 lg:py-32">
       <Reveal className="mx-auto max-w-3xl text-center">
         <h2 className="font-serif text-[38px] leading-[1.04] tracking-[-0.03em] sm:text-[52px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[64px]">
           One message.
@@ -1119,7 +1270,7 @@ export function WaitlistFormBlock(): React.ReactElement {
         ) : (
           <form
             onSubmit={onSubmit}
-            className="mx-auto mt-10 flex max-w-md flex-col items-center gap-3 rounded-full border border-white/10 bg-white/[0.04] p-1.5 sm:flex-row sm:gap-1.5"
+            className="mx-auto mt-8 flex max-w-md flex-col items-stretch gap-2.5 sm:mt-10 sm:flex-row sm:items-center sm:gap-1.5 sm:rounded-full sm:border sm:border-white/10 sm:bg-white/[0.04] sm:p-1.5"
           >
             <input
               type="email"
@@ -1127,11 +1278,11 @@ export function WaitlistFormBlock(): React.ReactElement {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
-              className="w-full flex-1 rounded-full bg-transparent px-4 py-2.5 text-[14px] text-white placeholder:text-white/45 focus:outline-none"
+              className="w-full flex-1 rounded-full border border-white/12 bg-white/[0.06] px-5 py-3 text-[15px] text-white placeholder:text-white/45 focus:border-white/30 focus:outline-none sm:border-0 sm:bg-transparent sm:px-4 sm:py-2.5 sm:text-[14px]"
             />
             <button
               type="submit"
-              className="w-full whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-[14px] font-medium text-[#0d0d0e] transition-opacity hover:opacity-90 sm:w-auto"
+              className="w-full whitespace-nowrap rounded-full bg-white px-5 py-3 text-[15px] font-medium text-[#0d0d0e] transition-opacity hover:opacity-90 sm:w-auto sm:py-2.5 sm:text-[14px]"
             >
               Join the Waitlist
             </button>
