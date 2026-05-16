@@ -5,7 +5,7 @@
  * and floating capability tiles.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp } from "lucide-react";
 import { Reveal } from "@/components/waitlist/scroll-fx";
 
@@ -100,13 +100,21 @@ const SHOWCASE_SUFFIXES = [
 ];
 
 function ShowcaseChatbox(): React.ReactElement {
+  const CYCLE_MS = 2800;
   const [idx, setIdx] = useState(0);
   const [caret, setCaret] = useState(true);
+
+  // Marquee state — when the prompt is wider than the viewport, slide the
+  // text left over the cycle duration so the full prompt becomes readable
+  // instead of getting clipped by `truncate`.
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLSpanElement | null>(null);
+  const [overflowPx, setOverflowPx] = useState(0);
 
   useEffect(() => {
     const cycle = setInterval(() => {
       setIdx((i) => (i + 1) % SHOWCASE_SUFFIXES.length);
-    }, 2800);
+    }, CYCLE_MS);
     const blink = setInterval(() => setCaret((v) => !v), 520);
     return () => {
       clearInterval(cycle);
@@ -114,8 +122,36 @@ function ShowcaseChatbox(): React.ReactElement {
     };
   }, []);
 
+  useLayoutEffect(() => {
+    const measure = () => {
+      const vp = viewportRef.current;
+      const tr = trackRef.current;
+      if (!vp || !tr) return;
+      const diff = tr.scrollWidth - vp.clientWidth;
+      setOverflowPx(diff > 0 ? diff : 0);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (viewportRef.current) ro.observe(viewportRef.current);
+    return () => ro.disconnect();
+  }, [idx]);
+
+  // Hold the start and end positions briefly so the user can read both
+  // edges; the middle of the cycle scrolls the text across.
+  const HOLD_PCT = 18;
+  const animDuration = `${CYCLE_MS}ms`;
+  const animName = overflowPx > 0 ? "promptMarquee" : "promptIn";
+
   return (
     <div className="mt-8 w-full max-w-2xl sm:mt-12">
+      <style>{`
+        @keyframes promptMarquee {
+          0% { transform: translateX(0); }
+          ${HOLD_PCT}% { transform: translateX(0); }
+          ${100 - HOLD_PCT}% { transform: translateX(var(--marquee-end)); }
+          100% { transform: translateX(var(--marquee-end)); }
+        }
+      `}</style>
       <div
         className="flex items-center gap-2 px-3 py-1 sm:gap-2.5 sm:px-5"
         style={{
@@ -129,34 +165,41 @@ function ShowcaseChatbox(): React.ReactElement {
         }}
       >
         <div
-          className="flex-1 truncate text-left text-[13px] leading-[36px] sm:text-[14px] sm:leading-[44px]"
+          ref={viewportRef}
+          className="relative flex-1 overflow-hidden text-left text-[13px] leading-[36px] sm:text-[14px] sm:leading-[44px]"
           style={{
             fontFamily: "var(--font-ui)",
             color: "rgba(255,255,255,0.9)",
           }}
         >
-          <span style={{ color: "rgba(255,255,255,0.95)", fontWeight: 600 }}>
-            Hey! Pivot,
-          </span>{" "}
           <span
+            ref={trackRef}
             key={idx}
-            style={{ color: "rgba(255,255,255,0.78)" }}
-            className="animate-[promptIn_400ms_cubic-bezier(0.22,1,0.36,1)_both]"
-          >
-            {SHOWCASE_SUFFIXES[idx]}
-          </span>
-          <span
-            aria-hidden
+            className="inline-block whitespace-nowrap will-change-transform"
             style={{
-              display: "inline-block",
-              width: 1.5,
-              height: 16,
-              marginLeft: 2,
-              verticalAlign: "middle",
-              background: caret ? "rgba(255,255,255,0.85)" : "transparent",
-              transition: "background 80ms linear",
+              ["--marquee-end" as string]: `-${overflowPx}px`,
+              animation: `${animName} ${animDuration} cubic-bezier(0.4, 0, 0.2, 1) both`,
             }}
-          />
+          >
+            <span style={{ color: "rgba(255,255,255,0.95)", fontWeight: 600 }}>
+              Hey! Pivot,
+            </span>{" "}
+            <span style={{ color: "rgba(255,255,255,0.78)" }}>
+              {SHOWCASE_SUFFIXES[idx]}
+            </span>
+            <span
+              aria-hidden
+              style={{
+                display: "inline-block",
+                width: 1.5,
+                height: 16,
+                marginLeft: 2,
+                verticalAlign: "middle",
+                background: caret ? "rgba(255,255,255,0.85)" : "transparent",
+                transition: "background 80ms linear",
+              }}
+            />
+          </span>
         </div>
 
         <div
@@ -198,9 +241,11 @@ function MobileCapabilityList(): React.ReactElement {
         ))}
       </div>
 
-      {/* Tablet and up (sm – lg): original layout */}
+      {/* Tablet and up (sm – lg): drop the `backtest` tile so the 2-col grid
+          stays symmetric. The dropped prompt still cycles through the chat
+          above, so nothing actually disappears from the showcase. */}
       <div className="mt-10 hidden w-full grid-cols-1 gap-3 sm:mt-12 sm:grid sm:grid-cols-2 lg:hidden">
-        {CAPABILITIES.map((c, idx) => (
+        {CAPABILITIES.filter((c) => c.kind !== "backtest").map((c, idx) => (
           <div
             key={idx}
             className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 text-left backdrop-blur-sm"

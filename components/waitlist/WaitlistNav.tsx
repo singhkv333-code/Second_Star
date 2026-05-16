@@ -15,14 +15,23 @@ export function WaitlistNav(): React.ReactElement {
   const [scrolled, setScrolled] = useState(false);
   const [isDark, setIsDark] = useState(false);
   // SSR-safe: start with the desktop value to match server render, then
-  // narrow to the mobile value after mount based on the actual viewport.
+  // narrow to the smaller-viewport value after mount based on the actual size.
+  // `isCompact` covers both mobile and tablet (<lg) so the navbar keeps its
+  // padding stripe instead of collapsing — only the glass effect changes.
   const [stripe, setStripe] = useState(16);
+  const [isCompact, setIsCompact] = useState(false);
 
   useEffect(() => {
-    const updateStripe = () => setStripe(window.innerWidth < 640 ? 10 : 16);
-    updateStripe();
-    window.addEventListener("resize", updateStripe);
-    return () => window.removeEventListener("resize", updateStripe);
+    const update = () => {
+      const w = window.innerWidth;
+      const mobile = w < 640;
+      const compact = w < 1024;
+      setStripe(mobile ? 10 : 16);
+      setIsCompact(compact);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
   useEffect(() => {
@@ -87,8 +96,8 @@ export function WaitlistNav(): React.ReactElement {
         boxShadow: scrolled
           ? "0 6px 20px -10px rgba(0,0,0,0.10)"
           : "none",
-        paddingTop: scrolled ? 0 : stripe,
-        paddingBottom: scrolled ? 0 : stripe,
+        paddingTop: scrolled && !isCompact ? 0 : stripe,
+        paddingBottom: scrolled && !isCompact ? 0 : stripe,
         transition:
           "background-color 400ms ease, color 400ms ease, border-color 400ms ease, padding-top 320ms cubic-bezier(0.22,1,0.36,1), padding-bottom 320ms cubic-bezier(0.22,1,0.36,1), box-shadow 320ms cubic-bezier(0.22,1,0.36,1)",
       }}

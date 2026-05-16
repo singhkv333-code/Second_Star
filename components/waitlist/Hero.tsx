@@ -25,8 +25,10 @@ export function Hero(): React.ReactElement {
           <p className="mt-5 max-w-md text-[14.5px] leading-[1.6] text-[#4d555c] sm:mt-7 sm:text-[15px] sm:leading-7">
             Tell Pivot what you want — buy, sell, set alerts, automate
             SIPs, or build strategies. It reads the market, plans the
-            execution, and places the trade. No manual monitoring,
-            no charts, no placing orders.
+            execution, and places the trade.
+            <span className="hidden sm:inline">
+              {" "}No manual monitoring, no charts, no placing orders.
+            </span>
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-3 sm:mt-9 sm:gap-4">

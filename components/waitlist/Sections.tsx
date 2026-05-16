@@ -21,6 +21,8 @@ import {
   GitBranch,
   ShoppingCart,
   TrendingUp,
+  Instagram,
+  Twitter,
 } from "lucide-react";
 import { Reveal } from "@/components/waitlist/scroll-fx";
 
@@ -202,7 +204,7 @@ export function HowItWorksSection(): React.ReactElement {
 function HowStepCard({ step }: { step: HowStep }): React.ReactElement {
   return (
     <div className="flex h-full flex-col">
-      <div className="relative h-[220px] overflow-hidden rounded-2xl bg-[#0d0d0e] sm:h-[280px]">
+      <div className="relative h-[260px] overflow-hidden rounded-2xl bg-[#0d0d0e] sm:h-[280px]">
         {step.preview}
       </div>
       <div className="flex flex-1 flex-col pt-3.5 sm:pt-5">
@@ -673,8 +675,86 @@ const SECURITIES: Security[] = [
 ];
 
 export function BuildSecuritiesSection(): React.ReactElement {
+  // Mobile + tablet horizontal carousel — mirrors EventTriggersSection so the
+  // sm-to-lg range never shows the awkward 2-column split with only 3 cards.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const MOBILE_COPIES = 5;
+  const bufferedSecurities = Array.from(
+    { length: MOBILE_COPIES },
+    () => SECURITIES,
+  ).flat();
+  const MIDDLE_START = SECURITIES.length * Math.floor(MOBILE_COPIES / 2);
+  const [centeredIdx, setCenteredIdx] = useState<number>(MIDDLE_START);
+  const centeredIdxRef = useRef<number>(MIDDLE_START);
+  centeredIdxRef.current = centeredIdx;
+
+  const scrollToCardIdx = (idx: number, behavior: ScrollBehavior): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const cards = el.querySelectorAll<HTMLElement>("[data-security-card]");
+    const target = cards[idx];
+    if (!target) return;
+    el.scrollTo({
+      left: target.offsetLeft - (el.clientWidth - target.offsetWidth) / 2,
+      behavior,
+    });
+  };
+
+  useEffect(() => {
+    scrollToCardIdx(MIDDLE_START, "auto");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    const compute = () => {
+      const cards = el.querySelectorAll<HTMLElement>("[data-security-card]");
+      if (!cards.length) return;
+      const center = el.scrollLeft + el.clientWidth / 2;
+      let nearest = 0;
+      let minDist = Infinity;
+      cards.forEach((c, i) => {
+        const cc = c.offsetLeft + c.offsetWidth / 2;
+        const d = Math.abs(cc - center);
+        if (d < minDist) {
+          minDist = d;
+          nearest = i;
+        }
+      });
+      if (nearest !== centeredIdxRef.current) setCenteredIdx(nearest);
+    };
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(compute);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  const scrollStep = (d: 1 | -1): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const cards = el.querySelectorAll<HTMLElement>("[data-security-card]");
+    if (!cards.length) return;
+    let cursor = centeredIdx;
+    const wouldOverflow = cursor + d < 0 || cursor + d > cards.length - 1;
+    if (wouldOverflow) {
+      const equivalent =
+        MIDDLE_START +
+        ((cursor % SECURITIES.length) + SECURITIES.length) % SECURITIES.length;
+      scrollToCardIdx(equivalent, "auto");
+      cursor = equivalent;
+    }
+    scrollToCardIdx(cursor + d, "smooth");
+  };
+
   return (
-    <section data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] px-5 py-14 text-white sm:px-6 sm:py-28 lg:py-32">
+    <section data-nav-theme="dark" className="relative isolate overflow-hidden bg-[#0a0a0b] py-14 text-white sm:py-28 lg:px-6 lg:py-32">
       <DriftOrbs />
 
       <div
@@ -688,10 +768,10 @@ export function BuildSecuritiesSection(): React.ReactElement {
       />
 
       <div className="relative z-10 mx-auto max-w-6xl">
-        <Reveal className="mx-auto max-w-2xl text-center">
+        <Reveal className="mx-auto max-w-2xl px-5 text-center sm:px-6">
           <div className="mb-4 inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-white/70 sm:text-[11px]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
-            create
+            Create (Upcoming)
           </div>
           <h2 className="font-serif text-[36px] leading-[1.04] tracking-[-0.03em] text-white sm:text-[48px] sm:tracking-[-0.04em] sm:leading-[1.05] lg:text-[56px]">
             Build your own securities
@@ -702,7 +782,52 @@ export function BuildSecuritiesSection(): React.ReactElement {
           </p>
         </Reveal>
 
-        <Reveal delay={120} className="mt-10 grid grid-cols-1 gap-5 sm:mt-14 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Mobile (<sm): plain vertical stack */}
+        <Reveal delay={120} className="mt-10 grid grid-cols-1 gap-5 px-5 sm:hidden">
+          {SECURITIES.map((s) => (
+            <SecurityCard key={s.name} sec={s} />
+          ))}
+        </Reveal>
+
+        {/* Tablet (sm – lg): horizontal carousel */}
+        <Reveal delay={120} className="relative mt-10 hidden sm:block lg:hidden">
+          <div
+            ref={scrollRef}
+            className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-[14vw] pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {bufferedSecurities.map((s, i) => (
+              <div
+                key={i}
+                data-security-card
+                className="flex h-auto min-h-[440px] w-[72vw] max-w-[420px] flex-none snap-center"
+              >
+                <SecurityCard sec={s} />
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 flex items-center justify-center gap-3 px-5">
+            <button
+              type="button"
+              aria-label="Previous security"
+              onClick={() => scrollStep(-1)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-white/85 backdrop-blur-sm transition active:bg-white active:text-[#0d0d0e]"
+            >
+              <ChevronLeft size={18} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              aria-label="Next security"
+              onClick={() => scrollStep(1)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-white/85 backdrop-blur-sm transition active:bg-white active:text-[#0d0d0e]"
+            >
+              <ChevronRight size={18} strokeWidth={2} />
+            </button>
+          </div>
+        </Reveal>
+
+        {/* Desktop grid (lg+) — 3 cards side by side */}
+        <Reveal delay={120} className="mt-14 hidden grid-cols-3 gap-5 lg:grid">
           {SECURITIES.map((s) => (
             <SecurityCard key={s.name} sec={s} />
           ))}
@@ -760,7 +885,7 @@ function DriftOrbs(): React.ReactElement {
 
 function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
   return (
-    <div className="group flex flex-col rounded-2xl bg-white/[0.035] p-4 backdrop-blur-sm transition-all hover:bg-white/[0.06] sm:p-6">
+    <div className="group flex h-full w-full flex-col rounded-2xl bg-white/[0.035] p-4 backdrop-blur-sm transition-all hover:bg-white/[0.06] sm:p-6">
       <div className="flex justify-end">
         <div
           className="max-w-[88%] text-[11.5px] leading-snug text-white/85 sm:text-[12.5px]"
@@ -941,8 +1066,17 @@ export function EventTriggersSection(): React.ReactElement {
     if (!el) return;
     const cards = el.querySelectorAll<HTMLElement>("[data-mobile-agent-card]");
     if (!cards.length) return;
-    const nextIdx = Math.max(0, Math.min(cards.length - 1, centeredIdx + d));
-    scrollToCardIdx(nextIdx, "smooth");
+    let cursor = centeredIdx;
+    // If we'd step off the buffered list, silently jump to the equivalent
+    // card in the middle copy first, then animate the step. This makes the
+    // tap-driven navigation feel infinite without the user seeing a reset.
+    const wouldOverflow = cursor + d < 0 || cursor + d > cards.length - 1;
+    if (wouldOverflow) {
+      const equivalent = MIDDLE_START + ((cursor % AGENTS.length) + AGENTS.length) % AGENTS.length;
+      scrollToCardIdx(equivalent, "auto");
+      cursor = equivalent;
+    }
+    scrollToCardIdx(cursor + d, "smooth");
   };
 
   return (
@@ -962,8 +1096,8 @@ export function EventTriggersSection(): React.ReactElement {
           </p>
         </Reveal>
 
-        {/* Mobile horizontal carousel: 1 card centered with peek on both sides */}
-        <div className="relative mt-8 sm:hidden">
+        {/* Mobile + tablet horizontal carousel: 1 card centered with peek on both sides */}
+        <div className="relative mt-8 lg:hidden">
           <div
             ref={mobileScrollRef}
             className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-[14vw] pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -999,9 +1133,9 @@ export function EventTriggersSection(): React.ReactElement {
           </div>
         </div>
 
-        {/* Desktop grid (sm+) — original layout */}
-        <div className="relative mt-10 hidden px-5 sm:mt-14 sm:block sm:px-0">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:grid-rows-[220px]">
+        {/* Desktop grid (lg+) — original 5-card layout */}
+        <div className="relative mt-10 hidden px-5 sm:mt-14 sm:px-0 lg:block">
+          <div className="grid grid-cols-5 grid-rows-[220px] gap-4">
             {visibleAgents.map((a, i) => {
               const isEntering = i === enteringSlot;
               const key = isEntering ? `enter-${tick}` : `slot-${i}`;
@@ -1051,24 +1185,6 @@ export function EventTriggersSection(): React.ReactElement {
             </button>
           </div>
 
-          <div className="mt-6 flex items-center justify-center gap-3 lg:hidden">
-            <button
-              type="button"
-              aria-label="Previous agents"
-              onClick={() => step(-1)}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-[#0d0d0e] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] transition active:bg-black active:text-white"
-            >
-              <ChevronLeft size={18} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              aria-label="Next agents"
-              onClick={() => step(1)}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-[#0d0d0e] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] transition active:bg-black active:text-white"
-            >
-              <ChevronRight size={18} strokeWidth={2} />
-            </button>
-          </div>
         </div>
       </div>
     </section>
@@ -1374,6 +1490,27 @@ export function WordmarkFooter(): React.ReactElement {
           >
             Pivot.
           </span>
+        </div>
+
+        <div className="absolute bottom-4 right-2 flex items-center gap-3 sm:bottom-6 sm:right-3 sm:gap-4">
+          <a
+            href="https://www.instagram.com/investwithpivot/"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Pivot on Instagram"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-white/75 backdrop-blur-sm transition hover:border-white/30 hover:text-white"
+          >
+            <Instagram size={16} strokeWidth={1.75} aria-hidden />
+          </a>
+          <a
+            href="https://x.com/investwithpivot"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Pivot on X"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-white/75 backdrop-blur-sm transition hover:border-white/30 hover:text-white"
+          >
+            <Twitter size={16} strokeWidth={1.75} aria-hidden />
+          </a>
         </div>
       </div>
     </footer>
