@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://pivotai.in"),
+  metadataBase: new URL("https://pivotnow.in"),
   title: "Pivot. One message. That's all investing takes.",
   description:
     "Pivot is an agentic investing assistant. Tell it what you want: buy, sell, alerts, automation, strategies. It executes.",
   openGraph: {
     type: "website",
-    url: "https://pivotai.in",
+    url: "https://pivotnow.in",
     siteName: "Pivot",
     title: "Pivot. One message. That's all investing takes.",
     description:
