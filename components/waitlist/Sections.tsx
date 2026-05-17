@@ -24,7 +24,6 @@ import {
   Instagram,
 } from "lucide-react";
 import { Reveal } from "@/components/waitlist/scroll-fx";
-import { supabase } from "@/lib/supabase";
 
 // ─── How it works ───────────────────────────────────────────────────────
 
@@ -1373,30 +1372,38 @@ export function WaitlistFormBlock(): React.ReactElement {
     if (!trimmed) return;
     setStatus({ kind: "submitting" });
 
-    const { error } = await supabase
-      .from("waitlist_signups")
-      .insert({
-        email: trimmed,
-        source: "waitlist-landing",
-        user_agent:
-          typeof navigator !== "undefined" ? navigator.userAgent : null,
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
       });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        code?: string;
+        message?: string;
+      };
 
-    if (!error) {
-      setStatus({ kind: "success" });
-      return;
+      if (res.ok && data.ok) {
+        setStatus({ kind: "success" });
+        return;
+      }
+
+      if (data.code === "duplicate") {
+        setStatus({ kind: "duplicate" });
+        return;
+      }
+
+      setStatus({
+        kind: "error",
+        message: data.message ?? "Something went wrong. Please try again.",
+      });
+    } catch {
+      setStatus({
+        kind: "error",
+        message: "Network error. Please try again.",
+      });
     }
-
-    // Postgres unique violation = 23505
-    if (error.code === "23505") {
-      setStatus({ kind: "duplicate" });
-      return;
-    }
-
-    setStatus({
-      kind: "error",
-      message: "Something went wrong. Please try again.",
-    });
   };
 
   const isSubmitting = status.kind === "submitting";
