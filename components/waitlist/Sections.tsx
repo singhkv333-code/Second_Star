@@ -22,9 +22,9 @@ import {
   ShoppingCart,
   TrendingUp,
   Instagram,
-  Twitter,
 } from "lucide-react";
 import { Reveal } from "@/components/waitlist/scroll-fx";
+import { supabase } from "@/lib/supabase";
 
 // ─── How it works ───────────────────────────────────────────────────────
 
@@ -1356,15 +1356,51 @@ export function FAQSection(): React.ReactElement {
 
 // ─── Final CTA block ────────────────────────────────────────────────────
 
+type FormStatus =
+  | { kind: "idle" }
+  | { kind: "submitting" }
+  | { kind: "success" }
+  | { kind: "duplicate" }
+  | { kind: "error"; message: string };
+
 export function WaitlistFormBlock(): React.ReactElement {
   const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<FormStatus>({ kind: "idle" });
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
-    setSubmitted(true);
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed) return;
+    setStatus({ kind: "submitting" });
+
+    const { error } = await supabase
+      .from("waitlist_signups")
+      .insert({
+        email: trimmed,
+        source: "waitlist-landing",
+        user_agent:
+          typeof navigator !== "undefined" ? navigator.userAgent : null,
+      });
+
+    if (!error) {
+      setStatus({ kind: "success" });
+      return;
+    }
+
+    // Postgres unique violation = 23505
+    if (error.code === "23505") {
+      setStatus({ kind: "duplicate" });
+      return;
+    }
+
+    setStatus({
+      kind: "error",
+      message: "Something went wrong. Please try again.",
+    });
   };
+
+  const isSubmitting = status.kind === "submitting";
+  const isDone = status.kind === "success" || status.kind === "duplicate";
 
   return (
     <section data-nav-theme="dark" className="bg-[#0d0d0e] px-5 py-14 text-white sm:px-6 sm:py-28 lg:py-32">
@@ -1376,33 +1412,49 @@ export function WaitlistFormBlock(): React.ReactElement {
           That&apos;s all it takes.
         </h2>
 
-        {submitted ? (
+        {isDone ? (
           <div
             role="status"
+            aria-live="polite"
             className="mx-auto mt-10 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-5 py-3 text-[14px] text-white/85"
           >
-            <CheckIcon /> You&apos;re on the list. We&apos;ll reach out soon.
+            <CheckIcon />
+            {status.kind === "duplicate"
+              ? "You're already on the list."
+              : "You're on the list. We'll reach out soon."}
           </div>
         ) : (
-          <form
-            onSubmit={onSubmit}
-            className="mx-auto mt-8 flex max-w-md flex-col items-stretch gap-2.5 sm:mt-10 sm:flex-row sm:items-center sm:gap-1.5 sm:rounded-full sm:border sm:border-white/10 sm:bg-white/[0.04] sm:p-1.5"
-          >
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="w-full flex-1 rounded-full border border-white/12 bg-white/[0.06] px-5 py-3 text-[15px] text-white placeholder:text-white/45 focus:border-white/30 focus:outline-none sm:border-0 sm:bg-transparent sm:px-4 sm:py-2.5 sm:text-[14px]"
-            />
-            <button
-              type="submit"
-              className="w-full whitespace-nowrap rounded-full bg-white px-5 py-3 text-[15px] font-medium text-[#0d0d0e] transition-opacity hover:opacity-90 sm:w-auto sm:py-2.5 sm:text-[14px]"
+          <>
+            <form
+              onSubmit={onSubmit}
+              className="mx-auto mt-8 flex max-w-md flex-col items-stretch gap-2.5 sm:mt-10 sm:flex-row sm:items-center sm:gap-1.5 sm:rounded-full sm:border sm:border-white/10 sm:bg-white/[0.04] sm:p-1.5"
             >
-              Join the Waitlist
-            </button>
-          </form>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
+                disabled={isSubmitting}
+                className="w-full flex-1 rounded-full border border-white/12 bg-white/[0.06] px-5 py-3 text-[15px] text-white placeholder:text-white/45 focus:border-white/30 focus:outline-none disabled:opacity-60 sm:border-0 sm:bg-transparent sm:px-4 sm:py-2.5 sm:text-[14px]"
+              />
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full whitespace-nowrap rounded-full bg-white px-5 py-3 text-[15px] font-medium text-[#0d0d0e] transition-opacity hover:opacity-90 disabled:opacity-70 sm:w-auto sm:py-2.5 sm:text-[14px]"
+              >
+                {isSubmitting ? "Joining…" : "Join the Waitlist"}
+              </button>
+            </form>
+            {status.kind === "error" && (
+              <p
+                role="alert"
+                className="mx-auto mt-3 max-w-md text-[13px] text-red-300/85"
+              >
+                {status.message}
+              </p>
+            )}
+          </>
         )}
       </Reveal>
     </section>
@@ -1413,6 +1465,20 @@ function CheckIcon(): React.ReactElement {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function XIcon(): React.ReactElement {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z" />
     </svg>
   );
 }
@@ -1509,7 +1575,7 @@ export function WordmarkFooter(): React.ReactElement {
             aria-label="Pivot on X"
             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-white/75 backdrop-blur-sm transition hover:border-white/30 hover:text-white"
           >
-            <Twitter size={16} strokeWidth={1.75} aria-hidden />
+            <XIcon />
           </a>
         </div>
       </div>

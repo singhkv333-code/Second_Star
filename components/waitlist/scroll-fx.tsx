@@ -59,19 +59,30 @@ export function Reveal({
   as?: "div" | "section";
 }): React.ReactElement {
   const { ref, inView } = useInView<HTMLElement>();
-  const Component = Tag as keyof React.JSX.IntrinsicElements;
+  const style: React.CSSProperties = {
+    opacity: inView ? 1 : 0,
+    transform: inView ? "translate3d(0,0,0)" : "translate3d(0,20px,0)",
+    transition: `opacity 700ms cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 700ms cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
+    willChange: "opacity, transform",
+  };
+  if (Tag === "section") {
+    return (
+      <section
+        ref={ref as React.Ref<HTMLElement> as React.Ref<HTMLElement>}
+        className={className}
+        style={style}
+      >
+        {children}
+      </section>
+    );
+  }
   return (
-    <Component
-      ref={ref as React.Ref<HTMLElement> as never}
+    <div
+      ref={ref as unknown as React.Ref<HTMLDivElement>}
       className={className}
-      style={{
-        opacity: inView ? 1 : 0,
-        transform: inView ? "translate3d(0,0,0)" : "translate3d(0,20px,0)",
-        transition: `opacity 700ms cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 700ms cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
-        willChange: "opacity, transform",
-      }}
+      style={style}
     >
       {children}
-    </Component>
+    </div>
   );
 }
