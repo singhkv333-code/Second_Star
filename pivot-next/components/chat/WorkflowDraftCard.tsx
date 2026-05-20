@@ -37,6 +37,8 @@ import {
   IndicatorBacktestCard,
   type IndicatorBacktestPayload,
 } from "@/components/chat/IndicatorBacktestCard";
+import { NewsStepRow } from "@/components/chat/steps/NewsStepRow";
+import type { NewsStepConfig } from "@/lib/news-types";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -94,6 +96,9 @@ function stepIconName(stepType: string): string {
   return CATEGORY_ICON[prefix] ?? "circle-dot";
 }
 
+// All steps render in the chat-side card now — the row layout was
+// compacted (smaller icon chip, tighter padding, smaller label) so the
+// full 5-step demo workflow fits in one screen alongside the side editor.
 const MAX_VISIBLE_STEPS = 5;
 
 // ---------------------------------------------------------------------------
@@ -296,19 +301,19 @@ function DraftBody({
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col gap-5 px-6 pt-6 pb-5">
+      <div className="flex flex-col gap-3 px-5 pt-4 pb-4">
       {/* HEADER — chip on the left, optional warning indicator + status on
           the right. Title sits below on its own line for breathing room. */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+          <span className="inline-flex items-center rounded-md bg-sky-100 px-2 py-0.5 text-[10.5px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
             Agent
           </span>
           <div className="flex items-center gap-1.5">
             {hasWarnings && (
               <WarningIndicator warnings={draft.warnings} />
             )}
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-muted-foreground">
               <span
                 aria-hidden="true"
                 className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50"
@@ -318,14 +323,22 @@ function DraftBody({
           </div>
         </div>
 
-        <h3 className="text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
+        <h3 className="text-[15px] leading-[1.25] font-semibold tracking-tight text-foreground">
           {draft.name}
         </h3>
 
         {hasContext && (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             {draft.description && (
-              <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+              <p
+                className="text-[12px] leading-snug text-muted-foreground"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
                 {draft.description}
               </p>
             )}
@@ -355,7 +368,7 @@ function DraftBody({
 
       {/* STEP LIST — hero zone, tile-style, staggered fade-in. */}
       <ol
-        className="m-0 flex flex-col gap-2"
+        className="m-0 flex flex-col gap-1.5"
         data-testid="draft-step-timeline"
       >
         {visibleSteps.map((step, idx) => (
@@ -376,14 +389,14 @@ function DraftBody({
 
       {/* CTA RAIL — one primary pill, secondary actions as ghost links
           beneath. No 3-button grid, no border-top. */}
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-2">
         <button
           type="button"
           onClick={onSaveAndActivate}
           disabled={isSaving}
           data-testid="save-activate-button"
           className={cn(
-            "inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full bg-primary text-[13px] font-medium tracking-tight text-primary-foreground transition-all",
+            "inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full bg-primary text-[12.5px] font-medium tracking-tight text-primary-foreground transition-all",
             "hover:bg-primary/90 active:scale-[0.98]",
             "disabled:cursor-not-allowed disabled:opacity-70",
           )}
@@ -467,12 +480,12 @@ function DraftBody({
 
       {/* DISCLAIMER — quiet, full-bleed footer strip with a hairline top
           border. Soft amber tint to signal "advisory", not destructive. */}
-      <div className="flex items-center gap-1.5 border-t border-border/40 bg-amber-50/40 px-6 py-2.5 dark:bg-amber-500/[0.04]">
+      <div className="flex items-center gap-1.5 border-t border-border/40 bg-amber-50/40 px-5 py-1.5 dark:bg-amber-500/[0.04]">
         <ShieldAlert
           className="h-3 w-3 shrink-0 text-amber-600/80 dark:text-amber-400/80"
           aria-hidden="true"
         />
-        <p className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+        <p className="text-[10.5px] leading-snug text-amber-700/90 dark:text-amber-300/90">
           This is automation of your instructions, not financial advice.
         </p>
       </div>
@@ -619,10 +632,34 @@ function DraftStepRow({
   // Single brand green for the entire activated state.
   const BRAND_GREEN = "#4CAF50";
 
+  // News step types get their own rich row.
+  if (
+    step.step_type === "fetch.news" ||
+    step.step_type === "trigger.event"
+  ) {
+    return (
+      <li
+        style={{
+          animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
+          animationDelay: `${index * 50}ms`,
+          listStyle: "none",
+        }}
+      >
+        <NewsStepRow
+          step={{
+            step_type: step.step_type as "fetch.news" | "trigger.event",
+            config: step.config as NewsStepConfig,
+            label: step.label,
+          }}
+        />
+      </li>
+    );
+  }
+
   return (
     <li
       className={cn(
-        "flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors",
+        "flex items-center gap-2.5 rounded-xl border px-2.5 py-1.5 transition-colors",
         !active && "border-border/50 bg-card hover:border-border",
       )}
       style={{
@@ -640,7 +677,7 @@ function DraftStepRow({
       <span
         aria-hidden="true"
         className={cn(
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
           !active && "bg-muted/70 text-muted-foreground",
         )}
         style={
@@ -652,12 +689,12 @@ function DraftStepRow({
             : undefined
         }
       >
-        <StepIcon name={iconName} className="h-4 w-4" />
+        <StepIcon name={iconName} className="h-3.5 w-3.5" />
       </span>
 
       {/* Step label + (after activation) succeeded sub-line. */}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[13px] font-medium tracking-tight text-foreground">
+        <span className="truncate text-[12.5px] font-medium tracking-tight text-foreground">
           {label}
         </span>
         {active && (

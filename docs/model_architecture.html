@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pivot Chat — Model Architecture</title>
+<style>
+  :root {
+    --bg: #0b0d11;
+    --panel: #11151c;
+    --panel-2: #161b24;
+    --line: #232a36;
+    --line-2: #2e3744;
+    --text: #e6e9ef;
+    --muted: #9aa3b2;
+    --accent: #7aa2ff;
+    --accent-2: #59d3a0;
+    --warn: #ffb86c;
+    --bad: #ff7a8a;
+    --code-bg: #0f1219;
+    --code-border: #1b212c;
+    --tag-bg: #1a2230;
+    --tag-fg: #b9c5d8;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+  body {
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  code, pre, .mono { font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo,
+                          Consolas, "DejaVu Sans Mono", monospace; }
+
+  header.top {
+    padding: 28px 40px 18px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #10141c 0%, #0b0d11 100%);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header.top h1 {
+    margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: 0.2px;
+  }
+  header.top .sub {
+    color: var(--muted); font-size: 12.5px;
+  }
+  header.top .meta {
+    margin-top: 10px; display: flex; gap: 16px; flex-wrap: wrap;
+    color: var(--muted); font-size: 12px;
+  }
+  header.top .meta b { color: var(--text); font-weight: 600; }
+
+  main {
+    max-width: 1280px; margin: 0 auto; padding: 22px 40px 80px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 22px;
+  }
+  @media (max-width: 1024px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  /* Lifecycle column */
+  .lifecycle {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .stage-list { display: flex; flex-direction: column; gap: 8px; }
+  .stage {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 120ms, transform 120ms;
+  }
+  .stage:hover { border-color: var(--line-2); }
+  .stage.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(122,162,255,0.25), 0 4px 14px rgba(0,0,0,0.35);
+  }
+  .stage .badge {
+    width: 26px; height: 26px; border-radius: 6px;
+    background: #1a2230;
+    color: var(--accent);
+    font-weight: 600;
+    display: grid; place-items: center;
+    font-size: 12px;
+  }
+  .stage.active .badge {
+    background: rgba(122,162,255,0.18);
+    color: #cfdcff;
+  }
+  .stage h3 {
+    margin: 0; font-size: 14px; font-weight: 600;
+  }
+  .stage .meta {
+    color: var(--muted); font-size: 12px; margin-top: 2px;
+  }
+  .stage .lat {
+    color: var(--muted);
+    font-size: 11.5px;
+    align-self: center;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .stage .lat b { color: var(--accent-2); font-weight: 600; }
+
+  /* Detail column */
+  .detail {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+    position: sticky; top: 110px;
+    max-height: calc(100vh - 130px);
+    overflow: auto;
+  }
+  .detail h2 {
+    margin: 0 0 4px; font-size: 16px; font-weight: 600;
+  }
+  .detail .what {
+    color: var(--muted); font-size: 12.5px; margin-bottom: 14px;
+  }
+  .detail h4 {
+    margin: 14px 0 6px;
+    font-size: 11px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .detail ul { margin: 0; padding-left: 18px; }
+  .detail li { margin: 4px 0; }
+  .detail p { margin: 8px 0; }
+  .detail code {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .pillbar { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill {
+    background: var(--tag-bg);
+    color: var(--tag-fg);
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 11.5px;
+  }
+  .pill.warn { color: #ffd5a8; border-color: #4a3a22; background: #2a1f10; }
+  .pill.ok   { color: #b6f0d2; border-color: #1f4a36; background: #102a1f; }
+  .pill.bad  { color: #ffc8d0; border-color: #4a2329; background: #2a1015; }
+
+  /* Stats + diagrams */
+  section.block {
+    margin-top: 26px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  section.block > h2 {
+    margin: 0 0 14px; font-size: 15px; font-weight: 600;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .stat .v { font-size: 22px; font-weight: 600; }
+  .stat .l { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .stat.green .v { color: var(--accent-2); }
+  .stat.blue  .v { color: var(--accent); }
+  .stat.amber .v { color: var(--warn); }
+
+  /* Cache hit bar (interactive) */
+  .barwrap { margin-top: 8px; }
+  .bar {
+    height: 16px;
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar > .fill {
+    height: 100%;
+    width: 86%;
+    background: linear-gradient(90deg, #59d3a0 0%, #7aa2ff 100%);
+    transition: width 240ms ease;
+  }
+  .bar > .label {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    font-size: 11.5px; color: #fff; mix-blend-mode: difference;
+  }
+  .controls {
+    display: flex; gap: 10px; align-items: center; margin: 6px 0 8px;
+    color: var(--muted); font-size: 12px;
+  }
+  .controls input[type=range] { flex: 1; accent-color: var(--accent); }
+
+  /* Cost calculator */
+  .calc {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .calc .row {
+    display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .calc input, .calc select {
+    background: var(--code-bg); color: var(--text);
+    border: 1px solid var(--code-border);
+    border-radius: 6px; padding: 6px 8px;
+    width: 110px; text-align: right; font: inherit;
+  }
+  .calc select { width: auto; text-align: left; }
+  .calc .row label { color: var(--muted); font-size: 12.5px; }
+  .calc-out {
+    grid-column: 1 / -1;
+    background: #0e1a14;
+    border: 1px solid #1b3527;
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: #b6f0d2;
+  }
+  .calc-out .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .calc-out .row b { color: #d4ffe5; font-variant-numeric: tabular-nums; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  th { color: var(--muted); font-weight: 500; font-size: 11.5px;
+       letter-spacing: 0.4px; text-transform: uppercase; }
+  td code { white-space: nowrap; }
+
+  details {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 8px;
+  }
+  details > summary {
+    cursor: pointer; font-weight: 600; font-size: 13.5px;
+  }
+  details[open] > summary { color: var(--accent); }
+
+  footer.foot {
+    color: var(--muted); font-size: 12px;
+    padding: 24px 0 0;
+    text-align: center;
+  }
+  .kbd {
+    border: 1px solid var(--line-2); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 5px; font-size: 11px;
+    background: var(--code-bg);
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Pivot Chat — Model Architecture</h1>
+  <div class="sub">Click any stage on the left to see what runs, where to look, and what it costs in tokens / latency.</div>
+  <div class="meta">
+    <span><b>Provider</b> OpenAI Responses API</span>
+    <span><b>Default model</b> gpt-5-mini</span>
+    <span><b>Hop budget</b> 8</span>
+    <span><b>Prompt window</b> 6 turns</span>
+    <span><b>Cached input discount</b> 50%</span>
+    <span><b>Cache hit (probed)</b> 86%</span>
+  </div>
+</header>
+
+<main>
+
+<div class="grid">
+
+  <!-- LEFT: lifecycle list -->
+  <div class="lifecycle">
+    <div class="stage-list" id="stages"></div>
+  </div>
+
+  <!-- RIGHT: detail panel -->
+  <div class="detail" id="detail">
+    <!-- Populated by JS -->
+  </div>
+</div>
+
+<!-- ========================================================== -->
+
+<section class="block">
+  <h2>Caching layers — at a glance</h2>
+  <div class="stats">
+    <div class="stat blue"><div class="v">22,413</div><div class="l">avg input tokens / turn</div></div>
+    <div class="stat green"><div class="v">19,210</div><div class="l">avg cached tokens / turn</div></div>
+    <div class="stat green"><div class="v">86.0%</div><div class="l">cache hit ratio (measured)</div></div>
+    <div class="stat amber"><div class="v">41,644</div><div class="l">chars of cached system prefix</div></div>
+    <div class="stat blue"><div class="v">~150–800</div><div class="l">output tokens / turn</div></div>
+    <div class="stat amber"><div class="v">10 / 1500</div><div class="l">max_output_tokens (post-macro / default)</div></div>
+  </div>
+
+  <h4 style="margin-top:18px;">OpenAI prompt cache hit-rate explorer</h4>
+  <div class="controls">
+    <span>Cache hit %</span>
+    <input id="hitRange" type="range" min="0" max="100" value="86" />
+    <span id="hitVal">86%</span>
+  </div>
+  <div class="barwrap">
+    <div class="bar"><div class="fill" id="hitFill"></div><div class="label" id="hitLabel">86% cached · 14% full-priced</div></div>
+  </div>
+  <p style="color:var(--muted); font-size:12px; margin-top:8px;">
+    Cached tokens bill at <code>CACHED_INPUT_DISCOUNT = 0.5</code> of the normal input rate.
+    Output + reasoning tokens always bill at full output rate.
+  </p>
+</section>
+
+<section class="block">
+  <h2>Session cost calculator</h2>
+  <div class="calc">
+    <div class="row"><label>Model</label>
+      <select id="cModel">
+        <option value="gpt-5-mini" data-in="0.25" data-out="2.00" selected>gpt-5-mini ($0.25 / $2.00)</option>
+        <option value="gpt-4o-mini" data-in="0.15" data-out="0.60">gpt-4o-mini ($0.15 / $0.60)</option>
+        <option value="gpt-4o" data-in="2.50" data-out="10.00">gpt-4o ($2.50 / $10.00)</option>
+        <option value="sarvam-m" data-in="0" data-out="0">sarvam-m (dev tier, $0)</option>
+      </select>
+    </div>
+    <div class="row"><label>Turns in session</label><input id="cTurns" type="number" min="1" value="10" /></div>
+    <div class="row"><label>Avg input tokens / turn</label><input id="cInput" type="number" min="0" value="22413" /></div>
+    <div class="row"><label>Cache hit %</label><input id="cHit" type="number" min="0" max="100" value="86" /></div>
+    <div class="row"><label>Avg output tokens / turn</label><input id="cOutput" type="number" min="0" value="250" /></div>
+    <div class="row"><label>Avg reasoning tokens / turn</label><input id="cReason" type="number" min="0" value="180" /></div>
+    <div class="calc-out" id="cOut">
+      <!-- populated -->
+    </div>
+  </div>
+  <p style="color:var(--muted); font-size:12px; margin-top:10px;">
+    Mirrors <code>backend/services/llm_cost.py::compute_cost</code>. Reasoning tokens are billed at the output rate (Responses API). Pricing values are USD per 1M tokens.
+  </p>
+</section>
+
+<section class="block">
+  <h2>Redis state — what survives between turns</h2>
+  <table>
+    <thead><tr><th>Key prefix</th><th>TTL</th><th>Payload</th><th>What it powers</th></tr></thead>
+    <tbody>
+      <tr><td><code>chat:conv:{conv_id}</code></td><td>24 h</td><td>List of <code>{role, content}</code> (plain text)</td>
+          <td>History; trimmed to 20 turns, last <b>6</b> injected per LLM call.</td></tr>
+      <tr><td><code>chat:pending:{conv_id}</code></td><td>10 min</td><td><code>PendingToolCall</code> JSON</td>
+          <td>Deterministic resume: short reply coerced into the missing field, tool re-executed with no LLM hop.</td></tr>
+      <tr><td><code>chat:active_draft:{conv_id}</code></td><td>10 min</td><td><code>ActiveDraft</code> JSON (tool, args, caption)</td>
+          <td>Multi-turn amendment — JSON spliced directly into followup hint.</td></tr>
+      <tr><td><code>portfolio:summary:{user_id}</code></td><td>30 s</td><td>Portfolio JSON</td>
+          <td>30 s freshness window over the broker round-trip.</td></tr>
+      <tr><td><code>portfolio:holdings:{user_id}</code></td><td>30 s</td><td>Holdings list</td>
+          <td>Same — read on most agent / order paths.</td></tr>
+      <tr><td><code>index:level:{ticker}</code></td><td>10 s</td><td>Index value + change</td>
+          <td>~1 ms hit vs ~595 ms cold yfinance.</td></tr>
+      <tr><td><code>top_movers:{universe}:{dir}:{limit}</code></td><td>60 s</td><td>Top mover rows</td>
+          <td>&lt;1 ms hit vs ~4 s yfinance batch.</td></tr>
+      <tr><td><code>chart:{symbol}:{period}:{interval}</code></td><td>~5 min</td><td>yfinance OHLC</td>
+          <td>Chart rendering / indicator backtests.</td></tr>
+      <tr><td><code>backtest:{sha1(strategy)}</code></td><td>1 h</td><td>Backtest result JSON</td>
+          <td>Idempotent re-asks.</td></tr>
+      <tr><td><code>yield:mf:{scheme_code}</code></td><td>1 h</td><td>Yield value</td>
+          <td>Yield scanner.</td></tr>
+      <tr><td><code>webhook:rate:{src}</code></td><td>70 s</td><td>Inbound webhook count</td>
+          <td>Rate limiter.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="block">
+  <h2>Error → LLM feedback paths</h2>
+  <details open>
+    <summary><code>propose_workflow</code> &amp; <code>backtest_workflow</code> — self-correction (max 2 attempts)</summary>
+    <p>Validation error gets appended to <code>messages</code> as a <code>function_call_output</code>. The loop iterates. The model sees its own malformed call + the validator's complaint and emits a corrected draft on hop 2. Counter: <code>_PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2</code>.</p>
+    <p><b>Why these two only:</b> they share the <code>steps[]</code> schema; common failures (unknown <code>step_type</code>, step 0 isn't a <code>trigger.*</code>) are mechanical and one-shot self-fixable.</p>
+  </details>
+  <details>
+    <summary>Out-of-retries on <code>propose_workflow</code> → macro fallback</summary>
+    <p><code>_try_macro_fallback(message)</code> tries to coerce the user's ask into a simpler macro shape with the trigger forced to manual. User gets a draft they can edit instead of a dead end.</p>
+  </details>
+  <details>
+    <summary>All other tools — no LLM retry</summary>
+    <p>Failure is rendered via <code>_format_recoverable_failure_question(tool_name, error, user_message)</code> — a deterministic template keyed on tool name + error class. When the template returns <code>_LLM_CLARIFY_SENTINEL</code> we make a small LLM call (<code>_llm_clarification</code>) for a tailored question. Either way: user sees a specific clarification, no 2–6 s retry burn.</p>
+  </details>
+  <details>
+    <summary>Completeness / ASK_USER — surface + stash</summary>
+    <p>When a tool returns <code>needs_clarification=True</code> with a <code>question</code>, the question is written into history and a <code>PendingToolCall</code> is stashed (tool name, partial args, missing field, type, enum). The next user reply is type-coerced and the tool re-runs with no LLM hop. Cancel keywords (<code>cancel / discard / nevermind</code>) clear both pending and active draft.</p>
+  </details>
+  <details>
+    <summary>Repeat-fallback variation</summary>
+    <p>If the same canned reject would fire two turns running, <code>_is_repeat_fallback</code> swaps in a reset prompt — the user doesn't get the same line twice.</p>
+  </details>
+  <details>
+    <summary>Transport / non-200 errors</summary>
+    <p><code>LLMOpenAI.complete</code> never raises out of the call site — transport errors become <code>finish_reason="error"</code> responses with a body preview. Cost ledger skips zero-token rows so an error that never reached generation doesn't pollute the spend ledger.</p>
+  </details>
+</section>
+
+<section class="block">
+  <h2>Telemetry — every LLM call leaves a row</h2>
+  <p>One <code>CallTrace</code> wraps every call to <code>LLMOpenAI.complete</code> (and <code>stream_openai</code>). On <code>__exit__</code> it:</p>
+  <ul>
+    <li>Writes a verbose <strong>JSONL trace record</strong> to <code>PIVOT_LLM_TRACE</code> (opt-in, PII-bearing).</li>
+    <li>Calls <code>record_llm_usage(...)</code> — <strong>always on</strong>. Opens its own short-lived <code>SessionLocal()</code> (since the trace can close outside any FastAPI request scope), inserts one row in <code>llm_usage</code>, emits a structured <code>event="llm.usage"</code> log line.</li>
+    <li>Swallows every exception locally. Cost tracking can never break an LLM call.</li>
+  </ul>
+  <table>
+    <thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>user_id</code></td><td>Falls back to <code>user_id_var</code> request-scope contextvar.</td></tr>
+      <tr><td><code>request_id</code></td><td>Pulled from <code>request_id_var</code>. Indexed.</td></tr>
+      <tr><td><code>conversation_id</code> / <code>turn_id</code></td><td>For per-conversation drill-down.</td></tr>
+      <tr><td><code>endpoint</code></td><td><code>chat</code> / <code>propose</code> / <code>router</code> / <code>agentic</code> / <code>validation</code> / <code>warmup</code>. Inferred from the call stack via <code>_infer_endpoint()</code>.</td></tr>
+      <tr><td><code>provider</code></td><td><code>openai</code> / <code>sarvam</code>.</td></tr>
+      <tr><td><code>input_tokens</code> + <code>cached_input_tokens</code></td><td>Cached subset bills at 50%.</td></tr>
+      <tr><td><code>output_tokens</code> + <code>reasoning_tokens</code></td><td>Both at the output rate.</td></tr>
+      <tr><td><code>total_tokens</code> · <code>cost_usd</code></td><td>Denormalised sum + 6-decimal USD.</td></tr>
+      <tr><td><code>latency_ms</code> · <code>created_at</code></td><td><code>created_at</code> indexed for time-window queries.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer class="foot">
+  Source: <code>pivot/backend/services/chat_service.py</code> · <code>llm/openai_client.py</code> · <code>services/conversation_store.py</code> · <code>services/llm_cost.py</code> · <code>prompts/assembler.py</code>
+  · Tip: <span class="kbd">←</span> / <span class="kbd">→</span> to walk through stages.
+</footer>
+
+</main>
+
+<script>
+/* ---------------- Lifecycle stages ---------------- */
+const stages = [
+  {
+    id: "A",
+    title: "Pre-LLM short-circuits",
+    sub: "Greetings · definitions · skeleton · backtest fast-path",
+    lat: "6–80 ms",
+    what: "Up to ~10–15% of traffic never reaches the LLM. The fast-path classifier matches exact greetings, ~28 educational terms, continuation phrases ('what else'), and skeleton-shaped agent intents. The backtest router intercepts indicator-backtest regex and runs yfinance + indicator computation directly.",
+    files: [
+      "pivot/backend/services/fast_path.py",
+      "pivot/backend/services/workflow_skeleton.py",
+      "pivot/backend/routers/chat.py (_run_indicator_backtest)"
+    ],
+    notes: [
+      "Cancel-draft fast-path clears <code>chat:active_draft</code> + <code>chat:pending</code> on 'cancel / discard / nevermind / start over'.",
+      "Skeleton fast-path handles the most common agent shapes (RSI threshold, scheduled buy) deterministically — zero LLM tokens."
+    ],
+    pills: [["fast-path","ok"],["no LLM","ok"]]
+  },
+  {
+    id: "B",
+    title: "Context load",
+    sub: "Last 6 turns · active_draft · pending · evictions",
+    lat: "<1 ms",
+    what: "Load <code>chat:conv</code> (last 6 turns of the stored 20), <code>chat:active_draft</code>, <code>chat:pending</code>. Apply independent-prompt eviction (drop stale draft if the new prompt is unrelated) and mode-override eviction (Automation / Agent / Backtest pill).",
+    files: ["pivot/backend/services/conversation_store.py", "pivot/backend/services/chat_service.py (handle entry)"],
+    notes: [
+      "Storage = role + content only. No tool-call payloads → no <code>&lt;TOOL_CALL&gt;</code> leakage into later prompts.",
+      "Prompt window 6 (not 20) because longer tails resurfaced stale tickers (the 'sell it' pronoun bug).",
+      "Active draft TTL is 10 min (was 1 h) — long-lived drafts leaked across topic shifts."
+    ],
+    pills: [["redis","ok"],["24 h conv TTL",""],["10 min draft TTL",""]]
+  },
+  {
+    id: "C",
+    title: "Routing",
+    sub: "17 regex rules · intent · mode pin · advisory strip",
+    lat: "<1 ms",
+    what: "<code>select_tool_names(message)</code> applies 17 regex rules; matches union into a tool name set. <code>classify_intent</code> tags the turn as <b>agent / automation / backtest / other</b>. Mode pin (FE pill) and several strip-rules narrow the surface (typo-amend guard, advisory strip, F&amp;O gating, contradiction gating).",
+    files: ["pivot/backend/services/tool_router.py", "pivot/backend/services/chat_service.py (intent + strip logic)"],
+    notes: [
+      "Always-include floor: 4 macros + synthetic <code>ASK_USER</code>. <code>propose_workflow</code> is intentionally NOT always-included — adding only when an agent-shaped rule fires saves ~5.5K input tokens / turn.",
+      "Cache key = <code>pivot-chat-v2-&lt;sha1(sorted(toolset))[:8]&gt;</code>. <code>ASK_USER</code> excluded from hash so its presence doesn't shift keys."
+    ],
+    pills: [["regex","ok"],["5–25 tools / turn",""]]
+  },
+  {
+    id: "D",
+    title: "Prompt assembly",
+    sub: "system.md + agentic_examples + primer + dynamic block",
+    lat: "<1 ms (lru_cache)",
+    what: "<code>build_system_prompt(role, user_context)</code> is the single entry point. Layers, in stable order: (1) <code>system.md</code> chat role text · (2) <code>agentic_examples.json</code> rendered as labelled blocks · (3) <code>domain_primer.md</code> · (4) compact user-context block (~80 chars). Layers 1–3 are <code>@lru_cache(maxsize=1)</code> — the exact same bytes every request, so OpenAI's prompt cache locks onto a 41,644-char prefix.",
+    files: ["pivot/backend/prompts/assembler.py", "pivot/backend/prompts/system.md", "pivot/backend/prompts/agentic_examples.json", "pivot/backend/prompts/domain_primer.md"],
+    notes: [
+      "Dynamic user context is a SECOND system message, never spliced into the cached prefix.",
+      "Mode pin (if any) is appended as another system message — same reason.",
+      "<code>reload_prompts()</code> clears the three lru_caches for hot-reload during dev."
+    ],
+    pills: [["lru_cache",""],["41,644 char prefix","ok"]]
+  },
+  {
+    id: "E",
+    title: "LLM hop loop",
+    sub: "POST /v1/responses · max 8 hops",
+    lat: "2–25 s",
+    what: "<code>LLMOpenAI.complete</code> hits OpenAI Responses API. <code>tool_choice='required'</code> on hop 1 of agent intent (model MUST call a tool), then <code>'auto'</code> for every subsequent hop so the loop can exit. <code>reasoning.effort='minimal'</code> for agent turns, <code>'low'</code> elsewhere. <code>prompt_cache_key</code> set to the per-route hash. <code>max_output_tokens=1500</code> (drops to 50 on post-macro prose hops).",
+    files: ["pivot/backend/llm/openai_client.py", "pivot/backend/services/chat_service.py (hop loop ~ line 2300+)"],
+    notes: [
+      "Most turns finish in 1–2 hops. <code>_MAX_TOOL_CALLS = 8</code>.",
+      "<code>finish_reason='error'</code> short-circuits to <code>_unavailable()</code> — no model retry.",
+      "Cached token count read off <code>usage.input_tokens_details.cached_tokens</code> on every response."
+    ],
+    pills: [["openai","ok"],["responses api",""],["86% cache hit","ok"]]
+  },
+  {
+    id: "F",
+    title: "Tool exec + completeness",
+    sub: "execute_with_completeness · ASK_USER · validation",
+    lat: "0–6 s",
+    what: "Each <code>function_call</code> from the LLM is routed through <code>execute_with_completeness(name, args)</code>. Three outcomes: <b>success</b> → append <code>function_call_output</code>, stash active_draft if it was a macro · <b>needs_clarification</b> → surface question, stash <code>chat:pending</code>, return early · <b>error</b> → see error-feedback section.",
+    files: ["pivot/backend/services/tool_registry.py", "pivot/backend/agents/tool_executor.py", "pivot/backend/services/_v2_tools.py", "pivot/backend/services/validation_handler.py"],
+    notes: [
+      "<code>propose_workflow</code> / <code>backtest_workflow</code> get 1 self-correction retry — error fed back, loop iterates, model fixes its args.",
+      "All other tools fail single-shot — deterministic template via <code>_format_recoverable_failure_question</code>, with LLM fallback (<code>_llm_clarification</code>) only when the template can't form a question.",
+      "<code>last_tool_error</code> kept so the circuit breaker can name the specific failure instead of a generic message."
+    ],
+    pills: [["completeness",""],["1 retry on workflow/backtest","warn"]]
+  },
+  {
+    id: "G",
+    title: "Post-processing",
+    sub: "sanitize · leak strip · widget caption",
+    lat: "<1 ms",
+    what: "<code>_post_process</code> strips <code>&lt;TOOL_CALL&gt;</code> / <code>&lt;PLACEHOLDER&gt;</code> tokens, runs the reasoning-leak sanitizer (paragraphs with ≥2 monologue tells go away), checks the latent-greeting regex. <code>_ensure_widget_caption</code> guarantees a prose line whenever a card renders. <code>_is_repeat_fallback</code> varies the canned message if it would repeat.",
+    files: ["pivot/backend/services/chat_service.py (_post_process)"],
+    notes: [
+      "Reasoning-leak sanitizer is defence-in-depth on top of the system prompt's 'do not narrate' rule — small models leak sometimes.",
+      "Widget caption: card-with-no-text used to render as a glitch. Now structurally impossible."
+    ],
+    pills: [["sanitize",""]]
+  },
+  {
+    id: "H",
+    title: "Persist + cost ledger",
+    sub: "store.append · CallTrace.__exit__ · llm_usage row",
+    lat: "<5 ms",
+    what: "Append the (user, assistant) pair to <code>chat:conv</code>. Stash <code>chat:active_draft</code> if a macro succeeded. <code>CallTrace.__exit__</code> writes an optional JSONL trace and ALWAYS calls <code>record_llm_usage</code> — own session, swallows exceptions, inserts one row in <code>llm_usage</code> and emits an <code>event='llm.usage'</code> log line.",
+    files: ["pivot/backend/services/conversation_store.py", "pivot/backend/llm/_trace.py", "pivot/backend/services/llm_cost.py", "pivot/backend/models.py (LlmUsage)"],
+    notes: [
+      "Zero-token rows are skipped — transport errors / missing-API-key short-circuits don't pollute the ledger.",
+      "Cost formula: <code>(input - cached) * input_rate + cached * input_rate * 0.5 + (output + reasoning) * output_rate</code>.",
+      "Reasoning tokens bill at the output rate."
+    ],
+    pills: [["always-on ledger","ok"],["postgres",""]]
+  }
+];
+
+const stagesEl = document.getElementById("stages");
+const detailEl = document.getElementById("detail");
+
+stages.forEach((s, i) => {
+  const el = document.createElement("div");
+  el.className = "stage";
+  el.dataset.idx = i;
+  el.innerHTML = `
+    <div class="badge">${s.id}</div>
+    <div>
+      <h3>${s.title}</h3>
+      <div class="meta">${s.sub}</div>
+    </div>
+    <div class="lat"><b>${s.lat}</b></div>
+  `;
+  el.addEventListener("click", () => selectStage(i));
+  stagesEl.appendChild(el);
+});
+
+let currentIdx = 0;
+function selectStage(i) {
+  currentIdx = i;
+  [...stagesEl.children].forEach((c, idx) => c.classList.toggle("active", idx === i));
+  const s = stages[i];
+  const pills = (s.pills || []).map(([t, k]) => `<span class="pill ${k||""}">${t}</span>`).join("");
+  detailEl.innerHTML = `
+    <h2>${s.id} · ${s.title}</h2>
+    <div class="what">${s.what}</div>
+    <div class="pillbar">${pills}</div>
+    <h4>Files</h4>
+    <ul>${s.files.map(f => `<li><code>${f}</code></li>`).join("")}</ul>
+    <h4>Notes</h4>
+    <ul>${s.notes.map(n => `<li>${n}</li>`).join("")}</ul>
+  `;
+}
+selectStage(0);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+    selectStage(Math.min(currentIdx + 1, stages.length - 1));
+  } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+    selectStage(Math.max(currentIdx - 1, 0));
+  }
+});
+
+/* ---------------- Cache hit bar ---------------- */
+const hitRange = document.getElementById("hitRange");
+const hitFill  = document.getElementById("hitFill");
+const hitVal   = document.getElementById("hitVal");
+const hitLabel = document.getElementById("hitLabel");
+function syncHit() {
+  const v = parseInt(hitRange.value, 10);
+  hitFill.style.width = v + "%";
+  hitVal.textContent = v + "%";
+  hitLabel.textContent = `${v}% cached · ${100 - v}% full-priced`;
+}
+hitRange.addEventListener("input", syncHit);
+syncHit();
+
+/* ---------------- Cost calculator ---------------- */
+const cModel  = document.getElementById("cModel");
+const cTurns  = document.getElementById("cTurns");
+const cInput  = document.getElementById("cInput");
+const cHit    = document.getElementById("cHit");
+const cOutput = document.getElementById("cOutput");
+const cReason = document.getElementById("cReason");
+const cOut    = document.getElementById("cOut");
+
+function num(s, fallback=0) { const v = Number(s); return isFinite(v) ? v : fallback; }
+function fmt$(x) { return "$" + x.toFixed(6); }
+function fmtTok(x) { return x.toLocaleString(); }
+
+function recompute() {
+  const opt = cModel.selectedOptions[0];
+  const rateIn  = num(opt.dataset.in) / 1_000_000;
+  const rateOut = num(opt.dataset.out) / 1_000_000;
+  const turns = Math.max(1, Math.round(num(cTurns.value, 1)));
+  const inT  = Math.max(0, Math.round(num(cInput.value)));
+  const hit  = Math.min(100, Math.max(0, num(cHit.value)));
+  const outT = Math.max(0, Math.round(num(cOutput.value)));
+  const rsnT = Math.max(0, Math.round(num(cReason.value)));
+
+  const cached = Math.round(inT * hit / 100);
+  const fullIn = inT - cached;
+  const perTurn = fullIn * rateIn + cached * rateIn * 0.5 + (outT + rsnT) * rateOut;
+  const session = perTurn * turns;
+
+  cOut.innerHTML = `
+    <div class="row"><span>Per-turn cost</span><b>${fmt$(perTurn)}</b></div>
+    <div class="row"><span>Cached tokens / turn</span><b>${fmtTok(cached)}</b></div>
+    <div class="row"><span>Full-priced input / turn</span><b>${fmtTok(fullIn)}</b></div>
+    <div class="row"><span>Output + reasoning / turn</span><b>${fmtTok(outT + rsnT)}</b></div>
+    <hr style="border:0;border-top:1px solid #1b3527;margin:8px 0;" />
+    <div class="row"><span><b style="color:#d4ffe5">Session cost (${turns} turns)</b></span><b style="font-size:15px;">${fmt$(session)}</b></div>
+  `;
+}
+[cModel, cTurns, cInput, cHit, cOutput, cReason].forEach(el => el.addEventListener("input", recompute));
+recompute();
+</script>
+
+</body>
+</html>

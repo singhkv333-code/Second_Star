@@ -227,44 +227,64 @@ async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     },
 )
 async def execute_fetch_fundamental(ctx: Any) -> Optional[dict[str, Any]]:
-    """Fetch a fundamental metric (PE / ROE / market cap / D/E) for a
-    symbol via yfinance `Ticker.info`. yfinance is keyless and works
-    for most NSE symbols (.NS suffix).
+    """Fetch a fundamental metric for a symbol.
 
-    Metric mapping:
-      pe   → trailingPE (fall back to forwardPE if missing)
-      roe  → returnOnEquity (decimal — 0.18 = 18%)
-      mcap → marketCap (INR for .NS symbols)
-      de   → debtToEquity
+    Two emission shapes (see FetchFundamentalConfig docstring):
+      * Named metric (any FIELD_MAP key, or legacy code pe/roe/de/mcap)
+      * Formula  (`metric: "formula"`, `formula: "<arithmetic expr>"`)
 
-    Raises NotYetAvailableError when yfinance returns None for the
-    requested metric (common for newly-listed or unusual symbols).
+    Resolution order:
+      1. financials DB via `resolve_metric` (same path the backtester
+         uses, so live and replay agree).
+      2. yfinance fallback only for legacy short codes (pe/roe/de/mcap).
+         Named FIELD_MAP keys and formulas that the DB can't satisfy
+         return NotYetAvailableError — there's no live equivalent for
+         e.g. ROCE or a custom formula.
     """
     from datetime import date, datetime, timezone
 
-    import yfinance as yf  # type: ignore[import-untyped]
+    from backend.market.financials_db import resolve_metric
 
     cfg = ctx.config
     symbol = str(cfg["symbol"]).upper()
-    metric = str(cfg["metric"]).lower()
-    ticker_symbol = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
+    metric = str(cfg.get("metric") or "").lower()
+    formula = cfg.get("formula")
 
+    # ---- Path 1: financials DB --------------------------------------------
+    try:
+        db_value = resolve_metric(symbol, metric, formula=formula)
+    except Exception:  # noqa: BLE001 — never let DB miss block the live path
+        db_value = None
+    if db_value is not None:
+        return {
+            "value": db_value,
+            "source": "financials_db",
+            "metric": metric if metric != "formula" else f"formula: {formula}",
+        }
+
+    # ---- Path 2: yfinance fallback (legacy short codes only) -------------
+    _LEGACY_YF_KEYS = {
+        "pe":   ["trailingPE", "forwardPE"],
+        "roe":  ["returnOnEquity"],
+        "mcap": ["marketCap"],
+        "de":   ["debtToEquity"],
+    }
+    keys = _LEGACY_YF_KEYS.get(metric)
+    if keys is None:
+        raise NotYetAvailableError(
+            f"fetch.fundamental: {metric!r} not available for {symbol} "
+            f"in the financials DB and has no yfinance fallback. "
+            f"Try a different metric or formula."
+        )
+
+    import yfinance as yf  # type: ignore[import-untyped]
+    ticker_symbol = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
     try:
         info = yf.Ticker(ticker_symbol).info or {}
     except Exception as e:
         raise NotYetAvailableError(
             f"fetch.fundamental: yfinance lookup failed for {symbol}: {e}"
         ) from e
-
-    metric_to_keys = {
-        "pe":   ["trailingPE", "forwardPE"],
-        "roe":  ["returnOnEquity"],
-        "mcap": ["marketCap"],
-        "de":   ["debtToEquity"],
-    }
-    keys = metric_to_keys.get(metric)
-    if keys is None:
-        raise ValueError(f"unsupported fundamental metric: {metric!r}")
 
     raw_value: Optional[float] = None
     for key in keys:
@@ -275,14 +295,10 @@ async def execute_fetch_fundamental(ctx: Any) -> Optional[dict[str, Any]]:
     if raw_value is None:
         raise NotYetAvailableError(
             f"fetch.fundamental: {metric} not available for {symbol} "
-            f"(yfinance returned no value)"
+            f"(neither financials DB nor yfinance returned a value)"
         )
 
-    out: dict[str, Any] = {
-        "value": raw_value,
-        "source": "yfinance",
-    }
-    # Best-effort period_end for statement-derived metrics.
+    out = {"value": raw_value, "source": "yfinance", "metric": metric}
     last_fiscal = info.get("lastFiscalYearEnd")
     if isinstance(last_fiscal, (int, float)):
         out["period_end"] = datetime.fromtimestamp(
@@ -418,7 +434,10 @@ async def execute_fetch_intraday_pnl(ctx: Any) -> Optional[dict[str, Any]]:
     step_type="fetch.news",
     category="fetch",
     label="Get news",
-    description="Fetch recent news articles and average sentiment",
+    description=(
+        "Fetch recent news articles for keywords and (optionally) "
+        "classify them against an event description"
+    ),
     icon="newspaper",
     max_retries=3,
     trigger_only=False,
@@ -427,13 +446,136 @@ async def execute_fetch_intraday_pnl(ctx: Any) -> Optional[dict[str, Any]]:
         "type": "object",
         "properties": {
             "articles": {"type": "array"},
-            "avg_sentiment": {"type": "number"},
+            "matched": {"type": "boolean"},
+            "max_confidence": {"type": "number"},
+            "matched_count": {"type": "integer"},
+            "top_article": {"type": ["object", "null"]},
+            "event_description": {"type": "string"},
         },
-        "required": ["articles"],
+        "required": [
+            "articles", "matched", "max_confidence",
+            "matched_count", "event_description",
+        ],
     },
 )
 async def execute_fetch_news(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("fetch.news executor lands Day 4")
+    """Fetch keyword-matching articles, optionally classify them.
+
+    Flow:
+      1. ``news_client.fetch_news(keywords, hours_back=...)`` — returns
+         up to 20 articles (or [] in mock mode / on transient HTTP fail).
+      2. If ``sources`` is set, drop anything whose ``source_id`` isn't
+         in the allowlist.
+      3. If ``event_description`` is set, run
+         ``classifier.classify_article`` over the articles in parallel
+         (Semaphore(5) so we don't flood the LLM provider). Each article's
+         ``matched``, ``match_confidence`` and ``reason`` are populated.
+      4. Aggregate: ``matched = any(a.matched and confidence >=
+         min_confidence)``. ``top_article`` is the highest-confidence
+         match (or None).
+
+    The aggregate ``matched`` flag is what a downstream
+    ``condition.boolean`` keys off:
+
+        condition.boolean(left='{{ context.<idx>.matched }}', value=true)
+
+    Mock-mode tolerance: with an empty ``NEWSAPI_KEY``, the client
+    returns [] and we surface an empty result with ``matched=False``
+    without raising.
+    """
+    import asyncio
+    import logging
+
+    from backend.triggers.classifier import classify_article
+    from backend.triggers.news_client import fetch_news
+
+    logger = logging.getLogger(__name__)
+
+    cfg = ctx.config or {}
+    keywords_raw = cfg.get("keywords") or []
+    if not isinstance(keywords_raw, list) or not keywords_raw:
+        raise ValueError("fetch.news: 'keywords' must be a non-empty list")
+    keywords = [str(k) for k in keywords_raw if isinstance(k, str) and k.strip()]
+    if not keywords:
+        raise ValueError("fetch.news: 'keywords' must be a non-empty list")
+
+    event_description = cfg.get("event_description") or ""
+    event_description = str(event_description).strip()
+    sources_raw = cfg.get("sources")
+    source_allow: Optional[set[str]] = None
+    if isinstance(sources_raw, list) and sources_raw:
+        source_allow = {str(s).strip().lower() for s in sources_raw if s}
+    min_confidence = float(cfg.get("min_confidence", 0.85) or 0.85)
+    hours_back = int(cfg.get("hours_back", 48) or 48)
+
+    articles = await fetch_news(keywords, hours_back=hours_back)
+    if not articles:
+        # Either mock mode (no API key) or a transient miss. Surface
+        # cleanly so a downstream condition.boolean evaluates `matched`
+        # as False and the workflow's "no news" branch runs.
+        logger.warning(
+            "fetch.news returned no articles (keywords=%s, hours_back=%d). "
+            "Likely mock mode (empty NEWSAPI_KEY) or rate-limited NewsAPI.",
+            keywords, hours_back,
+        )
+        return {
+            "articles": [],
+            "matched": False,
+            "max_confidence": 0.0,
+            "matched_count": 0,
+            "top_article": None,
+            "event_description": event_description,
+        }
+
+    if source_allow is not None:
+        articles = [
+            a for a in articles
+            if (a.source_id or "").strip().lower() in source_allow
+        ]
+
+    if event_description and articles:
+        # Bounded fan-out so we never flood the LLM provider on a hot
+        # NewsAPI day. 5 in flight is plenty for the typical 20-article
+        # page; classifier latency is the dominant cost either way.
+        sem = asyncio.Semaphore(5)
+
+        async def _classify_one(a: Any) -> None:
+            async with sem:
+                matched, confidence, reason = await classify_article(
+                    a, event_description,
+                )
+            a.matched = matched
+            a.match_confidence = confidence
+            a.reason = reason
+
+        await asyncio.gather(*(_classify_one(a) for a in articles))
+
+    # Aggregate. An article counts toward `matched` only if it
+    # cleared the configured confidence floor.
+    qualifying = [
+        a for a in articles
+        if a.matched and (a.match_confidence or 0.0) >= min_confidence
+    ]
+    matched_any = bool(qualifying)
+    max_confidence = max(
+        (float(a.match_confidence or 0.0) for a in articles),
+        default=0.0,
+    )
+    top: Optional[dict[str, Any]] = None
+    if qualifying:
+        top_article = max(
+            qualifying, key=lambda a: float(a.match_confidence or 0.0),
+        )
+        top = top_article.model_dump(mode="json")
+
+    return {
+        "articles": [a.model_dump(mode="json") for a in articles],
+        "matched": matched_any,
+        "max_confidence": round(max_confidence, 4),
+        "matched_count": len(qualifying),
+        "top_article": top,
+        "event_description": event_description,
+    }
 
 
 # ── Day-anchored fetches ─────────────────────────────────────────────

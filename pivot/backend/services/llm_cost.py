@@ -68,17 +68,31 @@ def _normalize_model(model: str) -> str:
     return m
 
 
+# OpenAI Responses API discounts cached prompt tokens at 50% of the
+# normal input rate. If the provider's pricing page changes, update this
+# constant — search references and audit before flipping it.
+CACHED_INPUT_DISCOUNT: Decimal = Decimal("0.5")
+
+
 def compute_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
     reasoning_tokens: int = 0,
+    cached_input_tokens: int = 0,
 ) -> Decimal:
     """Return the USD cost of a single LLM call as a 6-decimal Decimal.
 
     Reasoning tokens (visible on GPT-5 / o-series via the Responses API
     ``output_tokens_details.reasoning_tokens`` field) are billed at the
     output-token rate, NOT a separate rate, so we fold them in.
+
+    ``cached_input_tokens`` is the subset of ``input_tokens`` that the
+    provider served from its prompt cache. It is billed at
+    ``CACHED_INPUT_DISCOUNT`` times the normal input rate (currently
+    0.5 i.e. 50% off). The non-cached remainder bills at the full
+    input rate. Defaults to 0, so callers that don't pass it get the
+    old behavior (everything full-priced).
 
     Unknown models cost 0 — we still WARN once so that an undocumented
     provider variant doesn't silently disappear from the spend ledger.
@@ -93,11 +107,17 @@ def compute_cost(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
+            cached_input_tokens=cached_input_tokens,
         )
         return Decimal("0").quantize(_COST_QUANTUM)
 
     # Sentinel for negative / NaN inputs from a misbehaving provider.
     in_t = max(0, int(input_tokens or 0))
+    # ``cached`` is conceptually a subset of input_tokens; clamp to that
+    # range so a misreporting provider can't drive total cost negative
+    # or above the no-cache baseline.
+    cached = max(0, min(int(cached_input_tokens or 0), in_t))
+    full_priced = in_t - cached
     out_t = max(0, int(output_tokens or 0))
     rsn_t = max(0, int(reasoning_tokens or 0))
 
@@ -105,7 +125,8 @@ def compute_cost(
     output_rate = Decimal(str(rates["output"])) / Decimal("1000000")
 
     cost = (
-        Decimal(in_t) * input_rate
+        Decimal(full_priced) * input_rate
+        + Decimal(cached) * input_rate * CACHED_INPUT_DISCOUNT
         + Decimal(out_t + rsn_t) * output_rate
     )
     return cost.quantize(_COST_QUANTUM, rounding=ROUND_HALF_UP)
@@ -120,6 +141,7 @@ def record_llm_usage(
     output_tokens: int,
     reasoning_tokens: int,
     latency_ms: float,
+    cached_input_tokens: int = 0,
     user_id: Optional[int] = None,
     conversation_id: Optional[str] = None,
     turn_id: Optional[str] = None,
@@ -136,6 +158,11 @@ def record_llm_usage(
     (structlog's ``merge_contextvars`` already attaches it, but adding it
     explicitly to the row keeps the DB queryable without needing the log
     aggregator alongside).
+
+    ``cached_input_tokens`` is the subset of ``input_tokens`` served from
+    the provider's prompt cache (OpenAI Responses API only as of
+    2026-05-12). Defaults to 0 — back-compatible with callers written
+    before the cache column existed; those bills as full-priced input.
     """
     try:
         effective_user_id = user_id if user_id is not None else user_id_var.get()
@@ -146,6 +173,7 @@ def record_llm_usage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
+            cached_input_tokens=cached_input_tokens,
         )
         total_tokens = int(input_tokens or 0) + int(output_tokens or 0) + int(reasoning_tokens or 0)
 
@@ -157,6 +185,7 @@ def record_llm_usage(
             provider=provider,
             model=model,
             input_tokens=int(input_tokens or 0),
+            cached_input_tokens=int(cached_input_tokens or 0),
             output_tokens=int(output_tokens or 0),
             reasoning_tokens=int(reasoning_tokens or 0),
             total_tokens=total_tokens,
@@ -184,6 +213,7 @@ def record_llm_usage(
                     provider=provider,
                     model=model,
                     input_tokens=int(input_tokens or 0),
+                    cached_input_tokens=int(cached_input_tokens or 0),
                     output_tokens=int(output_tokens or 0),
                     reasoning_tokens=int(reasoning_tokens or 0),
                     total_tokens=total_tokens,

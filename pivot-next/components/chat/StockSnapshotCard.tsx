@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getSparkline, getStockQuote, type SparklineRange, type StockQuote } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { useLiveQuote } from "@/hooks/useLiveQuote";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +89,9 @@ export function StockSnapshotCard({
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [sparkState, setSparkState] = useState<SparklineState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("1Y");
+
+  // Phase 2: WS live price overlay. Called unconditionally (Rules of Hooks).
+  const liveData = useLiveQuote(symbol);
 
   // window.location instead of useRouter so the card mounts cleanly under
   // testing-library (no app-router context).
@@ -165,6 +169,9 @@ export function StockSnapshotCard({
   }
 
   const { quote } = quoteState;
+  const displayLtp = liveData.ltp ?? quote.ltp;
+  const displayIsLive = liveData.isLive || quote.live === true;
+
   const positive = quote.change >= 0;
   // Color the chart by the selected period's direction, not today's tick —
   // a 5Y up trend that's red on the day shouldn't render the chart red.
@@ -206,7 +213,7 @@ export function StockSnapshotCard({
 
         <div className="text-right shrink-0">
           <p className="text-[20px] leading-none font-semibold tabular-nums text-foreground tracking-tight">
-            {fmtINR(quote.ltp)}
+            {fmtINR(displayLtp)}
           </p>
           <div className="mt-1.5 flex items-center justify-end gap-1">
             {positive ? (
@@ -224,6 +231,23 @@ export function StockSnapshotCard({
             </span>
           </div>
           <p className="mt-0.5 text-[10px] text-muted-foreground/80">{timeStr} IST</p>
+          {/* Phase 2 — live/delayed source badge */}
+          {displayIsLive ? (
+            <div
+              className="mt-1 inline-flex items-center gap-1 text-[9.5px] font-medium text-emerald-600 dark:text-emerald-400"
+              data-testid="live-badge"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden={true} />
+              Live
+            </div>
+          ) : (
+            <div
+              className="mt-1 text-[9.5px] font-medium text-muted-foreground/70"
+              data-testid="delayed-badge"
+            >
+              Delayed
+            </div>
+          )}
         </div>
       </div>
 

@@ -202,13 +202,62 @@ class TriggerIndicatorConfig(_Strict):
 
 
 class TriggerEventConfig(_Strict):
-    event_type: Literal["rbi_rate_decision", "company_results", "fii_flow"]
-    # `filter` is event-specific structured data — opaque at the catalog
-    # level but typed as dict[str, str | int | float | bool | None] to
-    # keep mypy --strict happy without resorting to Any.
-    filter: dict[str, Union[str, int, float, bool, None]] = Field(
-        default_factory=dict,
-        description="Event-type-specific filter (e.g. {symbol:'RELIANCE'})",
+    """News-event trigger.
+
+    Fires when at least one news article published in the last
+    ``hours_back`` hours matches ``keywords`` AND the LLM classifier
+    confirms it against ``event_description`` with confidence at least
+    ``min_confidence``. Polls every ``poll_seconds`` seconds for up to
+    ``max_runtime_minutes`` minutes before giving up.
+    """
+    keywords: list[str] = Field(
+        ..., min_length=1,
+        description=(
+            "OR-joined search keywords passed to NewsAPI. Multi-word "
+            "terms are quoted automatically by the client."
+        ),
+    )
+    event_description: str = Field(
+        ...,
+        description=(
+            "Natural-language description of the event the LLM "
+            "classifier confirms each article against. Example: "
+            "'RBI announces a repo rate cut'."
+        ),
+    )
+    sources: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Optional NewsAPI source-id allowlist (e.g. ['reuters', "
+            "'bloomberg']). Articles from other sources are filtered "
+            "out before classification."
+        ),
+    )
+    min_confidence: float = Field(
+        default=0.85, ge=0.0, le=1.0,
+        description=(
+            "Minimum classifier confidence for an article to count "
+            "as a match. 0.85 mirrors the threshold in the classifier "
+            "prompt itself."
+        ),
+    )
+    hours_back: int = Field(
+        default=48, ge=1, le=168,
+        description="Look-back window in hours.",
+    )
+    poll_seconds: int = Field(
+        default=30, ge=10, le=600,
+        description=(
+            "Seconds between successive fetch attempts when the engine "
+            "re-invokes the trigger after a no-match poll."
+        ),
+    )
+    max_runtime_minutes: int = Field(
+        default=60, ge=1, le=720,
+        description=(
+            "Total wall-clock budget for the trigger; after this the "
+            "run terminates without firing."
+        ),
     )
 
 
@@ -239,8 +288,65 @@ class FetchIndicatorConfig(_Strict):
 
 
 class FetchFundamentalConfig(_Strict):
+    """Fetch one fundamental for a single symbol.
+
+    Two emission shapes:
+      1. **Named metric** — `metric` is a key in
+         `backend.market.financials_db.FIELD_MAP` (e.g. `roe`, `roce`,
+         `current_ratio`, `eps_basic`, ...) OR a legacy short code
+         (`pe`, `roe`, `mcap`, `de`) preserved for back-compat.
+      2. **Formula** — `metric: "formula"` plus an arithmetic
+         expression in `formula` over FIELD_MAP identifiers, e.g.
+         `(net_profit + interest_expense) / (total_equity + total_debt) * 100`.
+         The server parses with an AST whitelist; no calls, no
+         attribute access, only `+ - * / ** %` and parentheses.
+
+    The point-in-time `availability_date` filter is applied identically
+    for both shapes during backtests — formulas cannot leak future data.
+    """
     symbol: str
-    metric: Literal["pe", "roe", "mcap", "de"]
+    metric: str
+    formula: Optional[str] = None
+
+    _LEGACY_CODES = frozenset({"pe", "roe", "mcap", "de"})
+
+    @model_validator(mode="after")
+    def _check_metric(self) -> "FetchFundamentalConfig":
+        # Avoid an import-time cycle: load FIELD_MAP at validation time.
+        from backend.market.financials_db import FIELD_MAP, FormulaError, evaluate_formula  # noqa: F401
+        m = self.metric.strip().lower() if isinstance(self.metric, str) else ""
+        if m == "formula":
+            if not self.formula or not self.formula.strip():
+                raise ValueError("formula is required when metric='formula'")
+            # Static-validate the AST so a bad formula fails at draft time,
+            # not deep in the simulator. We pass a junk symbol because the
+            # evaluator only does symbol resolution lazily on Name nodes —
+            # static validation happens before any DB call.
+            import ast
+            from backend.market.financials_db import _validate_formula_ast  # type: ignore[attr-defined]
+            try:
+                tree = ast.parse(self.formula, mode="eval")
+                _validate_formula_ast(tree)
+                # Identifier whitelist check
+                for n in ast.walk(tree):
+                    if isinstance(n, ast.Name) and n.id not in FIELD_MAP:
+                        raise ValueError(
+                            f"formula uses unknown identifier {n.id!r}. "
+                            f"Available: {sorted(FIELD_MAP)}"
+                        )
+            except SyntaxError as e:
+                raise ValueError(f"formula syntax error: {e.msg}") from e
+            self.metric = "formula"
+            return self
+        # Named metric — must be a FIELD_MAP key or a legacy short code.
+        if m not in FIELD_MAP and m not in self._LEGACY_CODES:
+            raise ValueError(
+                f"unknown metric {self.metric!r}. Use one of the named "
+                f"fields {sorted(FIELD_MAP)} or pass metric='formula' "
+                f"with a 'formula' expression."
+            )
+        self.metric = m
+        return self
 
 
 class FetchPortfolioConfig(_Strict):
@@ -282,8 +388,49 @@ class FetchIntradayPnLConfig(_Strict):
 
 
 class FetchNewsConfig(_Strict):
-    symbol_or_query: str
-    limit: int = Field(default=10, ge=1, le=50)
+    """News fetch + classifier step.
+
+    Pulls articles from NewsAPI matching ``keywords``, optionally
+    filters by ``sources``, and (if ``event_description`` is provided)
+    asks the LLM classifier whether each article confirms the event.
+    Aggregate output exposes a boolean ``matched`` flag a downstream
+    ``condition.boolean`` can branch on, plus the top-matching article
+    for prose / notification rendering.
+    """
+    keywords: list[str] = Field(
+        ..., min_length=1,
+        description=(
+            "OR-joined search keywords passed to NewsAPI. Be specific — "
+            "'RBI repo rate cut' is better than 'RBI'."
+        ),
+    )
+    event_description: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional natural-language description of the event being "
+            "confirmed. When set, each article is classified against "
+            "this string. Leave None for a pure feed dump."
+        ),
+    )
+    sources: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Optional NewsAPI source-id allowlist. Articles whose "
+            "source_id is not in this list are filtered out before "
+            "classification."
+        ),
+    )
+    min_confidence: float = Field(
+        default=0.85, ge=0.0, le=1.0,
+        description=(
+            "Confidence floor for the aggregate ``matched`` flag — an "
+            "article must score at least this to count."
+        ),
+    )
+    hours_back: int = Field(
+        default=48, ge=1, le=168,
+        description="Look-back window in hours.",
+    )
 
 
 # ── Day-anchored fetches ─────────────────────────────────────────────
@@ -462,6 +609,35 @@ class ConditionNumericConfig(_Strict):
     left: RefOrNumber
     operator: Literal["==", "!=", ">", "<", ">=", "<="]
     right: RefOrNumber
+
+
+class ConditionBooleanConfig(_Strict):
+    """Boolean equality check.
+
+    Designed for gating on aggregate flags emitted by fetch steps —
+    notably ``fetch.news``'s ``matched`` field. The classic prompt is:
+
+        condition.boolean(left='{{ context.<idx>.matched }}',
+                          value=true)
+
+    ``left`` accepts either a literal bool or a ``{{...}}`` ref that
+    resolves to one. The resolver hands us a Python bool by the time
+    the executor runs; we just check equality with ``value``.
+    """
+    left: Union[bool, str] = Field(
+        ...,
+        description=(
+            "A literal boolean or a {{ ... }} reference that resolves "
+            "to one (e.g. {{ context.1.matched }})."
+        ),
+    )
+    value: bool = Field(
+        default=True,
+        description=(
+            "The expected boolean. Use ``value=true`` for an "
+            "affirmative gate; ``value=false`` for a 'no-match' branch."
+        ),
+    )
 
 
 class ConditionMarketStatusConfig(_Strict):

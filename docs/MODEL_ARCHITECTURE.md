@@ -1,85 +1,99 @@
-# Pivot Chat — Model Architecture & Performance Snapshot
+# Pivot Chat — Model Architecture, Context & Cost Pipeline
 
-A short reference for outside reviewers (including other LLMs) to
-understand how a user message becomes a response, where the time goes,
-how tokens are spent, and how caching is layered. Numbers in this
-document were measured live on `dev` on 2026-05-07 against
-`gpt-5-mini` on the OpenAI Responses API.
+Single reference for how a user message becomes a response: which paths
+short-circuit before the LLM, how the system prompt is assembled, how
+prior turns / drafts / pending tool calls are carried across turns, how
+tool errors are fed back to the model, and how every token gets priced
+and persisted. Numbers cited from probes were measured live on `dev`
+against `gpt-5-mini` on the OpenAI Responses API.
+
+Source files referenced throughout sit under `pivot/backend/`.
 
 ---
 
-## 1. Request lifecycle
+## 1. Request lifecycle (top-down)
 
 ```
-FE  ──────────►  POST /chat ─────────────────────────────────►  Backend
-                                                                     │
-                  ┌───────────────────────────┐                     │
-                  │ pre-LLM short-circuits    │                     │
-                  └───────────────────────────┘                     ▼
-                  Backtest router fast-path  ◄── routers/chat.py:_run_indicator_backtest
-                  Fast-path classifier        ◄── services/fast_path.py
-                                                  (greetings, defs, continuations)
-                  Workflow-skeleton fast-path ◄── chat_service._workflow_skeleton
-                  Cancel-draft fast-path
-                                                                     │
-                  ┌───────────────────────────┐                     │
-                  │ context loading           │                     │
-                  └───────────────────────────┘                     ▼
-                  Load active_draft / pending state from Redis  ◄── conversation_store
-                  Independent-prompt eviction (drop stale draft)
-                  Mode-override eviction (Automation / Backtest pill)
-                  Load last 6 turns of history (CONV_PROMPT_WINDOW_TURNS = 6)
-                                                                     │
-                  ┌───────────────────────────┐                     │
-                  │ routing                   │                     │
-                  └───────────────────────────┘                     ▼
-                  select_tool_names(message)              ◄── services/tool_router.py
-                    └── 17 regex rules + 6-tool always-include floor
-                  classify_intent(message) → agent | automation | backtest | other
-                  Mode-pin override (Automation strips macros, Agent strips orders, etc.)
-                  Typo-continuation guard (active-draft + bare token → strip orders/macros)
-                  Advisory-strip ("should I…" + no build/agent keyword → strip macros)
-                                                                     │
-                  ┌───────────────────────────┐                     │
-                  │ prompt assembly           │                     │
-                  └───────────────────────────┘                     ▼
-                  build_system_prompt():
-                    [1] chat role text from system.md   (≈41,644 chars / ≈10 K tokens)
-                    [2] agentic_examples.json           (cached, byte-stable)
-                    [3] domain primer                   (cached)
-                    [4] dynamic user context            (≈80 chars, portfolio totals)
-                  Append mode-pin as second system msg if Automation/Agent/Backtest
-                  Append last 6 history turns (user + assistant + function_call_output)
-                  Append synthetic ASK_USER tool def
-                                                                     │
-                  ┌───────────────────────────┐                     │
-                  │ LLM hop loop              │                     │
-                  └───────────────────────────┘                     ▼
-                  POST /v1/responses
-                    payload.tools     = N filtered tool defs (5–25 per turn)
-                    payload.tool_choice = "required" on hop 1 for agent intent, else "auto"
-                    payload.reasoning.effort = "minimal" for agent, "low" elsewhere
-                    payload.prompt_cache_key = pivot-chat-v2-<hash(sorted(tool_names))>
-                    payload.max_output_tokens = 1500
-                  Loop: hop_index < _MAX_TOOL_CALLS (8)
-                    For each function_call → execute via tool_executor / v2 handler
-                    Append function_call_output to messages
-                  propose_workflow gets 1 retry on validation error (max 2 attempts).
-                                                                     │
-                  ┌───────────────────────────┐                     │
-                  │ post-processing           │                     │
-                  └───────────────────────────┘                     ▼
-                  _post_process(text):
-                    strip <TOOL_CALL>…</TOOL_CALL> blocks
-                    strip <PLACEHOLDER> tokens
-                    _strip_reasoning_leakage    ◄── kills "the user now says…" monologue
-                    _LATENT_GREETING_RE check
-                  _format_recoverable_failure_question on validation errors
-                  _is_repeat_fallback → vary if same canned msg fired last turn
-                  Stash draft to chat:active_draft if macro tool succeeded
-                  Append (user_msg, assistant_msg) to chat:conv list (1h TTL)
-                                                                     │
-                  ◄────────────────────────────────────────────────  Response JSON
+FE ──► POST /chat ──► routers/chat.py ──► ChatService.handle()
+                                              │
+              ┌──────────────────────────────┐│
+              │ A. Pre-LLM short-circuits    │▼
+              │    (services/fast_path.py,   │  Backtest router fast-path
+              │     routers/chat.py,         │  Greetings / definitions / continuations
+              │     services/workflow_skel…) │  Workflow-skeleton fast-path
+              │                              │  Cancel-draft fast-path
+              └──────────────────────────────┘
+                                              │
+              ┌──────────────────────────────┐│
+              │ B. Context loading           │▼
+              │    (services/conversation_   │  Load chat:active_draft / chat:pending
+              │     store.py)                │  Independent-prompt eviction (drops stale draft)
+              │                              │  Mode-override eviction (pill switch)
+              │                              │  Load last 6 history turns (window)
+              └──────────────────────────────┘
+                                              │
+              ┌──────────────────────────────┐│
+              │ C. Routing                   │▼
+              │    (services/tool_router.py) │  select_tool_names(message) → 17 regex rules
+              │                              │  classify_intent → agent | automation |
+              │                              │      backtest | other
+              │                              │  Mode-pin / typo-amend / advisory strips
+              └──────────────────────────────┘
+                                              │
+              ┌──────────────────────────────┐│
+              │ D. Prompt assembly           │▼
+              │    (prompts/assembler.py)    │  [1] role text from system.md
+              │                              │  [2] agentic_examples.json (cached prefix)
+              │                              │  [3] domain_primer.md (cached prefix)
+              │                              │  [4] dynamic user-context block (≈80 chars)
+              │                              │  + Mode-pin as second system msg if any
+              │                              │  + Last 6 history turns
+              │                              │  + Synthetic ASK_USER tool def
+              └──────────────────────────────┘
+                                              │
+              ┌──────────────────────────────┐│
+              │ E. LLM hop loop              │▼
+              │    (llm/openai_client.py,    │  POST /v1/responses
+              │     services/chat_service)   │    tools = filtered tool defs (5–25 / turn)
+              │                              │    tool_choice = "required" on hop 1 for
+              │                              │      agent intent, else "auto"
+              │                              │    reasoning.effort = "minimal" for agent,
+              │                              │      "low" elsewhere
+              │                              │    prompt_cache_key = pivot-chat-v2-<hash>
+              │                              │    max_output_tokens = 1500 (50 post-macro)
+              │                              │  hop_index < _MAX_TOOL_CALLS (8)
+              │                              │  propose_workflow / backtest_workflow
+              │                              │    get 1 retry on validation error
+              └──────────────────────────────┘
+                                              │
+              ┌──────────────────────────────┐│
+              │ F. Tool exec + completeness  │▼
+              │    (services/tool_registry,  │  execute_with_completeness(name, args)
+              │     agents/tool_executor.py, │  ASK_USER / needs_clarification →
+              │     services/validation_…)   │      surface question + stash chat:pending
+              │                              │  success → append function_call_output
+              │                              │  error   → format_recoverable_failure_question
+              │                              │            OR _llm_clarification fallback
+              └──────────────────────────────┘
+                                              │
+              ┌──────────────────────────────┐│
+              │ G. Post-processing           │▼
+              │    (services/chat_service)   │  _post_process: strip TOOL_CALL / PLACEHOLDER
+              │                              │  _strip_reasoning_leakage
+              │                              │  _is_repeat_fallback → vary canned msg
+              │                              │  _ensure_widget_caption (cards always captioned)
+              └──────────────────────────────┘
+                                              │
+              ┌──────────────────────────────┐│
+              │ H. Persistence + ledger      │▼
+              │    (conversation_store,      │  store.append(conv_id, user_msg, asst_msg)
+              │     llm/_trace.py,           │  set_active_draft if macro succeeded
+              │     services/llm_cost.py)    │  CallTrace.__exit__ → record_llm_usage
+              │                              │    → llm_usage row + structured log line
+              └──────────────────────────────┘
+                                              │
+                                              ▼
+                                       ChatTurn JSON
 ```
 
 ---
@@ -88,37 +102,290 @@ FE  ──────────►  POST /chat ──────────
 
 | Layer | Count | Notes |
 |---|---|---|
-| `ALL_TOOLS` (declared in `agents/tools.py`) | **63** | Includes stubs (F&O, fundamentals) that aren't wired. |
-| `_REAL_TOOLS` whitelist (`services/tool_registry.py`) | **53** | Only these are sent to the LLM. Stubs hidden. |
-| Router rules (`services/tool_router.py:_RULES`) | **17** | Regex rules. Each matched rule unions a tool set into the visible list. |
-| Always-include floor | **6** | `propose_workflow`, 4 macro tools, `ASK_USER` (synthetic). The model always sees the agent-build escape hatches. |
-| Fallback floor (when no rule matches) | **6** | Read tools — `get_live_price`, `get_holdings`, `get_portfolio_summary`, etc. |
-| Visible to LLM **per turn** | **5–25** | Median ≈ 10. Narrowed from 53 by the router. |
+| `ALL_TOOLS` (`agents/tools.py`) | ~63 | Declared catalog incl. some stubs. |
+| `_REAL_TOOLS` whitelist (`services/tool_registry.py`) | ~53 | Whitelisted shape; stubs hidden. |
+| Router rules (`services/tool_router.py:_RULES`) | 17 | Regex rules; each match unions a tool family. |
+| Always-include floor (`_ALWAYS_INCLUDE`) | 5 | 4 macros + synthetic `ASK_USER`. `propose_workflow` is intentionally excluded — only added by matching rules to save ~5.5K tokens on non-agent turns. |
+| Fallback floor (`_FALLBACK_TOOLS`) | 6 | Read tools used when only `_ALWAYS_INCLUDE` matched. |
+| Visible to LLM **per turn** | 5–25 | Median ≈ 10. |
 
-**Schema format.** All tools are sent as Responses-API `function`
-items with `strict=True`. JSON schemas use `Literal`, `enum`,
-`minimum`, `maximum`, `default` constraints — Pydantic v2 models
-back validation server-side. The LLM emits tool args as a JSON
-string; `_parse_response` decodes it (or surfaces `_parse_error`
-on malformed JSON for a focused retry).
+All tools are sent as Responses-API `function` items with `strict=True`,
+Pydantic v2 backing on the server. Args arrive as a JSON string;
+`_parse_response` decodes it (or surfaces `_parse_error: True` for a
+focused retry hop).
 
-**Cache key per route.** `tool_router.cache_key_for(selected_names)`
-returns `pivot-chat-v2-<8 hex>`. Each unique tool subset signs its
-own slot in OpenAI's prompt cache, so route changes don't pollute
-each other's prefixes. Observed: 4 distinct keys in a 13-turn probe
-across 3 conversations.
+**Cache key per route.** `cache_key_for(selected_names)` returns
+`pivot-chat-v2-<8 hex>`. `ASK_USER` is filtered out before hashing so
+its presence/absence doesn't shift keys. Same routed toolset across
+different conversations shares the same cached prefix.
 
 **Hop budget.** `_MAX_TOOL_CALLS = 8`. Most turns finish in 1–2 hops.
-`propose_workflow` validation failures get 1 retry (so 2 LLM attempts
-on agent-build turns). `tool_choice="required"` on hop 1 of agent
-turns forces a tool call (no think-aloud on the easy path).
+`propose_workflow` and `backtest_workflow` are the only tools that get
+1 self-correction retry on validation error (so 2 attempts max).
+`tool_choice="required"` on hop 1 of agent intent + drop to `"auto"`
+on every subsequent hop (otherwise the loop never exits).
 
 ---
 
-## 3. Token usage (measured)
+## 3. Prompt assembly (`prompts/assembler.py`)
 
-13-turn probe across 3 conversations on 2026-05-07,
-`gpt-5-mini`, reasoning effort = low/minimal:
+`build_system_prompt(role, user_context, extra_context)` is the **only**
+function that builds a system prompt anywhere in the codebase. Layers,
+in stable order:
+
+1. **Role identity / instructions.** For `role="chat"` we load
+   `prompts/system.md` (~41,644 chars / ~10K tokens). Other roles
+   (`propose_workflow`, `narrate_tool_result`) carry their own short
+   prose blocks inline.
+2. **Calibration examples** (chat role only). `agentic_examples.json`
+   rendered as labelled `prompt → tool(args) [conf=…]` blocks —
+   ~40% cheaper than dumping JSON. Includes confidence + ASK cues.
+3. **Domain primer.** `prompts/domain_primer.md` (always included).
+4. **User context block** (only when supplied). Compact ~80-char
+   summary: name, portfolio total, holdings count, active agents.
+
+The three files (`system.md`, `agentic_examples.json`,
+`domain_primer.md`) are loaded once with `@lru_cache(maxsize=1)` so the
+byte-identical prefix is reused across every request. **This is the
+prefix OpenAI's prompt cache locks onto.** Dynamic content (portfolio
+totals, mode pins) is appended as separate system messages or as the
+user/tool message stream — never spliced into the cached prefix.
+
+Reload during dev: `prompts.reload_prompts()` clears all three caches
+without a process restart.
+
+---
+
+## 4. Context retention across turns
+
+Three keys, all keyed by `conv_id`. Implementation lives in
+`services/conversation_store.py`.
+
+| Redis key | TTL | Payload | Purpose |
+|---|---|---|---|
+| `chat:conv:{conv_id}` | 24 h | List of `{role, content}` (plain text only) | Conversation history; trimmed to `CONV_MAX_TURNS=20`; only last 6 (`CONV_PROMPT_WINDOW_TURNS`) injected per LLM call. |
+| `chat:pending:{conv_id}` | 10 min | `PendingToolCall` JSON | Deterministic resume — when a tool emitted `needs_clarification` with `missing_field`, the next user reply is coerced into that field's type and the tool is re-executed without an LLM hop. |
+| `chat:active_draft:{conv_id}` | 10 min | `ActiveDraft` JSON (`tool_name`, full draft args, last caption) | Multi-turn amendment of a workflow / order draft. Followup hint splices the JSON inline so the LLM amends the same shape rather than reconstructing from history text. |
+
+Why these design choices land where they do:
+
+- **No tool-call payloads in history.** Storage is `role + content` strings
+  only. Storing assistant tool plans had caused `<TOOL_CALL>` text to
+  leak into later turns; that path is closed.
+- **Tight prompt window (6 turns, not 20).** Storage stays at 20 turns
+  so the transcript is debuggable, but only the trailing 6 hit the LLM.
+  Longer tails resurfaced stale tickers and stale drafts (the "user
+  typed RELIANCE 5 turns ago, now asks 'sell it'" case).
+- **10-min active-draft TTL.** Originally 1 h. A draft hanging around
+  for an hour leaked into completely unrelated turns. 10 min is enough
+  for natural amend-and-activate, short enough to clear on topic shift.
+- **Independent-prompt eviction.** If the active draft was a buy-order
+  card and the user types `"pros and cons of Reliance"`, the draft is
+  evicted before the LLM hop — otherwise the model keeps amending
+  yesterday's card.
+
+Cancellation off-ramps:
+- `_try_cancel_active_draft` matches `cancel / discard / nevermind /
+  start over` and drops both `active_draft` and `pending`.
+- Explicit `chat:pending` cancel clears it AND any active draft so the
+  user can't get stuck in a cascade.
+
+---
+
+## 5. The LLM hop loop and error feedback
+
+Implementation: `services/chat_service.py` (~4,500 lines). The loop is
+**not** a validation-retry loop. The shape is:
+
+1. **Hop 1.** `tool_choice` either `"required"` (agent intent) or
+   `"auto"`. `max_output_tokens=1500` (drops to 50 on post-macro prose
+   hops). `reasoning_effort="minimal"` for agent, `"low"` elsewhere.
+2. **Read response.** Three outcomes:
+   - `finish_reason="error"` → return `_unavailable()`. No retry.
+   - `finish_reason="stop"` (final text) → post-process, persist,
+     return.
+   - `finish_reason="tool_calls"` → execute each call via
+     `execute_with_completeness`.
+3. **Tool result handling:**
+   - **Completeness / ASK_USER** → write the question into history,
+     stash `chat:pending` for deterministic resume, return.
+   - **Success** → append a `function_call_output` to messages,
+     stash `chat:active_draft` if it was a macro-draft tool, and let
+     the loop continue (the model gets one more hop to chain or write
+     final text). On every subsequent hop `tool_choice="auto"` so the
+     model can emit prose and exit the loop.
+   - **Error on `propose_workflow` / `backtest_workflow`** → append
+     the error as a `function_call_output` and continue the loop ONCE
+     (`_PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2`). The model sees its own
+     malformed call and the validation error, and self-corrects
+     (unknown step types, missing trigger.* at step 0, etc.).
+   - **Error on any other tool** → no LLM retry. The error is rendered
+     via `_format_recoverable_failure_question` (deterministic template
+     keyed on tool name / error class) or, when that returns
+     `_LLM_CLARIFY_SENTINEL`, via `_llm_clarification` (a small LLM
+     call that produces a tailored question). The user gets a
+     specific clarification instead of "I had trouble."
+   - **`propose_workflow` out of retries** → macro fallback
+     (`_try_macro_fallback`) — emit a simplified manual-trigger draft
+     so the user has something to edit, instead of a dead end.
+
+Why no retry-against-the-model loop: it was burning 2–6 seconds per
+turn for problems the *deterministic* question-builder could surface
+in <1 ms. The two exceptions (`propose_workflow`, `backtest_workflow`)
+share the `steps[]` schema and have well-known one-shot self-fixable
+failure modes; everything else fails fast.
+
+Last-error transparency: the most recent tool error is held in
+`last_tool_error` so the circuit-breaker fallback can name the actual
+problem instead of returning a generic message.
+
+---
+
+## 6. Caching layers
+
+Two distinct caches do different jobs.
+
+### 6.1 OpenAI prompt cache (server-side, automatic)
+
+- **Stored:** tokenised attention K/V for the prefix bytes of each
+  request, keyed by `prompt_cache_key` + content hash.
+- **Skips:** re-tokenisation of the prefix. Prefix tokens billed at
+  the cached-input rate.
+- **Does NOT skip:** model inference. GPT still runs.
+- **Visibility:** `usage.input_tokens_details.cached_tokens` is read
+  per response, surfaced on `LLMResponse.cached_tokens`, and recorded
+  in both the JSONL trace and the `llm_usage` table.
+- **TTL:** ~5 min idle, ~1 h max (OpenAI-managed).
+- **Discount rate:** `CACHED_INPUT_DISCOUNT = 0.5` in
+  `services/llm_cost.py` — cached input tokens bill at 50% of the
+  normal input rate on the Responses API. Update if OpenAI changes
+  the published rate.
+- **Hit rate (measured):** ~86% across a 13-turn probe.
+
+### 6.2 Redis (our box, real `redis-server`)
+
+| Key prefix | TTL | Payload | Where |
+|---|---|---|---|
+| `chat:conv:{conv_id}` | **24 h** | Last 20 turns (list) | `services/conversation_store.py` |
+| `chat:pending:{conv_id}` | **10 min** | `PendingToolCall` JSON | same |
+| `chat:active_draft:{conv_id}` | **10 min** | `ActiveDraft` JSON | same |
+| `portfolio:summary:{user_id}` | 30 s | Portfolio summary JSON | `services/portfolio_cache.py` |
+| `portfolio:holdings:{user_id}` | 30 s | Holdings list JSON | same |
+| `index:level:{ticker}` | 10 s | Index value + change | `routers/markets._fetch_index` |
+| `top_movers:{universe}:{dir}:{limit}` | 60 s | Top mover rows | `services/top_movers.py` |
+| `chart:{symbol}:{period}:{interval}` | ~5 min | yfinance OHLC | `market/yfinance_service` |
+| `backtest:{sha1(strategy)}` | 1 h | Backtest result JSON | `routers/backtest` |
+| `yield:mf:{scheme_code}` | 1 h | Yield value | `agents/yield_scanner` |
+| `webhook:rate:{src}` | 70 s | Inbound webhook count | rate limiter |
+
+Mock fallback (`backend/cache.py:MockRedis`) implements only
+`get / set / delete / exists / ping`; list / hash ops fail silently
+when real Redis is unavailable. Production uses real Redis.
+
+---
+
+## 7. Token usage & session cost ledger
+
+### 7.1 What we measure on every call
+
+`LLMOpenAI.complete` reads from `data["usage"]` on the Responses API:
+
+```
+input_tokens                                  → total prompt tokens
+input_tokens_details.cached_tokens            → cached subset
+output_tokens                                 → generation tokens
+output_tokens_details.reasoning_tokens        → reasoning tokens
+```
+
+All four land on the `LLMResponse` dataclass and pass through
+`CallTrace.set_response` (or `set_stream_result` for streams). The
+`cached_tokens` setter is also called explicitly for clarity at the
+extraction site.
+
+### 7.2 Pricing (`services/llm_cost.py`)
+
+```python
+PRICING = {                                # USD per 1,000,000 tokens
+    "gpt-5-mini":  {"input": 0.25, "output": 2.00},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4o":      {"input": 2.50, "output": 10.00},
+    "sarvam-m":    {"input": 0.00, "output": 0.00},
+}
+CACHED_INPUT_DISCOUNT = Decimal("0.5")     # 50% off on cached subset
+```
+
+Cost formula in `compute_cost`:
+
+```
+cost = (input - cached) * input_rate
+     + cached           * input_rate * CACHED_INPUT_DISCOUNT
+     + (output + reasoning) * output_rate
+```
+
+Reasoning tokens bill at the **output** rate (Responses API). Negative
+or NaN values are clamped to 0; `cached > input` is clamped to
+`input`. Unknown models cost 0 and emit a `llm_cost.unknown_model`
+warning once.
+
+### 7.3 Persistence: `llm_usage` table
+
+Schema (`backend/models.py:LlmUsage`):
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int PK | |
+| `user_id` | FK users.id (nullable) | Falls back to `user_id_var` request-scope contextvar. |
+| `conversation_id` | str(64) | indexed |
+| `turn_id` | str(64) | |
+| `request_id` | str(64) | indexed; pulled from `request_id_var` |
+| `endpoint` | str(64) | `chat` / `propose` / `router` / `agentic` / `validation` / `warmup` |
+| `provider` | str(32) | `openai` / `sarvam` |
+| `model` | str(64) | |
+| `input_tokens` | int | |
+| `cached_input_tokens` | int | added in migration 0006; subset of `input_tokens` |
+| `output_tokens` | int | |
+| `reasoning_tokens` | int | |
+| `total_tokens` | int | denormalised sum |
+| `cost_usd` | Numeric(12,6) | 6 decimal places of USD |
+| `latency_ms` | float | |
+| `created_at` | timestamptz | indexed |
+
+Write path (`record_llm_usage`):
+
+1. Compute cost via `compute_cost(...)`.
+2. Emit a structured `event="llm.usage"` log line FIRST. The log line
+   is the cheap fallback — if the DB write fails, we still have a row
+   in the aggregator.
+3. Open a fresh `SessionLocal()`, insert the row, commit, close. This
+   is intentionally a **new session** because the trace can close
+   from outside any FastAPI request scope (scheduler tick, agentic
+   worker, background task).
+4. Every exception path is swallowed locally. Cost tracking that
+   breaks production is worse than no cost tracking.
+
+Endpoint label inference: `_trace._infer_endpoint()` walks the stack
+above `backend.llm.*` and matches against `_ENDPOINT_MODULE_PREFIXES`
+(longest-prefix first). Caller modules can override by passing
+`endpoint=...` to `CallTrace`.
+
+Zero-token rows are **skipped** so transport errors / missing-API-key
+short-circuits don't pollute the ledger.
+
+### 7.4 Verbose JSONL trace (opt-in)
+
+`PIVOT_LLM_TRACE=/tmp/llm_trace.jsonl` toggles per-call JSONL records
+with prompts and responses (PII-bearing — dev-only). Independent of
+the ledger: the ledger is always on.
+
+Per record: `ts, caller, kind, endpoint, provider, model,
+reasoning_effort, prompt_cache_key, max_output_tokens, tools_count,
+tool_names, input_messages, input_chars_total, response_text,
+tool_calls, usage{input,cached,output,reasoning,finish_reason},
+latency_ms, ttft_ms, error`.
+
+---
+
+## 8. Measured numbers (probe 2026-05-07, `gpt-5-mini`)
 
 | Metric | Value |
 |---|---|
@@ -127,207 +394,124 @@ turns forces a tool call (no think-aloud on the easy path).
 | Avg cache hit ratio | **86.0 %** |
 | Min hit (cold-start on a brand-new route) | **0 %** |
 | Max hit (warm route) | **100 %** |
-| Avg output tokens per turn | ~150 (chat reply) – ~800 (workflow draft) |
+| Avg output tokens | ~150 (chat reply) – ~800 (workflow draft) |
 
-**System message structure on every call:**
+System message structure on every call:
 
 ```
-role=system     chars=41,644   ←  cached prefix (system.md + agentic_examples + domain primer)
+role=system     chars=41,644   ←  cached prefix (system.md + agentic_examples + primer)
 role=system     chars=    83   ←  dynamic user context (portfolio totals)
 …history turns…
 role=user       chars=variable
 ```
 
-The 41,644-char prefix is what OpenAI's prompt cache locks onto.
-Adding any dynamic content into it breaks the cache; portfolio
-totals are kept in a SECOND short system message for that reason.
-
-**Cache breakpoint behaviour.** Cold-starts on a never-before-seen
-route hit 0 % once, then immediately warm to ≥96 % on turn 2 of the
-same route. Routes stay warm for ~5 min idle (OpenAI's TTL).
+Cold-start hits 0% once on a never-before-seen route; second turn on
+the same route warms to ≥96%. Routes stay warm for ~5 min idle.
 
 ---
 
-## 4. Latency profile
+## 9. Latency profile
 
 | Path | Typical latency |
 |---|---|
-| Fast-path (greetings / edu / continuation) | **6–60 ms** |
-| Workflow skeleton fast-path (deterministic shapes) | **20–80 ms** |
-| Backtest router fast-path | **2–6 s** (yfinance + indicator computation) |
-| LLM hop — read intent (e.g. "TCS price") | **2–4 s** |
-| LLM hop — order draft (e.g. "buy 10 RELIANCE") | **4–9 s** |
-| LLM hop — agent draft (`propose_workflow`) | **8–25 s** (≥2 hops, max 30 s) |
-| Index-level cache hit | **1 ms** (vs 595 ms cold yfinance call) |
-| Portfolio cache hit | **0 ms** (vs 4–200 ms broker round-trip) |
-| Top-movers cache hit | **<1 ms** (vs ≈4 s yfinance batch download) |
-| Tool router (regex) | **<1 ms** |
-| Post-processing (sanitizer + strip) | **<1 ms** |
+| Fast-path (greetings / edu / continuation) | 6–60 ms |
+| Workflow skeleton fast-path | 20–80 ms |
+| Backtest router fast-path | 2–6 s (yfinance + indicator computation) |
+| LLM hop — read intent ("TCS price") | 2–4 s |
+| LLM hop — order draft ("buy 10 RELIANCE") | 4–9 s |
+| LLM hop — agent draft (`propose_workflow`) | 8–25 s (≥2 hops, max 30 s) |
+| Index-level cache hit | ~1 ms (vs 595 ms cold yfinance) |
+| Portfolio cache hit | 0 ms (vs 4–200 ms broker) |
+| Top-movers cache hit | <1 ms (vs ~4 s yfinance batch) |
+| Tool router (regex) | <1 ms |
+| Post-processing | <1 ms |
 
-**Bottleneck.** Output decoding + LLM reasoning. The 86 % prompt-cache
-hit means input tokens are nearly free (10× cheaper); latency is
-dominated by output-token generation and reasoning trace. Reducing
-reasoning effort from `low` → `minimal` cut p50 latency on agent
-turns by ~10 s with no measurable quality loss.
-
----
-
-## 5. Caching layers
-
-Two distinct caches do different jobs.
-
-### 5.1 OpenAI prompt cache (server-side, automatic)
-
-- **Stored:** tokenized attention K/V for the prefix bytes of each
-  request, keyed by `prompt_cache_key` + content hash.
-- **Skips:** re-tokenisation of the prefix; prefix tokens billed at
-  ~10 % of full price.
-- **Does NOT skip:** model inference. GPT still runs.
-- **Visibility:** we read `usage.input_tokens_details.cached_tokens`
-  on each response and persist to the LLM trace.
-- **TTL:** ~5 min idle, ~1 hr max (OpenAI-managed).
-- **Current hit rate:** 86 % (measured).
-
-### 5.2 Redis (our box, real `redis-server` on `:6379`)
-
-| Key prefix | TTL | What's stored | Where |
-|---|---|---|---|
-| `chat:conv:{conv_id}` | 1 h | Last 20 message turns (rpush list) | conv history |
-| `chat:active_draft:{conv_id}` | 1 h | Macro-tool draft for amendment | cross-turn state |
-| `chat:pending:{conv_id}` | short | Pending tool-call awaiting confirmation | multi-hop state |
-| `portfolio:summary:{user_id}` | **30 s** | Portfolio summary JSON | services/portfolio_cache |
-| `portfolio:holdings:{user_id}` | **30 s** | Holdings list JSON | same |
-| `index:level:{ticker}` | **10 s** | Index value + change | routers/markets._fetch_index |
-| `top_movers:{universe}:{direction}:{limit}` | **60 s** | Top gainer/loser rows | services/top_movers |
-| `chart:{symbol}:{period}:{interval}` | ~5 min | yfinance OHLC | market/yfinance_service |
-| `backtest:{sha1(strategy)}` | 1 h | Backtest result JSON | routers/backtest |
-| `yield:mf:{scheme_code}` | 1 h | Yield value | agents/yield_scanner |
-| `webhook:rate:{src}` | 70 s | Inbound webhook count | rate limiter |
-
-Mock fallback (`backend/cache.py:MockRedis`) implements only `get` /
-`set` / `delete` / `exists` / `ping` — list / hash ops fail
-silently when real Redis is unavailable. Production uses real Redis.
+Bottleneck: output decoding + reasoning. With 86% prompt-cache hit the
+input tokens are nearly free; latency is dominated by output-token
+generation. Dropping reasoning effort `low` → `minimal` on agent
+turns cut p50 by ~10 s with no measurable quality loss.
 
 ---
 
-## 6. Where the latency / token budget goes
+## 10. Pre-LLM short-circuits
 
-For a typical agent-build turn (`"build me a workflow that…"`):
-
-```
-22 K input tokens × 0.86 cache hit  ≈  3 K billed at full rate, 19 K at 10%
-800 output tokens                    ≈  full rate
-2 LLM hops                           ≈  16 s wall clock
-```
-
-For a typical price query turn (`"TCS price"`):
-
-```
-22 K input tokens × 0.97 cache hit  ≈  650 billed at full rate
-~80 output tokens                    ≈  full rate
-1 LLM hop + 500 ms tool execution   ≈  2.5 s wall clock
-```
-
----
-
-## 7. Pre-LLM short-circuits (paths that DON'T hit GPT)
-
-| Short-circuit | Trigger | Latency |
+| Path | Trigger | Latency |
 |---|---|---|
-| Backtest router fast-path | message matches indicator-backtest regex | 2–6 s |
+| Backtest router fast-path | indicator-backtest regex | 2–6 s |
 | Fast-path classifier — greeting | exact-match: hi / hello / good morning | 30–60 ms |
 | Fast-path — thanks | exact-match: thanks / ty | 30–60 ms |
 | Fast-path — help | exact-match: what can you do / help | 30–60 ms |
 | Fast-path — edu definitions | "what is RSI" etc. (28 curated terms) | 20–35 ms |
-| Fast-path — continuation | "what else" / "anything else" / "what now" | 6–25 ms |
+| Fast-path — continuation | "what else" / "anything else" | 6–25 ms |
 | Workflow skeleton fast-path | deterministic agent shapes (RSI threshold, scheduled order) | 20–80 ms |
 | Cancel-draft fast-path | "cancel" / "discard" with active draft | <50 ms |
 
-Together these absorb roughly 10–15 % of traffic without touching
-the LLM, at near-zero token cost.
+Together these absorb ~10–15% of traffic at near-zero token cost.
 
 ---
 
-## 8. Known correctness/UX guards (for context, not deep dive)
+## 11. Correctness guards (for context)
 
-- **Reasoning-leak sanitizer:** strips paragraphs containing ≥2
-  internal-monologue tells (e.g. `"the user now says…"`,
+- **Reasoning-leak sanitizer.** Strips paragraphs containing ≥2
+  internal-monologue tells (`"the user now says…"`,
   `"we must answer…"`).
-- **Typo-amendment guard:** when an active draft exists AND the
-  message is a short bare alphabetic token not in a known keyword
-  set, strip order + macro tools so the model can't re-emit the
+- **Typo-amendment guard.** Active draft + short bare alphabetic
+  token → strip order + macro tools so the model can't re-emit the
   prior card.
-- **Repeat-fallback variation:** if the same canned reject would
-  fire two turns in a row, return a reset prompt instead.
-- **Mode pins:** Automation strips macros, Agent strips order
-  tools but allows all four macros, Backtest narrows to backtest
-  + read tools.
-- **Schema-level guards:** `notify.message.channel` is now
-  `Literal["push"]` only — email/SMS asks fail validation and
-  route through the email-aware canned reject that names the gap.
+- **Repeat-fallback variation.** If the same canned reject would fire
+  two turns in a row, return a reset prompt instead.
+- **Mode pins.** Automation strips macros; Agent strips immediate-
+  order tools but keeps macros; Backtest narrows to backtest + read.
+- **Schema guards.** `notify.message.channel` is `Literal["push"]`
+  only — email / SMS asks fail validation and route through the
+  email-aware canned reject.
+- **Widget caption guarantee.** `_ensure_widget_caption` enforces a
+  prose line whenever a card renders, so the FE never shows a card
+  with no text bubble.
 
 ---
 
-## 9. What outside review can help with
+## 12. Where to look
 
-- **Output token reduction.** Workflow drafts typically produce
-  500–1000 output tokens (description + steps + rationale). Most
-  of that is the rationale; consider trimming or making it
-  optional.
-- **Reasoning effort.** Currently `low` for non-agent and `minimal`
-  for agent. `medium` improved quality on multi-trigger drafts but
-  blew past client timeouts. A targeted `medium` for retry-only
-  could be tested.
-- **Prompt prefix size.** 41,644 chars is large. Some sections of
-  `system.md` (the calibration examples in particular) might be
-  trimmable without loss. Worth measuring per-section impact.
-- **Cold-start mitigation.** First call on a new tool-route signature
-  is at 0 % cache. Pre-warming the top N route signatures at process
-  start would smooth the p99.
-- **Tool surface tightening.** 5–25 visible per turn is wide. Could
-  go narrower for clearly-classified intents (e.g. "show portfolio"
-  doesn't need workflow macros in scope).
+| Concern | File |
+|---|---|
+| Orchestrator | `pivot/backend/services/chat_service.py` |
+| Tool routing + cache key | `pivot/backend/services/tool_router.py` |
+| Tool registry / dispatcher | `pivot/backend/services/tool_registry.py` |
+| Tool execution + completeness | `pivot/backend/services/_v2_tools.py`, `pivot/backend/agents/tool_executor.py` |
+| Validation handler | `pivot/backend/services/validation_handler.py` |
+| Pre-LLM fast paths | `pivot/backend/services/fast_path.py` |
+| Workflow skeleton | `pivot/backend/services/workflow_skeleton.py` |
+| Macro fallback | `pivot/backend/services/workflow_macros.py` |
+| Tool catalog | `pivot/backend/agents/tools.py` |
+| Responses API client | `pivot/backend/llm/openai_client.py` |
+| Tracer + ledger hook | `pivot/backend/llm/_trace.py` |
+| Cost computation + persistence | `pivot/backend/services/llm_cost.py` |
+| `llm_usage` schema | `pivot/backend/models.py:LlmUsage` |
+| System prompt assembly | `pivot/backend/prompts/assembler.py` |
+| Chat role text | `pivot/backend/prompts/system.md` |
+| Calibration examples | `pivot/backend/prompts/agentic_examples.json` |
+| Conversation store | `pivot/backend/services/conversation_store.py` |
+| Redis client + mock | `pivot/backend/cache.py` |
+| Workflow proposer | `pivot/backend/workflows/propose.py` |
+| Step schemas | `pivot/backend/workflows/schemas.py` |
+| Step executors | `pivot/backend/workflows/steps/` |
 
----
+Probe scripts (`pivot/scripts/`):
 
-## 10. Telemetry & where to look
-
-- LLM trace (when enabled): `PIVOT_LLM_TRACE=/tmp/llm_trace.jsonl`
-  — one record per LLM call: caller, tool count, tool names, cache
-  key, input/cached/output/reasoning tokens, latency, ttft, error.
-- Redis state: `redis-cli --scan` for live keys, `redis-cli ttl <k>`
-  for TTL.
-- Server log: `/tmp/uvicorn.log` (verbose with SQL traces).
-- Probe scripts:
-  - `pivot/scripts/cache_probe2.py` — token / cache stats
-  - `pivot/scripts/redis_verify.py` — Redis path verification
-  - `pivot/scripts/regression_trace.py` — basket / market_relative / cross_draft
-  - `pivot/scripts/leak_regression.py` — reasoning-leak sanitizer
-  - `pivot/scripts/typo_amend_regression.py` — bare-token re-emit guard
-  - `pivot/scripts/email_regression.py` — email-substitution guard
-  - `pivot/scripts/broad_tester.py` — 14-category coverage suite
+- `cache_probe2.py` — token / cache stats
+- `redis_verify.py` — Redis path verification
+- `regression_trace.py` — basket / market_relative / cross_draft
+- `leak_regression.py` — reasoning-leak sanitizer
+- `typo_amend_regression.py` — bare-token re-emit guard
+- `email_regression.py` — email-substitution guard
+- `broad_tester.py` — 14-category coverage suite
 
 ---
 
-**Source files of interest** (relative to repo root):
+## 13. Interactive view
 
-```
-pivot/backend/services/chat_service.py     — orchestrator (~3,300 lines)
-pivot/backend/services/tool_router.py      — regex rules + cache key
-pivot/backend/services/tool_registry.py    — _REAL_TOOLS whitelist + dispatcher
-pivot/backend/services/fast_path.py        — pre-LLM short-circuits
-pivot/backend/services/portfolio_cache.py  — 30s portfolio cache
-pivot/backend/services/top_movers.py       — yfinance top movers + seed
-pivot/backend/agents/tools.py              — 63 tool definitions
-pivot/backend/agents/tool_executor.py      — chat tool dispatch
-pivot/backend/llm/openai_client.py         — Responses API wrapper
-pivot/backend/llm/_trace.py                — JSONL trace writer
-pivot/backend/prompts/system.md            — chat-role instructions
-pivot/backend/prompts/agentic_examples.json — calibration examples
-pivot/backend/prompts/assembler.py         — system prompt assembly
-pivot/backend/workflows/registry.py        — STEP_REGISTRY (workflow steps)
-pivot/backend/workflows/schemas.py         — step config Pydantic models
-pivot/backend/workflows/steps/             — executors (fetches/actions/notify)
-pivot/backend/workflows/propose.py         — propose_workflow → WorkflowDraft
-pivot/backend/cache.py                     — Redis client + MockRedis fallback
-```
+`docs/model_architecture.html` — open in any browser. Click each stage
+to see what the code does, which files are involved, and where the
+tokens / latency / cache hits land. Same data as this document, in a
+shape that's easier to navigate. No build step, no dependencies.

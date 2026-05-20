@@ -29,7 +29,11 @@ if not KITE_MOCK_MODE:
 
 # Modules that captured KITE_MOCK_MODE by value at import time. When the flag
 # flips at runtime we patch each one so they see the new value.
-_MIRRORED_MODULES = ("backend.kite.orders", "backend.routers.kite")
+_MIRRORED_MODULES = (
+    "backend.kite.orders",
+    "backend.routers.kite",
+    "backend.kite.ticker",
+)
 
 
 def _propagate_mock_mode(value: bool) -> None:

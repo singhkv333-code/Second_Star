@@ -86,6 +86,11 @@ _BACKTESTABLE_TRIGGERS = {
     "trigger.schedule",
     "trigger.indicator",
     "trigger.price",
+    # Market-relative-time anchors (open / close / pre_open / post_close +
+    # signed offset) resolve to a deterministic cron via the runtime
+    # scheduler helper. The backtester normalises them to trigger.schedule
+    # during eligibility parsing — see `check_eligibility` below.
+    "trigger.market_relative_time",
 }
 
 # Action types we can simulate.
@@ -123,6 +128,10 @@ _SKIPPABLE_STEPS = {
     "fetch.rolling_high",
     "fetch.rolling_low",
     "fetch.spread_z_score",
+    # fetch.fundamental: resolved on demand by _resolve_ref against the
+    # Moneycontrol-derived financials DB with point-in-time
+    # (availability_date <= ts) filtering. See _resolve_ref.
+    "fetch.fundamental",
 }
 
 # Steps that block backtesting entirely.
@@ -130,7 +139,6 @@ _BLOCKING_STEPS_REASON = {
     "trigger.event":   "trigger.event needs an historical event calendar we don't keep — try a schedule or indicator trigger.",
     "trigger.webhook": "trigger.webhook can only fire from external traffic, so there's nothing historical to replay.",
     "trigger.manual":  "trigger.manual fires when you click 'Run now' — there's no historical signal to replay.",
-    "fetch.fundamental": "fetch.fundamental needs the financials DB, not yfinance prices. Use the /expr-backtest path for fundamentals strategies.",
     "fetch.news":      "fetch.news depends on real-time feed history we don't store.",
 }
 
@@ -249,6 +257,26 @@ def check_eligibility(steps: list[dict[str, Any]]) -> Eligibility:
     branches = _parse_branches(steps)
     if not branches:
         return Eligibility(False, "Workflow has no trigger.* step.")
+
+    # Normalise market_relative_time → schedule. The simulator dispatches
+    # on `trigger_type == "trigger.schedule"`, so once we've resolved the
+    # anchor+offset to a concrete cron, the existing `_expand_schedule`
+    # path handles fire-time computation. We mutate the Branch in place
+    # because nothing downstream needs the original type.
+    for b in branches:
+        if b.trigger_type == "trigger.market_relative_time":
+            try:
+                from backend.workflows.scheduler import (
+                    _resolve_market_relative_time,
+                )
+                cron, tz = _resolve_market_relative_time(b.trigger_config)
+            except Exception as e:  # noqa: BLE001 — bubble as eligibility fail
+                return Eligibility(
+                    False,
+                    f"Can't backtest this market_relative_time trigger: {e}",
+                )
+            b.trigger_type = "trigger.schedule"
+            b.trigger_config = {"cron": cron, "timezone": tz}
 
     warnings: list[str] = []
     has_any_order = False
@@ -640,6 +668,20 @@ def _resolve_ref(
             ).upper()
             if not sym:
                 return s
+
+            # fetch.fundamental does not depend on price bars — resolve it
+            # before the bars-existence guard so it works even when the
+            # symbol has no yfinance OHLCV at this timestamp. Generic
+            # named-metric / formula handling lives in financials_db.resolve_metric.
+            if st == "fetch.fundamental":
+                from backend.market.financials_db import resolve_metric
+                return resolve_metric(
+                    sym,
+                    str(cfg.get("metric") or "").lower(),
+                    formula=cfg.get("formula"),
+                    as_of_date=ts.date(),
+                )
+
             ref_bars = symbol_bars.get(sym)
             if ref_bars is None or ts not in ref_bars.index:
                 return s
@@ -1391,6 +1433,16 @@ def backtest_workflow(
     backtests where comparing to a single leg is misleading — pass
     ``benchmark_symbol='NIFTYBEES'`` to compare against the NIFTY 50.
     """
+    # The chat path validates drafts via DraftStep (propose.py), whose
+    # Pydantic dump drops `step_index`. Without it, `_resolve_ref` can't
+    # match `{{context.N.value}}` references — so any condition.numeric
+    # that reads a fetch.* output silently evaluates to False and no
+    # trades fire. Re-attach step_index from list position before
+    # eligibility parsing so chat-built workflows simulate correctly.
+    steps = [
+        ({**s, "step_index": s.get("step_index", i)} if isinstance(s, dict) else s)
+        for i, s in enumerate(steps)
+    ]
     elig = check_eligibility(steps)
     if not elig.eligible:
         raise ValueError(elig.reason or "workflow not backtestable")

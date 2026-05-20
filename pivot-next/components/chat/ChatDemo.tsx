@@ -20,7 +20,6 @@ import {
   Bot,
   Check,
   Copy,
-  Loader2,
   RotateCw,
   Square,
   Workflow as WorkflowIcon,
@@ -647,6 +646,10 @@ type ChatDemoProps = {
    * chips). When false (the default), the prefill only populates the
    * textarea so the user can edit before pressing Send. */
   prefillAutoSubmit?: boolean;
+  /** Optional mode to force when consuming a prefill — overrides the
+   * current pill state for that one submission. Used by news-gated
+   * demo chips to guarantee `propose_workflow` is in scope. */
+  prefillMode?: ChatMode;
   /** Called after the prefill has been consumed so parent can clear it. */
   onPrefillConsumed?: () => void;
   /** Custom intro shown above the composer when no messages have been
@@ -658,6 +661,23 @@ type ChatDemoProps = {
    * to hide ancillary rails (e.g. Active Agents) once a chat has
    * started so the chat column can fill the freed width. */
   onActiveChange?: (active: boolean) => void;
+  /** Offline demo seed — when set, ChatDemo bypasses the LLM and
+   * plays a hardcoded user → streaming → workflow-draft sequence,
+   * then auto-opens the editor panel via `onOpenEditor`. Used by the
+   * dashboard "Play demo" chip while the live LLM is disabled. */
+  demoSeed?: ChatDemoSeed;
+  /** Called after a `demoSeed` has been consumed so parent can clear it
+   * (same pattern as `onPrefillConsumed`). */
+  onDemoSeedConsumed?: () => void;
+};
+
+export type ChatDemoSeed = {
+  /** Text shown in the user bubble at the top. */
+  userText: string;
+  /** Assistant intro line printed above the draft card. */
+  intro: string;
+  /** Hardcoded workflow draft surfaced as the assistant's response. */
+  draft: WorkflowDraft;
 };
 
 /** Per-mount session id. Generated once on component mount; sent
@@ -684,9 +704,12 @@ export function ChatDemo({
   onOpenEditor,
   prefill,
   prefillAutoSubmit = false,
+  prefillMode,
   onPrefillConsumed,
   intro,
   onActiveChange,
+  demoSeed,
+  onDemoSeedConsumed,
 }: ChatDemoProps): React.ReactElement {
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -719,14 +742,67 @@ export function ChatDemo({
     if (!prefill) return;
     if (prefillAutoSubmit) {
       onPrefillConsumed?.();
-      void submit(prefill);
+      // When the chip carries a forced mode (e.g. news-gated chips → "agent"),
+      // pin the mode state BEFORE submitting so the classifier doesn't
+      // mis-route. The mode persists for follow-up turns until the user
+      // toggles it off, which matches the existing mode-pill behaviour.
+      if (prefillMode) setMode(prefillMode);
+      void submit(prefill, prefillMode);
     } else {
       setIntent(prefill);
+      if (prefillMode) setMode(prefillMode);
       onPrefillConsumed?.();
       textareaRef.current?.focus();
     }
 
-  }, [prefill, prefillAutoSubmit, onPrefillConsumed]);
+  }, [prefill, prefillAutoSubmit, prefillMode, onPrefillConsumed]);
+
+  // Offline demo playback — when `demoSeed` is set, push a canned
+  // user → streaming → draft sequence and auto-open the editor panel.
+  // No backend call. Used while the live LLM is disabled.
+  //
+  // Callbacks are deref'd through refs so this effect keys ONLY on
+  // `demoSeed`. Parents typically pass inline arrows for the callbacks,
+  // so including them in the deps would tear down the playback timer
+  // on every parent re-render and the streaming bubble would never
+  // resolve. `playedSeedRef` guards against replaying when the parent
+  // clears the seed and against StrictMode double-invocation.
+  const onOpenEditorRef = useRef(onOpenEditor);
+  const onDemoSeedConsumedRef = useRef(onDemoSeedConsumed);
+  useEffect(() => {
+    onOpenEditorRef.current = onOpenEditor;
+  });
+  useEffect(() => {
+    onDemoSeedConsumedRef.current = onDemoSeedConsumed;
+  });
+  const playedSeedRef = useRef<ChatDemoSeed | null>(null);
+  useEffect(() => {
+    if (!demoSeed) return;
+    if (playedSeedRef.current === demoSeed) return;
+    playedSeedRef.current = demoSeed;
+
+    const { userText, intro: demoIntro, draft } = demoSeed;
+    const startedAt = Date.now();
+    setMessages([
+      { kind: "user", text: userText, timestamp: new Date().toISOString() },
+      { kind: "streaming", text: "", tools: [], startedAt },
+    ]);
+
+    const t = window.setTimeout(() => {
+      setMessages((prev) => {
+        const next = [...prev];
+        const streamingIdx = next.findIndex((m) => m.kind === "streaming");
+        if (streamingIdx >= 0) {
+          next[streamingIdx] = { kind: "draft", draft, intro: demoIntro };
+        }
+        return next;
+      });
+      onOpenEditorRef.current(draftToWorkflow(draft));
+      onDemoSeedConsumedRef.current?.();
+    }, 1400);
+
+    return () => window.clearTimeout(t);
+  }, [demoSeed]);
 
   // Track whether the user is at the bottom. If they scroll up to read
   // earlier output, we stop auto-scrolling so we don't yank them down.
@@ -1805,7 +1881,9 @@ function ChatComposer({
                 ? "Describe an automation — e.g. 'every weekday 15:25 buy 5 NIFTYBEES'"
                 : mode === "backtest"
                   ? "Describe a strategy to backtest — e.g. 'RELIANCE when RSI < 30'"
-                  : PLACEHOLDER_TEXT
+                  : mode === "trigger"
+                    ? "Describe a market event — e.g. 'When RBI cuts rates, buy PSU bank ETF'"
+                    : PLACEHOLDER_TEXT
           }
           rows={1}
           className={cn(

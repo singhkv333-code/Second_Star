@@ -38,6 +38,7 @@ import {
   type PortfolioSummary,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { useLiveQuote } from "@/hooks/useLiveQuote";
 
 // ---------------------------------------------------------------------------
 // Static reference maps (Quartr parity)
@@ -730,92 +731,127 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
           </tr>
         </thead>
         <tbody>
-          {sorted.map((h) => {
-            const value = holdingValue(h);
-            const sector = SECTOR_MAP[h.tradingsymbol];
-            const pnlPos = h.pnl >= 0;
-            const dayPos = h.day_change_percentage >= 0;
-            return (
-              <tr
-                key={`${h.exchange}:${h.tradingsymbol}`}
-                style={{
-                  borderBottom: "1px solid var(--glass-border)",
-                  transition: "background 150ms",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                data-testid={`holding-${h.tradingsymbol}`}
-              >
-                <td style={{ padding: "14px 18px" }}>
-                  <Link
-                    href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
-                    className="inline-flex items-center"
-                    style={{
-                      gap: 6,
-                      padding: "4px 10px",
-                      background: "var(--bg-elevated)",
-                      border: "1px solid var(--glass-border)",
-                      borderRadius: 999,
-                      fontFamily: "var(--font-ui)",
-                      fontSize: 12,
-                      fontWeight: 500,
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        color: "var(--text-tertiary)",
-                        fontSize: 10,
-                        fontWeight: 400,
-                      }}
-                    >
-                      {h.exchange || "NSE"}
-                    </span>
-                    {h.tradingsymbol}
-                  </Link>
-                  {sector && (
-                    <span
-                      style={{
-                        display: "block",
-                        fontSize: 11,
-                        color: "var(--text-tertiary)",
-                        marginTop: 4,
-                      }}
-                    >
-                      {sector}
-                    </span>
-                  )}
-                </td>
-                <NumCell>{h.quantity}</NumCell>
-                <NumCell>{fmtRupee(h.average_price, { max: 2 })}</NumCell>
-                <NumCell>{fmtRupee(h.last_price, { max: 2 })}</NumCell>
-                <td
-                  style={{
-                    padding: "14px 18px",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 12.5,
-                    color: pnlPos ? "var(--color-profit)" : "var(--color-loss)",
-                  }}
-                >
-                  {fmtRupee(h.pnl, { sign: true, max: 0 })}
-                </td>
-                <td
-                  style={{
-                    padding: "14px 18px",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 12.5,
-                    color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
-                  }}
-                >
-                  {fmtPct(h.day_change_percentage)}
-                </td>
-                <NumCell strong>{fmtRupee(value)}</NumCell>
-              </tr>
-            );
-          })}
+          {sorted.map((h) => (
+            <HoldingRow key={`${h.exchange}:${h.tradingsymbol}`} holding={h} />
+          ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HoldingRow — one <tr> per holding, wired to useLiveQuote for LTP.
+// ---------------------------------------------------------------------------
+
+function HoldingRow({ holding: h }: { holding: Holding }): React.ReactElement {
+  const liveQuote = useLiveQuote(h.tradingsymbol);
+  const ltp = liveQuote.ltp ?? h.last_price;
+  const value = ltp * h.quantity;
+  const sector = SECTOR_MAP[h.tradingsymbol];
+  const pnlPos = h.pnl >= 0;
+  const dayPos = h.day_change_percentage >= 0;
+
+  return (
+    <tr
+      style={{
+        borderBottom: "1px solid var(--glass-border)",
+        transition: "background 150ms",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+      data-testid={`holding-${h.tradingsymbol}`}
+    >
+      <td style={{ padding: "14px 18px" }}>
+        <Link
+          href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
+          className="inline-flex items-center"
+          style={{
+            gap: 6,
+            padding: "4px 10px",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: 999,
+            fontFamily: "var(--font-ui)",
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--text-primary)",
+          }}
+        >
+          <span
+            style={{
+              color: "var(--text-tertiary)",
+              fontSize: 10,
+              fontWeight: 400,
+            }}
+          >
+            {h.exchange || "NSE"}
+          </span>
+          {h.tradingsymbol}
+        </Link>
+        {sector && (
+          <span
+            style={{
+              display: "block",
+              fontSize: 11,
+              color: "var(--text-tertiary)",
+              marginTop: 4,
+            }}
+          >
+            {sector}
+          </span>
+        )}
+      </td>
+      <NumCell>{h.quantity}</NumCell>
+      <NumCell>{fmtRupee(h.average_price, { max: 2 })}</NumCell>
+      {/* LTP cell — green dot when live, grey when REST/stale */}
+      <td
+        style={{
+          padding: "14px 18px",
+          fontFamily: "var(--font-ui)",
+          fontSize: 13,
+          fontWeight: 500,
+          color: "var(--text-secondary)",
+        }}
+      >
+        <span className="inline-flex items-center" style={{ gap: 5 }}>
+          <span
+            title={liveQuote.isLive ? "Live price" : "Delayed price"}
+            aria-label={liveQuote.isLive ? "Live price" : "Delayed price"}
+            style={{
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: liveQuote.isLive ? "#10b981" : "var(--text-tertiary)",
+              flexShrink: 0,
+            }}
+          />
+          {fmtRupee(ltp, { max: 2 })}
+        </span>
+      </td>
+      <td
+        style={{
+          padding: "14px 18px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          color: pnlPos ? "var(--color-profit)" : "var(--color-loss)",
+        }}
+      >
+        {fmtRupee(h.pnl, { sign: true, max: 0 })}
+      </td>
+      <td
+        style={{
+          padding: "14px 18px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
+        }}
+      >
+        {fmtPct(h.day_change_percentage)}
+      </td>
+      <NumCell strong>{fmtRupee(value)}</NumCell>
+    </tr>
   );
 }
 

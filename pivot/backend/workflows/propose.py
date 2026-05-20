@@ -553,6 +553,66 @@ def _mock_propose(user_intent: str) -> WorkflowDraft:
     threshold = _parse_threshold(user_intent)
     needs_approval = bool(re.search(r"\b(approve|approval|confirm|ask me)\b", low))
 
+    # Mock-mode shortcut for news-gated workflows. Real LLM proposals
+    # emit fetch.news + condition.boolean for prompts like "if RBI cuts
+    # the repo rate". Offline / CI users have no LLM, so we pattern-match
+    # the canonical news prompt and emit the same shape — keeps the demo
+    # path and the `news_gate_on_open_buy` agentic example reproducible
+    # without an API key.
+    news_match = re.search(
+        r"\b(rbi|sebi|repo rate|mpc|news|announce|penali[sz]e)\b", low,
+    )
+    if news_match:
+        side = "sell" if "sell" in low else "buy"
+        # Build a tight keyword set from the prompt itself — keeps the
+        # mock deterministic without invoking the LLM.
+        kw_pool = ["RBI", "repo rate", "MPC", "rate cut", "SEBI",
+                   "penalty", "policy", "announcement"]
+        keywords = [k for k in kw_pool if k.lower() in low] or ["RBI"]
+        event_description = user_intent.strip()[:140]
+        news_steps: list[DraftStep] = [
+            DraftStep(
+                step_type="trigger.schedule",
+                label=f"On {cron} {tz}",
+                config={"cron": cron, "timezone": tz},
+            ),
+            DraftStep(
+                step_type="fetch.news",
+                label="Check news for event",
+                config={
+                    "keywords": keywords,
+                    "event_description": event_description,
+                    "min_confidence": 0.85,
+                    "hours_back": 24,
+                },
+            ),
+            DraftStep(
+                step_type="condition.boolean",
+                label="Event confirmed",
+                config={"left": "{{ context.1.matched }}", "value": True},
+            ),
+            DraftStep(
+                step_type="action.place_order",
+                label=f"{side.capitalize()} {qty} {symbol}",
+                config={
+                    "symbol": symbol,
+                    "side": side,
+                    "quantity": qty,
+                    "order_type": "market",
+                    "requires_approval": needs_approval or side == "buy",
+                },
+            ),
+        ]
+        return WorkflowDraft(
+            name=f"News-gated {side} {symbol}",
+            description=user_intent.strip()[:200],
+            steps=news_steps,
+            rationale=(
+                "Mapped your request to a scheduled news check; the "
+                f"{side} order fires only when the event is confirmed."
+            ),
+        )
+
     steps: list[DraftStep] = [
         DraftStep(
             step_type="trigger.schedule",

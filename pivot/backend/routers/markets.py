@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -30,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from backend.cache import redis_client
 from backend.database import get_db
+from backend.kite.ticker import cache_key as ticker_cache_key
 from backend.routers._deps import require_user
 from backend.routers._errors import http_error
 
@@ -83,6 +85,12 @@ class StockQuote(BaseModel):
     market_cap: float | None
     pe_ratio: float | None
     last_updated: datetime
+    # Phase 2: surface whether the quote came from the Kite live feed
+    # (WS) or the REST/yfinance fallback. UIs can grey-out delayed
+    # quotes; old callers ignore the fields entirely (defaults preserve
+    # existing behaviour).
+    live: bool = False
+    source: Literal["kite_ws", "kite_rest", "yfinance"] = "yfinance"
 
 
 class SparklinePoint(BaseModel):
@@ -221,6 +229,13 @@ def get_quote(
     if not sym:
         raise http_error(400, "validation_error", "symbol is required")
 
+    # ─ Phase 2: prefer the Kite tick cache if the entry is fresh
+    # (within 5 s). When the ticker isn't running or this symbol isn't
+    # in its universe, fall through to the existing yfinance path.
+    cached = _read_cached_kite_tick(sym)
+    if cached is not None:
+        return cached
+
     suffix = ".NS" if exchange == "NSE" else ".BO"
     yf_symbol = sym if sym.endswith((".NS", ".BO")) else f"{sym}{suffix}"
 
@@ -265,7 +280,83 @@ def get_quote(
         market_cap=_safe_float(info.get("marketCap")),
         pe_ratio=_safe_float(info.get("trailingPE")),
         last_updated=datetime.now(timezone.utc),
+        live=False,
+        source="yfinance",
     )
+
+
+# Max age of a Redis-cached tick we'll treat as "live". The ticker
+# pushes ~1 msg/sec/symbol on a busy stock, so 5s is generous; the
+# scheduler/quoting fallback handles older entries.
+_KITE_TICK_FRESH_SECONDS = 5
+
+
+def _read_cached_kite_tick(symbol: str) -> StockQuote | None:
+    """Return a StockQuote built from the Kite tick cache if fresh."""
+    try:
+        raw = redis_client.get(ticker_cache_key(symbol))
+        if raw is None:
+            return None
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode()
+        data = json.loads(raw)
+    except Exception:
+        return None
+    ts = data.get("ts")
+    if not isinstance(ts, (int, float)):
+        return None
+    if (int(time.time()) - int(ts)) > _KITE_TICK_FRESH_SECONDS:
+        return None
+    ltp = data.get("ltp")
+    if not isinstance(ltp, (int, float)):
+        return None
+    prev_close = data.get("prev_close")
+    try:
+        prev_close_f = float(prev_close) if prev_close is not None else 0.0
+    except (TypeError, ValueError):
+        prev_close_f = 0.0
+    change_pct = data.get("change_pct") or 0.0
+    try:
+        change_pct_f = float(change_pct)
+    except (TypeError, ValueError):
+        change_pct_f = 0.0
+    change = float(ltp) - prev_close_f if prev_close_f else 0.0
+    source = data.get("src") if isinstance(data.get("src"), str) else "kite_ws"
+    source_typed: Literal["kite_ws", "kite_rest"] = (
+        "kite_rest" if source == "kite_rest" else "kite_ws"
+    )
+    last_updated = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+    return StockQuote(
+        symbol=symbol,
+        name=symbol,
+        exchange="NSE",
+        sector=None,
+        industry=None,
+        ltp=round(float(ltp), 2),
+        change=round(change, 2),
+        change_pct=round(change_pct_f, 2),
+        open=_or_zero(data.get("open")),
+        high=_or_zero(data.get("high")),
+        low=_or_zero(data.get("low")),
+        prev_close=round(prev_close_f, 2),
+        volume=_or_zero(data.get("volume")),
+        w52_high=None,
+        w52_low=None,
+        market_cap=None,
+        pe_ratio=None,
+        last_updated=last_updated,
+        live=True,
+        source=source_typed,
+    )
+
+
+def _or_zero(value: object) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return round(float(value), 2)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
 
 
 # ── Sparkline (historical close series) ──────────────────────────────
@@ -299,6 +390,38 @@ def get_sparkline(
 ) -> SparklineResponse:
     sym = symbol.upper().strip()
     period, interval = _RANGE_MAP[range]
+
+    # Prefer Kite historical when an authenticated session exists and
+    # the ticker has mapped this symbol's instrument_token. Falls
+    # through to yfinance silently when (a) mock mode, (b) no session,
+    # (c) unknown instrument, or (d) Kite errors out.
+    if not sym.startswith("^"):
+        try:
+            from backend.kite.historical import get_kite_historical
+            kite_period = {
+                "1D": "1d", "1W": "5d", "1M": "1mo",
+                "6M": "6mo", "1Y": "1y", "5Y": "5y",
+            }[range]
+            kite_rows = get_kite_historical(
+                sym, period=kite_period, exchange=exchange,
+            )
+            if kite_rows:
+                points = [
+                    SparklinePoint(
+                        t=datetime.fromisoformat(r["date"].replace(" ", "T"))
+                          if isinstance(r["date"], str) else r["date"],
+                        v=round(float(r["close"]), 2),
+                    )
+                    for r in kite_rows
+                    if r.get("close") is not None
+                ]
+                if points:
+                    return SparklineResponse(
+                        symbol=sym, range=range, interval=interval,
+                        points=points,
+                    )
+        except Exception as e:  # noqa: BLE001 — fall through to yfinance
+            pass
 
     suffix = ".NS" if exchange == "NSE" else ".BO"
     yf_symbol = (

@@ -42,12 +42,15 @@ from backend.routers.scheduled import router as scheduled_router
 from backend.routers.markets import router as markets_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.backtest_alias import router as backtest_alias_router
+from backend.routers.financials import router as financials_router
 from backend.routers.quotes import router as quotes_router
 from backend.routers.portfolio_perf import router as portfolio_perf_router
 from backend.routers.events_calendar import router as events_calendar_router
 from backend.routers.stock_automations import router as stock_automations_router
 from backend.routers.news import router as news_router
 from backend.routers.admin import router as admin_router
+from backend.routers.quotes_ws import router as quotes_ws_router
+from backend.routers.kite_ticker_admin import router as kite_ticker_admin_router
 
 app = FastAPI(
     title="Pivot API",
@@ -95,11 +98,14 @@ app.include_router(stock_automations_router)
 app.include_router(news_router)
 app.include_router(conversations_router)
 app.include_router(workflows_router)
+app.include_router(financials_router)
 app.include_router(runs_router)
 app.include_router(approvals_router)
 app.include_router(webhooks_router)
 app.include_router(run_stream_router)
 app.include_router(admin_router)
+app.include_router(quotes_ws_router)
+app.include_router(kite_ticker_admin_router)
 
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
@@ -268,6 +274,82 @@ async def startup():
     except Exception as e:
         logger.info(f"Cache warmup scheduling skipped: {e}")
 
+    # Phase 2: auto-start the Kite ticker if a real access token exists
+    # in DB. Wrapped — startup must never fail because the ticker
+    # can't reach upstream Kite WS.
+    try:
+        _maybe_autostart_kite_ticker()
+    except Exception as e:
+        logger.info(f"Kite ticker autostart skipped: {e}")
+
+
+def _maybe_autostart_kite_ticker() -> None:
+    """Best-effort: find the most recent active KiteSession and boot
+    the ticker under it. Silent when no real session exists or when
+    we're in mock mode."""
+    from backend.kite.auth import KITE_MOCK_MODE, read_kite_access_token
+    from backend.kite.portfolio import get_holdings
+    from backend.kite.ticker import get_ticker_manager
+    from backend.models import KiteSession
+
+    if KITE_MOCK_MODE:
+        logger.info("Kite ticker autostart: mock mode, skipping")
+        return
+    db = SessionLocal()
+    try:
+        session = (
+            db.query(KiteSession)
+            .filter(KiteSession.is_active.is_(True))
+            .order_by(KiteSession.updated_at.desc().nullslast(), KiteSession.id.desc())
+            .first()
+        )
+        if session is None:
+            logger.info("Kite ticker autostart: no active KiteSession")
+            return
+        token = read_kite_access_token(session)
+        if not token or token.startswith("mock_"):
+            logger.info("Kite ticker autostart: token unavailable / mocked")
+            return
+        seeds: list[str] = []
+        token_invalid = False
+        try:
+            holdings = get_holdings(token) or []
+            for h in holdings:
+                ts = h.get("tradingsymbol") if isinstance(h, dict) else None
+                if ts:
+                    seeds.append(str(ts))
+        except Exception as e:
+            msg = str(e).lower()
+            if "incorrect" in msg or "tokenexception" in msg or "access_token" in msg:
+                token_invalid = True
+            logger.info(f"Kite ticker autostart: holdings seed failed: {e}")
+
+        if token_invalid:
+            # Stale token (typically expired at 7:30 IST or rotated
+            # api_key). Mark the session inactive so we don't thrash
+            # the WS reconnect loop. User must re-do Kite OAuth.
+            try:
+                session.is_active = False
+                db.add(session)
+                db.commit()
+                logger.info(
+                    "Kite ticker autostart: stale token; KiteSession id=%s marked inactive — please re-auth.",
+                    session.id,
+                )
+            except Exception as commit_err:
+                logger.info(
+                    f"Kite ticker autostart: could not invalidate session: {commit_err}"
+                )
+            return
+
+        get_ticker_manager().start(
+            access_token=token,
+            user_id=int(session.user_id) if session.user_id else None,
+            seed_symbols=seeds,
+        )
+    finally:
+        db.close()
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -275,6 +357,11 @@ async def shutdown():
         from backend import scheduler as scheduler_module
         if scheduler_module.scheduler:
             scheduler_module.scheduler.shutdown()
+    except Exception:
+        pass
+    try:
+        from backend.kite.ticker import get_ticker_manager
+        get_ticker_manager().stop()
     except Exception:
         pass
 

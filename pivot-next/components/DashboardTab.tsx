@@ -26,6 +26,7 @@ import {
   CalendarDays,
   FileText,
   Newspaper,
+  Play,
   TrendingUp,
   Workflow,
 } from "lucide-react";
@@ -37,7 +38,8 @@ import {
   type UserProfile,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
-import { ChatDemo } from "@/components/chat/ChatDemo";
+import { ChatDemo, type ChatDemoSeed } from "@/components/chat/ChatDemo";
+import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
 import type { Workflow as WorkflowT } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -73,17 +75,100 @@ type ChipDef = {
   label: string;
   Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties; "aria-hidden"?: boolean }>;
   prompt?: string;
-  action?: "calendar";
+  action?: "calendar" | "demo";
 };
 
 const ACTION_CHIPS: ChipDef[] = [
+  // Offline scripted demo — bypasses the LLM (currently disabled due to
+  // low API balance) and plays a canned workflow-draft response with
+  // the editor panel popping out alongside.
+  { label: "Play demo (offline)", Icon: Play, action: "demo" },
   { label: "Generate Report",   Icon: FileText,     prompt: "Generate a portfolio performance report for this week." },
   { label: "Run Agent",         Icon: Workflow,     prompt: "Show me my active agents and their last run status." },
   { label: "Portfolio Health",  Icon: Activity,     prompt: "Analyze my portfolio health and suggest any rebalancing." },
   { label: "Market Pulse",      Icon: TrendingUp,   prompt: "Give me a market pulse summary for today." },
   { label: "Top Movers",        Icon: ArrowUpRight, prompt: "What are the top movers in NIFTY 50 today?" },
-  { label: "Agents Calendar", Icon: CalendarDays, action: "calendar" },
-  { label: "News Digest",       Icon: Newspaper,    prompt: "Summarize today's top financial news." },
+  { label: "Agents Calendar",   Icon: CalendarDays, action: "calendar" },
+  { label: "News-gated trade",  Icon: Newspaper,    prompt: "Buy 5 RELIANCE at open. At 10 AM IST, if RBI announces a repo rate cut, sell my entire RELIANCE holding; otherwise hold for the day." },
+];
+
+// ---------------------------------------------------------------------------
+// Offline demo seed — the "Play demo" chip wires this into ChatDemo so the
+// chat shows a user prompt → simulated streaming → workflow draft card,
+// and the right-side editor panel opens with the same workflow loaded.
+// Tweak freely; the shape is the same one the backend would emit on a
+// successful `propose_workflow` tool call.
+// ---------------------------------------------------------------------------
+
+const DEMO_USER_PROMPT =
+  "Every weekday at 3:00 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and email me the confirmation.";
+
+const DEMO_DRAFT: WorkflowDraft = {
+  name: "RELIANCE 3:00 PM buy",
+  description:
+    "Every weekday at 3:00 PM IST, if buying power is over ₹50,000, buy 10 shares of RELIANCE and notify by email.",
+  steps: [
+    {
+      step_type: "trigger.schedule",
+      label: "Every weekday at 3:00 PM IST",
+      config: { cron: "0 15 * * 1-5", timezone: "Asia/Kolkata" },
+    },
+    {
+      step_type: "fetch.portfolio",
+      label: "Get my portfolio",
+      config: {},
+    },
+    {
+      step_type: "condition.numeric",
+      label: "Buying power above ₹50,000",
+      config: {
+        left: "{{ context.1.buying_power }}",
+        operator: ">",
+        right: 50000,
+      },
+    },
+    {
+      step_type: "action.place_order",
+      label: "Buy 10 RELIANCE",
+      config: {
+        symbol: "RELIANCE",
+        side: "buy",
+        quantity: 10,
+        order_type: "market",
+        requires_approval: true,
+      },
+    },
+    {
+      step_type: "notify.message",
+      label: "Email me a confirmation",
+      config: {
+        channel: "email",
+        template: "Bought {{ context.3.broker_order_id }}: 10 RELIANCE",
+        vars: {},
+      },
+    },
+  ],
+  rationale:
+    "Daily schedule fires at 3:00 PM IST; the portfolio fetch + numeric guard prevents over-leveraged orders. Approval is required before the order is placed.",
+  warnings: [
+    "Market orders fill at the next available price — buying power check is a guard, not a guarantee.",
+  ],
+  _render_hint: "workflow_draft_card",
+};
+
+const DEMO_INTRO =
+  "Got it — here's a draft workflow for that strategy. Review the steps on the right and activate when ready.";
+
+const DEMO_SEED: ChatDemoSeed = {
+  userText: DEMO_USER_PROMPT,
+  intro: DEMO_INTRO,
+  draft: DEMO_DRAFT,
+};
+
+const MORE_EXAMPLE_PROMPTS: string[] = [
+  "If Apple confirms iPhone manufacturing expansion in India by Friday, buy a basket of 5 Indian electronics manufacturing stocks.",
+  "At market open, buy 10 HDFCBANK. By 2 PM, if SEBI penalises any large private bank, short HDFCBANK to neutral; otherwise hold.",
+  "If Moody's upgrades India's sovereign rating before Friday close, buy a basket of large-cap PSU banks.",
 ];
 
 // ---------------------------------------------------------------------------
@@ -139,6 +224,8 @@ export function DashboardTab({
   const [indices, setIndices] = useState<IndicesState>({ kind: "loading" });
   const [me, setMe] = useState<MeState>({ kind: "loading" });
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
+  const [showMoreExamples, setShowMoreExamples] = useState(false);
+  const [demoSeed, setDemoSeed] = useState<ChatDemoSeed | undefined>(undefined);
 
   useEffect(() => {
     getMarketIndices()
@@ -175,6 +262,12 @@ export function DashboardTab({
       onOpenCalendar();
       return;
     }
+    if (chip.action === "demo") {
+      // Re-seed by passing a fresh object so React's Object.is check fires
+      // even if the user clicks "Play demo" repeatedly after a "New chat".
+      setDemoSeed({ ...DEMO_SEED });
+      return;
+    }
     if (chip.prompt) setPendingPrompt(chip.prompt);
   };
 
@@ -205,14 +298,95 @@ export function DashboardTab({
 
       {/* Quick action pills */}
       <div
-        className="flex w-full flex-wrap items-center justify-center"
-        style={{ gap: 8, maxWidth: 820 }}
-        role="group"
-        aria-label="Quick actions"
+        className="flex w-full flex-col items-center"
+        style={{ gap: 10, maxWidth: 820 }}
       >
-        {ACTION_CHIPS.map((chip) => (
-          <ActionChip key={chip.label} chip={chip} onClick={() => handleChipClick(chip)} />
-        ))}
+        <div
+          className="flex w-full flex-wrap items-center justify-center"
+          style={{ gap: 8 }}
+          role="group"
+          aria-label="Quick actions"
+        >
+          {ACTION_CHIPS.map((chip) => (
+            <ActionChip key={chip.label} chip={chip} onClick={() => handleChipClick(chip)} />
+          ))}
+        </div>
+
+        {/* "Show more examples" toggle — reveals news-gated workflow prompts */}
+        <div className="flex w-full flex-col items-center" style={{ gap: 8 }}>
+          <button
+            type="button"
+            aria-expanded={showMoreExamples}
+            onClick={() => setShowMoreExamples((v) => !v)}
+            style={{
+              fontSize: 11.5,
+              color: "var(--text-tertiary)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "2px 6px",
+              borderRadius: "var(--radius-xs)",
+              fontFamily: "var(--font-ui)",
+              transition: "color 0.2s var(--ease-quartr)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-tertiary)"; }}
+          >
+            {showMoreExamples ? "Hide examples" : "Show more examples"}
+          </button>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              gap: 8,
+              maxWidth: 820,
+              opacity: showMoreExamples ? 1 : 0,
+              maxHeight: showMoreExamples ? 200 : 0,
+              overflow: "hidden",
+              transition: "opacity 0.25s var(--ease-quartr), max-height 0.3s var(--ease-quartr)",
+              pointerEvents: showMoreExamples ? "auto" : "none",
+            }}
+          >
+            {MORE_EXAMPLE_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => setPendingPrompt(prompt)}
+                className="inline-flex items-center"
+                style={{
+                  gap: 8,
+                  padding: "9px 14px",
+                  background: "var(--bg-base)",
+                  border: "1px solid var(--glass-border)",
+                  borderRadius: "var(--radius-pill)",
+                  color: "var(--text-secondary)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12.5,
+                  fontWeight: "var(--weight-medium)" as unknown as number,
+                  cursor: "pointer",
+                  maxWidth: 380,
+                  textAlign: "left",
+                  lineHeight: 1.4,
+                  transition:
+                    "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr), border-color 0.35s var(--ease-quartr)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--text-primary)";
+                  e.currentTarget.style.borderColor = "var(--glass-border-hover)";
+                  e.currentTarget.style.background = "var(--bg-elevated)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                  e.currentTarget.style.borderColor = "var(--glass-border)";
+                  e.currentTarget.style.background = "var(--bg-base)";
+                }}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -230,6 +404,8 @@ export function DashboardTab({
         prefillAutoSubmit
         onPrefillConsumed={() => setPendingPrompt(undefined)}
         onActiveChange={onChatActiveChange}
+        demoSeed={demoSeed}
+        onDemoSeedConsumed={() => setDemoSeed(undefined)}
       />
     </div>
   );

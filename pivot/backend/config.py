@@ -5,6 +5,10 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # Database
     database_url: str
+    # Read-only DSN for the Moneycontrol-derived fundamentals DB
+    # (mc.companies, mc.statement_lines, mc.daily_prices). Maintained by
+    # pivot-mc-scraper. Backend only reads — never writes.
+    financials_dsn: str = "postgresql://pivot_user:pivot_password@localhost:5432/financials"
 
     # Redis
     redis_url: str
@@ -28,10 +32,25 @@ class Settings(BaseSettings):
     sarvam_api_key: str = ""
     openai_api_key: str = ""
 
+    # Azure AI Foundry (chat base URL is the /openai/v1 path on the
+    # services.ai.azure.com host — Foundry, not the empty *.openai.azure.com
+    # resource). LLM_PROVIDER=azure selects this client.
+    azure_openai_endpoint: str = ""
+    azure_openai_legacy_endpoint: str = ""
+    azure_project_endpoint: str = ""
+    azure_key: str = ""
+
+    # News (used by backend/triggers/* for news-driven event triggers).
+    # Free-tier NewsAPI.org account — see news_client.py for fetch logic.
+    # Leave blank to disable real polling (fetch_news returns [] + warns).
+    newsapi_key: str = ""
+
     # LLM provider selection (read by backend.llm.factory).
-    # `llm_provider`: "openai" | "sarvam".  Default openai once we have a key.
+    # `llm_provider`: "openai" | "sarvam" | "azure".
     # `llm_model`:    overrides the per-provider default (gpt-5-mini /
-    #                 sarvam-m). Leave blank to keep the default.
+    #                 sarvam-m / gpt-5.4-mini). For azure this is the
+    #                 *deployment name* from the Azure portal, not the
+    #                 underlying model id.
     llm_provider: str = "openai"
     llm_model: str = ""
 

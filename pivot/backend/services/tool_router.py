@@ -34,21 +34,29 @@ from typing import Optional
 # on. Including the macros up-front means a "buy 5 NIFTYBEES every
 # weekday" prompt sees them even if the keyword router didn't classify
 # the message as agent-y.
-# `propose_workflow` is INTENTIONALLY excluded from this set. Its
-# tool schema is ~5,500 input tokens — including it on every turn
-# cost the cache prefix ~76% of its total budget. Router rules
-# below explicitly add `propose_workflow` whenever the message
-# carries an agent / order / build / threshold / basket / analytics
-# signal, so the model still sees it whenever it could plausibly
-# need it. The only paths that lose it are pure read-only intents
-# (price, portfolio summary, greetings, definitions) where you'd
-# never call it anyway. Net: ~5,500 tokens saved per non-agent
-# turn at zero functional cost.
+#
+# `propose_workflow` is included now that its LLM-facing schema was
+# collapsed from a 41-branch oneOf discriminated union into a flat
+# `{step_type: enum, config: object}` shape (see
+# `backend/agents/tools.py::_build_propose_workflow_schema`). Full tool
+# object dropped from ~39,955 B (~9,988 tok) to ~7,362 B (~1,840 tok),
+# so the cost of unconditional inclusion is ~1.8k tokens/turn — small
+# enough to justify removing the route-misclassification risk where a
+# multi-step prompt missed every keyword rule. Server-side Pydantic
+# models in `workflows/schemas.py` still validate each step's config,
+# so the trim does not weaken safety. The keyword rules below still
+# mention `propose_workflow` for clarity; the redundancy is harmless.
 _ALWAYS_INCLUDE: frozenset[str] = frozenset({
+    "propose_workflow",
     "propose_scheduled_order",
     "propose_threshold_order",
     "propose_basket_allocation",
     "propose_holding_action",
+    # `find_tool` is the lazy-load escape hatch when no keyword rule
+    # surfaces the right tool. The schema itself is tiny (one string +
+    # one int), so the cost of unconditional inclusion is negligible
+    # vs. the failure mode of the model not knowing the escape exists.
+    "find_tool",
     "ASK_USER",  # synthetic; added by the chat service, not the registry
 })
 
@@ -418,6 +426,13 @@ def cache_key_for(selected: Optional[set[str]]) -> str:
 
     Returns a string like ``"pivot-chat-v2-fb1c83"``. The hash space
     is ample: 24 bits = 16M routes, vs ~50 plausible toolsets.
+
+    Note on find_tool / lazy-load: callers MUST pass the *final* tool
+    name set (router selection ∪ loaded_extras) on each hop. If
+    `find_tool` surfaces e.g. `get_indicator` on hop N and we lazy-load
+    it for hop N+1, the prompt cache key must differ from a hop that
+    never called find_tool — otherwise the prefix bytes change but the
+    OpenAI cache routing collapses two distinct surfaces into one slot.
     """
     if not selected:
         return f"{_CACHE_KEY_PREFIX}-all"

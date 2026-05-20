@@ -12,9 +12,13 @@ import {
 import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
 import type { Workflow } from "@/lib/types";
 
-const MIN_WIDTH = 380;
-const MAX_WIDTH = 920;
-const DEFAULT_WIDTH = 460;
+export const AGENT_PANEL_MIN_WIDTH = 380;
+export const AGENT_PANEL_MAX_WIDTH = 920;
+export const AGENT_PANEL_DEFAULT_WIDTH = 460;
+
+const MIN_WIDTH = AGENT_PANEL_MIN_WIDTH;
+const MAX_WIDTH = AGENT_PANEL_MAX_WIDTH;
+const DEFAULT_WIDTH = AGENT_PANEL_DEFAULT_WIDTH;
 
 export type AgentPanelProps = {
   open: boolean;
@@ -26,6 +30,11 @@ export type AgentPanelProps = {
    * - AgentsTab row click (saved workflow, has id)
    */
   initialWorkflow?: Workflow;
+  /** Controlled width. When provided, the panel renders at this width and
+   * notifies the parent through `onWidthChange` so the parent can reserve
+   * matching space in its own layout (avoid panel-over-content overlap). */
+  width?: number;
+  onWidthChange?: (width: number) => void;
 };
 
 /**
@@ -46,8 +55,18 @@ export function AgentPanel({
   open,
   onOpenChange,
   initialWorkflow,
+  width: controlledWidth,
+  onWidthChange,
 }: AgentPanelProps): React.ReactElement | null {
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [internalWidth, setInternalWidth] = useState(DEFAULT_WIDTH);
+  const width = controlledWidth ?? internalWidth;
+  const setWidth = useCallback(
+    (next: number) => {
+      if (controlledWidth === undefined) setInternalWidth(next);
+      onWidthChange?.(next);
+    },
+    [controlledWidth, onWidthChange],
+  );
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
 
@@ -64,39 +83,11 @@ export function AgentPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onOpenChange]);
 
-  // Click-outside-to-close. We attach on the next tick so the click that
-  // opened the panel (e.g. "Open in editor" in chat) doesn't immediately
-  // close it. Clicks inside portaled popovers/dialogs/menus that the panel
-  // spawns (StepTypePicker, StepConfigDrawer, Radix dropdowns) render
-  // outside the panel DOM — we treat those as "inside" so they don't dismiss
-  // the panel either.
-  useEffect(() => {
-    if (!open) return;
-    let armed = false;
-    const armId = window.setTimeout(() => {
-      armed = true;
-    }, 0);
-    const onPointerDown = (e: PointerEvent) => {
-      if (!armed) return;
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (panelRef.current?.contains(target)) return;
-      // Ignore clicks landing inside Radix portals (popovers, dropdowns,
-      // dialogs) so the panel doesn't close when the user interacts with
-      // a control it spawned.
-      if (target instanceof Element) {
-        if (target.closest("[role='dialog'], [role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-sonner-toaster]")) {
-          return;
-        }
-      }
-      onOpenChange(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => {
-      window.clearTimeout(armId);
-      document.removeEventListener("pointerdown", onPointerDown, true);
-    };
-  }, [open, onOpenChange]);
+  // Click-outside-to-close was removed when the shell started reserving
+  // `paddingRight` on the body to host the panel as a true side-by-side
+  // surface: the chat composer + cards are visible next to the editor, and
+  // every click there would otherwise dismiss the editor. The Esc key
+  // listener + the header X button remain the supported close affordances.
 
   const onPointerMove = useCallback((e: PointerEvent) => {
     if (!dragState.current) return;

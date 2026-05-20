@@ -511,6 +511,55 @@ export function getPortfolioHoldings(): Promise<ApiResult<Holding[]>> {
 }
 
 // ---------------------------------------------------------------------------
+// Financials — Moneycontrol-derived `financials` Postgres DB.
+// GET /api/financials/{symbol} returns company metadata + latest snapshot
+// of every named field + multi-year history for headline P&L lines. The
+// stock detail page falls back to its placeholder rendering when
+// `available === false`.
+// ---------------------------------------------------------------------------
+
+export type FinancialsCompany = {
+  sc_id: string;
+  name: string;
+  nse_symbol: string | null;
+  bse_code: string | null;
+  ticker: string | null;
+  sector: string | null;
+  industry_slug: string | null;
+  market_cap: number | null;
+  is_active: boolean;
+};
+
+export type FinancialsLatestValue = {
+  value: number;
+  period_end: string | null;
+  period_label: string;
+  line_item: string;
+  unit: string | null;
+  basis: string;
+};
+
+export type FinancialsHistoryPoint = {
+  period_end: string | null;
+  period_label: string;
+  value: number | null;
+  unit: string | null;
+};
+
+export type FinancialsResponse = {
+  available: boolean;
+  company: FinancialsCompany | null;
+  latest: Record<string, FinancialsLatestValue | null>;
+  history: Record<string, FinancialsHistoryPoint[]>;
+  source: string;
+};
+
+/** `GET /api/financials/{symbol}` — fundamentals from the Moneycontrol DB. */
+export function getFinancials(symbol: string): Promise<ApiResult<FinancialsResponse>> {
+  return request<FinancialsResponse>(`/financials/${encodeURIComponent(symbol)}`);
+}
+
+// ---------------------------------------------------------------------------
 // Orders — chat-confirm register flow (POST /orders/register)
 //
 // v1 design: chat builds a LogicCard; user clicks "Confirm & register";
@@ -627,6 +676,10 @@ export type StockQuote = {
   market_cap: number | null;
   pe_ratio: number | null;
   sector: string | null;
+  /** Phase 2: true when the quote came from Kite (WS or REST). */
+  live?: boolean;
+  /** Phase 2: which data source produced this quote. */
+  source?: "kite_ws" | "kite_rest" | "yfinance";
 };
 
 export type SparklinePoint = { t: string; v: number };

@@ -27,6 +27,12 @@ SECTOR_MAP = {
 
 def get_user_id(authorization: str = Header(None)) -> int:
     if not authorization:
+        # Mirror the chat router (backend/routers/chat.py): in development
+        # we fall back to the default dev user so the FE works without
+        # a login flow. Production still requires a real token.
+        from backend.config import settings as _cfg
+        if getattr(_cfg, "app_env", "development") == "development":
+            return 1
         raise HTTPException(status_code=401, detail="Missing token")
     uid = get_user_id_from_token(authorization.replace("Bearer ", ""))
     if not uid:

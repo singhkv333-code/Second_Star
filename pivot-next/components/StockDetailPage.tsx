@@ -54,11 +54,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getStockQuote,
   getSparkline,
+  getFinancials,
   type StockQuote,
   type SparklineRange,
   type SparklineResponse,
+  type FinancialsResponse,
+  type FinancialsHistoryPoint,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { useLiveQuote } from "@/hooks/useLiveQuote";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,6 +144,10 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("5Y");
   const [bookmarked, setBookmarked] = useState(false);
+  const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
+
+  // Phase 2: live price overlay via WS (falls back to REST if WS is down).
+  const liveQuote = useLiveQuote(symbol);
 
   // Comparison roster: the page's primary ticker is always at index 0.
   // Peers are appended via the search bar.
@@ -167,6 +175,28 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         }),
       );
     setTickers([symbol.toUpperCase()]);
+  }, [symbol]);
+
+  // ── Financials (Moneycontrol DB) ──────────────────────────────────────
+  // Fetches the company's fundamentals snapshot + history. Falls through
+  // to the existing placeholder RNG when `available: false` so the page
+  // still renders for symbols outside the MC scrape.
+  useEffect(() => {
+    let cancelled = false;
+    setFinancials(null);
+    getFinancials(symbol)
+      .then((res) => {
+        if (cancelled) return;
+        if (isError(res)) {
+          setFinancials(null);
+        } else {
+          setFinancials(res.data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFinancials(null);
+      });
+    return () => { cancelled = true; };
   }, [symbol]);
 
   // ── Sparkline series (one per ticker) ──────────────────────────────────
@@ -247,6 +277,8 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           quote={quoteState.quote}
           bookmarked={bookmarked}
           onToggleBookmark={() => setBookmarked((b) => !b)}
+          liveLtp={liveQuote.ltp}
+          isLive={liveQuote.isLive}
         />
       )}
 
@@ -283,6 +315,12 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         </div>
       </div>
 
+      {/* Key Metrics — snapshot tiles from the financials DB. Skipped
+          entirely when the symbol has no MC entry. */}
+      {quoteState.kind === "ok" && financials && financials.available && (
+        <KeyMetricsStrip financials={financials} />
+      )}
+
       {/* Bottom block — Financials and P&L sit side-by-side with the
           screener's bordered-table look; News spans full width below.
           Both tables pad to the longer of the two so they share an
@@ -296,10 +334,12 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <FinancialsTable
               quote={quoteState.quote}
               minRows={SHARED_TABLE_ROWS}
+              financials={financials}
             />
             <ProfitLossTable
               quote={quoteState.quote}
               minRows={SHARED_TABLE_ROWS}
+              financials={financials}
             />
           </div>
           <div style={{ marginTop: 14 }}>
@@ -319,11 +359,16 @@ function Header({
   quote,
   bookmarked,
   onToggleBookmark,
+  liveLtp,
+  isLive,
 }: {
   quote: StockQuote;
   bookmarked: boolean;
   onToggleBookmark: () => void;
+  liveLtp?: number | null;
+  isLive?: boolean;
 }): React.ReactElement {
+  const displayLtp = liveLtp ?? quote.ltp;
   const positive = quote.change_pct >= 0;
   const initial = quote.name.trim()[0]?.toUpperCase() ?? quote.symbol[0]?.toUpperCase() ?? "•";
   const hue = brandGlyphHue(quote.sector);
@@ -419,16 +464,31 @@ function Header({
       {/* Price + day chip */}
       <div className="flex items-baseline" style={{ gap: 12, marginLeft: "auto" }}>
         <span
-          className="tabular-nums"
+          className="inline-flex items-center tabular-nums"
           style={{
             fontFamily: "var(--font-ui)",
             fontSize: 28,
             fontWeight: 600,
             letterSpacing: "-0.02em",
             color: "var(--text-primary)",
+            gap: 8,
           }}
         >
-          {INR.format(quote.ltp)}
+          {INR.format(displayLtp)}
+          {/* Live/delayed dot */}
+          <span
+            title={isLive ? "Live price" : "Delayed price"}
+            aria-label={isLive ? "Live price" : "Delayed price"}
+            style={{
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: isLive ? "#10b981" : "var(--text-tertiary)",
+              flexShrink: 0,
+            }}
+            data-testid={isLive ? "live-dot" : "delayed-dot"}
+          />
         </span>
         <span
           className="inline-flex items-center"
@@ -2117,23 +2177,269 @@ function buildProfitLoss(quote: StockQuote): FinancialRow[] {
 function FinancialsTable({
   quote,
   minRows,
+  financials,
 }: {
   quote: StockQuote;
   minRows: number;
+  financials: FinancialsResponse | null;
 }): React.ReactElement {
-  const rows = useMemo(() => buildFinancials(quote), [quote]);
-  return <FinancialsLikeTable title="Financials" rows={rows} minRows={minRows} />;
+  const rows = useMemo(() => {
+    if (financials?.available) return buildFinancialsFromDB(financials);
+    return buildFinancials(quote);
+  }, [quote, financials]);
+  const source = financials?.available ? "Moneycontrol" : "placeholder";
+  return (
+    <FinancialsLikeTable
+      title="Financials"
+      subtitle={source}
+      rows={rows}
+      minRows={minRows}
+    />
+  );
 }
 
 function ProfitLossTable({
   quote,
   minRows,
+  financials,
 }: {
   quote: StockQuote;
   minRows: number;
+  financials: FinancialsResponse | null;
 }): React.ReactElement {
-  const rows = useMemo(() => buildProfitLoss(quote), [quote]);
-  return <FinancialsLikeTable title="Profit & Loss" rows={rows} minRows={minRows} />;
+  const rows = useMemo(() => {
+    if (financials?.available) return buildProfitLossFromDB(financials);
+    return buildProfitLoss(quote);
+  }, [quote, financials]);
+  const source = financials?.available ? "Moneycontrol" : "placeholder";
+  return (
+    <FinancialsLikeTable
+      title="Profit & Loss"
+      subtitle={source}
+      rows={rows}
+      minRows={minRows}
+    />
+  );
+}
+
+// ── Real-data builders ────────────────────────────────────────────────
+// Convert /api/financials/{symbol} response into the FinancialRow shape
+// the existing table renderer expects. We display the last 5 fiscal
+// years, descending (most recent on the left).
+
+function fmtCrFromMC(valueInCr: number | null): string {
+  if (valueInCr === null) return "—";
+  // MC publishes most P&L lines in Rs. Cr already, so we forward as-is.
+  return fmtCr(valueInCr * 1e7); // fmtCr expects rupees → ₹Cr handled inside
+}
+
+function yearLabel(periodEnd: string | null): string {
+  if (!periodEnd) return "—";
+  const y = periodEnd.slice(0, 4);
+  return `FY${y.slice(2)}`;
+}
+
+function buildFinancialsFromDB(f: FinancialsResponse): FinancialRow[] {
+  const revenue = f.history["revenue"] ?? [];
+  const op = f.history["operating_profit"] ?? [];
+  const net = f.history["net_profit"] ?? [];
+  const eps = f.history["eps_basic"] ?? [];
+  // Latest snapshot ratios are also rendered for at-a-glance ratios.
+  const opMarginLatest = f.latest["ebitda_margin"]?.value ?? null;
+
+  // Header years: take the union of periods, newest first, capped at 5.
+  const yearsSet = new Set<string>();
+  [revenue, op, net, eps].forEach((arr) =>
+    arr.forEach((r) => r.period_end && yearsSet.add(r.period_end)),
+  );
+  const years = Array.from(yearsSet).sort().reverse().slice(0, 5);
+  const headerRow: FinancialRow = {
+    label: "",
+    values: years.map(yearLabel),
+  };
+
+  const pick = (arr: FinancialsHistoryPoint[], year: string): number | null => {
+    const hit = arr.find((r) => r.period_end === year);
+    return hit?.value ?? null;
+  };
+
+  const rows: FinancialRow[] = [headerRow];
+  rows.push({
+    label: "Revenue",
+    values: years.map((y) => fmtCrFromMC(pick(revenue, y))),
+  });
+  rows.push({
+    label: "Operating Profit",
+    values: years.map((y) => fmtCrFromMC(pick(op, y))),
+  });
+  rows.push({
+    label: "Net Profit",
+    values: years.map((y) => fmtCrFromMC(pick(net, y))),
+  });
+  rows.push({
+    label: "EPS (₹)",
+    values: years.map((y) => {
+      const v = pick(eps, y);
+      return v === null ? "—" : v.toFixed(2);
+    }),
+  });
+  rows.push({
+    label: "EBITDA Margin",
+    values: years.map((_, i) =>
+      i === 0 && opMarginLatest !== null ? fmtPct(opMarginLatest, false) : "—",
+    ),
+  });
+  return rows;
+}
+
+function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
+  const revenue = f.history["revenue"] ?? [];
+  const op = f.history["operating_profit"] ?? [];
+  const net = f.history["net_profit"] ?? [];
+  const interest = f.history["interest_expense"] ?? [];
+  const cfo = f.history["cash_from_ops"] ?? [];
+
+  const yearsSet = new Set<string>();
+  [revenue, op, net, interest, cfo].forEach((arr) =>
+    arr.forEach((r) => r.period_end && yearsSet.add(r.period_end)),
+  );
+  const years = Array.from(yearsSet).sort().reverse().slice(0, 5);
+  const headerRow: FinancialRow = { label: "", values: years.map(yearLabel) };
+
+  const pick = (arr: FinancialsHistoryPoint[], year: string): number | null => {
+    const hit = arr.find((r) => r.period_end === year);
+    return hit?.value ?? null;
+  };
+
+  return [
+    headerRow,
+    {
+      label: "Revenue",
+      values: years.map((y) => fmtCrFromMC(pick(revenue, y))),
+    },
+    {
+      label: "Operating Profit",
+      values: years.map((y) => fmtCrFromMC(pick(op, y))),
+    },
+    {
+      label: "Interest Expense",
+      values: years.map((y) => fmtCrFromMC(pick(interest, y))),
+    },
+    {
+      label: "Net Profit",
+      values: years.map((y) => fmtCrFromMC(pick(net, y))),
+    },
+    {
+      label: "Cash from Ops",
+      values: years.map((y) => fmtCrFromMC(pick(cfo, y))),
+    },
+  ];
+}
+
+// ── Key Metrics tile strip ────────────────────────────────────────────
+// Eight at-a-glance ratios from the latest fiscal snapshot. Each tile
+// is a tiny stat with the named metric, its value, and the period.
+// Skipped entirely when the symbol has no MC entry — the page falls
+// back to its existing chart + placeholder tables.
+
+const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decimals?: number }> = [
+  { key: "roe",            label: "ROE",            suffix: "%", decimals: 2 },
+  { key: "roce",           label: "ROCE",           suffix: "%", decimals: 2 },
+  { key: "roa",            label: "ROA",            suffix: "%", decimals: 2 },
+  { key: "debt_to_equity", label: "D/E",            suffix: "x", decimals: 2 },
+  { key: "current_ratio",  label: "Current Ratio",  suffix: "x", decimals: 2 },
+  { key: "ev_to_ebitda",   label: "EV/EBITDA",      suffix: "x", decimals: 2 },
+  { key: "price_to_book",  label: "P/B",            suffix: "x", decimals: 2 },
+  { key: "net_profit_margin", label: "Net Margin",  suffix: "%", decimals: 2 },
+];
+
+function KeyMetricsStrip({
+  financials,
+}: {
+  financials: FinancialsResponse;
+}): React.ReactElement {
+  const period = (() => {
+    // All tiles come from the same fiscal year — surface it once.
+    for (const t of _METRIC_TILES) {
+      const v = financials.latest[t.key];
+      if (v) return v.period_label;
+    }
+    return null;
+  })();
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          marginBottom: 10,
+        }}
+      >
+        <h2
+          className="m-0"
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 13,
+            fontWeight: 600,
+            letterSpacing: "-0.01em",
+            color: "var(--text-primary)",
+          }}
+        >
+          Key Metrics
+        </h2>
+        {period && (
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+            As of {period} · Moneycontrol
+          </span>
+        )}
+      </div>
+      <div
+        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
+        style={{ gap: 8 }}
+      >
+        {_METRIC_TILES.map((t) => {
+          const v = financials.latest[t.key];
+          return (
+            <div
+              key={t.key}
+              style={{
+                background: "var(--bg-primary)",
+                border: "1px solid var(--glass-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "10px 12px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "var(--text-tertiary)",
+                  marginBottom: 4,
+                }}
+              >
+                {t.label}
+              </div>
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                }}
+              >
+                {v && v.value !== null
+                  ? `${v.value.toFixed(t.decimals ?? 2)}${t.suffix ?? ""}`
+                  : "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /** Screener-style table chrome: bordered card, sticky uppercase
@@ -2147,10 +2453,12 @@ function ProfitLossTable({
  *  at the same height. */
 function FinancialsLikeTable({
   title,
+  subtitle,
   rows,
   minRows,
 }: {
   title: string;
+  subtitle?: string;
   rows: FinancialRow[];
   minRows: number;
 }): React.ReactElement {
@@ -2162,19 +2470,32 @@ function FinancialsLikeTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <h2
-        className="m-0"
+      <div
         style={{
-          fontFamily: "var(--font-ui)",
-          fontSize: 13,
-          fontWeight: 600,
-          letterSpacing: "-0.01em",
-          color: "var(--text-primary)",
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
           marginBottom: 12,
         }}
       >
-        {title}
-      </h2>
+        <h2
+          className="m-0"
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 13,
+            fontWeight: 600,
+            letterSpacing: "-0.01em",
+            color: "var(--text-primary)",
+          }}
+        >
+          {title}
+        </h2>
+        {subtitle && (
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+            {subtitle}
+          </span>
+        )}
+      </div>
       <div
         style={{
           flex: 1,

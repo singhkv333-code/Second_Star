@@ -310,6 +310,7 @@ class CallTrace:
             input_tokens = int(self._usage.get("input_tokens", 0) or 0)
             output_tokens = int(self._usage.get("output_tokens", 0) or 0)
             reasoning_tokens = int(self._usage.get("reasoning_tokens", 0) or 0)
+            cached_input_tokens = int(self._usage.get("cached_tokens", 0) or 0)
             # Skip rows where the call clearly never happened (e.g. missing
             # API key short-circuit, transport error before any token was
             # exchanged). A zero-token entry would pollute the ledger
@@ -326,6 +327,7 @@ class CallTrace:
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     reasoning_tokens=reasoning_tokens,
+                    cached_input_tokens=cached_input_tokens,
                     latency_ms=float(latency_ms_int),
                 )
         except Exception:
@@ -341,6 +343,19 @@ class CallTrace:
             return
         if self._first_delta_t is None:
             self._first_delta_t = time.monotonic()
+
+    def set_cached_tokens(self, n: int) -> None:
+        """Record the cached-input-token count for this call.
+
+        Called by clients that have an explicit prompt-cache surface
+        (OpenAI Responses API). The value flows into the cost ledger via
+        ``self._usage["cached_tokens"]`` on close. Idempotent — last
+        write wins. ``set_response`` / ``set_stream_result`` also pick
+        this up via their usage payload, so a client may omit the
+        explicit call; this setter exists for clarity at the extraction
+        site.
+        """
+        self._usage["cached_tokens"] = max(0, int(n or 0))
 
     def set_response(self, response: Any) -> None:
         # Usage capture runs UNCONDITIONALLY — the cost ledger reads it

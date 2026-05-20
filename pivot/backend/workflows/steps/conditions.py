@@ -17,6 +17,7 @@ from typing import Any, Optional
 from backend.workflows.engine import _ConditionFail
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
+    ConditionBooleanConfig,
     ConditionMarketStatusConfig,
     ConditionNumericConfig,
     ConditionPositionConfig,
@@ -97,6 +98,54 @@ async def execute_condition_numeric(ctx: Any) -> Optional[dict[str, Any]]:
     right = _coerce_number(cfg["right"], "right")
     op = cfg["operator"]
     if _evaluate(left, op, right):
+        return {"passed": True}
+    raise _ConditionFail
+
+
+def _coerce_bool(v: Any) -> bool:
+    """Refs may resolve to a Python bool, a "true"/"false" string, or
+    a 0/1 int. Coerce all three to the canonical bool; raise otherwise."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return bool(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("true", "1", "yes", "y", "on"):
+            return True
+        if s in ("false", "0", "no", "n", "off", ""):
+            return False
+        raise ValueError(
+            f"condition.boolean.left resolved to {v!r} — expected boolean"
+        )
+    raise ValueError(
+        f"condition.boolean.left resolved to {type(v).__name__} — "
+        f"expected boolean"
+    )
+
+
+@register_step(
+    step_type="condition.boolean",
+    category="condition",
+    label="Boolean check",
+    description=(
+        "Pass when a boolean ref equals the expected value "
+        "(e.g. fetch.news's `matched`)"
+    ),
+    icon="check-circle",
+    max_retries=0,
+    trigger_only=False,
+    config_model=ConditionBooleanConfig,
+    output_schema=_CONDITION_OUTPUT_SCHEMA,
+)
+async def execute_condition_boolean(ctx: Any) -> Optional[dict[str, Any]]:
+    """Boolean equality gate. Pass when ``coerce_bool(left) == value``,
+    otherwise raise ``_ConditionFail`` so the engine completes the run
+    with ``succeeded`` + ``halt_reason='condition_not_met'``."""
+    cfg = ctx.config
+    left = _coerce_bool(cfg["left"])
+    expected = bool(cfg.get("value", True))
+    if left == expected:
         return {"passed": True}
     raise _ConditionFail
 

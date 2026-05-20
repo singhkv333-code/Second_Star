@@ -2,8 +2,10 @@
 
 LLM_PROVIDER=openai (default) → LLMOpenAI
 LLM_PROVIDER=sarvam            → LLMSarvam
+LLM_PROVIDER=azure             → LLMAzureOpenAI (Foundry /openai/v1)
 
-LLM_MODEL overrides the per-provider default ('gpt-5-mini' / 'sarvam-m').
+LLM_MODEL overrides the per-provider default ('gpt-5-mini' / 'sarvam-m'
+/ 'gpt-5.4-mini'). For Azure, LLM_MODEL is the deployment name.
 Switch providers at runtime by setting these env vars and calling
 `reset_llm_client_cache()`. Tests use this to swap to a stub client.
 """
@@ -30,8 +32,11 @@ def _build_client(provider: str, model: Optional[str]) -> LLMClient:
     if provider == "sarvam":
         from backend.llm.sarvam_client import LLMSarvam
         return LLMSarvam(model=model)
+    if provider == "azure":
+        from backend.llm.azure_client import LLMAzureOpenAI
+        return LLMAzureOpenAI(model=model)
     raise ValueError(
-        f"Unknown LLM_PROVIDER {provider!r}; expected 'openai' or 'sarvam'"
+        f"Unknown LLM_PROVIDER {provider!r}; expected 'openai', 'sarvam', or 'azure'"
     )
 
 

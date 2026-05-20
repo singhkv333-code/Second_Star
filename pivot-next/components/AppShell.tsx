@@ -35,7 +35,6 @@ import {
   MessageSquare,
   Monitor,
   Moon,
-  Newspaper,
   PieChart,
   Plus,
   Search,
@@ -49,7 +48,7 @@ import {
   KiteCredentialsPanel,
   type KiteOAuthResult,
 } from "@/components/KiteCredentialsPanel";
-import { AgentPanel } from "@/components/agent-panel/AgentPanel";
+import { AgentPanel, AGENT_PANEL_DEFAULT_WIDTH } from "@/components/agent-panel/AgentPanel";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
@@ -74,7 +73,6 @@ import { isError } from "@/lib/types";
 type TabKey =
   | "chat"
   | "portfolio"
-  | "news"
   | "agents"
   | "calendar"
   | "screener";
@@ -86,7 +84,6 @@ const NAV_ITEMS: {
 }[] = [
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
-  { key: "news", label: "News", Icon: Newspaper },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
@@ -204,6 +201,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [active, setActive] = useState<TabKey>(DEFAULT_TAB);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(undefined);
+  // Track the right-side AgentPanel's width here so the main pane can reserve
+  // matching padding-right when the panel is open — keeps chat and editor
+  // side-by-side instead of letting the panel overlap the chat column.
+  const [panelWidth, setPanelWidth] = useState(AGENT_PANEL_DEFAULT_WIDTH);
   const [kitePanelOpen, setKitePanelOpen] = useState(false);
   const [kiteOauthResult, setKiteOauthResult] = useState<KiteOAuthResult | null>(
     null,
@@ -379,8 +380,17 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenKite={() => setKitePanelOpen(true)}
       />
 
-      {/* Body: sidebar + content */}
-      <div className="flex flex-1 min-h-0">
+      {/* Body: sidebar + content. When the right-side AgentPanel is open we
+          reserve `paddingRight` equal to its current width so the panel sits
+          beside the chat instead of overlapping it. Animated to match the
+          panel's resize feel. */}
+      <div
+        className="flex flex-1 min-h-0"
+        style={{
+          paddingRight: panelOpen ? `${panelWidth}px` : 0,
+          transition: "padding-right 220ms cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+      >
         {/* Left sidebar */}
         <Sidebar
           active={active}
@@ -408,7 +418,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   so it doesn't collide with right-aligned user bubbles.
                   Bumping `chatResetKey` remounts DashboardTab, which
                   clears messages and starts a new session. */}
-              {chatActive && (
+              {chatActive && !panelOpen && (
                 <button
                   type="button"
                   onClick={() => {
@@ -420,7 +430,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   className="absolute z-10 inline-flex items-center"
                   style={{
                     top: 14,
-                    right: 18,
+                    // Track the chat column's right edge so the button
+                    // always sits in the right-side gap (just outside the
+                    // column), regardless of pane width. Math:
+                    //   right = pane_right - column_right - 8px - button_width
+                    //         = 50% - col_half - 8px - ~93px
+                    // With col = 58rem (col_half = 29rem) → 50% - 29rem - 101px.
+                    // Clamps to 18px on narrow viewports where the column
+                    // hits the pane edge.
+                    right: "max(18px, calc(50% - 29rem - 101px))",
                     gap: 6,
                     height: 32,
                     padding: "0 12px",
@@ -452,15 +470,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               <div
                 className="mx-auto flex h-full w-full min-h-0 flex-col px-6"
                 style={{
-                  // Smoothly lengthen the chat column when a
-                  // conversation starts (from 48rem to 64rem). Top
-                  // padding pushes the thread below the floating
-                  // "New chat" button so the first user bubble doesn't
-                  // crash into it.
-                  maxWidth: chatActive ? "64rem" : "48rem",
-                  paddingTop: chatActive ? 56 : 0,
+                  // Slightly narrower active column (58rem vs 64rem before)
+                  // so the floating "New chat" button — positioned via calc
+                  // against the column's right edge — always lands in the
+                  // right-side gap on common viewports (1280+) without
+                  // colliding with right-aligned user bubbles.
+                  maxWidth: chatActive ? "58rem" : "48rem",
+                  paddingTop: 0,
                   transition:
-                    "max-width 500ms cubic-bezier(0.22, 1, 0.36, 1), padding-top 220ms var(--ease-quartr)",
+                    "max-width 500ms cubic-bezier(0.22, 1, 0.36, 1)",
                 }}
               >
                 <DashboardTab
@@ -493,7 +511,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
               {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
-              {active === "news" && <NewsPlaceholder />}
             </div>
           )}
         </main>
@@ -518,6 +535,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         open={panelOpen}
         onOpenChange={setPanelOpen}
         initialWorkflow={panelWorkflow}
+        width={panelWidth}
+        onWidthChange={setPanelWidth}
       />
 
       <KiteCredentialsPanel
@@ -1347,62 +1366,5 @@ function Sidebar({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Placeholder tabs
-// ---------------------------------------------------------------------------
-
-function NewsPlaceholder(): React.ReactElement {
-  return (
-    <div data-testid="news-placeholder" aria-label="News — coming soon">
-      <h1
-        className="q-serif"
-        style={{
-          fontSize: 22,
-          letterSpacing: "-0.025em",
-          color: "var(--text-primary)",
-          margin: "0 0 24px",
-        }}
-      >
-        News
-      </h1>
-      <div
-        className="flex flex-col items-center justify-center text-center"
-        style={{
-          padding: "64px 32px",
-          background: "var(--bg-primary)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-md)",
-        }}
-      >
-        <Newspaper
-          aria-hidden={true}
-          className="h-9 w-9"
-          style={{ color: "var(--text-tertiary)", marginBottom: 16 }}
-        />
-        <h2
-          className="q-display"
-          style={{
-            fontSize: 16,
-            color: "var(--text-primary)",
-            margin: 0,
-          }}
-        >
-          News integration coming in v2
-        </h2>
-        <p
-          style={{
-            margin: "8px 0 0",
-            maxWidth: 380,
-            fontSize: 13,
-            lineHeight: 1.55,
-            color: "var(--text-secondary)",
-          }}
-        >
-          Real-time market news, earnings announcements, and corporate actions
-          will appear here.
-        </p>
-      </div>
-    </div>
-  );
-}
+// (NewsPlaceholder removed — replaced by TriggersTab)
 

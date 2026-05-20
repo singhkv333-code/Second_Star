@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
+from collections import Counter
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from backend.agents.tool_executor import execute_tool as _legacy_execute_tool
 from backend.agents.tools import get_tool_defaults
@@ -77,6 +81,8 @@ _REAL_TOOLS: set[str] = {
     "propose_threshold_order",
     "propose_basket_allocation",
     "propose_holding_action",
+    # Meta tools — escape hatches for cases the regex router misses.
+    "find_tool",
 }
 
 
@@ -156,6 +162,257 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
     )
 
 
+# ---- find_tool: lazy-load search over the full tool catalog ------------
+#
+# When the regex router misses, the LLM can call `find_tool` with a
+# free-form intent. We compute a tiny BM25-style ranking over each tool's
+# (name + description) corpus and return the top matches. The chat hop
+# loop then lazy-loads the schemas of any tool the model names on the
+# next hop. Pure stdlib (Counter + math.log), no external deps.
+
+# Category bucketing: derived from the tool name. Used by find_tool's
+# response so the model has a coarse signal for what each match does.
+# Kept as ordered tuples so the FIRST match wins (e.g. `propose_*` lands
+# in `workflow` before any other prefix sneaks in).
+_FIND_TOOL_CATEGORIES: tuple[tuple[str, str], ...] = (
+    # Explicit overrides for special tools — handled first.
+    ("find_tool", "meta"),
+    ("ASK_USER", "meta"),
+    # Workflows / proposals.
+    ("propose_", "workflow"),
+    # Backtesting.
+    ("backtest_", "backtest"),
+    ("run_backtest", "backtest"),
+    # News.
+    ("news_", "news"),
+    ("get_news", "news"),
+    # Account / user / watchlist.
+    ("get_user_", "account"),
+    ("watchlist_", "account"),
+    # Order placement / management.
+    ("place_", "order"),
+    ("create_gtt", "order"),
+    ("create_sl", "order"),
+    ("create_oco", "order"),
+    ("create_dip", "order"),
+    ("create_sip", "order"),
+    ("create_strategy", "order"),
+    ("create_cash_sweep", "order"),
+    ("create_rebalancing", "order"),
+    ("create_drawdown", "order"),
+    ("cancel_", "order"),
+    ("modify_", "order"),
+    ("list_pending", "order"),
+    ("list_gtt", "order"),
+    ("list_sips", "order"),
+    ("list_strategies", "order"),
+    ("list_upcoming", "order"),
+    ("pause_", "order"),
+    ("resume_", "order"),
+    ("delete_", "order"),
+    ("squareoff_", "order"),
+    ("roll_", "order"),
+    # Indicators / analytics.
+    ("get_indicator", "indicator"),
+    ("get_multiple_indicators", "indicator"),
+    ("get_performance_metrics", "indicator"),
+    ("compare_performance", "indicator"),
+    ("get_correlation_matrix", "indicator"),
+    ("get_returns", "indicator"),
+    # Portfolio.
+    ("get_portfolio", "portfolio"),
+    ("get_holdings", "portfolio"),
+    ("get_holding", "portfolio"),
+    ("get_sector_breakdown", "portfolio"),
+    ("get_tax_summary", "portfolio"),
+    ("get_active_products", "portfolio"),
+    ("calculate_tax_impact", "portfolio"),
+    # Market data (generic — catch what's left).
+    ("get_live_price", "market_data"),
+    ("get_index_level", "market_data"),
+    ("get_ohlc", "market_data"),
+    ("get_market_status", "market_data"),
+    ("get_52wk_range", "market_data"),
+    ("get_price_history", "market_data"),
+    ("get_top_movers", "market_data"),
+    ("get_upcoming_events", "market_data"),
+    ("get_option_chain", "market_data"),
+    ("get_option_greeks", "market_data"),
+    ("get_margin_required", "market_data"),
+    ("get_product_spec", "portfolio"),
+    # Yields.
+    ("compare_yields", "market_data"),
+    ("get_yield_recommendation", "market_data"),
+    # Calculations.
+    ("calculate_", "indicator"),
+    # Scheduler.
+    ("get_scheduler_status", "meta"),
+)
+
+
+def _category_for(tool_name: str) -> str:
+    """Map a tool name → coarse category. First matching prefix wins."""
+    for prefix, cat in _FIND_TOOL_CATEGORIES:
+        if tool_name == prefix or tool_name.startswith(prefix):
+            return cat
+    return "meta"
+
+
+_TOKEN_RE = re.compile(r"[\W_]+")
+
+
+def _tokenize(text: str) -> list[str]:
+    """Lowercase, split on non-word chars, drop short tokens."""
+    if not text:
+        return []
+    return [t for t in _TOKEN_RE.split(text.lower()) if len(t) > 2]
+
+
+@dataclass
+class _FindToolIndex:
+    """In-memory inverted index over (name + description) per tool.
+
+    docs:           tool_name → list[tokens]
+    doc_token_freq: tool_name → Counter(token → tf)
+    doc_len:        tool_name → len(tokens)
+    avg_doc_len:    average doc length (for BM25 length norm)
+    idf:            token → idf weight
+    descriptions:   tool_name → full description (used for response trim)
+    """
+    docs: dict[str, list[str]] = field(default_factory=dict)
+    doc_token_freq: dict[str, Counter] = field(default_factory=dict)
+    doc_len: dict[str, int] = field(default_factory=dict)
+    avg_doc_len: float = 0.0
+    idf: dict[str, float] = field(default_factory=dict)
+    descriptions: dict[str, str] = field(default_factory=dict)
+
+
+@lru_cache(maxsize=1)
+def _find_tool_index() -> _FindToolIndex:
+    """Build the search index once over ALL_TOOLS.
+
+    Excludes the `find_tool` entry itself from the searchable corpus —
+    no point ranking it against its own queries.
+    """
+    _ensure_v2_tools_registered()
+    from backend.agents.tools import ALL_TOOLS
+
+    idx = _FindToolIndex()
+    df: Counter = Counter()
+    total_len = 0
+    n_docs = 0
+
+    for name, defn in ALL_TOOLS.items():
+        if name == "find_tool":
+            continue
+        fn = (defn.get("function") or {}) if isinstance(defn, dict) else {}
+        desc = fn.get("description") or ""
+        tokens = _tokenize(name) + _tokenize(desc)
+        if not tokens:
+            continue
+        idx.docs[name] = tokens
+        tf = Counter(tokens)
+        idx.doc_token_freq[name] = tf
+        idx.doc_len[name] = len(tokens)
+        idx.descriptions[name] = desc
+        for term in tf.keys():
+            df[term] += 1
+        total_len += len(tokens)
+        n_docs += 1
+
+    idx.avg_doc_len = (total_len / n_docs) if n_docs else 0.0
+    # BM25-style smoothed idf: log((N - df + 0.5) / (df + 0.5) + 1)
+    # The +1 inside the log keeps idf non-negative even for ubiquitous
+    # tokens — common short stopwords still have ~0 weight without
+    # going negative and inverting the score.
+    for term, count in df.items():
+        idx.idf[term] = math.log(((n_docs - count + 0.5) / (count + 0.5)) + 1.0)
+
+    return idx
+
+
+def _bm25_score(
+    idx: _FindToolIndex,
+    name: str,
+    query_tokens: list[str],
+    *,
+    k1: float = 1.5,
+    b: float = 0.75,
+) -> float:
+    """Compute a BM25 score for one (doc, query) pair."""
+    tf = idx.doc_token_freq.get(name)
+    if not tf:
+        return 0.0
+    dl = idx.doc_len.get(name, 0)
+    adl = idx.avg_doc_len or 1.0
+    score = 0.0
+    for term in query_tokens:
+        idf = idx.idf.get(term)
+        if not idf:
+            continue
+        f = tf.get(term, 0)
+        if not f:
+            continue
+        denom = f + k1 * (1 - b + b * (dl / adl))
+        score += idf * (f * (k1 + 1) / denom)
+    return score
+
+
+def _truncate_description(desc: str, *, cap: int = 240) -> str:
+    """Return the first sentence of `desc`, capped at `cap` chars."""
+    if not desc:
+        return ""
+    # Split on ". " — keep just the first sentence's content.
+    first = desc.split(". ", 1)[0].strip()
+    # Some descriptions end without a trailing period; re-add for clarity.
+    if not first.endswith("."):
+        first = first + "."
+    if len(first) > cap:
+        first = first[: cap - 1].rstrip() + "…"
+    return first
+
+
+async def _find_tool_handler(args: dict) -> dict:
+    """Handler for the `find_tool` meta-tool.
+
+    Args:
+        query: free-form intent string.
+        top_k: max matches to return (1..10, default 5).
+
+    Returns:
+        {"matches": [{"name", "description", "category"}, ...]}
+    """
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"matches": [], "note": "empty query"}
+    try:
+        top_k = int(args.get("top_k", 5) or 5)
+    except (TypeError, ValueError):
+        top_k = 5
+    top_k = max(1, min(top_k, 10))
+
+    idx = _find_tool_index()
+    query_tokens = _tokenize(query)
+    if not query_tokens:
+        return {"matches": [], "note": "no scorable tokens in query"}
+
+    scored: list[tuple[float, str]] = []
+    for name in idx.docs:
+        s = _bm25_score(idx, name, query_tokens)
+        if s > 0:
+            scored.append((s, name))
+    scored.sort(key=lambda p: (-p[0], p[1]))
+
+    matches: list[dict] = []
+    for _score, name in scored[:top_k]:
+        matches.append({
+            "name": name,
+            "description": _truncate_description(idx.descriptions.get(name, "")),
+            "category": _category_for(name),
+        })
+    return {"matches": matches}
+
+
 # ---- v2 tool definitions ----------------------------------------------
 #
 # These are registered into ALL_TOOLS lazily. We declare them here rather than
@@ -219,4 +476,7 @@ def _ensure_v2_tools_registered() -> None:
         "get_price_history": get_price_history,
         "get_52wk_range": get_52wk_range,
         "get_product_spec": get_product_spec,
+        # find_tool's schema is registered in agents/tools.py; the
+        # handler lives here next to the search index.
+        "find_tool": _find_tool_handler,
     })

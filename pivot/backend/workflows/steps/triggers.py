@@ -86,16 +86,62 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.event",
     category="trigger",
-    label="On market event",
-    description="Fire on an external event (RBI decision, results, FII flow)",
-    icon="bell",
+    label="On news event",
+    description=(
+        "Fire when a news article confirms a described event "
+        "(e.g. 'RBI announces a repo rate cut')"
+    ),
+    icon="newspaper",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerEventConfig,
-    output_schema=None,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "articles": {"type": "array"},
+            "matched": {"type": "boolean"},
+            "max_confidence": {"type": "number"},
+            "matched_count": {"type": "integer"},
+            "top_article": {"type": ["object", "null"]},
+            "event_description": {"type": "string"},
+        },
+        "required": [
+            "articles", "matched", "max_confidence",
+            "matched_count", "event_description",
+        ],
+    },
 )
 async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
-    raise NotImplementedError("trigger.event executor lands Day 4 with event sources")
+    """Single-shot news-event check.
+
+    Design note: ``poll_seconds`` / ``max_runtime_minutes`` are part of
+    the trigger config so the LLM can express *"watch for up to 2 hours"*
+    intent, but this executor does NOT block-poll inside one call. The
+    existing scheduler watcher (``backend/workflows/scheduler.py
+    :_poll_watch_triggers``) is only wired for ``trigger.price`` and
+    ``trigger.indicator`` today; arming a per-event polling loop in the
+    scheduler is a bigger change than this slice can absorb without
+    breaking the watcher contract.
+
+    Until that wiring lands, this executor performs ONE fetch+classify
+    pass on each scheduler invocation. The downstream steps see the
+    standard aggregate (``matched``, ``top_article``, etc.). A workflow
+    author who wants polling semantics today should pair this with a
+    ``trigger.schedule`` cron that re-fires the run every N minutes.
+
+    Reuses the same fetch+classify pipeline as ``fetch.news`` — see
+    ``backend.workflows.steps.fetches.execute_fetch_news`` for the
+    full flow. Trigger executors carry max_retries=0 so any raise
+    fails the run immediately (ARCHITECTURE.md §7 invariant 3).
+    """
+    from backend.workflows.steps.fetches import execute_fetch_news
+
+    # The two configs intentionally share the keyword / event_description
+    # / sources / min_confidence / hours_back fields, so we can delegate
+    # to fetch.news's executor wholesale. The extra trigger-only knobs
+    # (poll_seconds, max_runtime_minutes) are picked up by the scheduler,
+    # not the executor — silently ignored here is the correct shape.
+    return await execute_fetch_news(ctx)
 
 
 @register_step(

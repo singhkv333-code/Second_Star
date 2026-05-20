@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0)
-_API_URL = "https://api.openai.com/v1/responses"
+_API_URL = "https://api.openai.com/v1/responses"  # legacy module-level constant; LLMOpenAI.API_URL is the live source of truth.
 
 
 def _messages_to_input(messages: list[LLMMessage]) -> list[dict[str, Any]]:
@@ -150,13 +150,34 @@ def _parse_response(data: dict[str, Any]) -> tuple[Optional[str], list[dict[str,
 
 
 class LLMOpenAI(LLMClient):
-    """OpenAI Responses API client. Default model: gpt-5-mini."""
+    """OpenAI Responses API client. Default model: gpt-5-mini.
+
+    URL + auth-header strategy are class attributes so Azure-on-Foundry
+    can subclass and override (Azure uses `api-key:` header instead of
+    `Authorization: Bearer` and a tenant-specific base URL).
+    """
 
     provider_name = "openai"
+    API_URL: str = "https://api.openai.com/v1/responses"
 
     def __init__(self, model: Optional[str] = None, api_key: Optional[str] = None) -> None:
         self.model = model or settings.llm_model or "gpt-5-mini"
         self._api_key = api_key or settings.openai_api_key
+
+    def _auth_headers(self) -> dict[str, str]:
+        """Headers sent with every Responses-API call. Override in
+        subclasses with a different auth shape."""
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _translate_reasoning_effort(self, effort: Optional[str]) -> Optional[str]:
+        """Map our ReasoningEffort literal onto whatever the provider
+        accepts on the wire. OpenAI accepts 'minimal' natively; Azure
+        rejects it on gpt-5.4 deployments and wants 'none' instead.
+        Subclasses override to do the mapping."""
+        return effort
 
     async def complete(
         self,
@@ -203,7 +224,9 @@ class LLMOpenAI(LLMClient):
         if temperature is not None and not _is_reasoning_model(self.model):
             payload["temperature"] = temperature
         if reasoning_effort and _is_reasoning_model(self.model):
-            payload["reasoning"] = {"effort": reasoning_effort}
+            effort_on_wire = self._translate_reasoning_effort(reasoning_effort)
+            if effort_on_wire:
+                payload["reasoning"] = {"effort": effort_on_wire}
         if tools:
             payload["tools"] = _tools_to_responses_format(tools)
             if tool_choice in {"required", "none"}:
@@ -230,11 +253,8 @@ class LLMOpenAI(LLMClient):
             try:
                 async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
                     resp = await client.post(
-                        _API_URL,
-                        headers={
-                            "Authorization": f"Bearer {self._api_key}",
-                            "Content-Type": "application/json",
-                        },
+                        self.API_URL,
+                        headers=self._auth_headers(),
                         json=payload,
                     )
             except httpx.HTTPError as e:
@@ -269,6 +289,13 @@ class LLMOpenAI(LLMClient):
             content, tool_calls, finish = _parse_response(data)
 
             usage = data.get("usage") or {}
+            cached_tokens = int(
+                (usage.get("input_tokens_details") or {}).get("cached_tokens", 0) or 0
+            )
+            # Explicit hand-off to the trace so the cost ledger sees the
+            # cached-input subtotal even if the LLMResponse shape ever
+            # drops cached_tokens. Belt-and-brace with set_response below.
+            t.set_cached_tokens(cached_tokens)
             final = LLMResponse(
                 content=content,
                 tool_calls=tool_calls or None,
@@ -278,9 +305,7 @@ class LLMOpenAI(LLMClient):
                 reasoning_tokens=int(
                     (usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0
                 ),
-                cached_tokens=int(
-                    (usage.get("input_tokens_details") or {}).get("cached_tokens", 0) or 0
-                ),
+                cached_tokens=cached_tokens,
                 latency_ms=latency_ms,
                 model=data.get("model", self.model),
                 raw=data,
@@ -300,12 +325,13 @@ def _is_reasoning_model(name: str) -> bool:
 
 
 async def _stream_responses_api(
-    api_key: str,
+    url: str,
+    headers: dict[str, str],
     payload: dict[str, Any],
     timeout: httpx.Timeout,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Open a streamed POST to /v1/responses and yield each parsed SSE
-    event as a dict.
+    """Open a streamed POST to /v1/responses (or Azure equivalent) and
+    yield each parsed SSE event as a dict.
 
     The Responses API SSE protocol uses `event: <name>` followed by
     `data: <json>`. Each `data:` line is a complete event payload that
@@ -319,15 +345,13 @@ async def _stream_responses_api(
     """
     streamed_payload = dict(payload)
     streamed_payload["stream"] = True
+    sse_headers = dict(headers)
+    sse_headers["Accept"] = "text/event-stream"
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream(
             "POST",
-            _API_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "Accept": "text/event-stream",
-            },
+            url,
+            headers=sse_headers,
             json=streamed_payload,
         ) as resp:
             if resp.status_code != 200:
@@ -417,7 +441,9 @@ async def stream_openai(
     if temperature is not None and not _is_reasoning_model(client.model):
         payload["temperature"] = temperature
     if reasoning_effort and _is_reasoning_model(client.model):
-        payload["reasoning"] = {"effort": reasoning_effort}
+        effort_on_wire = client._translate_reasoning_effort(reasoning_effort)
+        if effort_on_wire:
+            payload["reasoning"] = {"effort": effort_on_wire}
     if tools:
         payload["tools"] = _tools_to_responses_format(tools)
         payload["tool_choice"] = tool_choice if tool_choice in {"required", "none"} else "auto"
@@ -433,7 +459,9 @@ async def stream_openai(
 
     with trace as t:
         try:
-            async for ev in _stream_responses_api(client._api_key, payload, _DEFAULT_TIMEOUT):
+            async for ev in _stream_responses_api(
+                client.API_URL, client._auth_headers(), payload, _DEFAULT_TIMEOUT,
+            ):
                 etype = ev.get("type", "")
                 if etype == "response.output_text.delta":
                     delta = ev.get("delta") or ""
@@ -471,6 +499,16 @@ async def stream_openai(
                 elif etype == "response.completed":
                     resp_obj = ev.get("response") or {}
                     usage = resp_obj.get("usage") or {}
+                    cached_tokens = int(
+                        (usage.get("input_tokens_details") or {}).get(
+                            "cached_tokens", 0
+                        ) or 0
+                    )
+                    # Explicit hand-off mirrors the non-streaming path —
+                    # set_stream_result also propagates cached_tokens via
+                    # the usage dict, but having the setter called at
+                    # extraction keeps the wiring symmetric.
+                    t.set_cached_tokens(cached_tokens)
                     final_usage = {
                         "input_tokens": int(usage.get("input_tokens", 0) or 0),
                         "output_tokens": int(usage.get("output_tokens", 0) or 0),
@@ -479,11 +517,7 @@ async def stream_openai(
                                 "reasoning_tokens", 0
                             ) or 0
                         ),
-                        "cached_tokens": int(
-                            (usage.get("input_tokens_details") or {}).get(
-                                "cached_tokens", 0
-                            ) or 0
-                        ),
+                        "cached_tokens": cached_tokens,
                         "finish_reason": resp_obj.get("status"),
                     }
                 yield ev

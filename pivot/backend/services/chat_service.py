@@ -162,6 +162,46 @@ _LATENT_GREETING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Defence-in-depth: the LLM sometimes mimics our internal fallback templates
+# and produces user-facing text that names internal tools verbatim
+# ("Done — `backtest_workflow` ran.", "I'll call get_live_price now"). The
+# system prompt explicitly forbids this; this regex strips any whole sentence
+# that contains a recognisable internal tool identifier.
+_INTERNAL_TOOL_NAME = re.compile(
+    # Matches the snake_case-shaped internal tool identifier pattern.
+    # Restricted prefixes so we don't accidentally strip legitimate prose
+    # that happens to contain underscores ("buy_back_program", etc).
+    r"`?\b(?:[a-z]+_workflow"
+    r"|propose_[a-z_]+|create_[a-z_]+|place_[a-z_]+"
+    r"|squareoff_[a-z_]+|get_[a-z_]+|list_[a-z_]+|cancel_[a-z_]+)\b`?",
+    re.IGNORECASE,
+)
+
+
+def _strip_internal_tool_leaks(text: str) -> str:
+    """Drop any sentence that names an internal tool identifier.
+
+    Sentence-level — preserves the rest of the reply if only one sentence
+    leaks. Used by _post_process as defence-in-depth on top of the system-
+    prompt rule that already forbids this phrasing.
+    """
+    if not text or not _INTERNAL_TOOL_NAME.search(text):
+        return text
+    # Split on sentence boundaries (. ? !) but keep paragraph breaks.
+    out_parts: list[str] = []
+    for para in re.split(r"(\n\s*\n)", text):
+        if not para or para.isspace():
+            out_parts.append(para)
+            continue
+        if para.startswith("\n"):
+            out_parts.append(para)
+            continue
+        # Sentence-split the paragraph.
+        sentences = re.split(r"(?<=[.!?])\s+", para)
+        kept = [s for s in sentences if not _INTERNAL_TOOL_NAME.search(s)]
+        out_parts.append(" ".join(kept))
+    return "".join(out_parts).strip()
+
 # Circuit breaker — caps how many tool round-trips one user turn can
 # trigger. The agentic loop is allowed to call several tools in a
 # row but not run away.
@@ -251,7 +291,24 @@ _AGENT_INTENT_RE = re.compile(
     # a tool-name leak AND the wrong answer. Adding "every X ... if" here
     # catches it as agent (checked first), keeping propose_workflow in scope.
     r"|\bevery\s+(?:weekday|monday|tuesday|wednesday|thursday|friday|day|week)\b"
-    r"[^\.]{0,300}\bif\b",
+    r"[^\.]{0,300}\bif\b"
+    # News/event-conditional: "if <institution>" or "if <news verb>". The
+    # whole prompt may span multiple sentences ("Buy 5 RELIANCE at open.
+    # At 10 AM IST, if RBI cuts the repo rate, sell ...") so we
+    # use re.DOTALL via `[\s\S]` rather than `[^\.]` for this branch.
+    # Always needs `fetch.news` + `condition.boolean` → agent.
+    r"|\bif\b[\s\S]{0,200}?\b(?:RBI|SEBI|MPC|FED|ECB|Moody'?s|S&P|Fitch|"
+    r"OpenAI|Apple|Google|Microsoft|Amazon|government|ministry|FII|DII|"
+    r"news|headlines?)\b"
+    r"|\bif\b[\s\S]{0,200}?\b(?:announces?|announced|cuts?|cut|raises?|"
+    r"hikes?|hiked|penali[sz]es?|penali[sz]ed|upgrades?|upgraded|"
+    r"downgrades?|downgraded|files?|filed|confirms?|confirmed|launches?|"
+    r"launched|approves?|approved|rejects?|rejected|imposes?|imposed|"
+    r"signals?|signalled|signaled)\b"
+    # Schedule-time + later condition: "at HH:MM ... if ..." — clearly
+    # a multi-step workflow with a delayed gate. The single-line variant
+    # already routed correctly; this catches the multi-sentence shape.
+    r"|\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|ist)\b[\s\S]{0,300}?\bif\b",
     re.IGNORECASE,
 )
 
@@ -579,6 +636,13 @@ _STASH_DRAFT_TOOLS: frozenset[str] = frozenset({
     "propose_workflow",
     "propose_threshold_order",
     "propose_scheduled_order",
+    "propose_basket_allocation",
+    "propose_holding_action",
+    # backtest_workflow draft cards are amendable too — "try it with
+    # 20/50 SMA instead", "add a trailing stop", "use 5 years not 3"
+    # were producing wrong-tool dispatches because the prior backtest
+    # draft never made it into the active-draft cache.
+    "backtest_workflow",
 })
 
 # All macro tools that produce draft cards — superset of _STASH_DRAFT_TOOLS.
@@ -586,6 +650,9 @@ _STASH_DRAFT_TOOLS: frozenset[str] = frozenset({
 _MACRO_AMENDMENT_TOOLS: frozenset[str] = frozenset({
     "propose_workflow", "propose_threshold_order", "propose_scheduled_order",
     "propose_basket_allocation", "propose_holding_action",
+    # See _STASH_DRAFT_TOOLS comment — backtest amendments must re-emit
+    # backtest_workflow, not propose_workflow or get_multiple_indicators.
+    "backtest_workflow",
 })
 
 # Tools that return structured data the FE can render as a card
@@ -835,7 +902,16 @@ _DEPENDENT_INTENT_RE = re.compile(
     # "convert to a SIP" are amendment phrasings the prior regex
     # missed — the model then produced prose instead of re-emitting
     # the draft as a different order type.
-    r"|switch|convert|turn\s+(?:it|that|this))\b"
+    r"|switch|convert|turn\s+(?:it|that|this)"
+    # WHY numeric-tweak verbs added (Phase 1 round-3 finding):
+    # "Lower the ADX threshold to 20", "Raise it to 25", "Increase
+    # period to 50", "Reduce SL to 3%" all fell through the original
+    # regex even though they're clearly draft amendments. Each of
+    # these verbs followed by a numeric tail strongly implies "edit
+    # the active draft's number".
+    r"|lower|raise|increase|decrease|reduce|bump|shift"
+    # "try with 20/50", "try it with weekly", "use 5y instead"
+    r"|try|use)\b"
     # Pronoun reference to the draft
     r"|\b(?:make\s+it|set\s+it|set\s+the|change\s+the|update\s+the)\b"
     # "the trigger / the action / the SL / the qty" — refers to a draft slot
@@ -936,14 +1012,44 @@ def _registry_tools_as_tooldefs(
 
 def _build_user_context(ctx: "UserContext") -> Optional[PromptUserContext]:
     """Assemble a compact prompt-ready context block from the chat
-    UserContext. Pulls portfolio totals (from already-loaded holdings)
-    and the user's active-workflows count (one DB query).
+    UserContext.
 
-    Returns None when the context contains nothing useful — that lets
-    the prompt assembler skip rendering an empty block.
+    Pulls (with a target of < 50 ms p95 over a warm Postgres connection):
+      - `full_name` from one `users` row.
+      - Portfolio total, holdings count, top-5 holdings: in-memory over
+        `ctx.holdings` (already pre-loaded by the chat router).
+      - Active workflows: ONE query with `joinedload(Workflow.steps)`
+        so step-0 type is read inline (no N+1). Capped at 10 rows.
+        Replaces (does not augment) the prior `.count()` query.
+      - `kite_connected`: derived from `ctx.kite_token` — no I/O.
+      - Top-3 watchlist symbols: ONE query if any rows exist.
+
+    Skipped on purpose:
+      - `cash_buffer_inr`: today's only source is a live Kite
+        `get_margins()` round-trip, which would blow the latency
+        budget. Buying power stays available via `fetch.portfolio` /
+        `get_portfolio_summary` when the user actually asks.
+
+    Returns None when nothing useful populates — the prompt assembler
+    skips rendering an empty block.
     """
+    # ── full_name (1 row) ───────────────────────────────────────────
+    full_name: Optional[str] = None
+    try:
+        from backend.models import User
+        user_row = ctx.db.query(User.full_name).filter(
+            User.id == ctx.user_id,
+        ).first()
+        if user_row is not None:
+            # SQLAlchemy returns a Row; .full_name resolves through it.
+            full_name = (user_row[0] or None) if user_row[0] else None
+    except Exception:
+        full_name = None
+
+    # ── Portfolio totals + top holdings (in-memory) ────────────────
     portfolio_total: Optional[float] = None
     holdings_count: Optional[int] = None
+    top_holdings: Optional[list[dict[str, Any]]] = None
     if ctx.holdings:
         try:
             portfolio_total = sum(
@@ -954,34 +1060,124 @@ def _build_user_context(ctx: "UserContext") -> Optional[PromptUserContext]:
             portfolio_total = None
         holdings_count = len(ctx.holdings) or None
 
-    active_workflows: Optional[int] = None
+        # Build top-5 by current INR value. Re-uses the already-loaded
+        # `ctx.holdings` list — no extra I/O.
+        try:
+            scored: list[tuple[float, dict[str, Any]]] = []
+            for h in ctx.holdings:
+                qty = float(h.get("quantity", 0) or 0)
+                lp = float(h.get("last_price", 0) or 0)
+                val = qty * lp
+                row = {
+                    "symbol": h.get("tradingsymbol") or h.get("symbol"),
+                    "qty": int(qty) if qty.is_integer() else qty,
+                    "last_price": lp,
+                    "value_inr": val,
+                }
+                day_pct = h.get("day_change_percentage")
+                if isinstance(day_pct, (int, float)):
+                    row["day_pct"] = float(day_pct)
+                scored.append((val, row))
+            scored.sort(key=lambda t: t[0], reverse=True)
+            top_holdings = [r for _v, r in scored[:5]] or None
+        except (TypeError, ValueError):
+            top_holdings = None
+
+    # ── Active workflows: ONE eager-loaded query (caps at 10) ──────
+    active_workflows: Optional[list[dict[str, Any]]] = None
+    active_workflows_count: Optional[int] = None
     try:
         # Lazy import — avoids a circular at module load.
+        from sqlalchemy.orm import joinedload
         from backend.models import Workflow, WorkflowStatus
-        active_workflows = (
+        wf_rows = (
             ctx.db.query(Workflow)
+            .options(joinedload(Workflow.steps))
             .filter(
                 Workflow.user_id == ctx.user_id,
                 Workflow.status == WorkflowStatus.active,
             )
-            .count()
+            .order_by(Workflow.next_run_at.asc().nullslast())
+            .limit(10)
+            .all()
         )
+        if wf_rows:
+            out: list[dict[str, Any]] = []
+            for wf in wf_rows:
+                step0_type: Optional[str] = None
+                # `steps` is order_by step_index in the relationship; index 0
+                # is the trigger.* (validator-enforced at activate time).
+                if wf.steps:
+                    step0_type = getattr(wf.steps[0], "step_type", None)
+                out.append({
+                    "id": wf.id,
+                    "name": wf.name,
+                    "last_run_at": (
+                        wf.last_run_at.isoformat() if wf.last_run_at else None
+                    ),
+                    "next_run_at": (
+                        wf.next_run_at.isoformat() if wf.next_run_at else None
+                    ),
+                    "step0_type": step0_type,
+                })
+            active_workflows = out
+            active_workflows_count = len(out)
+        else:
+            active_workflows_count = 0
     except Exception:
         # If the workflows table or model is unavailable for any
         # reason, the chat shouldn't 500. Quiet degrade.
         active_workflows = None
+        active_workflows_count = None
 
+    # ── Kite session presence (no I/O) ─────────────────────────────
+    # `'mock_token'` is the placeholder the router substitutes when no
+    # real Kite session exists. Surfacing the distinction lets the
+    # model steer away from broker-write tools for unconnected users.
+    kite_connected: Optional[bool] = None
+    if ctx.kite_token is not None:
+        kite_connected = bool(ctx.kite_token) and ctx.kite_token != "mock_token"
+
+    # ── Watchlist top-3 (one query) ────────────────────────────────
+    watchlist_symbols: Optional[list[str]] = None
+    try:
+        from backend.models import WatchlistItem
+        wl_rows = (
+            ctx.db.query(WatchlistItem.symbol)
+            .filter(WatchlistItem.user_id == ctx.user_id)
+            .order_by(WatchlistItem.added_at.desc())
+            .limit(3)
+            .all()
+        )
+        if wl_rows:
+            watchlist_symbols = [r[0] for r in wl_rows if r and r[0]]
+    except Exception:
+        watchlist_symbols = None
+
+    # ── Bail if nothing useful populated ───────────────────────────
     if (
-        portfolio_total is None
+        full_name is None
+        and portfolio_total is None
         and holdings_count is None
+        and top_holdings is None
         and not active_workflows
+        and not active_workflows_count
+        and kite_connected is None
+        and not watchlist_symbols
     ):
         return None
+
     return PromptUserContext(
         user_id=ctx.user_id,
+        full_name=full_name,
         portfolio_total_inr=portfolio_total,
         holdings_count=holdings_count,
-        active_workflows_count=active_workflows,
+        active_workflows_count=active_workflows_count,
+        top_holdings=top_holdings,
+        active_workflows=active_workflows,
+        kite_connected=kite_connected,
+        cash_buffer_inr=None,  # see docstring — skipped on purpose.
+        watchlist_symbols=watchlist_symbols,
     )
 
 
@@ -1987,13 +2183,18 @@ class ChatService:
                 # narrower set actually sent to the LLM on the first hop.
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
-        # Reasoning-effort: "low" universally except for agent turns
-        # which run "minimal". We tried bumping to "medium" earlier
-        # for propose_workflow turns; quality went up modestly but
-        # latency on multi-trigger drafts blew past the client
-        # timeout. Going the other way (low → minimal) cut p50
-        # dramatically without measurable quality loss.
-        effort: ReasoningEffort = "minimal" if is_agent_intent else "low"
+        # Reasoning-effort: "minimal" on every turn. The A/B against
+        # "low" on Azure gpt-5.4-mini showed `minimal` (mapped to
+        # `none` on the wire by LLMAzureOpenAI._translate_reasoning_effort)
+        # strictly dominated `low` — higher hit-rate, ~30% lower p50,
+        # half the output tokens (no reasoning trace billed). On
+        # OpenAI's gpt-5 family `minimal` is the cheapest accepted
+        # value and the same dominance holds in practice. Bumping to
+        # "low"/"medium"/"high" universally is the wrong direction
+        # — for Pivot's tool-heavy turns, extra reasoning tokens
+        # mostly bias the model toward asking clarification questions
+        # instead of just calling the right tool.
+        effort: ReasoningEffort = "minimal"
         max_output: int = 1500
         # Scoped retry budget for propose_workflow only — see the
         # documented escape hatch at the bottom of the Change-1 plan.
@@ -2232,6 +2433,15 @@ class ChatService:
         # "I had trouble". The user's "internal step-format issue"
         # message was caused by the breaker swallowing this.
         last_tool_error: Optional[str] = None
+        # ── find_tool lazy-load tracker ────────────────────────────
+        # When the LLM calls `find_tool` on hop N, the handler returns
+        # candidate tool names but does NOT execute them. Those names
+        # may not be in the regex-routed `selected_names` set, so the
+        # NEXT hop won't see their schemas unless we union them back in.
+        # This set is per-turn (fresh `set()` per user message), never
+        # persisted to Redis. Threaded into `selected_names` after
+        # every find_tool success → tooldefs + cache_key rebuilt.
+        loaded_extras: set[str] = set()
         # ── Loop (multi-tool only — no validation retry) ───────────
         # The loop is now exclusively for genuinely multi-tool turns:
         # tool A succeeds → model gets the next hop to chain tool B
@@ -2425,6 +2635,36 @@ class ChatService:
                     if (guarded.name in _STASH_DRAFT_TOOLS
                             or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
+                    # find_tool lazy-load: union the candidate tool
+                    # names into `loaded_extras` so they show up on the
+                    # next hop. Rebuild tooldefs + cache_key to reflect
+                    # the widened surface (cache key MUST change — see
+                    # cache_key_for docstring).
+                    if guarded.name == "find_tool" and guarded.data:
+                        new_extras: set[str] = set()
+                        for m in (guarded.data.get("matches") or []):
+                            n = (m or {}).get("name")
+                            if isinstance(n, str) and n and n != "find_tool":
+                                new_extras.add(n)
+                        if new_extras - loaded_extras:
+                            loaded_extras |= new_extras
+                            if selected_names is None:
+                                # No router narrowing was in effect — full
+                                # catalog already visible. Nothing to widen.
+                                pass
+                            else:
+                                selected_names = selected_names | loaded_extras
+                                tooldefs = _registry_tools_as_tooldefs(
+                                    selected_names,
+                                )
+                                cache_key = cache_key_for(selected_names)
+                                trace.event(
+                                    "find_tool.lazy_load",
+                                    added=sorted(new_extras),
+                                    total_extras=len(loaded_extras),
+                                    new_tooldefs_count=len(tooldefs),
+                                    cache_key=cache_key,
+                                )
                     continue
 
                 # Tool error path.
@@ -2941,7 +3181,9 @@ class ChatService:
                 selected_names = selected_names - _UNDERSPEC_STRIP
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
-        effort: ReasoningEffort = "minimal" if is_agent_intent else "low"
+        # Stream path matches the non-stream `handle()` decision —
+        # "minimal" on every turn (see commentary there).
+        effort: ReasoningEffort = "minimal"
         max_output: int = 1500
         # Same scoped retry budget as the non-streaming path.
         propose_workflow_attempts = 0
@@ -3101,6 +3343,11 @@ class ChatService:
         # Track the most recent tool error so the streaming
         # circuit-breaker can surface it to the user.
         last_tool_error: Optional[str] = None
+        # Mirror of non-streaming `loaded_extras` — per-turn set of
+        # tool names the LLM unlocked via `find_tool`. Threaded back
+        # into `selected_names` after every find_tool success so the
+        # next hop sees the schemas.
+        loaded_extras: set[str] = set()
 
         while hop_index < _MAX_TOOL_CALLS:
             hop_index += 1
@@ -3390,6 +3637,29 @@ class ChatService:
                     if (guarded.name in _STASH_DRAFT_TOOLS
                             or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
+                    # Mirror of handle(): lazy-load find_tool matches
+                    # into `loaded_extras` so the next hop sees them.
+                    if guarded.name == "find_tool" and guarded.data:
+                        new_extras: set[str] = set()
+                        for m in (guarded.data.get("matches") or []):
+                            n = (m or {}).get("name")
+                            if isinstance(n, str) and n and n != "find_tool":
+                                new_extras.add(n)
+                        if new_extras - loaded_extras:
+                            loaded_extras |= new_extras
+                            if selected_names is not None:
+                                selected_names = selected_names | loaded_extras
+                                tooldefs = _registry_tools_as_tooldefs(
+                                    selected_names,
+                                )
+                                cache_key = cache_key_for(selected_names)
+                                trace.event(
+                                    "find_tool.lazy_load",
+                                    added=sorted(new_extras),
+                                    total_extras=len(loaded_extras),
+                                    new_tooldefs_count=len(tooldefs),
+                                    cache_key=cache_key,
+                                )
                     continue
 
                 last_tool_error = f"{guarded.name}: {guarded.error}"
@@ -4310,12 +4580,31 @@ def _vary_repeat_fallback(user_msg: str) -> str:
 
 def _tool_summary_line(tool_name: str, logiccard: dict | None) -> str:
     """One-liner used when the post-processor stripped the LLM's
-    narration but a tool actually produced a card."""
+    narration but a tool actually produced a card.
+
+    NEVER include the raw `tool_name` in the user-facing text — that
+    leaks an internal identifier (e.g. "Done — `backtest_workflow` ran")
+    which the system prompt explicitly forbids. Every branch below
+    returns user-facing prose only.
+    """
     if tool_name == "propose_workflow":
         return (
             "Here's a draft of that agent — the trigger, action(s), and "
             "any conditions are laid out below. Review and click Activate "
             "when you're happy."
+        )
+    if tool_name == "backtest_workflow":
+        return (
+            "Here's the backtest — equity curve, signals, and headline "
+            "metrics are in the chart below."
+        )
+    if tool_name in {
+        "propose_threshold_order", "propose_scheduled_order",
+        "propose_basket_allocation", "propose_holding_action",
+    }:
+        return (
+            "Drafted — the trigger and action are laid out in the card "
+            "below. Review and click Activate when you're happy."
         )
     if logiccard:
         action = logiccard.get("action") or ""
@@ -4334,7 +4623,8 @@ def _tool_summary_line(tool_name: str, logiccard: dict | None) -> str:
         )
     if tool_name.startswith("get_") or tool_name.startswith("list_"):
         return "Here's what I found — the details are in the card below."
-    return f"Done — `{tool_name}` ran. The result is shown below."
+    # Generic fallback — no tool name leak.
+    return "Done — the result is shown below."
 
 
 # Render hints whose widgets need an accompanying conversational caption
@@ -4414,13 +4704,19 @@ def _ensure_widget_caption(
 
 def _post_process(text: str) -> tuple[str, bool]:
     """Defence-in-depth: strip leaked tool-call blocks / placeholders /
-    internal-reasoning monologue.
+    internal-reasoning monologue / tool-name leaks.
     Returns (cleaned, was_sanitised)."""
     if not text:
         return _GENERIC_FALLBACK, True
     original = text
     text = _TOOL_CALL_BLOCK_RE.sub("", text)
     text = _PLACEHOLDER_RE.sub("", text)
+    # Strip sentences that name internal tools ("Done — backtest_workflow
+    # ran.", "I'll call get_live_price next.") — system prompt forbids
+    # mentioning internal tool names, but the model occasionally mimics
+    # the canned fallback templates from history. Once these go, _ensure_
+    # widget_caption will synthesise a user-facing caption.
+    text = _strip_internal_tool_leaks(text)
     # WHY this strip runs BEFORE the latent-greeting check: a leaked
     # reasoning paragraph can include greeting-shaped phrases ("Hi,
     # the user now says...") that would trip the latent-greeting

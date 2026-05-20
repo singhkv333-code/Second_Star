@@ -14,7 +14,6 @@ import {
   BarChart2,
   CalendarDays,
   MessageSquare,
-  Newspaper,
   PieChart,
   Settings,
   MessageCircle,
@@ -35,7 +34,6 @@ import { cn } from "@/lib/utils";
 type TabKey =
   | "chat"
   | "portfolio"
-  | "news"
   | "agents"
   | "calendar"
   | "screener";
@@ -47,7 +45,6 @@ const NAV_ITEMS: {
 }[] = [
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
-  { key: "news", label: "News", Icon: Newspaper },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },

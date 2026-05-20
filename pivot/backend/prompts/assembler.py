@@ -47,12 +47,42 @@ class UserContext:
     """Subset of user state relevant to LLM prompting.
 
     Optional everywhere — the assembler degrades gracefully when None.
+
+    The block is rendered AFTER the cached static prefix (system.md +
+    examples + domain primer), so widening it does NOT invalidate the
+    prompt cache for the static head. Per-turn variability stays local
+    to this one system message.
+
+    Field intent (read by `_format_user_context` below):
+      - `top_holdings`: at most 5 dicts, each
+        `{symbol: str, qty: int|float, last_price: float,
+          value_inr: float, day_pct?: float}`. Sorted desc by `value_inr`.
+        Lets the model skip a `get_holdings` call when the user asks
+        "what about my INFY position".
+      - `active_workflows`: at most 10 dicts, each
+        `{id: str, name: str, last_run_at: str|None,
+          next_run_at: str|None, step0_type: str}`. ISO datetimes
+        ('Z' suffix). Lets the model skip `list_strategies` when the
+        user says "pause that NIFTYBEES one".
+      - `kite_connected`: True when the user has a live Kite session,
+        False when they're on the mock_token fallback. Steers the
+        model away from broker-write tools when no real account is
+        wired.
+      - `cash_buffer_inr`: reserved for a future cheap accessor —
+        today's only path is a live Kite margins call, which costs a
+        broker round-trip. Always `None` in the current build.
+      - `watchlist_symbols`: at most 3 symbol strings, newest first.
     """
     user_id: int
     full_name: Optional[str] = None
     portfolio_total_inr: Optional[float] = None
     holdings_count: Optional[int] = None
     active_workflows_count: Optional[int] = None
+    top_holdings: Optional[list[dict[str, Any]]] = None
+    active_workflows: Optional[list[dict[str, Any]]] = None
+    kite_connected: Optional[bool] = None
+    cash_buffer_inr: Optional[float] = None
+    watchlist_symbols: Optional[list[str]] = None
 
 
 # ── Role-specific instructions ──────────────────────────────────────
@@ -193,16 +223,94 @@ def reload_prompts() -> None:
 
 
 def _format_user_context(ctx: UserContext) -> str:
-    """Compact user-context block. ~80 tokens."""
+    """Compact user-context block.
+
+    Budget: typically ~150-400 tokens; ~1500 tokens worst case with a
+    full top-5 holdings list + 10 active workflows + watchlist. The
+    chat router caps `active_workflows` at 10 and `top_holdings` at 5
+    upstream, so the worst case is bounded.
+
+    Returns an empty string when the only content would be the
+    `## User context` header — the caller relies on that to omit the
+    block entirely.
+    """
     bits: list[str] = ["## User context"]
+
+    # ── Identity + session line ─────────────────────────────────────
+    ident_parts: list[str] = []
     if ctx.full_name:
-        bits.append(f"- Name: {ctx.full_name}")
+        ident_parts.append(f"name={ctx.full_name}")
+    if ctx.kite_connected is not None:
+        ident_parts.append(
+            f"kite={'connected' if ctx.kite_connected else 'not-connected'}"
+        )
+    if ident_parts:
+        bits.append("- " + ", ".join(ident_parts))
+
+    # ── Portfolio totals ────────────────────────────────────────────
+    totals_parts: list[str] = []
     if ctx.portfolio_total_inr is not None:
-        bits.append(f"- Portfolio total: ₹{ctx.portfolio_total_inr:,.0f}")
+        totals_parts.append(f"total=₹{ctx.portfolio_total_inr:,.0f}")
     if ctx.holdings_count is not None:
-        bits.append(f"- Holdings: {ctx.holdings_count} symbols")
-    if ctx.active_workflows_count is not None:
-        bits.append(f"- Active agents: {ctx.active_workflows_count}")
+        totals_parts.append(f"holdings={ctx.holdings_count} symbols")
+    if ctx.cash_buffer_inr is not None:
+        totals_parts.append(f"cash=₹{ctx.cash_buffer_inr:,.0f}")
+    if totals_parts:
+        bits.append("- Portfolio: " + ", ".join(totals_parts))
+
+    # ── Top holdings ────────────────────────────────────────────────
+    # Compact one-line-per-row format so the model can scan it but it
+    # never balloons into a JSON dump. ~30 tokens per row, 5 rows max.
+    if ctx.top_holdings:
+        bits.append("- Top holdings (desc by value):")
+        for h in ctx.top_holdings[:5]:
+            sym = h.get("symbol", "?")
+            qty = h.get("qty")
+            lp = h.get("last_price")
+            val = h.get("value_inr")
+            day = h.get("day_pct")
+            row = f"  • {sym}"
+            row_parts: list[str] = []
+            if qty is not None:
+                row_parts.append(f"qty={qty}")
+            if lp is not None:
+                row_parts.append(f"ltp=₹{lp:,.2f}")
+            if val is not None:
+                row_parts.append(f"value=₹{val:,.0f}")
+            if isinstance(day, (int, float)):
+                sign = "+" if day >= 0 else ""
+                row_parts.append(f"day={sign}{day:.2f}%")
+            if row_parts:
+                row += " " + " ".join(row_parts)
+            bits.append(row)
+
+    # ── Active automations ──────────────────────────────────────────
+    # The model previously had to call `list_strategies` to learn names
+    # / next-run times. Surfacing the same data here saves that hop on
+    # ~every turn where the user references "that agent" / "pause it".
+    if ctx.active_workflows:
+        n = len(ctx.active_workflows)
+        bits.append(f"- Active automations ({n}):")
+        for wf in ctx.active_workflows[:10]:
+            name = wf.get("name") or "(unnamed)"
+            wid = wf.get("id") or "?"
+            step0 = wf.get("step0_type") or "?"
+            nxt = wf.get("next_run_at") or "—"
+            last = wf.get("last_run_at") or "—"
+            bits.append(
+                f'  • "{name}" id={wid} step0={step0} '
+                f"next={nxt} last={last}"
+            )
+    elif ctx.active_workflows_count is not None:
+        # Backward compat — when only the count was passed (e.g. an
+        # older caller), render that rather than nothing.
+        bits.append(f"- Active automations: {ctx.active_workflows_count}")
+
+    # ── Watchlist (compact one-liner) ───────────────────────────────
+    if ctx.watchlist_symbols:
+        wl = ", ".join(ctx.watchlist_symbols[:3])
+        bits.append(f"- Watchlist (newest 3): {wl}")
+
     return "\n".join(bits) if len(bits) > 1 else ""
 
 
