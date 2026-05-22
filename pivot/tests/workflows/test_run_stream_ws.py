@@ -43,7 +43,8 @@ def _demo_workflow_body() -> dict[str, Any]:
                 "order_type": "market", "requires_approval": False,
             }},
             {"step_type": "notify.message", "config": {
-                "channel": "email",
+                # v1 only wires the 'push' channel — see NotifyMessageConfig.
+                "channel": "push",
                 "template": "done",
                 "vars": {},
             }},

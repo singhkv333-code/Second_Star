@@ -144,8 +144,14 @@ async def test_yfinance_exception_wrapped(
 async def test_unsupported_metric_raises_value_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # When a metric isn't in the financials DB and has no yfinance
+    # fallback, execute_fetch_fundamental raises NotYetAvailableError
+    # (a semantic subclass of RuntimeError). The previous test expected
+    # ValueError, which was the pre-2026 behaviour; the named-exception
+    # change is intentional and documented in backend/workflows/steps/
+    # fetches.py.
     _patch_ticker(monkeypatch, {"trailingPE": 25.0})
-    with pytest.raises(ValueError, match="unsupported fundamental metric"):
+    with pytest.raises(NotYetAvailableError, match="not available"):
         await execute_fetch_fundamental(
             _StubCtx({"symbol": "INFY", "metric": "ev_ebitda"})
         )

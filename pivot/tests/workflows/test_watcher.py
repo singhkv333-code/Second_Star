@@ -312,19 +312,18 @@ async def test_price_trigger_no_quote_skips_silently(
 
 @pytest.mark.asyncio
 async def test_fetch_indicator_sma(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SMA of [10,20,30,40,50] over period=5 = 30."""
+    """SMA over period=3 on a monotonically-increasing close series.
+
+    The fetch.indicator step requires at least max(period+5, 30) bars
+    of history (added as a guard against half-warm symbols). The test
+    feeds 30 bars with closes 10, 20, ..., 300; SMA(3) on the last
+    three closes (280, 290, 300) = 290.0.
+    """
     bars = [
-        {"open": 10, "high": 10, "low": 10, "close": 10, "volume": 1000},
-        {"open": 20, "high": 20, "low": 20, "close": 20, "volume": 1000},
-        {"open": 30, "high": 30, "low": 30, "close": 30, "volume": 1000},
-        {"open": 40, "high": 40, "low": 40, "close": 40, "volume": 1000},
-        {"open": 50, "high": 50, "low": 50, "close": 50, "volume": 1000},
-        {"open": 60, "high": 60, "low": 60, "close": 60, "volume": 1000},
-        {"open": 70, "high": 70, "low": 70, "close": 70, "volume": 1000},
-        {"open": 80, "high": 80, "low": 80, "close": 80, "volume": 1000},
-        {"open": 90, "high": 90, "low": 90, "close": 90, "volume": 1000},
-        {"open": 100, "high": 100, "low": 100, "close": 100, "volume": 1000},
+        {"open": v, "high": v, "low": v, "close": v, "volume": 1000}
+        for v in range(10, 301, 10)  # 30 entries: 10, 20, ..., 300
     ]
+    assert len(bars) == 30
     monkeypatch.setattr(
         "backend.kite.market_data.get_historical_ohlcv",
         lambda sym, period, interval: bars,
@@ -335,8 +334,8 @@ async def test_fetch_indicator_sma(monkeypatch: pytest.MonkeyPatch) -> None:
         config = {"symbol": "INFY", "indicator": "sma", "period": 3}
     out = await execute_fetch_indicator(_Ctx())
     assert out is not None
-    # Last 3 closes: 80, 90, 100 → SMA = 90.0
-    assert out["value"] == pytest.approx(90.0)
+    # Last 3 closes: 280, 290, 300 → SMA = 290.0
+    assert out["value"] == pytest.approx(290.0)
 
 
 @pytest.mark.asyncio
@@ -373,7 +372,11 @@ async def test_fetch_indicator_unsupported(
     )
     from backend.workflows.steps.fetches import execute_fetch_indicator
 
+    # ATR was added to the supported-indicator registry mid-2026 along
+    # with several other v2 indicators (CCI, Aroon, Keltner, Donchian,
+    # Supertrend, etc.). Use a deliberately non-existent indicator key
+    # so the test isn't a moving target.
     class _Ctx:
-        config = {"symbol": "INFY", "indicator": "atr", "period": 14}
+        config = {"symbol": "INFY", "indicator": "totally_unsupported_xyz", "period": 14}
     with pytest.raises(ValueError, match="unsupported indicator"):
         await execute_fetch_indicator(_Ctx())

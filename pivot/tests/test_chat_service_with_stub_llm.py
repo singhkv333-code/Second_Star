@@ -638,7 +638,12 @@ async def test_followup_hint_includes_active_draft_when_present(
     system_blobs = " ".join(
         (m.content or "") for m in sent_messages if m.role == "system"
     )
-    assert "ACTIVE WORKFLOW DRAFT" in system_blobs
+    # The hint label now interpolates the active draft's tool name:
+    # the format is "ACTIVE <TOOL> DRAFT" — e.g. "ACTIVE PROPOSE
+    # WORKFLOW DRAFT" for a propose_workflow draft. Assert on the
+    # durable markers rather than the exact phrase so a future
+    # rewording doesn't trip the test.
+    assert "ACTIVE" in system_blobs and "WORKFLOW DRAFT" in system_blobs
     assert "trigger.cron" in system_blobs   # actual draft JSON injected
 
 

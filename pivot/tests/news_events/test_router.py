@@ -52,10 +52,19 @@ def test_admin_sources_returns_registry(db, auth_headers):
                  "bbc_world", "google_news_search_india_markets"):
         assert must in source_ids
     # Each row carries the static registry fields and zero health.
+    # Phase 7 added Telegram channels, four of which ship in the
+    # registry as enabled=False until their usernames are verified
+    # (tg_ani_news, tg_pib_india, tg_reuters_india, tg_etmarkets).
+    # So we only assert that the original five RSS rows are enabled.
+    REQUIRED_ENABLED = {
+        "rbi_press_releases", "rbi_notifications", "rbi_speeches",
+        "bbc_world", "google_news_search_india_markets",
+    }
     for s in sources:
         assert s["feed_url"].startswith("http")
-        assert s["enabled"] is True
         assert s["consecutive_failures"] == 0
+        if s["source_id"] in REQUIRED_ENABLED:
+            assert s["enabled"] is True
 
 
 def test_admin_metrics_zero_when_no_articles(db, auth_headers):

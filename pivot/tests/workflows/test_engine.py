@@ -138,7 +138,9 @@ def test_demo_path_5_steps_succeeds(
         "requires_approval": False,
     })
     _add_step(db, wf, 4, "notify.message", {
-        "channel": "email",
+        # v1 only supports the 'push' channel — see NotifyMessageConfig
+        # in backend/workflows/schemas.py.
+        "channel": "push",
         "template": "Order placed for {symbol}",
         "vars": {"symbol": "RELIANCE"},
     })

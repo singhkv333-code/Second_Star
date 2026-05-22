@@ -79,7 +79,12 @@ def _basic_workflow_body() -> dict[str, Any]:
                 "step_type": "notify.message",
                 "label": "Notify",
                 "config": {
-                    "channel": "email",
+                    # Pivot v1 only wires the 'push' channel — see the
+                    # rationale in backend/workflows/schemas.py
+                    # NotifyMessageConfig. The previous fixture passed
+                    # 'email' which was a stale carry-over from the
+                    # pre-restriction schema.
+                    "channel": "push",
                     "template": "Order placed",
                     "vars": {},
                 },

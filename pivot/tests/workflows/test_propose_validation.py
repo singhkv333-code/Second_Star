@@ -149,6 +149,7 @@ async def test_canonical_demo_quality_attributes() -> None:
     assert place.config["side"] == "buy"
     assert place.config["requires_approval"] is True
     notify = draft.steps[4]
-    assert notify.config["channel"] == "email"
+    # v1 schema forces channel to 'push' — see NotifyMessageConfig.
+    assert notify.config["channel"] == "push"
     # Must read naturally — "Bought" not "Buyed".
     assert "Bought" in notify.config["template"]

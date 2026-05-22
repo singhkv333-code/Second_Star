@@ -89,17 +89,36 @@ def test_indices_happy_path(
 def test_indices_partial_failure_returns_only_successful(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
-    """If yfinance fails for some indices but not all, return what we got."""
+    """If yfinance fails for some indices but not all, return what we got.
+
+    The router checks a 10s Redis cache BEFORE calling yf.Ticker, so we
+    patch ``redis_client.get`` to None to force every index through
+    the live (mocked) fetch path. Without this, prior tests in the same
+    session warm the cache and our Ticker mock is never consulted.
+
+    The router currently lists 4 indices (NIFTY 50, SENSEX, BANK NIFTY,
+    NIFTY MIDCAP 100). We fail half of them (calls 2 + 3) and assert
+    we still get the 2 that succeeded.
+    """
     counter = {"n": 0}
+
     def maybe_fail(sym: str) -> _FakeTicker:
         counter["n"] += 1
         if counter["n"] in (2, 3):  # 2nd + 3rd ticker fail
             raise RuntimeError("yfinance: rate limited")
         return _FakeTicker(info={}, hist=_two_day_hist(100, 99))
-    with patch("backend.routers.markets.yf.Ticker", side_effect=maybe_fail):
+
+    with patch(
+        "backend.routers.markets.redis_client.get", return_value=None
+    ), patch(
+        "backend.routers.markets.redis_client.setex", return_value=None
+    ), patch(
+        "backend.routers.markets.yf.Ticker", side_effect=maybe_fail
+    ):
         resp = client.get("/api/markets/indices", headers=auth_headers)
     assert resp.status_code == 200
-    assert len(resp.json()["items"]) == 2  # 2 succeeded
+    # Router has 4 indices today; failing 2 leaves 2.
+    assert len(resp.json()["items"]) == 2
 
 
 def test_indices_all_fail_returns_503(
@@ -107,7 +126,17 @@ def test_indices_all_fail_returns_503(
 ) -> None:
     def always_fail(sym: str) -> _FakeTicker:
         raise RuntimeError("network down")
-    with patch("backend.routers.markets.yf.Ticker", side_effect=always_fail):
+
+    # Same Redis-cache invalidation as the partial-failure test — without
+    # this, the cache short-circuits the yfinance call and the test
+    # erroneously sees a 200 with cached items.
+    with patch(
+        "backend.routers.markets.redis_client.get", return_value=None
+    ), patch(
+        "backend.routers.markets.redis_client.setex", return_value=None
+    ), patch(
+        "backend.routers.markets.yf.Ticker", side_effect=always_fail
+    ):
         resp = client.get("/api/markets/indices", headers=auth_headers)
     assert resp.status_code == 503
     body = resp.json()
