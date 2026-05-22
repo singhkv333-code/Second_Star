@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tier-B: the workaround stack for news sources that won't push to you</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --card: #ffffff;
+    --ink: #14151a;
+    --ink-2: #3b3f48;
+    --ink-3: #6b7280;
+    --line: #e6e7ea;
+    --line-2: #d1d3d8;
+    --code-bg: #0f1117;
+    --code-ink: #e5e7eb;
+    --blue: #1d4ed8;
+    --blue-soft: #eaf0ff;
+    --purple: #7c2d8a;
+    --purple-soft: #f5ebf8;
+    --orange: #b35400;
+    --orange-soft: #fbecdc;
+    --green: #0a7d50;
+    --green-soft: #e3f4ec;
+    --red: #a01b1b;
+    --red-soft: #fbe9e9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter,
+                 "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 56px 28px 96px; }
+  .eyebrow {
+    font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600; margin-bottom: 12px;
+  }
+  h1 {
+    font-size: 34px; line-height: 1.15; margin: 0 0 14px;
+    letter-spacing: -0.01em; color: var(--ink);
+  }
+  h2 {
+    font-size: 22px; line-height: 1.2; margin: 56px 0 14px;
+    letter-spacing: -0.005em;
+  }
+  h3 { font-size: 17px; margin: 26px 0 8px; }
+  p, li { color: var(--ink-2); }
+  p { margin: 10px 0; }
+  a { color: var(--blue); text-decoration: none; border-bottom: 1px dotted var(--line-2); }
+  a:hover { border-bottom-style: solid; }
+  code, pre, kbd {
+    font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo,
+                 Consolas, "Liberation Mono", monospace;
+    font-size: 13.5px;
+  }
+  code.inline {
+    background: #ececec; color: #14151a;
+    padding: 1px 6px; border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg); color: var(--code-ink);
+    padding: 14px 16px; border-radius: 8px;
+    overflow-x: auto; line-height: 1.5;
+    margin: 14px 0;
+  }
+  pre .c { color: #8b95a8; }      /* comment */
+  pre .k { color: #c084fc; }      /* keyword */
+  pre .s { color: #86efac; }      /* string */
+  pre .n { color: #fde68a; }      /* literal/number */
+  pre .a { color: #93c5fd; }      /* attr */
+
+  .lede {
+    background: #fff8e6; border: 1px solid #f0e0a0; border-radius: 10px;
+    padding: 16px 20px; margin: 18px 0 10px;
+    color: var(--ink);
+  }
+  .lede strong { color: var(--ink); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 22px 24px; margin: 20px 0;
+    box-shadow: 0 1px 0 rgba(20,21,26,0.02);
+  }
+  .card.blue   { border-top: 3px solid var(--blue);   }
+  .card.purple { border-top: 3px solid var(--purple); }
+  .card.orange { border-top: 3px solid var(--orange); }
+  .card.green  { border-top: 3px solid var(--green);  }
+  .card.red    { border-top: 3px solid var(--red);    }
+
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+    background: #eef0f3; color: var(--ink-2);
+  }
+  .pill.blue   { background: var(--blue-soft);   color: var(--blue);   }
+  .pill.purple { background: var(--purple-soft); color: var(--purple); }
+  .pill.orange { background: var(--orange-soft); color: var(--orange); }
+  .pill.green  { background: var(--green-soft);  color: var(--green);  }
+  .pill.red    { background: var(--red-soft);    color: var(--red);    }
+
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 6px; align-items: center; }
+  .small { font-size: 13.5px; color: var(--ink-3); }
+  .muted { color: var(--ink-3); }
+
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td {
+    border-bottom: 1px solid var(--line);
+    padding: 9px 10px; text-align: left; vertical-align: top;
+  }
+  th { font-weight: 600; color: var(--ink); background: #fafafb; }
+
+  /* Diagram */
+  .diagram {
+    background: #0f1117; color: #e5e7eb; padding: 22px 18px;
+    border-radius: 12px; overflow-x: auto; margin: 18px 0 6px;
+    font-family: ui-monospace, monospace; font-size: 13.5px; line-height: 1.55;
+    white-space: pre;
+  }
+
+  /* Glossary */
+  .glossary {
+    background: #fbfbfa; border: 1px solid var(--line); border-radius: 12px;
+    padding: 8px 4px;
+  }
+  .glossary dl { margin: 0; padding: 4px 18px; }
+  .glossary dt {
+    font-weight: 600; color: var(--ink);
+    margin-top: 14px;
+  }
+  .glossary dt:first-child { margin-top: 6px; }
+  .glossary dd { margin: 4px 0 0; color: var(--ink-2); }
+
+  hr { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+
+  /* tiny inline glossary anchor */
+  .gl {
+    border-bottom: 1px dashed var(--line-2); cursor: help;
+    color: var(--ink);
+  }
+
+  /* component header layout */
+  .compHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .compHead h2 { margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="eyebrow">Pivot · News &amp; Event Trigger · transport upgrade research</div>
+<h1>Tier-B: the workaround stack for news sources that won't push to you</h1>
+
+<p class="lede">
+  <strong>The problem in one sentence.</strong> Indian financial publishers and regulators
+  (RBI, SEBI, NSE, BSE, BS, ET, Mint, Moneycontrol) don't offer any first-party
+  way to <em>push</em> news at us when something happens — no WebSub hubs, no
+  webhooks, no public WebSocket. So we have to <em>build</em> push semantics on
+  top of what they do offer (RSS feeds, plain web pages, JSON endpoints).
+  Tier-B is the three-container open-source stack that does that.
+</p>
+
+<p>
+  Before we get to the three components, two foundational ideas need to be
+  crisp: <strong>polling vs push</strong>, and <strong>webhooks</strong>.
+</p>
+
+<h2>Foundational concept #1 — polling vs push</h2>
+
+<p>
+  Imagine you want to know when a friend posts a new photo. You have two
+  strategies:
+</p>
+
+<ul>
+  <li>
+    <strong>Polling</strong> — every few minutes you open their profile and
+    check. Most of the time there's no new photo, so you've wasted the trip;
+    when there <em>is</em> one, you've missed it for up to that polling
+    interval (say 5 minutes).
+  </li>
+  <li>
+    <strong>Push</strong> — your friend sends you a text the moment they
+    post. Zero wasted checks; delay measured in seconds.
+  </li>
+</ul>
+
+<p>
+  Push is strictly better when the publisher supports it, but it requires
+  the publisher to have a <em>list of subscribers</em> and to do the work of
+  notifying them. Most websites historically only offered polling — they
+  publish an <span class="gl" title="Really Simple Syndication — a standard XML format publishers expose so any reader can fetch the recent items.">RSS</span>
+  feed at a known URL, and any reader can come fetch it on whatever schedule
+  they like. The publisher does no work per-subscriber.
+</p>
+
+<p>
+  Today, Pivot polls 5 RSS feeds on its own (RBI ×3, BBC, Google News) using
+  <code class="inline">APScheduler</code>. Each feed is checked every
+  3–10 minutes. That works but means a news item can sit unread on
+  rbi.org.in for up to 5 minutes before our funnel sees it. We want to
+  shrink that to "seconds after publish".
+</p>
+
+<h2>Foundational concept #2 — what a webhook is</h2>
+
+<p>
+  A <strong>webhook</strong> is the push primitive of the open web. It's
+  just a regular HTTP <code class="inline">POST</code> request that some
+  other system sends to a URL <em>we own</em>, the moment something
+  happens. So instead of:
+</p>
+
+<pre><span class="c"># Polling: we ask, repeatedly, "anything new?"</span>
+<span class="k">while</span> true:
+    items = http.get(<span class="s">"https://www.rbi.org.in/pressreleases_rss.xml"</span>)
+    process(items)
+    sleep(<span class="n">300</span>)
+</pre>
+
+<p>…we expose an endpoint on our own server:</p>
+
+<pre><span class="k">@app</span>.post(<span class="s">"/ingest/news"</span>)
+<span class="k">def</span> ingest(payload: NewsItem, request: Request):
+    <span class="c"># Some other system calls this whenever a new item appears.</span>
+    <span class="c"># We do nothing between calls; latency is one network hop.</span>
+    process(payload)
+</pre>
+
+<p>
+  And configure the source (or a proxy in front of the source) to POST to
+  that URL whenever there's news. Webhooks are how every modern push
+  integration works — Stripe payments, GitHub commits, Slack messages.
+  Our job in Tier-B is to put webhook-emitting proxies in front of
+  sources that <em>don't</em> emit webhooks themselves.
+</p>
+
+<h2>The Tier-B architecture, at a glance</h2>
+
+<div class="diagram">                                    ┌──────────────────────────┐
+                                    │                          │
+  Sources WITH RSS  ─────►  Miniflux ──► POST /ingest/news ─►   │
+   (RBI, BBC,                                                  │
+    Google News)                                               │
+                                                               │
+  Sources WITHOUT RSS ───►  RSSHub  ──► (synthetic RSS) ──►  ▲ │   Pivot
+   (Moneycontrol, ET,        (feed                          │ │   news_events
+    LiveMint, NSE             factory)                      │ │   funnel
+    notices)                  └──────► Miniflux ────────────┘ │   (Stages 1-7)
+                                                               │
+  Sources with NEITHER ──►  changedetection.io ─► webhook ─►   │
+   RSS NOR a public          (Playwright + diff)               │
+   feed (SEBI orders,                                          │
+    NSE corp-filings JSON,                                     │
+    BSE filings)                                               │
+                                    └──────────────────────────┘</div>
+
+<p>
+  Three containers (Miniflux, RSSHub, changedetection.io) live alongside
+  the Pivot backend. They turn <em>every</em> source — regardless of how
+  cooperative it is — into a stream of HTTP POSTs into a single
+  <code class="inline">/ingest/news</code> endpoint. Downstream of that
+  endpoint, our existing Phase-1-through-Phase-5 funnel doesn't change
+  at all.
+</p>
+
+<hr />
+
+<div class="compHead">
+  <h2>Component 1 · Miniflux</h2>
+  <span class="pill blue">RSS &rarr; webhook</span>
+  <span class="pill">Apache-2.0</span>
+  <span class="pill">~30 MB RAM</span>
+</div>
+
+<div class="card blue">
+  <h3>What it is</h3>
+  <p>
+    Miniflux is a <strong>minimalist RSS reader</strong>. Same family as
+    Feedly or Inoreader, but a single
+    <span class="gl" title="A compiled program that runs by itself with no Python / Node / Ruby runtime needed. Just one file you execute.">Go binary</span>
+    you self-host. You give it a list of feed URLs and it polls them on a
+    schedule. Crucially for us, since version 2.0.48 it has a
+    <strong>native outbound webhook</strong>: every new entry it discovers
+    is POSTed to a URL we configure, signed with an
+    <span class="gl" title="Hash-based Message Authentication Code. A cryptographic signature that proves the POST really came from Miniflux and wasn't tampered with in transit.">HMAC</span>-SHA256
+    signature in the HTTP header.
+  </p>
+
+  <h3>Why we use it</h3>
+  <p>
+    Today we do exactly the same job ourselves inside
+    <code class="inline">backend/news_events/workers/poller.py</code> +
+    <code class="inline">pipeline/ingest.py</code>. Miniflux is more
+    battle-tested, has its own admin UI for adding/pausing feeds, supports
+    conditional GETs (only re-downloads if the feed actually changed —
+    saves bandwidth), retries failed fetches with exponential backoff,
+    and signs its webhooks. We delete ~200 lines of our own polling code
+    and inherit all of that for free.
+  </p>
+
+  <h3>How the integration works</h3>
+  <pre><span class="c"># 1. Miniflux is configured (via env or its UI) with:</span>
+WEBHOOK_URL    = <span class="s">"https://pivot.app/api/news-events/ingest"</span>
+WEBHOOK_SECRET = <span class="s">"$(openssl rand -hex 32)"</span>
+FEEDS          = [
+    <span class="s">"https://www.rbi.org.in/pressreleases_rss.xml"</span>,
+    <span class="s">"https://feeds.bbci.co.uk/news/world/rss.xml"</span>,
+    <span class="c"># ...etc</span>
+]
+
+<span class="c"># 2. When Miniflux discovers a new entry, it POSTs this to us:</span>
+POST /api/news-events/ingest HTTP/1.1
+X-Miniflux-Signature: sha256=<span class="n">9c8a4f...</span>     <span class="c"># HMAC of body, signed with the secret</span>
+X-Miniflux-Event-Type: new_entries
+Content-Type: application/json
+
+{
+  <span class="a">"event_type"</span>: <span class="s">"new_entries"</span>,
+  <span class="a">"feed"</span>: { <span class="a">"id"</span>: <span class="n">17</span>, <span class="a">"title"</span>: <span class="s">"RBI Press Releases"</span> },
+  <span class="a">"entries"</span>: [
+    {
+      <span class="a">"title"</span>: <span class="s">"RBI cuts repo rate by 25 bps"</span>,
+      <span class="a">"url"</span>: <span class="s">"https://rbi.org.in/Scripts/BS_PressreleaseDisplay.aspx?prid=63110"</span>,
+      <span class="a">"published_at"</span>: <span class="s">"2026-05-21T04:00:00Z"</span>,
+      <span class="a">"content"</span>: <span class="s">"The Monetary Policy Committee..."</span>
+    }
+  ]
+}
+</pre>
+
+  <p>
+    Our endpoint <strong>verifies the HMAC</strong> (so we know the POST
+    is from our Miniflux, not a random attacker spamming us with fake
+    news), then writes the entries into the existing
+    <code class="inline">news_articles</code> table — exactly the same
+    schema Stage 1 + Stage 2 already operate on. From there, the funnel
+    is unchanged.
+  </p>
+
+  <h3>Trade-offs to be honest about</h3>
+  <ul>
+    <li>
+      <strong>Still polling under the hood.</strong> Miniflux itself polls
+      the publisher; the "push" is from <em>Miniflux to us</em>. That
+      pushes latency from "our 5-minute APScheduler tick" down to
+      "Miniflux's 1-minute tick + zero queue delay" — roughly 5×–10×
+      faster but not literally sub-second.
+    </li>
+    <li>
+      <strong>Single point of failure.</strong> If our Miniflux container
+      crashes, polling stops. APScheduler-in-process has slightly better
+      recovery semantics because it shares a process with the backend.
+      Mitigation: a 60-second health check that page-failover-restarts.
+    </li>
+  </ul>
+</div>
+
+<hr />
+
+<div class="compHead">
+  <h2>Component 2 · RSSHub</h2>
+  <span class="pill purple">non-RSS site &rarr; RSS</span>
+  <span class="pill">MIT</span>
+  <span class="pill">~200 MB RAM</span>
+</div>
+
+<div class="card purple">
+  <h3>What it is</h3>
+  <p>
+    RSSHub is a <strong>feed factory</strong>. It's a Node.js server with
+    1,300+ community-contributed "routes" — each route knows how to scrape
+    one specific website and generate a synthetic RSS feed from it.
+    Moneycontrol, Economic Times, LiveMint, NSE notices, BSE corporate
+    actions all have community routes. So even though Moneycontrol's
+    homepage doesn't <em>have</em> an RSS feed, RSSHub can produce one for
+    us at e.g. <code class="inline">https://rsshub.local/moneycontrol/news/business</code>
+    and Miniflux treats it like any other feed.
+  </p>
+
+  <h3>Why this matters</h3>
+  <p>
+    Phase-1 verification showed that BS / ET / Mint return HTTP 403 to a
+    generic Python user-agent. Their public RSS endpoints exist but are
+    fragile; RSSHub instead scrapes the actual HTML pages with a
+    browser-like header set, parses the article cards out of the DOM, and
+    emits a clean feed. It also <em>creates</em> feeds for sources that
+    have none — for instance, NSE's "Latest Notices" page is plain HTML
+    with no RSS, but the RSSHub route
+    <code class="inline">/nseindia/notices</code> turns it into one.
+  </p>
+
+  <h3>The pattern</h3>
+  <pre><span class="c"># Without RSSHub:</span>
+Miniflux ──► ✗ no feed exists on Moneycontrol ──► we have to skip Moneycontrol entirely
+
+<span class="c"># With RSSHub:</span>
+Miniflux ──► GET http://rsshub:1200/moneycontrol/news/business
+              │
+              ▼
+           RSSHub scrapes moneycontrol.com, parses,
+           returns a valid &lt;rss&gt; document
+              │
+              ▼
+           Miniflux parses it like any other feed → webhook to us
+</pre>
+
+  <h3>The escape hatch when a route is missing</h3>
+  <p>
+    If a publisher we want isn't covered by a community route (rare for
+    the major Indian sources), we write a route in ~50 lines of
+    TypeScript and PR it upstream. The route is a function that fetches
+    the source URL, walks its
+    <span class="gl" title="Document Object Model — the tree of nested HTML elements that makes up a web page. A &quot;DOM selector&quot; like &quot;.article-title&quot; picks out specific elements.">DOM</span>
+    with CSS selectors, and returns an array of articles. Cheap to write,
+    cheap to maintain, the next person who needs the same source just
+    benefits.
+  </p>
+
+  <h3>What it doesn't help with</h3>
+  <p>
+    Sites that hide content behind a login wall (Bloomberg Terminal, paid
+    Bloomberg Quint) or aggressive bot-detection that requires a real
+    browser (NSE's <code class="inline">/api/corporate-announcements</code>
+    JSON endpoint, which requires a warmed cookie session). For those,
+    Component 3 is the answer.
+  </p>
+</div>
+
+<hr />
+
+<div class="compHead">
+  <h2>Component 3 · changedetection.io</h2>
+  <span class="pill orange">JS-heavy page &rarr; webhook</span>
+  <span class="pill">Apache-2.0</span>
+  <span class="pill">~600 MB RAM (with Playwright)</span>
+</div>
+
+<div class="card orange">
+  <h3>What it is</h3>
+  <p>
+    changedetection.io watches arbitrary web pages and emits a webhook
+    when the rendered content changes. The killer feature is that it can
+    optionally use <strong>Playwright</strong> — a tool that drives a real
+    headless Chrome browser — so it can read sites that need JavaScript to
+    render content, accept cookies, and bypass simple bot detection.
+  </p>
+  <p class="small">
+    <span class="gl" title="A page where the visible content is generated by JavaScript that runs in the browser, NOT served as HTML by the server. Think modern SPAs like Gmail or Twitter.">JS-heavy page</span> ·
+    <span class="gl" title="A browser running with no graphical window — does all the same rendering work, just doesn't draw to a screen. Used for scraping, automated testing, and screenshots.">headless Chrome</span> ·
+    <span class="gl" title="ASP.NET is Microsoft's web framework; pages with names like .aspx use postback URLs and view state, which are particularly annoying to scrape with simple HTTP libraries.">ASP.NET / .aspx page</span>
+  </p>
+
+  <h3>Why we need it for SEBI and NSE corporate filings</h3>
+  <p>
+    SEBI's orders page lives at
+    <code class="inline">www.sebi.gov.in/.../orders.html</code> — pure
+    ASP.NET, no RSS, no JSON API. NSE's corporate-announcements feed at
+    <code class="inline">www.nseindia.com/api/corporate-announcements</code>
+    <em>is</em> JSON but requires a real browser session (warm cookies +
+    realistic user-agent + referrer) or you get a 401. RSSHub doesn't have
+    a working route for either as of May 2026 — the standard
+    HTTP-with-browser-UA tricks fail.
+  </p>
+  <p>
+    changedetection.io's approach: spin up Playwright, navigate to the
+    page, wait for the JavaScript to finish, take the rendered text, hash
+    it with <span class="gl" title="A cryptographic hash function. Two pieces of identical text produce identical SHA-256 hashes; a single-character change produces a wildly different hash. Used here as a fingerprint to cheaply detect &quot;did this page change?&quot;">SHA-256</span>,
+    compare to the previous hash. If different, POST the new content (or
+    a structured diff) to a webhook.
+  </p>
+
+  <h3>The pattern</h3>
+  <pre><span class="c"># changedetection.io config (one entry per page we want to watch):</span>
+[
+  {
+    <span class="a">"url"</span>: <span class="s">"https://www.sebi.gov.in/sebiweb/.../orders.html"</span>,
+    <span class="a">"check_interval"</span>: <span class="s">"5m"</span>,
+    <span class="a">"fetch_method"</span>: <span class="s">"playwright"</span>,    <span class="c"># use real Chrome</span>
+    <span class="a">"include_filters"</span>: [<span class="s">".orders-table tr"</span>],  <span class="c"># CSS selector — only watch the orders table, not the nav</span>
+    <span class="a">"notification_url"</span>: <span class="s">"https://pivot.app/api/news-events/ingest"</span>
+  }
+]
+
+<span class="c"># When the orders table changes, changedetection.io POSTs:</span>
+{
+  <span class="a">"source"</span>: <span class="s">"sebi_orders"</span>,
+  <span class="a">"url"</span>: <span class="s">"https://www.sebi.gov.in/.../orders.html"</span>,
+  <span class="a">"diff"</span>: <span class="s">"+ New order against XYZ Ltd dated 2026-05-21\n- (no change above)"</span>,
+  <span class="a">"current_content"</span>: <span class="s">"...rendered page text..."</span>
+}
+</pre>
+
+  <h3>Why "diff" matters</h3>
+  <p>
+    A page can change in tiny irrelevant ways every minute — a "last
+    updated" timestamp in the footer, a rotating banner ad, a
+    visit-counter widget. If we treated <em>any</em> change as news, we'd
+    flood the funnel. CSS-selector filters (<code class="inline">include_filters</code>)
+    plus diff-aware notification means changedetection.io only POSTs us
+    when the part of the page <em>we care about</em> changes, and tells
+    us what specifically changed.
+  </p>
+
+  <h3>Operational caveats</h3>
+  <ul>
+    <li>
+      <strong>Playwright is heavy.</strong> Each watched page consumes
+      ~150 MB of Chrome memory while it renders. Realistic budget: 20-30
+      watched pages on a 4 GB host, comfortably.
+    </li>
+    <li>
+      <strong>The publisher can change the page layout.</strong> If SEBI
+      reskins their site, our <code class="inline">.orders-table tr</code>
+      selector breaks and we silently stop receiving updates. Mitigation:
+      a canary check that confirms we received <em>at least one</em>
+      change per source per week.
+    </li>
+  </ul>
+</div>
+
+<hr />
+
+<h2>How Tier-B plugs into the Pivot funnel</h2>
+
+<p>
+  The Phase-0 plan deliberately built the funnel around a
+  <code class="inline">SourceAdapter</code> abstraction:
+</p>
+
+<pre><span class="c"># backend/news_events/sources/base.py</span>
+<span class="k">class</span> <span class="n">SourceAdapter</span>(ABC):
+    <span class="k">async def</span> fetch(<span class="k">self</span>) -&gt; <span class="n">list</span>[FetchedItem]:
+        ...
+</pre>
+
+<p>
+  Today every adapter is a <em>pull</em> adapter — it implements
+  <code class="inline">fetch()</code> and the poller calls it on a schedule.
+  For Tier-B, we add a parallel surface: <strong>a webhook receiver</strong>
+  that takes the POST from Miniflux / changedetection.io and produces the
+  same <code class="inline">FetchedItem</code> records the funnel already
+  knows how to handle. The funnel itself (Stages 1-7, the aggregator, the
+  firing path) doesn't change. That's the whole bet from the Phase-0
+  design: transport is pluggable; funnel is invariant.
+</p>
+
+<h3>Step-by-step request flow once Tier-B is live</h3>
+<ol>
+  <li>
+    RBI publishes a press release at 10:00:00 IST.
+  </li>
+  <li>
+    Miniflux's poller hits <code class="inline">pressreleases_rss.xml</code> at
+    10:00:08, sees a new entry, and within ~200 ms POSTs to our
+    <code class="inline">/api/news-events/ingest</code> endpoint with the
+    HMAC-signed payload.
+  </li>
+  <li>
+    Our endpoint verifies the signature, runs the existing Stage-0 dedup
+    (<code class="inline">url_hash</code> UNIQUE check), inserts a
+    <code class="inline">news_articles</code> row, runs Stage 1 (cross-source
+    title dedup) and Stage 2 (per-spec keyword filter) inline.
+  </li>
+  <li>
+    The next funnel-worker tick (within 60 s) picks up the resulting
+    classification row, fetches the body via Stage 3, runs Stage 4 embedding,
+    Stage 5 excerpt, Stage 6 classifier.
+  </li>
+  <li>
+    Stage 7 aggregator evaluates the spec. If the per-tier firing rule is
+    satisfied, Stage 8 writes a <code class="inline">news_fired_events</code>
+    audit row and calls the Touch-1 seam to kick off the user's
+    workflow.
+  </li>
+</ol>
+<p>
+  End-to-end latency goes from "up to 5 minutes (current APScheduler tick) +
+  up to 60 s funnel-worker tick" today to <strong>"~10 seconds publisher-to-DB"</strong>
+  with Tier-B in place. The funnel-worker tick is still the dominant cost
+  on the back end; if we ever needed to shrink that, we'd evaluate the
+  classification inline on the POST (which is fine because Stages 1-2 are
+  microseconds).
+</p>
+
+<h2>What changes in the Pivot codebase</h2>
+<table>
+  <thead>
+    <tr><th>Area</th><th>Today (Phase 1-5)</th><th>With Tier-B</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Polling</td>
+      <td>In-process APScheduler hits each RSS URL on a 3-10 min cadence</td>
+      <td>Replaced by Miniflux container + (for non-RSS) RSSHub + changedetection.io</td>
+    </tr>
+    <tr>
+      <td>Sources file (<code class="inline">news_events/config.py</code>)</td>
+      <td>Hard-coded Python dict of 5 sources</td>
+      <td>Configured in Miniflux's UI / config file; Pivot just registers their <code class="inline">source_id</code></td>
+    </tr>
+    <tr>
+      <td><code class="inline">SourceAdapter</code> surface</td>
+      <td>Only pull-style <code class="inline">fetch()</code> adapters</td>
+      <td>Adds a push-receiver shape; both kinds coexist behind the same downstream funnel</td>
+    </tr>
+    <tr>
+      <td>New API endpoint</td>
+      <td>—</td>
+      <td><code class="inline">POST /api/news-events/ingest</code> — HMAC-verified, idempotent on <code class="inline">url_hash</code></td>
+    </tr>
+    <tr>
+      <td>Funnel stages</td>
+      <td>Unchanged</td>
+      <td>Unchanged</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>What we deliberately are NOT building</h2>
+<div class="card red">
+  <ul>
+    <li>
+      <strong>Our own WebSub hub.</strong> WebSub is the open-standard
+      pub/sub for the web (think "RSS but with push"). Running a hub buys
+      nothing because none of our Indian publishers advertise a hub URL.
+      If you're not on the publisher's hub-advertised subscriber list, a
+      hub of your own subscribes to nobody.
+    </li>
+    <li>
+      <strong>A heavy message bus (Kafka, RabbitMQ, NATS).</strong>
+      Postgres plus FastAPI background tasks handles 5–50 feeds × per-minute
+      cadence with comfortable headroom. Bus comes in only when we have
+      multiple downstream consumers fighting over the same event stream —
+      that's a Phase 8 problem at the earliest.
+    </li>
+    <li>
+      <strong>n8n / Huginn / Airflow / Windmill.</strong> Those are
+      <em>workflow</em> tools. We don't have multi-step orchestration
+      needs in the transport layer; we have "X → webhook" needs. Right
+      tool for the right job.
+    </li>
+  </ul>
+</div>
+
+<h2>Glossary — every technical term used in this page</h2>
+<div class="glossary">
+<dl>
+  <dt>Apache-2.0 / MIT</dt>
+  <dd>Permissive open-source licences. They let us run the software, modify it, and use it commercially without paying or releasing our own code. The "no licence trap" bit matters because some "free" software (AGPL, n8n's Sustainable Use License) carries restrictions that could affect a paid product.</dd>
+
+  <dt>APScheduler</dt>
+  <dd>"Advanced Python Scheduler" — a Python library that runs scheduled functions inside your own process. Pivot uses it to fire jobs at fixed intervals (poll RSS every 5 min, run funnel every 60 s, etc.). The Python-process equivalent of cron.</dd>
+
+  <dt>ASP.NET / .aspx</dt>
+  <dd>Microsoft's web framework. Pages built with it tend to use server-side rendering with hidden form state ("ViewState") and postback URLs that look like <code class="inline">?prid=63110</code>. They're more painful than plain HTML to scrape because navigating between pages often requires submitting forms rather than following links.</dd>
+
+  <dt>Atom (feed)</dt>
+  <dd>The other XML feed format you'll see, alongside RSS. Same job, slightly different tags. Parsers handle both.</dd>
+
+  <dt>Bot detection</dt>
+  <dd>Code on the publisher's server that tries to identify and block automated clients (scrapers) versus real human browsers. Common signals: missing browser headers, no cookie session, no JavaScript execution, suspicious request rates. Bypass it by looking and acting more like a real browser — which is exactly what Playwright does.</dd>
+
+  <dt>CSS selector</dt>
+  <dd>A short string like <code class="inline">.orders-table tr</code> that picks elements out of an HTML page. Same syntax web designers use to style pages. We use them to tell changedetection.io "only watch THIS part of the page".</dd>
+
+  <dt>DOM (Document Object Model)</dt>
+  <dd>The in-memory tree representation of an HTML page. When a browser loads a page, it builds a DOM and that's what JavaScript / scrapers manipulate. "Walking the DOM with selectors" means finding the elements we care about within that tree.</dd>
+
+  <dt>Docker / Docker Compose</dt>
+  <dd>Docker is a way to package an application together with everything it needs to run, into a "container". Docker Compose is a tool to declare a set of related containers in one YAML file and start them together. Tier-B is three Docker containers + their config — that's the entire ops footprint.</dd>
+
+  <dt>FetchedItem</dt>
+  <dd>The internal Pivot dataclass that represents one news article candidate inside our funnel. <code class="inline">source_id</code>, <code class="inline">url</code>, <code class="inline">title</code>, <code class="inline">summary</code>, <code class="inline">published_at</code>, <code class="inline">raw_metadata</code>. Whatever adapter produces it, downstream stages don't care.</dd>
+
+  <dt>Go binary</dt>
+  <dd>Programs written in the Go language compile to a single executable file that has no external runtime dependencies. So "Miniflux is a 30 MB Go binary" means we copy one file onto a server and run it — no Python install, no virtualenv, no npm. Operationally cheap.</dd>
+
+  <dt>Headless browser</dt>
+  <dd>A real web browser (Chrome, Firefox) running without a graphical window. It still does the full JavaScript execution and rendering work, just doesn't draw to a screen. Used by scrapers when a page won't reveal its content unless JS runs.</dd>
+
+  <dt>HMAC (Hash-based Message Authentication Code)</dt>
+  <dd>A cryptographic signature scheme. The sender and receiver share a secret. The sender computes a hash of (the message + the secret) and includes it in the request. The receiver re-computes the same hash with their copy of the secret; if it matches, the message is authentic AND wasn't tampered with. Standard way to prove a webhook POST really came from who it claims to be from.</dd>
+
+  <dt>HTTP POST</dt>
+  <dd>An HTTP request that <em>sends data</em> to a URL. Distinct from GET, which only asks for data. A webhook is always a POST — the sender is delivering something to us, not asking for something.</dd>
+
+  <dt>HTTPS / TLS</dt>
+  <dd>HTTPS is HTTP over TLS (Transport Layer Security). It encrypts the connection so nobody on the network can read or alter requests in transit. All Pivot webhook endpoints will be HTTPS-only.</dd>
+
+  <dt>Idempotent</dt>
+  <dd>"Doing it twice has the same effect as doing it once." Our ingest endpoint is idempotent: if Miniflux retries a POST after a network blip, we don't end up with two copies of the same article — the second insert hits the UNIQUE <code class="inline">url_hash</code> constraint and is silently absorbed.</dd>
+
+  <dt>Jinja2</dt>
+  <dd>A Python templating language (used here by changedetection.io). Lets you write reusable HTML/text templates with placeholders like <code class="inline">{{ current_content }}</code> that get filled in at send time. We mention it because changedetection.io uses it to let you customise the JSON shape of the webhook payload.</dd>
+
+  <dt>Miniflux's "conditional GET"</dt>
+  <dd>An HTTP optimisation: when re-fetching a feed, send the <code class="inline">If-Modified-Since</code> or <code class="inline">If-None-Match</code> header carrying the last response's timestamp / ETag. If the publisher's feed hasn't changed, the server returns 304 Not Modified with no body — saves bandwidth and CPU on both sides.</dd>
+
+  <dt>Playwright</dt>
+  <dd>An open-source library (originally from Microsoft) that drives real browsers (Chrome, Firefox, Safari) under programmatic control. Used here by changedetection.io to load JS-heavy pages exactly the way a human browser would, then read the rendered content.</dd>
+
+  <dt>Poller / polling</dt>
+  <dd>A loop that wakes up at fixed intervals, asks "anything new?", and goes back to sleep. The opposite of push.</dd>
+
+  <dt>Postback URL</dt>
+  <dd>An ASP.NET concept — links on the page don't navigate by themselves; clicking them submits a hidden form that tells the server to re-render. Annoying for scrapers because simple "fetch this URL" code misses the form-submission step.</dd>
+
+  <dt>Pull adapter vs Push receiver</dt>
+  <dd>Pivot terminology. A <em>pull adapter</em> implements <code class="inline">async fetch()</code> and the poller calls it on a schedule. A <em>push receiver</em> is an HTTP endpoint that accepts inbound POSTs from a webhook and emits the same FetchedItem records. The funnel doesn't care which produced its input.</dd>
+
+  <dt>RSS (Really Simple Syndication)</dt>
+  <dd>An XML format publishers expose at a known URL (e.g. <code class="inline">/rss.xml</code>) listing their recent items. Readers fetch the URL on a polling schedule. No subscriber list maintained by the publisher; cheap to host, cheap to consume, but inherently polling.</dd>
+
+  <dt>SHA-256</dt>
+  <dd>A cryptographic hash function. Takes any input, produces a fixed-length 256-bit digest. Two identical inputs give identical hashes; a single-byte change produces a wildly different hash. Used here as a content fingerprint: hash the rendered page text, compare to the previous hash, alert on mismatch.</dd>
+
+  <dt>Source adapter (Pivot's <code class="inline">SourceAdapter</code> abstract class)</dt>
+  <dd>The Phase-0 abstraction that lets every funnel-downstream stage be agnostic about where articles came from. The interface is one async method that yields <code class="inline">FetchedItem</code> records. Pull adapters implement it directly; push receivers translate inbound webhooks into the same shape.</dd>
+
+  <dt>UNIQUE constraint</dt>
+  <dd>A database rule that prevents two rows from having the same value in a given column. Pivot's <code class="inline">news_articles.url_hash</code> has one, so an attempted second insert of the same URL fails — that's how Stage-0 dedup is enforced at the storage layer.</dd>
+
+  <dt>User-Agent</dt>
+  <dd>The HTTP header a client sends to identify itself. Browsers send things like <code class="inline">Mozilla/5.0 ... Chrome/127</code>. Generic Python libraries send <code class="inline">python-requests/2.31</code> which many publishers blocklist. Pivot's polite-citizen rule is to send <code class="inline">PivotNewsBot/0.1 (...)</code> so the publisher can identify us and rate-limit us cleanly.</dd>
+
+  <dt>Webhook</dt>
+  <dd>An inbound HTTP POST that another system sends to a URL we own, the moment something happens. The "we expose an endpoint and they call it" inverse of polling.</dd>
+
+  <dt>WebSub (formerly PubSubHubbub)</dt>
+  <dd>An open standard for push: publishers advertise a "hub" URL in their feed; subscribers register with the hub once; the publisher tells the hub when something changes; the hub forwards to every subscriber. Great when supported. Almost nobody we want supports it in 2026, so we don't use it.</dd>
+</dl>
+</div>
+
+<hr />
+
+<p class="muted small">
+  Pivot — News &amp; Event Trigger subsystem · Tier-B transport-upgrade explainer ·
+  Companion to <code class="inline">docs/news_events_phase0_plan.md</code> and the
+  Phase 1-5 summaries. No code has been written for Tier-B yet — this is research
+  output, gated on approval to move into Phase 7 of the build.
+</p>
+
+</div>
+</body>
+</html>

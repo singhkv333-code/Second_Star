@@ -60,3 +60,11 @@ pytest-asyncio==0.24.0
 
 # Utilities
 python-dotenv==1.0.1
+
+# News & Event Trigger — Phase 3 article-body extraction
+trafilatura==1.12.2
+
+# News & Event Trigger — Phase 7 Telegram MTProto channel reader
+# (Tier-A push transport per docs/news_events_phase7_*.md). Pin to a
+# 1.x release — Telethon 2.x has breaking API changes.
+telethon>=1.36,<2.0

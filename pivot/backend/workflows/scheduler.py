@@ -670,10 +670,20 @@ async def _fire_watch_run(
     triggered_step_index: int,
     triggered_by: str,
     fired_at: datetime,
-) -> None:
+    audit_context: Optional[dict] = None,
+) -> Optional[str]:
     """Create the workflow_run row and hand to the engine. Mirrors
     `_fire_one` but with the watch-specific ``triggered_by`` value
     and the firing step's index so the engine runs the right branch.
+
+    ``audit_context`` is an opt-in dict that callers (Phase-5 news
+    event firing — see ``fire_external_event`` below) can pass to
+    seed ``workflow_run.context["news_event"]``. Default behaviour
+    (``None``) is unchanged from before — an empty context dict,
+    matching every pre-Phase-5 call site.
+
+    Returns the newly-created ``workflow_run.id`` as a string, or
+    None if the workflow was missing / inactive at fire time.
     """
 
     def _create() -> Optional[str]:
@@ -682,13 +692,16 @@ async def _fire_watch_run(
             wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
             if wf is None or wf.status != WorkflowStatus.active:
                 return None
+            context: dict = {}
+            if audit_context:
+                context["news_event"] = audit_context
             run = WorkflowRun(
                 workflow_id=wf.id,
                 workflow_version=int(wf.version),
                 triggered_by=triggered_by,
                 triggered_step_index=triggered_step_index,
                 status=RunStatus.running,
-                context={},
+                context=context,
             )
             db.add(run)
             wf.last_run_at = fired_at  # type: ignore[assignment]
@@ -700,9 +713,41 @@ async def _fire_watch_run(
 
     run_id = await asyncio.to_thread(_create)
     if run_id is None:
-        return
+        return None
 
     from backend.workflows.engine import WorkflowEngine
 
     engine = WorkflowEngine()
     asyncio.create_task(engine.execute_run(run_id))
+    return run_id
+
+
+async def fire_external_event(
+    *,
+    workflow_id: str,
+    triggered_step_index: int,
+    fired_at: datetime,
+    audit_context: dict,
+) -> Optional[str]:
+    """Public seam for the Phase-5 news_events firing path.
+
+    Thin wrapper around ``_fire_watch_run`` that always uses
+    ``triggered_by='event_alert'`` (already allowed by the
+    workflow_runs CHECK constraint) and forces ``audit_context``
+    to non-empty. Returns the newly-created ``workflow_run.id`` so
+    the caller can persist the link in ``news_fired_events.workflow_run_id``.
+
+    This is the ONLY new public function added to the workflows
+    package in the entire news_events build — every other touch
+    is inside ``backend/news_events/``. See
+    ``docs/news_events_phase0_plan.md`` §3.5 Touch 1.
+    """
+    if not audit_context:
+        raise ValueError("audit_context must be non-empty for external events")
+    return await _fire_watch_run(
+        workflow_id=workflow_id,
+        triggered_step_index=triggered_step_index,
+        triggered_by="event_alert",
+        fired_at=fired_at,
+        audit_context=audit_context,
+    )

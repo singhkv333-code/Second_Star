@@ -107,6 +107,16 @@ app.include_router(admin_router)
 app.include_router(quotes_ws_router)
 app.include_router(kite_ticker_admin_router)
 
+# ── News & Event Trigger subsystem (flag-gated) ──────────────────────
+# Entire subsystem is opt-in via `settings.news_events_enabled`. With
+# the flag off, nothing below this comment imports, registers, or runs.
+# See docs/news_events_phase0_plan.md and backend/news_events/.
+if settings.news_events_enabled:
+    from backend.news_events.router import router as news_events_router
+
+    app.include_router(news_events_router)
+    logger.info("[news_events] router mounted under /api/news-events")
+
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
 #
@@ -257,6 +267,32 @@ async def startup():
         from backend.workflows.scheduler import register_workflow_scheduler
         if scheduler_module.scheduler is not None:
             register_workflow_scheduler(scheduler_module.scheduler)
+            # News & Event Trigger pollers — additive, flag-gated.
+            # With the flag off, this branch is a no-op and the
+            # subsystem's modules are never imported.
+            if settings.news_events_enabled:
+                from backend.news_events.workers.poller import register_poller
+                from backend.news_events.workers.funnel import register_funnel_worker
+                from backend.news_events.workers.retraction_watcher import (
+                    register_retraction_watcher,
+                )
+
+                register_poller(scheduler_module.scheduler)
+                register_funnel_worker(scheduler_module.scheduler)
+                register_retraction_watcher(scheduler_module.scheduler)
+
+                # Phase 7 Tier-A: Telegram MTProto channel reader.
+                # Long-lived asyncio task (not an APScheduler job)
+                # because Telethon's run_until_disconnected is its
+                # own event loop. start_telegram_worker is
+                # idempotent + gracefully no-ops when creds /
+                # session aren't configured.
+                if settings.telegram_enabled:
+                    from backend.news_events.workers.telegram_worker import (
+                        start_telegram_worker,
+                    )
+
+                    start_telegram_worker()
         logger.info(
             f"[{format_ist(now_ist())}] "
             f"Pivot backend started. Scheduler running on IST."
@@ -364,6 +400,17 @@ async def shutdown():
         get_ticker_manager().stop()
     except Exception:
         pass
+    # Phase 7 — graceful shutdown of the Telegram worker so the
+    # MTProto disconnect lands cleanly. No-op when the worker
+    # never started.
+    if settings.news_events_enabled and settings.telegram_enabled:
+        try:
+            from backend.news_events.workers.telegram_worker import (
+                stop_telegram_worker,
+            )
+            await stop_telegram_worker()
+        except Exception:
+            pass
 
 
 @app.get("/health")

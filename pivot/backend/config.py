@@ -67,6 +67,39 @@ class Settings(BaseSettings):
     log_format: str = "console"   # "json" | "console"
     log_level: str = "INFO"
 
+    # --- News & Event Trigger subsystem -----------------------------------------
+    # Master flag for backend/news_events/. With it FALSE (the default),
+    # the router is not included, no APScheduler jobs are registered, and
+    # the integration seam is a no-op. The 0007 migration still runs so
+    # the tables exist, but they stay empty.
+    news_events_enabled: bool = False
+    # Identifying User-Agent for all outbound source fetches. Some Indian
+    # publisher feeds 403 a generic Python UA; this string is sent on
+    # every request and is also what we surface in robots.txt requests.
+    news_events_user_agent: str = (
+        "PivotNewsBot/0.1 (+https://pivot.app/news-bot; "
+        "automation for retail-investor event triggers)"
+    )
+
+    # --- Phase 7 Tier-A: Telegram MTProto channel reader -----------------------
+    # Sub-flag: TELEGRAM_ENABLED gates the long-running Telethon
+    # client. Master news_events flag must also be on. Both default
+    # off so dev and tests don't try to connect.
+    telegram_enabled: bool = False
+    # Get these from https://my.telegram.org → API development tools.
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    # Path to the Telethon ``.session`` file. Created by the
+    # one-time auth CLI (``scripts/auth_telegram.py``); reused on
+    # every subsequent boot so no SMS step is needed.
+    telegram_session_path: str = "/var/lib/pivot/telegram.session"
+
+    # --- Phase 7 Tier-B: Miniflux webhook receiver ----------------------------
+    # Shared HMAC secret. Configure the SAME value inside Miniflux's
+    # ``WEBHOOK_SECRET`` env. Empty string disables the endpoint
+    # entirely (POSTs return 401).
+    miniflux_webhook_secret: str = ""
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",")]
