@@ -51,6 +51,7 @@ from backend.routers.news import router as news_router
 from backend.routers.admin import router as admin_router
 from backend.routers.quotes_ws import router as quotes_ws_router
 from backend.routers.kite_ticker_admin import router as kite_ticker_admin_router
+from backend.routers.admin_simulate import router as admin_simulate_router
 
 app = FastAPI(
     title="Pivot API",
@@ -106,6 +107,9 @@ app.include_router(run_stream_router)
 app.include_router(admin_router)
 app.include_router(quotes_ws_router)
 app.include_router(kite_ticker_admin_router)
+# admin simulate-trigger endpoints — self-guarded against production
+# (every endpoint 404s when settings.app_env == "production").
+app.include_router(admin_simulate_router)
 
 # ── News & Event Trigger subsystem (flag-gated) ──────────────────────
 # Entire subsystem is opt-in via `settings.news_events_enabled`. With
