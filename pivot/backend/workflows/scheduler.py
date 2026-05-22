@@ -456,7 +456,13 @@ async def _poll_watch_triggers() -> None:
                 .filter(
                     Workflow.status == WorkflowStatus.active,
                     WorkflowStep.step_type.in_(
-                        ["trigger.price", "trigger.indicator"],
+                        [
+                            "trigger.price",
+                            "trigger.indicator",
+                            # Phase-D5: compound (DSL-tree) triggers
+                            # evaluated via backend/workflows/dsl/.
+                            "trigger.compound",
+                        ],
                     ),
                 )
                 .all()
@@ -501,6 +507,8 @@ async def _poll_watch_triggers() -> None:
                 await _evaluate_price_trigger(wf_id, step_idx, cfg, quotes, fired_at)
             elif step_type == "trigger.indicator":
                 await _evaluate_indicator_trigger(wf_id, step_idx, cfg, fired_at)
+            elif step_type == "trigger.compound":
+                await _evaluate_compound_trigger(wf_id, step_idx, cfg, fired_at)
         except Exception:
             logger.exception(
                 "[watcher] failed to evaluate %s for workflow %s step %d",
@@ -609,6 +617,87 @@ async def _evaluate_indicator_trigger(
         await _fire_watch_run(workflow_id, step_index, "indicator_alert", fired_at)
 
 
+async def _evaluate_compound_trigger(
+    workflow_id: str,
+    step_index: int,
+    cfg: dict[str, object],
+    fired_at: datetime,
+) -> None:
+    """Phase-D6: walk the DSL tree on the step's config; fire when
+    it returns Ternary.TRUE.
+
+    State plumbing for ``crosses_above`` / ``crosses_below`` lives in
+    ``cfg["_last_values"]`` — the watcher reads it before walking,
+    writes it back after. Same persistence pattern as
+    ``_evaluate_indicator_trigger``'s ``_LAST_VALUE_KEY``.
+
+    Data accessor + tree evaluator are both wrapped in
+    ``asyncio.to_thread`` because the evaluator's leaf calls
+    (yfinance, indicator math) are blocking — same convention the
+    existing price/indicator branches use.
+    """
+    entry_raw = cfg.get("entry")
+    if not isinstance(entry_raw, dict):
+        # Config invalid; the registry validator would have caught
+        # this on activate, but be defensive.
+        return
+
+    last_values_raw = cfg.get("_last_values")
+    prev_state: dict[str, float] = (
+        {k: float(v) for k, v in last_values_raw.items()
+         if isinstance(v, (int, float))}
+        if isinstance(last_values_raw, dict) else {}
+    )
+
+    def _evaluate_sync() -> tuple[bool, dict[str, float]]:
+        # Lazy imports keep watcher startup cheap.
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.data_accessor import LiveDataAccessor
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+
+        try:
+            tree = TypeAdapter(Tree).validate_python(entry_raw)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[watcher.compound] step %d workflow %s — tree parse failed: %s",
+                step_index, workflow_id, exc,
+            )
+            return False, prev_state
+
+        result = evaluate(tree, accessor=LiveDataAccessor(), prev_state=prev_state)
+        fired = result.value is Ternary.TRUE
+        return fired, result.new_state
+
+    try:
+        matched, new_state = await asyncio.to_thread(_evaluate_sync)
+    except Exception:
+        logger.exception(
+            "[watcher.compound] eval crashed; step %d workflow %s",
+            step_index, workflow_id,
+        )
+        return
+
+    # Persist updated state so the next tick sees the previous values.
+    # Same dance as price/indicator triggers — single key, but the
+    # value is a dict instead of a scalar.
+    if new_state != prev_state:
+        await asyncio.to_thread(
+            _persist_last_value,
+            workflow_id, step_index, "_last_values", new_state,
+        )
+
+    if matched:
+        # Pick the most-specific triggered_by value we can. The CHECK
+        # constraint allows price_alert / indicator_alert / event_alert;
+        # compound triggers most resemble indicator_alert (heavy use
+        # of indicator nodes), so use that. A future schema rev could
+        # add 'compound_alert' if the audit distinction matters.
+        await _fire_watch_run(
+            workflow_id, step_index, "indicator_alert", fired_at,
+        )
+
+
 def _compute_indicator_sync(
     symbol: str, indicator: str, period: int,
 ) -> Optional[float]:
@@ -633,15 +722,21 @@ def _compute_indicator_sync(
 
 
 def _persist_last_value(
-    workflow_id: str, step_index: int, key: str, value: float,
+    workflow_id: str, step_index: int, key: str, value,
 ) -> None:
     """Update the firing step's config with the latest observed value
     so the next tick can detect a crossing. Uses a fresh SessionLocal
     because we're in a worker thread.
 
+    ``value`` accepts:
+      - a number (float / int) — for price + indicator triggers'
+        ``_last_price`` / ``_last_value`` scalar state, OR
+      - a dict[str, float] — for compound triggers' ``_last_values``
+        per-comparison crossing state.
+
     Multi-trigger: writes to the specific step that fired, not just
     step 0 — different triggers in the same workflow keep their
-    own ``_last_price`` / ``_last_value``.
+    own state under their own keys.
     """
     db = SessionLocal()
     try:
@@ -658,7 +753,18 @@ def _persist_last_value(
         # JSON column update — copy and reassign so SQLA detects the
         # change (in-place mutation of a JSON dict isn't auto-tracked).
         cfg = dict(step.config or {})
-        cfg[key] = float(value)
+        if isinstance(value, (int, float)):
+            cfg[key] = float(value)
+        elif isinstance(value, dict):
+            # Coerce all keys to str + all values to float so the
+            # JSON column stays serialisable across Postgres ↔ SQLite.
+            cfg[key] = {
+                str(k): float(v) for k, v in value.items()
+                if isinstance(v, (int, float))
+            }
+        else:
+            # Unknown shape — drop silently rather than 500 the loop.
+            return
         step.config = cfg  # type: ignore[assignment]
         db.commit()
     finally:

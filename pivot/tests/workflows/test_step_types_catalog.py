@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 # The frontend picker relies on this exact set, so any drift is a
 # real bug.
 EXPECTED_STEP_TYPES: dict[str, str] = {
-    # ── Triggers (7) ──
+    # ── Triggers (8) ──
     "trigger.schedule": "trigger",
     "trigger.price": "trigger",
     "trigger.indicator": "trigger",
@@ -28,6 +28,8 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "trigger.manual": "trigger",
     "trigger.webhook": "trigger",
     "trigger.market_relative_time": "trigger",
+    # Phase-D5 — DSL-driven compound trigger (RSI < 30 AND price > X, etc.)
+    "trigger.compound": "trigger",
     # ── Data fetches (11) ──
     "fetch.quote": "fetch",
     "fetch.indicator": "fetch",

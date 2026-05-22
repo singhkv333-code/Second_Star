@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
+    TriggerCompoundConfig,
     TriggerEventConfig,
     TriggerIndicatorConfig,
     TriggerManualConfig,
@@ -80,6 +81,31 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: same reasoning as trigger.price. The watcher fires the
     run with `triggered_by='indicator_alert'`; this executor just
     acknowledges."""
+    return None
+
+
+@register_step(
+    step_type="trigger.compound",
+    category="trigger",
+    label="On compound condition",
+    description=(
+        "Fire when a tree of indicator / price / volume conditions "
+        "(joined with AND / OR / NOT) evaluates to True. The DSL "
+        "behind it lets one step type express any combination of "
+        "conditions without needing a new step type per shape."
+    ),
+    icon="git-merge",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerCompoundConfig,
+    output_schema=None,
+)
+async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the watcher (backend/workflows/scheduler.py) evaluates
+    the tree on each tick. By the time the engine reaches this
+    executor, the run row already carries an indicator_alert /
+    price_alert triggered_by (the watcher picks the closest match)
+    and the audit_context records which tree fired."""
     return None
 
 

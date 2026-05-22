@@ -272,6 +272,75 @@ class TriggerWebhookConfig(_Strict):
     pass
 
 
+# ── Compound trigger (DSL-driven) ────────────────────────────────────
+
+
+class TriggerCompoundConfig(_Strict):
+    """Fire when a tree of conditions evaluates to True.
+
+    ``entry`` is a ``backend.workflows.dsl.schema.Tree`` — typically a
+    LogicNode at the root joining multiple ComparisonNode children.
+    This is the v1 of Pivot's condition-DSL — replaces the
+    combinatorial explosion of one-step-type-per-condition with a
+    single tree-driven primitive that composes.
+
+    Why this lives in workflows/schemas.py (not workflows/dsl/):
+        The registry needs ``config_model`` to be a top-level Pydantic
+        class. The recursive schema lives in ``workflows.dsl.schema``;
+        here we just wrap it as the value of ``entry`` so it slots
+        into the existing trigger registration pattern.
+
+    ``_last_values`` is reserved for the watcher to persist crossing
+    state between ticks. The planner LLM never writes this — it's
+    purely engine bookkeeping.
+    """
+    # Imported lazily inside the field annotation to avoid a circular
+    # import (dsl.schema → workflows.registry would close the loop).
+    # We type ``entry`` as a plain dict at the schema layer and run
+    # the DSL Pydantic parser inside the watcher / step validator.
+    entry: dict = Field(
+        ...,
+        description=(
+            "Recursive condition tree. See backend/workflows/dsl/schema.py "
+            "for node types: indicator, price, volume, constant, "
+            "comparison, logic. Validated by backend.workflows.dsl on "
+            "each engine + planner boundary."
+        ),
+    )
+    # Reserved for the watcher — DO NOT populate from the planner.
+    last_values: dict = Field(
+        default_factory=dict,
+        alias="_last_values",
+        description=(
+            "Engine-managed crossing state. Persisted in the step "
+            "config between watcher ticks so crosses_above / "
+            "crosses_below can detect the previous-value transition."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_tree(self) -> "TriggerCompoundConfig":
+        # Defer DSL validation to this validator so the registry
+        # boundary catches bad LLM-emitted trees with the same
+        # "step N config invalid" error envelope every other step
+        # uses. Lazy-import to avoid the circular dependency.
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.schema import Tree
+        from backend.workflows.dsl.validators import (
+            DSLValidationError,
+            semantic_validate,
+        )
+        try:
+            parsed = TypeAdapter(Tree).validate_python(self.entry)
+        except Exception as exc:
+            raise ValueError(f"compound trigger 'entry' tree invalid: {exc}") from exc
+        try:
+            semantic_validate(parsed)
+        except DSLValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
+
+
 # ── Data fetches ─────────────────────────────────────────────────────
 
 class FetchQuoteConfig(_Strict):

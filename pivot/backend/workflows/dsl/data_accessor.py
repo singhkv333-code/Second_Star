@@ -1,0 +1,231 @@
+"""DataAccessor — single abstraction over market data lookups.
+
+The Protocol below is what the tree evaluator calls. Two concrete
+implementations:
+
+  - ``LiveDataAccessor``    — wraps backend.kite.market_data +
+                              backend.services.backtest_indicators.
+                              Used by the watcher (Phase D6).
+  - ``BacktestDataAccessor`` — a thin stub for now; bar-strict
+                               version lands in the backtester PR.
+
+Every method returns ``Optional[float]``. None means "data not yet
+available" and propagates through the evaluator as ``Ternary.UNKNOWN``
+rather than firing or holding spuriously.
+
+Why a per-walk cache:
+  A tree like ``RSI(TCS, 14) > 30 AND RSI(TCS, 14) < 70`` references
+  RSI(TCS, 14) twice. Without caching, the watcher would compute
+  the same indicator twice in a single tick. The cache is the
+  ``_call_cache`` dict on the live accessor — keyed by
+  ``(method, symbol, indicator?, period?, exchange)``. Lifetime is one
+  tree walk; the accessor is constructed fresh per evaluation in the
+  watcher, so cross-tick caching falls back to whatever Redis layer
+  the underlying market-data clients have.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Optional, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
+
+
+# ── Protocol ─────────────────────────────────────────────────────────
+
+
+@runtime_checkable
+class DataAccessor(Protocol):
+    """Surface every DSL leaf-node ultimately resolves through."""
+
+    def get_price(self, *, symbol: str, exchange: str = "NSE") -> Optional[float]:
+        ...
+
+    def get_indicator(
+        self,
+        *,
+        symbol: str,
+        indicator: str,
+        period: int,
+        exchange: str = "NSE",
+    ) -> Optional[float]:
+        ...
+
+    def get_volume(
+        self,
+        *,
+        symbol: str,
+        bars: int = 1,
+        exchange: str = "NSE",
+    ) -> Optional[float]:
+        ...
+
+
+# ── Live implementation ─────────────────────────────────────────────
+
+
+class LiveDataAccessor:
+    """Real-time accessor for the watcher tick.
+
+    All three methods catch exceptions from the underlying market-data
+    layer and return None, so a transient yfinance / Kite outage
+    doesn't crash the evaluator. The structured log line on failure
+    is the operator's signal to investigate.
+    """
+
+    def __init__(self) -> None:
+        # Per-walk cache so the same indicator isn't computed twice
+        # inside a single tree (e.g. RSI > 30 AND RSI < 70).
+        self._call_cache: dict[tuple, Optional[float]] = {}
+
+    # ── price ──
+
+    def get_price(self, *, symbol: str, exchange: str = "NSE") -> Optional[float]:
+        cache_key = ("price", symbol.upper(), exchange.upper())
+        if cache_key in self._call_cache:
+            return self._call_cache[cache_key]
+
+        try:
+            from backend.kite.market_data import get_live_quote
+        except ImportError as exc:  # pragma: no cover — would mean broken install
+            logger.warning("[dsl.data_accessor] market_data import failed: %s", exc)
+            self._call_cache[cache_key] = None
+            return None
+
+        try:
+            quote = get_live_quote(symbol, exchange=exchange)
+        except Exception as exc:  # noqa: BLE001 — evaluator must not crash
+            logger.info(
+                "[dsl.data_accessor] get_live_quote failed for %s: %s",
+                symbol, exc,
+            )
+            self._call_cache[cache_key] = None
+            return None
+
+        if not quote:
+            self._call_cache[cache_key] = None
+            return None
+
+        # Underlying quote shape varies (Kite vs yfinance fallback).
+        # Try the most common keys in order.
+        for k in ("last_price", "ltp", "price", "close"):
+            v = quote.get(k) if isinstance(quote, dict) else None
+            if v is not None:
+                try:
+                    out = float(v)
+                    self._call_cache[cache_key] = out
+                    return out
+                except (TypeError, ValueError):
+                    continue
+        self._call_cache[cache_key] = None
+        return None
+
+    # ── indicator ──
+
+    def get_indicator(
+        self,
+        *,
+        symbol: str,
+        indicator: str,
+        period: int,
+        exchange: str = "NSE",
+    ) -> Optional[float]:
+        cache_key = (
+            "indicator", symbol.upper(), indicator.lower(),
+            int(period), exchange.upper(),
+        )
+        if cache_key in self._call_cache:
+            return self._call_cache[cache_key]
+
+        try:
+            import pandas as pd  # type: ignore[import-untyped]
+            from backend.kite.market_data import get_historical_ohlcv
+            from backend.services.backtest_indicators import latest_value
+        except ImportError as exc:  # pragma: no cover
+            logger.warning("[dsl.data_accessor] indicator deps missing: %s", exc)
+            self._call_cache[cache_key] = None
+            return None
+
+        try:
+            bars = get_historical_ohlcv(
+                symbol, period="6mo", interval="1d"
+            ) or []
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "[dsl.data_accessor] historical fetch failed for %s: %s",
+                symbol, exc,
+            )
+            self._call_cache[cache_key] = None
+            return None
+
+        # Same minimum-history guard the watcher's
+        # _compute_indicator_sync uses. Below this floor the indicator
+        # would either be NaN (some series) or misleading (volatile
+        # rolling-window numbers).
+        if len(bars) < max(int(period or 0) + 5, 20):
+            self._call_cache[cache_key] = None
+            return None
+
+        df = pd.DataFrame(bars)
+        try:
+            value = latest_value(df, indicator, period)
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "[dsl.data_accessor] latest_value(%s, %d) on %s failed: %s",
+                indicator, period, symbol, exc,
+            )
+            value = None
+
+        result = float(value) if value is not None else None
+        self._call_cache[cache_key] = result
+        return result
+
+    # ── volume ──
+
+    def get_volume(
+        self,
+        *,
+        symbol: str,
+        bars: int = 1,
+        exchange: str = "NSE",
+    ) -> Optional[float]:
+        cache_key = (
+            "volume", symbol.upper(), int(bars), exchange.upper(),
+        )
+        if cache_key in self._call_cache:
+            return self._call_cache[cache_key]
+
+        try:
+            from backend.kite.market_data import get_historical_ohlcv
+        except ImportError:  # pragma: no cover
+            self._call_cache[cache_key] = None
+            return None
+
+        try:
+            ohlcv = get_historical_ohlcv(
+                symbol, period="3mo", interval="1d"
+            ) or []
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "[dsl.data_accessor] historical fetch (volume) failed for %s: %s",
+                symbol, exc,
+            )
+            self._call_cache[cache_key] = None
+            return None
+        if not ohlcv:
+            self._call_cache[cache_key] = None
+            return None
+        recent = ohlcv[-int(bars):]
+        total = 0.0
+        for bar in recent:
+            v = bar.get("volume") if isinstance(bar, dict) else None
+            if v is None:
+                self._call_cache[cache_key] = None
+                return None
+            try:
+                total += float(v)
+            except (TypeError, ValueError):
+                self._call_cache[cache_key] = None
+                return None
+        self._call_cache[cache_key] = total
+        return total
