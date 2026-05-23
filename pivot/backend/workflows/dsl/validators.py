@@ -23,7 +23,9 @@ from __future__ import annotations
 from typing import Iterable
 
 from backend.workflows.dsl.schema import (
+    AggregateNode,
     ComparisonNode,
+    ConditionalNode,
     ConstantNode,
     IndicatorNode,
     LogicNode,
@@ -38,8 +40,9 @@ class DSLValidationError(ValueError):
     """Raised when a tree parses via Pydantic but fails a semantic check."""
 
 
-# Limits intentionally small for v1; revisit if real users hit them.
-MAX_DEPTH = 4
+# Limits intentionally small for v1; lifted in Phase C.0 from 4 to 6
+# because aggregators + conditionals naturally push tree depth by 1–2.
+MAX_DEPTH = 6
 
 
 # ── Public entry point ───────────────────────────────────────────────
@@ -62,6 +65,7 @@ def semantic_validate(tree, *, allow_position: bool = False) -> None:
     if not allow_position:
         _check_no_position_leaf(tree)
     _check_position_basis(tree)
+    _check_aggregate_ops(tree)
     _check_no_vacuous_comparisons(tree)
 
 
@@ -92,7 +96,14 @@ def _depth(node) -> int:
         return 1 + max(_depth(node.left), _depth(node.right))
     if isinstance(node, LogicNode):
         return 1 + max((_depth(c) for c in node.operands), default=0)
-    # Leaves: indicator / price / volume / constant
+    if isinstance(node, ConditionalNode):
+        return 1 + max(_depth(node.if_), _depth(node.then), _depth(node.else_))
+    if isinstance(node, AggregateNode):
+        children = [_depth(node.source)]
+        if node.second is not None:
+            children.append(_depth(node.second))
+        return 1 + max(children)
+    # Leaves: indicator / price / volume / constant / position
     return 1
 
 
@@ -211,6 +222,54 @@ def _check_position_basis(node) -> None:
             )
 
 
+# ── Aggregate op semantics ──────────────────────────────────────────
+
+
+_AGG_REQUIRES_BOOLEAN_SOURCE = frozenset(
+    {"barssince", "count_when", "any_when", "valuewhen"}
+)
+_AGG_REQUIRES_SECOND = frozenset({"correlation", "valuewhen"})
+
+
+def _check_aggregate_ops(node) -> None:
+    """Validate per-op constraints. Most ops accept any numeric source;
+    a few require a boolean source (barssince, count_when, any_when,
+    valuewhen), and two require a ``second`` operand (correlation,
+    valuewhen)."""
+    for n in _walk_all(node):
+        if not isinstance(n, AggregateNode):
+            continue
+        if n.op in _AGG_REQUIRES_SECOND and n.second is None:
+            raise DSLValidationError(
+                f"Aggregate op '{n.op}' requires a 'second' operand "
+                "(the value/series to compare against)."
+            )
+        if n.op not in _AGG_REQUIRES_SECOND and n.second is not None:
+            raise DSLValidationError(
+                f"Aggregate op '{n.op}' does not accept a 'second' "
+                "operand — drop the field or switch to "
+                "'correlation' / 'valuewhen'."
+            )
+        if n.op in _AGG_REQUIRES_BOOLEAN_SOURCE:
+            if not _yields_boolean(n.source):
+                raise DSLValidationError(
+                    f"Aggregate op '{n.op}' needs a boolean source "
+                    "(a comparison or logic node); got "
+                    f"'{type(n.source).__name__}'."
+                )
+
+
+def _yields_boolean(node) -> bool:
+    """Quick structural sniff: which sub-trees evaluate to boolean.
+    Comparison and logic always do; conditional does iff both
+    branches yield boolean."""
+    if isinstance(node, (ComparisonNode, LogicNode)):
+        return True
+    if isinstance(node, ConditionalNode):
+        return _yields_boolean(node.then) and _yields_boolean(node.else_)
+    return False
+
+
 # ── Vacuous comparisons ─────────────────────────────────────────────
 
 
@@ -239,4 +298,12 @@ def _walk_all(node) -> Iterable:
     elif isinstance(node, LogicNode):
         for child in node.operands:
             yield from _walk_all(child)
+    elif isinstance(node, ConditionalNode):
+        yield from _walk_all(node.if_)
+        yield from _walk_all(node.then)
+        yield from _walk_all(node.else_)
+    elif isinstance(node, AggregateNode):
+        yield from _walk_all(node.source)
+        if node.second is not None:
+            yield from _walk_all(node.second)
     # Leaves yield only themselves; covered by the initial yield.

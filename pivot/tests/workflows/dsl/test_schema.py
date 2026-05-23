@@ -254,6 +254,102 @@ def test_position_unknown_basis_rejected_by_pydantic():
         })
 
 
+# ── Time-shift / basis on leaves ────────────────────────────────────
+
+
+def test_indicator_offset_field_round_trips():
+    leaf = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "indicator", "indicator": "rsi",
+                 "symbol": "TCS", "period": 14, "offset": 5},
+        "right": {"type": "constant", "value": 30},
+    }).left
+    assert leaf.offset == 5
+
+
+def test_price_basis_and_offset():
+    leaf = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "price", "symbol": "NIFTY",
+                 "basis": "open", "offset": 1},
+        "right": {"type": "constant", "value": 22000},
+    }).left
+    assert leaf.basis == "open"
+    assert leaf.offset == 1
+
+
+def test_offset_upper_bound_rejected():
+    with pytest.raises(ValidationError):
+        _TREE.validate_python({
+            "type": "comparison", "op": ">",
+            "left": {"type": "indicator", "indicator": "rsi",
+                     "symbol": "TCS", "period": 14, "offset": 501},
+            "right": {"type": "constant", "value": 30},
+        })
+
+
+def test_price_invalid_basis_rejected():
+    with pytest.raises(ValidationError):
+        _TREE.validate_python({
+            "type": "comparison", "op": ">",
+            "left": {"type": "price", "symbol": "TCS", "basis": "midpoint"},
+            "right": {"type": "constant", "value": 100},
+        })
+
+
+# ── Conditional / aggregate node Pydantic-level ─────────────────────
+
+
+def test_conditional_node_round_trip():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<=",
+        "left": {"type": "position", "field": "unrealised_pct",
+                 "basis": "low"},
+        "right": {
+            "type": "conditional",
+            "if": {"type": "comparison", "op": ">",
+                   "left": {"type": "indicator", "indicator": "atr",
+                            "symbol": "TCS", "period": 14},
+                   "right": {"type": "constant", "value": 50}},
+            "then": {"type": "constant", "value": -0.08},
+            "else": {"type": "constant", "value": -0.05},
+        },
+    })
+    assert tree.right.type == "conditional"
+
+
+def test_aggregate_highest_round_trip():
+    leaf = _TREE.validate_python({
+        "type": "comparison", "op": ">=",
+        "left": {"type": "price", "symbol": "TCS"},
+        "right": {
+            "type": "aggregate", "op": "highest",
+            "source": {"type": "price", "symbol": "TCS", "offset": 1},
+            "bars": 20,
+        },
+    }).right
+    assert leaf.op == "highest"
+    assert leaf.bars == 20
+
+
+def test_aggregate_bars_upper_bound_rejected():
+    with pytest.raises(ValidationError):
+        _TREE.validate_python({
+            "type": "aggregate", "op": "highest",
+            "source": {"type": "price", "symbol": "TCS"},
+            "bars": 2001,
+        })
+
+
+def test_aggregate_unknown_op_rejected():
+    with pytest.raises(ValidationError):
+        _TREE.validate_python({
+            "type": "aggregate", "op": "median_of",
+            "source": {"type": "price", "symbol": "TCS"},
+            "bars": 20,
+        })
+
+
 def test_recursive_nesting_works():
     """Tree-of-trees should parse cleanly without forward-ref errors."""
     payload = {

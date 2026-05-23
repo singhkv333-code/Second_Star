@@ -287,6 +287,94 @@ def test_lower_n_day_hold_produces_bars_held_tree():
     assert t["right"]["value"] == 7.0
 
 
+# ── Aggregate op semantics ──────────────────────────────────────────
+
+
+def test_aggregate_correlation_requires_second():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {
+            "type": "aggregate", "op": "correlation",
+            "source": {"type": "price", "symbol": "TCS"},
+            "bars": 20,
+        },
+        "right": _leaf_constant(0.5),
+    })
+    with pytest.raises(DSLValidationError, match="second"):
+        semantic_validate(tree)
+
+
+def test_aggregate_highest_rejects_second():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {
+            "type": "aggregate", "op": "highest",
+            "source": {"type": "price", "symbol": "TCS"},
+            "second": {"type": "price", "symbol": "INFY"},
+            "bars": 20,
+        },
+        "right": _leaf_constant(100),
+    })
+    with pytest.raises(DSLValidationError, match="does not accept"):
+        semantic_validate(tree)
+
+
+def test_aggregate_barssince_requires_boolean_source():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<=",
+        "left": {
+            "type": "aggregate", "op": "barssince",
+            "source": {"type": "price", "symbol": "TCS"},  # not boolean
+            "bars": 50,
+        },
+        "right": _leaf_constant(5),
+    })
+    with pytest.raises(DSLValidationError, match="boolean source"):
+        semantic_validate(tree)
+
+
+def test_aggregate_barssince_accepts_comparison_source():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<=",
+        "left": {
+            "type": "aggregate", "op": "barssince",
+            "source": {
+                "type": "comparison", "op": "<",
+                "left": {"type": "indicator", "indicator": "rsi",
+                         "symbol": "TCS", "period": 14},
+                "right": {"type": "constant", "value": 30},
+            },
+            "bars": 50,
+        },
+        "right": _leaf_constant(5),
+    })
+    semantic_validate(tree)
+
+
+# ── Depth limit (lifted from 4 to 6) ─────────────────────────────────
+
+
+def test_depth_limit_now_allows_aggregator_nested_trees():
+    """An aggregate over a 2-deep source inside a comparison is depth 4
+    — used to fail at MAX_DEPTH=4. Now should pass."""
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">=",
+        "left": {"type": "price", "symbol": "TCS"},
+        "right": {
+            "type": "aggregate", "op": "highest",
+            "source": {
+                "type": "comparison", "op": ">",
+                "left": {"type": "price", "symbol": "TCS"},
+                "right": {"type": "constant", "value": 100},
+            },
+            "bars": 20,
+        },
+    })
+    # Should not raise even though depth is 4 (comparison → aggregate
+    # → comparison → leaf).
+    semantic_validate(tree)
+
+
 def test_lower_passes_through_already_lowered_tree():
     """Calling lower_exit_policy on a tree-shaped policy is a no-op."""
     from backend.workflows.dsl.backtest.schema import (

@@ -55,14 +55,27 @@ _SYSTEM_PROMPT = """You translate natural-language trading conditions into Pivot
 
 Return ONLY a single JSON object representing the tree, no commentary, no markdown fences.
 
-The tree is built from six node types, each tagged with a "type" field:
+The tree is built from these node types, each tagged with a "type" field:
 
-  { "type": "indicator", "indicator": "<KEY>", "symbol": "<SYM>", "period": <int>, "exchange": "NSE" }
-  { "type": "price", "symbol": "<SYM>", "exchange": "NSE" }
-  { "type": "volume", "symbol": "<SYM>", "bars": <int>, "exchange": "NSE" }
+  { "type": "indicator", "indicator": "<KEY>", "symbol": "<SYM>", "period": <int>, "exchange": "NSE", "offset": <int> }
+  { "type": "price", "symbol": "<SYM>", "exchange": "NSE", "basis": "open"|"high"|"low"|"close", "offset": <int> }
+  { "type": "volume", "symbol": "<SYM>", "bars": <int>, "exchange": "NSE", "offset": <int> }
   { "type": "constant", "value": <number> }
   { "type": "comparison", "op": "<OP>", "left": <node>, "right": <node> }
   { "type": "logic", "op": "and"|"or"|"not", "operands": [<node>, ...] }
+  { "type": "conditional", "if": <bool-node>, "then": <node>, "else": <node> }   // ternary value picker
+  { "type": "aggregate", "op": "<AGG>", "source": <node>, "bars": <int>, "second": <node> }
+
+Time-shifted access: every leaf accepts an optional "offset" (default 0). offset=1 reads the previous bar; max 500.
+Price leaves also accept "basis" (default "close"). Use basis="open" for gap conditions, "low"/"high" for stop / target checks.
+
+Aggregate ops (with what they return and what 'source' must yield):
+  - highest, lowest, sum, avg, std         : numeric source → number
+  - percentrank, zscore                    : numeric source → number (percentrank is 0..1, fraction of window strictly below current value)
+  - count_when, any_when                   : BOOLEAN source → count / 1.0-or-0.0
+  - barssince                              : BOOLEAN source → integer (bars since last TRUE in window). UNKNOWN if never observed.
+  - valuewhen                              : BOOLEAN source + numeric 'second' → value of 'second' at last TRUE bar
+  - correlation                            : numeric source + numeric 'second' → Pearson r over the window
 
 Supported indicator keys: rsi, sma, ema, macd, atr, adx, aroon, bb, cci, donchian, keltner, mfi, obv, psar, roc, stoch, stoch_rsi, supertrend, trix, volume, volume_ma, volume_roc, vwap, williams_r, wma.
 
@@ -86,7 +99,34 @@ Logic operators: "and", "or" need 2-8 operands; "not" needs exactly 1.
 
 The root MUST be a "comparison" or "logic" node.
 
-Hard limits: tree depth ≤ 4; period in [1, 5000]; constants finite; constant <op> constant rejected.
+Hard limits: tree depth ≤ 6; period in [1, 5000]; aggregate bars in [1, 2000]; offset in [0, 500]; constants finite; constant <op> constant rejected.
+
+Examples involving the new nodes:
+
+  "20-day high breakout":
+    { "type":"comparison", "op":">=",
+      "left":  { "type":"price", "symbol":"TCS" },
+      "right": { "type":"aggregate", "op":"highest",
+                 "source": { "type":"price", "symbol":"TCS", "offset":1 },
+                 "bars":20 } }
+
+  "ATR(14) is in the top 30% of its last-252-bar distribution":
+    { "type":"comparison", "op":">",
+      "left":  { "type":"aggregate", "op":"percentrank",
+                 "source": { "type":"indicator", "indicator":"atr",
+                             "symbol":"NIFTY", "period":14 },
+                 "bars":252 },
+      "right": { "type":"constant", "value":0.7 } }
+
+  "bars since RSI was last below 30 is at most 3":
+    { "type":"comparison", "op":"<=",
+      "left":  { "type":"aggregate", "op":"barssince",
+                 "source": { "type":"comparison", "op":"<",
+                             "left": { "type":"indicator", "indicator":"rsi",
+                                       "symbol":"TCS", "period":14 },
+                             "right": { "type":"constant", "value":30 } },
+                 "bars":60 },
+      "right": { "type":"constant", "value":3 } }
 
 The tree expresses ONLY the ENTRY condition. Exits are configured separately on the request and may also be a tree — see the EXIT GRAMMAR below if asked, but DO NOT emit an exit tree unless the user explicitly asks for one as part of this turn.
 
@@ -290,6 +330,41 @@ SCENARIOS: list[Scenario] = [
             "exit_at": "next_open",
         },
     ),
+    # ── C-series: Phase C.0 new grammar (aggregators + shifts) ─────
+    # All LLM-translated entry trees — exercises the proposer's
+    # ability to choose the right new node type from natural prose.
+
+    Scenario(
+        "C01-20bar-high-breakout-TCS",
+        "Buy TCS when today's close is the highest close of the last 20 bars (breakout)",
+        primary_symbol="TCS", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "C02-percentrank-ATR-regime-NIFTYBEES",
+        "Buy NIFTYBEES when its 14-day ATR is in the bottom 30% of its 252-day distribution AND its RSI(14) is below 35",
+        primary_symbol="NIFTYBEES", start_date="2022-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "C03-barssince-RSI-recent-INFY",
+        "Buy INFY when its 14-day RSI was below 30 within the last 5 bars and current RSI(14) is above 30",
+        primary_symbol="INFY", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 7},
+    ),
+    Scenario(
+        "C04-gap-down-NIFTY-then-buy-TCS",
+        "Buy TCS when NIFTY opens 1% or more below yesterday's close AND TCS RSI(14) is below 40",
+        primary_symbol="TCS", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "stop_loss_pct", "value": 0.03},
+    ),
+    Scenario(
+        "C05-zscore-meanrevert-RELIANCE",
+        "Buy RELIANCE when its 20-day z-score of close is below -1.5 (mean-reversion)",
+        primary_symbol="RELIANCE", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+
     Scenario(
         "E05-bars-or-drawdown-HDFC",
         "Buy HDFCBANK when its price is above the 200-day SMA AND its RSI(14) is above 50",

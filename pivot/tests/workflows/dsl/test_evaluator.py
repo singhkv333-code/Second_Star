@@ -33,26 +33,41 @@ class _StubAccessor:
         self._volumes = volumes or {}
         self.calls: list[tuple] = []
 
-    def get_price(self, *, symbol, exchange="NSE"):
-        self.calls.append(("price", symbol, exchange))
-        return self._prices.get(symbol)
+    def get_price(
+        self, *, symbol, exchange="NSE", basis="close", offset=0,
+    ):
+        self.calls.append(("price", symbol, exchange, basis, offset))
+        # Tests may register either (symbol,) or (symbol, basis, offset).
+        return self._prices.get(
+            (symbol, basis, offset),
+            self._prices.get(symbol),
+        )
 
     def get_indicator(
-        self, *, symbol, indicator, period, exchange="NSE", component=None,
+        self, *, symbol, indicator, period, exchange="NSE",
+        component=None, offset=0,
     ):
         self.calls.append(
-            ("indicator", symbol, indicator, period, exchange, component),
+            ("indicator", symbol, indicator, period, exchange,
+             component, offset),
         )
-        # If the test registered a component-keyed entry use it,
-        # otherwise fall back to the legacy 3-tuple key.
+        # Try the most specific key, fall back through generality
+        # so existing tests with (symbol, indicator, period) tuples
+        # keep working.
         return self._indicators.get(
-            (symbol, indicator, period, component),
-            self._indicators.get((symbol, indicator, period)),
+            (symbol, indicator, period, component, offset),
+            self._indicators.get(
+                (symbol, indicator, period, component),
+                self._indicators.get((symbol, indicator, period)),
+            ),
         )
 
-    def get_volume(self, *, symbol, bars=1, exchange="NSE"):
-        self.calls.append(("volume", symbol, bars, exchange))
-        return self._volumes.get((symbol, bars))
+    def get_volume(self, *, symbol, bars=1, exchange="NSE", offset=0):
+        self.calls.append(("volume", symbol, bars, exchange, offset))
+        return self._volumes.get(
+            (symbol, bars, offset),
+            self._volumes.get((symbol, bars)),
+        )
 
 
 # ── Basic comparisons ───────────────────────────────────────────────

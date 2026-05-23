@@ -75,16 +75,31 @@ class BacktestDataAccessor:
     # ── DataAccessor protocol ─────────────────────────────────────
 
     def get_price(
-        self, *, symbol: str, exchange: str = "NSE"
+        self,
+        *,
+        symbol: str,
+        exchange: str = "NSE",
+        basis: str = "close",
+        offset: int = 0,
     ) -> Optional[float]:
-        """Returns the CLOSE of the as-of bar. ``None`` if the symbol
-        isn't loaded or the bar's close is NaN (which can happen after
-        the bar_loader's reindex to the master calendar).
+        """Returns the ``basis`` (close/open/high/low) of bar
+        ``as_of_idx - offset``. ``None`` if the symbol isn't loaded,
+        the bar's value is NaN, or the offset reaches before bar 0.
+        Same no-lookahead guarantees as the rest of the accessor:
+        no read past ``as_of_idx``.
         """
         df = self._df_for(symbol, exchange)
         if df is None:
             return None
-        val = df["close"].iloc[self._as_of_idx]
+        idx = self._as_of_idx - int(offset)
+        if idx < 0 or idx > self._as_of_idx:
+            return None
+        col = (basis or "close").lower()
+        if col not in ("open", "high", "low", "close"):
+            return None
+        if col not in df.columns:
+            return None
+        val = df[col].iloc[idx]
         if pd.isna(val):
             return None
         return float(val)
@@ -97,14 +112,17 @@ class BacktestDataAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        offset: int = 0,
     ) -> Optional[float]:
-        """Latest value of ``indicator(period)`` over bars[0..as_of_idx+1].
+        """Value of ``indicator(period)`` at bar ``as_of_idx - offset``.
 
         Uses ``backend.services.backtest_indicators.compute_series_component`` —
         same registry the live watcher uses, so live and backtest
         always agree. ``component`` selects a specific output for
         multi-output indicators (BB lower band, MACD signal line, ...);
-        ``None`` keeps the default series.
+        ``None`` keeps the default series. ``offset > 0`` reads bars in
+        the past — still inside the no-lookahead envelope because we
+        never reach beyond ``as_of_idx``.
         """
         df = self._df_for(symbol, exchange)
         if df is None:
@@ -139,17 +157,14 @@ class BacktestDataAccessor:
                 return None
             self._indicator_cache[key] = series
 
-        # The single safety statement: ALWAYS slice to as_of_idx + 1.
-        # `iloc[self._as_of_idx]` is exclusive on the right when
-        # treated as a label-based slice; for positional access we
-        # take the element at that index directly.
-        if self._as_of_idx >= len(series):
+        target = self._as_of_idx - int(offset)
+        if target < 0 or target >= len(series):
             return None
-        val = series.iloc[self._as_of_idx]
+        val = series.iloc[target]
         if pd.isna(val):
             return None
 
-        if _strict_mode():
+        if _strict_mode() and offset == 0:
             self._shadow_check_indicator(
                 df, indicator, period, val, component=comp_key,
             )
@@ -163,20 +178,72 @@ class BacktestDataAccessor:
         EXIT tree, which overrides this method."""
         return None
 
+    # ── aggregate fast path ──────────────────────────────────────────
+
+    def evaluate_aggregate(self, *, node, evaluator, state):
+        """Vectorised aggregator evaluation.
+
+        The evaluator's slow path walks the source sub-tree once per
+        offset in the window. That works in live mode (one call per
+        minute) but is O(window × tree_depth) in a backtest, which
+        means a 252-bar percentile over a depth-3 source on a 720-bar
+        run is ~544 k evaluations.
+
+        Fast path: we shift the accessor's ``as_of_idx`` backwards in
+        a loop and evaluate the source sub-tree against THIS accessor
+        each time. Each leaf hit reuses the cached indicator series,
+        so the total work scales with window size × leaf count rather
+        than window size × full-tree depth.
+        """
+        from backend.workflows.dsl.evaluator import _reduce_aggregate
+        original_idx = self._as_of_idx
+        bars = int(node.bars)
+        src_values: list = []
+        second_values: list = []
+        try:
+            for off in range(bars):
+                shifted = original_idx - off
+                if shifted < 0:
+                    src_values.append(None)
+                    if node.second is not None:
+                        second_values.append(None)
+                    continue
+                self._as_of_idx = shifted
+                sv = evaluator(node.source, accessor=self, state=state)
+                src_values.append(
+                    float(sv) if isinstance(sv, bool) else sv
+                )
+                if node.second is not None:
+                    tv = evaluator(node.second, accessor=self, state=state)
+                    second_values.append(
+                        float(tv) if isinstance(tv, bool) else tv
+                    )
+        finally:
+            self._as_of_idx = original_idx
+        return _reduce_aggregate(node, src_values, second_values)
+
     def get_volume(
         self,
         *,
         symbol: str,
         bars: int = 1,
         exchange: str = "NSE",
+        offset: int = 0,
     ) -> Optional[float]:
-        """Volume summed over ``bars`` bars ending at as_of_idx."""
+        """Volume summed over a ``bars``-wide window that ENDS
+        ``offset`` bars before the as-of bar. ``offset=0`` keeps the
+        legacy behaviour (window ends at as_of_idx)."""
         df = self._df_for(symbol, exchange)
         if df is None or "volume" not in df.columns:
             return None
         bars = max(1, int(bars))
-        end_excl = self._as_of_idx + 1
+        off = int(offset)
+        end_excl = self._as_of_idx + 1 - off
+        if end_excl <= 0:
+            return None
         start = max(0, end_excl - bars)
+        if start >= end_excl:
+            return None
         window = df["volume"].iloc[start:end_excl]
         if window.empty:
             return None

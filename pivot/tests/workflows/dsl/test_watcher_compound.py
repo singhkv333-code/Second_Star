@@ -33,18 +33,19 @@ class _FakeAccessor:
         # Empty constructor — class-level state used.
         pass
 
-    def get_price(self, *, symbol, exchange="NSE"):
+    def get_price(self, *, symbol, exchange="NSE", basis="close", offset=0):
         return _FakeAccessor.prices.get(symbol)
 
     def get_indicator(
-        self, *, symbol, indicator, period, exchange="NSE", component=None,
+        self, *, symbol, indicator, period, exchange="NSE",
+        component=None, offset=0,
     ):
         return _FakeAccessor.indicators.get(
             (symbol, indicator, period, component),
             _FakeAccessor.indicators.get((symbol, indicator, period)),
         )
 
-    def get_volume(self, *, symbol, bars=1, exchange="NSE"):
+    def get_volume(self, *, symbol, bars=1, exchange="NSE", offset=0):
         return _FakeAccessor.volumes.get((symbol, bars))
 
 

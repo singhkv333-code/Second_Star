@@ -36,9 +36,21 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class DataAccessor(Protocol):
-    """Surface every DSL leaf-node ultimately resolves through."""
+    """Surface every DSL leaf-node ultimately resolves through.
 
-    def get_price(self, *, symbol: str, exchange: str = "NSE") -> Optional[float]:
+    Methods accept an ``offset`` (default 0 = current bar). For live
+    accessors, offset > 0 reads from cached history; for backtest
+    accessors it reads from the bar series at ``as_of_idx - offset``.
+    """
+
+    def get_price(
+        self,
+        *,
+        symbol: str,
+        exchange: str = "NSE",
+        basis: str = "close",
+        offset: int = 0,
+    ) -> Optional[float]:
         ...
 
     def get_indicator(
@@ -49,6 +61,7 @@ class DataAccessor(Protocol):
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        offset: int = 0,
     ) -> Optional[float]:
         ...
 
@@ -58,6 +71,7 @@ class DataAccessor(Protocol):
         symbol: str,
         bars: int = 1,
         exchange: str = "NSE",
+        offset: int = 0,
     ) -> Optional[float]:
         ...
 
@@ -97,45 +111,93 @@ class LiveDataAccessor:
 
     # ── price ──
 
-    def get_price(self, *, symbol: str, exchange: str = "NSE") -> Optional[float]:
-        cache_key = ("price", symbol.upper(), exchange.upper())
+    def get_price(
+        self,
+        *,
+        symbol: str,
+        exchange: str = "NSE",
+        basis: str = "close",
+        offset: int = 0,
+    ) -> Optional[float]:
+        cache_key = (
+            "price", symbol.upper(), exchange.upper(),
+            basis.lower(), int(offset),
+        )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
 
+        # offset==0 + basis==close → fast path via the live quote.
+        if offset == 0 and basis.lower() == "close":
+            result = self._live_close(symbol, exchange)
+            self._call_cache[cache_key] = result
+            return result
+
+        # offset > 0 or non-close basis → fall through to historical
+        # daily OHLCV.
+        result = self._historical_bar_price(
+            symbol, basis=basis.lower(), offset=int(offset),
+        )
+        self._call_cache[cache_key] = result
+        return result
+
+    def _live_close(
+        self, symbol: str, exchange: str,
+    ) -> Optional[float]:
         try:
             from backend.kite.market_data import get_live_quote
         except ImportError as exc:  # pragma: no cover — would mean broken install
             logger.warning("[dsl.data_accessor] market_data import failed: %s", exc)
-            self._call_cache[cache_key] = None
             return None
-
         try:
             quote = get_live_quote(symbol, exchange=exchange)
-        except Exception as exc:  # noqa: BLE001 — evaluator must not crash
+        except Exception as exc:  # noqa: BLE001
             logger.info(
                 "[dsl.data_accessor] get_live_quote failed for %s: %s",
                 symbol, exc,
             )
-            self._call_cache[cache_key] = None
             return None
-
         if not quote:
-            self._call_cache[cache_key] = None
             return None
-
-        # Underlying quote shape varies (Kite vs yfinance fallback).
-        # Try the most common keys in order.
         for k in ("last_price", "ltp", "price", "close"):
             v = quote.get(k) if isinstance(quote, dict) else None
-            if v is not None:
-                try:
-                    out = float(v)
-                    self._call_cache[cache_key] = out
-                    return out
-                except (TypeError, ValueError):
-                    continue
-        self._call_cache[cache_key] = None
+            if v is None:
+                continue
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
         return None
+
+    def _historical_bar_price(
+        self, symbol: str, *, basis: str, offset: int,
+    ) -> Optional[float]:
+        """Pull the OHLC at (-1 - offset) from the cached historical
+        OHLCV. Used for any non-zero offset or non-close basis."""
+        try:
+            from backend.kite.market_data import get_historical_ohlcv
+        except ImportError:  # pragma: no cover
+            return None
+        try:
+            bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "[dsl.data_accessor] historical fetch (price) failed for %s: %s",
+                symbol, exc,
+            )
+            return None
+        if not bars or len(bars) <= offset:
+            return None
+        bar = bars[-1 - offset]
+        if not isinstance(bar, dict):
+            return None
+        key_map = {"open": "open", "high": "high", "low": "low", "close": "close"}
+        v = bar.get(key_map.get(basis, "close"))
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
 
     # ── indicator ──
 
@@ -147,11 +209,12 @@ class LiveDataAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        offset: int = 0,
     ) -> Optional[float]:
         comp_key = component.lower() if component else None
         cache_key = (
             "indicator", symbol.upper(), indicator.lower(),
-            int(period), exchange.upper(), comp_key,
+            int(period), exchange.upper(), comp_key, int(offset),
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
@@ -160,7 +223,7 @@ class LiveDataAccessor:
             import pandas as pd  # type: ignore[import-untyped]
             from backend.kite.market_data import get_historical_ohlcv
             from backend.services.backtest_indicators import (
-                latest_value_component,
+                compute_series_component,
             )
         except ImportError as exc:  # pragma: no cover
             logger.warning("[dsl.data_accessor] indicator deps missing: %s", exc)
@@ -183,24 +246,32 @@ class LiveDataAccessor:
         # _compute_indicator_sync uses. Below this floor the indicator
         # would either be NaN (some series) or misleading (volatile
         # rolling-window numbers).
-        if len(bars) < max(int(period or 0) + 5, 20):
+        if len(bars) < max(int(period or 0) + 5, 20) + int(offset):
             self._call_cache[cache_key] = None
             return None
 
         df = pd.DataFrame(bars)
         try:
-            value = latest_value_component(
+            series = compute_series_component(
                 df, indicator, period, component=comp_key,
             )
         except Exception as exc:  # noqa: BLE001
             logger.info(
-                "[dsl.data_accessor] latest_value(%s, %d, comp=%s) on %s "
+                "[dsl.data_accessor] compute_series(%s, %d, comp=%s) on %s "
                 "failed: %s",
                 indicator, period, comp_key, symbol, exc,
             )
-            value = None
+            series = None
 
-        result = float(value) if value is not None else None
+        if series is None:
+            self._call_cache[cache_key] = None
+            return None
+        cleaned = series.dropna()
+        if cleaned.empty or len(cleaned) <= int(offset):
+            self._call_cache[cache_key] = None
+            return None
+        value = cleaned.iloc[-1 - int(offset)]
+        result = None if value is None else float(value)
         self._call_cache[cache_key] = result
         return result
 
@@ -223,9 +294,11 @@ class LiveDataAccessor:
         symbol: str,
         bars: int = 1,
         exchange: str = "NSE",
+        offset: int = 0,
     ) -> Optional[float]:
         cache_key = (
             "volume", symbol.upper(), int(bars), exchange.upper(),
+            int(offset),
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
@@ -250,7 +323,15 @@ class LiveDataAccessor:
         if not ohlcv:
             self._call_cache[cache_key] = None
             return None
-        recent = ohlcv[-int(bars):]
+        n = int(bars)
+        off = int(offset)
+        # Window ends ``offset`` bars BEFORE the latest bar.
+        end_excl = len(ohlcv) - off
+        start = max(0, end_excl - n)
+        if end_excl <= 0 or start >= end_excl:
+            self._call_cache[cache_key] = None
+            return None
+        recent = ohlcv[start:end_excl]
         total = 0.0
         for bar in recent:
             v = bar.get("volume") if isinstance(bar, dict) else None

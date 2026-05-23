@@ -231,6 +231,155 @@ def test_component_cache_key_distinguishes_outputs():
     assert upper != lower
 
 
+# ── Time-shifted reads (Phase C.0.1) ────────────────────────────────
+
+
+def test_get_price_offset_reads_previous_bar():
+    df = _make_bars(50)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(20)
+    cur = acc.get_price(symbol="TCS")
+    prev = acc.get_price(symbol="TCS", offset=1)
+    assert cur == pytest.approx(float(df["close"].iloc[20]))
+    assert prev == pytest.approx(float(df["close"].iloc[19]))
+
+
+def test_get_price_basis_open_high_low():
+    df = _make_bars(50)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(20)
+    assert acc.get_price(symbol="TCS", basis="open") == pytest.approx(
+        float(df["open"].iloc[20])
+    )
+    assert acc.get_price(symbol="TCS", basis="high") == pytest.approx(
+        float(df["high"].iloc[20])
+    )
+    assert acc.get_price(symbol="TCS", basis="low") == pytest.approx(
+        float(df["low"].iloc[20])
+    )
+
+
+def test_get_price_offset_past_zero_returns_none():
+    df = _make_bars(50)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(3)
+    assert acc.get_price(symbol="TCS", offset=10) is None
+
+
+def test_get_indicator_offset_reads_past_value():
+    df = _make_bars(80)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(60)
+    cur = acc.get_indicator(symbol="TCS", indicator="rsi", period=14)
+    five_ago = acc.get_indicator(symbol="TCS", indicator="rsi", period=14, offset=5)
+    assert cur is not None and five_ago is not None
+    # Different bars almost certainly have different RSI values on a
+    # random-walk series.
+    assert cur != five_ago
+
+
+def test_get_volume_offset_shifts_window():
+    df = _make_bars(50)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(30)
+    current_5 = acc.get_volume(symbol="TCS", bars=5)
+    shifted_5 = acc.get_volume(symbol="TCS", bars=5, offset=5)
+    # Sums of two different 5-bar windows should not match on a random
+    # series.
+    assert current_5 is not None and shifted_5 is not None
+    assert current_5 != shifted_5
+
+
+# ── Aggregate fast path (Phase C.0.3) ───────────────────────────────
+
+
+def test_aggregate_highest_over_price_matches_pandas():
+    """The fast-path aggregator must return the same answer as
+    pd.Series.max over the equivalent window. Calls _walk directly
+    because evaluate() wraps numeric results as UNKNOWN at the root
+    (only comparison/logic are valid root types)."""
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+    df = _make_bars(80, seed=3)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(60)
+    tree = TypeAdapter(Tree).validate_python({
+        "type": "aggregate", "op": "highest",
+        "source": {"type": "price", "symbol": "TCS"},
+        "bars": 20,
+    })
+    result = _walk(tree, accessor=acc, state={})
+    expected = float(df["close"].iloc[60 - 19 : 61].max())
+    assert result == pytest.approx(expected, abs=1e-9), (
+        f"aggregator highest got {result}, pandas max got {expected}"
+    )
+
+
+def test_aggregate_percentrank_in_unit_range():
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+    df = _make_bars(120, seed=5)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(100)
+    tree = TypeAdapter(Tree).validate_python({
+        "type": "aggregate", "op": "percentrank",
+        "source": {"type": "indicator", "indicator": "atr",
+                    "symbol": "TCS", "period": 14},
+        "bars": 60,
+    })
+    result = _walk(tree, accessor=acc, state={})
+    assert result is not None
+    assert 0.0 <= result <= 1.0
+
+
+def test_aggregate_barssince_counts_correctly():
+    """Sinusoid that oscillates RSI above and below 30. barssince
+    should report a small non-zero number for an as-of bar shortly
+    after an oversold trough."""
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+    n = 150
+    t = np.arange(n)
+    closes = 100.0 + 20.0 * np.sin(t / 6.0)
+    dates = pd.date_range("2024-01-02", periods=n, freq="B").normalize()
+    df = pd.DataFrame({
+        "open": closes, "high": closes + 0.3, "low": closes - 0.3,
+        "close": closes, "volume": np.full(n, 100_000.0),
+    }, index=dates)
+    acc = BacktestDataAccessor(_loaded(df))
+
+    # Compute RSI<30 fire bars directly so we know what to expect.
+    import pandas_ta_classic as ta
+    rsi = ta.rsi(pd.Series(closes), length=14)
+    fire_bars = list(np.where((rsi < 30).fillna(False))[0])
+    assert fire_bars, "fixture is broken — need at least one RSI<30 fire"
+
+    # Pick an as-of bar a few bars past the LAST observed fire so the
+    # answer is a small positive integer.
+    as_of = min(fire_bars[-1] + 4, n - 1)
+    acc.advance_to(as_of)
+    expected = as_of - fire_bars[-1]
+
+    tree = TypeAdapter(Tree).validate_python({
+        "type": "aggregate", "op": "barssince",
+        "source": {
+            "type": "comparison", "op": "<",
+            "left": {"type": "indicator", "indicator": "rsi",
+                     "symbol": "TCS", "period": 14},
+            "right": {"type": "constant", "value": 30},
+        },
+        "bars": 60,
+    })
+    result = _walk(tree, accessor=acc, state={})
+    assert result is not None, "barssince returned None despite a known fire"
+    assert int(result) == expected, (
+        f"barssince got {result}, expected {expected}"
+    )
+
+
 def test_strict_mode_shadow_check(monkeypatch):
     """In DSL_BACKTEST_STRICT mode the accessor performs a second
     computation over the truncated slice and asserts the values

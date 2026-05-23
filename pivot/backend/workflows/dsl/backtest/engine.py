@@ -521,20 +521,30 @@ def _close_position_at_price(
 
 def _compute_warmup_idx(tree, total_bars: int) -> int:
     """How many bars to skip before the first signal evaluation.
-    Pick the max indicator period referenced in the tree (with a
-    floor of 20). Conservative; the existing backtester uses a
-    period+5 / 50-buffer / 300-floor formula, but for Phase B we
-    keep this simpler and re-tune once we see real failure cases.
-    """
-    from backend.workflows.dsl.schema import IndicatorNode
+
+    Picks the max indicator period + 5 OR an aggregator's lookback
+    window, whichever is larger. Aggregators that read N bars of
+    history obviously can't fire before bar N. Offset on any leaf
+    contributes too — an indicator with offset=20 needs bar 20 + its
+    period in history. Floor of 20 keeps short trees safe."""
+    from backend.workflows.dsl.schema import (
+        AggregateNode, IndicatorNode, PriceNode, VolumeNode,
+    )
     from backend.workflows.dsl.validators import _walk_all
 
-    max_period = 0
+    max_need = 0
     for n in _walk_all(tree):
         if isinstance(n, IndicatorNode):
-            max_period = max(max_period, int(n.period))
+            max_need = max(max_need, int(n.period) + 5 + int(n.offset or 0))
+        elif isinstance(n, PriceNode):
+            max_need = max(max_need, int(n.offset or 0))
+        elif isinstance(n, VolumeNode):
+            max_need = max(max_need, int(n.bars) + int(n.offset or 0))
+        elif isinstance(n, AggregateNode):
+            # Aggregator needs `bars` of prior history for its window.
+            max_need = max(max_need, int(n.bars))
     floor = 20
-    needed = max(max_period + 5, floor)
+    needed = max(max_need, floor)
     return min(needed, max(0, total_bars - 2))
 
 

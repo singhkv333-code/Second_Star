@@ -20,7 +20,9 @@ The function is pure — no DB, no LLM. Safe to call from anywhere.
 from __future__ import annotations
 
 from backend.workflows.dsl.schema import (
+    AggregateNode,
     ComparisonNode,
+    ConditionalNode,
     ConstantNode,
     IndicatorNode,
     LogicNode,
@@ -72,17 +74,33 @@ def _render(node, *, depth: int) -> str:
         if node.component:
             phrase = _COMPONENT_PHRASES.get(node.component.lower(), node.component)
             base = f"{phrase} {base}"
-        return f"{base} of {node.symbol}"
+        suffix = _offset_phrase(node.offset)
+        return f"{base} of {node.symbol}{suffix}"
     if isinstance(node, PriceNode):
-        return f"price of {node.symbol}"
+        basis_phrase = "" if node.basis == "close" else f" {node.basis}"
+        suffix = _offset_phrase(node.offset)
+        return f"{basis_phrase.strip() or 'price'} of {node.symbol}{suffix}"
     if isinstance(node, VolumeNode):
+        suffix = _offset_phrase(node.offset)
         if node.bars == 1:
-            return f"volume of {node.symbol}"
-        return f"{node.bars}-bar volume of {node.symbol}"
+            return f"volume of {node.symbol}{suffix}"
+        return f"{node.bars}-bar volume of {node.symbol}{suffix}"
     if isinstance(node, PositionNode):
         return _render_position(node)
     if isinstance(node, ConstantNode):
         return _format_number(node.value)
+    if isinstance(node, ConditionalNode):
+        cond = _render(node.if_, depth=depth + 1)
+        then = _render(node.then, depth=depth + 1)
+        else_ = _render(node.else_, depth=depth + 1)
+        return f"if ({cond}) then {then} else {else_}"
+    if isinstance(node, AggregateNode):
+        op_phrase = _AGG_PHRASES.get(node.op, node.op)
+        src = _render(node.source, depth=depth + 1)
+        if node.second is not None:
+            second = _render(node.second, depth=depth + 1)
+            return f"{op_phrase}({src}, {second}) over last {node.bars} bars"
+        return f"{op_phrase}({src}) over last {node.bars} bars"
     if isinstance(node, ComparisonNode):
         left = _render(node.left, depth=depth + 1)
         right = _render(node.right, depth=depth + 1)
@@ -101,6 +119,32 @@ def _render(node, *, depth: int) -> str:
         return f"({joined})" if depth > 0 else joined
     # Unknown node — would have been caught by Pydantic.
     return repr(node)
+
+
+_AGG_PHRASES = {
+    "highest": "highest",
+    "lowest": "lowest",
+    "sum": "sum of",
+    "avg": "average of",
+    "std": "stdev of",
+    "count_when": "count where",
+    "any_when": "any of",
+    "percentrank": "percentile rank of",
+    "zscore": "z-score of",
+    "barssince": "bars since",
+    "valuewhen": "value when",
+    "correlation": "correlation of",
+}
+
+
+def _offset_phrase(offset: int) -> str:
+    """Render the bar-offset suffix. 0 = no phrase, 1 = " (1 bar ago)",
+    N = " (N bars ago)"."""
+    if not offset:
+        return ""
+    if offset == 1:
+        return " (1 bar ago)"
+    return f" ({offset} bars ago)"
 
 
 def _render_position(node: PositionNode) -> str:

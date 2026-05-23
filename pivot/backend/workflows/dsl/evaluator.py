@@ -43,7 +43,9 @@ from typing import Optional
 
 from backend.workflows.dsl.data_accessor import DataAccessor
 from backend.workflows.dsl.schema import (
+    AggregateNode,
     ComparisonNode,
+    ConditionalNode,
     ConstantNode,
     IndicatorNode,
     LogicNode,
@@ -116,7 +118,12 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
     if isinstance(node, ConstantNode):
         return float(node.value)
     if isinstance(node, PriceNode):
-        return accessor.get_price(symbol=node.symbol, exchange=node.exchange)
+        return accessor.get_price(
+            symbol=node.symbol,
+            exchange=node.exchange,
+            basis=node.basis,
+            offset=node.offset + _additional_offset(),
+        )
     if isinstance(node, IndicatorNode):
         return accessor.get_indicator(
             symbol=node.symbol,
@@ -124,15 +131,23 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
             period=node.period,
             exchange=node.exchange,
             component=node.component,
+            offset=node.offset + _additional_offset(),
         )
     if isinstance(node, VolumeNode):
         return accessor.get_volume(
-            symbol=node.symbol, bars=node.bars, exchange=node.exchange,
+            symbol=node.symbol,
+            bars=node.bars,
+            exchange=node.exchange,
+            offset=node.offset + _additional_offset(),
         )
     if isinstance(node, PositionNode):
         return accessor.get_position_field(
             field=node.field, basis=node.basis,
         )
+    if isinstance(node, ConditionalNode):
+        return _eval_conditional(node, accessor=accessor, state=state)
+    if isinstance(node, AggregateNode):
+        return _eval_aggregate(node, accessor=accessor, state=state)
     if isinstance(node, ComparisonNode):
         return _eval_comparison(node, accessor=accessor, state=state)
     if isinstance(node, LogicNode):
@@ -140,6 +155,184 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
     # Unknown node type — Pydantic would have rejected this at parse
     # time. Defensive return.
     return None
+
+
+def _eval_conditional(
+    node: ConditionalNode,
+    *,
+    accessor: DataAccessor,
+    state: dict[str, float],
+):
+    """Pine Script's ternary. UNKNOWN propagates; otherwise pick a
+    branch and evaluate ONLY that one (short-circuit)."""
+    cond = _walk(node.if_, accessor=accessor, state=state)
+    if cond is None:
+        return None
+    if not isinstance(cond, bool):
+        # Numeric ``if`` slot can't be boolean → UNKNOWN
+        return None
+    chosen = node.then if cond else node.else_
+    return _walk(chosen, accessor=accessor, state=state)
+
+
+def _eval_aggregate(
+    node: AggregateNode,
+    *,
+    accessor: DataAccessor,
+    state: dict[str, float],
+):
+    """Evaluate the source sub-tree over the last ``bars`` bars of
+    history. Delegates to the accessor's ``get_aggregate`` if it
+    exposes one (backtest path — vectorised); otherwise falls back to
+    a slow per-bar walk by introspecting the leaves' ``offset`` slot
+    (only safe for trees whose source is a single leaf node, sufficient
+    for live mode v1)."""
+    if hasattr(accessor, "evaluate_aggregate"):
+        return accessor.evaluate_aggregate(
+            node=node, evaluator=_walk, state=state,
+        )
+    return _slow_aggregate(node, accessor=accessor, state=state)
+
+
+def _slow_aggregate(
+    node: AggregateNode,
+    *,
+    accessor: DataAccessor,
+    state: dict[str, float],
+):
+    """Live-path fallback. Walks the source sub-tree once per offset
+    in the lookback window. Acceptable for live (one call per minute)
+    but too slow for backtest — the accessor short-circuit above
+    handles that case."""
+    import math
+    # Collect source values across offset = 0 .. bars-1.
+    src_values: list[Optional[float]] = []
+    second_values: list[Optional[float]] = []
+    n = int(node.bars)
+    for off in range(n):
+        with _shifted_evaluation(off):
+            sv = _walk(node.source, accessor=accessor, state=state)
+            src_values.append(sv if not isinstance(sv, bool) else float(sv))
+            if node.second is not None:
+                tv = _walk(node.second, accessor=accessor, state=state)
+                second_values.append(tv if not isinstance(tv, bool) else float(tv))
+    # src_values[0] = current bar; src_values[n-1] = oldest.
+    return _reduce_aggregate(node, src_values, second_values)
+
+
+def _reduce_aggregate(
+    node: AggregateNode,
+    src: list[Optional[float]],
+    second: list[Optional[float]],
+):
+    """Pure reduction over already-evaluated source values. Pulled
+    out so the backtest fast path and the live slow path share this
+    logic exactly."""
+    import math
+    op = node.op
+    # Drop None for value-ops; UNKNOWN-source bars are skipped, not
+    # propagated, so percentile / count / highest etc. work on whatever
+    # the source could resolve. The exception: barssince / valuewhen
+    # which treat None as "condition not observed".
+    if op in ("highest", "lowest", "sum", "avg", "std", "percentrank", "zscore"):
+        clean = [v for v in src if v is not None]
+        if not clean:
+            return None
+        if op == "highest":
+            return float(max(clean))
+        if op == "lowest":
+            return float(min(clean))
+        if op == "sum":
+            return float(sum(clean))
+        if op == "avg":
+            return float(sum(clean) / len(clean))
+        if op == "std":
+            if len(clean) < 2:
+                return None
+            mean = sum(clean) / len(clean)
+            var = sum((x - mean) ** 2 for x in clean) / (len(clean) - 1)
+            return float(math.sqrt(var))
+        if op == "percentrank":
+            current = src[0]
+            if current is None:
+                return None
+            below = sum(1 for v in clean if v < current)
+            return float(below) / float(len(clean))
+        if op == "zscore":
+            current = src[0]
+            if current is None or len(clean) < 2:
+                return None
+            mean = sum(clean) / len(clean)
+            var = sum((x - mean) ** 2 for x in clean) / (len(clean) - 1)
+            std = math.sqrt(var)
+            if std <= 0.0:
+                return None
+            return float((current - mean) / std)
+    if op in ("count_when", "any_when"):
+        true_count = sum(1 for v in src if v == 1.0 or v is True)
+        if op == "count_when":
+            return float(true_count)
+        return float(1.0 if true_count > 0 else 0.0)
+    if op == "barssince":
+        for i, v in enumerate(src):
+            if v == 1.0 or v is True:
+                return float(i)
+        return None  # condition never fired in window → UNKNOWN
+    if op == "valuewhen":
+        if not second:
+            return None
+        for i, v in enumerate(src):
+            if v == 1.0 or v is True:
+                return second[i] if i < len(second) else None
+        return None
+    if op == "correlation":
+        if not second:
+            return None
+        pairs = [
+            (s, t) for s, t in zip(src, second)
+            if s is not None and t is not None
+        ]
+        if len(pairs) < 2:
+            return None
+        n = float(len(pairs))
+        sx = sum(p[0] for p in pairs)
+        sy = sum(p[1] for p in pairs)
+        sxx = sum(p[0] * p[0] for p in pairs)
+        syy = sum(p[1] * p[1] for p in pairs)
+        sxy = sum(p[0] * p[1] for p in pairs)
+        denom_sq = (n * sxx - sx * sx) * (n * syy - sy * sy)
+        if denom_sq <= 0:
+            return None
+        denom = math.sqrt(denom_sq)
+        return float((n * sxy - sx * sy) / denom)
+    return None
+
+
+# ── Offset shifting for the slow-path aggregator ────────────────────
+
+
+class _ShiftCtx:
+    """Thread-local stack of additional offsets applied to every leaf
+    read inside a slow-path aggregator walk. Live-mode only; the
+    backtest accessor exposes ``evaluate_aggregate`` and bypasses
+    this."""
+
+    stack: list[int] = []
+
+
+def _additional_offset() -> int:
+    return sum(_ShiftCtx.stack)
+
+
+def _shifted_evaluation(extra: int):
+    """Context manager that pushes ``extra`` onto the offset stack."""
+    class _CM:
+        def __enter__(self_inner):
+            _ShiftCtx.stack.append(extra)
+            return self_inner
+        def __exit__(self_inner, *args):
+            _ShiftCtx.stack.pop()
+    return _CM()
 
 
 def _eval_comparison(

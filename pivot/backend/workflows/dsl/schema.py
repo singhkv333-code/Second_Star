@@ -1,15 +1,17 @@
 """Recursive Pydantic schema for the v1 condition tree.
 
-Seven node types behind a single discriminator field ``type``:
+Nine node types behind a single discriminator field ``type``:
 
-  - ``indicator``  — RSI / SMA / EMA / MACD / ATR / ... value
-  - ``price``      — last-traded price for a symbol
-  - ``volume``     — bar volume (summed over the last N bars)
-  - ``constant``   — a literal number
-  - ``position``   — properties of the currently-open position;
-                    only meaningful inside an EXIT tree
-  - ``comparison`` — two operand sub-trees + an operator
-  - ``logic``      — and / or / not joining operand sub-trees
+  - ``indicator``   — RSI / SMA / EMA / MACD / ATR / ... value
+  - ``price``       — bar open/high/low/close for a symbol
+  - ``volume``      — bar volume (summed over the last N bars)
+  - ``constant``    — a literal number
+  - ``position``    — properties of the currently-open position;
+                     only meaningful inside an EXIT tree
+  - ``conditional`` — if/then/else value picker (Pine Script ?:)
+  - ``aggregate``   — lookback aggregator (highest/lowest/percentrank/...)
+  - ``comparison``  — two operand sub-trees + a binary operator
+  - ``logic``       — and / or / not joining operand sub-trees
 
 Why a discriminated union rather than separate top-level types: it
 keeps the JSON shape uniform (every node has a ``type`` field), which
@@ -72,6 +74,9 @@ class IndicatorNode(_Strict):
     ``validators.semantic_validate``. ``None`` keeps the existing
     default series (Bollinger %B, MACD histogram, Stoch %K, ...) for
     backwards-compat with already-persisted trees.
+
+    ``offset`` reads the indicator value N bars ago (Pine Script's
+    ``[n]`` operator). 0 = current bar; max 500 to bound memory.
     """
 
     type: Literal["indicator"] = "indicator"
@@ -90,6 +95,14 @@ class IndicatorNode(_Strict):
             "this field unset."
         ),
     )
+    offset: int = Field(
+        default=0, ge=0, le=500,
+        description=(
+            "How many bars in the past to read. 0 = current bar; "
+            "1 = previous bar; max 500. Same semantics as Pine "
+            "Script's [n] operator."
+        ),
+    )
 
     @field_validator("indicator", "symbol", "exchange")
     @classmethod
@@ -106,11 +119,27 @@ class IndicatorNode(_Strict):
 
 
 class PriceNode(_Strict):
-    """Latest traded price for a symbol."""
+    """Last traded close for a symbol, or any other OHLC bar component
+    selected via ``basis``. ``offset`` reads N bars in the past."""
 
     type: Literal["price"] = "price"
     symbol: str = Field(..., min_length=1, max_length=32)
     exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    basis: Literal["open", "high", "low", "close"] = Field(
+        default="close",
+        description=(
+            "Bar component to read. Defaults to close. 'open' enables "
+            "gap calculations; 'low' / 'high' enable intra-bar stop / "
+            "target checks."
+        ),
+    )
+    offset: int = Field(
+        default=0, ge=0, le=500,
+        description=(
+            "How many bars in the past to read. 0 = current bar's "
+            "basis; 1 = previous bar's basis; max 500."
+        ),
+    )
 
     @field_validator("symbol", "exchange")
     @classmethod
@@ -119,12 +148,21 @@ class PriceNode(_Strict):
 
 
 class VolumeNode(_Strict):
-    """Volume summed over the last ``bars`` bars (default 1 = current bar)."""
+    """Volume summed over the last ``bars`` bars (default 1 = current
+    bar). ``offset`` shifts the WINDOW backwards: offset=0 reads bars
+    ending at the current bar; offset=5 reads bars ending 5 bars ago."""
 
     type: Literal["volume"] = "volume"
     symbol: str = Field(..., min_length=1, max_length=32)
     bars: int = Field(default=1, ge=1, le=500)
     exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    offset: int = Field(
+        default=0, ge=0, le=500,
+        description=(
+            "Shift the volume window backwards by this many bars. "
+            "0 = the window ends at the current bar."
+        ),
+    )
 
 
 class ConstantNode(_Strict):
@@ -220,6 +258,74 @@ class ComparisonNode(_Strict):
     right: "Tree"
 
 
+class ConditionalNode(_Strict):
+    """Pine Script's ``?:`` ternary — pick one of two values based on
+    the truthiness of an ``if`` sub-tree.
+
+    Semantics:
+      - ``if`` MUST evaluate to a boolean (comparison or logic root).
+        Numeric leaves on the ``if`` slot return ``UNKNOWN`` via
+        Kleene rules.
+      - ``then`` and ``else`` are arbitrary sub-trees. They may return
+        either numbers or booleans; the validator only requires that
+        BOTH branches return the same kind so the result type is
+        deterministic.
+      - When ``if`` is ``UNKNOWN``, the whole conditional is
+        ``UNKNOWN`` (Kleene propagation).
+      - When ``if`` is TRUE, the result is ``then``'s value; FALSE
+        gives ``else``'s value. Only the chosen branch is evaluated
+        — short-circuit semantics, important for cheaper trees.
+    """
+
+    type: Literal["conditional"] = "conditional"
+    if_: "Tree" = Field(..., alias="if")
+    then: "Tree"
+    else_: "Tree" = Field(..., alias="else")
+
+
+class AggregateNode(_Strict):
+    """Look back over the last ``bars`` bars of a source sub-tree and
+    reduce to a scalar.
+
+    Supported ops (all returning a number unless flagged):
+
+      ``highest``      / ``lowest``    - max / min over the window
+      ``sum``          / ``avg``       - sum / mean (NaN-aware)
+      ``std``                          - sample standard deviation
+      ``percentrank``                  - 0..1, fraction of window strictly
+                                         below the CURRENT value of source
+      ``zscore``                       - (current - mean) / std
+      ``barssince``                    - integer count of bars since
+                                         source was last TRUE (source must
+                                         evaluate to boolean); returns
+                                         UNKNOWN when no fire seen in window
+      ``valuewhen``                    - value of ``second`` at the last bar
+                                         where ``source`` was TRUE
+      ``count_when`` / ``any_when``    - count of TRUE bars (count) or 1.0/0.0
+                                         (any) — source must be boolean
+      ``correlation``                  - Pearson correlation between
+                                         ``source`` and ``second`` over the
+                                         window. Requires ``second``.
+
+    ``bars`` is bounded [1, 2000] — large windows are valid for
+    percentile-of-year-style regime detection.
+    """
+
+    type: Literal["aggregate"] = "aggregate"
+    op: Literal[
+        "highest", "lowest", "sum", "avg", "std",
+        "count_when", "any_when",
+        "percentrank", "zscore",
+        "barssince", "valuewhen", "correlation",
+    ]
+    source: "Tree"
+    bars: int = Field(..., ge=1, le=2000)
+    # ``second`` is only meaningful for binary ops (correlation,
+    # valuewhen). Validator rejects it for the unary ops to catch
+    # planner bugs early.
+    second: Optional["Tree"] = Field(default=None)
+
+
 class LogicNode(_Strict):
     """``and`` / ``or`` / ``not`` over a list of sub-trees.
 
@@ -257,6 +363,8 @@ Tree = Annotated[
         VolumeNode,
         ConstantNode,
         PositionNode,
+        ConditionalNode,
+        AggregateNode,
         ComparisonNode,
         LogicNode,
     ],
@@ -264,6 +372,9 @@ Tree = Annotated[
 ]
 
 
-# Resolve the forward references in Comparison / Logic.
+# Resolve the forward references in Comparison / Logic / Conditional /
+# Aggregate.
 ComparisonNode.model_rebuild()
 LogicNode.model_rebuild()
+ConditionalNode.model_rebuild()
+AggregateNode.model_rebuild()
