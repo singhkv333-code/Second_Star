@@ -69,12 +69,23 @@ _REAL_TOOLS: set[str] = {
     # natively. The legacy tool is still importable from Python for
     # the REST `/api/backtest/run` endpoint and test scripts.
     "backtest_workflow",
+    # DSL-tree backtester (Phase B+1+C.0). Preferred over
+    # backtest_workflow for compound / cross-symbol / aggregator-based
+    # conditions; LLM hands over the user's NL condition as one
+    # string and the tool builds the DSL tree internally.
+    "backtest_dsl_tree",
     # Scheduler
     "get_scheduler_status", "list_upcoming_jobs",
     # New v2 tools
     "get_product_spec",
     # Agent System (Workflows v1)
     "propose_workflow",
+    # DSL-tree workflow proposal — same role as propose_workflow but
+    # the entry condition is a single DSL ``trigger.compound`` tree
+    # rather than a flat ``steps[]`` list. Use when the entry has
+    # multiple AND-ed / OR-ed conditions, cross-symbol filters, or
+    # aggregators (highest-of-N, percentrank, barssince, ...).
+    "propose_dsl_workflow",
     # Macro tools — narrow alternatives to propose_workflow that
     # hydrate the most common shapes server-side. ~30× faster decode.
     "propose_scheduled_order",
@@ -472,10 +483,16 @@ def _ensure_v2_tools_registered() -> None:
     from backend.services._v2_tools import (
         get_price_history, get_52wk_range, get_product_spec,
     )
+    from backend.services._dsl_chat_tools import (
+        backtest_dsl_tree, propose_dsl_workflow,
+    )
     _V2_HANDLERS.update({
         "get_price_history": get_price_history,
         "get_52wk_range": get_52wk_range,
         "get_product_spec": get_product_spec,
+        # DSL-tree chat tools (Phase B+1+C.0)
+        "backtest_dsl_tree": backtest_dsl_tree,
+        "propose_dsl_workflow": propose_dsl_workflow,
         # find_tool's schema is registered in agents/tools.py; the
         # handler lives here next to the search index.
         "find_tool": _find_tool_handler,

@@ -961,6 +961,152 @@ tool("backtest_workflow",
      ["name", "steps"])
 
 
+# ── DSL-tree BACKTEST + WORKFLOW TOOLS ──────────────────────────────
+#
+# These two tools wrap the Phase B/B+1/C.0 DSL-tree pipeline:
+#   - backtest_dsl_tree   → simulate using POST /api/backtest/dsl/run
+#   - propose_dsl_workflow → register a workflow whose entry is a
+#                             trigger.compound DSL tree
+#
+# The chat-side LLM doesn't need to know the DSL grammar — it just
+# hands the user's natural-language condition through as one string.
+# The tools translate to a tree server-side (single LLM hop with a
+# dedicated, well-tuned grammar prompt) so the chat-side prompt stays
+# small and stable.
+
+tool("backtest_dsl_tree",
+     "SIMULATES a strategy that uses compound (multi-condition / "
+     "cross-symbol / aggregator-based) entry rules. PREFER over "
+     "backtest_workflow when any of the following are true:\n"
+     "  • two or more 'AND' / 'OR' conditions ('RSI<30 AND price>SMA(50)')\n"
+     "  • cross-symbol filters ('only when NIFTY is above 22000')\n"
+     "  • cross-symbol comparisons ('TCS RSI lower than INFY RSI')\n"
+     "  • indicator-vs-indicator crossings ('MACD line crosses signal')\n"
+     "  • multi-output indicators (Bollinger bands, Donchian, Keltner, "
+     "Stoch %K vs %D, Aroon up vs down)\n"
+     "  • lookback / aggregator language ('20-day high breakout', "
+     "'highest of last 20 bars', 'percentile of last year', 'bars since "
+     "RSI was last below 30', 'correlation of TCS and INFY')\n"
+     "  • time-shifted reference ('yesterday's open', 'gap-down')\n"
+     "Hand the user's full natural-language condition through as the "
+     "`condition` field — do NOT try to break it apart. The tool "
+     "translates to a DSL tree internally. Returns the same chart-card "
+     "shape as backtest_workflow (price + equity + signals + metrics).",
+     {
+         "condition": {
+             "type": "string",
+             "description": (
+                 "The complete natural-language entry condition the "
+                 "user described. Pass it through VERBATIM — don't "
+                 "summarise, paraphrase, or strip operators."
+             ),
+         },
+         "primary_symbol": {
+             "type": "string",
+             "description": (
+                 "Symbol the trade fires on. The condition may "
+                 "reference other symbols as filters (e.g. NIFTY) — "
+                 "still pick the action symbol here."
+             ),
+         },
+         "start_date": {
+             "type": "string",
+             "description": (
+                 "OPTIONAL ISO YYYY-MM-DD. Defaults to 3 years before "
+                 "end_date."
+             ),
+         },
+         "end_date": {
+             "type": "string",
+             "description": (
+                 "OPTIONAL ISO YYYY-MM-DD. Defaults to today."
+             ),
+         },
+         "exit_kind": {
+             "type": "string",
+             "enum": ["n_day_hold", "stop_loss_pct"],
+             "default": "n_day_hold",
+             "description": (
+                 "How to close a position. n_day_hold: exit after "
+                 "exit_bars bars at the next open. stop_loss_pct: "
+                 "exit at the stop price on bar-low (realistic SL)."
+             ),
+         },
+         "exit_bars": {
+             "type": "integer",
+             "default": 10,
+             "description": "Used when exit_kind=n_day_hold.",
+         },
+         "exit_pct": {
+             "type": "number",
+             "description": (
+                 "Used when exit_kind=stop_loss_pct. 0.05 = 5% stop."
+             ),
+         },
+         "starting_capital": {
+             "type": "number",
+             "default": 100000,
+         },
+         "quantity": {
+             "type": "integer",
+             "default": 10,
+         },
+     },
+     ["condition", "primary_symbol"])
+
+
+tool("propose_dsl_workflow",
+     "PROPOSE a new live workflow (agent / automation) whose entry "
+     "condition is a compound DSL tree. PREFER over propose_workflow "
+     "when the trigger has any of: 2+ AND/OR conditions, cross-symbol "
+     "filters, indicator-vs-indicator crossings, aggregators "
+     "(20-day high, percentrank, barssince, ...), or multi-output "
+     "indicator components (BB upper/lower, MACD line vs signal). "
+     "Hand the user's full natural-language condition through as the "
+     "`condition` field — the tool translates to a tree internally. "
+     "Returns a workflow_draft_card the user activates from chat.",
+     {
+         "condition": {
+             "type": "string",
+             "description": (
+                 "Natural-language entry condition. Pass verbatim."
+             ),
+         },
+         "primary_symbol": {
+             "type": "string",
+             "description": (
+                 "Symbol the action fires on (orders / notifications)."
+             ),
+         },
+         "name": {
+             "type": "string",
+             "description": "Short human label, e.g. 'TCS RSI oversold buy'.",
+         },
+         "action_kind": {
+             "type": "string",
+             "enum": ["notify_only", "buy_market", "buy_limit"],
+             "default": "notify_only",
+             "description": (
+                 "What to do when the trigger fires. notify_only "
+                 "(default) just sends a push notification; buy_market "
+                 "/ buy_limit register an order (requires Kite linked)."
+             ),
+         },
+         "quantity": {
+             "type": "integer",
+             "default": 1,
+             "description": "Shares to buy (only for action_kind=buy_*).",
+         },
+         "limit_price": {
+             "type": "number",
+             "description": (
+                 "Limit price (₹). Required when action_kind=buy_limit."
+             ),
+         },
+     },
+     ["condition", "primary_symbol"])
+
+
 # ── MACRO WORKFLOW TOOLS ────────────────────────────────────────────
 #
 # Four narrow tools that hydrate the most common workflow shapes

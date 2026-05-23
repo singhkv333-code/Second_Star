@@ -48,6 +48,7 @@ from typing import Optional
 # mention `propose_workflow` for clarity; the redundancy is harmless.
 _ALWAYS_INCLUDE: frozenset[str] = frozenset({
     "propose_workflow",
+    "propose_dsl_workflow",
     "propose_scheduled_order",
     "propose_threshold_order",
     "propose_basket_allocation",
@@ -81,6 +82,7 @@ _RULES: list[_Rule] = [
         r"|\bif\s+(rsi|sma|ema|price|the\s+price)"
         r"|\bwhen\s+(rsi|sma|ema|price|the\s+price)",
         "propose_workflow",
+        "propose_dsl_workflow",
     ),
 
     # ── Order-card quantity/price amendments ──────────────────────
@@ -244,16 +246,25 @@ _RULES: list[_Rule] = [
     ),
 
     # ── Backtest ──────────────────────────────────────────────────
-    # ONLY backtest_workflow is exposed for chat backtest intents.
+    # Two backtester tools are surfaced for chat backtest intents:
+    #   backtest_dsl_tree    — Phase B+1+C.0 tree-based engine.
+    #                         Preferred for compound / cross-symbol /
+    #                         aggregator-based conditions. The LLM
+    #                         hands the user's NL condition through as
+    #                         a single string and the tool translates
+    #                         to a DSL tree internally.
+    #   backtest_workflow    — legacy workflow-shape backtester. Kept
+    #                         for prompts that fit the flat steps[]
+    #                         shape cleanly (single trigger.indicator
+    #                         + order action).
     # run_backtest is the legacy single-indicator tool whose required
     # `trigger_condition` field made the LLM ask "what's the trigger
-    # condition?" for every compound query. It's still in ALL_TOOLS so
-    # programmatic callers (test scripts, REST integration tests) can
-    # use it, but the chat router never surfaces it.
+    # condition?" for every compound query. Still in ALL_TOOLS for
+    # programmatic callers, never surfaced in chat.
     _r(
         r"\bback\s*test(?:ed|ing)?\b|\bsimulate\b|\bif\s+i\s+had\s+(bought|invested)"
         r"|\bhow\s+(?:would|did)\b.{0,40}\b(?:perform(?:ed)?|do(?:ne)?|fare(?:d)?)\b",
-        "backtest_workflow",
+        "backtest_dsl_tree", "backtest_workflow",
     ),
 
     # ── Sector basket / multi-stock allocation ────────────────────
@@ -347,7 +358,7 @@ _RULES: list[_Rule] = [
 _FALLBACK_TOOLS: frozenset[str] = frozenset({
     "get_live_price", "get_portfolio_summary", "get_holdings",
     "get_market_status", "get_price_history",
-    "backtest_workflow",
+    "backtest_workflow", "backtest_dsl_tree",
 })
 
 

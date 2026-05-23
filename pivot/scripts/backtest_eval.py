@@ -385,6 +385,195 @@ SCENARIOS: list[Scenario] = [
             "exit_at": "next_open",
         },
     ),
+
+    # ── T-series: very simple, one-condition entry trees ───────────
+
+    Scenario(
+        "T01-price-above-3500-TCS",
+        "Buy TCS when its closing price is above 3500",
+        primary_symbol="TCS", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 5},
+    ),
+    Scenario(
+        "T02-RSI-above-50-INFY",
+        "Buy INFY when its 14-day RSI is above 50",
+        primary_symbol="INFY", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 5},
+    ),
+    Scenario(
+        "T03-5day-volume-spike-RELIANCE",
+        "Buy RELIANCE when its 5-day cumulative volume is above 50,000,000",
+        primary_symbol="RELIANCE", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 3},
+    ),
+    Scenario(
+        "T04-EMA21-above-SMA50-HDFC",
+        "Buy HDFCBANK when its 21-day EMA is above its 50-day SMA",
+        primary_symbol="HDFCBANK", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 7},
+    ),
+    Scenario(
+        "T05-ADX-trending-NIFTYBEES",
+        "Buy NIFTYBEES when its 14-day ADX is above 25 (trending market)",
+        primary_symbol="NIFTYBEES", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+
+    # ── M-series: multilingual / alternate phrasings ───────────────
+
+    Scenario(
+        "M01-Hindi-SMA-cross-ICICI",
+        "ICICIBANK ka closing price 50-day SMA paar kare to khariddho",
+        primary_symbol="ICICIBANK", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "M02-Hindi-MACD-cross-TCS",
+        "TCS ke liye MACD line agar signal line ke upar cross kare to BUY karo",
+        primary_symbol="TCS", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "M03-mixed-stoch-INFY",
+        "Stochastic %K of INFY 20 se neeche jaye to buy karo",
+        primary_symbol="INFY", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 5},
+    ),
+    Scenario(
+        "M04-verbose-RSI-and-SMA-ICICI",
+        "I want to enter ICICIBANK only when its 14-day RSI crosses below 25 and the closing price is also above the 100-day SMA",
+        primary_symbol="ICICIBANK", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "M05-terse-TCS-oversold",
+        "buy TCS rsi oversold",
+        primary_symbol="TCS", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 5},
+    ),
+
+    # ── X-series: multi-output indicator components (Phase B+1) ────
+
+    Scenario(
+        "X01-upper-BB-breakout-TCS",
+        "Buy TCS when its closing price is above the upper Bollinger band (period 20)",
+        primary_symbol="TCS", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 5},
+    ),
+    Scenario(
+        "X02-MACD-signal-positive-INFY",
+        "Buy INFY when the MACD signal line crosses above 0",
+        primary_symbol="INFY", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "X03-stoch-K-above-D-RELIANCE",
+        "Buy RELIANCE when Stochastic %K crosses above %D (period 14)",
+        primary_symbol="RELIANCE", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 7},
+    ),
+    Scenario(
+        "X04-Aroon-up-strong-HDFC",
+        "Buy HDFCBANK when Aroon up is above 75 and Aroon down is below 25",
+        primary_symbol="HDFCBANK", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "X05-Donchian-upper-breakout-ICICI",
+        "Buy ICICIBANK when its closing price reaches the upper Donchian band (period 20)",
+        primary_symbol="ICICIBANK", start_date="2024-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 7},
+    ),
+
+    # ── D-series: Phase C.0 aggregators in depth ───────────────────
+
+    Scenario(
+        "D01-ATR-vol-expansion-NIFTYBEES",
+        "Buy NIFTYBEES when its 14-day ATR is in the highest 20% of its 252-day distribution",
+        primary_symbol="NIFTYBEES", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 5},
+    ),
+    Scenario(
+        "D02-30bar-low-Donchian-RELIANCE",
+        "Buy RELIANCE when today's close is the lowest close of the last 30 bars",
+        primary_symbol="RELIANCE", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "D03-recent-oversold-mean-revert-TCS",
+        "Buy TCS when its 14-day RSI is above 30 AND its RSI was below 30 within the last 5 bars",
+        primary_symbol="TCS", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 7},
+    ),
+    Scenario(
+        "D04-low-correlation-TCS-INFY",
+        "Buy TCS when its 50-day correlation with INFY closing price is below 0.3",
+        primary_symbol="TCS", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "D05-count-volume-spikes-HDFC",
+        "Buy HDFCBANK when single-bar volume has been above 20-day average volume on at least 3 of the last 10 bars",
+        primary_symbol="HDFCBANK", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 5},
+    ),
+
+    # ── Z-series: very complex multi-condition trees ───────────────
+
+    Scenario(
+        "Z01-triple-regime-INFY",
+        "Buy INFY when 20-day z-score of close is below -1.5 AND 14-day ATR is in the bottom 30% of last 252 days AND 14-day RSI is above 30",
+        primary_symbol="INFY", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "Z02-adaptive-stop-TCS",
+        "Buy TCS when its 14-day RSI is below 30",
+        primary_symbol="TCS", start_date="2023-01-01", end_date="2025-12-31",
+        # Hardcoded adaptive-stop exit tree using ConditionalNode to
+        # exercise the Phase C.0 ternary node end-to-end. 8% stop
+        # in high-vol regime, 5% in low-vol regime.
+        exit_policy={
+            "kind": "tree",
+            "tree": {
+                "type": "comparison", "op": "<=",
+                "left": {"type": "position", "field": "unrealised_pct",
+                          "basis": "low"},
+                "right": {
+                    "type": "conditional",
+                    "if": {
+                        "type": "comparison", "op": ">",
+                        "left": {"type": "aggregate", "op": "percentrank",
+                                  "source": {"type": "indicator", "indicator": "atr",
+                                              "symbol": "TCS", "period": 14},
+                                  "bars": 252},
+                        "right": {"type": "constant", "value": 0.7},
+                    },
+                    "then": {"type": "constant", "value": -0.08},
+                    "else": {"type": "constant", "value": -0.05},
+                },
+            },
+            "exit_at": "stop_price",
+        },
+    ),
+    Scenario(
+        "Z03-quad-condition-RELIANCE",
+        "Buy RELIANCE when 14-day RSI is below 30 AND closing price is above 200-day SMA AND 5-day volume is above 25,000,000 AND 14-day ATR is below 3% of price",
+        primary_symbol="RELIANCE", start_date="2022-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
+    Scenario(
+        "Z04-relative-weakness-TCS",
+        "Buy TCS when its 14-day RSI is below 30 AND INFY's 14-day RSI is above 50 AND NIFTY closing price is above 22000",
+        primary_symbol="TCS", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 7},
+    ),
+    Scenario(
+        "Z05-cross-and-breakout-ICICI",
+        "Buy ICICIBANK when its MACD line crosses above the signal line AND today's close is the highest close of the last 20 bars",
+        primary_symbol="ICICIBANK", start_date="2023-01-01", end_date="2025-12-31",
+        exit_policy={"kind": "n_day_hold", "bars": 10},
+    ),
 ]
 
 
