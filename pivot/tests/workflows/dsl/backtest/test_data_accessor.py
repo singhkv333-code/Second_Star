@@ -448,6 +448,35 @@ def test_math_subtract_two_prices_returns_correct_delta():
     assert result == pytest.approx(expected, abs=1e-9)
 
 
+def test_session_day_reads_weekday_from_master_calendar():
+    """The backtest accessor returns the as-of bar's weekday as a
+    lowercase 3-letter code; the session_day leaf compares it to
+    the configured list."""
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+
+    df = _make_bars(50)
+    acc = BacktestDataAccessor(_loaded(df))
+    target_idx = 10
+    acc.advance_to(target_idx)
+    real_day = pd.Timestamp(df.index[target_idx]).strftime("%a").lower()
+    assert acc.get_session_day() == real_day
+
+    # Tree evaluates True for the matching day, False otherwise.
+    match_tree = TypeAdapter(Tree).validate_python(
+        {"type": "session_day", "days": [real_day]}
+    )
+    assert _walk(match_tree, accessor=acc, state={}) is True
+
+    other = [d for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+             if d != real_day]
+    miss_tree = TypeAdapter(Tree).validate_python(
+        {"type": "session_day", "days": other[:2]}
+    )
+    assert _walk(miss_tree, accessor=acc, state={}) is False
+
+
 def test_math_divide_by_zero_returns_none():
     """0-denominator on math/÷ must return None so Kleene UNKNOWN
     propagates rather than the engine raising."""

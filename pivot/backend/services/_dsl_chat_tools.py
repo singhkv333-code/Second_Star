@@ -44,11 +44,19 @@ async def backtest_dsl_tree(args: dict) -> dict:
     """Run a DSL-tree backtest from a natural-language condition.
 
     Args (all required unless noted):
-      condition         — NL trading entry condition (string)
+      condition         — NL trading ENTRY condition only. If the user
+                          stated a sell/exit rule too, pass it as
+                          ``exit_condition`` — never bake it into this
+                          field as an AND, that produces a contradiction.
       primary_symbol    — symbol the trade fires on (e.g. "TCS")
       start_date        — ISO date (optional; defaults to 3y ago)
       end_date          — ISO date (optional; defaults to today)
-      exit_kind         — "n_day_hold" | "stop_loss_pct" (default n_day_hold)
+      exit_condition    — Optional NL EXIT condition. When set, the
+                          tool translates it to a DSL exit tree and
+                          overrides the declarative exit_kind/bars/pct.
+      exit_kind         — "n_day_hold" | "stop_loss_pct"
+                          (default n_day_hold). Ignored when
+                          exit_condition is set.
       exit_bars         — int, used when exit_kind=n_day_hold (default 10)
       exit_pct          — float in 0..1, used when exit_kind=stop_loss_pct
       starting_capital  — ₹, default 100_000
@@ -57,6 +65,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
     args = args or {}
     condition = (args.get("condition") or "").strip()
     primary = (args.get("primary_symbol") or "").strip().upper()
+    exit_condition_text = (args.get("exit_condition") or "").strip()
     if not condition:
         raise ValueError(
             "backtest_dsl_tree needs a 'condition' (natural-language "
@@ -97,18 +106,38 @@ async def backtest_dsl_tree(args: dict) -> dict:
     if end_d <= start_d:
         end_d = start_d + timedelta(days=365)
 
-    # Exit policy — shape the discriminated union the request body
-    # expects.
-    exit_kind = (args.get("exit_kind") or "n_day_hold").lower()
-    if exit_kind not in ("n_day_hold", "stop_loss_pct"):
-        exit_kind = "n_day_hold"
-    if exit_kind == "n_day_hold":
-        exit_policy = {"kind": "n_day_hold",
-                       "bars": int(args.get("exit_bars") or 10)}
+    # Exit policy — exit_condition (NL) wins over declarative fields
+    # so a chat prompt like "buy on RSI<30, sell on RSI>70" gets a
+    # real tree exit and not a degenerate AND.
+    exit_tx_meta: Optional[dict] = None
+    if exit_condition_text:
+        try:
+            exit_tree_dict, exit_tx_meta = await translate_condition_to_tree(
+                exit_condition_text,
+                allow_position=True,
+                cache_key="dsl.chat.backtest.exit.v1",
+            )
+        except TranslationError as exc:
+            raise ValueError(
+                f"could not translate exit_condition into a DSL tree: "
+                f"{exc}"
+            ) from None
+        exit_policy = {
+            "kind": "tree",
+            "tree": exit_tree_dict,
+            "exit_at": "next_open",
+        }
     else:
-        v = float(args.get("exit_pct") or 0.05)
-        v = max(0.001, min(0.5, v))
-        exit_policy = {"kind": "stop_loss_pct", "value": v}
+        exit_kind = (args.get("exit_kind") or "n_day_hold").lower()
+        if exit_kind not in ("n_day_hold", "stop_loss_pct"):
+            exit_kind = "n_day_hold"
+        if exit_kind == "n_day_hold":
+            exit_policy = {"kind": "n_day_hold",
+                           "bars": int(args.get("exit_bars") or 10)}
+        else:
+            v = float(args.get("exit_pct") or 0.05)
+            v = max(0.001, min(0.5, v))
+            exit_policy = {"kind": "stop_loss_pct", "value": v}
 
     # Build BacktestRequest and run engine in a worker thread.
     from backend.workflows.dsl.backtest.engine import run_backtest
@@ -252,6 +281,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "unknown_value_bars": result.diagnostics.unknown_value_bars,
         },
         "translation_meta": tx_meta,
+        "exit_translation_meta": exit_tx_meta,
     }
 
 

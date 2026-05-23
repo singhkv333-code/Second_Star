@@ -20,7 +20,7 @@ from any LLM-emission boundary.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Optional
 
 from backend.workflows.dsl.schema import (
     AggregateNode,
@@ -34,6 +34,7 @@ from backend.workflows.dsl.schema import (
     PctChangeNode,
     PositionNode,
     PriceNode,
+    SessionDayNode,
     SpreadNode,
     VolumeNode,
 )
@@ -72,6 +73,7 @@ def semantic_validate(tree, *, allow_position: bool = False) -> None:
     _check_aggregate_ops(tree)
     _check_math_ops(tree)
     _check_no_vacuous_comparisons(tree)
+    _check_no_contradictory_and(tree)
 
 
 # ── Root shape ──────────────────────────────────────────────────────
@@ -313,15 +315,146 @@ def _check_math_ops(node) -> None:
 
 
 def _check_no_vacuous_comparisons(node) -> None:
+    from backend.workflows.dsl.evaluator import _fingerprint
     for n in _walk_all(node):
         if not isinstance(n, ComparisonNode):
             continue
+        # Both sides constant — comparison decided at LLM time.
         if isinstance(n.left, ConstantNode) and isinstance(n.right, ConstantNode):
             raise DSLValidationError(
                 f"Vacuous comparison: both sides are constants "
                 f"({n.left.value} {n.op} {n.right.value}). At least one "
                 "operand must be a market value (indicator / price / volume)."
             )
+        # Self-comparison — same expression on both sides. `X == X` is
+        # tautologically true, `X < X` is tautologically false, etc.
+        # The LLM occasionally emits these to fake a no-op filter (e.g.
+        # to "express" a day-of-week constraint when session_day wasn't
+        # in the grammar yet). Reject so the LLM picks the right node.
+        if _fingerprint(n.left) == _fingerprint(n.right):
+            raise DSLValidationError(
+                f"Self-comparison ({n.op}) — both sides resolve to the "
+                "same expression. This is either tautologically true "
+                "or false; pick a different operand or a different "
+                "operator. (If you meant to express a day-of-week or "
+                "session filter, use the 'session_day' leaf instead.)"
+            )
+
+
+# ── Contradictory AND detector ──────────────────────────────────────
+
+
+def _check_no_contradictory_and(node) -> None:
+    """Catch ``A AND B`` chains whose intersection is empty.
+
+    Walks every ``logic.and`` node, groups its comparison-against-
+    constant operands by left-side fingerprint, computes the interval
+    intersection of the constraints in each group, and rejects the
+    tree when any group is empty.
+
+    Common silent-failure pattern this catches: the LLM translating a
+    buy-then-sell prompt (``buy when RSI<30, sell when RSI>30``) into
+    a single AND'd entry tree (``RSI<30 AND RSI>30``) which can never
+    fire. Rejecting it points the user at the exit-policy field
+    instead of producing 0 trades silently.
+    """
+    # Local import — the evaluator pulls in the indicator registry,
+    # and we keep validators.py free of that load-time dep.
+    from backend.workflows.dsl.evaluator import _fingerprint
+
+    for n in _walk_all(node):
+        if not isinstance(n, LogicNode) or n.op != "and":
+            continue
+        # Group constant-RHS comparison operands by their left-side
+        # fingerprint. Constraints on different sub-expressions stay
+        # in their own groups.
+        groups: dict[str, list[tuple[str, float, ComparisonNode]]] = {}
+        for child in n.operands:
+            if not isinstance(child, ComparisonNode):
+                continue
+            if not isinstance(child.right, ConstantNode):
+                continue
+            if child.op not in ("<", "<=", ">", ">=", "=="):
+                # crosses_above / crosses_below are tick-transition
+                # ops and don't fit pure interval reasoning.
+                continue
+            key = _fingerprint(child.left)
+            groups.setdefault(key, []).append(
+                (child.op, float(child.right.value), child),
+            )
+        for _key, constraints in groups.items():
+            if len(constraints) < 2:
+                continue
+            if _is_empty_intersection(
+                [(op, v) for op, v, _ in constraints]
+            ):
+                from backend.workflows.dsl.readback import _render
+                phrases = [_render(c, depth=1) for _, _, c in constraints]
+                raise DSLValidationError(
+                    f"Contradictory entry condition: the constraints "
+                    f"{' AND '.join(phrases)} cannot all hold on the "
+                    "same bar — no value satisfies all of them. "
+                    "If you meant a buy-then-sell strategy, the sell "
+                    "rule belongs in the exit policy (exit_kind / "
+                    "exit_bars / exit_pct or an exit tree), not the "
+                    "entry. If you meant any-of, switch logic.op to "
+                    "'or'."
+                )
+
+
+def _is_empty_intersection(
+    constraints: list[tuple[str, float]],
+) -> bool:
+    """Given a list of (op, c) constraints on the same scalar
+    expression, return True when their intersection is empty.
+
+    Tracks the tightest lower / upper bound and any equality
+    constraints. Empty when:
+      • lower > upper, or
+      • lower == upper but at least one bound is strict, or
+      • two equality constraints disagree, or
+      • an equality lies outside the strict-bound interval.
+    """
+    lower: Optional[tuple[float, bool]] = None  # (value, inclusive?)
+    upper: Optional[tuple[float, bool]] = None
+    exacts: list[float] = []
+
+    for op, c in constraints:
+        if op == "<":
+            if upper is None or c < upper[0]:
+                upper = (c, False)
+            elif c == upper[0] and upper[1]:
+                upper = (c, False)
+        elif op == "<=":
+            if upper is None or c < upper[0]:
+                upper = (c, True)
+        elif op == ">":
+            if lower is None or c > lower[0]:
+                lower = (c, False)
+            elif c == lower[0] and lower[1]:
+                lower = (c, False)
+        elif op == ">=":
+            if lower is None or c > lower[0]:
+                lower = (c, True)
+        elif op == "==":
+            exacts.append(c)
+
+    if len(set(exacts)) > 1:
+        return True
+    if lower is not None and upper is not None:
+        if lower[0] > upper[0]:
+            return True
+        if lower[0] == upper[0] and not (lower[1] and upper[1]):
+            return True
+    if exacts:
+        e = exacts[0]
+        if lower is not None:
+            if e < lower[0] or (e == lower[0] and not lower[1]):
+                return True
+        if upper is not None:
+            if e > upper[0] or (e == upper[0] and not upper[1]):
+                return True
+    return False
 
 
 # ── Internal walker ────────────────────────────────────────────────

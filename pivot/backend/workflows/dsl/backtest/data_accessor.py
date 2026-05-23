@@ -178,6 +178,16 @@ class BacktestDataAccessor:
         EXIT tree, which overrides this method."""
         return None
 
+    def get_session_day(self) -> Optional[str]:
+        """Return the as-of bar's weekday as a lowercase 3-letter
+        code so ``session_day`` filters work in backtests."""
+        if self._as_of_idx < 0:
+            return None
+        from backend.workflows.dsl.data_accessor import _WEEKDAY_LOOKUP
+        ts = self._loaded.master_dates[self._as_of_idx]
+        # pandas Timestamp.weekday() is Monday-zero — matches our tuple.
+        return _WEEKDAY_LOOKUP[int(ts.weekday())]
+
     # ── aggregate fast path ──────────────────────────────────────────
 
     def evaluate_aggregate(self, *, node, evaluator, state):

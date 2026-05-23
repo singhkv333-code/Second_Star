@@ -217,6 +217,11 @@ class _PositionAwareAccessor:
     def get_volume(self, **kw):
         return self._inner.get_volume(**kw)
 
+    def get_session_day(self):
+        # Session-day on the underlying backtest accessor — needed so
+        # exit trees with day-of-week filters resolve correctly.
+        return self._inner.get_session_day()
+
     # ── position leaf ──────────────────────────────────────────────
 
     def get_position_field(

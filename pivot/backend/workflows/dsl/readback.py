@@ -31,6 +31,7 @@ from backend.workflows.dsl.schema import (
     PctChangeNode,
     PositionNode,
     PriceNode,
+    SessionDayNode,
     SpreadNode,
     VolumeNode,
 )
@@ -93,6 +94,9 @@ def _render(node, *, depth: int) -> str:
         return _render_position(node)
     if isinstance(node, ConstantNode):
         return _format_number(node.value)
+    if isinstance(node, SessionDayNode):
+        full = [_DAY_FULL[d] for d in node.days]
+        return "on " + (full[0] if len(full) == 1 else " or ".join(full))
     if isinstance(node, GapNode):
         return f"gap of {node.symbol}"
     if isinstance(node, PctChangeNode):
@@ -146,6 +150,13 @@ _AGG_PHRASES = {
     "barssince": "bars since",
     "valuewhen": "value when",
     "correlation": "correlation of",
+}
+
+
+_DAY_FULL = {
+    "mon": "Monday",   "tue": "Tuesday", "wed": "Wednesday",
+    "thu": "Thursday", "fri": "Friday",  "sat": "Saturday",
+    "sun": "Sunday",
 }
 
 

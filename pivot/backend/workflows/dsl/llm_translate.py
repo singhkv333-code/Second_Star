@@ -26,6 +26,7 @@ The tree is built from these node types, each tagged with a "type" field:
   { "type": "price", "symbol": "<SYM>", "exchange": "NSE", "basis": "open"|"high"|"low"|"close", "offset": <int> }
   { "type": "volume", "symbol": "<SYM>", "bars": <int>, "exchange": "NSE", "offset": <int> }
   { "type": "constant", "value": <number> }
+  { "type": "session_day", "days": ["mon"|"tue"|"wed"|"thu"|"fri"|"sat"|"sun", ...] }   // boolean: TRUE on listed weekdays
   { "type": "gap", "symbol": "<SYM>" }                                          // (open - prev_close) / prev_close, signed
   { "type": "pct_change", "symbol": "<SYM>", "bars": <int> }                    // (close - close[bars]) / close[bars]
   { "type": "spread", "a": "<SYM_A>", "b": "<SYM_B>" }                          // price_a / price_b
@@ -66,6 +67,14 @@ The root MUST be a "comparison" or "logic" node.
 Hard limits: tree depth ≤ 6; period in [1, 5000]; aggregate bars in [1, 2000]; offset in [0, 500]; constants finite; constant <op> constant rejected.
 
 Guidance on "reaches the band" / "touches the band" — prefer ">=" / "<=" or "crosses_above" / "crosses_below" rather than "==" (strict equality on floats rarely fires).
+
+Day-of-week filters: when the user says "on Tuesday", "every Monday", "Mon-Wed", etc., use the SESSION_DAY leaf:
+  "on Tuesday"           → { "type": "session_day", "days": ["tue"] }
+  "Monday and Friday"    → { "type": "session_day", "days": ["mon", "fri"] }
+Compose with other conditions via logic.and / logic.or.
+NEVER fake a day-of-week filter using indicator equality (e.g. RSI == RSI) — the validator rejects tautologies, and the result would never fire correctly.
+
+ENTRY vs EXIT — the tree returned from THIS prompt is the ENTRY condition only. Exits are translated in a separate hop with their own tree. NEVER AND together a buy condition and a sell condition in one tree (e.g. RSI<30 AND RSI>30) — the validator rejects the empty intersection.
 
 Math op operand counts:
   abs / negate         : EXACTLY 1 operand

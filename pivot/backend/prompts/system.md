@@ -495,6 +495,12 @@ condition + action + symbol + size, do NOT call ASK_USER for permission.
 Call the tool directly. ASK_USER is for missing values, not for
 permission to act on values you already have.
 
+NEVER preamble a tool call with "I've got the strategy: ... If you want,
+I can run it...". That paraphrase-then-ask pattern wastes a turn and
+the user already knows what they typed. Backtest / agent / order
+prompts with all required fields present run IMMEDIATELY on the first
+turn — the card is the response, not a permission gate.
+
 ## Editing a card
 
 When the user amends ANY active card (order or workflow draft) — CALL THE

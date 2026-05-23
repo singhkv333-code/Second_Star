@@ -416,6 +416,124 @@ def test_math_min_accepts_three_operands():
     semantic_validate(tree)
 
 
+# ── Contradictory AND detector ──────────────────────────────────────
+
+
+def test_rsi_lt_30_AND_rsi_gt_30_is_rejected_as_contradiction():
+    """The exact bug from the screenshot: buy-then-sell prompt
+    translated into a single AND'd entry tree. Must 422 with a
+    message that points the user at the exit policy."""
+    tree = _TREE.validate_python({
+        "type": "logic", "op": "and",
+        "operands": [
+            {"type": "comparison", "op": "<",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "RELIANCE", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+            {"type": "comparison", "op": ">",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "RELIANCE", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+        ],
+    })
+    with pytest.raises(DSLValidationError, match=r"Contradictory|exit policy"):
+        semantic_validate(tree)
+
+
+def test_rsi_lt_30_AND_rsi_ge_30_is_rejected():
+    """``<`` strict and ``>=`` inclusive at the same threshold still
+    has empty intersection."""
+    tree = _TREE.validate_python({
+        "type": "logic", "op": "and",
+        "operands": [
+            {"type": "comparison", "op": "<",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+            {"type": "comparison", "op": ">=",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+        ],
+    })
+    with pytest.raises(DSLValidationError, match="Contradictory"):
+        semantic_validate(tree)
+
+
+def test_two_upper_bounds_on_same_expression_is_not_contradiction():
+    """Two upper-bound constraints have a non-empty intersection
+    (the tighter bound wins). Must NOT raise."""
+    tree = _TREE.validate_python({
+        "type": "logic", "op": "and",
+        "operands": [
+            {"type": "comparison", "op": "<",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+            {"type": "comparison", "op": "<",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 40}},
+        ],
+    })
+    semantic_validate(tree)
+
+
+def test_two_different_equalities_is_rejected():
+    tree = _TREE.validate_python({
+        "type": "logic", "op": "and",
+        "operands": [
+            {"type": "comparison", "op": "==",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+            {"type": "comparison", "op": "==",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 50}},
+        ],
+    })
+    with pytest.raises(DSLValidationError, match="Contradictory"):
+        semantic_validate(tree)
+
+
+def test_contradiction_only_flagged_inside_AND():
+    """The same comparison pair under ``logic.or`` is fine (trivially
+    true). Only AND chains imply intersection."""
+    tree = _TREE.validate_python({
+        "type": "logic", "op": "or",
+        "operands": [
+            {"type": "comparison", "op": "<",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+            {"type": "comparison", "op": ">",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+        ],
+    })
+    semantic_validate(tree)
+
+
+def test_contradiction_on_different_expressions_is_fine():
+    """RSI<30 AND price>100 is a real compound — different left-sides
+    don't conflict."""
+    tree = _TREE.validate_python({
+        "type": "logic", "op": "and",
+        "operands": [
+            {"type": "comparison", "op": "<",
+             "left": {"type": "indicator", "indicator": "rsi",
+                      "symbol": "TCS", "period": 14},
+             "right": {"type": "constant", "value": 30}},
+            {"type": "comparison", "op": ">",
+             "left": {"type": "price", "symbol": "TCS"},
+             "right": {"type": "constant", "value": 100}},
+        ],
+    })
+    semantic_validate(tree)
+
+
 def test_lower_passes_through_already_lowered_tree():
     """Calling lower_exit_policy on a tree-shaped policy is a no-op."""
     from backend.workflows.dsl.backtest.schema import (

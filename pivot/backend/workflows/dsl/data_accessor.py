@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 # ── Protocol ─────────────────────────────────────────────────────────
 
 
+_WEEKDAY_LOOKUP: tuple[str, ...] = (
+    "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+)
+
+
 @runtime_checkable
 class DataAccessor(Protocol):
     """Surface every DSL leaf-node ultimately resolves through.
@@ -89,6 +94,12 @@ class DataAccessor(Protocol):
         automatically — entry trees with a stray ``position`` leaf
         evaluate to UNKNOWN rather than crashing.
         """
+        return None
+
+    def get_session_day(self) -> Optional[str]:
+        """Return the as-of bar's weekday as a lowercase 3-letter
+        code (``mon`` .. ``sun``), or ``None`` when the accessor
+        can't determine it. Used by the ``session_day`` leaf."""
         return None
 
 
@@ -285,6 +296,19 @@ class LiveDataAccessor:
         path applies. Position-aware exit-tree evaluation uses a
         wrapper accessor that overrides this."""
         return None
+
+    # ── session_day ──
+
+    def get_session_day(self) -> Optional[str]:
+        """Live evaluation runs once per minute; the relevant day is
+        today's IST date. Returns ``mon`` .. ``sun``."""
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        except Exception:  # noqa: BLE001 — pre-Py3.9 or missing tzdata
+            now = datetime.now()
+        return _WEEKDAY_LOOKUP[now.weekday()]
 
     # ── volume ──
 

@@ -54,6 +54,7 @@ from backend.workflows.dsl.schema import (
     PctChangeNode,
     PositionNode,
     PriceNode,
+    SessionDayNode,
     SpreadNode,
     VolumeNode,
 )
@@ -148,6 +149,11 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
         return accessor.get_position_field(
             field=node.field, basis=node.basis,
         )
+    if isinstance(node, SessionDayNode):
+        day = accessor.get_session_day()
+        if day is None:
+            return None
+        return day in node.days
     if isinstance(node, GapNode):
         return _eval_gap(node, accessor=accessor)
     if isinstance(node, PctChangeNode):

@@ -987,11 +987,21 @@ tool("backtest_dsl_tree",
      "  • lookback / aggregator language ('20-day high breakout', "
      "'highest of last 20 bars', 'percentile of last year', 'bars since "
      "RSI was last below 30', 'correlation of TCS and INFY')\n"
+     "  • day-of-week filters ('on Tuesday', 'every Friday')\n"
      "  • time-shifted reference ('yesterday's open', 'gap-down')\n"
-     "Hand the user's full natural-language condition through as the "
-     "`condition` field — do NOT try to break it apart. The tool "
-     "translates to a DSL tree internally. Returns the same chart-card "
-     "shape as backtest_workflow (price + equity + signals + metrics).",
+     "\n"
+     "ENTRY vs EXIT — CRITICAL: the `condition` field is the BUY/ENTRY "
+     "rule ONLY. If the user states BOTH a buy AND a sell condition "
+     "(e.g. 'buy when RSI<30, sell when RSI>70'), put the buy rule in "
+     "`condition` and the sell rule in `exit_condition`. Do NOT AND "
+     "them together in `condition` — that produces a logical "
+     "contradiction (e.g. RSI<30 AND RSI>70 can never both hold) and "
+     "the server rejects it.\n"
+     "\n"
+     "Hand the user's natural-language condition(s) through verbatim — "
+     "do NOT paraphrase or simplify. The tool translates each to a "
+     "DSL tree internally. Returns the same chart-card shape as "
+     "backtest_workflow (price + equity + signals + metrics).",
      {
          "condition": {
              "type": "string",
@@ -1020,6 +1030,18 @@ tool("backtest_dsl_tree",
              "type": "string",
              "description": (
                  "OPTIONAL ISO YYYY-MM-DD. Defaults to today."
+             ),
+         },
+         "exit_condition": {
+             "type": "string",
+             "description": (
+                 "OPTIONAL natural-language EXIT rule. Pass verbatim "
+                 "whenever the user describes when to SELL / EXIT / "
+                 "close (e.g. 'sell when RSI > 70', 'exit on 8% "
+                 "drawdown from peak', 'close after 30 bars'). When "
+                 "set, this overrides exit_kind/bars/pct and the "
+                 "engine evaluates the translated exit tree each bar "
+                 "the position is open."
              ),
          },
          "exit_kind": {

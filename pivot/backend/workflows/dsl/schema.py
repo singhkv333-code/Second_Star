@@ -1,6 +1,6 @@
 """Recursive Pydantic schema for the v1 condition tree.
 
-Thirteen node types behind a single discriminator field ``type``:
+Fourteen node types behind a single discriminator field ``type``:
 
   - ``indicator``    — RSI / SMA / EMA / MACD / ATR / ... value
   - ``price``        — bar open/high/low/close for a symbol
@@ -8,6 +8,8 @@ Thirteen node types behind a single discriminator field ``type``:
   - ``constant``     — a literal number
   - ``position``     — properties of the currently-open position;
                       only meaningful inside an EXIT tree
+  - ``session_day``  — boolean: True when the as-of bar's date falls
+                      on one of the listed weekdays (mon..sun)
   - ``gap``          — (open - prev_close) / prev_close, signed
   - ``pct_change``   — (close - close[bars]) / close[bars], signed
   - ``spread``       — price_a / price_b (ratio between two symbols)
@@ -262,6 +264,24 @@ class ComparisonNode(_Strict):
     right: "Tree"
 
 
+class SessionDayNode(_Strict):
+    """Boolean leaf: True when the as-of bar's date lands on one of
+    the listed weekdays (Mon..Sun, lowercase 3-letter codes).
+
+    Returns ``UNKNOWN`` if the accessor can't tell us the bar's date
+    (live mode without market context). Useful for opening-range /
+    weekly-rule strategies ("buy Tuesday on RSI<30, sell Wednesday on
+    RSI>30") — the day-of-week filter combines with any other tree.
+
+    ``days`` must be a non-empty subset of mon/tue/wed/thu/fri/sat/sun.
+    """
+
+    type: Literal["session_day"] = "session_day"
+    days: list[
+        Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    ] = Field(..., min_length=1, max_length=7)
+
+
 class GapNode(_Strict):
     """Single-leaf gap percentage for a symbol:
 
@@ -426,6 +446,7 @@ Tree = Annotated[
         VolumeNode,
         ConstantNode,
         PositionNode,
+        SessionDayNode,
         GapNode,
         PctChangeNode,
         SpreadNode,
