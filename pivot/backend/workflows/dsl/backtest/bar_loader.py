@@ -20,8 +20,11 @@ from typing import Optional
 import pandas as pd
 
 from backend.workflows.dsl.schema import (
+    GapNode,
     IndicatorNode,
+    PctChangeNode,
     PriceNode,
+    SpreadNode,
     VolumeNode,
 )
 from backend.workflows.dsl.validators import _walk_all
@@ -52,12 +55,19 @@ class LoadedBars:
 
 def collect_symbols(tree) -> list[SymbolKey]:
     """Find every market-data leaf in the tree and return its
-    (symbol, exchange) tuple. Deduplicated, deterministic order."""
+    (symbol, exchange) tuple. Deduplicated, deterministic order.
+
+    Includes the Phase C.5 shortcut leaves (gap, pct_change, spread).
+    Spread references TWO symbols so it contributes two keys."""
     seen: dict[SymbolKey, None] = {}   # preserves insertion order
     for node in _walk_all(tree):
-        if isinstance(node, (IndicatorNode, PriceNode, VolumeNode)):
+        if isinstance(node, (IndicatorNode, PriceNode, VolumeNode,
+                              GapNode, PctChangeNode)):
             key = (node.symbol.upper(), node.exchange.upper())
             seen.setdefault(key, None)
+        elif isinstance(node, SpreadNode):
+            seen.setdefault((node.a.upper(), node.exchange.upper()), None)
+            seen.setdefault((node.b.upper(), node.exchange.upper()), None)
     return list(seen.keys())
 
 

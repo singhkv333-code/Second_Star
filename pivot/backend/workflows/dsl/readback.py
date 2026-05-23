@@ -24,10 +24,14 @@ from backend.workflows.dsl.schema import (
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
+    GapNode,
     IndicatorNode,
     LogicNode,
+    MathNode,
+    PctChangeNode,
     PositionNode,
     PriceNode,
+    SpreadNode,
     VolumeNode,
 )
 
@@ -89,6 +93,14 @@ def _render(node, *, depth: int) -> str:
         return _render_position(node)
     if isinstance(node, ConstantNode):
         return _format_number(node.value)
+    if isinstance(node, GapNode):
+        return f"gap of {node.symbol}"
+    if isinstance(node, PctChangeNode):
+        return f"{node.bars}-bar % change of {node.symbol}"
+    if isinstance(node, SpreadNode):
+        return f"{node.a} / {node.b}"
+    if isinstance(node, MathNode):
+        return _render_math(node, depth=depth)
     if isinstance(node, ConditionalNode):
         cond = _render(node.if_, depth=depth + 1)
         then = _render(node.then, depth=depth + 1)
@@ -135,6 +147,29 @@ _AGG_PHRASES = {
     "valuewhen": "value when",
     "correlation": "correlation of",
 }
+
+
+_MATH_INFIX = {"+": "+", "-": "-", "*": "×", "/": "÷"}
+
+
+def _render_math(node: MathNode, *, depth: int) -> str:
+    """Render arithmetic. Binary ops as ``a + b``; unary as ``|a|``
+    or ``-a``; variadic as ``min(a, b, c)`` / ``max(...)``."""
+    rendered = [_render(c, depth=depth + 1) for c in node.operands]
+    if node.op in _MATH_INFIX and len(rendered) == 2:
+        glue = _MATH_INFIX[node.op]
+        body = f"{rendered[0]} {glue} {rendered[1]}"
+        # Parenthesise non-root to disambiguate against the enclosing
+        # comparison / math node.
+        return f"({body})" if depth > 0 else body
+    if node.op == "abs" and len(rendered) == 1:
+        return f"|{rendered[0]}|"
+    if node.op == "negate" and len(rendered) == 1:
+        return f"-({rendered[0]})"
+    if node.op in ("min", "max"):
+        return f"{node.op}({', '.join(rendered)})"
+    # Fallback (shouldn't normally hit — validator rejects).
+    return f"{node.op}({', '.join(rendered)})"
 
 
 def _offset_phrase(offset: int) -> str:

@@ -380,6 +380,93 @@ def test_aggregate_barssince_counts_correctly():
     )
 
 
+# ── Phase C.5 shortcut leaves through the evaluator ────────────────
+
+
+def test_gap_leaf_matches_manual_computation():
+    """A bar where open is below previous close → gap node returns
+    the same percentage as (open - prev_close) / prev_close."""
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+
+    n = 60
+    closes = np.full(n, 100.0)
+    opens = np.full(n, 100.0)
+    # Engineer a gap-down at idx 40: open=98 while prev close=100.
+    opens[40] = 98.0
+    dates = pd.date_range("2024-01-02", periods=n, freq="B").normalize()
+    df = pd.DataFrame({
+        "open": opens, "high": np.maximum(opens, closes) + 0.5,
+        "low": np.minimum(opens, closes) - 0.5,
+        "close": closes, "volume": np.full(n, 100_000.0),
+    }, index=dates)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(40)
+
+    tree = TypeAdapter(Tree).validate_python({"type": "gap", "symbol": "TCS"})
+    result = _walk(tree, accessor=acc, state={})
+    expected = (98.0 - 100.0) / 100.0
+    assert result == pytest.approx(expected, abs=1e-9)
+
+
+def test_pct_change_5bar_matches_pandas():
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+    df = _make_bars(80, seed=3)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(60)
+    tree = TypeAdapter(Tree).validate_python(
+        {"type": "pct_change", "symbol": "TCS", "bars": 5}
+    )
+    result = _walk(tree, accessor=acc, state={})
+    cur = float(df["close"].iloc[60])
+    past = float(df["close"].iloc[55])
+    expected = (cur - past) / past
+    assert result == pytest.approx(expected, abs=1e-9)
+
+
+def test_math_subtract_two_prices_returns_correct_delta():
+    """price(today) - price(yesterday) == today's close - yesterday's
+    close."""
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+    df = _make_bars(80, seed=11)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(50)
+    tree = TypeAdapter(Tree).validate_python({
+        "type": "math", "op": "-",
+        "operands": [
+            {"type": "price", "symbol": "TCS"},
+            {"type": "price", "symbol": "TCS", "offset": 1},
+        ],
+    })
+    result = _walk(tree, accessor=acc, state={})
+    expected = float(df["close"].iloc[50]) - float(df["close"].iloc[49])
+    assert result == pytest.approx(expected, abs=1e-9)
+
+
+def test_math_divide_by_zero_returns_none():
+    """0-denominator on math/÷ must return None so Kleene UNKNOWN
+    propagates rather than the engine raising."""
+    from backend.workflows.dsl.evaluator import _walk
+    from backend.workflows.dsl.schema import Tree
+    from pydantic import TypeAdapter
+    df = _make_bars(80)
+    acc = BacktestDataAccessor(_loaded(df))
+    acc.advance_to(30)
+    tree = TypeAdapter(Tree).validate_python({
+        "type": "math", "op": "/",
+        "operands": [
+            {"type": "constant", "value": 100},
+            {"type": "constant", "value": 0},
+        ],
+    })
+    assert _walk(tree, accessor=acc, state={}) is None
+
+
 def test_strict_mode_shadow_check(monkeypatch):
     """In DSL_BACKTEST_STRICT mode the accessor performs a second
     computation over the truncated slice and asserts the values

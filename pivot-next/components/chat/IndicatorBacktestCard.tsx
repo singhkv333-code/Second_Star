@@ -30,7 +30,11 @@ import { isError } from "@/lib/types";
 
 export type IndicatorBacktestPayload = {
   symbol: string;
-  indicator: "rsi" | "sma" | "ema";
+  // Legacy backtester emits "rsi" | "sma" | "ema". The DSL-tree
+  // backtester emits "compound" (the tree doesn't map to one
+  // indicator key); the card falls back to ``tree_summary`` for the
+  // title in that case.
+  indicator: string;
   indicator_period: number;
   operator: string;
   threshold: number;
@@ -49,7 +53,28 @@ export type IndicatorBacktestPayload = {
     starting_capital: number;
     ending_value: number;
   };
-  bench_buy_hold_return_pct: number;
+  bench_buy_hold_return_pct: number | null;
+  // ── DSL-tree extras (present only on responses from the
+  // backtest_dsl_tree chat tool). When ``tree_summary`` is set the
+  // card uses it as the condition label instead of the indicator/
+  // operator/threshold tuple, which is meaningless for compound trees.
+  tree_summary?: string | null;
+  trades?: Array<{
+    trade_id: number;
+    entry_date: string;
+    entry_price: number;
+    exit_date: string | null;
+    exit_price: number | null;
+    quantity: number;
+    net_pnl: number;
+    return_pct: number;
+    exit_reason: string;
+  }>;
+  diagnostics?: {
+    bars_evaluated: number;
+    fire_bars: number;
+    unknown_value_bars: number;
+  };
 };
 
 type Props = { payload: IndicatorBacktestPayload };
@@ -93,10 +118,18 @@ const opLabel = (op: string): string => {
   }
 };
 
-const conditionFor = (payload: IndicatorBacktestPayload): string =>
-  payload.indicator === "rsi"
+const conditionFor = (payload: IndicatorBacktestPayload): string => {
+  // DSL-tree backtests carry the readback in ``tree_summary``.
+  // It's the natural-language form of the whole tree (multi-condition,
+  // multi-symbol, aggregator-aware) so we prefer it over the
+  // single-indicator template.
+  if (payload.tree_summary && payload.tree_summary.length > 0) {
+    return payload.tree_summary;
+  }
+  return payload.indicator === "rsi"
     ? `RSI(${payload.indicator_period}) ${opLabel(payload.operator)} ${payload.threshold}`
     : `Price ${opLabel(payload.operator)} ${payload.indicator.toUpperCase()}(${payload.indicator_period})`;
+};
 
 const titleFor = (payload: IndicatorBacktestPayload): string =>
   `${payload.symbol} · ${conditionFor(payload)}`;
@@ -172,7 +205,16 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
           {symbol}
         </p>
       )}
-      <p className="mt-1.5 text-[12px] tracking-tight text-muted-foreground">
+      <p
+        className={cn(
+          "mt-1.5 text-[12px] tracking-tight text-muted-foreground",
+          // DSL trees can be long ("RSI(14) of TCS < 30 AND price of
+          // NIFTY > 22000 …") — let them wrap. Single-indicator
+          // condition strings stay on one line as before.
+          payload.tree_summary ? "leading-snug" : "truncate",
+        )}
+        title={conditionLabel}
+      >
         {conditionLabel}
       </p>
 

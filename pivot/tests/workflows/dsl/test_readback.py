@@ -200,3 +200,59 @@ def test_position_drawdown_from_peak_renders_friendly():
         "right": {"type": "constant", "value": 0.08},
     })
     assert tree_to_english(tree) == "drawdown from peak ≥ 0.08"
+
+
+# ── C.4 + C.5 readbacks ────────────────────────────────────────────
+
+
+def test_gap_leaf_reads_naturally():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "gap", "symbol": "NIFTY"},
+        "right": {"type": "constant", "value": -0.01},
+    })
+    assert tree_to_english(tree) == "gap of NIFTY < -0.01"
+
+
+def test_pct_change_renders_with_bars():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "pct_change", "symbol": "TCS", "bars": 5},
+        "right": {"type": "constant", "value": 0.03},
+    })
+    assert tree_to_english(tree) == "5-bar % change of TCS > 0.03"
+
+
+def test_spread_renders_as_ratio():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "spread", "a": "TCS", "b": "INFY"},
+        "right": {"type": "constant", "value": 1.5},
+    })
+    assert tree_to_english(tree) == "TCS / INFY < 1.5"
+
+
+def test_math_binary_renders_infix():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "math", "op": "-", "operands": [
+            {"type": "price", "symbol": "TCS"},
+            {"type": "price", "symbol": "TCS", "offset": 1},
+        ]},
+        "right": {"type": "constant", "value": 0},
+    })
+    # Math is at depth 1 → parens; price-offset suffix preserved.
+    assert tree_to_english(tree) == \
+        "(price of TCS - price of TCS (1 bar ago)) > 0"
+
+
+def test_math_min_renders_function_call():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "math", "op": "min", "operands": [
+            {"type": "price", "symbol": "TCS"},
+            {"type": "price", "symbol": "INFY"},
+        ]},
+        "right": {"type": "constant", "value": 4000},
+    })
+    assert tree_to_english(tree) == "min(price of TCS, price of INFY) < 4,000"

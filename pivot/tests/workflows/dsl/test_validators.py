@@ -375,6 +375,47 @@ def test_depth_limit_now_allows_aggregator_nested_trees():
     semantic_validate(tree)
 
 
+# ── Math op operand counts ─────────────────────────────────────────
+
+
+def test_math_abs_requires_exactly_one_operand():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "math", "op": "abs", "operands": [
+            {"type": "price", "symbol": "TCS"},
+            {"type": "price", "symbol": "INFY"},
+        ]},
+        "right": _leaf_constant(0),
+    })
+    with pytest.raises(DSLValidationError, match="abs"):
+        semantic_validate(tree)
+
+
+def test_math_divide_requires_exactly_two_operands():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "math", "op": "/", "operands": [
+            {"type": "price", "symbol": "TCS"},
+        ]},
+        "right": _leaf_constant(0),
+    })
+    with pytest.raises(DSLValidationError, match="exactly 2"):
+        semantic_validate(tree)
+
+
+def test_math_min_accepts_three_operands():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "math", "op": "min", "operands": [
+            {"type": "price", "symbol": "TCS"},
+            {"type": "price", "symbol": "INFY"},
+            {"type": "price", "symbol": "RELIANCE"},
+        ]},
+        "right": _leaf_constant(10000),
+    })
+    semantic_validate(tree)
+
+
 def test_lower_passes_through_already_lowered_tree():
     """Calling lower_exit_policy on a tree-shaped policy is a no-op."""
     from backend.workflows.dsl.backtest.schema import (

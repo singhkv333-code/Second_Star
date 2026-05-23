@@ -1,17 +1,21 @@
 """Recursive Pydantic schema for the v1 condition tree.
 
-Nine node types behind a single discriminator field ``type``:
+Thirteen node types behind a single discriminator field ``type``:
 
-  - ``indicator``   — RSI / SMA / EMA / MACD / ATR / ... value
-  - ``price``       — bar open/high/low/close for a symbol
-  - ``volume``      — bar volume (summed over the last N bars)
-  - ``constant``    — a literal number
-  - ``position``    — properties of the currently-open position;
-                     only meaningful inside an EXIT tree
-  - ``conditional`` — if/then/else value picker (Pine Script ?:)
-  - ``aggregate``   — lookback aggregator (highest/lowest/percentrank/...)
-  - ``comparison``  — two operand sub-trees + a binary operator
-  - ``logic``       — and / or / not joining operand sub-trees
+  - ``indicator``    — RSI / SMA / EMA / MACD / ATR / ... value
+  - ``price``        — bar open/high/low/close for a symbol
+  - ``volume``       — bar volume (summed over the last N bars)
+  - ``constant``     — a literal number
+  - ``position``     — properties of the currently-open position;
+                      only meaningful inside an EXIT tree
+  - ``gap``          — (open - prev_close) / prev_close, signed
+  - ``pct_change``   — (close - close[bars]) / close[bars], signed
+  - ``spread``       — price_a / price_b (ratio between two symbols)
+  - ``math``         — +/-/*/÷/abs/negate/min/max arithmetic
+  - ``conditional``  — if/then/else value picker (Pine Script ?:)
+  - ``aggregate``    — lookback aggregator (highest/lowest/percentrank/...)
+  - ``comparison``   — two operand sub-trees + a binary operator
+  - ``logic``        — and / or / not joining operand sub-trees
 
 Why a discriminated union rather than separate top-level types: it
 keeps the JSON shape uniform (every node has a ``type`` field), which
@@ -258,6 +262,65 @@ class ComparisonNode(_Strict):
     right: "Tree"
 
 
+class GapNode(_Strict):
+    """Single-leaf gap percentage for a symbol:
+
+        (today's open - yesterday's close) / yesterday's close
+
+    Signed; negative = gap-down. Convenience shortcut for the very
+    common "buy when X opens below yesterday's close by Y%" pattern
+    so the LLM doesn't have to emit a depth-3 math sub-tree.
+    """
+
+    type: Literal["gap"] = "gap"
+    symbol: str = Field(..., min_length=1, max_length=32)
+    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+
+
+class PctChangeNode(_Strict):
+    """N-bar percent change in CLOSE: (close - close[bars]) / close[bars].
+    Signed. ``bars=5`` reads "today's close vs the close 5 bars ago"."""
+
+    type: Literal["pct_change"] = "pct_change"
+    symbol: str = Field(..., min_length=1, max_length=32)
+    bars: int = Field(..., ge=1, le=500)
+    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+
+
+class SpreadNode(_Strict):
+    """Ratio of two symbols' close prices: price_a / price_b.
+
+    Use for pairs / relative-strength signals
+    (e.g. "TCS / INFY is in the bottom decile of its 252-day range")."""
+
+    type: Literal["spread"] = "spread"
+    a: str = Field(..., min_length=1, max_length=32,
+                   description="Numerator symbol")
+    b: str = Field(..., min_length=1, max_length=32,
+                   description="Denominator symbol")
+    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+
+
+class MathNode(_Strict):
+    """Arithmetic operator over numeric sub-trees.
+
+    Supported ops:
+      Binary  : ``+``, ``-``, ``*``, ``/``    (2 operands)
+      Unary   : ``abs``, ``negate``           (1 operand)
+      Variadic: ``min``, ``max``               (2..8 operands)
+
+    The validator (``validators.py``) enforces these counts per op.
+    Returns ``UNKNOWN`` (None) when any operand is UNKNOWN, and on
+    divide-by-zero.
+    """
+
+    type: Literal["math"] = "math"
+    op: Literal[
+        "+", "-", "*", "/", "abs", "negate", "min", "max",
+    ]
+    operands: list["Tree"] = Field(..., min_length=1, max_length=8)
+
+
 class ConditionalNode(_Strict):
     """Pine Script's ``?:`` ternary — pick one of two values based on
     the truthiness of an ``if`` sub-tree.
@@ -363,6 +426,10 @@ Tree = Annotated[
         VolumeNode,
         ConstantNode,
         PositionNode,
+        GapNode,
+        PctChangeNode,
+        SpreadNode,
+        MathNode,
         ConditionalNode,
         AggregateNode,
         ComparisonNode,
@@ -372,9 +439,9 @@ Tree = Annotated[
 ]
 
 
-# Resolve the forward references in Comparison / Logic / Conditional /
-# Aggregate.
+# Resolve the forward references in nodes with recursive Tree children.
 ComparisonNode.model_rebuild()
 LogicNode.model_rebuild()
 ConditionalNode.model_rebuild()
 AggregateNode.model_rebuild()
+MathNode.model_rebuild()

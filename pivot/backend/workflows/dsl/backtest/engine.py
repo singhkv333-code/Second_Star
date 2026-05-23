@@ -528,7 +528,8 @@ def _compute_warmup_idx(tree, total_bars: int) -> int:
     contributes too — an indicator with offset=20 needs bar 20 + its
     period in history. Floor of 20 keeps short trees safe."""
     from backend.workflows.dsl.schema import (
-        AggregateNode, IndicatorNode, PriceNode, VolumeNode,
+        AggregateNode, GapNode, IndicatorNode, PctChangeNode,
+        PriceNode, VolumeNode,
     )
     from backend.workflows.dsl.validators import _walk_all
 
@@ -542,6 +543,11 @@ def _compute_warmup_idx(tree, total_bars: int) -> int:
             max_need = max(max_need, int(n.bars) + int(n.offset or 0))
         elif isinstance(n, AggregateNode):
             # Aggregator needs `bars` of prior history for its window.
+            max_need = max(max_need, int(n.bars))
+        elif isinstance(n, GapNode):
+            # gap reads bar 0 (open) and bar -1 (prev close).
+            max_need = max(max_need, 1)
+        elif isinstance(n, PctChangeNode):
             max_need = max(max_need, int(n.bars))
     floor = 20
     needed = max(max_need, floor)

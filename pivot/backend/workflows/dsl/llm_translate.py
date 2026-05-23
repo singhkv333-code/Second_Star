@@ -26,6 +26,10 @@ The tree is built from these node types, each tagged with a "type" field:
   { "type": "price", "symbol": "<SYM>", "exchange": "NSE", "basis": "open"|"high"|"low"|"close", "offset": <int> }
   { "type": "volume", "symbol": "<SYM>", "bars": <int>, "exchange": "NSE", "offset": <int> }
   { "type": "constant", "value": <number> }
+  { "type": "gap", "symbol": "<SYM>" }                                          // (open - prev_close) / prev_close, signed
+  { "type": "pct_change", "symbol": "<SYM>", "bars": <int> }                    // (close - close[bars]) / close[bars]
+  { "type": "spread", "a": "<SYM_A>", "b": "<SYM_B>" }                          // price_a / price_b
+  { "type": "math", "op": "+"|"-"|"*"|"/"|"abs"|"negate"|"min"|"max", "operands": [<node>, ...] }
   { "type": "comparison", "op": "<OP>", "left": <node>, "right": <node> }
   { "type": "logic", "op": "and"|"or"|"not", "operands": [<node>, ...] }
   { "type": "conditional", "if": <bool-node>, "then": <node>, "else": <node> }
@@ -62,6 +66,17 @@ The root MUST be a "comparison" or "logic" node.
 Hard limits: tree depth ≤ 6; period in [1, 5000]; aggregate bars in [1, 2000]; offset in [0, 500]; constants finite; constant <op> constant rejected.
 
 Guidance on "reaches the band" / "touches the band" — prefer ">=" / "<=" or "crosses_above" / "crosses_below" rather than "==" (strict equality on floats rarely fires).
+
+Math op operand counts:
+  abs / negate         : EXACTLY 1 operand
+  + / - / * / /        : EXACTLY 2 operands
+  min / max            : 2..8 operands
+
+Prefer the SHORTCUT LEAVES whenever they fit:
+  "NIFTY opens 1% below yesterday's close"      → { "type":"comparison", "op":"<", "left":{"type":"gap","symbol":"NIFTY"}, "right":{"type":"constant","value":-0.01} }
+  "TCS price up 3% over last 5 bars"           → { "type":"comparison", "op":">", "left":{"type":"pct_change","symbol":"TCS","bars":5}, "right":{"type":"constant","value":0.03} }
+  "TCS/INFY spread is below 1.5"               → { "type":"comparison", "op":"<", "left":{"type":"spread","a":"TCS","b":"INFY"}, "right":{"type":"constant","value":1.5} }
+Use the general `math` node ONLY when the shortcuts don't fit (e.g. "TCS close minus its 20-day SMA, divided by ATR").
 
 Examples:
 

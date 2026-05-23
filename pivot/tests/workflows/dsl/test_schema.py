@@ -350,6 +350,71 @@ def test_aggregate_unknown_op_rejected():
         })
 
 
+# ── Phase C.4 + C.5 leaves & math ──────────────────────────────────
+
+
+def test_gap_leaf_round_trip():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "gap", "symbol": "NIFTY"},
+        "right": {"type": "constant", "value": -0.01},
+    })
+    leaf = tree.left
+    assert leaf.type == "gap"
+    assert leaf.symbol == "NIFTY"
+    assert leaf.exchange == "NSE"
+
+
+def test_pct_change_leaf_round_trip():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "pct_change", "symbol": "TCS", "bars": 5},
+        "right": {"type": "constant", "value": 0.03},
+    })
+    leaf = tree.left
+    assert leaf.type == "pct_change"
+    assert leaf.bars == 5
+
+
+def test_spread_leaf_round_trip():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "spread", "a": "TCS", "b": "INFY"},
+        "right": {"type": "constant", "value": 1.5},
+    })
+    leaf = tree.left
+    assert leaf.type == "spread"
+    assert leaf.a == "TCS"
+    assert leaf.b == "INFY"
+
+
+def test_math_binary_round_trip():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {
+            "type": "math", "op": "-",
+            "operands": [
+                {"type": "price", "symbol": "TCS"},
+                {"type": "price", "symbol": "TCS", "offset": 1},
+            ],
+        },
+        "right": {"type": "constant", "value": 0},
+    })
+    assert tree.left.type == "math"
+    assert tree.left.op == "-"
+    assert len(tree.left.operands) == 2
+
+
+def test_math_unknown_op_rejected_by_pydantic():
+    with pytest.raises(ValidationError):
+        _TREE.validate_python({
+            "type": "math", "op": "modulo", "operands": [
+                {"type": "constant", "value": 1},
+                {"type": "constant", "value": 2},
+            ],
+        })
+
+
 def test_recursive_nesting_works():
     """Tree-of-trees should parse cleanly without forward-ref errors."""
     payload = {

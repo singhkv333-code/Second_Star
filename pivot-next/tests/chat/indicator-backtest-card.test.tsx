@@ -124,6 +124,52 @@ describe("IndicatorBacktestCard — concise widget", () => {
   });
 });
 
+// ── DSL-tree readback ─────────────────────────────────────────────
+
+
+const DSL_PAYLOAD: IndicatorBacktestPayload = {
+  ...RSI_PAYLOAD,
+  symbol: "TCS",
+  indicator: "compound",
+  indicator_period: 0,
+  operator: "tree",
+  threshold: 0,
+  bench_buy_hold_return_pct: null,
+  tree_summary:
+    "RSI(14) of TCS < 30 AND price of TCS > SMA(200) of TCS",
+  trades: [
+    {
+      trade_id: 1, entry_date: "2023-04-01", entry_price: 2400,
+      exit_date: "2023-04-15", exit_price: 2520, quantity: 10,
+      net_pnl: 1180, return_pct: 0.05, exit_reason: "n_day_hold",
+    },
+  ],
+  diagnostics: {
+    bars_evaluated: 540, fire_bars: 12, unknown_value_bars: 0,
+  },
+};
+
+
+describe("IndicatorBacktestCard — DSL tree readback", () => {
+  it("renders the tree_summary as the condition label, not the indicator template", () => {
+    render(<IndicatorBacktestCard payload={DSL_PAYLOAD} />);
+    expect(
+      screen.getByText(/RSI\(14\) of TCS < 30 AND price of TCS > SMA\(200\)/),
+    ).toBeInTheDocument();
+    // The fallback indicator-based title must NOT appear when tree_summary is set.
+    expect(screen.queryByText(/Price drops below COMPOUND\(0\)/)).toBeNull();
+  });
+
+  it("still renders the standard stat block (CAGR, Max DD, Trades, Hit rate)", () => {
+    render(<IndicatorBacktestCard payload={DSL_PAYLOAD} />);
+    expect(screen.getByText("CAGR")).toBeInTheDocument();
+    expect(screen.getByText("Max DD")).toBeInTheDocument();
+    expect(screen.getByText("Trades")).toBeInTheDocument();
+    expect(screen.getByText("Hit rate")).toBeInTheDocument();
+  });
+});
+
+
 describe("IndicatorBacktestDetail — full result surface", () => {
   it("renders all 6 detail metrics", () => {
     render(<IndicatorBacktestDetail payload={RSI_PAYLOAD} />);

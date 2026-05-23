@@ -47,10 +47,14 @@ from backend.workflows.dsl.schema import (
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
+    GapNode,
     IndicatorNode,
     LogicNode,
+    MathNode,
+    PctChangeNode,
     PositionNode,
     PriceNode,
+    SpreadNode,
     VolumeNode,
 )
 
@@ -144,6 +148,14 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
         return accessor.get_position_field(
             field=node.field, basis=node.basis,
         )
+    if isinstance(node, GapNode):
+        return _eval_gap(node, accessor=accessor)
+    if isinstance(node, PctChangeNode):
+        return _eval_pct_change(node, accessor=accessor)
+    if isinstance(node, SpreadNode):
+        return _eval_spread(node, accessor=accessor)
+    if isinstance(node, MathNode):
+        return _eval_math(node, accessor=accessor, state=state)
     if isinstance(node, ConditionalNode):
         return _eval_conditional(node, accessor=accessor, state=state)
     if isinstance(node, AggregateNode):
@@ -154,6 +166,112 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
         return _eval_logic(node, accessor=accessor, state=state)
     # Unknown node type — Pydantic would have rejected this at parse
     # time. Defensive return.
+    return None
+
+
+# ── Shortcut leaves: gap / pct_change / spread ────────────────────
+
+
+def _eval_gap(node: GapNode, *, accessor: DataAccessor) -> Optional[float]:
+    """(today's open - yesterday's close) / yesterday's close, signed.
+    Returns None when either bar is missing."""
+    cur_open = accessor.get_price(
+        symbol=node.symbol, exchange=node.exchange,
+        basis="open", offset=_additional_offset(),
+    )
+    prev_close = accessor.get_price(
+        symbol=node.symbol, exchange=node.exchange,
+        basis="close", offset=1 + _additional_offset(),
+    )
+    if cur_open is None or prev_close is None:
+        return None
+    if prev_close == 0.0:
+        return None
+    return (cur_open - prev_close) / prev_close
+
+
+def _eval_pct_change(
+    node: PctChangeNode, *, accessor: DataAccessor,
+) -> Optional[float]:
+    """(close - close[bars]) / close[bars], signed."""
+    cur = accessor.get_price(
+        symbol=node.symbol, exchange=node.exchange,
+        basis="close", offset=_additional_offset(),
+    )
+    past = accessor.get_price(
+        symbol=node.symbol, exchange=node.exchange,
+        basis="close", offset=int(node.bars) + _additional_offset(),
+    )
+    if cur is None or past is None or past == 0.0:
+        return None
+    return (cur - past) / past
+
+
+def _eval_spread(
+    node: SpreadNode, *, accessor: DataAccessor,
+) -> Optional[float]:
+    """price_a / price_b. Returns None on missing data or zero denom."""
+    a = accessor.get_price(
+        symbol=node.a, exchange=node.exchange,
+        basis="close", offset=_additional_offset(),
+    )
+    b = accessor.get_price(
+        symbol=node.b, exchange=node.exchange,
+        basis="close", offset=_additional_offset(),
+    )
+    if a is None or b is None or b == 0.0:
+        return None
+    return a / b
+
+
+# ── Math node ─────────────────────────────────────────────────────
+
+
+_MATH_BINARY = {"+", "-", "*", "/"}
+_MATH_UNARY = {"abs", "negate"}
+_MATH_VARIADIC = {"min", "max"}
+
+
+def _eval_math(
+    node: MathNode,
+    *,
+    accessor: DataAccessor,
+    state: dict[str, float],
+) -> Optional[float]:
+    """Arithmetic over numeric operand sub-trees. UNKNOWN propagates;
+    divide-by-zero returns UNKNOWN."""
+    vals: list[Optional[float]] = []
+    for sub in node.operands:
+        v = _walk(sub, accessor=accessor, state=state)
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            v = float(v)
+        if not isinstance(v, (int, float)):
+            return None
+        vals.append(float(v))
+
+    op = node.op
+    if op in _MATH_UNARY:
+        if len(vals) != 1:
+            return None
+        return abs(vals[0]) if op == "abs" else -vals[0]
+    if op in _MATH_BINARY:
+        if len(vals) != 2:
+            return None
+        a, b = vals
+        if op == "+":
+            return a + b
+        if op == "-":
+            return a - b
+        if op == "*":
+            return a * b
+        if op == "/":
+            return None if b == 0.0 else a / b
+    if op in _MATH_VARIADIC:
+        if not vals:
+            return None
+        return min(vals) if op == "min" else max(vals)
     return None
 
 

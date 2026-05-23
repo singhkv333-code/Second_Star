@@ -27,10 +27,14 @@ from backend.workflows.dsl.schema import (
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
+    GapNode,
     IndicatorNode,
     LogicNode,
+    MathNode,
+    PctChangeNode,
     PositionNode,
     PriceNode,
+    SpreadNode,
     VolumeNode,
 )
 
@@ -66,6 +70,7 @@ def semantic_validate(tree, *, allow_position: bool = False) -> None:
         _check_no_position_leaf(tree)
     _check_position_basis(tree)
     _check_aggregate_ops(tree)
+    _check_math_ops(tree)
     _check_no_vacuous_comparisons(tree)
 
 
@@ -103,7 +108,10 @@ def _depth(node) -> int:
         if node.second is not None:
             children.append(_depth(node.second))
         return 1 + max(children)
+    if isinstance(node, MathNode):
+        return 1 + max((_depth(c) for c in node.operands), default=0)
     # Leaves: indicator / price / volume / constant / position
+    # / gap / pct_change / spread (the shortcut leaves)
     return 1
 
 
@@ -270,6 +278,37 @@ def _yields_boolean(node) -> bool:
     return False
 
 
+# ── Math op operand counts ──────────────────────────────────────────
+
+
+_MATH_UNARY = frozenset({"abs", "negate"})
+_MATH_BINARY = frozenset({"+", "-", "*", "/"})
+_MATH_VARIADIC = frozenset({"min", "max"})
+
+
+def _check_math_ops(node) -> None:
+    """Validate operand count for math ops:
+       abs/negate → exactly 1 operand
+       +/-/*/÷    → exactly 2 operands
+       min/max    → 2..8 operands"""
+    for n in _walk_all(node):
+        if not isinstance(n, MathNode):
+            continue
+        k = len(n.operands)
+        if n.op in _MATH_UNARY and k != 1:
+            raise DSLValidationError(
+                f"math op '{n.op}' expects exactly 1 operand, got {k}."
+            )
+        if n.op in _MATH_BINARY and k != 2:
+            raise DSLValidationError(
+                f"math op '{n.op}' expects exactly 2 operands, got {k}."
+            )
+        if n.op in _MATH_VARIADIC and k < 2:
+            raise DSLValidationError(
+                f"math op '{n.op}' expects 2..8 operands, got {k}."
+            )
+
+
 # ── Vacuous comparisons ─────────────────────────────────────────────
 
 
@@ -306,4 +345,7 @@ def _walk_all(node) -> Iterable:
         yield from _walk_all(node.source)
         if node.second is not None:
             yield from _walk_all(node.second)
+    elif isinstance(node, MathNode):
+        for child in node.operands:
+            yield from _walk_all(child)
     # Leaves yield only themselves; covered by the initial yield.

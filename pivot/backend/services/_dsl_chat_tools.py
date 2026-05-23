@@ -154,10 +154,13 @@ async def backtest_dsl_tree(args: dict) -> dict:
         logger.exception("[chat.dsl.backtest] engine crashed: %s", exc)
         raise ValueError(f"backtest engine crashed: {type(exc).__name__}")
 
-    # Shape the BacktestResult into the legacy chart-card payload the FE
-    # already renders. The mapping is deliberately conservative — we
-    # keep render_hint='indicator_backtest_chart' so no FE work is
-    # needed; equity_curve carries the headline shape.
+    # Shape the BacktestResult into the same chart-card payload the FE
+    # already renders for legacy backtests, PLUS the DSL-specific
+    # extras (tree_summary, full trades list) that the card's
+    # extended renderer uses when present. We keep render_hint =
+    # "indicator_backtest_chart" so existing ChatDemo dispatch is
+    # unchanged; the card itself sniffs `tree_summary` and trades to
+    # decide which surface to draw.
     metrics = result.metrics
     summary = (
         f"Strategy returned {metrics.total_return_pct:+.1f}% across "
@@ -165,9 +168,47 @@ async def backtest_dsl_tree(args: dict) -> dict:
         f"Win rate {metrics.win_rate_pct:.0f}%."
     )
 
+    # Build the legacy-shaped signals list (buy + sell as separate
+    # entries) AND a richer per-trade list so the card can show
+    # entry/exit pairs.
+    signals: list[dict] = []
+    rich_trades: list[dict] = []
+    for t in result.trades:
+        signals.append({
+            "t": t.entry_date.isoformat(),
+            "side": "buy",
+            "price": float(t.entry_price),
+            "indicator_value": None,
+        })
+        if t.exit_date is not None and t.exit_price is not None:
+            signals.append({
+                "t": t.exit_date.isoformat(),
+                "side": "sell",
+                "price": float(t.exit_price),
+                "indicator_value": None,
+            })
+        rich_trades.append({
+            "trade_id": t.trade_id,
+            "entry_date": t.entry_date.isoformat(),
+            "entry_price": float(t.entry_price),
+            "exit_date": t.exit_date.isoformat() if t.exit_date else None,
+            "exit_price": float(t.exit_price) if t.exit_price is not None else None,
+            "quantity": int(t.quantity),
+            "net_pnl": float(t.net_pnl),
+            "return_pct": float(t.return_pct),
+            "exit_reason": t.exit_reason,
+        })
+
+    n_wins = metrics.winning_trades
+    n_trades = metrics.total_trades
+
     return {
         "_render_hint": "indicator_backtest_chart",
         "symbol": result.request.primary_symbol,
+        # Compound DSL trees don't fit the (indicator,period,operator,
+        # threshold) shape. The FE's IndicatorBacktestCard now checks
+        # tree_summary FIRST and falls back to indicator-based when
+        # that field is absent — set sane no-ops here.
         "indicator": "compound",
         "indicator_period": 0,
         "operator": "tree",
@@ -175,46 +216,36 @@ async def backtest_dsl_tree(args: dict) -> dict:
         "period_label": (
             f"{start_d.isoformat()} → {end_d.isoformat()}"
         ),
-        # Map equity curve into both panels so the FE has something to
-        # plot in each.
+        # Map equity curve into both panels so the FE has something
+        # in each thumbnail slot.
         "price_curve": [
-            {"t": p.date.isoformat(), "v": p.equity}
+            {"t": p.date.isoformat(), "v": float(p.equity)}
             for p in result.equity_curve
         ],
         "equity_curve": [
-            {"t": p.date.isoformat(), "v": p.equity}
+            {"t": p.date.isoformat(), "v": float(p.equity)}
             for p in result.equity_curve
         ],
         "indicator_curve": [],
-        "signals": [
-            {
-                "date": t.entry_date.isoformat(),
-                "side": "BUY",
-                "price": t.entry_price,
-            }
-            for t in result.trades
-        ] + [
-            {
-                "date": t.exit_date.isoformat() if t.exit_date else None,
-                "side": "SELL",
-                "price": t.exit_price,
-            }
-            for t in result.trades if t.exit_date is not None
-        ],
+        "signals": signals,
         "metrics": {
-            "total_return_pct": metrics.total_return_pct,
-            "cagr_pct": metrics.cagr_pct,
-            "max_drawdown_pct": metrics.max_drawdown_pct,
-            "win_rate_pct": metrics.win_rate_pct,
-            "total_trades": metrics.total_trades,
-            "winning_trades": metrics.winning_trades,
-            "losing_trades": metrics.losing_trades,
-            "ending_value": metrics.ending_value,
+            # Legacy-shape keys the existing IndicatorBacktestCard reads.
+            "total_return_pct": float(metrics.total_return_pct),
+            "cagr_pct": float(metrics.cagr_pct),
+            "max_drawdown_pct": float(metrics.max_drawdown_pct),
+            "hit_rate_pct": float(metrics.win_rate_pct),
+            "n_trades": int(n_trades),
+            "n_wins": int(n_wins),
+            "starting_capital": float(request.starting_capital),
+            "ending_value": float(metrics.ending_value),
         },
         "bench_buy_hold_return_pct": None,
         "summary_text": summary,
-        # DSL-specific extras — useful for diagnostics / future cards.
+        # DSL-native fields — present ONLY on DSL responses. The card
+        # uses these to render the readback as the title and (later)
+        # a trades-list expansion.
         "tree_summary": result.tree_summary,
+        "trades": rich_trades,
         "diagnostics": {
             "bars_evaluated": result.diagnostics.bars_evaluated,
             "fire_bars": result.diagnostics.fire_bars,
