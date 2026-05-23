@@ -138,3 +138,65 @@ def test_volume_node_phrasing():
     })
     out = tree_to_english(tree)
     assert "5-bar volume of TCS" in out
+
+
+def test_indicator_component_prepends_phrase():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "price", "symbol": "NIFTYBEES"},
+        "right": {
+            "type": "indicator", "indicator": "bb",
+            "symbol": "NIFTYBEES", "period": 20, "component": "lower",
+        },
+    })
+    assert tree_to_english(tree) == "price of NIFTYBEES < lower BB(20) of NIFTYBEES"
+
+
+def test_indicator_without_component_unchanged():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "indicator", "indicator": "rsi",
+                 "symbol": "TCS", "period": 14},
+        "right": {"type": "constant", "value": 30},
+    })
+    assert tree_to_english(tree) == "RSI(14) of TCS < 30"
+
+
+# ── position leaf readback ──────────────────────────────────────────
+
+
+def test_position_unrealised_pct_renders_as_pnl():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">=",
+        "left": {"type": "position", "field": "unrealised_pct"},
+        "right": {"type": "constant", "value": 0.10},
+    })
+    assert tree_to_english(tree) == "unrealised P&L ≥ 0.1"
+
+
+def test_position_basis_low_adds_phrase():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": "<=",
+        "left": {"type": "position", "field": "unrealised_pct",
+                 "basis": "low"},
+        "right": {"type": "constant", "value": -0.05},
+    })
+    assert tree_to_english(tree) == "unrealised P&L at bar low ≤ -0.05"
+
+
+def test_position_bars_held_renders_short():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">=",
+        "left": {"type": "position", "field": "bars_held"},
+        "right": {"type": "constant", "value": 30},
+    })
+    assert tree_to_english(tree) == "bars held ≥ 30"
+
+
+def test_position_drawdown_from_peak_renders_friendly():
+    tree = _TREE.validate_python({
+        "type": "comparison", "op": ">=",
+        "left": {"type": "position", "field": "drawdown_from_peak_pct"},
+        "right": {"type": "constant", "value": 0.08},
+    })
+    assert tree_to_english(tree) == "drawdown from peak ≥ 0.08"

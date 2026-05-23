@@ -34,11 +34,27 @@ logger = structlog.get_logger(__name__)
 
 
 # USD per 1,000,000 tokens. Keep keys lowercased on read.
+#
+# Each rate set documents whether it's a current public list price or
+# a placeholder; the comments below tell the dashboard maintainer
+# what to verify when they refresh prices quarterly.
 PRICING: dict[str, dict[str, float]] = {
-    "gpt-5-mini": {"input": 0.25, "output": 2.00},   # placeholder — verify against current OpenAI page
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    "gpt-4o":     {"input": 2.50, "output": 10.00},
-    "sarvam-m":   {"input": 0.00, "output": 0.00},   # Sarvam dev tier, no per-token billing today
+    # OpenAI Responses API. Verify against
+    #   https://platform.openai.com/docs/pricing
+    "gpt-5-mini":   {"input": 0.25, "output": 2.00},   # placeholder
+    "gpt-4o-mini":  {"input": 0.15, "output": 0.60},
+    "gpt-4o":       {"input": 2.50, "output": 10.00},
+
+    # Azure AI Foundry deployment name. The Pivot Azure tenant calls
+    # this slot ``gpt-5.4-mini``; same underlying model family as
+    # OpenAI's gpt-5-mini, billed at parity until Microsoft publishes
+    # a distinct price. The cost ledger was previously logging
+    # ``llm_cost.unknown_model`` for every Azure call because the
+    # punctuation differs from the OpenAI family key.
+    "gpt-5.4-mini": {"input": 0.25, "output": 2.00},   # placeholder
+
+    # Sarvam dev tier — no per-token billing today.
+    "sarvam-m":     {"input": 0.00, "output": 0.00},
 }
 
 

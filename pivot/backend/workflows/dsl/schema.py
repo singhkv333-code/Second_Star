@@ -1,11 +1,13 @@
 """Recursive Pydantic schema for the v1 condition tree.
 
-Six node types behind a single discriminator field ``type``:
+Seven node types behind a single discriminator field ``type``:
 
   - ``indicator``  — RSI / SMA / EMA / MACD / ATR / ... value
   - ``price``      — last-traded price for a symbol
   - ``volume``     — bar volume (summed over the last N bars)
   - ``constant``   — a literal number
+  - ``position``   — properties of the currently-open position;
+                    only meaningful inside an EXIT tree
   - ``comparison`` — two operand sub-trees + an operator
   - ``logic``      — and / or / not joining operand sub-trees
 
@@ -29,7 +31,7 @@ Hard limits enforced here:
 from __future__ import annotations
 
 import math
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -62,6 +64,14 @@ class IndicatorNode(_Strict):
     ``indicator`` must be a key supported by
     ``backend.services.backtest_indicators``. ``validators.py`` does
     that lookup; Pydantic just enforces the field shape.
+
+    ``component`` is optional and only meaningful for multi-output
+    indicators (BB upper/middle/lower, MACD line/signal/hist, Stoch
+    %K/%D, Aroon up/down/osc, Donchian/Keltner bands). The allowed
+    values per indicator are whitelisted by
+    ``validators.semantic_validate``. ``None`` keeps the existing
+    default series (Bollinger %B, MACD histogram, Stoch %K, ...) for
+    backwards-compat with already-persisted trees.
     """
 
     type: Literal["indicator"] = "indicator"
@@ -69,11 +79,30 @@ class IndicatorNode(_Strict):
     symbol: str = Field(..., min_length=1, max_length=32)
     period: int = Field(..., ge=1, le=5000)
     exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    component: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=16,
+        description=(
+            "Optional component selector for multi-output indicators "
+            "(e.g. 'lower' for Bollinger lower band, 'signal' for "
+            "MACD signal line). Single-output indicators must leave "
+            "this field unset."
+        ),
+    )
 
     @field_validator("indicator", "symbol", "exchange")
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("component")
+    @classmethod
+    def _norm_component(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = v.strip().lower()
+        return s or None
 
 
 class PriceNode(_Strict):
@@ -110,6 +139,50 @@ class ConstantNode(_Strict):
         if math.isnan(v) or math.isinf(v):
             raise ValueError("constant must be a finite number")
         return float(v)
+
+
+class PositionNode(_Strict):
+    """Properties of the currently-open backtest/live position.
+
+    Only meaningful inside an EXIT tree. ``validators.semantic_validate``
+    rejects trees that put a ``position`` leaf in the entry-tree slot
+    (where no position exists yet).
+
+    ``field`` enumerates the addressable properties:
+
+      ``entry_price``        - ₹ paid at entry; constant for the position's life.
+      ``unrealised_pct``     - (current_price - entry_price) / entry_price,
+                               signed. Defaults to bar CLOSE; pass ``basis``
+                               to read from bar LOW (stops) or HIGH (targets).
+      ``unrealised_abs``     - current_price - entry_price, signed ₹.
+                               Same basis semantics as unrealised_pct.
+      ``bars_held``          - integer count of bars since entry (>= 0).
+      ``peak_unrealised_pct``- running max of unrealised_pct seen so far
+                               this position. Always uses bar HIGH internally.
+      ``drawdown_from_peak_pct`` - peak_unrealised_pct - unrealised_pct,
+                               non-negative. For trailing-stop semantics.
+
+    ``basis`` is only honoured for ``unrealised_pct`` / ``unrealised_abs``.
+    Other fields ignore it.
+    """
+
+    type: Literal["position"] = "position"
+    field: Literal[
+        "entry_price",
+        "unrealised_pct",
+        "unrealised_abs",
+        "bars_held",
+        "peak_unrealised_pct",
+        "drawdown_from_peak_pct",
+    ]
+    basis: Optional[Literal["close", "low", "high"]] = Field(
+        default=None,
+        description=(
+            "Bar component to read for unrealised_pct / unrealised_abs. "
+            "Defaults to 'close'. Use 'low' for stop-loss checks, 'high' "
+            "for profit-target checks. Ignored for other fields."
+        ),
+    )
 
 
 # ── Inner nodes — forward refs ───────────────────────────────────────
@@ -183,6 +256,7 @@ Tree = Annotated[
         PriceNode,
         VolumeNode,
         ConstantNode,
+        PositionNode,
         ComparisonNode,
         LogicNode,
     ],

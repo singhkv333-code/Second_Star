@@ -478,6 +478,139 @@ def supported_indicators() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY.keys()))
 
 
+# ── Multi-output components ─────────────────────────────────────────
+#
+# A handful of indicators emit more than one series (bands, MACD lines,
+# oscillator pairs). The default ``compute_series`` returns the most
+# useful single component for threshold gating (e.g. Bollinger %B,
+# MACD histogram, Stochastic %K). When the user actually means a
+# different output ("buy when price < lower Bollinger band"),
+# ``compute_series_component`` lets the DSL address it directly.
+#
+# Single-output indicators (RSI, SMA, EMA, ATR, ...) don't appear in
+# this table; a tree carrying ``component`` for one of them is rejected
+# by ``validators.semantic_validate``.
+_INDICATOR_COMPONENT_PREFIX: dict[str, dict[str, str]] = {
+    "bb": {
+        "upper": "BBU_", "middle": "BBM_", "lower": "BBL_",
+        "pctb": "BBP_", "bandwidth": "BBB_",
+    },
+    "bollinger": {
+        "upper": "BBU_", "middle": "BBM_", "lower": "BBL_",
+        "pctb": "BBP_", "bandwidth": "BBB_",
+    },
+    "macd": {"macd": "MACD_", "signal": "MACDs_", "hist": "MACDh_"},
+    "stoch": {"k": "STOCHk_", "d": "STOCHd_"},
+    "stoch_rsi": {"k": "STOCHRSIk_", "d": "STOCHRSId_"},
+    "aroon": {"up": "AROONU_", "down": "AROOND_", "osc": "AROONOSC_"},
+    "donchian": {"upper": "DCU_", "middle": "DCM_", "lower": "DCL_"},
+    # Keltner column names include an 'e'/'s' suffix for ema/atr variant.
+    "keltner": {"upper": "KCU", "middle": "KCB", "lower": "KCL"},
+}
+
+
+def allowed_components(indicator: str) -> tuple[str, ...]:
+    """Return the set of valid ``component`` keys for ``indicator``,
+    or an empty tuple for single-output indicators. Used by the DSL
+    semantic validator."""
+    key = (indicator or "").strip().lower()
+    mapping = _INDICATOR_COMPONENT_PREFIX.get(key)
+    return tuple(sorted(mapping.keys())) if mapping else ()
+
+
+def _multi_output_series(
+    bars: pd.DataFrame, indicator: str, period: int, component: str,
+) -> Optional[pd.Series]:
+    """Call the underlying ``ta.*`` for a multi-output indicator and
+    return the column matching ``component``. Returns None when the
+    indicator key isn't multi-output, when ``component`` isn't valid
+    for the indicator, or when pandas-ta returns no data."""
+    key = indicator.strip().lower()
+    prefix_map = _INDICATOR_COMPONENT_PREFIX.get(key)
+    if prefix_map is None:
+        return None
+    prefix = prefix_map.get(component.strip().lower())
+    if prefix is None:
+        return None
+
+    bars_norm = normalise_bars(bars)
+    n = int(period) if period and period > 0 else 0
+
+    if key in ("bb", "bollinger"):
+        df = ta.bbands(_close(bars_norm), length=n or 20, std=2.0)
+    elif key == "macd":
+        df = ta.macd(
+            _close(bars_norm), fast=12, slow=max(n or 26, 13), signal=9,
+        )
+    elif key == "stoch":
+        h, l, c = _hlc(bars_norm)
+        df = ta.stoch(h, l, c, k=n or 14, d=3)
+    elif key == "stoch_rsi":
+        df = ta.stochrsi(_close(bars_norm), length=n or 14)
+    elif key == "aroon":
+        h, l, _c = _hlc(bars_norm)
+        df = ta.aroon(h, l, length=n or 14)
+    elif key == "donchian":
+        h, l, _c = _hlc(bars_norm)
+        df = ta.donchian(h, l, lower_length=n or 20, upper_length=n or 20)
+    elif key == "keltner":
+        h, l, c = _hlc(bars_norm)
+        df = ta.kc(h, l, c, length=n or 20)
+    else:
+        return None
+
+    if df is None or df.empty:
+        return None
+    col = next((c for c in df.columns if c.startswith(prefix)), None)
+    if col is None:
+        return None
+    series = df[col]
+    if series is None or series.dropna().empty:
+        return None
+    return series
+
+
+def compute_series_component(
+    bars: pd.DataFrame,
+    indicator: str,
+    period: Optional[int] = None,
+    *,
+    component: Optional[str] = None,
+) -> Optional[pd.Series]:
+    """Like ``compute_series`` but selects a named component for
+    multi-output indicators (Bollinger upper/lower, MACD line/signal,
+    etc.). ``component=None`` reproduces the existing default series
+    so already-persisted trees stay correct.
+
+    Component validation lives in ``DSL.validators.semantic_validate`` —
+    here we silently fall back to the default series if the component
+    isn't recognised, on the assumption the validator rejected it
+    upstream.
+    """
+    if not component:
+        return compute_series(bars, indicator, period)
+    series = _multi_output_series(bars, indicator, int(period or 0), component)
+    if series is None:
+        return compute_series(bars, indicator, period)
+    return series
+
+
+def latest_value_component(
+    bars: pd.DataFrame,
+    indicator: str,
+    period: Optional[int] = None,
+    *,
+    component: Optional[str] = None,
+) -> Optional[float]:
+    """Live-path convenience — return the most recent non-NaN scalar
+    of the component-aware series."""
+    s = compute_series_component(bars, indicator, period, component=component)
+    if s is None:
+        return None
+    s = s.dropna()
+    return float(s.iloc[-1]) if not s.empty else None
+
+
 def get_spec(indicator: str) -> Optional[IndicatorSpec]:
     """Lookup helper. Returns None for unknown keys (caller decides
     whether that's a 400 / a no-op / a warning)."""

@@ -24,6 +24,7 @@ from backend.workflows.dsl.schema import (
     ConstantNode,
     IndicatorNode,
     LogicNode,
+    PositionNode,
     PriceNode,
     VolumeNode,
 )
@@ -40,6 +41,26 @@ _OP_PHRASES = {
 }
 
 
+# Adjective shown before the indicator label when a component is set.
+# E.g. ``{"indicator":"bb","component":"lower"}`` → ``lower BB(20)``.
+# Single-output indicators carry no component → no prefix.
+_COMPONENT_PHRASES = {
+    "upper": "upper",
+    "middle": "middle",
+    "lower": "lower",
+    "pctb": "%B",
+    "bandwidth": "bandwidth",
+    "macd": "line",
+    "signal": "signal",
+    "hist": "histogram",
+    "k": "%K",
+    "d": "%D",
+    "up": "up",
+    "down": "down",
+    "osc": "oscillator",
+}
+
+
 def tree_to_english(tree) -> str:
     """Render a Tree as a single human-readable sentence."""
     return _render(tree, depth=0)
@@ -47,13 +68,19 @@ def tree_to_english(tree) -> str:
 
 def _render(node, *, depth: int) -> str:
     if isinstance(node, IndicatorNode):
-        return f"{node.indicator.upper()}({node.period}) of {node.symbol}"
+        base = f"{node.indicator.upper()}({node.period})"
+        if node.component:
+            phrase = _COMPONENT_PHRASES.get(node.component.lower(), node.component)
+            base = f"{phrase} {base}"
+        return f"{base} of {node.symbol}"
     if isinstance(node, PriceNode):
         return f"price of {node.symbol}"
     if isinstance(node, VolumeNode):
         if node.bars == 1:
             return f"volume of {node.symbol}"
         return f"{node.bars}-bar volume of {node.symbol}"
+    if isinstance(node, PositionNode):
+        return _render_position(node)
     if isinstance(node, ConstantNode):
         return _format_number(node.value)
     if isinstance(node, ComparisonNode):
@@ -74,6 +101,27 @@ def _render(node, *, depth: int) -> str:
         return f"({joined})" if depth > 0 else joined
     # Unknown node — would have been caught by Pydantic.
     return repr(node)
+
+
+def _render_position(node: PositionNode) -> str:
+    """Render a position-leaf as a short noun phrase that fits inside
+    a comparison sentence (`<phrase> > 0.10` →
+    &ldquo;unrealised P&amp;L &gt; 10%&rdquo; reads naturally)."""
+    basis_phrase = {
+        "low": " at bar low",
+        "high": " at bar high",
+        "close": "",
+        None: "",
+    }.get(node.basis, "")
+    base = {
+        "entry_price":            "entry price",
+        "unrealised_pct":         "unrealised P&L",
+        "unrealised_abs":         "unrealised P&L (₹)",
+        "bars_held":              "bars held",
+        "peak_unrealised_pct":    "peak unrealised P&L",
+        "drawdown_from_peak_pct": "drawdown from peak",
+    }.get(node.field, node.field)
+    return f"{base}{basis_phrase}"
 
 
 def _format_number(v: float) -> str:

@@ -47,6 +47,7 @@ from backend.workflows.dsl.schema import (
     ConstantNode,
     IndicatorNode,
     LogicNode,
+    PositionNode,
     PriceNode,
     VolumeNode,
 )
@@ -122,10 +123,15 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
             indicator=node.indicator,
             period=node.period,
             exchange=node.exchange,
+            component=node.component,
         )
     if isinstance(node, VolumeNode):
         return accessor.get_volume(
             symbol=node.symbol, bars=node.bars, exchange=node.exchange,
+        )
+    if isinstance(node, PositionNode):
+        return accessor.get_position_field(
+            field=node.field, basis=node.basis,
         )
     if isinstance(node, ComparisonNode):
         return _eval_comparison(node, accessor=accessor, state=state)

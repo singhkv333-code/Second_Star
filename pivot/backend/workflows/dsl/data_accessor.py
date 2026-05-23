@@ -48,6 +48,7 @@ class DataAccessor(Protocol):
         indicator: str,
         period: int,
         exchange: str = "NSE",
+        component: Optional[str] = None,
     ) -> Optional[float]:
         ...
 
@@ -59,6 +60,22 @@ class DataAccessor(Protocol):
         exchange: str = "NSE",
     ) -> Optional[float]:
         ...
+
+    def get_position_field(
+        self,
+        *,
+        field: str,
+        basis: Optional[str] = None,
+    ) -> Optional[float]:
+        """Return a property of the currently-open position, or
+        ``None`` when no position is open (entry-tree context).
+
+        The default implementation in non-position-aware accessors
+        returns None so the Kleene UNKNOWN behaviour kicks in
+        automatically — entry trees with a stray ``position`` leaf
+        evaluate to UNKNOWN rather than crashing.
+        """
+        return None
 
 
 # ── Live implementation ─────────────────────────────────────────────
@@ -129,10 +146,12 @@ class LiveDataAccessor:
         indicator: str,
         period: int,
         exchange: str = "NSE",
+        component: Optional[str] = None,
     ) -> Optional[float]:
+        comp_key = component.lower() if component else None
         cache_key = (
             "indicator", symbol.upper(), indicator.lower(),
-            int(period), exchange.upper(),
+            int(period), exchange.upper(), comp_key,
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
@@ -140,7 +159,9 @@ class LiveDataAccessor:
         try:
             import pandas as pd  # type: ignore[import-untyped]
             from backend.kite.market_data import get_historical_ohlcv
-            from backend.services.backtest_indicators import latest_value
+            from backend.services.backtest_indicators import (
+                latest_value_component,
+            )
         except ImportError as exc:  # pragma: no cover
             logger.warning("[dsl.data_accessor] indicator deps missing: %s", exc)
             self._call_cache[cache_key] = None
@@ -168,17 +189,31 @@ class LiveDataAccessor:
 
         df = pd.DataFrame(bars)
         try:
-            value = latest_value(df, indicator, period)
+            value = latest_value_component(
+                df, indicator, period, component=comp_key,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.info(
-                "[dsl.data_accessor] latest_value(%s, %d) on %s failed: %s",
-                indicator, period, symbol, exc,
+                "[dsl.data_accessor] latest_value(%s, %d, comp=%s) on %s "
+                "failed: %s",
+                indicator, period, comp_key, symbol, exc,
             )
             value = None
 
         result = float(value) if value is not None else None
         self._call_cache[cache_key] = result
         return result
+
+    # ── position (entry-tree default — always None) ──
+
+    def get_position_field(
+        self, *, field: str, basis: Optional[str] = None,
+    ) -> Optional[float]:
+        """The live watcher's entry-tree evaluation never has an
+        open position context — return None so the Kleene UNKNOWN
+        path applies. Position-aware exit-tree evaluation uses a
+        wrapper accessor that overrides this."""
+        return None
 
     # ── volume ──
 

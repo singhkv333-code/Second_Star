@@ -37,9 +37,18 @@ class _StubAccessor:
         self.calls.append(("price", symbol, exchange))
         return self._prices.get(symbol)
 
-    def get_indicator(self, *, symbol, indicator, period, exchange="NSE"):
-        self.calls.append(("indicator", symbol, indicator, period, exchange))
-        return self._indicators.get((symbol, indicator, period))
+    def get_indicator(
+        self, *, symbol, indicator, period, exchange="NSE", component=None,
+    ):
+        self.calls.append(
+            ("indicator", symbol, indicator, period, exchange, component),
+        )
+        # If the test registered a component-keyed entry use it,
+        # otherwise fall back to the legacy 3-tuple key.
+        return self._indicators.get(
+            (symbol, indicator, period, component),
+            self._indicators.get((symbol, indicator, period)),
+        )
 
     def get_volume(self, *, symbol, bars=1, exchange="NSE"):
         self.calls.append(("volume", symbol, bars, exchange))

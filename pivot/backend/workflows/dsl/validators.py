@@ -27,6 +27,7 @@ from backend.workflows.dsl.schema import (
     ConstantNode,
     IndicatorNode,
     LogicNode,
+    PositionNode,
     PriceNode,
     VolumeNode,
 )
@@ -44,15 +45,23 @@ MAX_DEPTH = 4
 # ── Public entry point ───────────────────────────────────────────────
 
 
-def semantic_validate(tree) -> None:
+def semantic_validate(tree, *, allow_position: bool = False) -> None:
     """Walk the tree and raise ``DSLValidationError`` on any violation.
 
     Returns None on success — callers chain this after Pydantic
     parsing inside the step-config validator.
+
+    ``allow_position`` defaults to False (the entry-tree context).
+    Exit-tree validation passes ``allow_position=True`` so the
+    ``position`` leaf is accepted.
     """
     _check_root_shape(tree)
     _check_depth(tree)
     _check_indicator_registry(tree)
+    _check_indicator_component(tree)
+    if not allow_position:
+        _check_no_position_leaf(tree)
+    _check_position_basis(tree)
     _check_no_vacuous_comparisons(tree)
 
 
@@ -118,6 +127,88 @@ def _check_indicator_registry(node) -> None:
             f"Unknown indicator(s): {sample}{more}. Supported keys: "
             f"{supp_list}, … (see backend.services.backtest_indicators)."
         )
+
+
+# ── Indicator component ─────────────────────────────────────────────
+
+
+def _check_indicator_component(node) -> None:
+    """Reject ``component`` on single-output indicators, and unknown
+    ``component`` values on multi-output ones. Catches LLM emissions
+    like ``{"indicator":"rsi", "component":"upper"}`` (nonsense) and
+    ``{"indicator":"bb", "component":"middel"}`` (typo) cleanly with
+    a list of allowed values rather than silently falling back."""
+    from backend.services.backtest_indicators import allowed_components
+    for n in _walk_all(node):
+        if not isinstance(n, IndicatorNode):
+            continue
+        if not n.component:
+            continue
+        allowed = allowed_components(n.indicator)
+        if not allowed:
+            raise DSLValidationError(
+                f"Indicator '{n.indicator}' is single-output — drop the "
+                "'component' field. Multi-output indicators that accept "
+                "components: bb, macd, stoch, stoch_rsi, aroon, donchian, "
+                "keltner."
+            )
+        if n.component not in allowed:
+            raise DSLValidationError(
+                f"Unknown component '{n.component}' for indicator "
+                f"'{n.indicator}'. Allowed: {', '.join(allowed)}."
+            )
+
+
+# ── Position leaf placement ─────────────────────────────────────────
+
+
+_POSITION_BASIS_BY_FIELD: dict[str, frozenset[str]] = {
+    "unrealised_pct": frozenset({"close", "low", "high"}),
+    "unrealised_abs": frozenset({"close", "low", "high"}),
+    # Other fields don't accept a basis — Pydantic will allow it but
+    # we surface a clearer error here.
+    "entry_price":            frozenset(),
+    "bars_held":              frozenset(),
+    "peak_unrealised_pct":    frozenset(),
+    "drawdown_from_peak_pct": frozenset(),
+}
+
+
+def _check_no_position_leaf(node) -> None:
+    """Entry trees never have a position; reject the leaf with a
+    clear pointer to where it belongs."""
+    for n in _walk_all(node):
+        if isinstance(n, PositionNode):
+            raise DSLValidationError(
+                "'position' leaf is only valid in an EXIT tree — entry "
+                "trees evaluate before any position exists. Move this "
+                f"leaf (field={n.field!r}) into the exit_policy.tree "
+                "instead."
+            )
+
+
+def _check_position_basis(node) -> None:
+    """Validate ``basis`` matches the field. Only unrealised_pct /
+    unrealised_abs use the bar's low / high; other fields are
+    bar-component-agnostic."""
+    for n in _walk_all(node):
+        if not isinstance(n, PositionNode):
+            continue
+        if n.basis is None:
+            continue
+        allowed = _POSITION_BASIS_BY_FIELD.get(n.field, frozenset())
+        if not allowed:
+            raise DSLValidationError(
+                f"Position field '{n.field}' does not accept a 'basis' "
+                f"selector — drop the field, or switch to "
+                "'unrealised_pct' / 'unrealised_abs' if you need a "
+                "bar-low / bar-high read."
+            )
+        if n.basis not in allowed:
+            raise DSLValidationError(
+                f"Unknown basis '{n.basis}' for position field "
+                f"'{n.field}'. Allowed: {', '.join(sorted(allowed))}."
+            )
 
 
 # ── Vacuous comparisons ─────────────────────────────────────────────

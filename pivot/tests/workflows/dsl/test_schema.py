@@ -15,6 +15,7 @@ from backend.workflows.dsl.schema import (
     ConstantNode,
     IndicatorNode,
     LogicNode,
+    PositionNode,
     PriceNode,
     Tree,
     VolumeNode,
@@ -202,6 +203,55 @@ def test_logic_caps_operand_count():
 def test_unknown_type_is_rejected():
     with pytest.raises(ValidationError):
         _TREE.validate_python({"type": "spreadsheet_formula", "value": 1})
+
+
+# ── Position leaf ───────────────────────────────────────────────────
+
+
+def test_position_leaf_each_field_round_trips():
+    """Every documented position field must Pydantic-parse cleanly
+    when wrapped in a comparison (the realistic shape)."""
+    for field in (
+        "entry_price", "unrealised_pct", "unrealised_abs",
+        "bars_held", "peak_unrealised_pct", "drawdown_from_peak_pct",
+    ):
+        tree = _TREE.validate_python({
+            "type": "comparison", "op": ">",
+            "left": {"type": "position", "field": field},
+            "right": {"type": "constant", "value": 0},
+        })
+        leaf = tree.left
+        assert isinstance(leaf, PositionNode)
+        assert leaf.field == field
+
+
+def test_position_basis_optional_and_lowercase():
+    leaf = _TREE.validate_python({
+        "type": "comparison", "op": ">",
+        "left": {"type": "position", "field": "unrealised_pct",
+                 "basis": "low"},
+        "right": {"type": "constant", "value": 0},
+    }).left
+    assert leaf.basis == "low"
+
+
+def test_position_unknown_field_rejected():
+    with pytest.raises(ValidationError):
+        _TREE.validate_python({
+            "type": "comparison", "op": ">",
+            "left": {"type": "position", "field": "made_up_field"},
+            "right": {"type": "constant", "value": 0},
+        })
+
+
+def test_position_unknown_basis_rejected_by_pydantic():
+    with pytest.raises(ValidationError):
+        _TREE.validate_python({
+            "type": "comparison", "op": ">",
+            "left": {"type": "position", "field": "unrealised_pct",
+                     "basis": "midpoint"},
+            "right": {"type": "constant", "value": 0},
+        })
 
 
 def test_recursive_nesting_works():
