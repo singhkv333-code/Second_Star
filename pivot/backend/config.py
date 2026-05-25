@@ -100,6 +100,19 @@ class Settings(BaseSettings):
     # entirely (POSTs return 401).
     miniflux_webhook_secret: str = ""
 
+    # --- Polymarket WS prediction-market trigger -------------------------------
+    # Sub-flag: opens a persistent CLOB market-data WS connection and
+    # drives fire decisions for any active NewsEventSpec whose
+    # resolution_criteria carry a polymarket_token_id. Master
+    # news_events flag must also be on. Default off so dev and tests
+    # don't open the connection.
+    polymarket_ws_enabled: bool = False
+    # How often the supervisor scans the DB to reconcile its in-memory
+    # registration set against active specs. 30s is brisk enough that
+    # newly-created specs go live within one tick, slow enough that the
+    # query is negligible.
+    polymarket_ws_reconcile_interval_s: int = 30
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",")]

@@ -301,6 +301,19 @@ async def startup():
                     )
 
                     start_telegram_worker()
+
+                # Polymarket CLOB WS prediction-market trigger.
+                # Long-lived asyncio task that owns a persistent
+                # WS connection. start_polymarket_ws_worker is
+                # idempotent + gracefully no-ops when no active
+                # WS-mode specs exist (it never opens the socket
+                # until set_subscriptions lands a non-empty set).
+                if settings.polymarket_ws_enabled:
+                    from backend.news_events.workers.polymarket_ws_worker import (
+                        start_polymarket_ws_worker,
+                    )
+
+                    start_polymarket_ws_worker()
         logger.info(
             f"[{format_ist(now_ist())}] "
             f"Pivot backend started. Scheduler running on IST."
