@@ -23,6 +23,7 @@ from backend.workflows.schemas import (
     TriggerIndicatorConfig,
     TriggerManualConfig,
     TriggerMarketRelativeTimeConfig,
+    TriggerPolymarketConfig,
     TriggerPriceConfig,
     TriggerScheduleConfig,
     TriggerWebhookConfig,
@@ -184,6 +185,47 @@ async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
 async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the user clicked Run now. The run row carries
     `triggered_by='manual'`."""
+    return None
+
+
+@register_step(
+    step_type="trigger.polymarket",
+    category="trigger",
+    label="On Polymarket event",
+    description=(
+        "Fire on a Polymarket binary market — either when YES "
+        "probability crosses a threshold OR when the market resolves"
+    ),
+    icon="trending-up",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerPolymarketConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "market_id": {"type": "string"},
+            "token_id": {"type": "string"},
+            "side": {"type": "string"},
+            "mode": {"type": "string"},
+            "fired_at_price": {"type": ["number", "null"]},
+            "fired_on_resolution_winner": {"type": ["string", "null"]},
+        },
+        "required": ["market_id", "token_id", "side", "mode"],
+    },
+)
+async def execute_trigger_polymarket(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the Polymarket WS supervisor / evaluator (see
+    backend/news_events/workers/polymarket_ws_worker.py +
+    backend/news_events/pipeline/prediction_market_ws.py) fires this
+    trigger from out-of-band by calling fire_external_event(). By the
+    time the engine reaches this executor the run row already carries
+    triggered_by='event_alert' and the audit_context dict in
+    run.context["polymarket"] has the firing snapshot.
+
+    Same pattern as trigger.price / trigger.event — the executor
+    exists purely so the engine can advance to step N+1 without
+    needing a special trigger-step skip path.
+    """
     return None
 
 

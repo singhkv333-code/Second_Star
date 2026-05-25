@@ -482,6 +482,26 @@ def activate_workflow(
         )
     db.commit()
     db.refresh(wf)
+
+    # Polymarket immediate-reconcile: if this workflow contains any
+    # trigger.polymarket step, poke the WS supervisor so the
+    # subscription opens within an event-loop tick instead of waiting
+    # up to 30s for the next reconcile cadence. Guarded — never let a
+    # subscription failure block activation (the next reconcile picks
+    # it up regardless).
+    if any(s.step_type == "trigger.polymarket" for s in wf.steps):
+        try:
+            from backend.news_events.workers.polymarket_ws_worker import (
+                request_immediate_reconcile,
+            )
+            request_immediate_reconcile()
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "[workflows.activate] polymarket immediate-reconcile failed "
+                "for workflow_id=%s",
+                workflow_id,
+            )
+
     return _to_workflow_out(wf)
 
 

@@ -153,6 +153,72 @@ class ProposalValidationError(ValueError):
     """Raised when the LLM returns a draft that doesn't validate."""
 
 
+async def resolve_polymarket_event_descriptions(raw: dict[str, Any]) -> None:
+    """In-place resolve `trigger.polymarket` steps that carry only the
+    `event_description` escape hatch.
+
+    The LLM is encouraged to call ``propose_polymarket_trigger`` FIRST
+    when building a compound workflow with a Polymarket leg, so the
+    resolved ``market_id`` + ``token_id`` + ``side`` land in the draft
+    inline. This resolver is the safety net for the occasional single-
+    shot compound draft: it walks ``raw['steps']``, finds any
+    ``trigger.polymarket`` step missing the resolved ids but carrying
+    ``event_description``, and calls the matcher.
+
+    Behaviour:
+      - ``market_id`` AND ``token_id`` already set → skip (resolved).
+      - Neither set + no ``event_description`` → skip (will fail the
+        Pydantic validator with a clear message on the next pass).
+      - Neither set + ``event_description`` set + matcher confidence
+        ≥ 0.85 → in-place fill ``market_id``, ``token_id``, ``side``,
+        and ``question`` (if absent).
+      - Below confidence → raise ``ProposalValidationError`` so the
+        LLM knows to call ``propose_polymarket_trigger`` first.
+
+    Why this lives BEFORE ``validate_draft_against_registry`` rather
+    than inside the Pydantic validator: the resolver is async +
+    network-bound; the registry validator is sync + pure. Mixing them
+    would break the existing call sites that validate in tight loops
+    (e.g. tests) without a network round trip.
+    """
+    steps = (raw or {}).get("steps") or []
+    if not isinstance(steps, list):
+        return
+    for idx, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        if step.get("step_type") != "trigger.polymarket":
+            continue
+        cfg = step.get("config") or {}
+        if cfg.get("market_id") and cfg.get("token_id"):
+            continue
+        desc = str(cfg.get("event_description") or "").strip()
+        if not desc:
+            # Will fail the Pydantic validator (market_id min_length=1).
+            # Don't pre-empt the error here.
+            continue
+        from backend.news_events.parsing.polymarket_match import (
+            match_event_to_polymarket_contract,
+        )
+        match = await match_event_to_polymarket_contract(desc)
+        if not match.matched or match.confidence < 0.85:
+            raise ProposalValidationError(
+                f"step {idx} (trigger.polymarket): polymarket contract "
+                f"ambiguous (matcher confidence "
+                f"{match.confidence:.2f} < 0.85). Call "
+                f"propose_polymarket_trigger first to nail the contract "
+                f"with the user, then emit this workflow with "
+                f"market_id + token_id + side inline on the "
+                f"trigger.polymarket step."
+            )
+        cfg["market_id"] = match.market_id
+        cfg["token_id"] = match.token_id
+        cfg["side"] = match.side or "YES"
+        if match.question and not cfg.get("question"):
+            cfg["question"] = match.question
+        step["config"] = cfg
+
+
 def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
     """Parse the LLM's JSON output into WorkflowDraft AND validate every
     step config against the registry's Pydantic model.
@@ -433,10 +499,17 @@ def _extract_json(raw: str) -> dict[str, Any]:
 
 async def _propose_via_llm(user_intent: str) -> WorkflowDraft:
     """Two-attempt loop: call LLM, validate, on fail call again with
-    the validation error embedded so the LLM can self-correct."""
+    the validation error embedded so the LLM can self-correct.
+
+    Polymarket escape-hatch resolution runs BEFORE the sync validator
+    on both attempts — its async/network nature can't live inside
+    ``validate_draft_against_registry``.
+    """
     raw = await _call_llm_for_draft(user_intent)
     try:
-        return validate_draft_against_registry(_extract_json(raw))
+        parsed = _extract_json(raw)
+        await resolve_polymarket_event_descriptions(parsed)
+        return validate_draft_against_registry(parsed)
     except ProposalValidationError as e:
         logger.info("propose_workflow LLM retry: %s", e)
         retry_raw = await _call_llm_for_draft(
@@ -446,7 +519,9 @@ async def _propose_via_llm(user_intent: str) -> WorkflowDraft:
                 "Fix it. Output ONLY the corrected JSON object."
             ),
         )
-        return validate_draft_against_registry(_extract_json(retry_raw))
+        retry_parsed = _extract_json(retry_raw)
+        await resolve_polymarket_event_descriptions(retry_parsed)
+        return validate_draft_against_registry(retry_parsed)
 
 
 # ── Mock mode (no LLM key) ───────────────────────────────────────────

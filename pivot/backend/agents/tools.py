@@ -849,7 +849,17 @@ tool("propose_workflow",
      "- action.set_stoploss: trigger_price OR trigger_offset_pct (% — "
      "e.g. 2 for 2%), never both.\n"
      "- notify.message: channel='push' (in-app only; email/SMS/WhatsApp "
-     "NOT wired).\n\n"
+     "NOT wired).\n"
+     "- trigger.polymarket: TWO MODES. `mode='threshold'` (default) "
+     "fires when YES probability crosses `threshold` in `direction`. "
+     "`mode='resolution'` fires when the market actually RESOLVES "
+     "(use for 'execute when X actually happens / completes / "
+     "resolves'); `resolve_on`∈{YES,NO,ANY}. REQUIRED: market_id + "
+     "token_id + side — these come from calling "
+     "`propose_polymarket_trigger` FIRST (resolves the natural-"
+     "language ask to a CLOB token). DO NOT invent market_id / "
+     "token_id; the resolver rejects single-shot drafts when matcher "
+     "confidence < 0.85.\n\n"
      "HARD RULES:\n"
      "1. STAY LITERAL — only what the user asked for. No unprompted "
      "sell/SL/trim branches.\n"
@@ -869,7 +879,18 @@ tool("propose_workflow",
      "   {step_type:'fetch.quote', config:{symbol:'RELIANCE'}},\n"
      "   {step_type:'fetch.relative_threshold', config:{symbol:'RELIANCE',reference:'day_open',offset_pct:-5}},\n"
      "   {step_type:'condition.numeric', config:{left:'{{context.1.ltp}}',operator:'<=',right:'{{context.2.value}}'}},\n"
-     "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]",
+     "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]\n\n"
+     "EXAMPLE — Polymarket-driven compound workflow ('buy RELIANCE, "
+     "sell when crude > $100 on poly crosses 50%'). REQUIRED FLOW: "
+     "first call propose_polymarket_trigger to resolve the contract "
+     "with the user; once user confirms, emit this workflow with "
+     "market_id/token_id/side INLINE:\n"
+     "  [{step_type:'trigger.manual', config:{}},\n"
+     "   {step_type:'action.place_order', config:{symbol:'RELIANCE',side:'buy',quantity:10}},\n"
+     "   {step_type:'trigger.polymarket', config:{market_id:'<from tool>',token_id:'<from tool>',side:'YES',mode:'threshold',threshold:0.50,direction:'above'}},\n"
+     "   {step_type:'action.place_order', config:{symbol:'RELIANCE',side:'sell',quantity:'{{context.1.quantity}}'}}]\n"
+     "Use mode='resolution' instead of mode='threshold' for asks like "
+     "'sell when X actually resolves YES'.",
      {
          "name": {
              "type": "string",
@@ -1362,10 +1383,31 @@ tool("propose_polymarket_trigger",
      "article-driven triggers (use the /api/news-events/ Tier-1/2/3 path).\n\n"
      "The chat hop fills `event_description` from the user's wording verbatim "
      "(the matcher needs the full ask for side disambiguation — 'wins' vs "
-     "'doesn't win'). `threshold` is the YES probability the user named, "
-     "expressed 0..1 (70% → 0.70). `direction='above'` is the common case; "
-     "use 'below' only when the user explicitly asked for a drop ('alert me "
-     "if Modi's chances drop below 40%').",
+     "'doesn't win'). `threshold` is the YES probability the user named "
+     "expressed 0..1 (70% → 0.70) — OMIT IT entirely if the user did not "
+     "name a number. The handler derives three sensible preset chips "
+     "(anchored to current YES price) for the draft card; the user picks one "
+     "or types a custom value. Asking the user to invent a number when they "
+     "didn't give one is friction we do not want. `direction='above'` is "
+     "the common case; use 'below' only when the user explicitly asked for "
+     "a drop ('alert me if Modi's chances drop below 40%').\n\n"
+     "COMPOUND-WORKFLOW USE: when the user asks for a workflow that includes "
+     "a Polymarket trigger ('buy RELIANCE, sell when crude > $100 on poly "
+     "fires'), CALL THIS TOOL FIRST to nail the contract + threshold; THEN "
+     "emit `propose_workflow` with the resolved `market_id` + `token_id` + "
+     "`side` inline on the trigger.polymarket step. Do NOT try to write the "
+     "workflow in one shot — the resolver inside propose_workflow only "
+     "accepts a single-shot escape hatch when matcher confidence is ≥0.85 "
+     "and will reject lower-confidence drafts back to you.\n\n"
+     "TWO TRIGGER MODES — `mode='threshold'` (default) fires when the YES "
+     "probability crosses a number ('alert me when X chance goes above "
+     "70%'). `mode='resolution'` fires WHEN THE MARKET ACTUALLY RESOLVES — "
+     "use it for 'execute when X actually happens', 'buy oil when Iran-"
+     "ceasefire-holds resolves YES', 'sell my hedge when Trump-wins-2028 "
+     "resolves NO', 'once the election is decided'. Resolution mode "
+     "ignores threshold/direction entirely; it just waits for Polymarket "
+     "to declare the winner. `resolve_on='YES' | 'NO' | 'ANY'` picks "
+     "which outcome fires (default YES).",
      {
          "event_description": {
              "type": "string",
@@ -1379,15 +1421,38 @@ tool("propose_polymarket_trigger",
              "minimum": 0.0,
              "maximum": 1.0,
              "description":
-                 "YES probability at which to fire, 0..1. The chat hop "
-                 "converts user percentages to this scale (70% → 0.70).",
+                 "YES probability at which to fire, 0..1. OMIT this field "
+                 "entirely if the user did not name a number — the handler "
+                 "will derive 3 preset chips from the current YES price. "
+                 "Ignored when mode='resolution'.",
          },
          "direction": {
              "type": "string",
              "enum": ["above", "below"],
              "description":
                  "'above' fires when probability rises through threshold; "
-                 "'below' fires when it falls through. Default 'above'.",
+                 "'below' fires when it falls through. Default 'above'. "
+                 "Ignored when mode='resolution'.",
+         },
+         "mode": {
+             "type": "string",
+             "enum": ["threshold", "resolution"],
+             "description":
+                 "'threshold' (default) = fire on probability cross. "
+                 "'resolution' = fire when the market officially resolves "
+                 "YES or NO. Pick 'resolution' for asks like 'when X "
+                 "actually happens', 'once X is decided', 'when X "
+                 "resolves', 'after the event completes'.",
+         },
+         "resolve_on": {
+             "type": "string",
+             "enum": ["YES", "NO", "ANY"],
+             "description":
+                 "Which resolved outcome fires the trigger. Default 'YES'. "
+                 "Use 'NO' when user explicitly wants to fire on negative "
+                 "resolution ('sell my hedge when Trump 2028 resolves NO'). "
+                 "'ANY' fires on either outcome. Only honored when "
+                 "mode='resolution'.",
          },
          "workflow_action_summary": {
              "type": "string",
@@ -1398,8 +1463,8 @@ tool("propose_polymarket_trigger",
                  "they're activating. Workflow wiring is a follow-up.",
          },
      },
-     ["event_description", "threshold"],
-     defaults={"direction": "above"})
+     ["event_description"],
+     defaults={"direction": "above", "mode": "threshold", "resolve_on": "YES"})
 
 
 tool("browse_polymarket_markets",

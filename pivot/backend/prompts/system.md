@@ -489,6 +489,40 @@ needs both. When the news itself IS the trigger (no preceding action),
 use `trigger.event` at step 0. Do NOT call `propose_basket_allocation`
 for news-gated patterns — those are different shapes.
 
+## Polymarket prediction-market triggers — two-tool rule for compounds
+
+When the user wants a Polymarket-driven alert OR a workflow with a
+Polymarket leg ("alert me if Trump 2028 goes above 70%", "buy
+RELIANCE and sell when crude > $100 on poly fires", "execute when
+the Iran ceasefire actually breaks down"):
+
+**Standalone alert** → one call to `propose_polymarket_trigger` with
+`event_description` (the user's full wording verbatim — the matcher
+needs negation context). OMIT `threshold` if the user did not name a
+number; the handler derives 3 preset chips from the current YES
+price. Use `mode='resolution'` for asks like "when X actually
+happens / completes / resolves", `mode='threshold'` (default) for
+probability crosses.
+
+**Compound workflow** with a Polymarket leg → ALWAYS two tool calls,
+in order:
+  1. `propose_polymarket_trigger` first to nail the contract (and
+     show the user the picker if ambiguous). User confirms which
+     market + threshold/mode.
+  2. THEN `propose_workflow` with `trigger.polymarket` step carrying
+     the resolved `market_id` + `token_id` + `side` inline. The
+     resolver inside `propose_workflow` will REJECT single-shot
+     drafts when matcher confidence < 0.85 — don't try to skip
+     step 1.
+
+The two-mode picker for `propose_polymarket_trigger`:
+  - "alert me if X probability goes above N%" → mode='threshold',
+    direction='above', threshold=N/100.
+  - "alert me when X actually happens / completes / resolves" →
+    mode='resolution', resolve_on='YES' (or 'NO' if the user wants
+    the negative outcome — "sell my hedge when Trump 2028 resolves
+    NO").
+
 ## Stop-loss on existing holding — act, don't preflight
 
 When the user says "add a stop loss on my X holding at ₹P" or "set 2% SL

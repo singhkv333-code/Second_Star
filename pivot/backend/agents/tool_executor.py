@@ -7,6 +7,7 @@ Returns: { success, data, logiccard, error }
 """
 
 import logging
+from typing import Optional
 
 from backend.agents.tools import get_tool_defaults
 from backend.safety import validate_order_value
@@ -492,6 +493,7 @@ async def _propose_workflow(a, kt, db, uid):
     from backend.workflows.propose import (
         ProposalValidationError,
         propose_workflow_async,
+        resolve_polymarket_event_descriptions,
         validate_draft_against_registry,
     )
 
@@ -500,6 +502,12 @@ async def _propose_workflow(a, kt, db, uid):
     # New path — chat hop emits the structured draft directly.
     if isinstance(a.get("steps"), list):
         try:
+            # Resolve any trigger.polymarket steps that carry only the
+            # event_description escape hatch BEFORE the sync validator
+            # sees them. High-confidence matches fill in ids in-place;
+            # low-confidence raises so the LLM knows to call
+            # propose_polymarket_trigger first.
+            await resolve_polymarket_event_descriptions(a)
             draft = validate_draft_against_registry(a)
         except ProposalValidationError as e:
             logger.info("propose_workflow validation failed: %s", e)
@@ -696,15 +704,68 @@ async def _propose_holding_action(a, kt, db, uid):
     return await _run_macro("holding_action", a)
 
 
+def _derive_threshold_presets(current_yes: float, direction: str) -> list[float]:
+    """Three preset chips anchored to current YES price.
+
+    For non-extreme markets, the chips bracket "modest move", "notable
+    move", and "doubled odds". For deep-OOM markets (current < 0.05),
+    relative moves are too noisy — fall back to round-number presets.
+
+    Returns dedup'd + sorted floats in the appropriate direction.
+    """
+    cur = max(0.0, min(1.0, current_yes))
+    deep_oom = cur < 0.05 or cur > 0.95
+
+    def _round_to(x: float, step: float = 0.05) -> float:
+        return round(x / step) * step
+
+    if direction == "below":
+        if deep_oom and cur > 0.95:
+            raw = [0.90, 0.75, 0.50]
+        elif deep_oom:
+            raw = [0.50, 0.25, 0.10]  # markets at 1-5%, alert on substantial drop is trivially true
+        else:
+            raw = [
+                max(0.01, cur - 0.10),
+                max(0.01, cur - 0.20),
+                max(0.05, _round_to(cur / 2)),
+            ]
+    else:  # "above"
+        if deep_oom and cur < 0.05:
+            raw = [0.10, 0.25, 0.50]
+        elif deep_oom:
+            raw = [0.99, 0.97, 0.95]
+        else:
+            raw = [
+                min(0.99, cur + 0.10),
+                min(0.99, cur + 0.20),
+                min(0.95, _round_to(min(cur * 2, 0.95))),
+            ]
+    # Round, dedupe, sort. Sort ascending; FE picks middle as default.
+    rounded = sorted({round(x, 2) for x in raw if 0.0 < x < 1.0})
+    if direction == "below":
+        rounded = list(reversed(rounded))  # higher = closer to current = more frequent
+    return rounded
+
+
 async def _propose_polymarket_trigger(a, kt, db, uid):
     """Match a free-text event to a Polymarket contract; return a draft
     card. Pure — never writes to the DB. Confirmation persists via
     POST /api/news-events/specs/polymarket; activation kicks off the
     WS subscription via POST /api/news-events/specs/{id}/activate.
 
+    Two modes supported (carried on the card; FE renders differently):
+      threshold (default) — fires when YES probability crosses a number.
+                            Threshold may be omitted by the LLM; the
+                            handler derives 3 preset chips from current
+                            YES price.
+      resolution          — fires when Polymarket officially declares a
+                            winner. Threshold / direction ignored;
+                            resolve_on picks which outcome fires (YES,
+                            NO, ANY).
+
     Render hints:
-      polymarket_trigger_draft  → high-confidence auto-pick; FE shows
-                                  "I found X — confirm threshold?"
+      polymarket_trigger_draft  → high-confidence auto-pick.
       polymarket_trigger_picker → low-confidence; FE shows a candidate
                                   list with the matcher's best guess
                                   pre-highlighted (if any).
@@ -712,6 +773,7 @@ async def _propose_polymarket_trigger(a, kt, db, uid):
     from backend.news_events.parsing.polymarket_match import (
         match_event_to_polymarket_contract,
     )
+    from backend.news_events.sources.polymarket import get_market
 
     a = a or {}
     desc = str(a.get("event_description") or "").strip()
@@ -722,25 +784,38 @@ async def _propose_polymarket_trigger(a, kt, db, uid):
             "data": {},
             "logiccard": None,
         }
-    try:
-        threshold = float(a.get("threshold"))
-    except (TypeError, ValueError):
-        return {
-            "success": False,
-            "error": "threshold must be a number in [0, 1]",
-            "data": {},
-            "logiccard": None,
-        }
-    if not (0.0 <= threshold <= 1.0):
-        return {
-            "success": False,
-            "error": f"threshold {threshold} out of [0, 1]",
-            "data": {},
-            "logiccard": None,
-        }
+    mode = str(a.get("mode", "threshold")).lower()
+    if mode not in {"threshold", "resolution"}:
+        mode = "threshold"
+    resolve_on = str(a.get("resolve_on", "YES")).upper()
+    if resolve_on not in {"YES", "NO", "ANY"}:
+        resolve_on = "YES"
     direction = str(a.get("direction", "above")).lower()
     if direction not in {"above", "below"}:
         direction = "above"
+
+    # Threshold: optional only when mode='threshold' (handler derives
+    # presets); ignored when mode='resolution'.
+    threshold_raw = a.get("threshold")
+    user_supplied_threshold: Optional[float] = None
+    if mode == "threshold" and threshold_raw is not None:
+        try:
+            user_supplied_threshold = float(threshold_raw)
+        except (TypeError, ValueError):
+            return {
+                "success": False,
+                "error": "threshold must be a number in [0, 1]",
+                "data": {},
+                "logiccard": None,
+            }
+        if not (0.0 <= user_supplied_threshold <= 1.0):
+            return {
+                "success": False,
+                "error": f"threshold {user_supplied_threshold} out of [0, 1]",
+                "data": {},
+                "logiccard": None,
+            }
+
     workflow_note = str(a.get("workflow_action_summary") or "").strip() or None
 
     try:
@@ -770,10 +845,55 @@ async def _propose_polymarket_trigger(a, kt, db, uid):
         for i, c in enumerate(match.candidates)
     ]
 
+    # Pull the chosen / best-guess current YES price so we can derive
+    # threshold presets even on the picker path.
+    chosen_yes_price: Optional[float] = None
+    chosen_market_id = match.market_id  # set on both matched + low-conf paths
+    if chosen_market_id is not None:
+        for c in match.candidates:
+            if c.market_id == chosen_market_id:
+                chosen_yes_price = float(c.yes_price)
+                break
+
+    # Auto-fetch end_date for the chosen market so the card carries
+    # the natural deadline. Best-effort — never blocks the card.
+    timeline_default: Optional[str] = None
+    if chosen_market_id is not None:
+        try:
+            snap = await get_market(chosen_market_id)
+            if snap is not None:
+                raw_end = (snap.raw or {}).get("endDate")
+                if raw_end:
+                    timeline_default = str(raw_end)
+        except Exception:  # noqa: BLE001 — never block the card on metadata fetch
+            timeline_default = None
+
+    # Threshold presets only applicable in threshold mode + when we
+    # have a current YES price.
+    threshold_presets: list[float] = []
+    threshold_preselected: Optional[float] = None
+    threshold_was_assumed = False
+    effective_threshold: Optional[float] = user_supplied_threshold
+    if mode == "threshold" and chosen_yes_price is not None:
+        threshold_presets = _derive_threshold_presets(chosen_yes_price, direction)
+        if threshold_presets:
+            mid = threshold_presets[len(threshold_presets) // 2]
+            threshold_preselected = mid
+            if effective_threshold is None:
+                effective_threshold = mid
+                threshold_was_assumed = True
+
     base = {
         "event_description": desc,
-        "threshold": threshold,
-        "direction": direction,
+        "mode": mode,
+        "resolve_on": resolve_on if mode == "resolution" else None,
+        "threshold": effective_threshold if mode == "threshold" else None,
+        "threshold_presets": threshold_presets if mode == "threshold" else [],
+        "threshold_preselected": threshold_preselected if mode == "threshold" else None,
+        "threshold_was_assumed": threshold_was_assumed if mode == "threshold" else False,
+        "direction": direction if mode == "threshold" else None,
+        "current_yes_price": chosen_yes_price,
+        "timeline_default": timeline_default,
         "workflow_action_summary": workflow_note,
         "matcher_reason": match.reason,
         "candidates": candidate_views,
@@ -793,7 +913,8 @@ async def _propose_polymarket_trigger(a, kt, db, uid):
 
     # Low-confidence — show the picker. Pre-highlight the matcher's
     # best guess if it had one (low confidence is still surfaced on
-    # MatchResult.market_id/token_id/side).
+    # MatchResult.market_id/token_id/side). Threshold presets above
+    # also apply so the user picks contract + threshold in one card.
     base.update({
         "_render_hint": "polymarket_trigger_picker",
         "matched": False,

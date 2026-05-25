@@ -261,6 +261,116 @@ class TriggerEventConfig(_Strict):
     )
 
 
+class TriggerPolymarketConfig(_Strict):
+    """Polymarket prediction-market trigger — two modes.
+
+    ``mode='threshold'`` (default) fires when the YES probability on a
+    Polymarket binary market crosses ``threshold`` in ``direction``.
+    ``threshold`` is required in threshold mode.
+
+    ``mode='resolution'`` fires when the market officially RESOLVES
+    (Polymarket declares a winner). ``threshold`` / ``direction`` are
+    ignored; ``resolve_on`` (default 'YES') picks which winner fires —
+    'YES', 'NO', or 'ANY'. Use this for asks like 'buy oil when
+    Iran-ceasefire-holds resolves YES'.
+
+    Token identity:
+      ``market_id`` + ``token_id`` are the CLOB ids the WS subscriber
+      uses. The planner LLM resolves them via the matcher BEFORE
+      emitting this step (see propose_polymarket_trigger tool). The
+      ``event_description`` field is an OPTIONAL escape hatch: if the
+      LLM emits it without resolved ids, ``propose.py`` resolves at
+      propose-time and inlines the ids (only when matcher confidence
+      ≥ 0.85; otherwise the resolver raises so the LLM knows to call
+      the tool first).
+
+    Firing path:
+      The PolymarketWSEvaluator + supervisor (news_events package)
+      subscribe to the token on CLOB WS. On a cross or resolution,
+      the supervisor calls ``fire_external_event(workflow_id,
+      triggered_step_index=<this step>)`` which the engine routes
+      back through the same branch-slicing path other external
+      triggers use.
+    """
+    market_id: str = Field(
+        ..., min_length=1, max_length=128,
+        description=(
+            "Polymarket CLOB market id (the conditionId from Gamma). "
+            "Resolved by the matcher; do not invent."
+        ),
+    )
+    token_id: str = Field(
+        ..., min_length=1, max_length=256,
+        description=(
+            "CLOB token id for the side being watched (YES or NO). "
+            "Pulled from the market's clobTokenIds array. The matcher "
+            "picks the right one based on the user's phrasing."
+        ),
+    )
+    side: Literal["YES", "NO"] = Field(
+        default="YES",
+        description=(
+            "Which side of the binary market this token corresponds "
+            "to. Audit/UI only; the WS evaluator keys on token_id."
+        ),
+    )
+    mode: Literal["threshold", "resolution"] = Field(
+        default="threshold",
+        description=(
+            "'threshold' fires on probability cross; 'resolution' fires "
+            "when the market officially resolves."
+        ),
+    )
+    threshold: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description=(
+            "YES probability at which to fire, 0..1. REQUIRED when "
+            "mode='threshold'. Ignored when mode='resolution'."
+        ),
+    )
+    direction: Literal["above", "below"] = Field(
+        default="above",
+        description=(
+            "'above' fires when YES rises through threshold; 'below' "
+            "fires when it falls through. Ignored when mode='resolution'."
+        ),
+    )
+    resolve_on: Literal["YES", "NO", "ANY"] = Field(
+        default="YES",
+        description=(
+            "Which winner fires the trigger when mode='resolution'. "
+            "Default 'YES'. 'ANY' fires on either outcome."
+        ),
+    )
+    question: Optional[str] = Field(
+        default=None, max_length=500,
+        description=(
+            "Human-readable Polymarket question text. Audit/UI only; "
+            "not load-bearing for firing."
+        ),
+    )
+    event_description: Optional[str] = Field(
+        default=None, max_length=2_000,
+        description=(
+            "OPTIONAL escape hatch — the user's free-text ask. When "
+            "market_id/token_id are missing but this is set, the "
+            "propose.py resolver matches it to a contract at propose "
+            "time. Only accepted when matcher confidence ≥ 0.85; "
+            "otherwise the resolver raises so the LLM calls "
+            "propose_polymarket_trigger first."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_mode_requires(self) -> "TriggerPolymarketConfig":
+        if self.mode == "threshold" and self.threshold is None:
+            raise ValueError(
+                "trigger.polymarket: threshold is required when "
+                "mode='threshold'"
+            )
+        return self
+
+
 class TriggerManualConfig(_Strict):
     """Manual trigger has no config; user clicks Run now."""
     pass

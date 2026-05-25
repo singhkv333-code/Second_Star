@@ -195,10 +195,19 @@ def test_client_drops_new_market_firehose():
 # ── evaluator edge-trigger ───────────────────────────────────────────
 
 
+async def _noop_handler(payload):  # pragma: no cover — never invoked in unit tests
+    return None
+
+
+def _reg(**kwargs) -> _Registration:
+    """Helper: build a _Registration with a no-op fire_handler for
+    the edge-trigger logic tests (those tests never invoke fire)."""
+    return _Registration(fire_handler=_noop_handler, **kwargs)
+
+
 def test_evaluator_fires_only_on_cross_above():
     sf = PolymarketWSEvaluator._should_fire
-    reg = _Registration(spec_id="s", asset_id="a", threshold=0.7,
-                        direction="above")
+    reg = _reg(key="k", asset_id="a", threshold=0.7, direction="above")
     assert sf(reg, 0.65) is False  # no baseline yet
     reg.last_mid = 0.65
     assert sf(reg, 0.69) is False
@@ -209,8 +218,7 @@ def test_evaluator_fires_only_on_cross_above():
 
 def test_evaluator_fires_only_on_cross_below():
     sf = PolymarketWSEvaluator._should_fire
-    reg = _Registration(spec_id="s", asset_id="a", threshold=0.30,
-                        direction="below")
+    reg = _reg(key="k", asset_id="a", threshold=0.30, direction="below")
     reg.last_mid = 0.35
     assert sf(reg, 0.31) is False
     assert sf(reg, 0.30) is True
@@ -221,40 +229,137 @@ def test_evaluator_no_fire_without_baseline():
     NOT fire even if it's already across, because we don't know
     whether the market crossed before or after we started watching."""
     sf = PolymarketWSEvaluator._should_fire
-    reg = _Registration(spec_id="s", asset_id="a", threshold=0.5,
-                        direction="above")
+    reg = _reg(key="k", asset_id="a", threshold=0.5, direction="above")
     # No last_mid → cannot fire on first tick.
     assert sf(reg, 0.99) is False
 
 
 def test_evaluator_register_unregister_bookkeeping():
     e = PolymarketWSEvaluator(session_factory=lambda: None)
-    e.register(spec_id="s1", asset_id="ax", threshold=0.7, direction="above")
-    e.register(spec_id="s2", asset_id="ax", threshold=0.8, direction="above")
-    e.register(spec_id="s3", asset_id="ay", threshold=0.5, direction="below")
+    e.register(key="spec:s1", asset_id="ax", fire_handler=_noop_handler,
+               threshold=0.7, direction="above")
+    e.register(key="spec:s2", asset_id="ax", fire_handler=_noop_handler,
+               threshold=0.8, direction="above")
+    e.register(key="spec:s3", asset_id="ay", fire_handler=_noop_handler,
+               threshold=0.5, direction="below")
     assert e.subscribed_asset_ids() == {"ax", "ay"}
-    e.unregister("s1")
-    assert e.subscribed_asset_ids() == {"ax", "ay"}  # ax still has s2
-    e.unregister("s2")
+    e.unregister("spec:s1")
+    assert e.subscribed_asset_ids() == {"ax", "ay"}  # ax still has spec:s2
+    e.unregister("spec:s2")
     assert e.subscribed_asset_ids() == {"ay"}  # ax drained
-    e.unregister("unknown_spec")  # idempotent
+    e.unregister("spec:unknown")  # idempotent
 
 
 def test_evaluator_register_rejects_out_of_range_threshold():
     e = PolymarketWSEvaluator(session_factory=lambda: None)
-    e.register(spec_id="s1", asset_id="a", threshold=1.5)
+    e.register(key="spec:s1", asset_id="a", fire_handler=_noop_handler,
+               threshold=1.5)
     assert e.subscribed_asset_ids() == set()
-    e.register(spec_id="s2", asset_id="a", threshold=-0.1)
+    e.register(key="spec:s2", asset_id="a", fire_handler=_noop_handler,
+               threshold=-0.1)
     assert e.subscribed_asset_ids() == set()
 
 
-def test_evaluator_re_register_updates_in_place():
+def test_evaluator_re_register_updates_in_place_preserves_baseline():
     e = PolymarketWSEvaluator(session_factory=lambda: None)
-    e.register(spec_id="s", asset_id="a", threshold=0.5, direction="above")
+    e.register(key="spec:s", asset_id="a", fire_handler=_noop_handler,
+               threshold=0.5, direction="above")
     # Tick to set baseline.
     asyncio.run(e.on_tick("a", 0.4, 0.0))
     # Re-register with new threshold — baseline must NOT reset.
-    e.register(spec_id="s", asset_id="a", threshold=0.8, direction="above")
-    reg = e._by_asset["a"]["s"]
+    e.register(key="spec:s", asset_id="a", fire_handler=_noop_handler,
+               threshold=0.8, direction="above")
+    reg = e._by_asset["a"]["spec:s"]
     assert reg.threshold == 0.8
     assert reg.last_mid == 0.4  # baseline preserved
+
+
+def test_evaluator_threshold_mode_ignores_resolution_path():
+    """A threshold-mode registration never fires on a market_resolved
+    event — only resolution-mode regs are dispatched there."""
+    fired = []
+
+    async def cap(payload):
+        fired.append(payload)
+
+    e = PolymarketWSEvaluator(session_factory=lambda: None)
+    e.register(key="spec:thr", asset_id="a", fire_handler=cap,
+               mode="threshold", threshold=0.5, direction="above")
+    asyncio.run(e.on_resolved("a", {"market": "0xabc", "winner": "YES"}))
+    assert fired == []
+
+
+def test_evaluator_resolution_mode_fires_when_winner_matches():
+    fired = []
+
+    async def cap(payload):
+        fired.append(payload)
+
+    e = PolymarketWSEvaluator(session_factory=lambda: None)
+    e.register(key="wf:w1:2", asset_id="a", fire_handler=cap,
+               mode="resolution", resolve_on="YES")
+    asyncio.run(e.on_resolved("a", {"market": "0xabc", "winner": "YES"}))
+    assert len(fired) == 1
+    assert fired[0]["mode"] == "resolution"
+    assert fired[0]["winner"] == "YES"
+    # Registration was dropped after firing — second resolved event no-ops.
+    asyncio.run(e.on_resolved("a", {"market": "0xabc", "winner": "YES"}))
+    assert len(fired) == 1
+
+
+def test_evaluator_resolution_mode_skips_wrong_winner():
+    fired = []
+
+    async def cap(payload):
+        fired.append(payload)
+
+    e = PolymarketWSEvaluator(session_factory=lambda: None)
+    e.register(key="wf:w1:2", asset_id="a", fire_handler=cap,
+               mode="resolution", resolve_on="NO")
+    # Winner = YES, resolve_on = NO → no fire, registration stays.
+    asyncio.run(e.on_resolved("a", {"market": "0xabc", "winner": "YES"}))
+    assert fired == []
+    assert "wf:w1:2" in e.registered_keys()
+
+
+def test_evaluator_resolution_mode_any_fires_on_either():
+    fired = []
+
+    async def cap(payload):
+        fired.append(payload)
+
+    e = PolymarketWSEvaluator(session_factory=lambda: None)
+    e.register(key="wf:w1:2", asset_id="a", fire_handler=cap,
+               mode="resolution", resolve_on="ANY")
+    asyncio.run(e.on_resolved("a", {"market": "0xabc", "winner": "NO"}))
+    assert len(fired) == 1
+    assert fired[0]["winner"] == "NO"
+
+
+def test_evaluator_routes_to_correct_handler_under_same_asset():
+    """Two registrations on the same asset — a threshold one and a
+    resolution one — fire INDEPENDENTLY on the appropriate event."""
+    thr_fires = []
+    res_fires = []
+
+    async def thr_h(payload):
+        thr_fires.append(payload)
+
+    async def res_h(payload):
+        res_fires.append(payload)
+
+    e = PolymarketWSEvaluator(session_factory=lambda: None)
+    e.register(key="spec:thr", asset_id="a", fire_handler=thr_h,
+               mode="threshold", threshold=0.5, direction="above")
+    e.register(key="wf:w:2", asset_id="a", fire_handler=res_h,
+               mode="resolution", resolve_on="YES")
+
+    # baseline tick then a cross → only thr_h fires.
+    asyncio.run(e.on_tick("a", 0.40, 0.0))
+    asyncio.run(e.on_tick("a", 0.55, 1.0))
+    assert len(thr_fires) == 1 and res_fires == []
+
+    # market resolves YES → only res_h fires.
+    asyncio.run(e.on_resolved("a", {"market": "0xabc", "winner": "YES"}))
+    assert len(thr_fires) == 1
+    assert len(res_fires) == 1

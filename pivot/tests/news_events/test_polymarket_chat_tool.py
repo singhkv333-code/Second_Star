@@ -156,6 +156,123 @@ def test_chat_tool_rejects_non_numeric_threshold():
     assert "threshold" in out["error"]
 
 
+# ── slice-4 smart-approval — threshold-omitted preset derivation ─────
+
+
+def _patch_get_market(monkeypatch, end_date: str = "2026-08-30T00:00:00Z"):
+    from backend.news_events.sources.polymarket import PolymarketSnapshot
+
+    async def stub(mid):
+        return PolymarketSnapshot(
+            market_id="m1", slug="s", question="Q?",
+            yes_price=0.14, closed=False,
+            raw={"endDate": end_date,
+                 "outcomes": '["Yes","No"]',
+                 "clobTokenIds": '["ytok","ntok"]'},
+        )
+
+    monkeypatch.setattr(
+        "backend.news_events.sources.polymarket.get_market", stub,
+    )
+
+
+def test_chat_tool_smart_default_when_threshold_omitted(monkeypatch):
+    async def fake(desc):
+        return MatchResult(
+            matched=True, market_id="m1", token_id="ytok", side="YES",
+            question="Will Iran ceasefire continue?", confidence=0.94,
+            reason="strong",
+            candidates=[Candidate(
+                market_id="m1", slug="s",
+                question="Will Iran ceasefire continue?",
+                yes_price=0.14, yes_token_id="ytok", no_token_id="ntok",
+                closed=False,
+            )],
+        )
+    monkeypatch.setattr(
+        "backend.news_events.parsing.polymarket_match.match_event_to_polymarket_contract",
+        fake,
+    )
+    _patch_get_market(monkeypatch)
+
+    out = asyncio.run(execute_tool(
+        "propose_polymarket_trigger",
+        {"event_description": "alert me if Iran ceasefire breaks down"},
+        "kt", None, 42,
+    ))
+    d = out["data"]
+    assert d["mode"] == "threshold"
+    assert d["_render_hint"] == "polymarket_trigger_draft"
+    assert d["current_yes_price"] == pytest.approx(0.14)
+    assert len(d["threshold_presets"]) == 3
+    assert d["threshold_was_assumed"] is True
+    # Middle chip is pre-selected as effective threshold.
+    assert d["threshold"] == d["threshold_preselected"]
+    assert d["timeline_default"] == "2026-08-30T00:00:00Z"
+
+
+def test_chat_tool_user_supplied_threshold_skips_assumption(monkeypatch):
+    async def fake(desc):
+        return MatchResult(
+            matched=True, market_id="m1", token_id="ytok", side="YES",
+            question="Q", confidence=0.92, reason="ok",
+            candidates=[Candidate(
+                market_id="m1", slug="s", question="Q",
+                yes_price=0.14, yes_token_id="ytok", no_token_id="ntok",
+                closed=False,
+            )],
+        )
+    monkeypatch.setattr(
+        "backend.news_events.parsing.polymarket_match.match_event_to_polymarket_contract",
+        fake,
+    )
+    _patch_get_market(monkeypatch)
+
+    out = asyncio.run(execute_tool(
+        "propose_polymarket_trigger",
+        {"event_description": "alert me at 25%", "threshold": 0.25},
+        "kt", None, 42,
+    ))
+    d = out["data"]
+    assert d["threshold"] == pytest.approx(0.25)
+    assert d["threshold_was_assumed"] is False
+
+
+def test_chat_tool_resolution_mode_suppresses_threshold_ui(monkeypatch):
+    async def fake(desc):
+        return MatchResult(
+            matched=True, market_id="m1", token_id="ytok", side="YES",
+            question="Will Iran ceasefire continue?", confidence=0.95,
+            reason="strong",
+            candidates=[Candidate(
+                market_id="m1", slug="s",
+                question="Will Iran ceasefire continue?",
+                yes_price=0.14, yes_token_id="ytok", no_token_id="ntok",
+                closed=False,
+            )],
+        )
+    monkeypatch.setattr(
+        "backend.news_events.parsing.polymarket_match.match_event_to_polymarket_contract",
+        fake,
+    )
+    _patch_get_market(monkeypatch)
+
+    out = asyncio.run(execute_tool(
+        "propose_polymarket_trigger",
+        {"event_description": "execute when Iran ceasefire actually breaks down",
+         "mode": "resolution", "resolve_on": "NO"},
+        "kt", None, 42,
+    ))
+    d = out["data"]
+    assert d["mode"] == "resolution"
+    assert d["resolve_on"] == "NO"
+    assert d["threshold"] is None
+    assert d["threshold_presets"] == []
+    assert d["direction"] is None
+    # Timeline still shown so user knows when watching stops.
+    assert d["timeline_default"] == "2026-08-30T00:00:00Z"
+
+
 # ── POST /api/news-events/specs/polymarket ───────────────────────────
 
 

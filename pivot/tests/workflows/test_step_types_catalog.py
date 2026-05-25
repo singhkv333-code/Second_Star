@@ -30,6 +30,8 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "trigger.market_relative_time": "trigger",
     # Phase-D5 — DSL-driven compound trigger (RSI < 30 AND price > X, etc.)
     "trigger.compound": "trigger",
+    # Slice-4 — Polymarket prediction-market trigger (threshold OR resolution)
+    "trigger.polymarket": "trigger",
     # ── Data fetches (11) ──
     "fetch.quote": "fetch",
     "fetch.indicator": "fetch",
@@ -182,6 +184,7 @@ def test_max_retries_match_invariant_3(
     for st in (
         "trigger.schedule", "trigger.price", "trigger.indicator",
         "trigger.event", "trigger.manual", "trigger.webhook",
+        "trigger.polymarket",
     ):
         assert by_type[st]["max_retries"] == 0, st
         assert by_type[st]["trigger_only"] is True, st
