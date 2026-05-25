@@ -92,6 +92,14 @@ _REAL_TOOLS: set[str] = {
     "propose_threshold_order",
     "propose_basket_allocation",
     "propose_holding_action",
+    # Polymarket — prediction-market trigger + catalog browse.
+    # propose_polymarket_trigger emits a draft card (threshold or
+    # resolution mode); persistence + activation happen via the
+    # /api/news-events/specs/polymarket REST endpoints. The matcher
+    # resolves the contract from natural-language, the picker handles
+    # ambiguous matches, and the supervisor (news_events worker) opens
+    # the CLOB WS subscription when the spec / workflow step activates.
+    "propose_polymarket_trigger", "browse_polymarket_markets",
     # Meta tools — escape hatches for cases the regex router misses.
     "find_tool",
 }

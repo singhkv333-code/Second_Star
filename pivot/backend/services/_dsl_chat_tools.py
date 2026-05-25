@@ -79,7 +79,9 @@ async def backtest_dsl_tree(args: dict) -> dict:
 
     try:
         tree, tx_meta = await translate_condition_to_tree(
-            condition, cache_key="dsl.chat.backtest.v1",
+            condition,
+            primary_symbol=primary,
+            cache_key="dsl.chat.backtest.v1",
         )
     except TranslationError as exc:
         raise ValueError(
@@ -115,6 +117,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
             exit_tree_dict, exit_tx_meta = await translate_condition_to_tree(
                 exit_condition_text,
                 allow_position=True,
+                primary_symbol=primary,
                 cache_key="dsl.chat.backtest.exit.v1",
             )
         except TranslationError as exc:
@@ -289,23 +292,34 @@ async def backtest_dsl_tree(args: dict) -> dict:
 
 
 async def propose_dsl_workflow(args: dict) -> dict:
-    """Build a workflow draft whose trigger is a DSL ``trigger.compound``
-    step. The chat user sees a confirmation card; activating it
-    registers the workflow with the live watcher.
+    """Build a workflow draft whose entry trigger is a DSL
+    ``trigger.compound`` tree, with an optional exit branch driven by
+    ``trigger.exit_compound`` for runtime-position-aware exits.
 
     Args:
-      condition         — NL entry condition
+      condition         — NL entry condition (required)
       name              — short human label for the workflow
-      primary_symbol    — symbol the action targets
+      primary_symbol    — symbol the action targets (required)
       action_kind       — "notify_only" (default) | "buy_market" | "buy_limit"
       quantity          — int, only used when action_kind starts with 'buy'
       limit_price       — float, only used when action_kind=buy_limit
+      exit_condition    — OPTIONAL NL exit condition. When set, the tool
+                          translates it to a DSL tree (with PositionNode
+                          leaves allowed — entry_price, unrealised_pct,
+                          bars_held, drawdown_from_peak_pct, ...) and
+                          emits a SECOND branch:
+                              trigger.exit_compound + fetch.portfolio +
+                              action.place_order(sell, qty=runtime ref).
+                          Use for prompts like "buy X when RSI<30, sell
+                          when price > upper Bollinger band" or "exit
+                          when drawdown from peak >= 5%".
     """
     args = args or {}
     condition = (args.get("condition") or "").strip()
     primary = (args.get("primary_symbol") or "").strip().upper()
     label = (args.get("name") or "").strip() or f"{primary} compound trigger"
     action_kind = (args.get("action_kind") or "notify_only").lower()
+    exit_condition_text = (args.get("exit_condition") or "").strip()
     if not condition:
         raise ValueError(
             "propose_dsl_workflow needs a 'condition' (NL entry "
@@ -319,7 +333,9 @@ async def propose_dsl_workflow(args: dict) -> dict:
 
     try:
         tree, tx_meta = await translate_condition_to_tree(
-            condition, cache_key="dsl.chat.propose.v1",
+            condition,
+            primary_symbol=primary,
+            cache_key="dsl.chat.propose.v1",
         )
     except TranslationError as exc:
         raise ValueError(
@@ -341,10 +357,35 @@ async def propose_dsl_workflow(args: dict) -> dict:
     from backend.workflows.dsl.readback import tree_to_english
     readback = tree_to_english(parsed)
 
-    # Build the action step shape. For v1 we only support three:
+    # ── Optional exit-tree translation (allow_position=True) ──
+    exit_tree = None
+    exit_tx_meta = None
+    exit_readback = None
+    if exit_condition_text:
+        try:
+            exit_tree, exit_tx_meta = await translate_condition_to_tree(
+                exit_condition_text,
+                allow_position=True,
+                primary_symbol=primary,
+                cache_key="dsl.chat.propose.exit.v1",
+            )
+        except TranslationError as exc:
+            raise ValueError(
+                f"could not translate exit_condition into a DSL tree: {exc}"
+            ) from None
+        try:
+            parsed_exit = TypeAdapter(Tree).validate_python(exit_tree)
+            semantic_validate(parsed_exit, allow_position=True)
+        except (DSLValidationError, ValidationError) as exc:
+            raise ValueError(
+                f"translated exit tree is invalid: {exc}"
+            ) from None
+        exit_readback = tree_to_english(parsed_exit)
+
+    # Build the entry action step. For v1 we only support three:
     #   notify_only  → notify.message (push channel)
-    #   buy_market   → place.market_order
-    #   buy_limit    → place.limit_order
+    #   buy_market   → action.place_order(side=buy, order_type=market)
+    #   buy_limit    → action.place_order(side=buy, order_type=limit)
     if action_kind not in ("notify_only", "buy_market", "buy_limit"):
         action_kind = "notify_only"
 
@@ -352,7 +393,7 @@ async def propose_dsl_workflow(args: dict) -> dict:
     limit_px = args.get("limit_price")
 
     if action_kind == "notify_only":
-        action_step = {
+        entry_action = {
             "step_type": "notify.message",
             "config": {
                 "channel": "push",
@@ -362,14 +403,14 @@ async def propose_dsl_workflow(args: dict) -> dict:
             },
         }
     elif action_kind == "buy_market":
-        action_step = {
-            "step_type": "order.register",
+        entry_action = {
+            "step_type": "action.place_order",
             "config": {
-                "side": "BUY",
-                "order_type": "MARKET",
                 "symbol": primary,
-                "exchange": "NSE",
+                "side": "buy",
                 "quantity": qty,
+                "order_type": "market",
+                "product": "CNC",
             },
         }
     else:   # buy_limit
@@ -377,40 +418,81 @@ async def propose_dsl_workflow(args: dict) -> dict:
             raise ValueError(
                 "buy_limit action requires 'limit_price'"
             )
-        action_step = {
-            "step_type": "order.register",
+        entry_action = {
+            "step_type": "action.place_order",
             "config": {
-                "side": "BUY",
-                "order_type": "LIMIT",
                 "symbol": primary,
-                "exchange": "NSE",
+                "side": "buy",
                 "quantity": qty,
+                "order_type": "limit",
                 "limit_price": float(limit_px),
+                "product": "CNC",
             },
         }
 
-    # Assemble the workflow draft — same shape that propose_workflow
-    # already returns so the FE's draft card renders unchanged.
+    # ── Assemble steps[] ──
+    steps: list[dict] = [
+        {
+            "step_type": "trigger.compound",
+            "config": {
+                "entry": tree,
+                "symbol": primary,
+                "exchange": "NSE",
+            },
+        },
+        entry_action,
+    ]
+
+    # Optional exit branch — only if an exit_condition was supplied AND
+    # the entry actually opens a position (notify_only has nothing to
+    # exit, so skip the exit branch in that case).
+    if exit_tree is not None and action_kind != "notify_only":
+        exit_trigger_idx = len(steps)
+        fetch_portfolio_idx = exit_trigger_idx + 1
+        steps.extend([
+            {
+                "step_type": "trigger.exit_compound",
+                "config": {
+                    "entry": exit_tree,
+                    "target_symbol": primary,
+                },
+            },
+            {
+                "step_type": "fetch.portfolio",
+                "config": {},
+            },
+            {
+                "step_type": "action.place_order",
+                "config": {
+                    "symbol": primary,
+                    "side": "sell",
+                    # Runtime reference — sell whatever quantity is
+                    # currently held in this symbol. fetch.portfolio
+                    # populated it at index `fetch_portfolio_idx`.
+                    "quantity": (
+                        "{{ context." + str(fetch_portfolio_idx)
+                        + ".holdings." + primary + ".quantity }}"
+                    ),
+                    "order_type": "market",
+                    "product": "CNC",
+                },
+            },
+        ])
+
+    description = f"Entry: {readback}"
+    if exit_readback:
+        description += f" · Exit: {exit_readback}"
+
     draft = {
         "_render_hint": "workflow_draft_card",
         "draft_id": str(uuid.uuid4()),
         "name": label,
-        "description": f"Trigger: {readback}",
-        "steps": [
-            {
-                "step_type": "trigger.compound",
-                "config": {
-                    "entry": tree,
-                    "symbol": primary,
-                    "exchange": "NSE",
-                },
-            },
-            action_step,
-        ],
-        # Surfaced for the chat assistant so it can present the
-        # readback without re-rendering server-side.
+        "description": description,
+        "steps": steps,
         "readback": readback,
+        "exit_readback": exit_readback,
         "translation_meta": tx_meta,
+        "exit_translation_meta": exit_tx_meta,
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
     return draft

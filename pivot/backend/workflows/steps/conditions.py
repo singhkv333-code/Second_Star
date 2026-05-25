@@ -18,6 +18,7 @@ from backend.workflows.engine import _ConditionFail
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
     ConditionBooleanConfig,
+    ConditionCompoundConfig,
     ConditionMarketStatusConfig,
     ConditionNumericConfig,
     ConditionPositionConfig,
@@ -203,6 +204,62 @@ async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
     )
     holds_condition = held if require == "held" else not held
     if holds_condition:
+        return {"passed": True}
+    raise _ConditionFail
+
+
+@register_step(
+    step_type="condition.compound",
+    category="condition",
+    label="Compound (DSL) check",
+    description=(
+        "Pass when a DSL tree of indicator / price / volume / aggregator "
+        "conditions evaluates to True. Same grammar as trigger.compound; "
+        "collapses N x fetch.indicator + condition.numeric into one step."
+    ),
+    icon="git-branch",
+    max_retries=0,
+    trigger_only=False,
+    config_model=ConditionCompoundConfig,
+    output_schema=_CONDITION_OUTPUT_SCHEMA,
+)
+async def execute_condition_compound(ctx: Any) -> Optional[dict[str, Any]]:
+    """Evaluate a DSL tree as a mid-branch gate.
+
+    Walks the tree once with a fresh LiveDataAccessor. Three outcomes:
+      - Ternary.TRUE    → {passed: True}, branch continues.
+      - Ternary.FALSE   → raise _ConditionFail (halt_reason='condition_not_met').
+      - Ternary.UNKNOWN → same halt (Kleene semantics: missing data
+                          does NOT silently pass).
+
+    Stateless — no _last_values plumbing here; conditions evaluate
+    once per fire. crosses_above / crosses_below inside the tree
+    resolve to UNKNOWN (no prior-tick state); use trigger.compound
+    for crossings.
+    """
+    import asyncio
+
+    entry_raw = ctx.config["entry"]
+    if not isinstance(entry_raw, dict):
+        raise ValueError("condition.compound: 'entry' must be a tree object")
+
+    def _evaluate_sync() -> str:
+        # Lazy imports — same pattern as scheduler._evaluate_compound_trigger.
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.data_accessor import LiveDataAccessor
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+
+        tree = TypeAdapter(Tree).validate_python(entry_raw)
+        result = evaluate(tree, accessor=LiveDataAccessor(), prev_state={})
+        if result.value is Ternary.TRUE:
+            return "true"
+        if result.value is Ternary.FALSE:
+            return "false"
+        return "unknown"
+
+    outcome = await asyncio.to_thread(_evaluate_sync)
+    if outcome == "true":
         return {"passed": True}
     raise _ConditionFail
 

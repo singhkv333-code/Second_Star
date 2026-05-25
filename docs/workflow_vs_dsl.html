@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pivot — Workflows, DSL, Triggers, Conditions, Actions</title>
+<style>
+  :root {
+    --bg: #0e0f12;
+    --panel: #15171c;
+    --panel-2: #1c1f26;
+    --line: #262a33;
+    --text: #e7e9ee;
+    --muted: #8b93a4;
+    --accent: #7aa2ff;
+    --accent-2: #92d6c1;
+    --warn: #f0b86e;
+    --danger: #e16e6e;
+    --ok: #7ddc9a;
+    --code-bg: #0a0c10;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 28px 96px; }
+  header.hero {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 40px;
+  }
+  header.hero .eyebrow {
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  header.hero h1 {
+    font-size: 32px;
+    margin: 8px 0 12px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+  header.hero p.lede {
+    color: var(--muted);
+    font-size: 16px;
+    max-width: 760px;
+    margin: 0;
+  }
+  h2 {
+    font-size: 22px;
+    margin: 48px 0 16px;
+    letter-spacing: -0.01em;
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+  }
+  h3 {
+    font-size: 16px;
+    margin: 24px 0 10px;
+    color: var(--text);
+  }
+  p { margin: 10px 0; }
+  code, .mono {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--accent-2);
+    border: 1px solid var(--line);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--text);
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 760px) {
+    .grid-2, .grid-4 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .card h3 { margin-top: 0; }
+  .card .tag {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .tag.builder { background: rgba(122,162,255,0.08); color: var(--accent); border-color: rgba(122,162,255,0.3); }
+  .tag.primitive { background: rgba(146,214,193,0.08); color: var(--accent-2); border-color: rgba(146,214,193,0.3); }
+  .tag.warn { background: rgba(240,184,110,0.08); color: var(--warn); border-color: rgba(240,184,110,0.3); }
+  .tag.danger { background: rgba(225,110,110,0.08); color: var(--danger); border-color: rgba(225,110,110,0.3); }
+  .tag.ok { background: rgba(125,220,154,0.08); color: var(--ok); border-color: rgba(125,220,154,0.3); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: var(--panel-2);
+  }
+  tr:last-child td { border-bottom: none; }
+  td.yes { color: var(--ok); }
+  td.no  { color: var(--danger); }
+  td.partial { color: var(--warn); }
+
+  .axis {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 14px;
+    align-items: start;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .axis:last-child { border-bottom: none; }
+  .axis .label {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    padding-top: 2px;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    color: var(--accent-2);
+    margin: 2px 4px 2px 0;
+  }
+
+  .lifecycle {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 0;
+  }
+  .lifecycle .row {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .lifecycle .row:last-child { border-bottom: none; }
+  .lifecycle .row .when {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-size: 13px;
+  }
+  .lifecycle .row .what {
+    color: var(--text);
+  }
+
+  .callout {
+    background: rgba(122,162,255,0.06);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 8px 8px 0;
+    color: var(--text);
+  }
+  .callout.warn {
+    background: rgba(240,184,110,0.06);
+    border-left-color: var(--warn);
+  }
+  .callout.danger {
+    background: rgba(225,110,110,0.06);
+    border-left-color: var(--danger);
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  .legend .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 6px; vertical-align: 1px;
+  }
+
+  hr { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+
+  .cheat ul { padding-left: 18px; }
+  .cheat li { margin: 6px 0; }
+  .cheat li code { font-size: 12px; }
+
+  footer {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 56px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Pivot · Agent System v1 · Internal reference</div>
+  <h1>Workflows, the DSL, and the four words that get mixed up</h1>
+  <p class="lede">
+    <b>propose_workflow</b> and <b>propose_dsl_workflow</b> are two chat-side
+    <em>builders</em> that produce different shapes of draft. <b>trigger.compound</b>
+    and <b>trigger.manual</b> are two <em>trigger primitives</em> that live inside
+    the orchestration system. They get confused because they sit at different
+    layers — this doc separates the layers and shows what fires when.
+  </p>
+</header>
+
+<!-- ────────────────────────────── 1. THE FOUR THINGS ────────────────────────────── -->
+
+<h2>1 · The four things, one card each</h2>
+
+<div class="grid-2">
+
+  <div class="card">
+    <span class="tag builder">Chat-side builder</span>
+    <h3>propose_workflow</h3>
+    <p>
+      The general-purpose builder. The LLM emits a full
+      <code>steps[]</code> list (one trigger at index 0, optional later
+      triggers start new branches). Every step is a registered step type
+      with a Pydantic config model. Rich action surface, multi-branch,
+      cross-step refs via Mustache.
+    </p>
+    <p style="color:var(--muted); font-size:13px;">
+      Produced shape: a workflow_draft_card with a flat steps[] list.
+      Activated, it persists to the Workflow / WorkflowStep tables and
+      the scheduler / watcher pick it up.
+    </p>
+  </div>
+
+  <div class="card">
+    <span class="tag builder">Chat-side builder</span>
+    <h3>propose_dsl_workflow</h3>
+    <p>
+      A narrow builder for expressive entry conditions. Emits a workflow
+      with exactly two steps: <code>trigger.compound</code> carrying a
+      DSL tree + one action step. The chat LLM hands the user's natural
+      language straight through; a server-side translator builds the
+      tree.
+    </p>
+    <p style="color:var(--muted); font-size:13px;">
+      Produced shape: a workflow_draft_card with two steps. The only
+      action that actually executes today is <code>notify.message</code>;
+      <code>order.register</code> is emitted but has no registered
+      handler.
+    </p>
+  </div>
+
+  <div class="card">
+    <span class="tag primitive">Step primitive · trigger</span>
+    <h3>trigger.compound</h3>
+    <p>
+      One trigger step type inside the <code>steps[]</code> system. Its
+      <code>config.entry</code> is a DSL tree. The runtime watcher
+      (<code>scheduler.py</code>) walks the tree every tick; when the
+      tree transitions to TRUE, the workflow fires.
+    </p>
+    <p style="color:var(--muted); font-size:13px;">
+      This is the integration seam between the DSL expression language
+      and the steps[] orchestration language.
+    </p>
+  </div>
+
+  <div class="card">
+    <span class="tag primitive">Step primitive · trigger</span>
+    <h3>trigger.manual</h3>
+    <p>
+      A no-op trigger. The workflow fires only when the user clicks
+      <em>Run now</em> on the agent panel. There is no watcher and no
+      schedule.
+    </p>
+    <p style="color:var(--muted); font-size:13px;">
+      Hard-blocked by the backtester
+      (<code>workflow_backtester.py:141</code>) because there is no
+      historical signal to replay.
+    </p>
+  </div>
+
+</div>
+
+<!-- ────────────────────────────── 2. AXES ────────────────────────────── -->
+
+<h2>2 · The orthogonal axes inside a workflow</h2>
+
+<p>
+  Every <code>steps[]</code> workflow is a sequence of steps drawn from
+  six categories. The categories are different <em>roles</em>, not
+  different formats — read them this way to stop mixing them up.
+</p>
+
+<div class="card" style="padding: 6px 18px;">
+
+  <div class="axis">
+    <div class="label">trigger.*</div>
+    <div>
+      <b>When the workflow fires.</b> Exactly one trigger at index 0;
+      additional <code>trigger.*</code> later in the list start new
+      branches (one workflow can hold "buy at open AND sell at close" as
+      two triggers).<br/>
+      <span class="pill">schedule</span><span class="pill">price</span>
+      <span class="pill">indicator</span><span class="pill">compound</span>
+      <span class="pill">event</span><span class="pill">manual</span>
+      <span class="pill">polymarket</span><span class="pill">market_relative_time</span>
+      <span class="pill">webhook</span>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="label">fetch.*</div>
+    <div>
+      <b>Pure reads.</b> Pull data into the step context so later
+      conditions / actions can reference it via
+      <code>{{ context.&lt;idx&gt;.&lt;field&gt; }}</code>. No side
+      effect, no broker call.<br/>
+      <span class="pill">quote</span><span class="pill">indicator</span>
+      <span class="pill">fundamental</span><span class="pill">portfolio</span>
+      <span class="pill">intraday_pnl</span><span class="pill">news</span>
+      <span class="pill">day_open</span><span class="pill">prior_close</span>
+      <span class="pill">rolling_high</span><span class="pill">rolling_low</span>
+      <span class="pill">spread_z_score</span><span class="pill">relative_threshold</span>
+      <span class="pill">screener</span><span class="pill">top_movers</span>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="label">condition.*</div>
+    <div>
+      <b>Boolean gates.</b> Halt the branch when false. Chained
+      <code>condition.*</code> steps in series are an implicit AND. The
+      branch's actions only run if every condition along the way returns
+      true.<br/>
+      <span class="pill">numeric</span><span class="pill">boolean</span>
+      <span class="pill">market_status</span><span class="pill">position</span>
+      <span class="pill">time_window</span>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="label">action.*</div>
+    <div>
+      <b>Side effects.</b> The doing half — places, cancels, modifies,
+      allocates. These are the steps the broker / risk layer actually
+      sees.<br/>
+      <span class="pill">place_order</span><span class="pill">cancel_orders</span>
+      <span class="pill">set_stoploss</span><span class="pill">set_takeprofit</span>
+      <span class="pill">allocate_basket</span><span class="pill">allocate_notional</span>
+      <span class="pill">squareoff_all</span><span class="pill">squareoff_all_intraday</span>
+      <span class="pill">squareoff_symbol</span><span class="pill">update_watchlist</span>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="label">notify.* / wait.* / control.*</div>
+    <div>
+      <b>Glue.</b> User-facing messages, in-app log, human approval
+      gates, time delays, conditional skips.<br/>
+      <span class="pill">notify.message</span><span class="pill">notify.log</span>
+      <span class="pill">wait.approval</span><span class="pill">wait.delay</span>
+      <span class="pill">control.skip_if</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="callout">
+  <b>Pivot fact to remember.</b> Triggers, fetches, conditions and
+  actions are not interchangeable — they're a pipeline.
+  <code>trigger.* → (fetch.* + condition.*)* → action.* → notify.*</code>.
+  A workflow with no <code>action.*</code> step is a watch-and-notify
+  agent, not a trader.
+</div>
+
+<!-- ────────────────────────────── 3. WHEN DOES EACH FIRE ────────────────────────────── -->
+
+<h2>3 · What fires when</h2>
+
+<div class="lifecycle">
+  <div class="row">
+    <div class="when">trigger.schedule</div>
+    <div class="what">
+      APScheduler cron. Fires at the configured cron expression in the
+      configured timezone (default IST). Each fire creates one
+      WorkflowRun and walks the branch.
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.market_relative_time</div>
+    <div class="what">
+      Same scheduler, but the cron is resolved from an anchor
+      (open / close / pre_open / post_close) + signed minute offset.
+      "30 minutes before close" → resolves to a concrete cron at
+      activation.
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.price</div>
+    <div class="what">
+      Watcher polls live quotes every tick
+      (<code>scheduler.py:_evaluate_price_trigger</code>). Fires the
+      first tick the threshold is crossed in the configured direction;
+      stores the last value on the step's config so it doesn't
+      re-fire on each tick while above.
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.indicator</div>
+    <div class="what">
+      Watcher computes one indicator
+      (<code>scheduler.py:_evaluate_indicator_trigger</code>) and applies
+      the same threshold logic as price. Per-workflow cost: a yfinance
+      pull + indicator math each tick.
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.compound</div>
+    <div class="what">
+      Watcher walks the DSL tree
+      (<code>scheduler.py:_evaluate_compound_trigger</code>) using the
+      live <code>DataAccessor</code>. Fires when the tree transitions
+      to <code>Ternary.TRUE</code>. <code>crosses_above</code> /
+      <code>crosses_below</code> state lives in
+      <code>cfg["_last_values"]</code> between ticks.
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.event</div>
+    <div class="what">
+      One news fetch + classify pass on each scheduler invocation
+      (today's wiring delegates to <code>fetch.news</code>). Fires when
+      the matched / max_confidence aggregate clears the threshold.
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.polymarket</div>
+    <div class="what">
+      News-events worker holds an open CLOB websocket subscription.
+      Fires when the YES probability crosses the configured threshold
+      (<code>mode=threshold</code>) or when the market resolves
+      (<code>mode=resolution</code>).
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.webhook</div>
+    <div class="what">
+      External HTTP POST to the webhook endpoint. Fires per inbound
+      request that matches the workflow's webhook secret.
+    </div>
+  </div>
+  <div class="row">
+    <div class="when">trigger.manual</div>
+    <div class="what">
+      Never fires automatically. Only fires when the user clicks
+      <em>Run now</em> on the agent panel. The run row carries
+      <code>triggered_by='manual'</code>.
+    </div>
+  </div>
+</div>
+
+<div class="callout warn">
+  <b>Why screenshot 1's "Saved &amp; activated · 0 seconds · Succeeded"
+  is the silent-failure mode.</b>
+  A <code>trigger.manual</code> workflow with fetch + condition + buy
+  fires <em>on activation</em>, evaluates the condition against the
+  market state at that instant, and places the trade if true. There is
+  no future fire — the agent doesn't watch the crossover at all.
+</div>
+
+<!-- ────────────────────────────── 4. PROPOSE vs PROPOSE_DSL ────────────────────────────── -->
+
+<h2>4 · propose_workflow vs propose_dsl_workflow</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Capability</th>
+      <th>propose_workflow</th>
+      <th>propose_dsl_workflow</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Output shape</td>
+      <td>Full <code>steps[]</code> list, any registered step types</td>
+      <td>Exactly 2 steps: <code>trigger.compound</code> + one action</td>
+    </tr>
+    <tr>
+      <td>Trigger expressiveness</td>
+      <td>One indicator vs FIXED constant; one price level; one cron; etc.</td>
+      <td class="yes">Full 14-node DSL tree (logic, math, aggregates, crossovers, cross-symbol)</td>
+    </tr>
+    <tr>
+      <td>Indicator-vs-indicator crossings</td>
+      <td class="partial">Workaround: 2x <code>fetch.indicator</code> + <code>condition.numeric</code></td>
+      <td class="yes">Native — <code>comparison(crosses_above, indicator(SMA,20), indicator(SMA,50))</code></td>
+    </tr>
+    <tr>
+      <td>Multi-output indicator components (BB upper/lower, MACD signal)</td>
+      <td class="no">Not addressable via the flat catalog</td>
+      <td class="yes"><code>IndicatorNode(component="lower")</code></td>
+    </tr>
+    <tr>
+      <td>Aggregators (percentrank, zscore, barssince, correlation)</td>
+      <td class="no">No equivalent <code>fetch.*</code> type</td>
+      <td class="yes">First-class <code>AggregateNode</code></td>
+    </tr>
+    <tr>
+      <td>Cross-symbol spreads / pairs</td>
+      <td class="partial"><code>fetch.spread_z_score</code> only</td>
+      <td class="yes">Native <code>SpreadNode</code> + arbitrary math</td>
+    </tr>
+    <tr>
+      <td>Bar-offset reads (Pine <code>[N]</code>)</td>
+      <td class="no">No</td>
+      <td class="yes"><code>offset</code> field on indicator / price / volume</td>
+    </tr>
+    <tr>
+      <td>Kleene UNKNOWN handling for missing data</td>
+      <td class="no">Stalls on missing data</td>
+      <td class="yes">Three-valued logic — UNKNOWN propagates, no spurious fires</td>
+    </tr>
+    <tr>
+      <td>Multi-branch (e.g. buy at open + sell at close)</td>
+      <td class="yes">Yes — multiple <code>trigger.*</code> in one workflow</td>
+      <td class="no">No — one trigger, one action</td>
+    </tr>
+    <tr>
+      <td>Real order placement (place / SL / TP / cancel)</td>
+      <td class="yes"><code>action.place_order</code>, <code>action.set_stoploss</code>, etc.</td>
+      <td class="danger no">Stub today — only <code>notify.message</code> is wired; <code>order.register</code> has no handler</td>
+    </tr>
+    <tr>
+      <td>Portfolio-state reads (resolve "my entire INFY holding")</td>
+      <td class="yes"><code>fetch.portfolio</code> + Mustache ref</td>
+      <td class="no">No portfolio node in the DSL</td>
+    </tr>
+    <tr>
+      <td>News / Polymarket / approval / delay</td>
+      <td class="yes">Yes</td>
+      <td class="no">No</td>
+    </tr>
+    <tr>
+      <td>Sector basket / screener</td>
+      <td class="yes"><code>fetch.screener</code> + <code>action.allocate_notional</code></td>
+      <td class="no">No</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  The DSL is an <b>expression language</b> (one boolean output).
+  <code>steps[]</code> is an <b>orchestration language</b> (a typed
+  sequence of effects). Conditions compose because they're pure reads
+  with one return type; actions don't, because they're side-effecting
+  and order-dependent. That's why <code>propose_dsl_workflow</code> is
+  narrow on purpose — and why <code>trigger.compound</code> exists, to
+  use the DSL <em>inside</em> a steps[] workflow.
+</div>
+
+<!-- ────────────────────────────── 5. TRIGGER.COMPOUND vs TRIGGER.MANUAL ────────────────────────────── -->
+
+<h2>5 · trigger.compound vs trigger.manual</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>trigger.compound</th>
+      <th>trigger.manual</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Role</td>
+      <td>Event-driven — fires automatically when its DSL tree transitions to TRUE.</td>
+      <td>User-driven — fires only on a "Run now" button click.</td>
+    </tr>
+    <tr>
+      <td>What it watches</td>
+      <td>Live market data via the scheduler's per-tick walk
+        (<code>_evaluate_compound_trigger</code>).</td>
+      <td>Nothing. There is no watcher.</td>
+    </tr>
+    <tr>
+      <td>State</td>
+      <td>Threads <code>_last_values</code> on the step's config so
+        <code>crosses_above</code> / <code>crosses_below</code> detect
+        transitions instead of re-firing every tick.</td>
+      <td>None.</td>
+    </tr>
+    <tr>
+      <td>Backtestable?</td>
+      <td class="partial">Not yet — listed in the watcher
+        (<code>scheduler.py:464</code>) but NOT in
+        <code>_BACKTESTABLE_TRIGGERS</code>
+        (<code>workflow_backtester.py:85</code>).</td>
+      <td class="no">Hard-blocked. Error string lives at
+        <code>workflow_backtester.py:141</code>:
+        <i>"trigger.manual fires when you click 'Run now' — there's
+        no historical signal to replay."</i></td>
+    </tr>
+    <tr>
+      <td>When you'd pick it</td>
+      <td>The whole workflow should auto-fire on a market condition —
+        any crossover, multi-condition, aggregator, cross-symbol or
+        multi-output-component shape.</td>
+      <td>You want a committed, one-shot operation behind a button. E.g.
+        "Sell my entire RELIANCE holding" packaged as a card the user
+        clicks to fire.</td>
+    </tr>
+    <tr>
+      <td>The bug pattern</td>
+      <td>—</td>
+      <td class="danger no">Used as a fallback when the LLM couldn't
+        express the user's automatic condition. Result: workflow fires
+        once at activation (silently buying / selling against current
+        market state) and never again.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ────────────────────────────── 6. ACTIONS vs TRIGGERS vs CONDITIONS ────────────────────────────── -->
+
+<h2>6 · Triggers vs Conditions vs Actions — the easy mistake</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>Trigger</th>
+      <th>Condition</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Role</td>
+      <td>Wakes the workflow up. <em>When</em>.</td>
+      <td>Gates the branch. <em>If</em>.</td>
+      <td>Does something irreversible. <em>What</em>.</td>
+    </tr>
+    <tr>
+      <td>Cardinality per workflow</td>
+      <td>≥1 (each starts a branch).</td>
+      <td>0..N per branch, evaluated in series (implicit AND).</td>
+      <td>0..N per branch, run in order if every condition passes.</td>
+    </tr>
+    <tr>
+      <td>Side effect?</td>
+      <td>No (just emits a wake-up event).</td>
+      <td>No (pure boolean).</td>
+      <td>Yes (broker call, position change, watchlist write).</td>
+    </tr>
+    <tr>
+      <td>Failure semantics</td>
+      <td>If the trigger source is down (yfinance error), nothing fires.</td>
+      <td>Returns false → branch halts cleanly, no run row failure.</td>
+      <td>Raises → run row is marked failed; broker reject surfaces in run history.</td>
+    </tr>
+    <tr>
+      <td>Backtest replay</td>
+      <td>Replayed by the eligibility-checked engine
+        (<code>_BACKTESTABLE_TRIGGERS</code>).</td>
+      <td>Re-evaluated against historical bars at each fire.</td>
+      <td>Filled at next bar's open (default) or bar low for stop-loss.</td>
+    </tr>
+    <tr>
+      <td>Examples</td>
+      <td><code>trigger.schedule</code>,
+          <code>trigger.compound</code>,
+          <code>trigger.manual</code></td>
+      <td><code>condition.numeric</code>,
+          <code>condition.market_status</code>,
+          <code>condition.time_window</code></td>
+      <td><code>action.place_order</code>,
+          <code>action.set_stoploss</code>,
+          <code>action.allocate_notional</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="color:var(--muted); font-size:13px;">
+  Fetches are a fourth role — pure reads that produce data for
+  conditions and actions to reference. They're not "small triggers" and
+  they don't gate anything; they just populate the step context.
+</p>
+
+<!-- ────────────────────────────── 7. LIFECYCLE WALK ────────────────────────────── -->
+
+<h2>7 · End-to-end walk — a representative branch</h2>
+
+<pre><code>┌──────────────────────────────────────────────────────────────────────┐
+│  trigger.schedule   { cron: "0 14 * * 1-5", tz: "Asia/Kolkata" }     │  ← APScheduler fires 14:00 IST on weekdays
+└──────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  fetch.indicator    { symbol: "INFY", indicator: "rsi", period: 14 } │  ← pure read into context[1]
+└──────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  condition.numeric  { left: "{{context.1.value}}", op: "<", right: 30 }│  ← halts branch if false
+└──────────────────────────────────────────────────────────────────────┘
+                              │ true
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  fetch.portfolio    { }                                              │  ← read holdings into context[3]
+└──────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  action.place_order { symbol: "INFY", side: "buy",                   │  ← side effect: broker call
+│                       quantity: 5, order_type: "market" }            │
+└──────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  notify.message     { channel: "push", message: "Bought 5 INFY" }    │  ← in-app push
+└──────────────────────────────────────────────────────────────────────┘</code></pre>
+
+<p>
+  Same workflow re-shaped via the DSL: collapse the trigger + fetch +
+  condition into one <code>trigger.compound</code> whose entry tree is
+  <code>comparison(&lt;, indicator(rsi, INFY, 14), constant(30))</code>.
+  The orchestration half — fetch.portfolio + action.place_order +
+  notify.message — stays in <code>steps[]</code>.
+</p>
+
+<!-- ────────────────────────────── 8. CHEAT SHEET ────────────────────────────── -->
+
+<h2>8 · Cheat sheet — which builder for which prompt</h2>
+
+<div class="card cheat">
+  <h3>Use propose_workflow when …</h3>
+  <ul>
+    <li>Two or more branches: <i>"buy at open AND sell at close"</i>.</li>
+    <li>The action needs portfolio state: <i>"sell my entire INFY when …"</i>.</li>
+    <li>News / Polymarket / approval / delay anywhere in the flow.</li>
+    <li>Sector basket / screener allocations.</li>
+    <li>Single-threshold triggers: <i>"RSI &lt; 30, buy 10 INFY"</i>.</li>
+  </ul>
+
+  <h3>Use propose_dsl_workflow when …</h3>
+  <ul>
+    <li>Indicator-vs-indicator crossover (<i>20-SMA crosses above 50-SMA</i>).</li>
+    <li>Multi-output components (<i>price breaks lower Bollinger band</i>).</li>
+    <li>Aggregator-based conditions (<i>price in top decile of 252-day range</i>).</li>
+    <li>Cross-symbol spreads (<i>TCS/INFY ratio z-score &gt; 2</i>).</li>
+    <li>Multi-condition AND / OR / NOT (<i>RSI &lt; 30 AND MACD line &gt; signal AND price &gt; 200-EMA</i>).</li>
+    <li><b>And</b> the action is just a notification — until <code>order.register</code> has a real handler, anything that needs to place an order should still go through <code>propose_workflow</code> + <code>trigger.compound</code>.</li>
+  </ul>
+
+  <h3>Use trigger.compound (inside propose_workflow) when …</h3>
+  <ul>
+    <li>You want the DSL expressiveness <em>and</em> a real order leg.
+        This is the seam: rich trigger, rich action surface, same draft
+        card.</li>
+  </ul>
+
+  <h3>Use trigger.manual when …</h3>
+  <ul>
+    <li>The user explicitly wants a one-shot button they'll click.
+        Examples: <i>"sell my entire RELIANCE holding"</i>,
+        <i>"set a 2% SL on my INFY"</i>.</li>
+    <li>NEVER as a fallback when the condition is too rich to express
+        — that's the silent-trade bug.</li>
+  </ul>
+</div>
+
+<!-- ────────────────────────────── 9. OPEN GAPS ────────────────────────────── -->
+
+<h2>9 · Open architectural gaps</h2>
+
+<table>
+  <thead>
+    <tr><th>Gap</th><th>Symptom</th><th>Fix shape</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>trigger.compound</code> isn't backtestable</td>
+      <td>Workflows using a DSL tree as trigger can run live but can't be backtested via <code>backtest_workflow</code>.</td>
+      <td>Add it to <code>_BACKTESTABLE_TRIGGERS</code> and dispatch the historical bar through the DSL evaluator inside the engine loop.</td>
+    </tr>
+    <tr>
+      <td><code>order.register</code> has no step handler</td>
+      <td><code>propose_dsl_workflow(action_kind="buy_market")</code> produces a draft that won't execute.</td>
+      <td>Register an <code>order.register</code> handler (or rewrite the emitter to use <code>action.place_order</code>).</td>
+    </tr>
+    <tr>
+      <td>LLM defaults to <code>trigger.manual</code> for rich conditions</td>
+      <td>The two failed-backtest screenshots: workflow fires on activation, never again.</td>
+      <td>Update <code>system.md</code> to route crossover / multi-condition / multi-output to <code>trigger.compound</code>; add few-shot exemplars; ban <code>trigger.manual</code> when the user phrasing includes <i>when / if / once / whenever</i>.</td>
+    </tr>
+    <tr>
+      <td>Stale "NOT supported in v1" copy in <code>system.md</code></td>
+      <td>LLM tells the user Bollinger / ATR / Keltner / Supertrend aren't supported even though the DSL handles all of them.</td>
+      <td>Rewrite the section to point at the DSL path; remove the SMA-band workaround language.</td>
+    </tr>
+  </tbody>
+</table>
+
+<footer>
+  Source-of-truth files referenced in this doc:
+  <code>pivot/backend/workflows/steps/*.py</code>,
+  <code>pivot/backend/workflows/dsl/schema.py</code>,
+  <code>pivot/backend/workflows/dsl/evaluator.py</code>,
+  <code>pivot/backend/workflows/dsl/backtest/engine.py</code>,
+  <code>pivot/backend/workflows/scheduler.py</code>,
+  <code>pivot/backend/services/workflow_backtester.py</code>,
+  <code>pivot/backend/services/_dsl_chat_tools.py</code>,
+  <code>pivot/backend/agents/tools.py</code>,
+  <code>pivot/backend/prompts/system.md</code>.
+</footer>
+
+</div>
+</body>
+</html>

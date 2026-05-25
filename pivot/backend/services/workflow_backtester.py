@@ -91,6 +91,14 @@ _BACKTESTABLE_TRIGGERS = {
     # scheduler helper. The backtester normalises them to trigger.schedule
     # during eligibility parsing — see `check_eligibility` below.
     "trigger.market_relative_time",
+    # Compound entry trigger — fire-time enumerated by walking the
+    # DSL tree against historical bars (one row per bar where the
+    # tree returns Ternary.TRUE).
+    "trigger.compound",
+    # Compound exit trigger — fires on every bar but only after the
+    # position-aware tree returns True against current SimState. The
+    # branch's place_order(sell) self-clamps when no position is held.
+    "trigger.exit_compound",
 }
 
 # Action types we can simulate.
@@ -180,12 +188,19 @@ class Branch:
     def all_symbols(self) -> set[str]:
         """Every symbol referenced by this branch — trigger.symbol,
         every step's `symbol`, plus every leg.symbol on
-        action.allocate_basket. Used to build the multi-symbol bar
-        registry."""
+        action.allocate_basket and every DSL-tree leaf symbol on
+        trigger.compound / trigger.exit_compound / condition.compound.
+        Used to build the multi-symbol bar registry."""
         out: set[str] = set()
         ts = self.trigger_symbol()
         if ts:
             out.add(ts)
+        # Tree symbols from the trigger config (compound / exit_compound).
+        if self.trigger_type in ("trigger.compound", "trigger.exit_compound"):
+            _collect_tree_symbols(self.trigger_config.get("entry"), out)
+            target = self.trigger_config.get("target_symbol")
+            if isinstance(target, str) and target.strip():
+                out.add(target.upper().strip())
         for step in self.body:
             cfg = step.get("config") or {}
             for key in ("symbol", "symbol_a", "symbol_b"):
@@ -200,7 +215,35 @@ class Branch:
                         leg_sym = leg.get("symbol")
                         if isinstance(leg_sym, str) and leg_sym.strip():
                             out.add(leg_sym.upper().strip())
+            # condition.compound / trigger.compound nested trees.
+            if step.get("step_type") in (
+                "condition.compound", "trigger.compound", "trigger.exit_compound",
+            ):
+                _collect_tree_symbols(cfg.get("entry"), out)
         return out
+
+
+def _collect_tree_symbols(node: Any, out: set[str]) -> None:
+    """Recursively pull every ``symbol`` (and ``a`` / ``b`` for spread
+    nodes) from a DSL tree dict. Skips nodes without a symbol field
+    (constant, math, logic, comparison, etc.). The structural walk
+    intentionally doesn't validate node shape — it's the validator's
+    job to reject malformed trees; here we just collect leaf symbols
+    for bar pre-loading."""
+    if isinstance(node, dict):
+        sym = node.get("symbol")
+        if isinstance(sym, str) and sym.strip():
+            out.add(sym.upper().strip())
+        # SpreadNode uses 'a' / 'b' instead of 'symbol'.
+        for key in ("a", "b"):
+            s = node.get(key)
+            if isinstance(s, str) and s.strip():
+                out.add(s.upper().strip())
+        for v in node.values():
+            _collect_tree_symbols(v, out)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_tree_symbols(item, out)
 
 
 @dataclass
@@ -361,6 +404,11 @@ class SimState:
     stoplosses: dict[str, list[StoplossOrder]] = field(default_factory=dict)
     # Active take-profits keyed by symbol.
     takeprofits: dict[str, list[TakeprofitOrder]] = field(default_factory=dict)
+    # Entry timestamp of the currently-open long lot per symbol. Set
+    # when a flat-to-long transition records a buy; cleared when the
+    # position fully closes. Used by trigger.exit_compound to resolve
+    # PositionNode.bars_held / peak_unrealised_pct / drawdown_from_peak_pct.
+    entry_ts: dict[str, pd.Timestamp] = field(default_factory=dict)
 
 
 def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
@@ -872,6 +920,347 @@ def _eval_simple_condition(
     return True
 
 
+class _BarStrictAccessor:
+    """Minimal DataAccessor for evaluating a DSL tree at one historical
+    bar inside the steps[] backtester.
+
+    Wraps the simulator's ``symbol_bars`` dict + the current
+    ``ts``. Honours the no-lookahead invariant by indexing strictly
+    ``<= ts``. Implements just enough of the DataAccessor protocol for
+    condition.compound / trigger.exit_compound to evaluate.
+
+    Position-aware evaluation goes through ``_PositionAwareAccessor``
+    which composes around this one — kept separate so entry-tree
+    evaluation (condition.compound) and exit-tree evaluation
+    (trigger.exit_compound) reuse the same market-data path.
+    """
+
+    def __init__(
+        self,
+        symbol_bars: dict[str, pd.DataFrame],
+        ts: pd.Timestamp,
+    ) -> None:
+        self._symbol_bars = symbol_bars
+        self._ts = ts
+        # Per-walk indicator cache (same role as LiveDataAccessor._call_cache).
+        self._cache: dict[tuple, Optional[float]] = {}
+
+    def _bars_up_to(self, symbol: str) -> Optional[pd.DataFrame]:
+        df = self._symbol_bars.get(symbol.upper())
+        if df is None or df.empty:
+            return None
+        sliced = df[df.index <= self._ts]
+        return sliced if not sliced.empty else None
+
+    def get_price(
+        self,
+        *,
+        symbol: str,
+        exchange: str = "NSE",
+        basis: str = "close",
+        offset: int = 0,
+    ) -> Optional[float]:
+        df = self._bars_up_to(symbol)
+        if df is None:
+            return None
+        idx = len(df) - 1 - int(offset)
+        if idx < 0:
+            return None
+        col = {"open": "Open", "high": "High", "low": "Low", "close": "Close"}.get(
+            (basis or "close").lower(),
+        )
+        if col is None or col not in df.columns:
+            return None
+        val = df[col].iloc[idx]
+        if pd.isna(val):
+            return None
+        return float(val)
+
+    def get_indicator(
+        self,
+        *,
+        symbol: str,
+        indicator: str,
+        period: int,
+        exchange: str = "NSE",
+        component: Optional[str] = None,
+        offset: int = 0,
+    ) -> Optional[float]:
+        comp_key = component.lower() if component else None
+        key = (
+            "ind", symbol.upper(), indicator.lower(), int(period),
+            comp_key, int(offset),
+        )
+        if key in self._cache:
+            return self._cache[key]
+        df = self._bars_up_to(symbol)
+        if df is None:
+            self._cache[key] = None
+            return None
+        from backend.services.backtest_indicators import (
+            compute_series_component,
+        )
+        # The backtester's bars carry capitalised OHLCV columns;
+        # compute_series_component normalises internally.
+        try:
+            series = compute_series_component(df, indicator, period, component=comp_key)
+        except Exception:
+            series = None
+        if series is None:
+            self._cache[key] = None
+            return None
+        cleaned = series.dropna()
+        if cleaned.empty or len(cleaned) <= int(offset):
+            self._cache[key] = None
+            return None
+        val = cleaned.iloc[-1 - int(offset)]
+        result = None if val is None or pd.isna(val) else float(val)
+        self._cache[key] = result
+        return result
+
+    def get_volume(
+        self,
+        *,
+        symbol: str,
+        bars: int = 1,
+        exchange: str = "NSE",
+        offset: int = 0,
+    ) -> Optional[float]:
+        df = self._bars_up_to(symbol)
+        if df is None or "Volume" not in df.columns:
+            return None
+        end = len(df) - int(offset)
+        start = max(0, end - int(bars))
+        if end <= 0 or start >= end:
+            return None
+        window = df["Volume"].iloc[start:end]
+        if window.isna().any():
+            return None
+        return float(window.sum())
+
+    def get_position_field(
+        self, *, field: str, basis: Optional[str] = None,
+    ) -> Optional[float]:
+        # Entry-tree default; exit-tree evaluation wraps this.
+        return None
+
+    _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+    def get_session_day(self) -> Optional[str]:
+        try:
+            return self._WEEKDAYS[self._ts.dayofweek]
+        except (AttributeError, IndexError):
+            return None
+
+
+class _BacktestPositionAwareAccessor:
+    """Backtest analogue of scheduler._PositionAwareAccessor.
+
+    Wraps a ``_BarStrictAccessor`` and answers PositionNode reads
+    against the current ``SimState`` for ``symbol``. Returns None for
+    fields that can't be resolved (no held position, no entry_ts on
+    record, etc.) — Kleene UNKNOWN handles the rest."""
+
+    def __init__(
+        self,
+        inner: "_BarStrictAccessor",
+        state: SimState,
+        symbol: str,
+        symbol_bars: dict[str, pd.DataFrame],
+        ts: pd.Timestamp,
+    ) -> None:
+        self._inner = inner
+        self._state = state
+        self._symbol = symbol.upper()
+        self._symbol_bars = symbol_bars
+        self._ts = ts
+
+    def get_price(self, **kw):
+        return self._inner.get_price(**kw)
+
+    def get_indicator(self, **kw):
+        return self._inner.get_indicator(**kw)
+
+    def get_volume(self, **kw):
+        return self._inner.get_volume(**kw)
+
+    def get_session_day(self):
+        return self._inner.get_session_day()
+
+    def get_position_field(
+        self, *, field: str, basis: Optional[str] = None,
+    ) -> Optional[float]:
+        sym = self._symbol
+        qty = self._state.holdings.get(sym, 0)
+        if qty <= 0:
+            return None  # No open long position.
+        entry_price = self._state.avg_buy_price.get(sym)
+        if entry_price is None or entry_price == 0.0:
+            return None
+        if field == "entry_price":
+            return float(entry_price)
+        if field in ("unrealised_pct", "unrealised_abs"):
+            current = self._current_price(basis)
+            if current is None:
+                return None
+            if field == "unrealised_abs":
+                return current - entry_price
+            return (current - entry_price) / entry_price
+        if field == "bars_held":
+            entry_ts = self._state.entry_ts.get(sym)
+            if entry_ts is None:
+                return None
+            df = self._symbol_bars.get(sym)
+            if df is None:
+                return None
+            # bars between entry_ts (exclusive) and current ts (inclusive).
+            window = df[(df.index > entry_ts) & (df.index <= self._ts)]
+            return float(len(window))
+        if field in ("peak_unrealised_pct", "drawdown_from_peak_pct"):
+            entry_ts = self._state.entry_ts.get(sym)
+            df = self._symbol_bars.get(sym)
+            if entry_ts is None or df is None:
+                return None
+            window = df[(df.index >= entry_ts) & (df.index <= self._ts)]
+            if window.empty:
+                return None
+            peak_close = float(window["Close"].max())
+            peak_pct = (peak_close - entry_price) / entry_price
+            if field == "peak_unrealised_pct":
+                return peak_pct
+            current = self._current_price(basis="close")
+            if current is None:
+                return None
+            cur_pct = (current - entry_price) / entry_price
+            return max(0.0, peak_pct - cur_pct)
+        return None
+
+    def _current_price(self, basis: Optional[str]) -> Optional[float]:
+        return self._inner.get_price(
+            symbol=self._symbol, basis=(basis or "close"), offset=0,
+        )
+
+
+def _eval_exit_compound(
+    cfg: dict[str, Any], state: SimState,
+    symbol_bars: dict[str, pd.DataFrame],
+    ts: pd.Timestamp, branch: "Branch",
+) -> bool:
+    """Backtest gate for trigger.exit_compound. Returns True when the
+    tree fires (so the branch body should run), False otherwise.
+
+    Resolves the target symbol from the trigger config or — when the
+    user didn't specify — from the first place_order(sell) in the
+    branch body. The position-aware accessor returns None for
+    PositionNode leaves when no position is held, so the natural
+    Kleene flow keeps the trigger silent on flat bars."""
+    entry_raw = cfg.get("entry")
+    if not isinstance(entry_raw, dict):
+        return False
+    target = cfg.get("target_symbol")
+    if not (isinstance(target, str) and target.strip()):
+        # Fall back to the first place_order(sell)'s symbol.
+        for step in branch.body:
+            if step.get("step_type") == "action.place_order":
+                step_cfg = step.get("config") or {}
+                if str(step_cfg.get("side", "")).lower() == "sell":
+                    candidate = step_cfg.get("symbol")
+                    if isinstance(candidate, str) and candidate.strip():
+                        target = candidate
+                        break
+    if not (isinstance(target, str) and target.strip()):
+        return False
+    symbol = target.upper().strip()
+    if state.holdings.get(symbol, 0) <= 0:
+        return False  # Nothing to exit.
+    try:
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+        tree = TypeAdapter(Tree).validate_python(entry_raw)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[backtest.exit_compound] tree parse failed: %s", exc)
+        return False
+    inner = _BarStrictAccessor(symbol_bars, ts)
+    accessor = _BacktestPositionAwareAccessor(
+        inner, state, symbol, symbol_bars, ts,
+    )
+    try:
+        result = evaluate(tree, accessor=accessor, prev_state={})
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[backtest.exit_compound] eval crashed: %s", exc)
+        return False
+    return result.value is Ternary.TRUE
+
+
+def _expand_compound(
+    cfg: dict[str, Any], bars: pd.DataFrame,
+    symbol_bars: dict[str, pd.DataFrame],
+) -> list[pd.Timestamp]:
+    """Per-bar fire-time enumeration for trigger.compound. Walks the
+    period and returns every bar where the entry tree evaluates True
+    against the bar-strict accessor. crosses_above / crosses_below
+    state is threaded via a single prev_state dict so transitions
+    fire correctly across consecutive bars."""
+    entry_raw = cfg.get("entry")
+    if not isinstance(entry_raw, dict):
+        return []
+    try:
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+        tree = TypeAdapter(Tree).validate_python(entry_raw)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[backtest.compound] tree parse failed: %s", exc)
+        return []
+    prev_state: dict[str, float] = {}
+    fires: list[pd.Timestamp] = []
+    for ts in bars.index:
+        accessor = _BarStrictAccessor(symbol_bars, ts)
+        try:
+            result = evaluate(tree, accessor=accessor, prev_state=prev_state)
+        except Exception:
+            continue
+        prev_state = result.new_state
+        if result.value is Ternary.TRUE:
+            fires.append(ts)
+    return fires
+
+
+def _expand_exit_compound(union_index: pd.DatetimeIndex) -> list[pd.Timestamp]:
+    """Exit-compound fires every bar — the tree itself decides whether
+    to act, and the position-aware gate in ``_execute_branch`` skips
+    branches whose tree returns FALSE/UNKNOWN."""
+    return list(union_index)
+
+
+def _eval_condition_compound(
+    cfg: dict[str, Any], symbol_bars: dict[str, pd.DataFrame],
+    ts: pd.Timestamp,
+) -> bool:
+    """Walk a DSL tree against historical bars at ``ts``. Returns True
+    to continue the branch, False on FALSE or UNKNOWN — same Kleene
+    halt semantics as the live executor."""
+    entry_raw = cfg.get("entry")
+    if not isinstance(entry_raw, dict):
+        return False
+    try:
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+        tree = TypeAdapter(Tree).validate_python(entry_raw)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[backtest.cond_compound] tree parse failed: %s", exc)
+        return False
+    accessor = _BarStrictAccessor(symbol_bars, ts)
+    try:
+        result = evaluate(tree, accessor=accessor, prev_state={})
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[backtest.cond_compound] eval crashed: %s", exc)
+        return False
+    return result.value is Ternary.TRUE
+
+
 def _eval_condition_numeric(
     cfg: dict[str, Any], state: SimState,
     symbol_bars: dict[str, pd.DataFrame],
@@ -956,11 +1345,13 @@ def _record_trade(
         state.product.pop(sym, None)
         state.stoplosses.pop(sym, None)
         state.takeprofits.pop(sym, None)
+        state.entry_ts.pop(sym, None)
     elif prev == 0 or (prev > 0) != (new > 0):
         # Fresh open OR sign flip (closed and reopened on the other
         # side in one trade — the entry price is THIS bar's price).
         state.avg_buy_price[sym] = price
         state.product[sym] = product
+        state.entry_ts[sym] = ts
     elif abs(new) > abs(prev):
         # Same-direction increase → weighted-average entry price.
         prev_avg = state.avg_buy_price.get(sym, 0.0)
@@ -969,6 +1360,7 @@ def _record_trade(
             (prev_avg * abs(prev) + price * added) / abs(new)
         )
         state.product.setdefault(sym, product)
+        # Keep the original entry_ts — pyramiding doesn't reset bars_held.
     # else: same-direction decrease → avg unchanged, partial close.
 
     # Side label for the chart card.
@@ -1121,7 +1513,17 @@ def _execute_branch(
     """Walk a branch's body for one fire. Updates ``state`` in place
     and appends to the chart payload buffers. Each step that operates
     on a symbol resolves its bars via ``symbol_bars[sym]`` so cross-
-    asset workflows ('buy A when B's RSI < 30') execute correctly."""
+    asset workflows ('buy A when B's RSI < 30') execute correctly.
+
+    Exit-compound branches re-evaluate the trigger tree against
+    ``state`` at this bar; if the tree didn't fire (no position OR
+    tree returned FALSE/UNKNOWN), the branch is skipped before any
+    body step runs."""
+    if branch.trigger_type == "trigger.exit_compound":
+        if not _eval_exit_compound(
+            branch.trigger_config, state, symbol_bars, ts, branch,
+        ):
+            return
     for step in branch.body:
         st = str(step.get("step_type") or "")
         cfg = step.get("config") or {}
@@ -1137,6 +1539,10 @@ def _execute_branch(
             "condition.time_window",
         }:
             if not _eval_simple_condition(st, cfg, state, ts):
+                return
+            continue
+        if st == "condition.compound":
+            if not _eval_condition_compound(cfg, symbol_bars, ts):
                 return
             continue
         if st == "action.place_order":
@@ -1540,6 +1946,12 @@ def backtest_workflow(
             fires = _expand_indicator(b.trigger_config, bars_for_trigger)
         elif b.trigger_type == "trigger.price":
             fires = _expand_price(b.trigger_config, bars_for_trigger)
+        elif b.trigger_type == "trigger.compound":
+            fires = _expand_compound(b.trigger_config, bars_for_trigger, symbol_bars)
+        elif b.trigger_type == "trigger.exit_compound":
+            # Fire every bar; the per-fire gate in _execute_branch
+            # consults SimState to decide whether the exit actually runs.
+            fires = _expand_exit_compound(union_index)
         else:
             fires = []
         for ts in fires:

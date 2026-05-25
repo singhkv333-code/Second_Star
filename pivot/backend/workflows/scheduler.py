@@ -462,6 +462,10 @@ async def _poll_watch_triggers() -> None:
                             # Phase-D5: compound (DSL-tree) triggers
                             # evaluated via backend/workflows/dsl/.
                             "trigger.compound",
+                            # Exit-tree triggers — same DSL evaluator
+                            # but only fires when the workflow has an
+                            # open position from a prior entry fire.
+                            "trigger.exit_compound",
                         ],
                     ),
                 )
@@ -509,6 +513,8 @@ async def _poll_watch_triggers() -> None:
                 await _evaluate_indicator_trigger(wf_id, step_idx, cfg, fired_at)
             elif step_type == "trigger.compound":
                 await _evaluate_compound_trigger(wf_id, step_idx, cfg, fired_at)
+            elif step_type == "trigger.exit_compound":
+                await _evaluate_exit_compound_trigger(wf_id, step_idx, cfg, fired_at)
         except Exception:
             logger.exception(
                 "[watcher] failed to evaluate %s for workflow %s step %d",
@@ -693,6 +699,287 @@ async def _evaluate_compound_trigger(
         # compound triggers most resemble indicator_alert (heavy use
         # of indicator nodes), so use that. A future schema rev could
         # add 'compound_alert' if the audit distinction matters.
+        await _fire_watch_run(
+            workflow_id, step_index, "indicator_alert", fired_at,
+        )
+
+
+class _OpenPosition:
+    """A minimal in-memory snapshot of one open position, threaded into
+    a position-aware DataAccessor so the DSL evaluator's PositionNode
+    leaves resolve to real numbers.
+
+    The watcher builds this from the workflow's run history: the most
+    recent successful ``action.place_order`` (buy side) on
+    ``target_symbol`` that is NOT followed by a closing sell.
+    """
+
+    __slots__ = ("symbol", "entry_price", "fill_ts", "peak_close")
+
+    def __init__(
+        self, symbol: str, entry_price: float,
+        fill_ts: datetime, peak_close: Optional[float] = None,
+    ) -> None:
+        self.symbol = symbol.upper()
+        self.entry_price = float(entry_price)
+        self.fill_ts = fill_ts
+        self.peak_close = float(peak_close) if peak_close is not None else None
+
+
+class _PositionAwareAccessor:
+    """Wraps a LiveDataAccessor and answers PositionNode reads against
+    a single open position. Every market-data method delegates to the
+    inner accessor; only ``get_position_field`` is overridden."""
+
+    def __init__(self, inner, position: _OpenPosition) -> None:
+        self._inner = inner
+        self._position = position
+        # bars_held is computed once per accessor lifetime to avoid
+        # walking the calendar on every leaf access inside the same
+        # tree walk.
+        self._bars_held_cache: Optional[int] = None
+
+    # Delegate everything market-data-shaped.
+    def get_price(self, **kw):
+        return self._inner.get_price(**kw)
+
+    def get_indicator(self, **kw):
+        return self._inner.get_indicator(**kw)
+
+    def get_volume(self, **kw):
+        return self._inner.get_volume(**kw)
+
+    def get_session_day(self):
+        return self._inner.get_session_day()
+
+    def evaluate_aggregate(self, *a, **kw):
+        if hasattr(self._inner, "evaluate_aggregate"):
+            return self._inner.evaluate_aggregate(*a, **kw)
+        return None
+
+    # The override that matters.
+    def get_position_field(
+        self, *, field: str, basis: Optional[str] = None,
+    ) -> Optional[float]:
+        p = self._position
+        if field == "entry_price":
+            return p.entry_price
+        if field in ("unrealised_pct", "unrealised_abs"):
+            current = self._current_price(basis)
+            if current is None or p.entry_price == 0.0:
+                return None
+            if field == "unrealised_abs":
+                return current - p.entry_price
+            return (current - p.entry_price) / p.entry_price
+        if field == "bars_held":
+            return float(self._bars_held())
+        if field == "peak_unrealised_pct":
+            peak = p.peak_close
+            if peak is None or p.entry_price == 0.0:
+                return None
+            return (peak - p.entry_price) / p.entry_price
+        if field == "drawdown_from_peak_pct":
+            peak = p.peak_close
+            current = self._current_price(basis="close")
+            if peak is None or current is None or p.entry_price == 0.0:
+                return None
+            peak_pct = (peak - p.entry_price) / p.entry_price
+            cur_pct = (current - p.entry_price) / p.entry_price
+            dd = peak_pct - cur_pct
+            return max(0.0, dd)
+        return None
+
+    def _current_price(self, basis: Optional[str]) -> Optional[float]:
+        b = (basis or "close").lower()
+        return self._inner.get_price(
+            symbol=self._position.symbol, basis=b, offset=0,
+        )
+
+    def _bars_held(self) -> int:
+        if self._bars_held_cache is not None:
+            return self._bars_held_cache
+        # Naive: count weekdays between fill_ts and now. Good enough for
+        # daily-bar workflows. A future revision can swap in the real
+        # NSE trading calendar.
+        now = datetime.now(timezone.utc)
+        fill = self._position.fill_ts
+        if fill.tzinfo is None:
+            fill = fill.replace(tzinfo=timezone.utc)
+        delta_days = max(0, (now.date() - fill.date()).days)
+        bars = 0
+        for d in range(delta_days + 1):
+            from datetime import timedelta
+            day = (fill.date() + timedelta(days=d))
+            if day.weekday() < 5:  # Mon..Fri
+                bars += 1
+        # bars_held = number of completed bars AFTER entry, so subtract 1
+        # for the entry bar itself.
+        self._bars_held_cache = max(0, bars - 1)
+        return self._bars_held_cache
+
+
+def _resolve_open_position(
+    workflow_id: str, target_symbol: Optional[str],
+) -> Optional[_OpenPosition]:
+    """Walk the workflow's run history (most recent first) for the
+    latest buy-side ``action.place_order`` whose symbol has NOT been
+    closed by a subsequent sell of equal-or-greater quantity.
+
+    Returns None when no open position is found — the exit-tree
+    trigger then no-ops for this tick. Cheap query: bounded by
+    ``_OPEN_POSITION_RUN_LIMIT`` recent runs (defaults to 50)."""
+    from backend.models import StepStatus, WorkflowRunStep
+
+    target = target_symbol.upper().strip() if target_symbol else None
+
+    db = SessionLocal()
+    try:
+        # Pull recent run-step rows for action.place_order in this
+        # workflow. Order by run finish desc so we see latest fills
+        # first. Limit is a sanity cap; v1 workflows rarely run >50
+        # times in the lookback window.
+        rows = (
+            db.query(WorkflowRunStep, WorkflowRun)
+            .join(WorkflowRun, WorkflowRunStep.run_id == WorkflowRun.id)
+            .filter(
+                WorkflowRun.workflow_id == workflow_id,
+                WorkflowRunStep.step_type == "action.place_order",
+                WorkflowRunStep.status == StepStatus.succeeded,
+            )
+            .order_by(WorkflowRun.started_at.desc())
+            .limit(_OPEN_POSITION_RUN_LIMIT)
+            .all()
+        )
+
+        # Track net signed quantity per symbol across the recent runs.
+        # First scan: latest-buy-not-yet-fully-closed-by-sells.
+        net_qty: dict[str, int] = {}
+        latest_buy: dict[str, tuple[float, datetime]] = {}
+        peak_close: dict[str, float] = {}
+        for step, run in rows:
+            out = step.output or {}
+            if not isinstance(out, dict):
+                continue
+            sym = str(out.get("symbol") or "").upper()
+            if not sym:
+                continue
+            if target and sym != target:
+                continue
+            qty_raw = out.get("quantity") or out.get("filled_quantity") or 0
+            try:
+                qty = int(qty_raw)
+            except (TypeError, ValueError):
+                continue
+            side = str(out.get("side") or "").lower()
+            signed = qty if side == "buy" else -qty if side == "sell" else 0
+            if signed == 0:
+                continue
+            net_qty[sym] = net_qty.get(sym, 0) + signed
+            if signed > 0 and sym not in latest_buy:
+                # Record the first buy we see (latest by descending sort).
+                fill_price = (
+                    out.get("executed_price") or out.get("price") or out.get("fill_price")
+                )
+                try:
+                    fp = float(fill_price) if fill_price is not None else None
+                except (TypeError, ValueError):
+                    fp = None
+                if fp is not None:
+                    latest_buy[sym] = (fp, run.started_at)
+
+        # An "open" position has net_qty > 0 AND a recorded buy.
+        for sym, qty in net_qty.items():
+            if qty <= 0:
+                continue
+            if sym not in latest_buy:
+                continue
+            fp, fill_ts = latest_buy[sym]
+            return _OpenPosition(
+                symbol=sym, entry_price=fp, fill_ts=fill_ts,
+                peak_close=peak_close.get(sym),
+            )
+        return None
+    finally:
+        db.close()
+
+
+_OPEN_POSITION_RUN_LIMIT = 50
+
+
+async def _evaluate_exit_compound_trigger(
+    workflow_id: str,
+    step_index: int,
+    cfg: dict[str, object],
+    fired_at: datetime,
+) -> None:
+    """Watcher path for trigger.exit_compound.
+
+    Pre-check: resolve the workflow's open position via
+    ``_resolve_open_position``. No position → no-op (nothing to exit).
+    With a position, walk the DSL tree under a
+    ``_PositionAwareAccessor`` so ``PositionNode`` leaves resolve to
+    real numbers. Same _last_values plumbing as the entry-compound
+    path so crosses_above / crosses_below work across ticks."""
+    entry_raw = cfg.get("entry")
+    if not isinstance(entry_raw, dict):
+        return
+
+    target_symbol_raw = cfg.get("target_symbol")
+    target_symbol = (
+        str(target_symbol_raw).upper().strip()
+        if isinstance(target_symbol_raw, str) and target_symbol_raw.strip()
+        else None
+    )
+
+    position = await asyncio.to_thread(
+        _resolve_open_position, workflow_id, target_symbol,
+    )
+    if position is None:
+        return  # Nothing to exit — quietly skip.
+
+    last_values_raw = cfg.get("_last_values")
+    prev_state: dict[str, float] = (
+        {k: float(v) for k, v in last_values_raw.items()
+         if isinstance(v, (int, float))}
+        if isinstance(last_values_raw, dict) else {}
+    )
+
+    def _evaluate_sync() -> tuple[bool, dict[str, float]]:
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.data_accessor import LiveDataAccessor
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+
+        try:
+            tree = TypeAdapter(Tree).validate_python(entry_raw)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[watcher.exit_compound] step %d workflow %s — tree parse failed: %s",
+                step_index, workflow_id, exc,
+            )
+            return False, prev_state
+
+        accessor = _PositionAwareAccessor(LiveDataAccessor(), position)
+        result = evaluate(tree, accessor=accessor, prev_state=prev_state)
+        fired = result.value is Ternary.TRUE
+        return fired, result.new_state
+
+    try:
+        matched, new_state = await asyncio.to_thread(_evaluate_sync)
+    except Exception:
+        logger.exception(
+            "[watcher.exit_compound] eval crashed; step %d workflow %s",
+            step_index, workflow_id,
+        )
+        return
+
+    if new_state != prev_state:
+        await asyncio.to_thread(
+            _persist_last_value,
+            workflow_id, step_index, "_last_values", new_state,
+        )
+
+    if matched:
         await _fire_watch_run(
             workflow_id, step_index, "indicator_alert", fired_at,
         )

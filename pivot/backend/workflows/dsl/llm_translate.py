@@ -138,6 +138,7 @@ async def translate_condition_to_tree(
     condition: str,
     *,
     allow_position: bool = False,
+    primary_symbol: Optional[str] = None,
     cache_key: str = "dsl.translate.v1",
 ) -> tuple[dict, dict[str, Any]]:
     """Hand a natural-language condition to the LLM and return its DSL
@@ -149,6 +150,13 @@ async def translate_condition_to_tree(
 
     ``allow_position`` is a hint to the prompt — when True, the LLM is
     permitted to emit the ``position`` leaf (exit-tree context).
+
+    ``primary_symbol`` is the ticker the caller already pinned (e.g.
+    "INFY" when the chat user said "buy 15 INFY on the golden cross").
+    When set, the translator system prompt is appended with a hint so
+    leaves default to this symbol whenever the NL condition doesn't
+    name one — prevents the model from falling back to "NSE" / "NIFTY"
+    placeholders that don't resolve to real bars.
     """
     # Lazy import — avoids pulling the LLM stack into modules that just
     # need to know the prompt exists.
@@ -160,6 +168,16 @@ async def translate_condition_to_tree(
         raise TranslationError("empty condition")
 
     sys_prompt = SYSTEM_PROMPT
+    if primary_symbol and primary_symbol.strip():
+        sym = primary_symbol.strip().upper()
+        sys_prompt = (
+            sys_prompt
+            + f"\n\nDEFAULT SYMBOL — when a leaf node (indicator, price, "
+              f"volume, gap, pct_change) needs a 'symbol' field and the "
+              f"user's NL condition does NOT name one explicitly, use "
+              f"\"{sym}\" as the symbol. NEVER emit \"NSE\" or \"BSE\" as "
+              f"a symbol — those are exchange codes, not tickers."
+        )
     if allow_position:
         sys_prompt = (
             sys_prompt

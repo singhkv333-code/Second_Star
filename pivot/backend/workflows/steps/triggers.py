@@ -20,6 +20,7 @@ from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
     TriggerCompoundConfig,
     TriggerEventConfig,
+    TriggerExitCompoundConfig,
     TriggerIndicatorConfig,
     TriggerManualConfig,
     TriggerMarketRelativeTimeConfig,
@@ -107,6 +108,31 @@ async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
     executor, the run row already carries an indicator_alert /
     price_alert triggered_by (the watcher picks the closest match)
     and the audit_context records which tree fired."""
+    return None
+
+
+@register_step(
+    step_type="trigger.exit_compound",
+    category="trigger",
+    label="On compound exit condition",
+    description=(
+        "Fire when a DSL tree (with position-state leaves) evaluates to "
+        "True AND this workflow has an open position from a prior fire. "
+        "Use for rich exits — e.g. 'unrealised_pct <= -2% OR (bars_held "
+        ">= 10 AND RSI > 70) OR drawdown_from_peak_pct >= 5%'."
+    ),
+    icon="log-out",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerExitCompoundConfig,
+    output_schema=None,
+)
+async def execute_trigger_exit_compound(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the scheduler's watcher
+    (``backend/workflows/scheduler.py:_evaluate_exit_compound_trigger``)
+    walks the tree on each tick. By the time the engine reaches this
+    executor the run row already carries
+    ``triggered_by='indicator_alert'``."""
     return None
 
 

@@ -1130,14 +1130,21 @@ tool("backtest_dsl_tree",
 
 tool("propose_dsl_workflow",
      "PROPOSE a new live workflow (agent / automation) whose entry "
-     "condition is a compound DSL tree. PREFER over propose_workflow "
-     "when the trigger has any of: 2+ AND/OR conditions, cross-symbol "
+     "condition is a compound DSL tree, with an OPTIONAL exit branch "
+     "driven by a second DSL tree. PREFER over propose_workflow when "
+     "the trigger has any of: 2+ AND/OR conditions, cross-symbol "
      "filters, indicator-vs-indicator crossings, aggregators "
      "(20-day high, percentrank, barssince, ...), or multi-output "
      "indicator components (BB upper/lower, MACD line vs signal). "
-     "Hand the user's full natural-language condition through as the "
-     "`condition` field — the tool translates to a tree internally. "
-     "Returns a workflow_draft_card the user activates from chat.",
+     "Hand the user's full natural-language entry through as `condition` "
+     "and (if present) their exit condition through as `exit_condition` "
+     "— the tool translates both to trees internally and emits the right "
+     "step shape (trigger.compound entry + optional trigger.exit_compound "
+     "exit branch with fetch.portfolio + sell). PASS exit_condition "
+     "WHENEVER the user names an exit ('sell when X', 'exit when Y', "
+     "'close the position when Z'); position-state phrases (drawdown, "
+     "unrealised P&L, bars held, peak-to-current) are FIRST-CLASS in the "
+     "exit tree. Returns a workflow_draft_card.",
      {
          "condition": {
              "type": "string",
@@ -1160,9 +1167,12 @@ tool("propose_dsl_workflow",
              "enum": ["notify_only", "buy_market", "buy_limit"],
              "default": "notify_only",
              "description": (
-                 "What to do when the trigger fires. notify_only "
+                 "What to do when the entry trigger fires. notify_only "
                  "(default) just sends a push notification; buy_market "
-                 "/ buy_limit register an order (requires Kite linked)."
+                 "/ buy_limit place a real order. The exit branch (when "
+                 "exit_condition is set) always uses a market sell of "
+                 "the runtime-held quantity — it does not honour limit "
+                 "semantics."
              ),
          },
          "quantity": {
@@ -1174,6 +1184,19 @@ tool("propose_dsl_workflow",
              "type": "number",
              "description": (
                  "Limit price (₹). Required when action_kind=buy_limit."
+             ),
+         },
+         "exit_condition": {
+             "type": "string",
+             "description": (
+                 "Optional natural-language EXIT condition. When set, "
+                 "the tool adds an exit branch with trigger.exit_compound "
+                 "that fires only when this workflow holds an open "
+                 "position. Examples: 'when price > upper Bollinger "
+                 "band', 'when RSI > 70', 'when unrealised P&L drops "
+                 "below -2%', 'when drawdown from peak >= 5%', 'after "
+                 "10 bars held'. Pass verbatim — translation happens "
+                 "server-side with PositionNode leaves allowed."
              ),
          },
      },

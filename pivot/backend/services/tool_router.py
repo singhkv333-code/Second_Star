@@ -347,6 +347,50 @@ _RULES: list[_Rule] = [
         r"|\bis\s+(?:the\s+)?market\s+open",
         "get_market_status",
     ),
+
+    # ── Polymarket: BROWSE / discover open prediction-market contracts.
+    # Surfaced for "what's on polymarket", "show me crypto markets on
+    # poly", "browse politics markets". Pairs naturally with
+    # propose_polymarket_trigger after the user picks a market.
+    _r(
+        r"\bpoly(?:market)?\b.{0,40}\b(?:browse|show|list|what(?:'s| is)|"
+        r"open|trending|hot|popular|markets?|contracts?|events?)\b"
+        r"|\b(?:browse|show|list)\b.{0,30}\bpoly(?:market)?\b"
+        r"|\b(?:browse|show)\b.{0,30}\b(?:bitcoin|btc|crypto|political|politics|"
+        r"election|sports|nba|nfl|world\s+cup|fifa)\s+markets?\b"
+        r"|\bwhat\s+(?:can|do)\s+(?:i|we)\s+bet\s+on\b"
+        r"|\bwhat(?:'s| is)\s+hot\s+on\s+poly",
+        "browse_polymarket_markets",
+    ),
+
+    # ── Polymarket: PREDICTION-MARKET TRIGGER (threshold OR resolution).
+    # Matches user asks that name a prediction-market event ("Trump 2028",
+    # "Modi 2029", "Bitcoin $150k probability", "Iran ceasefire", "Fed
+    # cut", "election", "world cup") OR explicitly say polymarket. Also
+    # catches the "alert me when X probability above/below N%" /
+    # "execute when X resolves / actually happens" phrasings. Both modes
+    # of the slice-4 trigger live behind the SAME tool — handler picks
+    # mode='threshold' vs 'resolution' from the prompt.
+    _r(
+        r"\bpoly(?:market)?\b"
+        r"|\bprediction\s+market(?:s)?\b"
+        r"|\bprobability\s+of\b.{0,60}\b(?:above|below|over|under|hits?|crosses?|reaches?|goes?)\b"
+        r"|\b(?:alert|tell|ping|notify|wake|let\s+me\s+know|execute|fire|trigger)\s+(?:me\s+)?(?:if|when|once)\b.{0,80}\b(?:probability|chance|odds|resolves?|actually|happens?|wins?|loses?)\b"
+        r"|\b(?:trump|biden|harris|vance|modi|bjp|congress)\b.{0,30}\b(?:2024|2025|2026|2027|2028|2029|election|wins?|loses?|nominee|president)\b"
+        r"|\b(?:fed|rbi|ecb|boe|boj)\b.{0,40}\b(?:cuts?|hikes?|holds?|rate(?:s)?|meeting|decision)\b"
+        r"|\b(?:bitcoin|btc|ethereum|eth|sol|xrp)\b.{0,40}\b\$?\d{2,7}k?\b.{0,30}\b(?:above|below|probability|chance|hits?|crosses?|reaches?)\b"
+        r"|\b(?:world\s+cup|olympics?|t20|ipl|champions\s+league|nba|nfl)\b.{0,40}\b(?:winner|wins?|champion|probability)\b"
+        r"|\b(?:resolves?|resolved|resolution)\s+(?:yes|no|either)\b"
+        # Geopolitical / current-event nouns wrapped in an alert-shaped
+        # ask. "alert me if Iran ceasefire breaks down", "tell me when
+        # Russia-Ukraine peace deal lands", "ping me if Khamenei
+        # regime falls". Discriminated from Indian-stock alerts by the
+        # absence of an NSE ticker / share / RSI keyword (those rules
+        # match first and add their own tools).
+        r"|\b(?:alert|tell|ping|notify|wake|let\s+me\s+know|execute|fire|trigger)\s+(?:me\s+)?(?:if|when|once)\b.{0,100}\b(?:ceasefire|war|peace|treaty|summit|deal|regime|invasion|invades?|airspace|sanctions?|hostages?|coup|impeachment|nomination|nominee|nobel|grammy|oscar)\b",
+        "propose_polymarket_trigger",
+        "browse_polymarket_markets",
+    ),
 ]
 
 

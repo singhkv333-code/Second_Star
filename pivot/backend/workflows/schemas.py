@@ -451,6 +451,76 @@ class TriggerCompoundConfig(_Strict):
         return self
 
 
+class TriggerExitCompoundConfig(_Strict):
+    """Fire when a tree evaluates to True AND the workflow has an open
+    position from a prior entry-branch fire.
+
+    Same tree grammar as ``TriggerCompoundConfig`` but with two
+    semantic differences:
+
+      1. ``PositionNode`` leaves are allowed and resolve against the
+         workflow's most recent open position (entry_price,
+         unrealised_pct, bars_held, peak_unrealised_pct,
+         drawdown_from_peak_pct). The watcher resolves the position via
+         the most recent successful ``action.place_order`` (buy side)
+         in the workflow's run history that isn't already closed by a
+         subsequent sell.
+
+      2. The watcher SKIPS evaluating this trigger when no open
+         position exists for the workflow — there's nothing to exit.
+
+    ``target_symbol`` narrows the position lookup when the workflow
+    has multiple entry symbols. When omitted, the watcher resolves the
+    symbol from the most recent prior fill in the same workflow.
+    """
+
+    entry: dict = Field(
+        ...,
+        description=(
+            "Recursive condition tree (same grammar as trigger.compound) "
+            "with PositionNode leaves allowed. The tree fires the exit "
+            "branch when it returns Ternary.TRUE."
+        ),
+    )
+    target_symbol: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional symbol to narrow the position lookup. Defaults to "
+            "the symbol of the most recent action.place_order(buy) in "
+            "this workflow's run history."
+        ),
+    )
+    last_values: dict = Field(
+        default_factory=dict,
+        alias="_last_values",
+        description=(
+            "Engine-managed crossing state. Same shape as "
+            "TriggerCompoundConfig._last_values."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_tree(self) -> "TriggerExitCompoundConfig":
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.schema import Tree
+        from backend.workflows.dsl.validators import (
+            DSLValidationError,
+            semantic_validate,
+        )
+        try:
+            parsed = TypeAdapter(Tree).validate_python(self.entry)
+        except Exception as exc:
+            raise ValueError(
+                f"exit_compound trigger 'entry' tree invalid: {exc}"
+            ) from exc
+        try:
+            # allow_position=True — position leaves ARE expected here.
+            semantic_validate(parsed, allow_position=True)
+        except DSLValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
+
+
 # ── Data fetches ─────────────────────────────────────────────────────
 
 class FetchQuoteConfig(_Strict):
@@ -832,6 +902,58 @@ class ConditionTimeWindowConfig(_Strict):
     start_time: str = Field(..., description="HH:MM 24h, e.g. '09:15'")
     end_time: str = Field(..., description="HH:MM 24h, e.g. '15:30'")
     timezone: str = "Asia/Kolkata"
+
+
+class ConditionCompoundConfig(_Strict):
+    """Mid-branch DSL gate.
+
+    Identical tree grammar to ``TriggerCompoundConfig`` but evaluated as
+    a CONDITION (not a trigger). Lets a workflow author replace the
+    classic ``fetch.indicator -> condition.numeric`` ladder with a
+    single composable tree.
+
+    Semantics at execute time:
+      - Walk the tree via ``backend.workflows.dsl.evaluator.evaluate``
+        with a fresh ``LiveDataAccessor``.
+      - ``Ternary.TRUE``  → pass, branch continues.
+      - ``Ternary.FALSE`` → halt the branch with
+        ``halt_reason='condition_not_met'`` (clean, not an error).
+      - ``Ternary.UNKNOWN`` → halt the branch with the same reason.
+        Kleene semantics: missing data should not silently pass.
+
+    Stateless: the condition is re-evaluated from scratch on every
+    fire. ``crosses_above`` / ``crosses_below`` inside a
+    ``condition.compound`` tree resolve to UNKNOWN because there is no
+    prior-tick state — use ``trigger.compound`` for crossings.
+    """
+
+    entry: dict = Field(
+        ...,
+        description=(
+            "Recursive condition tree (same grammar as trigger.compound). "
+            "PositionNode leaves are NOT allowed — entry-tree semantics."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_tree(self) -> "ConditionCompoundConfig":
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.schema import Tree
+        from backend.workflows.dsl.validators import (
+            DSLValidationError,
+            semantic_validate,
+        )
+        try:
+            parsed = TypeAdapter(Tree).validate_python(self.entry)
+        except Exception as exc:
+            raise ValueError(
+                f"condition.compound 'entry' tree invalid: {exc}"
+            ) from exc
+        try:
+            semantic_validate(parsed)  # allow_position=False (default)
+        except DSLValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 # ── Actions ──────────────────────────────────────────────────────────

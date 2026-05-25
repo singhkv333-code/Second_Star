@@ -1,0 +1,2410 @@
+{
+  "label": "multi_entry_exit_run_1",
+  "recorded_at": "2026-05-25T11:53:20.252719+00:00",
+  "ended_at": "2026-05-25T12:01:24.097250+00:00",
+  "user_id": 100,
+  "user_email": "eval_1e1cd16cb1@p.com",
+  "n_prompts": 50,
+  "n_llm_usage_rows": 118,
+  "results": [
+    {
+      "id": "me_rsi_ema_basic",
+      "prompt": "buy INFY when RSI(14) is below 30 and price is above the 200-day EMA",
+      "tags": [
+        "multi_entry",
+        "rsi_ema"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow",
+          "propose_threshold_order"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:53:20.253412+00:00",
+      "_ended_at": "2026-05-25T11:53:30.307292+00:00",
+      "latency_ms_wall": 10053.700792006566,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted INFY buy condition. Click Activate to review the live card.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 10041,
+      "tokens": {
+        "input_tokens": 41537,
+        "output_tokens": 526,
+        "total_tokens": 42063,
+        "cost_usd": 0.009068,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "me_rsi_macd_ema_triple",
+      "prompt": "buy 10 RELIANCE when RSI<30 AND MACD line is above the signal line AND close is above 200-EMA",
+      "tags": [
+        "multi_entry",
+        "triple_and"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:53:30.307395+00:00",
+      "_ended_at": "2026-05-25T11:53:40.812085+00:00",
+      "latency_ms_wall": 10504.516708002484,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `RELIANCE` buy 10 on RSI, MACD, and 200-EMA conditions. Click Activate when you are ready.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 10486,
+      "tokens": {
+        "input_tokens": 40935,
+        "output_tokens": 301,
+        "total_tokens": 41236,
+        "cost_usd": 0.005956,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "me_rsi_or_macd_cross",
+      "prompt": "buy TCS when RSI(14) drops below 25 OR MACD crosses above signal",
+      "tags": [
+        "multi_entry",
+        "or_logic"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:53:40.812161+00:00",
+      "_ended_at": "2026-05-25T11:53:52.779455+00:00",
+      "latency_ms_wall": 11967.117041996971,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `TCS` buy on RSI(14) < 25 or MACD bullish cross. Click Activate.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 11937,
+      "tokens": {
+        "input_tokens": 40818,
+        "output_tokens": 242,
+        "total_tokens": 41060,
+        "cost_usd": 0.005745,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "me_golden_cross",
+      "prompt": "buy NIFTYBEES on the golden cross \u2014 50-day SMA crosses above 200-day SMA",
+      "tags": [
+        "multi_entry",
+        "crossover",
+        "golden_cross"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:53:52.779548+00:00",
+      "_ended_at": "2026-05-25T11:54:01.477148+00:00",
+      "latency_ms_wall": 8697.37366699701,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: NIFTYBEES golden cross buy. Review and click Activate.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 8678,
+      "tokens": {
+        "input_tokens": 41040,
+        "output_tokens": 292,
+        "total_tokens": 41332,
+        "cost_usd": 0.008348000000000001,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "me_20_50_sma_cross",
+      "prompt": "buy HDFCBANK when 20-SMA crosses above 50-SMA",
+      "tags": [
+        "multi_entry",
+        "crossover",
+        "sma"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:01.477302+00:00",
+      "_ended_at": "2026-05-25T11:54:05.560576+00:00",
+      "latency_ms_wall": 4083.1482089997735,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "What quantity should I use for the HDFCBANK buy when the 20-SMA crosses above the 50-SMA?",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 4061,
+      "tokens": {
+        "input_tokens": 19074,
+        "output_tokens": 44,
+        "total_tokens": 19118,
+        "cost_usd": 0.002505,
+        "llm_calls": 1
+      }
+    },
+    {
+      "id": "me_bollinger_lower_break",
+      "prompt": "buy ITC when price breaks below the lower Bollinger band (20-period, 2 std)",
+      "tags": [
+        "multi_entry",
+        "bollinger",
+        "multi_output"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:05.560700+00:00",
+      "_ended_at": "2026-05-25T11:54:16.184619+00:00",
+      "latency_ms_wall": 10623.697458999231,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `ITC` buy on lower Bollinger break. Click Activate.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 10601,
+      "tokens": {
+        "input_tokens": 43261,
+        "output_tokens": 173,
+        "total_tokens": 43434,
+        "cost_usd": 0.008442,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "me_rsi_volume_confirm",
+      "prompt": "buy 5 WIPRO when RSI<35 and today's volume is at least 2x the 20-day average volume",
+      "tags": [
+        "multi_entry",
+        "volume"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:16.184757+00:00",
+      "_ended_at": "2026-05-25T11:54:26.323393+00:00",
+      "latency_ms_wall": 10138.428041995212,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: WIPRO buy 5 on RSI and volume filter. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 10116,
+      "tokens": {
+        "input_tokens": 39011,
+        "output_tokens": 406,
+        "total_tokens": 39417,
+        "cost_usd": 0.0058449999999999995,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "me_macd_zero_cross_price_above_sma",
+      "prompt": "buy SBIN when MACD histogram crosses above zero and close > 50-SMA",
+      "tags": [
+        "multi_entry",
+        "macd"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:26.323552+00:00",
+      "_ended_at": "2026-05-25T11:54:35.368579+00:00",
+      "latency_ms_wall": 9044.82820800331,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: SBIN buy on MACD and 50-SMA confirmation. Quantity is set to 1 share since you did not specify size; edit that before activating.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9023,
+      "tokens": {
+        "input_tokens": 38918,
+        "output_tokens": 374,
+        "total_tokens": 39292,
+        "cost_usd": 0.005758,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "me_rsi_pct_dip",
+      "prompt": "buy 20 KOTAKBANK when RSI(14) below 30 AND price has dropped at least 3% in the last 5 trading days",
+      "tags": [
+        "multi_entry",
+        "pct_change"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:35.368748+00:00",
+      "_ended_at": "2026-05-25T11:54:35.390274+00:00",
+      "latency_ms_wall": 21.42045799701009,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Here's a draft for **KOTAKBANK RSI(14) below 30** \u2014 it buys 20 KOTAKBANK at market when RSI(14) drops below 30.0. Review the steps below and click Activate when you're happy with it.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "llm_calls": 0
+      }
+    },
+    {
+      "id": "me_rsi_ema_volume_quadruple",
+      "prompt": "buy ETERNAL when RSI<30 AND close > 200-EMA AND MACD line > signal AND volume > 1.5x its 20-day average",
+      "tags": [
+        "multi_entry",
+        "quadruple_and"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:35.390322+00:00",
+      "_ended_at": "2026-05-25T11:54:46.085431+00:00",
+      "latency_ms_wall": 10694.882834002783,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `ETERNAL` buy on RSI, trend, MACD, and volume filters. Click Activate; quantity is set to `1` share.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 10678,
+      "tokens": {
+        "input_tokens": 41101,
+        "output_tokens": 373,
+        "total_tokens": 41474,
+        "cost_usd": 0.006077,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "me_breakout_20day_high",
+      "prompt": "buy ICICIBANK when price closes above its 20-day high AND RSI < 70",
+      "tags": [
+        "multi_entry",
+        "breakout",
+        "aggregator"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:46.085553+00:00",
+      "_ended_at": "2026-05-25T11:54:53.366821+00:00",
+      "latency_ms_wall": 7281.171249996987,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "How many `ICICIBANK` shares should I use for this strategy?",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 7260,
+      "tokens": {
+        "input_tokens": 21352,
+        "output_tokens": 260,
+        "total_tokens": 21612,
+        "cost_usd": 0.003282,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "me_bollinger_squeeze",
+      "prompt": "buy LT when Bollinger Band bandwidth is in the bottom 10% of the last 252 days AND MACD is positive",
+      "tags": [
+        "multi_entry",
+        "bollinger",
+        "percentrank"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:54:53.366896+00:00",
+      "_ended_at": "2026-05-25T11:55:01.958322+00:00",
+      "latency_ms_wall": 8591.319499995734,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "Do you want me to draft a live workflow for `LT`, or a backtest over a specific period?",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 8573,
+      "tokens": {
+        "input_tokens": 39143,
+        "output_tokens": 85,
+        "total_tokens": 39228,
+        "cost_usd": 0.007604,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "me_adx_trending_with_rsi",
+      "prompt": "buy MARUTI when ADX > 25 (trending) AND RSI between 40 and 60",
+      "tags": [
+        "multi_entry",
+        "adx",
+        "range"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:55:01.958440+00:00",
+      "_ended_at": "2026-05-25T11:55:15.527177+00:00",
+      "latency_ms_wall": 13568.524458001775,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `MARUTI`: buy when **ADX(14) > 25** and **RSI(14) is between 40 and 60**. Click Activate; quantity is set to 1 share.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 13537,
+      "tokens": {
+        "input_tokens": 40845,
+        "output_tokens": 290,
+        "total_tokens": 41135,
+        "cost_usd": 0.005848,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "me_pairs_spread",
+      "prompt": "buy TCS when the TCS / INFY ratio z-score over 60 days drops below -2",
+      "tags": [
+        "multi_entry",
+        "spread",
+        "cross_symbol"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:55:15.527283+00:00",
+      "_ended_at": "2026-05-25T11:55:25.099119+00:00",
+      "latency_ms_wall": 9569.876041998214,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `TCS` buy on the `TCS/INFY` 60-day z-score trigger. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9547,
+      "tokens": {
+        "input_tokens": 41253,
+        "output_tokens": 170,
+        "total_tokens": 41423,
+        "cost_usd": 0.008061,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "me_higher_high_higher_low",
+      "prompt": "buy AXISBANK when today's high > yesterday's high AND today's low > yesterday's low (higher high + higher low)",
+      "tags": [
+        "multi_entry",
+        "bar_offset"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:55:25.099222+00:00",
+      "_ended_at": "2026-05-25T11:55:35.037956+00:00",
+      "latency_ms_wall": 9936.113957999623,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `AXISBANK` higher-high/higher-low buy. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9913,
+      "tokens": {
+        "input_tokens": 34292,
+        "output_tokens": 245,
+        "total_tokens": 34537,
+        "cost_usd": 0.006919,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "ee_rsi_entry_exit_pair",
+      "prompt": "buy ETERNAL when RSI(14) drops below 30, sell when RSI rises above 70",
+      "tags": [
+        "entry_exit",
+        "rsi"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:55:35.038118+00:00",
+      "_ended_at": "2026-05-25T11:55:44.871528+00:00",
+      "latency_ms_wall": 9831.928999999946,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted the `ETERNAL` RSI buy rule. This draft only covers the buy leg; the sell-on-RSI-above-70 leg was not included in the generated card.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9810,
+      "tokens": {
+        "input_tokens": 40664,
+        "output_tokens": 170,
+        "total_tokens": 40834,
+        "cost_usd": 0.005563,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "ee_rsi_entry_multi_exit",
+      "prompt": "buy INFY when RSI<30. Exit when RSI>70 OR when I'm down 2% on the position",
+      "tags": [
+        "entry_exit",
+        "multi_exit",
+        "position_pct"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:55:44.871646+00:00",
+      "_ended_at": "2026-05-25T11:55:59.847080+00:00",
+      "latency_ms_wall": 14974.210000000312,
+      "verdict": "PARTIAL",
+      "verdict_reason": "1/2; first_fail: want=workflow_draft_card got=ask_user",
+      "passed_checks": [
+        "tool_any_of"
+      ],
+      "response_preview": "Got it \u2014 I can set up the INFY buy signal with RSI<30 and exit when RSI>70. For the 2% loss exit, I just need one tie-breaker: should that stop be based on the entry price or the current average cost?",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 14947,
+      "tokens": {
+        "input_tokens": 39064,
+        "output_tokens": 786,
+        "total_tokens": 39850,
+        "cost_usd": 0.006618,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "ee_macd_entry_drawdown_exit",
+      "prompt": "buy 10 HDFCBANK when MACD crosses above signal, exit when drawdown from peak exceeds 5%",
+      "tags": [
+        "entry_exit",
+        "drawdown"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:55:59.847299+00:00",
+      "_ended_at": "2026-05-25T11:56:09.237081+00:00",
+      "latency_ms_wall": 9389.405582995096,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `HDFCBANK`: buy 10 on a MACD bullish cross, with an exit on a 5% drawdown from peak. Click Activate to review the card.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9371,
+      "tokens": {
+        "input_tokens": 38946,
+        "output_tokens": 388,
+        "total_tokens": 39334,
+        "cost_usd": 0.0057929999999999995,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "ee_bollinger_pair",
+      "prompt": "buy ITC when price breaks below lower Bollinger band, sell when price breaks above upper band",
+      "tags": [
+        "entry_exit",
+        "bollinger_pair"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:09.237138+00:00",
+      "_ended_at": "2026-05-25T11:56:16.565295+00:00",
+      "latency_ms_wall": 7327.9009580001,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['get_live_price', 'get_indicator']",
+      "passed_checks": [],
+      "response_preview": "Got it \u2014 I can run the ITC Bollinger-band strategy as stated: buy when price breaks below the lower band and sell when it breaks above the upper band. It just failed on my side because the technical-analysis package isn\u2019t available right now; if you want, I can try again with the",
+      "tools_called": [
+        "get_live_price",
+        "get_indicator"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 7309,
+      "tokens": {
+        "input_tokens": 20734,
+        "output_tokens": 144,
+        "total_tokens": 20878,
+        "cost_usd": 0.0029749999999999998,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "ee_open_close_intraday",
+      "prompt": "buy NIFTYBEES at market open every weekday and sell at market close",
+      "tags": [
+        "entry_exit",
+        "intraday",
+        "schedule_pair"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_scheduled_order"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:16.565403+00:00",
+      "_ended_at": "2026-05-25T11:56:23.622252+00:00",
+      "latency_ms_wall": 7056.640540999069,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: NIFTYBEES weekday open-close. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 7036,
+      "tokens": {
+        "input_tokens": 36987,
+        "output_tokens": 242,
+        "total_tokens": 37229,
+        "cost_usd": 0.007490999999999999,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "ee_dca_n_day_hold",
+      "prompt": "DCA \u20b92000 into NIFTYBEES every Monday, exit each lot after 30 bars",
+      "tags": [
+        "entry_exit",
+        "dca",
+        "n_day_hold"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_scheduled_order"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:23.622319+00:00",
+      "_ended_at": "2026-05-25T11:56:27.217930+00:00",
+      "latency_ms_wall": 3595.431499998085,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_scheduled_order', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "What timeframe do you mean by 30 bars \u2014 30 daily bars, 30 hourly bars, or 30-minute bars?",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 3576,
+      "tokens": {
+        "input_tokens": 19368,
+        "output_tokens": 50,
+        "total_tokens": 19418,
+        "cost_usd": 0.002574,
+        "llm_calls": 1
+      }
+    },
+    {
+      "id": "ee_golden_cross_trail_5pct",
+      "prompt": "buy NIFTYBEES on the 50/200 SMA golden cross, exit when drawdown from peak >= 5%",
+      "tags": [
+        "entry_exit",
+        "golden_cross",
+        "drawdown"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:27.218050+00:00",
+      "_ended_at": "2026-05-25T11:56:34.036699+00:00",
+      "latency_ms_wall": 6818.468333003693,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=[]",
+      "passed_checks": [],
+      "response_preview": "F&O \u2014 options and futures \u2014 isn't wired in Pivot v1; only cash-equity orders execute. If you want, I can draft this on the underlying cash ETF `NIFTYBEES` as an automation, but the exact golden-cross plus drawdown-from-peak exit needs a workflow draft.",
+      "tools_called": [],
+      "render_hint": null,
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 6798,
+      "tokens": {
+        "input_tokens": 20228,
+        "output_tokens": 66,
+        "total_tokens": 20294,
+        "cost_usd": 0.002693,
+        "llm_calls": 1
+      }
+    },
+    {
+      "id": "ee_rsi_entry_time_or_indicator_exit",
+      "prompt": "buy AXISBANK on RSI<30, exit when RSI>70 OR after holding for 20 bars",
+      "tags": [
+        "entry_exit",
+        "bars_held"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:34.036878+00:00",
+      "_ended_at": "2026-05-25T11:56:46.104717+00:00",
+      "latency_ms_wall": 12067.629584002134,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `AXISBANK` on `RSI<30`.\n\nThis card only captured the entry leg; the `RSI>70` or 20-bar exit was not included in this draft.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 12047,
+      "tokens": {
+        "input_tokens": 40660,
+        "output_tokens": 167,
+        "total_tokens": 40827,
+        "cost_usd": 0.005555,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "ee_sma_cross_sl_tp",
+      "prompt": "buy 10 RELIANCE when 20-SMA crosses above 50-SMA. Set a 2% stop-loss and 6% take-profit",
+      "tags": [
+        "entry_exit",
+        "sl_tp"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:46.104807+00:00",
+      "_ended_at": "2026-05-25T11:56:46.135377+00:00",
+      "latency_ms_wall": 30.513625002640765,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Here's a draft for **RELIANCE SMA(50) crossing above 50 +2% SL** \u2014 it buys 10 RELIANCE at market when SMA(50) crosses above 50.0. Review the steps below and click Activate when you're happy with it.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "llm_calls": 0
+      }
+    },
+    {
+      "id": "ee_breakout_with_stops",
+      "prompt": "buy SBIN on a 20-day high breakout with a 3% stop-loss",
+      "tags": [
+        "entry_exit",
+        "breakout",
+        "sl"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:46.135427+00:00",
+      "_ended_at": "2026-05-25T11:56:57.784181+00:00",
+      "latency_ms_wall": 11648.540041998785,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `SBIN` 20-day breakout buy. Click Activate to review the 3% stop-loss separately, since this draft only captured the entry.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 11633,
+      "tokens": {
+        "input_tokens": 41939,
+        "output_tokens": 184,
+        "total_tokens": 42123,
+        "cost_usd": 0.008196,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "ee_macd_entry_two_exits",
+      "prompt": "buy 5 KOTAKBANK on MACD bullish cross, exit when MACD bearish cross OR when unrealised P&L >= 8%",
+      "tags": [
+        "entry_exit",
+        "macd"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:56:57.784283+00:00",
+      "_ended_at": "2026-05-25T11:57:07.918749+00:00",
+      "latency_ms_wall": 10134.237375001248,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `KOTAKBANK` buy-5 on MACD bullish cross with exit on bearish cross or 8% unrealised profit. Click Activate.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 10112,
+      "tokens": {
+        "input_tokens": 39774,
+        "output_tokens": 450,
+        "total_tokens": 40224,
+        "cost_usd": 0.008475,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "ee_ema_pullback_exit_on_break",
+      "prompt": "buy 10 ICICIBANK on a pullback to 50-EMA when RSI<40, exit when close drops below 50-EMA",
+      "tags": [
+        "entry_exit",
+        "pullback"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:57:07.918867+00:00",
+      "_ended_at": "2026-05-25T11:57:25.277653+00:00",
+      "latency_ms_wall": 17358.608082999126,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "Do you want the exit to trigger on a live market price check, or only as a manual exit trigger?",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 17341,
+      "tokens": {
+        "input_tokens": 19088,
+        "output_tokens": 471,
+        "total_tokens": 19559,
+        "cost_usd": 0.003362,
+        "llm_calls": 1
+      }
+    },
+    {
+      "id": "ee_bollinger_mean_reversion",
+      "prompt": "buy WIPRO when price drops below lower Bollinger band AND RSI<30, exit at middle band",
+      "tags": [
+        "entry_exit",
+        "mean_reversion",
+        "bollinger"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:57:25.277729+00:00",
+      "_ended_at": "2026-05-25T11:57:37.925780+00:00",
+      "latency_ms_wall": 12647.81225000479,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `WIPRO`, but this draft only covers the buy leg; `exit at middle band` was not expressible in the same shape here. Click Activate if you want the entry, or tell me if you want the exit split into a separate rule.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 12629,
+      "tokens": {
+        "input_tokens": 41119,
+        "output_tokens": 271,
+        "total_tokens": 41390,
+        "cost_usd": 0.005879,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "ee_volume_breakout_trail",
+      "prompt": "buy 20 LT when price breaks 50-day high on 1.5x average volume, trail with 4% drawdown from peak",
+      "tags": [
+        "entry_exit",
+        "trailing"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:57:37.925887+00:00",
+      "_ended_at": "2026-05-25T11:57:37.960561+00:00",
+      "latency_ms_wall": 34.58316700562136,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Here's a draft for **LT price above \u20b950** \u2014 it buys 20 LT at market when LT rises above \u20b950. Review the steps below and click Activate when you're happy with it.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 4,
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "llm_calls": 0
+      }
+    },
+    {
+      "id": "ee_buy_dip_sell_recovery",
+      "prompt": "buy INFY when it's down at least 5% from yesterday's close, sell when it recovers to yesterday's close",
+      "tags": [
+        "entry_exit",
+        "relative_threshold"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:57:37.960609+00:00",
+      "_ended_at": "2026-05-25T11:57:41.309498+00:00",
+      "latency_ms_wall": 3348.8255830015987,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "Do you want this as a one-time conditional order or an ongoing automation? The buy trigger is clear, but the sell leg can only be drafted as a separate holding action or a full workflow.",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 3334,
+      "tokens": {
+        "input_tokens": 19372,
+        "output_tokens": 117,
+        "total_tokens": 19489,
+        "cost_usd": 0.002709,
+        "llm_calls": 1
+      }
+    },
+    {
+      "id": "mx_double_filter_double_exit",
+      "prompt": "buy 10 RELIANCE when (RSI(14)<30 AND MACD line > signal). Exit when (RSI>70 OR unrealised P&L drops below -3%)",
+      "tags": [
+        "mixed",
+        "multi_entry",
+        "multi_exit"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:57:41.309561+00:00",
+      "_ended_at": "2026-05-25T11:57:58.228639+00:00",
+      "latency_ms_wall": 16918.806959001813,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `RELIANCE`: buy 10 on `RSI(14) < 30` with MACD bullish confirmation, and exit on `RSI > 70` or `-3%` unrealised P&L. Click Activate to review the card.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 16900,
+      "tokens": {
+        "input_tokens": 60837,
+        "output_tokens": 1135,
+        "total_tokens": 61972,
+        "cost_usd": 0.010199999999999999,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "mx_triple_entry_triple_exit",
+      "prompt": "buy HDFCBANK when RSI<30 AND close>200-EMA AND volume > 1.5x avg. Exit when RSI>70 OR drawdown from peak>=4% OR after 15 bars held",
+      "tags": [
+        "mixed",
+        "triple_and",
+        "triple_exit"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:57:58.228732+00:00",
+      "_ended_at": "2026-05-25T11:58:11.408849+00:00",
+      "latency_ms_wall": 13179.782375002105,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `HDFCBANK` entry with your RSI, 200-EMA, and volume filter. The exit side was not included in this draft, so you may want to add that before activating.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 13161,
+      "tokens": {
+        "input_tokens": 41084,
+        "output_tokens": 362,
+        "total_tokens": 41446,
+        "cost_usd": 0.006052,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "mx_pairs_entry_zscore_exit",
+      "prompt": "when TCS/INFY ratio z-score (60d) drops below -2 AND ADX>20, buy 10 TCS. Exit when the z-score returns to 0",
+      "tags": [
+        "mixed",
+        "spread",
+        "pairs"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:58:11.409040+00:00",
+      "_ended_at": "2026-05-25T11:58:30.732500+00:00",
+      "latency_ms_wall": 19301.198041001044,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['find_tool', 'backtest_dsl_tree']",
+      "passed_checks": [],
+      "response_preview": "0 trades \u2014 the engine never fired on this window, so there is no valid z-score/ADX trade sample to evaluate.",
+      "tools_called": [
+        "find_tool",
+        "backtest_dsl_tree"
+      ],
+      "render_hint": "indicator_backtest_chart",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": 0.0,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 19250,
+      "tokens": {
+        "input_tokens": 66701,
+        "output_tokens": 323,
+        "total_tokens": 67024,
+        "cost_usd": 0.014698,
+        "llm_calls": 5
+      }
+    },
+    {
+      "id": "mx_or_entry_compound_exit",
+      "prompt": "buy MARUTI when RSI<25 OR price drops 7% from prior close. Exit when (unrealised>=10% OR drawdown from peak>=5%)",
+      "tags": [
+        "mixed",
+        "or_logic",
+        "compound_exit"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:58:30.732540+00:00",
+      "_ended_at": "2026-05-25T11:58:40.081066+00:00",
+      "latency_ms_wall": 9347.846707998542,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted the MARUTI entry rule. The exit leg was not expressible in this draft card, so add it in the editor before activating.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9334,
+      "tokens": {
+        "input_tokens": 41108,
+        "output_tokens": 218,
+        "total_tokens": 41326,
+        "cost_usd": 0.005769,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "mx_macd_signal_cross_bb_exit",
+      "prompt": "buy ETERNAL when MACD line crosses above signal AND price > 50-EMA. Exit when price crosses upper Bollinger band OR RSI > 75",
+      "tags": [
+        "mixed",
+        "multi_output",
+        "bollinger_exit"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:58:40.081218+00:00",
+      "_ended_at": "2026-05-25T11:58:49.710756+00:00",
+      "latency_ms_wall": 9629.334375000326,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `ETERNAL`. The card captured the entry, but the exit leg with **upper Bollinger band OR RSI > 75** was not included in this draft, so please edit that before activating.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9607,
+      "tokens": {
+        "input_tokens": 41181,
+        "output_tokens": 281,
+        "total_tokens": 41462,
+        "cost_usd": 0.005913,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "mx_supertrend_with_trail",
+      "prompt": "buy AXISBANK when supertrend flips bullish AND RSI between 40 and 70. Trail with 3% from peak and exit if supertrend flips bearish",
+      "tags": [
+        "mixed",
+        "supertrend",
+        "trail"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:58:49.710874+00:00",
+      "_ended_at": "2026-05-25T11:59:01.072191+00:00",
+      "latency_ms_wall": 11361.146667004505,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `AXISBANK`. Review the card and activate it when ready.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 11341,
+      "tokens": {
+        "input_tokens": 39091,
+        "output_tokens": 424,
+        "total_tokens": 39515,
+        "cost_usd": 0.005901,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "mx_2y_window_strategy",
+      "prompt": "for the last 2 years' worth of bars, buy ITC when RSI<30 AND close>200-SMA, exit when RSI>70 OR after 10 bars",
+      "tags": [
+        "mixed",
+        "window",
+        "multi_exit"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow",
+          "backtest_workflow",
+          "backtest_dsl_tree"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:59:01.072257+00:00",
+      "_ended_at": "2026-05-25T11:59:17.145984+00:00",
+      "latency_ms_wall": 16073.544874998333,
+      "verdict": "PARTIAL",
+      "verdict_reason": "1/2; first_fail: want=workflow_draft_card got=ask_user",
+      "passed_checks": [
+        "tool_any_of"
+      ],
+      "response_preview": "Got it \u2014 I can run this for ITC over the last 2 years with entries at RSI<30 and close above the 200-SMA, exiting on RSI>70 or after 10 bars. The only cleanup needed is to remove the bars-held read and use the 10-bar exit directly, so I can execute it as written with that interpr",
+      "tools_called": [
+        "find_tool",
+        "backtest_dsl_tree"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 16055,
+      "tokens": {
+        "input_tokens": 45169,
+        "output_tokens": 436,
+        "total_tokens": 45605,
+        "cost_usd": 0.009365,
+        "llm_calls": 5
+      }
+    },
+    {
+      "id": "mx_aggregator_entry_pct_exit",
+      "prompt": "buy KOTAKBANK when its 14-day RSI is in the bottom 5% of the last 252 days. Exit when RSI > 60 OR after 20 bars",
+      "tags": [
+        "mixed",
+        "percentrank",
+        "aggregator"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:59:17.146056+00:00",
+      "_ended_at": "2026-05-25T11:59:31.791644+00:00",
+      "latency_ms_wall": 14645.41708300385,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['find_tool', 'backtest_dsl_tree']",
+      "passed_checks": [],
+      "response_preview": "Got it \u2014 I can run this as-is for KOTAKBANK over the last 252 days with the 14-day RSI bottom 5% entry and exit on RSI > 60 or after 20 bars. The only thing I\u2019ll treat as fixed is the 20-bar exit, since that\u2019s the cleanest interpretation here.",
+      "tools_called": [
+        "find_tool",
+        "backtest_dsl_tree"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 14626,
+      "tokens": {
+        "input_tokens": 45179,
+        "output_tokens": 363,
+        "total_tokens": 45542,
+        "cost_usd": 0.006599,
+        "llm_calls": 5
+      }
+    },
+    {
+      "id": "mx_session_filtered_entry",
+      "prompt": "buy SBIN ONLY on Tuesdays when RSI<30 AND close>200-EMA. Exit when RSI>65",
+      "tags": [
+        "mixed",
+        "session_day"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:59:31.791735+00:00",
+      "_ended_at": "2026-05-25T11:59:36.395467+00:00",
+      "latency_ms_wall": 4603.64908399788,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "Do you want this as a one-time trade, or a recurring automation on Tuesdays?",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 4584,
+      "tokens": {
+        "input_tokens": 19080,
+        "output_tokens": 35,
+        "total_tokens": 19115,
+        "cost_usd": 0.002488,
+        "llm_calls": 1
+      }
+    },
+    {
+      "id": "mx_gap_down_buy_recovery_exit",
+      "prompt": "buy ICICIBANK on a gap-down of -2% AND RSI<35. Exit on +5% gain OR if low breaks entry-1%",
+      "tags": [
+        "mixed",
+        "gap",
+        "compound_exit"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:59:36.395542+00:00",
+      "_ended_at": "2026-05-25T11:59:50.035461+00:00",
+      "latency_ms_wall": 13639.725500004715,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `ICICIBANK`. I used a 1% stop-loss as the closest supported proxy for the low-break exit.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 13618,
+      "tokens": {
+        "input_tokens": 39123,
+        "output_tokens": 453,
+        "total_tokens": 39576,
+        "cost_usd": 0.005967,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "edge_macd_line_vs_signal",
+      "prompt": "buy LT when MACD line crosses above the MACD signal line",
+      "tags": [
+        "edge",
+        "multi_output",
+        "crossover"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:59:50.035598+00:00",
+      "_ended_at": "2026-05-25T11:59:58.829387+00:00",
+      "latency_ms_wall": 8793.521166000573,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted for `LT`. The card uses a MACD bullish proxy; click Activate if that is the entry you want.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 8773,
+      "tokens": {
+        "input_tokens": 38611,
+        "output_tokens": 244,
+        "total_tokens": 38855,
+        "cost_usd": 0.0054210000000000005,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "edge_holding_dd_sell",
+      "prompt": "sell my entire INFY holding when drawdown from the peak since I bought it exceeds 3%",
+      "tags": [
+        "edge",
+        "holding_action",
+        "drawdown"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow",
+          "propose_holding_action"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T11:59:58.829507+00:00",
+      "_ended_at": "2026-05-25T12:00:07.019956+00:00",
+      "latency_ms_wall": 8190.199625001696,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: sell entire `INFY` holding. Click Activate, then it will run only when you press Run now.",
+      "tools_called": [
+        "propose_holding_action"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 8163,
+      "tokens": {
+        "input_tokens": 40684,
+        "output_tokens": 67,
+        "total_tokens": 40751,
+        "cost_usd": 0.005313999999999999,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "edge_pct_change_multi_window",
+      "prompt": "buy WIPRO when 5-day % change is below -8% AND 20-day % change is positive",
+      "tags": [
+        "edge",
+        "pct_change"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:00:07.020071+00:00",
+      "_ended_at": "2026-05-25T12:00:16.741774+00:00",
+      "latency_ms_wall": 9721.525792003376,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: **WIPRO** buy on the 5-day dip plus 20-day strength. Click **Activate** when ready.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9700,
+      "tokens": {
+        "input_tokens": 41339,
+        "output_tokens": 203,
+        "total_tokens": 41542,
+        "cost_usd": 0.005782,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "edge_atr_break_with_session",
+      "prompt": "buy MARUTI on Wednesdays when ATR(14) is above 1.5x its 20-day average AND RSI is between 45 and 65",
+      "tags": [
+        "edge",
+        "atr",
+        "session_day"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:00:16.741874+00:00",
+      "_ended_at": "2026-05-25T12:00:25.759079+00:00",
+      "latency_ms_wall": 9017.01429199602,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: Wednesday MARUTI buy with ATR and RSI filters. Click Activate.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 8996,
+      "tokens": {
+        "input_tokens": 41378,
+        "output_tokens": 422,
+        "total_tokens": 41800,
+        "cost_usd": 0.0061329999999999996,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "edge_252day_breakout",
+      "prompt": "buy NIFTYBEES when close > highest close of the last 252 days",
+      "tags": [
+        "edge",
+        "aggregator",
+        "breakout"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:00:25.759187+00:00",
+      "_ended_at": "2026-05-25T12:00:35.591482+00:00",
+      "latency_ms_wall": 9831.889749999391,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `NIFTYBEES` breakout buy. Click Activate.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9807,
+      "tokens": {
+        "input_tokens": 41286,
+        "output_tokens": 163,
+        "total_tokens": 41449,
+        "cost_usd": 0.005688,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "edge_two_indicator_crossover_exit_on_reverse",
+      "prompt": "buy AXISBANK when EMA(20) crosses above EMA(50). Exit when EMA(20) crosses below EMA(50)",
+      "tags": [
+        "edge",
+        "crossover",
+        "symmetric_exit"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:00:35.591756+00:00",
+      "_ended_at": "2026-05-25T12:00:41.441434+00:00",
+      "latency_ms_wall": 5849.582333001308,
+      "verdict": "FAIL",
+      "verdict_reason": "0/2; first_fail: want_any_of=['propose_dsl_workflow', 'propose_workflow'] got=['ASK_USER']",
+      "passed_checks": [],
+      "response_preview": "How many shares of AXISBANK should I use for the buy and exit workflow?",
+      "tools_called": [
+        "ASK_USER"
+      ],
+      "render_hint": "ask_user",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 5814,
+      "tokens": {
+        "input_tokens": 19085,
+        "output_tokens": 436,
+        "total_tokens": 19521,
+        "cost_usd": 0.003291,
+        "llm_calls": 1
+      }
+    },
+    {
+      "id": "edge_volatility_regime_filter",
+      "prompt": "buy ICICIBANK when 20-day rolling std of returns is in the bottom 20% of the last 252 days AND RSI<40",
+      "tags": [
+        "edge",
+        "regime",
+        "zscore"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:00:41.441514+00:00",
+      "_ended_at": "2026-05-25T12:00:52.072782+00:00",
+      "latency_ms_wall": 10631.081040999561,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `ICICIBANK` low-vol RSI buy. Review the card and click Activate.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 10614,
+      "tokens": {
+        "input_tokens": 40839,
+        "output_tokens": 224,
+        "total_tokens": 41063,
+        "cost_usd": 0.005714,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "edge_compound_or_pattern",
+      "prompt": "buy ETERNAL when (RSI<30) OR (price drops 5% from prior close AND volume is at least 1.5x the 20-day avg)",
+      "tags": [
+        "edge",
+        "or_and_nested"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:00:52.072884+00:00",
+      "_ended_at": "2026-05-25T12:01:00.984071+00:00",
+      "latency_ms_wall": 8910.912499995902,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `ETERNAL` buy on RSI<30 or a 5% prior-close drop with volume confirmation. Review the card and activate it.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 8889,
+      "tokens": {
+        "input_tokens": 41319,
+        "output_tokens": 327,
+        "total_tokens": 41646,
+        "cost_usd": 0.00604,
+        "llm_calls": 3
+      }
+    },
+    {
+      "id": "edge_bars_held_pure_exit",
+      "prompt": "exit my RELIANCE position 10 bars after entry, no matter what",
+      "tags": [
+        "edge",
+        "bars_held",
+        "exit_only"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow",
+          "propose_holding_action"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:01:00.984178+00:00",
+      "_ended_at": "2026-05-25T12:01:10.604568+00:00",
+      "latency_ms_wall": 9620.231459004572,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: `RELIANCE` exit on demand. Click Activate, then run it when you want to square off the holding.",
+      "tools_called": [
+        "propose_holding_action"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 9599,
+      "tokens": {
+        "input_tokens": 38971,
+        "output_tokens": 92,
+        "total_tokens": 39063,
+        "cost_usd": 0.0051909999999999994,
+        "llm_calls": 2
+      }
+    },
+    {
+      "id": "edge_compound_entry_and_sl_tp",
+      "prompt": "buy 15 KOTAKBANK when RSI(14)<30 AND MACD>0 AND price>200-EMA. Set 2.5% SL and 8% TP",
+      "tags": [
+        "edge",
+        "compound_entry",
+        "sl_tp"
+      ],
+      "expect": {
+        "tool_any_of": [
+          "propose_workflow",
+          "propose_dsl_workflow"
+        ],
+        "render_hint": "workflow_draft_card"
+      },
+      "_started_at": "2026-05-25T12:01:10.604636+00:00",
+      "_ended_at": "2026-05-25T12:01:24.097188+00:00",
+      "latency_ms_wall": 13492.355540998688,
+      "verdict": "PASS",
+      "verdict_reason": "2/2 checks",
+      "passed_checks": [
+        "tool_any_of",
+        "render_hint"
+      ],
+      "response_preview": "Drafted: KOTAKBANK buy with 2.5% SL and 8% TP. Review and click Activate.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "mode": null,
+      "matched": null,
+      "direction": null,
+      "resolve_on": null,
+      "market_id": null,
+      "token_id": null,
+      "threshold": null,
+      "threshold_was_assumed": null,
+      "threshold_presets": null,
+      "current_yes_price": null,
+      "events_count": null,
+      "latency_ms_server": 13476,
+      "tokens": {
+        "input_tokens": 60143,
+        "output_tokens": 1047,
+        "total_tokens": 61190,
+        "cost_usd": 0.009914000000000001,
+        "llm_calls": 3
+      }
+    }
+  ]
+}

@@ -1,0 +1,2489 @@
+{
+  "label": "dsl_entry_exit_run_2",
+  "recorded_at": "2026-05-25T13:00:30.891159+00:00",
+  "ended_at": "2026-05-25T13:05:05.641791+00:00",
+  "user_id": 103,
+  "user_email": "eval_372d285a06@p.com",
+  "n_prompts": 25,
+  "n_llm_usage_rows": 84,
+  "results": [
+    {
+      "id": "ee_reliance_dual_gap_rsi",
+      "prompt": "make me an agent that buys 10 RELIANCE when TCS price is 5% above its open AND NIFTYBEES RSI(14) drops below 30. Sell when RELIANCE price crosses above its upper Bollinger band",
+      "tags": [
+        "dsl_ee",
+        "cross_symbol_entry",
+        "bollinger_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:00:30.891296+00:00",
+      "_ended_at": "2026-05-25T13:00:31.600319+00:00",
+      "latency_ms_wall": 12.40812499599997,
+      "backtest_latency_ms_wall": 696.5778750018217,
+      "verdict": "PASS",
+      "verdict_reason": "chat OK + bt_ok: trades=20 ret=0.61%",
+      "response_preview": "Here's a draft for **RELIANCE RSI(14) below 30** \u2014 it buys 10 RELIANCE at market when RSI(14) drops below 30.0. Review the steps below and click Activate when you're happy with it.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.indicator",
+          "label": "RSI(14) < 30",
+          "config": {
+            "symbol": "RELIANCE",
+            "indicator": "rsi",
+            "period": 14,
+            "operator": "<",
+            "value": 30.0
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "label": "Buy 10 RELIANCE",
+          "config": {
+            "symbol": "RELIANCE",
+            "side": "buy",
+            "quantity": 10,
+            "order_type": "market",
+            "requires_approval": false
+          }
+        }
+      ],
+      "draft_name": "RELIANCE RSI(14) below 30",
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": true,
+        "reason": null,
+        "warnings": [],
+        "n_trades": 20,
+        "total_return_pct": 0.61,
+        "cagr_pct": 0.31,
+        "max_drawdown_pct": -4.3,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": -6.08
+      },
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "llm_calls": 0
+      }
+    },
+    {
+      "id": "ee_tcs_rsi_macd_dd_exit",
+      "prompt": "buy 5 TCS when RSI(14)<30 AND MACD line crosses above signal. Exit when drawdown from peak exceeds 4%",
+      "tags": [
+        "dsl_ee",
+        "multi_entry",
+        "drawdown_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:00:31.600343+00:00",
+      "_ended_at": "2026-05-25T13:00:43.387870+00:00",
+      "latency_ms_wall": 11787.297249989933,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "Got it \u2014 I can run this for TCS exactly as you wrote it, with the exit set to a 4% drawdown from peak. If you want, I\u2019ll use that as the default interpretation and proceed.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 24694,
+        "output_tokens": 323,
+        "total_tokens": 25017,
+        "cost_usd": 0.003956,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_infy_golden_cross_trail",
+      "prompt": "buy 15 INFY on the 50/200 SMA golden cross. Exit when unrealised P&L drops below -2% OR drawdown from peak exceeds 5%",
+      "tags": [
+        "dsl_ee",
+        "golden_cross",
+        "compound_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:00:43.387955+00:00",
+      "_ended_at": "2026-05-25T13:00:58.436687+00:00",
+      "latency_ms_wall": 12503.359207999893,
+      "backtest_latency_ms_wall": 2545.0926250050543,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: `INFY` 50/200 SMA golden-cross buy with a risk exit.\n\nOne caveat: the entry readback mapped the moving-average legs to `NSE` in the card text, so review the draft before activating.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": "crosses_above",
+              "left": {
+                "type": "indicator",
+                "indicator": "sma",
+                "symbol": "NSE",
+                "period": 50
+              },
+              "right": {
+                "type": "indicator",
+                "indicator": "sma",
+                "symbol": "NSE",
+                "period": 200
+              }
+            },
+            "symbol": "INFY",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "INFY",
+            "side": "buy",
+            "quantity": 15,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "or",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": -0.02
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "position",
+                    "field": "drawdown_from_peak_pct"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 0.05
+                  }
+                }
+              ]
+            },
+            "target_symbol": "INFY"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "INFY",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.INFY.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "INFY 50/200 SMA golden cross with risk exit",
+      "readback": "SMA(50) of NSE crosses above SMA(200) of NSE",
+      "exit_readback": "unrealised P&L < -0.02 OR drawdown from peak > 0.05",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 40812,
+        "output_tokens": 291,
+        "total_tokens": 41103,
+        "cost_usd": 0.005922,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_hdfcbank_bollinger_meanrev",
+      "prompt": "buy 10 HDFCBANK when price drops below lower Bollinger band AND RSI<30. Sell when price crosses the middle Bollinger band",
+      "tags": [
+        "dsl_ee",
+        "bollinger_pair"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:00:58.436781+00:00",
+      "_ended_at": "2026-05-25T13:01:12.158463+00:00",
+      "latency_ms_wall": 12093.927291993168,
+      "backtest_latency_ms_wall": 1627.366417000303,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: `HDFCBANK` buy with RSI + Bollinger entry and middle-band exit. Click Activate when ready.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "price",
+                    "symbol": "NSE",
+                    "exchange": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "bb",
+                    "symbol": "NSE",
+                    "period": 20,
+                    "component": "lower",
+                    "offset": 0
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "rsi",
+                    "symbol": "NSE",
+                    "period": 14,
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 30
+                  }
+                }
+              ]
+            },
+            "symbol": "HDFCBANK",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HDFCBANK",
+            "side": "buy",
+            "quantity": 10,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": "crosses_above",
+              "left": {
+                "type": "price",
+                "symbol": "NSE",
+                "exchange": "NSE",
+                "basis": "close",
+                "offset": 0
+              },
+              "right": {
+                "type": "indicator",
+                "indicator": "bb",
+                "symbol": "NSE",
+                "period": 20,
+                "component": "middle",
+                "exchange": "NSE",
+                "offset": 0
+              }
+            },
+            "target_symbol": "HDFCBANK"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HDFCBANK",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.HDFCBANK.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "HDFCBANK Bollinger + RSI buy with middle-band exit",
+      "readback": "price of NSE < lower BB(20) of NSE AND RSI(14) of NSE < 30",
+      "exit_readback": "price of NSE crosses above middle BB(20) of NSE",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 45340,
+        "output_tokens": 306,
+        "total_tokens": 45646,
+        "cost_usd": 0.006587000000000001,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_sbin_macd_pair",
+      "prompt": "buy 20 SBIN when MACD histogram crosses above 0 AND close > 200-EMA. Sell when MACD crosses back below 0 OR after 15 bars held",
+      "tags": [
+        "dsl_ee",
+        "macd_pair",
+        "bars_held"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:01:12.158541+00:00",
+      "_ended_at": "2026-05-25T13:01:23.967095+00:00",
+      "latency_ms_wall": 11808.3585830027,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "I can run this as SBIN with your entry and exit logic; the only snag is the \u201cafter 15 bars held\u201d part. If you want, I can interpret that as a simple 15-bar time exit and run it as-is.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 24712,
+        "output_tokens": 382,
+        "total_tokens": 25094,
+        "cost_usd": 0.004079,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_icicibank_pullback_break",
+      "prompt": "buy 10 ICICIBANK on a pullback to 50-EMA when RSI(14)<40. Exit when close drops below 50-EMA OR unrealised P&L < -3%",
+      "tags": [
+        "dsl_ee",
+        "pullback",
+        "ema_break_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:01:23.967167+00:00",
+      "_ended_at": "2026-05-25T13:01:40.751024+00:00",
+      "latency_ms_wall": 15799.639499993646,
+      "backtest_latency_ms_wall": 983.3608329936396,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: ICICIBANK buy-10 pullback setup with the exit rule included. Review the card and activate it; the exit leg will sell the full holding when the condition hits.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "rsi",
+                    "symbol": "ICICIBANK",
+                    "period": 14,
+                    "exchange": "NSE",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 40
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<=",
+                  "left": {
+                    "type": "price",
+                    "symbol": "ICICIBANK",
+                    "exchange": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "ema",
+                    "symbol": "ICICIBANK",
+                    "period": 50,
+                    "exchange": "NSE",
+                    "offset": 0
+                  }
+                }
+              ]
+            },
+            "symbol": "ICICIBANK",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "ICICIBANK",
+            "side": "buy",
+            "quantity": 10,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "or",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "price",
+                    "symbol": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "ema",
+                    "symbol": "NSE",
+                    "period": 50
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": -0.03
+                  }
+                }
+              ]
+            },
+            "target_symbol": "ICICIBANK"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "ICICIBANK",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.ICICIBANK.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "ICICIBANK pullback to 50-EMA with RSI filter",
+      "readback": "RSI(14) of ICICIBANK < 40 AND price of ICICIBANK \u2264 EMA(50) of ICICIBANK",
+      "exit_readback": "price of NSE < EMA(50) of NSE OR unrealised P&L < -0.03",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 45857,
+        "output_tokens": 383,
+        "total_tokens": 46240,
+        "cost_usd": 0.0068070000000000006,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_wipro_volume_breakout",
+      "prompt": "buy 25 WIPRO when price breaks the 20-day high AND volume > 1.5x its 20-day average. Trail with a 4% drawdown-from-peak exit",
+      "tags": [
+        "dsl_ee",
+        "breakout_volume",
+        "trail_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:01:40.751407+00:00",
+      "_ended_at": "2026-05-25T13:01:41.040302+00:00",
+      "latency_ms_wall": 22.092416998930275,
+      "backtest_latency_ms_wall": 266.7087919980986,
+      "verdict": "PASS",
+      "verdict_reason": "chat OK + bt_ok: trades=158 ret=-18.29%",
+      "response_preview": "Here's a draft for **WIPRO price above \u20b91.5** \u2014 it buys 25 WIPRO at market when WIPRO rises above \u20b91.5. Review the steps below and click Activate when you're happy with it.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.price",
+          "label": "Price > \u20b91.5",
+          "config": {
+            "symbol": "WIPRO",
+            "operator": ">",
+            "value": 1.5,
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "label": "Buy 25 WIPRO",
+          "config": {
+            "symbol": "WIPRO",
+            "side": "buy",
+            "quantity": 25,
+            "order_type": "market",
+            "requires_approval": false
+          }
+        }
+      ],
+      "draft_name": "WIPRO price above \u20b91.5",
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": true,
+        "reason": null,
+        "warnings": [],
+        "n_trades": 158,
+        "total_return_pct": -18.29,
+        "cagr_pct": -9.75,
+        "max_drawdown_pct": -38.45,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": -2.46
+      },
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "llm_calls": 0
+      }
+    },
+    {
+      "id": "ee_kotakbank_pair_zscore",
+      "prompt": "buy 10 KOTAKBANK when the KOTAKBANK / HDFCBANK price ratio z-score (60d) drops below -2. Sell when the ratio z-score returns above 0",
+      "tags": [
+        "dsl_ee",
+        "spread",
+        "zscore_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:01:41.040337+00:00",
+      "_ended_at": "2026-05-25T13:01:53.320382+00:00",
+      "latency_ms_wall": 11267.617667006562,
+      "backtest_latency_ms_wall": 1012.1432910091244,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: KOTAKBANK ratio-zscore mean reversion. Click **Activate** to enable it.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": "<",
+              "left": {
+                "type": "aggregate",
+                "op": "zscore",
+                "source": {
+                  "type": "spread",
+                  "a": "KOTAKBANK",
+                  "b": "HDFCBANK"
+                },
+                "bars": 60
+              },
+              "right": {
+                "type": "constant",
+                "value": -2
+              }
+            },
+            "symbol": "KOTAKBANK",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "KOTAKBANK",
+            "side": "buy",
+            "quantity": 10,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": ">",
+              "left": {
+                "type": "aggregate",
+                "op": "zscore",
+                "source": {
+                  "type": "spread",
+                  "a": "ratio",
+                  "b": "NSE"
+                },
+                "bars": 20
+              },
+              "right": {
+                "type": "constant",
+                "value": 0
+              }
+            },
+            "target_symbol": "KOTAKBANK"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "KOTAKBANK",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.KOTAKBANK.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "KOTAKBANK / HDFCBANK ratio z-score mean reversion",
+      "readback": "z-score of(KOTAKBANK / HDFCBANK) over last 60 bars < -2",
+      "exit_readback": "z-score of(ratio / NSE) over last 20 bars > 0",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 38773,
+        "output_tokens": 281,
+        "total_tokens": 39054,
+        "cost_usd": 0.005648,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_lt_compound_entry_pct_exit",
+      "prompt": "buy 8 LT when (RSI(14)<30 AND close>200-SMA AND MACD>0). Exit when unrealised P&L reaches +8% OR drops below -2%",
+      "tags": [
+        "dsl_ee",
+        "triple_and_entry",
+        "tp_sl_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:01:53.320476+00:00",
+      "_ended_at": "2026-05-25T13:02:07.839433+00:00",
+      "latency_ms_wall": 13434.846250005648,
+      "backtest_latency_ms_wall": 1083.741166992695,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: `LT` buy 8 with your entry and P&L exit. Review the card and activate when ready; this is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "rsi",
+                    "symbol": "NSE",
+                    "period": 14,
+                    "exchange": "NSE",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 30
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "price",
+                    "symbol": "NSE",
+                    "exchange": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "sma",
+                    "symbol": "NSE",
+                    "period": 200,
+                    "exchange": "NSE",
+                    "offset": 0
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "macd",
+                    "symbol": "NSE",
+                    "period": 26,
+                    "exchange": "NSE",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 0
+                  }
+                }
+              ]
+            },
+            "symbol": "LT",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "LT",
+            "side": "buy",
+            "quantity": 8,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "or",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": ">=",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 0.08
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": -0.02
+                  }
+                }
+              ]
+            },
+            "target_symbol": "LT"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "LT",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.LT.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "LT RSI-SMA-MACD entry with P&L exit",
+      "readback": "RSI(14) of NSE < 30 AND price of NSE > SMA(200) of NSE AND MACD(26) of NSE > 0",
+      "exit_readback": "unrealised P&L \u2265 0.08 OR unrealised P&L < -0.02",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 45893,
+        "output_tokens": 412,
+        "total_tokens": 46305,
+        "cost_usd": 0.006873000000000001,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_axisbank_ema_crossover_pair",
+      "prompt": "buy 12 AXISBANK when EMA(20) crosses above EMA(50). Exit when EMA(20) crosses below EMA(50) OR after 30 bars held",
+      "tags": [
+        "dsl_ee",
+        "crossover_pair"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:02:07.839504+00:00",
+      "_ended_at": "2026-05-25T13:02:19.137050+00:00",
+      "latency_ms_wall": 11297.35720899771,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "Got it \u2014 I can run this for AXISBANK as stated, with 12 shares, buy on EMA(20) crossing above EMA(50), and exit on the opposite cross. The only snag is the \u201c30 bars held\u201d part; I can interpret that as a simple time-based exit after 30 bars.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 24713,
+        "output_tokens": 326,
+        "total_tokens": 25039,
+        "cost_usd": 0.003967,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_maruti_bb_pct_exit",
+      "prompt": "buy 5 MARUTI when price crosses below lower Bollinger band(20,2). Sell when price > middle band OR unrealised P&L drops below -3%",
+      "tags": [
+        "dsl_ee",
+        "bollinger",
+        "compound_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:02:19.137119+00:00",
+      "_ended_at": "2026-05-25T13:02:30.899447+00:00",
+      "latency_ms_wall": 10328.220792012871,
+      "backtest_latency_ms_wall": 1433.7475829961477,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NIFTY over 2y (got 0 bars)",
+      "response_preview": "Drafted: `MARUTI` buy on lower Bollinger break with an exit on middle-band recovery or `-3%` unrealised P&L.\n\nThe card is ready to review and activate.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": "crosses_below",
+              "left": {
+                "type": "price",
+                "symbol": "NSE",
+                "exchange": "NSE",
+                "basis": "close",
+                "offset": 0
+              },
+              "right": {
+                "type": "indicator",
+                "indicator": "bb",
+                "symbol": "NSE",
+                "period": 20,
+                "exchange": "NSE",
+                "component": "lower"
+              }
+            },
+            "symbol": "MARUTI",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "MARUTI",
+            "side": "buy",
+            "quantity": 5,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "or",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "price",
+                    "symbol": "NIFTY",
+                    "exchange": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "bb",
+                    "symbol": "NIFTY",
+                    "period": 20,
+                    "exchange": "NSE",
+                    "offset": 0,
+                    "component": "middle"
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": -0.03
+                  }
+                }
+              ]
+            },
+            "target_symbol": "MARUTI"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "MARUTI",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.MARUTI.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "MARUTI Bollinger dip-buy with exit",
+      "readback": "price of NSE crosses below lower BB(20) of NSE",
+      "exit_readback": "price of NIFTY > middle BB(20) of NIFTY OR unrealised P&L < -0.03",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NIFTY over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 41189,
+        "output_tokens": 327,
+        "total_tokens": 41516,
+        "cost_usd": 0.006088,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_itc_percentrank_exit",
+      "prompt": "buy 30 ITC when its 14-day RSI is in the bottom 5% of the last 252 days. Exit when RSI > 60 OR bars_held >= 20",
+      "tags": [
+        "dsl_ee",
+        "percentrank_entry",
+        "bars_held_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:02:30.899568+00:00",
+      "_ended_at": "2026-05-25T13:02:44.883856+00:00",
+      "latency_ms_wall": 13984.098625005572,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "I can run this as-is for ITC and the last 252 days; the only snag is that `bars_held` can\u2019t be checked the way it\u2019s written. If you want, I\u2019ll use the plain 20-bar hold exit together with RSI > 60 and proceed.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 24736,
+        "output_tokens": 312,
+        "total_tokens": 25048,
+        "cost_usd": 0.0039440000000000005,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_eternal_gap_recovery",
+      "prompt": "buy 50 ETERNAL on a -3% gap-down AND RSI<35. Sell when price recovers to yesterday's close OR after 10 bars",
+      "tags": [
+        "dsl_ee",
+        "gap_entry",
+        "recovery_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:02:44.883911+00:00",
+      "_ended_at": "2026-05-25T13:02:54.877007+00:00",
+      "latency_ms_wall": 9992.9358340014,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "I can run this as-is for ETERNAL; the only snag is the \u201cafter 10 bars\u201d part. If you want, I\u2019ll treat that as a plain 10-bar time exit and keep the rest exactly the same.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 22434,
+        "output_tokens": 346,
+        "total_tokens": 22780,
+        "cost_usd": 0.0036769999999999997,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_niftybees_session_filtered",
+      "prompt": "ONLY on Mondays, buy 5 NIFTYBEES when RSI(14)<35 AND close > 50-EMA. Exit when RSI > 60",
+      "tags": [
+        "dsl_ee",
+        "session_day",
+        "rsi_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:02:54.877074+00:00",
+      "_ended_at": "2026-05-25T13:03:09.919524+00:00",
+      "latency_ms_wall": 14336.087458010297,
+      "backtest_latency_ms_wall": 706.0787500086008,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: Monday NIFTYBEES buy with RSI/EMA entry and RSI exit. Click Activate.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "session_day",
+                  "days": [
+                    "mon"
+                  ]
+                },
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "rsi",
+                    "symbol": "NIFTYBEES",
+                    "period": 14,
+                    "exchange": "NSE",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 35
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "price",
+                    "symbol": "NIFTYBEES",
+                    "exchange": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "ema",
+                    "symbol": "NIFTYBEES",
+                    "period": 50,
+                    "exchange": "NSE",
+                    "offset": 0
+                  }
+                }
+              ]
+            },
+            "symbol": "NIFTYBEES",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "NIFTYBEES",
+            "side": "buy",
+            "quantity": 5,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": ">",
+              "left": {
+                "type": "indicator",
+                "indicator": "rsi",
+                "symbol": "NSE",
+                "period": 14
+              },
+              "right": {
+                "type": "constant",
+                "value": 60
+              }
+            },
+            "target_symbol": "NIFTYBEES"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "NIFTYBEES",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.NIFTYBEES.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "NIFTYBEES Monday RSI/EMA buy",
+      "readback": "on Monday AND RSI(14) of NIFTYBEES < 35 AND price of NIFTYBEES > EMA(50) of NIFTYBEES",
+      "exit_readback": "RSI(14) of NSE > 60",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 45083,
+        "output_tokens": 307,
+        "total_tokens": 45390,
+        "cost_usd": 0.006589,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_bajajhfl_breakout_trail",
+      "prompt": "buy 15 BAJAJHFL when close > highest close of last 60 days AND RSI < 70. Trail with drawdown from peak >= 3.5%",
+      "tags": [
+        "dsl_ee",
+        "aggregator_breakout",
+        "trail"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:03:09.919594+00:00",
+      "_ended_at": "2026-05-25T13:03:10.262445+00:00",
+      "latency_ms_wall": 33.3021669939626,
+      "backtest_latency_ms_wall": 309.48637500114273,
+      "verdict": "PASS",
+      "verdict_reason": "chat OK + bt_ok: trades=406 ret=-17.12%",
+      "response_preview": "Here's a draft for **BAJAJHFL RSI(14) below 70** \u2014 it buys 15 BAJAJHFL at market when RSI(14) drops below 70.0. Review the steps below and click Activate when you're happy with it.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.indicator",
+          "label": "RSI(14) < 70",
+          "config": {
+            "symbol": "BAJAJHFL",
+            "indicator": "rsi",
+            "period": 14,
+            "operator": "<",
+            "value": 70.0
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "label": "Buy 15 BAJAJHFL",
+          "config": {
+            "symbol": "BAJAJHFL",
+            "side": "buy",
+            "quantity": 15,
+            "order_type": "market",
+            "requires_approval": false
+          }
+        }
+      ],
+      "draft_name": "BAJAJHFL RSI(14) below 70",
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": true,
+        "reason": null,
+        "warnings": [],
+        "n_trades": 406,
+        "total_return_pct": -17.12,
+        "cagr_pct": -10.68,
+        "max_drawdown_pct": -23.67,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": -49.52
+      },
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "llm_calls": 0
+      }
+    },
+    {
+      "id": "ee_reliance_pct_change_pair",
+      "prompt": "buy 8 RELIANCE when its 5-day percent change drops below -7%. Sell when 5-day percent change rises above +3%",
+      "tags": [
+        "dsl_ee",
+        "pct_change_pair"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:03:10.262465+00:00",
+      "_ended_at": "2026-05-25T13:03:20.914878+00:00",
+      "latency_ms_wall": 10041.489374998491,
+      "backtest_latency_ms_wall": 610.7052089937497,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: `RELIANCE` buy on 5-day drop below `-7%`, sell on 5-day rise above `+3%`. Review the card and activate when ready.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": "<",
+              "left": {
+                "type": "pct_change",
+                "symbol": "RELIANCE",
+                "bars": 5
+              },
+              "right": {
+                "type": "constant",
+                "value": -0.07
+              }
+            },
+            "symbol": "RELIANCE",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "RELIANCE",
+            "side": "buy",
+            "quantity": 8,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": ">",
+              "left": {
+                "type": "pct_change",
+                "symbol": "NSE",
+                "bars": 5
+              },
+              "right": {
+                "type": "constant",
+                "value": 0.03
+              }
+            },
+            "target_symbol": "RELIANCE"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "RELIANCE",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.RELIANCE.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "RELIANCE 5-day change dip buy / recovery exit",
+      "readback": "5-bar % change of RELIANCE < -0.07",
+      "exit_readback": "5-bar % change of NSE > 0.03",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 38341,
+        "output_tokens": 221,
+        "total_tokens": 38562,
+        "cost_usd": 0.005483999999999999,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_hdfclife_atr_breakout",
+      "prompt": "buy 20 HDFCLIFE when today's true range > 1.5x ATR(14) AND RSI between 40 and 70. Exit when unrealised drops below -2.5%",
+      "tags": [
+        "dsl_ee",
+        "atr_entry"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:03:20.914960+00:00",
+      "_ended_at": "2026-05-25T13:03:33.364699+00:00",
+      "latency_ms_wall": 11574.893416007399,
+      "backtest_latency_ms_wall": 874.4415840046713,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: `HDFCLIFE` buy 20 with a volatility-and-RSI entry, plus a -2.5% unrealised exit. Review the card and activate when ready.\n\nThis is automation of your instructions, not financial advice.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "math",
+                    "op": "-",
+                    "operands": [
+                      {
+                        "type": "price",
+                        "symbol": "NSE",
+                        "exchange": "NSE",
+                        "basis": "high",
+                        "offset": 0
+                      },
+                      {
+                        "type": "price",
+                        "symbol": "NSE",
+                        "exchange": "NSE",
+                        "basis": "low",
+                        "offset": 0
+                      }
+                    ]
+                  },
+                  "right": {
+                    "type": "math",
+                    "op": "*",
+                    "operands": [
+                      {
+                        "type": "constant",
+                        "value": 1.5
+                      },
+                      {
+                        "type": "indicator",
+                        "indicator": "atr",
+                        "symbol": "NSE",
+                        "period": 14,
+                        "exchange": "NSE",
+                        "offset": 0
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "logic",
+                  "op": "and",
+                  "operands": [
+                    {
+                      "type": "comparison",
+                      "op": ">=",
+                      "left": {
+                        "type": "indicator",
+                        "indicator": "rsi",
+                        "symbol": "NSE",
+                        "period": 14,
+                        "exchange": "NSE",
+                        "offset": 0
+                      },
+                      "right": {
+                        "type": "constant",
+                        "value": 40
+                      }
+                    },
+                    {
+                      "type": "comparison",
+                      "op": "<=",
+                      "left": {
+                        "type": "indicator",
+                        "indicator": "rsi",
+                        "symbol": "NSE",
+                        "period": 14,
+                        "exchange": "NSE",
+                        "offset": 0
+                      },
+                      "right": {
+                        "type": "constant",
+                        "value": 70
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "symbol": "HDFCLIFE",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HDFCLIFE",
+            "side": "buy",
+            "quantity": 20,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "comparison",
+              "op": "<",
+              "left": {
+                "type": "position",
+                "field": "unrealised_pct",
+                "basis": "close"
+              },
+              "right": {
+                "type": "constant",
+                "value": -0.025
+              }
+            },
+            "target_symbol": "HDFCLIFE"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HDFCLIFE",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.HDFCLIFE.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "HDFCLIFE volatility breakout buy",
+      "readback": "(high of NSE - low of NSE) > (1.5 \u00d7 ATR(14) of NSE) AND (RSI(14) of NSE \u2265 40 AND RSI(14) of NSE \u2264 70)",
+      "exit_readback": "unrealised P&L < -0.025",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 40437,
+        "output_tokens": 437,
+        "total_tokens": 40874,
+        "cost_usd": 0.006249000000000001,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_hyundai_double_entry_double_exit",
+      "prompt": "buy 10 HYUNDAI when (RSI<28 AND MACD line > signal). Exit when (RSI>72 OR price crosses upper Bollinger band)",
+      "tags": [
+        "dsl_ee",
+        "double_and_entry",
+        "or_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:03:33.364773+00:00",
+      "_ended_at": "2026-05-25T13:03:45.747309+00:00",
+      "latency_ms_wall": 11483.575292004389,
+      "backtest_latency_ms_wall": 898.6065000062808,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted: `HYUNDAI` buy with RSI/MACD entry and exit. The exit branch is set to sell the full holding when your condition fires; review the card and activate if it looks right.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "rsi",
+                    "symbol": "NSE",
+                    "period": 14
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 28
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "macd",
+                    "symbol": "NSE",
+                    "period": 12,
+                    "component": "macd"
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "macd",
+                    "symbol": "NSE",
+                    "period": 12,
+                    "component": "signal"
+                  }
+                }
+              ]
+            },
+            "symbol": "HYUNDAI",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HYUNDAI",
+            "side": "buy",
+            "quantity": 10,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "or",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "rsi",
+                    "symbol": "NSE",
+                    "period": 14
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 72
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "crosses_above",
+                  "left": {
+                    "type": "price",
+                    "symbol": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "bb",
+                    "symbol": "NSE",
+                    "period": 20,
+                    "component": "upper"
+                  }
+                }
+              ]
+            },
+            "target_symbol": "HYUNDAI"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HYUNDAI",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.HYUNDAI.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "HYUNDAI RSI/MACD buy with exit",
+      "readback": "RSI(14) of NSE < 28 AND line MACD(12) of NSE > signal MACD(12) of NSE",
+      "exit_readback": "RSI(14) of NSE > 72 OR price of NSE crosses above upper BB(20) of NSE",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 45434,
+        "output_tokens": 359,
+        "total_tokens": 45793,
+        "cost_usd": 0.006653,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_wipro_adx_trend",
+      "prompt": "buy 25 WIPRO when ADX(14) > 25 AND price > 50-EMA AND RSI between 45 and 65. Exit when ADX < 20 OR drawdown from peak >= 4%",
+      "tags": [
+        "dsl_ee",
+        "adx_trend"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:03:45.747434+00:00",
+      "_ended_at": "2026-05-25T13:03:56.007570+00:00",
+      "latency_ms_wall": 10259.957249989384,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "Got it for WIPRO with buy 25 when ADX(14) > 25, price > 50-EMA, and RSI between 45 and 65, plus exit on ADX < 20 or a 4% drawdown from peak. The drawdown part needs to be expressed differently, so I can run the rest as-is and treat that exi",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 24893,
+        "output_tokens": 470,
+        "total_tokens": 25363,
+        "cost_usd": 0.004236,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_tcs_supertrend_session",
+      "prompt": "ONLY on Tuesdays and Wednesdays, buy 5 TCS when supertrend(14, 3) flips bullish AND RSI < 60. Exit when supertrend flips bearish OR bars_held >= 8",
+      "tags": [
+        "dsl_ee",
+        "supertrend",
+        "session_day"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:03:56.007641+00:00",
+      "_ended_at": "2026-05-25T13:03:56.292259+00:00",
+      "latency_ms_wall": 21.01129200309515,
+      "backtest_latency_ms_wall": 263.54558300226927,
+      "verdict": "PASS",
+      "verdict_reason": "chat OK + bt_ok: trades=51 ret=-40.69%",
+      "response_preview": "Here's a draft for **TCS RSI(14) below 60** \u2014 it buys 5 TCS at market when RSI(14) drops below 60.0. Review the steps below and click Activate when you're happy with it.",
+      "tools_called": [
+        "propose_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.indicator",
+          "label": "RSI(14) < 60",
+          "config": {
+            "symbol": "TCS",
+            "indicator": "rsi",
+            "period": 14,
+            "operator": "<",
+            "value": 60.0
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "label": "Buy 5 TCS",
+          "config": {
+            "symbol": "TCS",
+            "side": "buy",
+            "quantity": 5,
+            "order_type": "market",
+            "requires_approval": false
+          }
+        }
+      ],
+      "draft_name": "TCS RSI(14) below 60",
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": true,
+        "reason": null,
+        "warnings": [],
+        "n_trades": 51,
+        "total_return_pct": -40.69,
+        "cagr_pct": -23.31,
+        "max_drawdown_pct": -46.91,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": -35.62
+      },
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "llm_calls": 0
+      }
+    },
+    {
+      "id": "ee_eternal_macd_line_signal",
+      "prompt": "buy 20 ETERNAL when MACD line crosses above MACD signal line AND price > 200-EMA. Exit when MACD line crosses below signal OR unrealised P&L drops below -2%",
+      "tags": [
+        "dsl_ee",
+        "multi_output",
+        "macd_pair"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:03:56.292281+00:00",
+      "_ended_at": "2026-05-25T13:04:13.580137+00:00",
+      "latency_ms_wall": 16209.1045420093,
+      "backtest_latency_ms_wall": 1078.366832996835,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NSE over 2y (got 0 bars)",
+      "response_preview": "Drafted for `ETERNAL`: buy 20 shares on the MACD/200-EMA entry, with exit on MACD reversal or a 2% unrealised loss. Click Activate to review the card.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "crosses_above",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "macd",
+                    "symbol": "ETERNAL",
+                    "period": 12,
+                    "component": "macd"
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "macd",
+                    "symbol": "ETERNAL",
+                    "period": 12,
+                    "component": "signal"
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": ">",
+                  "left": {
+                    "type": "price",
+                    "symbol": "ETERNAL",
+                    "exchange": "NSE",
+                    "basis": "close",
+                    "offset": 0
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "ema",
+                    "symbol": "ETERNAL",
+                    "period": 200,
+                    "exchange": "NSE",
+                    "offset": 0
+                  }
+                }
+              ]
+            },
+            "symbol": "ETERNAL",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "ETERNAL",
+            "side": "buy",
+            "quantity": 20,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "or",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "crosses_below",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "macd",
+                    "symbol": "NSE",
+                    "period": 12,
+                    "component": "macd"
+                  },
+                  "right": {
+                    "type": "indicator",
+                    "indicator": "macd",
+                    "symbol": "NSE",
+                    "period": 12,
+                    "component": "signal"
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": -0.02
+                  }
+                }
+              ]
+            },
+            "target_symbol": "ETERNAL"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "ETERNAL",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.ETERNAL.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "ETERNAL MACD 200EMA entry with exit on MACD cross or -2% P&L",
+      "readback": "line MACD(12) of ETERNAL crosses above signal MACD(12) of ETERNAL AND price of ETERNAL > EMA(200) of ETERNAL",
+      "exit_readback": "line MACD(12) of NSE crosses below signal MACD(12) of NSE OR unrealised P&L < -0.02",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NSE over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 46222,
+        "output_tokens": 420,
+        "total_tokens": 46642,
+        "cost_usd": 0.006972000000000001,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_bajajhfl_stoch_oversold",
+      "prompt": "buy 12 BAJAJHFL when Stochastic K crosses above 20 from oversold AND RSI<35. Sell when Stochastic K > 80 OR after 15 bars held",
+      "tags": [
+        "dsl_ee",
+        "stoch",
+        "bars_held"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:04:13.580212+00:00",
+      "_ended_at": "2026-05-25T13:04:25.908508+00:00",
+      "latency_ms_wall": 12328.1081669993,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "I can run this as-is for BAJAJHFL: buy 12 when Stochastic K crosses above 20 from oversold and RSI is below 35, then sell when Stochastic K goes above 80 or after 15 bars held. I only need one tweak: the \u201cafter 15 bars held\u201d part can be int",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 24727,
+        "output_tokens": 386,
+        "total_tokens": 25113,
+        "cost_usd": 0.004091,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_sbin_three_conditions_three_exits",
+      "prompt": "buy 10 SBIN when RSI<30 AND close>200-SMA AND volume > 1.5x its 20-day average. Exit when RSI>70 OR unrealised drops below -3% OR drawdown from peak >= 5%",
+      "tags": [
+        "dsl_ee",
+        "triple_and",
+        "triple_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:04:25.908573+00:00",
+      "_ended_at": "2026-05-25T13:04:37.496008+00:00",
+      "latency_ms_wall": 11586.663833004422,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "I can run this as-is for SBIN, but the exit needs one small simplification: the drawdown-from-peak part isn\u2019t accepted in that form. If you want, I\u2019ll execute it with the other exits kept intact and treat the 5% peak-drawdown as the unreali",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 24761,
+        "output_tokens": 545,
+        "total_tokens": 25306,
+        "cost_usd": 0.004416999999999999,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_hdfcbank_volatility_regime",
+      "prompt": "buy 15 HDFCBANK when 20-day rolling std of returns is in the bottom 20% of the last 252 days AND RSI<40. Exit when unrealised reaches +6% OR drops below -2%",
+      "tags": [
+        "dsl_ee",
+        "vol_regime",
+        "tp_sl"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:04:37.496203+00:00",
+      "_ended_at": "2026-05-25T13:04:52.333717+00:00",
+      "latency_ms_wall": 13924.169457997777,
+      "backtest_latency_ms_wall": 912.9964590101736,
+      "verdict": "PARTIAL",
+      "verdict_reason": "chat OK; bt_rejected: insufficient data for NIFTY over 2y (got 0 bars)",
+      "response_preview": "Drafted: `HDFCBANK` buy 15 with the profit and stop exit you specified. Click Activate; the exit is tied to the live position size.",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "workflow_draft_card",
+      "draft_steps": [
+        {
+          "step_type": "trigger.compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "and",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "aggregate",
+                    "op": "percentrank",
+                    "source": {
+                      "type": "aggregate",
+                      "op": "std",
+                      "source": {
+                        "type": "pct_change",
+                        "symbol": "NIFTY",
+                        "bars": 1
+                      },
+                      "bars": 20
+                    },
+                    "bars": 252
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 0.2
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<",
+                  "left": {
+                    "type": "indicator",
+                    "indicator": "rsi",
+                    "symbol": "NIFTY",
+                    "period": 14
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 40
+                  }
+                }
+              ]
+            },
+            "symbol": "HDFCBANK",
+            "exchange": "NSE"
+          }
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HDFCBANK",
+            "side": "buy",
+            "quantity": 15,
+            "order_type": "market",
+            "product": "CNC"
+          }
+        },
+        {
+          "step_type": "trigger.exit_compound",
+          "config": {
+            "entry": {
+              "type": "logic",
+              "op": "or",
+              "operands": [
+                {
+                  "type": "comparison",
+                  "op": ">=",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": 0.06
+                  }
+                },
+                {
+                  "type": "comparison",
+                  "op": "<=",
+                  "left": {
+                    "type": "position",
+                    "field": "unrealised_pct",
+                    "basis": "close"
+                  },
+                  "right": {
+                    "type": "constant",
+                    "value": -0.02
+                  }
+                }
+              ]
+            },
+            "target_symbol": "HDFCBANK"
+          }
+        },
+        {
+          "step_type": "fetch.portfolio",
+          "config": {}
+        },
+        {
+          "step_type": "action.place_order",
+          "config": {
+            "symbol": "HDFCBANK",
+            "side": "sell",
+            "quantity": "{{ context.3.holdings.HDFCBANK.quantity }}",
+            "order_type": "market",
+            "product": "CNC"
+          }
+        }
+      ],
+      "draft_name": "HDFCBANK low-vol RSI entry with profit/stop exit",
+      "readback": "percentile rank of(stdev of(1-bar % change of NIFTY) over last 20 bars) over last 252 bars < 0.2 AND RSI(14) of NIFTY < 40",
+      "exit_readback": "unrealised P&L \u2265 0.06 OR unrealised P&L \u2264 -0.02",
+      "bt": {
+        "eligible": false,
+        "reason": "insufficient data for NIFTY over 2y (got 0 bars)",
+        "warnings": [],
+        "n_trades": null,
+        "total_return_pct": null,
+        "cagr_pct": null,
+        "max_drawdown_pct": null,
+        "win_rate_pct": null,
+        "bench_buy_hold_return_pct": null
+      },
+      "tokens": {
+        "input_tokens": 45224,
+        "output_tokens": 368,
+        "total_tokens": 45592,
+        "cost_usd": 0.0067469999999999995,
+        "llm_calls": 4
+      }
+    },
+    {
+      "id": "ee_niftybees_252_breakout_trail",
+      "prompt": "buy 5 NIFTYBEES when close > highest close of the last 252 days. Trail with drawdown from peak >= 5% and additionally exit if bars_held >= 60",
+      "tags": [
+        "dsl_ee",
+        "aggregator_breakout",
+        "trail",
+        "time_exit"
+      ],
+      "expect": {
+        "render_hint": "workflow_draft_card",
+        "tool_any_of": [
+          "propose_dsl_workflow",
+          "propose_workflow"
+        ]
+      },
+      "_started_at": "2026-05-25T13:04:52.333765+00:00",
+      "_ended_at": "2026-05-25T13:05:05.641719+00:00",
+      "latency_ms_wall": 13307.735750000575,
+      "backtest_latency_ms_wall": null,
+      "verdict": "FAIL",
+      "verdict_reason": "want_hint=workflow_draft_card got=ask_user",
+      "response_preview": "Got it: buy 5 NIFTYBEES when close breaks above the highest close of the last 252 days, and exit on a 5% trail from peak plus a 60-bar max hold. The only snag is the drawdown setting; I can run it as-is if you let me use the peak-based 5% e",
+      "tools_called": [
+        "propose_dsl_workflow"
+      ],
+      "render_hint": "ask_user",
+      "draft_steps": null,
+      "draft_name": null,
+      "readback": null,
+      "exit_readback": null,
+      "bt": {
+        "eligible": null
+      },
+      "tokens": {
+        "input_tokens": 22319,
+        "output_tokens": 334,
+        "total_tokens": 22653,
+        "cost_usd": 0.0036239999999999996,
+        "llm_calls": 4
+      }
+    }
+  ]
+}
