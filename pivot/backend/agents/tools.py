@@ -18,9 +18,10 @@ TOOL_SUBSETS = {
     "ORDER_MANAGE":      ["cancel_order", "modify_order", "list_pending_orders", "list_gtt_orders", "cancel_gtt", "squareoff_all_intraday", "squareoff_symbol"],
     "PORTFOLIO_QUERY":   ["get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_holding_detail", "get_tax_summary", "get_active_products"],
     "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain"],
-    "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow"],
+    "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow", "propose_polymarket_trigger"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
     "WORKFLOW_PROPOSE":  ["propose_workflow"],
+    "POLYMARKET_TRIGGER": ["propose_polymarket_trigger"],
     "SIP_MANAGE":        ["list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
     "YIELD_QUERY":       ["compare_yields", "get_yield_recommendation"],
     "CALCULATION":       ["calculate_order_qty", "calculate_tax_impact", "calculate_sl_price", "calculate_dip_price", "calculate_margin"],
@@ -1335,6 +1336,69 @@ tool("propose_holding_action",
          "requires_approval": {"type": "boolean"},
      },
      ["symbol", "action_kind", "trigger_kind"])
+
+
+# ── EVENT TRIGGERS: Polymarket prediction-market price-cross ───────────────
+#
+# The user types: "alert me if Trump wins 2028 probability goes above 70%".
+# We hand the description to an LLM matcher that hits Polymarket's
+# /public-search, picks the best contract + which side (YES/NO) is meant,
+# and returns either:
+#   - a HIGH-CONFIDENCE draft → chat card "I found X — confirm threshold?"
+#   - a LOW-CONFIDENCE picker → chat card with candidates to choose from
+# In both cases this tool is PURE: no DB write. Confirmation goes through
+# POST /api/news-events/specs/polymarket which persists the draft, then
+# POST /api/news-events/specs/{id}/activate which kicks off the WS
+# subscription (immediate reconcile, no 30s wait).
+
+tool("propose_polymarket_trigger",
+     "Build a Polymarket prediction-market trigger from a natural-language "
+     "event description. USE for asks like 'alert me if Trump wins 2028 "
+     "above 70%', 'tell me when Bitcoin $150k probability hits 30%', 'ping "
+     "me when the Fed cuts rates'. Does NOT execute or activate — emits a "
+     "draft card. NOT for Indian-stock indicator alerts (use "
+     "propose_threshold_order / propose_holding_action). NOT for news-"
+     "article-driven triggers (use the /api/news-events/ Tier-1/2/3 path).\n\n"
+     "The chat hop fills `event_description` from the user's wording verbatim "
+     "(the matcher needs the full ask for side disambiguation — 'wins' vs "
+     "'doesn't win'). `threshold` is the YES probability the user named, "
+     "expressed 0..1 (70% → 0.70). `direction='above'` is the common case; "
+     "use 'below' only when the user explicitly asked for a drop ('alert me "
+     "if Modi's chances drop below 40%').",
+     {
+         "event_description": {
+             "type": "string",
+             "description":
+                 "The user's full event wording verbatim, including any "
+                 "negation ('Trump does NOT win'). The matcher uses it to "
+                 "pick a Polymarket contract AND which side (YES/NO).",
+         },
+         "threshold": {
+             "type": "number",
+             "minimum": 0.0,
+             "maximum": 1.0,
+             "description":
+                 "YES probability at which to fire, 0..1. The chat hop "
+                 "converts user percentages to this scale (70% → 0.70).",
+         },
+         "direction": {
+             "type": "string",
+             "enum": ["above", "below"],
+             "description":
+                 "'above' fires when probability rises through threshold; "
+                 "'below' fires when it falls through. Default 'above'.",
+         },
+         "workflow_action_summary": {
+             "type": "string",
+             "description":
+                 "Optional one-line note on what should happen when the "
+                 "trigger fires ('sell my NIFTYBEES', 'send a push'). "
+                 "Surfaced on the confirm card so the user knows what "
+                 "they're activating. Workflow wiring is a follow-up.",
+         },
+     },
+     ["event_description", "threshold"],
+     defaults={"direction": "above"})
 
 
 # ── META: find_tool (lazy-loader escape hatch) ─────────────────────────────

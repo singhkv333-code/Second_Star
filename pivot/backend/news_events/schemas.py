@@ -257,6 +257,26 @@ class CreateSpecResponse(_Strict):
     warnings: list[str] = Field(default_factory=list)
 
 
+class CreatePolymarketSpecRequest(_Strict):
+    """Payload for ``POST /api/news-events/specs/polymarket``.
+
+    Used to persist a Polymarket WS-driven trigger after the user has
+    either accepted the chat tool's auto-pick OR chosen a candidate
+    from the picker. The created spec lands in state ``draft``;
+    activation is a separate POST to ``/specs/{id}/activate`` so the
+    UX of "review → activate" matches the rest of the surface.
+    """
+
+    event_description: str = Field(..., min_length=4, max_length=2_000)
+    market_id: str = Field(..., min_length=1, max_length=128)
+    token_id: str = Field(..., min_length=1, max_length=256)
+    side: Literal["YES", "NO"] = "YES"
+    threshold: float = Field(..., ge=0.0, le=1.0)
+    direction: Literal["above", "below"] = "above"
+    question: Optional[str] = Field(default=None, max_length=500)
+    workflow_id: Optional[str] = Field(default=None, max_length=64)
+
+
 class ListSpecsResponse(_Strict):
     """``GET /api/news-events/specs`` — list-only view."""
 

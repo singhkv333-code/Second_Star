@@ -51,6 +51,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "propose_threshold_order":    _propose_threshold_order,
         "propose_basket_allocation":  _propose_basket_allocation,
         "propose_holding_action":     _propose_holding_action,
+        "propose_polymarket_trigger": _propose_polymarket_trigger,
         "create_cash_sweep":          _generic_confirm,
         "create_rebalancing_rule":    _generic_confirm,
         "create_drawdown_protection": _generic_confirm,
@@ -692,6 +693,116 @@ async def _propose_basket_allocation(a, kt, db, uid):
 
 async def _propose_holding_action(a, kt, db, uid):
     return await _run_macro("holding_action", a)
+
+
+async def _propose_polymarket_trigger(a, kt, db, uid):
+    """Match a free-text event to a Polymarket contract; return a draft
+    card. Pure — never writes to the DB. Confirmation persists via
+    POST /api/news-events/specs/polymarket; activation kicks off the
+    WS subscription via POST /api/news-events/specs/{id}/activate.
+
+    Render hints:
+      polymarket_trigger_draft  → high-confidence auto-pick; FE shows
+                                  "I found X — confirm threshold?"
+      polymarket_trigger_picker → low-confidence; FE shows a candidate
+                                  list with the matcher's best guess
+                                  pre-highlighted (if any).
+    """
+    from backend.news_events.parsing.polymarket_match import (
+        match_event_to_polymarket_contract,
+    )
+
+    a = a or {}
+    desc = str(a.get("event_description") or "").strip()
+    if not desc:
+        return {
+            "success": False,
+            "error": "event_description is required",
+            "data": {},
+            "logiccard": None,
+        }
+    try:
+        threshold = float(a.get("threshold"))
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "error": "threshold must be a number in [0, 1]",
+            "data": {},
+            "logiccard": None,
+        }
+    if not (0.0 <= threshold <= 1.0):
+        return {
+            "success": False,
+            "error": f"threshold {threshold} out of [0, 1]",
+            "data": {},
+            "logiccard": None,
+        }
+    direction = str(a.get("direction", "above")).lower()
+    if direction not in {"above", "below"}:
+        direction = "above"
+    workflow_note = str(a.get("workflow_action_summary") or "").strip() or None
+
+    try:
+        match = await match_event_to_polymarket_contract(desc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "polymarket_trigger matcher_failed err=%s", exc,
+        )
+        return {
+            "success": False,
+            "error": f"matcher failed: {exc}",
+            "data": {},
+            "logiccard": None,
+        }
+
+    candidate_views = [
+        {
+            "index": i,
+            "market_id": c.market_id,
+            "question": c.question,
+            "slug": c.slug,
+            "yes_price": c.yes_price,
+            "yes_token_id": c.yes_token_id,
+            "no_token_id": c.no_token_id,
+            "closed": c.closed,
+        }
+        for i, c in enumerate(match.candidates)
+    ]
+
+    base = {
+        "event_description": desc,
+        "threshold": threshold,
+        "direction": direction,
+        "workflow_action_summary": workflow_note,
+        "matcher_reason": match.reason,
+        "candidates": candidate_views,
+    }
+
+    if match.matched:
+        base.update({
+            "_render_hint": "polymarket_trigger_draft",
+            "matched": True,
+            "market_id": match.market_id,
+            "token_id": match.token_id,
+            "side": match.side,
+            "question": match.question,
+            "confidence": match.confidence,
+        })
+        return {"success": True, "data": base, "logiccard": None}
+
+    # Low-confidence — show the picker. Pre-highlight the matcher's
+    # best guess if it had one (low confidence is still surfaced on
+    # MatchResult.market_id/token_id/side).
+    base.update({
+        "_render_hint": "polymarket_trigger_picker",
+        "matched": False,
+        "best_guess_market_id": match.market_id,
+        "best_guess_token_id": match.token_id,
+        "best_guess_side": match.side,
+        "best_guess_question": match.question,
+        "best_guess_confidence": match.confidence,
+    })
+    return {"success": True, "data": base, "logiccard": None}
 
 
 async def _list_strategies(a, kt, db, uid):

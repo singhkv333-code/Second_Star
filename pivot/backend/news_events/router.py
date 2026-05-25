@@ -62,6 +62,7 @@ from backend.news_events.webhooks.miniflux import (
     verify_signature as verify_miniflux_signature,
 )
 from backend.news_events.schemas import (
+    CreatePolymarketSpecRequest,
     CreateSpecResponse,
     DisambiguationAnswer,
     DisambiguationSessionView,
@@ -424,6 +425,73 @@ async def disambiguate(
 
 
 @router.post(
+    "/specs/polymarket",
+    response_model=EventSpecResponse,
+    summary="Create a Polymarket WS prediction-market trigger spec",
+)
+async def create_polymarket_spec(
+    body: CreatePolymarketSpecRequest,
+    user_id: int = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> EventSpecResponse:
+    """Persist a draft spec from a confirmed Polymarket pick.
+
+    The chat tool ``propose_polymarket_trigger`` runs the matcher and
+    returns either a high-confidence draft card or a candidate picker.
+    Either way the FE eventually POSTs here with the final (market_id,
+    token_id, side, threshold, direction). The spec lands in state
+    ``draft`` so the user has one explicit confirmation step before the
+    WS subscription opens; activation is a separate
+    ``POST /specs/{id}/activate``.
+
+    The created spec is Tier-3 with an empty keyword set and a
+    pure WS-driven resolution. ``conflict_policy='fire'`` because
+    there are no news classifications to conflict with — the market
+    price IS the trigger signal.
+    """
+    rc = {
+        "primary_sources": [],
+        "min_secondary_confirmations": 0,
+        "min_confidence": 0.85,
+        "conflict_policy": "fire",
+        # WS subscription keys — read by the supervisor's reconcile pass.
+        "polymarket_market_id": body.market_id,
+        "polymarket_token_id": body.token_id,
+        "polymarket_side": body.side,
+        "prediction_market_threshold": body.threshold,
+        "polymarket_threshold_direction": body.direction,
+    }
+    if body.question:
+        rc["polymarket_question"] = body.question
+    spec = NewsEventSpec(
+        user_id=user_id,
+        workflow_id=body.workflow_id,
+        tier="tier3",
+        description=body.event_description,
+        resolution_criteria=rc,
+        retraction_policy={
+            "safety_window_minutes": 0,
+            "action": "ignore",
+        },
+        keyword_set={
+            "must_have_one": [],
+            "must_have_one_of": [],
+            "must_not_have": [],
+        },
+        state="draft",
+    )
+    db.add(spec)
+    db.commit()
+    db.refresh(spec)
+    logger.info(
+        "[news_events.router] polymarket_spec_created spec_id=%s "
+        "user_id=%s token_id=%s threshold=%s direction=%s",
+        spec.id, user_id, body.token_id, body.threshold, body.direction,
+    )
+    return _spec_to_response(spec)
+
+
+@router.post(
     "/specs/{spec_id}/activate",
     response_model=EventSpecResponse,
     summary="Activate a draft spec (start watching)",
@@ -439,6 +507,25 @@ async def activate(
         raise _spec_error_to_http(exc)
     db.commit()
     db.refresh(spec)
+
+    # If this spec opted into the WS-driven prediction-market trigger,
+    # poke the supervisor to reconcile immediately so the spec goes
+    # live within an event-loop tick instead of waiting for the next
+    # 30s reconcile cadence. No-op when the worker isn't running.
+    rc = dict(spec.resolution_criteria or {})
+    if rc.get("polymarket_token_id"):
+        try:
+            from backend.news_events.workers.polymarket_ws_worker import (
+                request_immediate_reconcile,
+            )
+            request_immediate_reconcile()
+        except Exception:  # noqa: BLE001 — never let this block activation
+            logger.exception(
+                "[news_events.router] polymarket immediate-reconcile failed "
+                "for spec_id=%s",
+                spec_id,
+            )
+
     return _spec_to_response(spec)
 
 
