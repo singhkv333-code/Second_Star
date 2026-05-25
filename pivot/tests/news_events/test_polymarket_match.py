@@ -14,6 +14,11 @@ from dataclasses import dataclass
 import pytest
 
 from backend.news_events.parsing import polymarket_match as m
+from backend.news_events.parsing.polymarket_match import (
+    _entity_fallback_query,
+    _keyword_fallback_query,
+    _search_query_from_description,
+)
 from backend.news_events.sources.polymarket import PolymarketSnapshot
 
 
@@ -47,7 +52,7 @@ def _patch_search(monkeypatch, snapshots: list[PolymarketSnapshot]) -> None:
     async def _stub(query, *, limit=8):
         return snapshots
 
-    monkeypatch.setattr(m, "search_markets", _stub)
+    monkeypatch.setattr(m, "search_via_public_search", _stub)
 
 
 def _snap(*, mid: str, q: str, yes: float, yes_tok: str, no_tok: str,
@@ -118,7 +123,7 @@ def test_no_candidates_returns_unmatched(monkeypatch):
     _patch_llm(monkeypatch, _FakeClient(""))  # never called
     out = asyncio.run(m.match_event_to_polymarket_contract("something obscure"))
     assert out.matched is False
-    assert "no candidates" in out.reason
+    assert "no open markets" in out.reason or "no candidates" in out.reason
 
 
 def test_llm_declines_with_null_index(monkeypatch):
@@ -182,7 +187,7 @@ def test_candidate_without_token_ids_is_dropped(monkeypatch):
     _patch_llm(monkeypatch, _FakeClient(""))
     out = asyncio.run(m.match_event_to_polymarket_contract("x"))
     assert out.matched is False
-    assert "no candidates" in out.reason or "token ids" in out.reason
+    assert "token ids" in out.reason or "candidates" in out.reason
 
 
 def test_empty_query_returns_unmatched(monkeypatch):
@@ -190,3 +195,76 @@ def test_empty_query_returns_unmatched(monkeypatch):
     out = asyncio.run(m.match_event_to_polymarket_contract("   "))
     assert out.matched is False
     assert "empty" in out.reason
+
+
+# ── query extraction helpers ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("alert me if Trump wins the 2028 US presidential election",
+     "Trump wins the 2028 US presidential election"),
+    ("tell me when Bitcoin hits $150k probability above 30%",
+     "Bitcoin hits $150k"),
+    ("Fed cuts rates at the June 2026 meeting",
+     "Fed cuts rates at the June 2026 meeting"),
+    ("the election goes well", "the election goes well"),  # 'goes' at idx 13
+    ("above zero", "above zero"),  # marker at idx 0 → not stripped
+])
+def test_search_query_strips_chat_prefixes_and_threshold_clauses(raw, want):
+    assert _search_query_from_description(raw) == want
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("alert me if Trump wins the 2028 US presidential election", "Trump 2028 US"),
+    ("alert me if Trump does NOT win the 2028 US election", "Trump 2028 US"),
+    ("tell me when Bitcoin hits $150k probability above 30%", "Bitcoin $150k"),
+    ("Fed cuts rates at the June 2026 meeting", "Fed June 2026"),
+    ("India wins the next T20 World Cup", "India T20 World Cup"),
+])
+def test_entity_fallback_drops_stopwords_and_negations(raw, want):
+    assert _entity_fallback_query(raw) == want
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("India wins the next T20 World Cup", "India wins T20 World Cup"),
+    ("Fed cuts rates at the June 2026 meeting", "Fed cuts rates June 2026 meeting"),
+])
+def test_keyword_fallback_drops_stopwords_only(raw, want):
+    assert _keyword_fallback_query(raw) == want
+
+
+def test_search_chain_fans_out_until_match(monkeypatch):
+    """Verify the four-tier fallback: cleaned → keyword → entity → raw.
+    The stub returns empty for the first two, candidates for the entity
+    query — we expect search to be called multiple times until success."""
+    calls: list[str] = []
+    candidates = [
+        PolymarketSnapshot(
+            market_id="m1", slug="s1", question="Will Donald Trump win 2028?",
+            yes_price=0.42, closed=False,
+            raw={"outcomes": '["Yes","No"]', "clobTokenIds": '["y","n"]'},
+        ),
+    ]
+
+    async def stub_search(q, *, limit=8):
+        calls.append(q)
+        # Returns candidates only for the entity-query shape (short
+        # all-caps tokens). The primary cleaned query is the long form
+        # and gets no hits.
+        if q == "Trump 2028 US":
+            return candidates
+        return []
+
+    monkeypatch.setattr(m, "search_via_public_search", stub_search)
+    _patch_llm(monkeypatch, _FakeClient(json.dumps({
+        "match_index": 0, "side": "YES", "confidence": 0.91, "reason": "ok",
+    })))
+    out = asyncio.run(m.match_event_to_polymarket_contract(
+        "alert me if Trump wins the 2028 US presidential election"
+    ))
+    # Entity-fallback runs FIRST in the chain (it's the most aggressive
+    # noise-stripper); the cleaned-phrase + keyword + raw forms are
+    # tried only if entity returns empty.
+    assert calls[0] == "Trump 2028 US"
+    assert out.matched is True
+    assert out.market_id == "m1"

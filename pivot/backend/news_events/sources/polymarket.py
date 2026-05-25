@@ -179,6 +179,102 @@ async def search_markets(
     return out
 
 
+async def search_via_public_search(
+    query: str, *, limit: int = 8,
+) -> list[PolymarketSnapshot]:
+    """Search markets via Polymarket's /public-search endpoint.
+
+    IMPORTANT — why this exists alongside ``search_markets``:
+
+    The ``/markets?search=<q>`` parameter that ``search_markets`` uses
+    is silently ignored by Gamma — every query returns the same
+    "default trending" list. The real search endpoint is
+    ``/public-search?q=<q>``, which returns events:
+
+        {
+          "events": [
+            {
+              "title": "Presidential Election Winner 2028",
+              "slug": "presidential-election-winner-2028",
+              "markets": [
+                {"question": "Will Donald Trump win...?", "outcomes": ...},
+                {"question": "Will Eric Trump win...?", "outcomes": ...},
+                ...
+              ],
+              ...
+            },
+            ...
+          ]
+        }
+
+    This function flattens events[*].markets[*] into a single
+    list of ``PolymarketSnapshot``, filtered to active open binary
+    YES/NO markets, ranked by ``volume24hr`` desc (busiest first).
+    Used by the LLM contract matcher in ``parsing/polymarket_match.py``.
+
+    ``search_markets`` is left alone (its tests + the existing
+    Tier-3 cross-check assert the old /markets?search= shape; a
+    follow-up should migrate that path too).
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    params = {"q": q, "limit_per_type": max(1, limit * 2)}
+    try:
+        async with _client() as client:
+            resp = await client.get(
+                f"{_BASE_URL}/public-search", params=params,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "[news_events.polymarket] public-search network error "
+            "query=%r err=%s",
+            query, exc,
+        )
+        return []
+    if resp.status_code != 200:
+        logger.info(
+            "[news_events.polymarket] public-search status=%s query=%r",
+            resp.status_code, query,
+        )
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    events = data.get("events")
+    if not isinstance(events, list):
+        return []
+
+    candidates: list[tuple[float, PolymarketSnapshot]] = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        markets = ev.get("markets") or []
+        if not isinstance(markets, list):
+            continue
+        for m in markets:
+            if not isinstance(m, dict):
+                continue
+            # Filter to active, open, non-archived binary markets.
+            if not m.get("active") or m.get("closed") or m.get("archived"):
+                continue
+            snap = _snapshot_from_payload(m)
+            if snap is None:
+                continue
+            try:
+                vol = float(m.get("volume24hr") or 0.0)
+            except (TypeError, ValueError):
+                vol = 0.0
+            candidates.append((vol, snap))
+
+    # Rank by volume desc — busiest matching markets surface first.
+    candidates.sort(key=lambda t: t[0], reverse=True)
+    return [snap for _vol, snap in candidates[:limit]]
+
+
 async def get_market(market_id_or_slug: str) -> Optional[PolymarketSnapshot]:
     """Fetch one market by id or slug. Returns None on any failure
     so callers can fall back gracefully."""

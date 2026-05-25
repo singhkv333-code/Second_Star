@@ -36,7 +36,7 @@ from backend.llm.base import LLMMessage
 from backend.llm.factory import get_llm_client
 from backend.news_events.sources.polymarket import (
     PolymarketSnapshot,
-    search_markets,
+    search_via_public_search,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,134 @@ Side = Literal["YES", "NO"]
 _PROMPT_CACHE_KEY = "news_events.polymarket_match.v1"
 _DEFAULT_TOP_K = 8
 _MIN_AUTO_PICK_CONFIDENCE = 0.70
+
+
+# Imperative prefixes the chat user typically wraps around their actual
+# event description. Polymarket's /public-search is keyword-based and
+# returns 0 hits when the query starts with these. Stripped before the
+# search hop; the LLM still sees the raw description so it can
+# disambiguate intent (e.g. negation).
+_PREFIX_PATTERNS: tuple[str, ...] = (
+    "alert me if ", "alert me when ", "tell me if ", "tell me when ",
+    "let me know if ", "let me know when ", "ping me if ", "ping me when ",
+    "notify me if ", "notify me when ", "watch for ", "wake me up if ",
+    "wake me up when ", "send me a ping if ", "send me a ping when ",
+)
+# Threshold-clause suffixes that aren't part of the event itself.
+# We drop everything from the first occurrence onward.
+_THRESHOLD_SUFFIX_MARKERS: tuple[str, ...] = (
+    " probability above ", " probability below ", " probability >= ",
+    " probability <= ", " goes above ", " goes below ",
+    " crosses above ", " crosses below ", " above ", " below ",
+)
+
+
+def _search_query_from_description(desc: str) -> str:
+    """Strip chat-imperative prefixes + trailing threshold clauses so
+    Polymarket's keyword search has a clean event phrase to match.
+
+    Conservative — we only strip when the prefix is a clear chat
+    convenience phrase. The LLM still sees the raw description for
+    side disambiguation, so over-stripping costs less than over-keeping.
+    """
+    s = (desc or "").strip()
+    if not s:
+        return s
+    lower = s.lower()
+    for prefix in _PREFIX_PATTERNS:
+        if lower.startswith(prefix):
+            s = s[len(prefix):].lstrip()
+            lower = s.lower()
+            break
+    # Drop the threshold clause if any marker is present beyond
+    # position 8 (so we don't truncate a 2-word query like "above zero").
+    for marker in _THRESHOLD_SUFFIX_MARKERS:
+        idx = lower.find(marker)
+        if idx > 8:
+            s = s[:idx].rstrip()
+            lower = s.lower()
+    # Trim trailing question marks / quotes that chat users tack on.
+    return s.strip("?.,!\"' ").strip()
+
+
+# English stop-words we drop in the keyword fallback. Polymarket's
+# /public-search appears to AND tokens, so long natural-language
+# queries over-restrict. The fallback keeps only content words.
+_STOP_WORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "of", "for", "in", "at", "on",
+    "to", "by", "with", "from", "as", "is", "be", "was", "were", "are",
+    "am", "been", "being", "do", "does", "did", "have", "has", "had",
+    "will", "would", "shall", "should", "may", "might", "can", "could",
+    "if", "when", "while", "until", "during", "after", "before", "next",
+    "this", "that", "these", "those", "it", "its", "i", "me", "my",
+    "we", "us", "our", "you", "your", "he", "she", "they", "them",
+    "their", "his", "her", "any", "some", "all", "no", "not", "very",
+    "really", "soon", "ever", "now", "today",
+})
+
+
+def _keyword_fallback_query(desc: str) -> str:
+    """Keep only non-stopword tokens, preserving order. Used as a
+    second-chance query when the cleaned query returns zero markets.
+
+    Example: 'Will India win the next T20 World Cup'
+        → 'India win T20 World Cup'
+    """
+    s = _search_query_from_description(desc)
+    tokens = [
+        t for t in s.split()
+        if t.lower().strip(",.?!:;\"'") not in _STOP_WORDS
+    ]
+    return " ".join(tokens).strip()
+
+
+# All-caps / capitalized tokens that LOOK like entities but are
+# actually shouting modals / negations / answer literals. They match
+# tangentially-related markets ("not meet", "Will X") and pollute the
+# ranking. Filtered out by the entity-fallback extractor.
+_ENTITY_DROP_TOKENS: frozenset[str] = frozenset({
+    "not", "no", "yes", "will", "won't", "wont",
+    "should", "shall", "would", "could", "may", "might",
+    "going", "happen", "happens", "true", "false",
+})
+
+
+def _entity_fallback_query(desc: str) -> str:
+    """Aggressive fallback: keep only proper nouns + numeric tokens.
+
+    Polymarket's /public-search appears to rank by total token overlap,
+    so a long natural-language query can score a tangentially related
+    market higher than the actually-correct one. This fallback yanks
+    out the entities — capitalized words, numbers, dollar amounts —
+    which tend to be the discriminating tokens.
+
+    Tokens whose lowercased form is in ``_ENTITY_DROP_TOKENS`` or the
+    general stop-word set are dropped even when capitalized — "NOT"
+    and "Will" otherwise pollute the search.
+
+    Example: 'Trump wins the 2028 US presidential election'
+        → 'Trump 2028 US'
+    'Trump does NOT win the 2028 US election'
+        → 'Trump 2028 US' (NOT dropped)
+    """
+    s = _search_query_from_description(desc)
+    out: list[str] = []
+    for raw in s.split():
+        tok = raw.strip(",.?!:;\"'")
+        if not tok:
+            continue
+        # Drop only modal/negation/answer-literal tokens. Don't apply
+        # the general stop-word set here — it contains pronouns like
+        # 'us' that overlap with legitimate acronyms ("US"). The
+        # uppercase/digit/$ gate below already filters lowercase
+        # function words.
+        if tok.lower() in _ENTITY_DROP_TOKENS:
+            continue
+        if (any(ch.isdigit() for ch in tok)
+                or tok[0].isupper()
+                or tok[0] == "$"):
+            out.append(tok)
+    return " ".join(out).strip()
 
 
 _SYSTEM_PROMPT = """You are Pivot's prediction-market contract matcher.
@@ -215,9 +343,33 @@ async def match_event_to_polymarket_contract(
     if not desc:
         return MatchResult(matched=False, reason="empty event description")
 
-    snapshots = await search_markets(desc, limit=top_k)
+    # Four-tier search chain. Polymarket's /public-search ranks by
+    # total token overlap, so a long natural-language query can
+    # actually score the WRONG (older / tangentially related) market
+    # highest. We fan out: cleaned phrase → keyword (stop-words off)
+    # → entity-only (proper nouns + numbers) → raw description.
+    # Stop on the first chain that returns ≥ 1 open active market;
+    # if all four return empty, the user genuinely has no match.
+    primary_q = _search_query_from_description(desc) or desc
+    keyword_q = _keyword_fallback_query(desc)
+    entity_q = _entity_fallback_query(desc)
+
+    tried: list[str] = []
+    snapshots: list[PolymarketSnapshot] = []
+
+    for q in (entity_q, keyword_q, primary_q, desc):
+        if not q or q in tried:
+            continue
+        tried.append(q)
+        snapshots = await search_via_public_search(q, limit=top_k)
+        if snapshots:
+            break
+
     if not snapshots:
-        return MatchResult(matched=False, reason="no candidates returned by Polymarket")
+        return MatchResult(
+            matched=False,
+            reason=f"no open markets matched any of {tried!r}",
+        )
 
     candidates = [c for c in (_to_candidate(s) for s in snapshots) if c is not None]
     if not candidates:
