@@ -52,6 +52,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "propose_basket_allocation":  _propose_basket_allocation,
         "propose_holding_action":     _propose_holding_action,
         "propose_polymarket_trigger": _propose_polymarket_trigger,
+        "browse_polymarket_markets":  _browse_polymarket_markets,
         "create_cash_sweep":          _generic_confirm,
         "create_rebalancing_rule":    _generic_confirm,
         "create_drawdown_protection": _generic_confirm,
@@ -803,6 +804,48 @@ async def _propose_polymarket_trigger(a, kt, db, uid):
         "best_guess_confidence": match.confidence,
     })
     return {"success": True, "data": base, "logiccard": None}
+
+
+async def _browse_polymarket_markets(a, kt, db, uid):
+    """Catalog browse — list open Polymarket events optionally filtered
+    by topic. Pure read-only; no DB write. Returns a render hint the
+    FE renders as a scrollable list of event cards; clicking one
+    drills into its markets and routes to propose_polymarket_trigger.
+    """
+    from backend.news_events.sources.polymarket import browse_events
+
+    a = a or {}
+    topic = str(a.get("topic") or "").strip() or None
+    try:
+        limit = int(a.get("limit", 10))
+    except (TypeError, ValueError):
+        limit = 10
+    limit = max(1, min(20, limit))
+
+    try:
+        events = await browse_events(topic, limit=limit, markets_per_event=3)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("browse_polymarket_markets failed err=%s", exc)
+        return {
+            "success": False,
+            "error": f"browse failed: {exc}",
+            "data": {},
+            "logiccard": None,
+        }
+
+    payload = {
+        "_render_hint": "polymarket_market_browse_card",
+        "topic": topic,
+        "limit": limit,
+        "events": events,
+        "result_count": len(events),
+    }
+    if not events:
+        payload["empty_reason"] = (
+            f"no open markets matched {topic!r}"
+            if topic else "no open events returned by Polymarket"
+        )
+    return {"success": True, "data": payload, "logiccard": None}
 
 
 async def _list_strategies(a, kt, db, uid):

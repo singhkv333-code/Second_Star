@@ -275,6 +275,180 @@ async def search_via_public_search(
     return [snap for _vol, snap in candidates[:limit]]
 
 
+async def browse_events(
+    topic: Optional[str] = None,
+    *,
+    limit: int = 10,
+    markets_per_event: int = 3,
+) -> list[dict]:
+    """Browse open events on Polymarket — catalog discovery for the
+    chat browse tool.
+
+    Two modes:
+      - topic given: hits ``/public-search?q=topic`` and flattens the
+        returned events. Results are already keyword-ranked by Gamma.
+      - topic empty: hits ``/events?closed=false&active=true&
+        order=volume24hr`` for the busiest live events overall.
+
+    Returns a list of event dicts shaped for chat rendering:
+        {
+          "title": "...",
+          "slug": "...",
+          "end_date": "2026-12-31T00:00:00Z" | None,
+          "volume_24h": float,
+          "tags": ["Bitcoin", "Crypto", ...],
+          "markets": [
+            {
+              "market_id": "...",
+              "question": "Will Bitcoin hit $150k by Dec 31, 2026?",
+              "yes_price": 0.014,
+              "yes_token_id": "...",
+              "no_token_id": "...",
+              "volume_24h": float,
+            },
+            ...
+          ]
+        }
+
+    Never raises — network or parse failures return ``[]`` so the
+    chat tool degrades cleanly to "no markets right now".
+    """
+    topic = (topic or "").strip()
+    try:
+        async with _client() as client:
+            if topic:
+                resp = await client.get(
+                    f"{_BASE_URL}/public-search",
+                    params={"q": topic, "limit_per_type": max(1, limit * 2)},
+                )
+            else:
+                resp = await client.get(
+                    f"{_BASE_URL}/events",
+                    params={
+                        "closed": "false",
+                        "active": "true",
+                        "limit": max(1, limit),
+                        "order": "volume24hr",
+                        "ascending": "false",
+                    },
+                )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "[news_events.polymarket] browse network error topic=%r err=%s",
+            topic, exc,
+        )
+        return []
+    if resp.status_code != 200:
+        logger.info(
+            "[news_events.polymarket] browse status=%s topic=%r",
+            resp.status_code, topic,
+        )
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        return []
+
+    # /public-search wraps under "events"; /events returns a bare list.
+    raw_events: list
+    if isinstance(data, dict):
+        raw_events = data.get("events") or []
+    elif isinstance(data, list):
+        raw_events = data
+    else:
+        return []
+
+    out: list[dict] = []
+    for ev in raw_events:
+        if not isinstance(ev, dict):
+            continue
+        # Drop closed / archived at the event level — Gamma sometimes
+        # returns closed events under topic search.
+        if ev.get("closed") or ev.get("archived"):
+            continue
+        try:
+            vol = float(ev.get("volume24hr") or 0.0)
+        except (TypeError, ValueError):
+            vol = 0.0
+        tags_raw = ev.get("tags") or []
+        tag_labels: list[str] = []
+        for t in tags_raw:
+            if isinstance(t, dict) and t.get("label"):
+                tag_labels.append(str(t["label"]))
+            elif isinstance(t, str):
+                tag_labels.append(t)
+        markets_view: list[dict] = []
+        for m in (ev.get("markets") or []):
+            if not isinstance(m, dict):
+                continue
+            if not m.get("active") or m.get("closed") or m.get("archived"):
+                continue
+            snap = _snapshot_from_payload(m)
+            if snap is None:
+                continue
+            # Pull token ids from raw outcomes/clobTokenIds parallel arrays.
+            yes_tok, no_tok = _yes_no_token_ids(m)
+            try:
+                m_vol = float(m.get("volume24hr") or 0.0)
+            except (TypeError, ValueError):
+                m_vol = 0.0
+            markets_view.append({
+                "market_id": snap.market_id,
+                "question": snap.question,
+                "yes_price": snap.yes_price,
+                "yes_token_id": yes_tok,
+                "no_token_id": no_tok,
+                "volume_24h": m_vol,
+            })
+        if not markets_view:
+            continue
+        # Sort markets within the event by their own volume, then keep top N.
+        markets_view.sort(key=lambda x: x["volume_24h"], reverse=True)
+        markets_view = markets_view[:markets_per_event]
+        out.append({
+            "title": ev.get("title"),
+            "slug": ev.get("slug"),
+            "end_date": ev.get("endDate"),
+            "volume_24h": vol,
+            "tags": tag_labels[:4],
+            "markets": markets_view,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _yes_no_token_ids(market: dict) -> tuple[Optional[str], Optional[str]]:
+    """Pull (yes_token_id, no_token_id) out of a raw Gamma market dict.
+    Mirrors the parsing in parsing/polymarket_match._extract_token_ids
+    but operates on the raw market dict directly so browse_events
+    doesn't need to round-trip through PolymarketSnapshot.raw."""
+    import json as _json
+    outcomes = market.get("outcomes")
+    tokens = market.get("clobTokenIds")
+    if isinstance(outcomes, str):
+        try:
+            outcomes = _json.loads(outcomes)
+        except _json.JSONDecodeError:
+            outcomes = None
+    if isinstance(tokens, str):
+        try:
+            tokens = _json.loads(tokens)
+        except _json.JSONDecodeError:
+            tokens = None
+    if not (isinstance(outcomes, list) and isinstance(tokens, list)
+            and len(outcomes) == len(tokens)):
+        return None, None
+    yes_tok = no_tok = None
+    for label, tok in zip(outcomes, tokens):
+        norm = str(label).strip().lower()
+        if norm in {"yes", "true"} and yes_tok is None:
+            yes_tok = str(tok)
+        elif norm in {"no", "false"} and no_tok is None:
+            no_tok = str(tok)
+    return yes_tok, no_tok
+
+
 async def get_market(market_id_or_slug: str) -> Optional[PolymarketSnapshot]:
     """Fetch one market by id or slug. Returns None on any failure
     so callers can fall back gracefully."""

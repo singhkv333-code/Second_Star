@@ -21,7 +21,8 @@ TOOL_SUBSETS = {
     "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow", "propose_polymarket_trigger"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
     "WORKFLOW_PROPOSE":  ["propose_workflow"],
-    "POLYMARKET_TRIGGER": ["propose_polymarket_trigger"],
+    "POLYMARKET_TRIGGER": ["propose_polymarket_trigger", "browse_polymarket_markets"],
+    "POLYMARKET_BROWSE":  ["browse_polymarket_markets"],
     "SIP_MANAGE":        ["list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
     "YIELD_QUERY":       ["compare_yields", "get_yield_recommendation"],
     "CALCULATION":       ["calculate_order_qty", "calculate_tax_impact", "calculate_sl_price", "calculate_dip_price", "calculate_margin"],
@@ -1399,6 +1400,46 @@ tool("propose_polymarket_trigger",
      },
      ["event_description", "threshold"],
      defaults={"direction": "above"})
+
+
+tool("browse_polymarket_markets",
+     "Browse open prediction-market contracts on Polymarket — discovery, "
+     "not subscription. USE when the user asks 'what's hot on Polymarket', "
+     "'show me open Bitcoin markets', 'what crypto / politics / sports "
+     "markets are trading', 'what can I bet on Trump 2028?'. The user "
+     "browses; they pick a contract; THEN they call "
+     "`propose_polymarket_trigger` to set up an alert on it.\n\n"
+     "`topic` is an optional keyword/category to filter on (Bitcoin, "
+     "Politics, NBA, Iran, Trump, election, etc.). Empty/omitted → "
+     "returns the top open events by 24h volume across all categories. "
+     "Returns events grouped (one event can hold many candidate "
+     "markets — e.g. '2028 Presidential' has 128 per-candidate markets). "
+     "Each event row carries title, 24h volume, primary tags, end date, "
+     "and the top markets within it (question + YES price + token ids "
+     "ready for `propose_polymarket_trigger`).\n\n"
+     "NOT for live price reads on a known market (use `propose_polymarket"
+     "_trigger` or the REST cross-check). NOT for Indian-stock listings.",
+     {
+         "topic": {
+             "type": "string",
+             "description":
+                 "Optional keyword / category filter. Examples: 'Bitcoin', "
+                 "'Trump 2028', 'NBA Finals', 'Iran', 'Fed rate'. "
+                 "Empty → top events overall.",
+         },
+         "limit": {
+             "type": "integer",
+             "minimum": 1,
+             "maximum": 20,
+             "default": 10,
+             "description":
+                 "How many events to return (default 10, max 20). Each "
+                 "event surfaces its top 3 markets — don't crank this "
+                 "high; chat UX gets cluttered above 10.",
+         },
+     },
+     [],
+     defaults={"limit": 10})
 
 
 # ── META: find_tool (lazy-loader escape hatch) ─────────────────────────────
