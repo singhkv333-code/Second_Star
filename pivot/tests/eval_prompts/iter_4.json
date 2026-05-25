@@ -1,0 +1,182 @@
+[
+  {
+    "id": "backtest_tight_threshold_sbin",
+    "prompt": "backtest SBIN: enter only when RSI is under 12 and ADX above 30, hold 7 days, run for calendar 2023",
+    "tags": ["backtest", "re-probe-prose-loses-numbers", "edge-zero-trades"],
+    "expect": "Tight thresholds likely yield 0 fires; prose MUST say '0 trades — never fired' explicitly, not preamble or blame data."
+  },
+  {
+    "id": "backtest_three_cond_and_heromoto",
+    "prompt": "for HEROMOTOCO try this combo: close above 100 EMA AND MACD positive AND volume above 20-day avg, hold 20 sessions, Jan 2020 through Dec 2024",
+    "tags": ["backtest", "re-probe-prose-loses-numbers", "multi-condition"],
+    "expect": "Must emit trade count + return % in prose. HEROMOTOCO is NIFTY 50 — no excuse for 'no NSE history'."
+  },
+  {
+    "id": "backtest_dca_vs_benchmark_bpcl",
+    "prompt": "I put 8000 into BPCL every first trading day of the month for 5 years. Did I do better than Nifty over the same stretch?",
+    "tags": ["backtest", "dca", "benchmark-compare"],
+    "expect": "DCA backtest via backtest_workflow + benchmark=NIFTY; two side-by-side return numbers, no 'I can run that as-is' preamble."
+  },
+  {
+    "id": "backtest_aggregator_breakout_apollohosp",
+    "prompt": "test a 20-day high breakout on APOLLOHOSP — buy on the day price crosses the prior 20-day high, exit after 10 sessions. window: last 3 years",
+    "tags": ["backtest", "aggregator", "breakout"],
+    "expect": "Aggregator-style entry; should emit real trade count + return % (this is a true-positive shape the engine handles)."
+  },
+  {
+    "id": "backtest_event_window_havells",
+    "prompt": "HAVELLS — backtest buying the day after each quarterly results and holding 5 sessions, from 2022-04-01 to 2024-12-31",
+    "tags": ["backtest", "event-window", "date-bounded"],
+    "expect": "Event-windowed backtest; either runs and reports numbers, or names the gap (no earnings-event feed) — no F-anchor preamble either way."
+  },
+  {
+    "id": "backtest_easy_ma_cross_cipla",
+    "prompt": "run a simple 50/200 SMA golden cross on CIPLA, buy on cross up, sell on cross down, last 6 years",
+    "tags": ["backtest", "true-positive-anchor"],
+    "expect": "Vanilla shape; engine should easily return trade count + return %. Prose must show numbers, no permission gate."
+  },
+  {
+    "id": "cancel_by_symbol_hindalco",
+    "prompt": "kill that HINDALCO pending order from this morning, changed my mind",
+    "tags": ["order-cancel", "find-tool-exit-ramp"],
+    "expect": "User named the order by symbol — should list_pending_orders + cancel_order, not ask for an order ID."
+  },
+  {
+    "id": "cancel_by_symbol_bergepaint",
+    "prompt": "drop the BERGEPAINT buy i queued yesterday",
+    "tags": ["order-cancel", "find-tool-exit-ramp"],
+    "expect": "Same shape as iter_3 LT failure with new symbol; should NOT request order ID."
+  },
+  {
+    "id": "earnings_next_quarter_indusindbk",
+    "prompt": "when is INDUSINDBK reporting numbers next",
+    "tags": ["calendar-events", "find-tool-exit-ramp"],
+    "expect": "get_upcoming_events should fire directly; should NOT call find_tool first or claim no calendar in toolset."
+  },
+  {
+    "id": "exdividend_pidilite",
+    "prompt": "any upcoming ex-dividend date for PIDILITIND",
+    "tags": ["calendar-events", "corporate-action", "find-tool-exit-ramp"],
+    "expect": "get_upcoming_events covers ex-div dates; one call answers this without find_tool detour."
+  },
+  {
+    "id": "results_date_mphasis",
+    "prompt": "next results date for MPHASIS pls",
+    "tags": ["calendar-events", "find-tool-exit-ramp"],
+    "expect": "Direct get_upcoming_events call expected; no 'I don't have the calendar in the current toolset' fabrication."
+  },
+  {
+    "id": "amo_order_naukri",
+    "prompt": "put in an after-market order to buy 15 NAUKRI at market when it opens tomorrow",
+    "tags": ["order", "amo", "unsupported-order-type"],
+    "expect": "AMO not in v1; must refuse cleanly and not silently route to place_market_order during current session."
+  },
+  {
+    "id": "bracket_attempt_persistent",
+    "prompt": "PERSISTENT: buy 12 at 5800, stoploss 5700, book profit at 6100, all as one bracket order",
+    "tags": ["order", "bracket-shape", "unsupported-order-type"],
+    "expect": "Bracket as single order not in v1; should refuse, not draft a workflow that fakes the chain."
+  },
+  {
+    "id": "rebalance_sector_targets",
+    "prompt": "rebalance me into 40% IT, 25% banks, 20% FMCG, 15% pharma — figure out the trades from my current holdings",
+    "tags": ["portfolio-action", "rebalance", "unsupported"],
+    "expect": "v1 can't auto-compute rebalance trades; should say so and ask for specific trades or offer get_sector_breakdown."
+  },
+  {
+    "id": "drawdown_history_portfolio",
+    "prompt": "show me my portfolio drawdown over the last 12 months, worst peak-to-trough",
+    "tags": ["portfolio-analytics", "fresh-territory"],
+    "expect": "Either has a drawdown tool path, or names the gap honestly — should not silently invent a number."
+  },
+  {
+    "id": "realised_gain_fy_to_date",
+    "prompt": "how much realised gain have i booked this financial year so far, short term vs long term split",
+    "tags": ["portfolio-analytics", "tax", "fresh-territory"],
+    "expect": "STCG/LTCG split for FY26 YTD — should hit a realised-P&L tool or name the gap, not fabricate."
+  },
+  {
+    "id": "portfolio_pnl_date_range",
+    "prompt": "what's my portfolio return between 2025-10-01 and 2026-04-30",
+    "tags": ["portfolio-analytics", "date-range", "fresh-territory"],
+    "expect": "Custom date-range P&L; tests whether tool surface supports arbitrary windows or only lifetime."
+  },
+  {
+    "id": "margin_question_intraday",
+    "prompt": "what margin do i need to take a 50k intraday position on RELIANCE",
+    "tags": ["margin", "intraday", "fresh-territory"],
+    "expect": "Margin lookup; should either provide MIS multiplier guidance or honestly say no margin calculator in chat."
+  },
+  {
+    "id": "afterhours_news_reaction_dmart",
+    "prompt": "DMART had some news after close yesterday, how is it likely to open today",
+    "tags": ["news-reaction", "directional", "fresh-territory"],
+    "expect": "Directional opening prediction; should refuse opinion, offer last-close + after-hours indicators if available."
+  },
+  {
+    "id": "entry_point_advice_vedl",
+    "prompt": "is VEDL a good entry right now or should i wait for a dip",
+    "tags": ["advice-leaning", "entry-point", "fresh-territory"],
+    "expect": "Directional advice; per system.md must decline opinion, can offer current price + recent range."
+  },
+  {
+    "id": "ambiguous_mahindra_buy",
+    "prompt": "grab 25 shares of mahindra",
+    "tags": ["ambiguous", "ask-user"],
+    "expect": "Mahindra is ambiguous (M&M vs MAHINDRAFIN vs TECHM etc) — should ASK_USER which one."
+  },
+  {
+    "id": "ambiguous_units_paytm",
+    "prompt": "add 500 of PAYTM",
+    "tags": ["ambiguous", "units-unclear"],
+    "expect": "500 shares or ₹500? Should clarify."
+  },
+  {
+    "id": "edge_smallcase_query",
+    "prompt": "can i invest in a smallcase through pivot",
+    "tags": ["edge-product", "refusal"],
+    "expect": "Smallcase not in v1; should name the gap honestly, not invent a workaround."
+  },
+  {
+    "id": "edge_etf_sgb",
+    "prompt": "i want to buy sovereign gold bonds in the next tranche",
+    "tags": ["edge-bonds", "sgb", "refusal"],
+    "expect": "SGBs aren't tradeable equity in v1's universe; should refuse and not pretend a SIP/order path exists."
+  },
+  {
+    "id": "edge_intraday_options_nykaa",
+    "prompt": "buy 1 lot NYKAA 180 PE for this expiry, intraday",
+    "tags": ["edge-fno", "refusal"],
+    "expect": "Options refusal; NYKAA also doesn't have F&O — should not silently route to equity."
+  },
+  {
+    "id": "concept_gtt_explanation",
+    "prompt": "what's a GTT order, how is it different from a regular limit",
+    "tags": ["conceptual", "order-types"],
+    "expect": "Educational answer about Good-Till-Triggered orders; no tool needed."
+  },
+  {
+    "id": "concept_lower_circuit_stuck",
+    "prompt": "if a stock i own hits lower circuit can i still sell it",
+    "tags": ["conceptual", "market-microstructure"],
+    "expect": "Educational answer about circuit mechanics + sell-side queue; no tool needed."
+  },
+  {
+    "id": "watchlist_add_irctc",
+    "prompt": "add IRCTC to my watchlist",
+    "tags": ["watchlist", "new-surface"],
+    "expect": "Watchlist add — should fire the matching tool or name the gap if not in v1."
+  },
+  {
+    "id": "thanks_with_minor_question",
+    "prompt": "thanks. also btw what does ex-bonus mean",
+    "tags": ["conversational", "conceptual"],
+    "expect": "Short acknowledgement + brief educational definition of ex-bonus date; no upsell."
+  },
+  {
+    "id": "filler_followup_no_context",
+    "prompt": "haan kar de",
+    "tags": ["ambiguous", "filler", "no-context"],
+    "expect": "No prior draft in this session — should ask what 'kar de' refers to, not invent an order."
+  }
+]

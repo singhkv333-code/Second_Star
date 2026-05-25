@@ -199,7 +199,14 @@ tool("place_basket_order",
      defaults={"exchange": "NSE", "product": "CNC"})
 
 tool("cancel_order",
-     "Cancels a pending regular or limit order by order_id.",
+     "Cancels a pending regular or limit order by order_id. When the user "
+     "names the order by SYMBOL ('cancel my LT order', 'drop the "
+     "BERGEPAINT buy I queued', 'kill my pending HCLTECH order', 'scrap "
+     "my TITAN limit') — the symbol IS enough. Do NOT ask the user for "
+     "an opaque order_id. Instead, call `list_pending_orders` first, "
+     "match the row where `tradingsymbol == <symbol>`, and pass that "
+     "row's order_id to this tool. Asking the user for an order_id when "
+     "they named the order by symbol is a forbidden capability gap.",
      {"order_id": {"type": "string", "description": "Kite order ID"}},
      ["order_id"])
 
@@ -225,7 +232,14 @@ tool("squareoff_symbol",
      ["symbol"])
 
 tool("list_pending_orders",
-     "Returns all pending/open orders for today.",
+     "Returns all pending/open orders for today; each row carries "
+     "{order_id, tradingsymbol, transaction_type, quantity, price}. "
+     "CALL THIS BEFORE `cancel_order` or `modify_order` whenever the user "
+     "named the order by SYMBOL rather than order_id ('cancel my LT "
+     "order', 'change my pending TITAN limit to 3480'). Match by "
+     "tradingsymbol, extract order_id, then call the action tool — same "
+     "turn. Empty list = answer 'you have no pending orders right now', "
+     "NOT a fabricated 'I'm not connected to your trading account'.",
      {}, [])
 
 tool("list_gtt_orders",
@@ -484,7 +498,16 @@ tool("get_market_status",
      {}, [])
 
 tool("get_upcoming_events",
-     "Returns upcoming earnings, RBI meeting dates, ex-dividend dates, F&O expiry dates.",
+     "Returns upcoming earnings dates, ex-dividend dates, RBI MPC meeting "
+     "dates, F&O expiry dates. CALL THIS DIRECTLY for any 'when is X "
+     "reporting', 'next results date for X', 'next earnings on X', "
+     "'ex-dividend date for X', 'next dividend on X', 'when does X go "
+     "ex-dividend', 'upcoming corporate action on Y' — these all map "
+     "here. Do NOT call `find_tool` first — this tool handles all "
+     "calendar-event lookups in the chat surface. If the result for the "
+     "named symbol is empty, say 'no event on the {X} calendar I have' "
+     "— NEVER say 'I don't have a calendar tool here' or 'no earnings-"
+     "calendar lookup in this chat'; the tool exists and was just called.",
      {}, [])
 
 tool("get_top_movers",
@@ -779,8 +802,13 @@ tool("propose_workflow",
      "`propose_holding_action` (sell/SL on existing holding). Use this "
      "tool only when none fits — runtime-relative thresholds ('5% below "
      "today's open'), multi-trigger / multi-action workflows, "
-     "portfolio-state conditions. NOT for BACKTESTS (`backtest_workflow`) "
-     "or single-action automation.\n\n"
+     "portfolio-state conditions. NOT for BACKTESTS — the verbs 'test', "
+     "'backtest', 'simulate', 'run a … on', 'how would X have done', "
+     "'what if I had …' NEVER route here, because this tool produces a "
+     "workflow_draft_card the user activates, not metrics. Use "
+     "`backtest_dsl_tree` for compound/multi-condition backtests and "
+     "`backtest_workflow` for simple single-symbol shapes. NOT for "
+     "single-action automation (use the four macros).\n\n"
      "EMITTING IS NOT ACTIVATING — emit the draft, do NOT ASK_USER to "
      "confirm. Step 0 MUST be a trigger.*. Extra trigger.* steps start "
      "new BRANCHES; two adjacent triggers is invalid. Inter-step refs "

@@ -42,7 +42,9 @@ import httpx
 
 BASE = "http://127.0.0.1:8000"
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "tests" / "eval_results"
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "tests" / "eval_prompts"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # Curated prompt set — covers every render hint + every TOOL_SUBSET +
@@ -217,17 +219,40 @@ def post_chat(token: str, prompt: str, history: list[dict]) -> dict:
     }
 
 
-def run_eval(label: str) -> Path:
+def load_prompts(spec: str | None) -> tuple[list[dict], str]:
+    """Resolve a --prompts spec to a prompt list + a source description.
+
+    - None         → built-in PROMPTS (back-compat default).
+    - foo.json     → load that path (absolute or cwd-relative).
+    - bare "foo"   → load pivot/tests/eval_prompts/foo.json.
+    """
+    if spec is None:
+        return PROMPTS, "<built-in>"
+    p = Path(spec)
+    if p.suffix == ".json" and p.exists():
+        return json.loads(p.read_text()), str(p)
+    candidate = PROMPTS_DIR / f"{spec}.json"
+    if candidate.exists():
+        return json.loads(candidate.read_text()), str(candidate)
+    raise FileNotFoundError(
+        f"prompt set not found: {spec!r}. "
+        f"Tried path {p} and {candidate}."
+    )
+
+
+def run_eval(label: str, prompts_spec: str | None = None) -> Path:
+    prompts, source = load_prompts(prompts_spec)
     print(f"[eval] registering fresh user…", file=sys.stderr)
     token, email = register_demo_user()
-    print(f"[eval] running {len(PROMPTS)} prompts…", file=sys.stderr)
+    print(f"[eval] running {len(prompts)} prompts from {source}…", file=sys.stderr)
     rows: list[dict] = []
-    for idx, p in enumerate(PROMPTS, 1):
-        print(f"  [{idx:>2}/{len(PROMPTS)}] {p['id']}", file=sys.stderr)
+    for idx, p in enumerate(prompts, 1):
+        print(f"  [{idx:>2}/{len(prompts)}] {p['id']}", file=sys.stderr)
         result = post_chat(token, p["prompt"], history=[])
         rows.append({
             "id": p["id"],
             "prompt": p["prompt"],
+            "tags": p.get("tags") or [],
             "expect": p.get("expect", {}),
             "actual": result,
         })
@@ -236,6 +261,7 @@ def run_eval(label: str) -> Path:
         "label": label,
         "recorded_at": datetime.utcnow().isoformat() + "Z",
         "user_email": email,
+        "prompts_source": source,
         "n_prompts": len(rows),
         "results": rows,
     }, indent=2))
@@ -317,6 +343,10 @@ def diff_snapshots(label_a: str, label_b: str) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", help="snapshot label (writes tests/eval_results/<label>.json)")
+    ap.add_argument("--prompts", default=None,
+                    help="prompt set: JSON path OR bare name resolved to "
+                         "pivot/tests/eval_prompts/<name>.json. "
+                         "Default: built-in PROMPTS (legacy 18-prompt set).")
     ap.add_argument("--diff", nargs=2, metavar=("A", "B"),
                     help="diff two existing snapshots by label")
     args = ap.parse_args()
@@ -324,7 +354,7 @@ def main() -> int:
     if args.diff:
         return diff_snapshots(*args.diff)
     if args.label:
-        run_eval(args.label)
+        run_eval(args.label, prompts_spec=args.prompts)
         return 0
     ap.print_help()
     return 2
