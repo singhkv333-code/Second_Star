@@ -378,9 +378,9 @@ to fill required configs.
   Use formulas ONLY when no named metric fits — `roe`, `roce`, etc. should
   always be emitted as named metrics, never as the formula `roe`.
 
-### Routing between the two workflow builders — read this carefully
+### Routing between the THREE workflow builders — read this carefully
 
-There are two workflow builders. They are NOT interchangeable.
+There are now three workflow builders. They are NOT interchangeable.
 
 - **`propose_workflow`** — flat `steps[]` with named macros (`trigger.schedule`,
   `trigger.indicator`, `trigger.price`, `trigger.event`, `trigger.polymarket`,
@@ -397,7 +397,40 @@ There are two workflow builders. They are NOT interchangeable.
   gap/pct_change leaves, spread between symbols, session-day filters,
   time-shifted offsets, conditional (if/then/else), math sub-trees,
   position-aware exit leaves (entry_price, unrealised_pct, bars_held,
-  peak_unrealised_pct, drawdown_from_peak_pct).
+  peak_unrealised_pct, drawdown_from_peak_pct). **RIGID 5-step shape** —
+  one entry tree + one exit tree + one buy + portfolio fetch + one sell.
+- **`propose_pipeline_workflow`** — COMPOSITIONAL builder for shapes the
+  rigid 5-step cannot fit. Pass user intent VERBATIM as `intent`. A server-
+  side translator with the full 44-step catalog + DSL grammar + compositional
+  fewshots in scope builds the `steps[]` array directly with multi-branch /
+  multi-tier / mixed-action shape.
+
+**Pick `propose_pipeline_workflow` when ANY of:**
+
+- **2+ independent triggers** (multi-branch) — "every Monday buy X; if Y
+  drops 2% intraday sell Z; on Friday close squareoff".
+- **2+ exit conditions with different sell quantities** (multi-tier
+  scale-out) — "sell 5 at +3%, 3 at +5%, rest if drawdown > 5%".
+- **Mixed actions in one branch** — "if RSI<30 AND MACD>0 notify; if also
+  RSI<20 buy 10" (compound gate + notify-then-conditional-buy).
+- **Branch fan-out** — same entry, multiple exit branches with different
+  DSL trees.
+
+**Pick `propose_dsl_workflow` when**: single entry condition (possibly
+compound) + at most one exit condition + one action kind. The 5-step
+shape works for ~80% of multi-condition prompts.
+
+**Pick `propose_workflow` when**: linear single-branch with named step
+types the user explicitly described (news-gated single buy with
+`fetch.news`, runtime-relative threshold with `fetch.relative_threshold`,
+basket allocation, etc.). Stays the fallback for shapes that don't fit
+either DSL tool.
+
+**Do NOT use `propose_pipeline_workflow` for**: single-entry+single-exit
+(use propose_dsl_workflow), if-else routing within a branch (engine has
+no else branch), cross-branch shared state ("2-of-3 vote"). The
+translator will refuse those with a structured `needs_engine_feature`
+error.
 
 **ROUTE TO `propose_dsl_workflow` whenever the user's entry OR exit
 condition contains ANY of these signals:**
