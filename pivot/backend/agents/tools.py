@@ -1143,7 +1143,21 @@ tool("backtest_dsl_tree",
 
 
 tool("propose_dsl_workflow",
-     "FIRST CHOICE for any agent/automation whose entry OR exit "
+     "SINGLE-SYMBOL workflow builder. The DSL acts on ONE primary "
+     "symbol — entry trigger fires on it, exit branch closes its "
+     "position. DO NOT pick this tool when the user names MULTIPLE "
+     "TICKERS in the same order intent (`buy RELIANCE, TCS and BAJFINANCE "
+     "when they drop 2%`, `sell INFY and WIPRO at 3pm`, `set up SBIN and "
+     "HDFCBANK with RSI<30 entries`). Multi-symbol intents need "
+     "propose_workflow with one branch per (symbol × action). Routing "
+     "a multi-symbol intent here forces the DSL to invent ONE primary "
+     "symbol and silently drops the others — the user activates a draft "
+     "that trades on one of three names.\n\n"
+     "ALSO DO NOT pick this tool when the prompt mentions news / SEBI / "
+     "RBI / earnings / event / announcement / report / confirms / breaks / "
+     "polymarket / prediction market. The DSL has no news leaf; route "
+     "to propose_workflow with trigger.event / fetch.news instead.\n\n"
+     "FIRST CHOICE for any SINGLE-SYMBOL agent whose entry OR exit "
      "condition contains ANY of the following — pick this tool, NOT "
      "propose_workflow / propose_threshold_order:\n"
      "  • 2+ conditions joined by AND, OR, NOT\n"

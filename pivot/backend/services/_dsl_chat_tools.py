@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
@@ -35,6 +36,56 @@ from backend.workflows.dsl.llm_translate import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# Tokens that look like NSE tickers (3-15 uppercase letters) but aren't.
+# Used to count REAL tickers in a NL condition string when deciding
+# whether the prompt is single-symbol (DSL handles it) vs multi-symbol
+# (must go through propose_workflow with one branch per symbol).
+_DSL_NON_TICKER_TOKENS: frozenset[str] = frozenset({
+    # Day-of-week / time
+    "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
+    "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY",
+    "SATURDAY", "SUNDAY", "TODAY", "YESTERDAY", "TOMORROW",
+    # Exchanges / boilerplate
+    "NSE", "BSE", "INR", "IST", "EOD",
+    # Indicators / order types
+    "RSI", "SMA", "EMA", "MACD", "ADX", "ATR", "BB", "VIX",
+    "WMA", "OBV", "VWAP", "CCI", "MFI", "ROC", "TRIX", "PSAR",
+    "GTT", "OCO", "SL", "TP", "MP", "MIS", "CNC", "NRML",
+    # Logical / order-noise words that get uppercased by accident
+    "AND", "OR", "NOT", "IF", "WHEN", "THEN", "ELSE", "AT", "ON",
+    "OF", "TO", "FROM", "IN", "IS", "AS",
+    "BUY", "SELL", "PLACE", "SET", "ADD", "STOP", "LOSS",
+    "AGENT", "STRATEGY", "WORKFLOW", "AUTOMATION", "ALERT",
+    "MARKET", "LIMIT", "OPEN", "CLOSE", "HIGH", "LOW",
+    "PRICE", "QUANTITY", "SHARES", "STOCK", "STOCKS",
+    "ENTIRE", "FULL", "WHOLE", "ALL", "COMPLETE", "TOTAL", "EVERY",
+    "HOLDING", "HOLDINGS", "POSITION", "POSITIONS",
+})
+
+
+_TICKER_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9\-_]{2,15}\b")
+
+
+def _distinct_tickers_in(*texts: str) -> list[str]:
+    """Return the distinct ticker-shaped tokens across all supplied
+    strings, filtering out NSE/RSI/EMA/etc. that match the same regex
+    but aren't tickers. Used by the multi-symbol guard below."""
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    for txt in texts:
+        if not txt:
+            continue
+        for m in _TICKER_TOKEN_RE.finditer(txt):
+            tok = m.group(0).upper()
+            if tok in _DSL_NON_TICKER_TOKENS:
+                continue
+            if tok in seen_set:
+                continue
+            seen_set.add(tok)
+            seen.append(tok)
+    return seen
 
 
 # ── backtest_dsl_tree ────────────────────────────────────────────────
@@ -329,6 +380,27 @@ async def propose_dsl_workflow(args: dict) -> dict:
         raise ValueError(
             "propose_dsl_workflow needs a 'primary_symbol' — the "
             "symbol the action fires on."
+        )
+
+    # ── Multi-symbol guard ────────────────────────────────────────
+    # propose_dsl_workflow is SINGLE-SYMBOL by design: one entry trigger
+    # fires actions on the primary symbol, optionally with one exit
+    # branch on the same symbol. When the user's intent names multiple
+    # tickers ("buy RELIANCE, TCS and BAJFINANCE when they drop 2% from
+    # open"), the LLM occasionally picks this tool anyway and the
+    # translator silently uses ONLY the primary, dropping the others.
+    # Refuse here with a hint pointing at propose_workflow so the chat
+    # loop's retry / clarification surface presents the right path.
+    tickers = _distinct_tickers_in(condition, exit_condition_text)
+    extras = [t for t in tickers if t != primary]
+    if len(extras) >= 1:
+        all_named = sorted(set([primary] + tickers))
+        raise ValueError(
+            f"propose_dsl_workflow is single-symbol but the condition "
+            f"names multiple tickers ({', '.join(all_named)}). The DSL "
+            f"can only build a workflow for ONE primary symbol — use "
+            f"propose_workflow instead with one branch per (symbol × "
+            f"action), or call this tool three times (once per ticker)."
         )
 
     try:
