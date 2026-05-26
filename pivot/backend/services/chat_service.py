@@ -1497,19 +1497,6 @@ def _summarise_tool_result(g: GuardedToolResult) -> str:
                 "config key, or change a string field to the right "
                 "type. Most drafts succeed within 1-2 retries."
             )
-        elif g.name == "propose_pipeline_workflow":
-            hint = (
-                "RE-EMIT propose_pipeline_workflow with the SAME "
-                "`intent` string but the translator failed validation "
-                "on attempt 1. The handler already runs ONE internal "
-                "retry; this is the second failure, which usually "
-                "means the user is asking for something outside the "
-                "engine's compositional vocabulary (if-then-else "
-                "routing, cross-branch shared state, loops). Surface "
-                "the validator's diagnostic verbatim to the user and "
-                "offer a simpler shape that fits "
-                "propose_dsl_workflow or propose_workflow."
-            )
         else:
             hint = (
                 "Decide whether to call a different tool, call "

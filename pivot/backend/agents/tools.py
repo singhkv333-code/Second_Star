@@ -1144,16 +1144,8 @@ tool("backtest_dsl_tree",
 
 tool("propose_dsl_workflow",
      "FIRST CHOICE for any agent/automation whose entry OR exit "
-     "condition is built from PRICE / INDICATOR / VOLUME / POSITION "
-     "primitives — and ONLY those. The DSL has NO news leaf, NO event "
-     "leaf, NO polymarket leaf, NO calendar leaf. If the user mentions "
-     "news / SEBI / RBI / earnings / event / announcement / report / "
-     "confirms / breaks / corporate action / polymarket / prediction "
-     "market — DO NOT pick this tool; pick propose_pipeline_workflow "
-     "(has trigger.event + trigger.polymarket in its catalog) or "
-     "propose_workflow with trigger.event / fetch.news.\n\n"
-     "Otherwise, pick this tool when the entry or exit contains ANY of "
-     "the following — NOT propose_workflow / propose_threshold_order:\n"
+     "condition contains ANY of the following — pick this tool, NOT "
+     "propose_workflow / propose_threshold_order:\n"
      "  • 2+ conditions joined by AND, OR, NOT\n"
      "  • multi-output indicator components (MACD signal/hist, BB "
      "upper/middle/lower/%B/bandwidth, Stoch %K/%D, Aroon up/down, "
@@ -1235,64 +1227,6 @@ tool("propose_dsl_workflow",
          },
      },
      ["condition", "primary_symbol"])
-
-
-tool("propose_pipeline_workflow",
-     "COMPOSITIONAL pipeline builder for shapes that don't fit "
-     "propose_dsl_workflow's rigid 5-step envelope. Pick THIS tool "
-     "whenever the prompt has ANY of:\n"
-     "  • 2+ independent firing rules (multi-branch — \"every Monday "
-     "buy X; if Y drops Z% sell; on Friday close squareoff\")\n"
-     "  • 2+ exit conditions with different sell quantities "
-     "(multi-tier scale-out — \"sell 5 at +3%, 3 at +5%, rest on "
-     "drawdown\")\n"
-     "  • Mixed actions in one branch (notify-then-conditional-buy, "
-     "compound gate followed by a different action shape)\n"
-     "  • Branch fan-out: same entry, multiple exit branches with "
-     "different DSL trees\n"
-     "  • Compound condition mid-branch (`condition.compound`) gating "
-     "a downstream step\n\n"
-     "Pass the user's FULL intent verbatim as `intent` — the server-"
-     "side translator has the complete step catalog (44 step types) + "
-     "DSL tree grammar + compositional fewshots in scope and builds "
-     "the multi-branch `steps[]` array directly. Embedded DSL trees "
-     "(trigger.compound, trigger.exit_compound, condition.compound) "
-     "ride inline at `step.config.entry`.\n\n"
-     "Do NOT use for single-entry + single-exit prompts (those go to "
-     "propose_dsl_workflow). Do NOT use for runtime-relative threshold / "
-     "news-event single-buy shapes that fit propose_workflow cleanly. "
-     "Do NOT attempt cross-branch shared state (\"2-of-3 vote\") or "
-     "if-else routing within a branch — translator will refuse those.\n\n"
-     "Returns a workflow_draft_card with the full steps[] array.",
-     {
-         "intent": {
-             "type": "string",
-             "description": (
-                 "The user's FULL multi-branch / multi-tier / mixed-"
-                 "action intent, verbatim. Do not paraphrase, do not "
-                 "simplify, do not drop legs. Examples: \"buy 10 X on "
-                 "RSI<30 AND MACD>0, sell 5 at +3%, sell 3 at +5%, "
-                 "rest on drawdown 5%\" or \"every Monday buy 5 X, if "
-                 "Y drops 2% intraday sell 10, on Friday close squareoff\"."
-             ),
-         },
-         "primary_symbol": {
-             "type": "string",
-             "description": (
-                 "Optional default symbol the translator fills into "
-                 "step configs that don't name one. Pass when the "
-                 "user named one ticker across the whole prompt."
-             ),
-         },
-         "name": {
-             "type": "string",
-             "description": (
-                 "Optional short human label for the workflow. "
-                 "Translator picks one if you omit it."
-             ),
-         },
-     },
-     ["intent"])
 
 
 # ── MACRO WORKFLOW TOOLS ────────────────────────────────────────────

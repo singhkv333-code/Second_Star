@@ -86,11 +86,6 @@ _REAL_TOOLS: set[str] = {
     # multiple AND-ed / OR-ed conditions, cross-symbol filters, or
     # aggregators (highest-of-N, percentrank, barssince, ...).
     "propose_dsl_workflow",
-    # Pipeline workflow proposal — compositional builder for multi-
-    # branch / multi-tier-exit / mixed-action workflows that don't fit
-    # propose_dsl_workflow's rigid 5-step shape. Server-side translator
-    # has the full step catalog + DSL grammar in scope.
-    "propose_pipeline_workflow",
     # Macro tools — narrow alternatives to propose_workflow that
     # hydrate the most common shapes server-side. ~30× faster decode.
     "propose_scheduled_order",
@@ -499,9 +494,6 @@ def _ensure_v2_tools_registered() -> None:
     from backend.services._dsl_chat_tools import (
         backtest_dsl_tree, propose_dsl_workflow,
     )
-    from backend.services._pipeline_chat_tools import (
-        propose_pipeline_workflow,
-    )
     _V2_HANDLERS.update({
         "get_price_history": get_price_history,
         "get_52wk_range": get_52wk_range,
@@ -509,8 +501,6 @@ def _ensure_v2_tools_registered() -> None:
         # DSL-tree chat tools (Phase B+1+C.0)
         "backtest_dsl_tree": backtest_dsl_tree,
         "propose_dsl_workflow": propose_dsl_workflow,
-        # Compositional pipeline builder (multi-branch / multi-tier).
-        "propose_pipeline_workflow": propose_pipeline_workflow,
         # find_tool's schema is registered in agents/tools.py; the
         # handler lives here next to the search index.
         "find_tool": _find_tool_handler,

@@ -49,7 +49,6 @@ from typing import Optional
 _ALWAYS_INCLUDE: frozenset[str] = frozenset({
     "propose_workflow",
     "propose_dsl_workflow",
-    "propose_pipeline_workflow",
     "propose_scheduled_order",
     "propose_threshold_order",
     "propose_basket_allocation",
@@ -84,26 +83,6 @@ _RULES: list[_Rule] = [
         r"|\bwhen\s+(rsi|sma|ema|price|the\s+price)",
         "propose_workflow",
         "propose_dsl_workflow",
-        "propose_pipeline_workflow",
-    ),
-
-    # ── Multi-branch / multi-tier / mixed-action signals — surface
-    # propose_pipeline_workflow even if no other rule fires. These are
-    # phrasings the rigid builders cannot fit.
-    _r(
-        # Multi-tier scale-out: "sell 5 at +3%, 3 at +5%, rest..."
-        r"sell\s+\d+\s+(?:shares?\s+)?(?:at|when|on)\s+[+]?\d+\s*%"
-        r"|partial(?:\s+exit|\s+sell|\s+take\s+profit)"
-        r"|scale[- ]?out|tier(?:ed)?\s+(?:exit|sell)"
-        # Multi-trigger chains: "every X ... ; if Y ... ; on Z ..."
-        r"|(?:every|on)\s+\w+\s+[^.;]{1,80}(?:;|\.\s+(?:if|when|on)\s+)\w+"
-        # Notify-then-conditional-act: "notify ... if also ..."
-        r"|notif(?:y|ication)[^.]{0,80}(?:if|when)\s+(?:also|then)\s+"
-        # Multi-exit: "exit when X, also exit when Y" / "or exit when"
-        r"|exit\s+when\s+[^.]{1,80}(?:and|or|also)\s+(?:exit|sell|close)\s+when",
-        "propose_pipeline_workflow",
-        "propose_dsl_workflow",
-        "propose_workflow",
     ),
 
     # ── Order-card quantity/price amendments ──────────────────────

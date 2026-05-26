@@ -780,18 +780,10 @@ _COMPLEXITY_RE = re.compile(
 # LLM. Better an extra hop than a partial draft the user can't see is
 # wrong.
 _LOOKS_MULTI_TRIGGER_RE = re.compile(
-    # (a) Two verbs with an IN-SENTENCE connector (and / ; / ,).
-    r"\b(?:buy|buys|buying|sell|sells|selling|exit|exits|exiting|squareoff|square\s*off|short|cover)\b[^.]{0,160}?"
+    # (a) Two verbs with a connector
+    r"\b(?:buy|buys|buying|sell|sells|selling|exit)\b[^.]{0,160}?"
     r"(?:\s+and\s+(?:then\s+)?|;\s*|,\s+(?!and\s)(?:on\s+)?)"
-    r"(?:also\s+)?(?:buy|buys|buying|sell|sells|selling|exit|exits|exiting|squareoff|square\s*off|short|cover)\b"
-    # (b) Two verbs split by a SENTENCE BREAK.
-    # Pattern: "buy X. If Y..., sell Z" / "every Mon buy X. On Friday squareoff".
-    # The skeleton's single-trigger parsers would happily eat the FIRST verb
-    # and silently drop the rest; bail to LLM so the pipeline tool can build
-    # the multi-branch shape.
-    r"|\b(?:buy|buys|buying|sell|sells|selling|exit|exits|exiting|squareoff|square\s*off|short|cover)\b[^.]{0,160}\.\s+"
-    r"(?:if|when|on|then|also)\b[^.]{0,160}?"
-    r"\b(?:buy|buys|buying|sell|sells|selling|exit|exits|exiting|squareoff|square\s*off|short|cover)\b",
+    r"(?:also\s+)?(?:buy|buys|buying|sell|sells|selling|exit)\b",
     re.IGNORECASE,
 )
 
