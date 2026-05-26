@@ -51,6 +51,11 @@ _BACKTEST_CATEGORIES = {
     "pm_compound",
     "basket",
     "backtest_only",
+    # propose_pipeline_workflow categories (50-prompt set).
+    "pipe_multi_tier_exit",
+    "pipe_advanced_entry_exit",
+    "pipe_session_compound",
+    "pipe_pair_spread_multi",
 }
 
 
