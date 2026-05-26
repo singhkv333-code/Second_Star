@@ -127,6 +127,56 @@ EXIT GRAMMAR (only when the user is explicitly describing an exit condition):
       "field": "entry_price"|"unrealised_pct"|"unrealised_abs"|"bars_held"|"peak_unrealised_pct"|"drawdown_from_peak_pct",
       "basis": "close"|"low"|"high"   // only for unrealised_pct / unrealised_abs
     }
+
+  ALL of these position fields are wired and supported. Do NOT punt back
+  with messages like "this system can't read entry price" or "the
+  drawdown clause needs to be expressed differently" — emit the tree.
+
+  Worked exit-tree examples:
+
+  "trail an 8% stop from the peak unrealised gain":
+    { "type":"comparison", "op":">=",
+      "left":  { "type":"position", "field":"drawdown_from_peak_pct" },
+      "right": { "type":"constant", "value":0.08 } }
+
+  "exit when my position is up 4%":
+    { "type":"comparison", "op":">=",
+      "left":  { "type":"position", "field":"unrealised_pct" },
+      "right": { "type":"constant", "value":0.04 } }
+
+  "exit when I've held for more than 30 bars OR RSI > 75":
+    { "type":"logic", "op":"or",
+      "operands": [
+        { "type":"comparison", "op":">",
+          "left":  { "type":"position", "field":"bars_held" },
+          "right": { "type":"constant", "value":30 } },
+        { "type":"comparison", "op":">",
+          "left":  { "type":"indicator", "indicator":"rsi",
+                      "symbol":"KOTAKBANK", "period":14 },
+          "right": { "type":"constant", "value":75 } } ] }
+
+  "exit when price drops below entry_price minus 2x ATR(14)":
+    { "type":"comparison", "op":"<",
+      "left":  { "type":"price", "symbol":"SBIN" },
+      "right": { "type":"math", "op":"-",
+                 "operands": [
+                   { "type":"position", "field":"entry_price" },
+                   { "type":"math", "op":"*",
+                     "operands": [
+                       { "type":"constant", "value":2 },
+                       { "type":"indicator", "indicator":"atr",
+                         "symbol":"SBIN", "period":14 } ] } ] } }
+
+  "exit when RSI > 70 OR drawdown from peak > 6%":
+    { "type":"logic", "op":"or",
+      "operands": [
+        { "type":"comparison", "op":">",
+          "left":  { "type":"indicator", "indicator":"rsi",
+                      "symbol":"LT", "period":14 },
+          "right": { "type":"constant", "value":70 } },
+        { "type":"comparison", "op":">",
+          "left":  { "type":"position", "field":"drawdown_from_peak_pct" },
+          "right": { "type":"constant", "value":0.06 } } ] }
 """
 
 

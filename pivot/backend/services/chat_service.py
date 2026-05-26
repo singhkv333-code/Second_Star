@@ -3960,13 +3960,18 @@ def _try_macro_fallback(message: str) -> Optional[dict]:
         "SATURDAY", "SUNDAY",
         "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
         "TODAY", "YESTERDAY", "TOMORROW",
-        "RSI", "SMA", "EMA", "MACD", "SL", "TP", "MP",
+        "RSI", "SMA", "EMA", "MACD", "ADX", "ATR", "BB",
+        "SL", "TP", "MP", "GTT", "OCO",
         "NSE", "BSE", "AT", "OF", "ON", "IF", "TO", "FROM",
         "IT", "OR", "AND", "ELSE", "WHEN", "THEN", "WHILE",
         "BUY", "SELL", "PLACE", "SET", "ADD", "STOP", "LOSS",
         "AGENT", "STRATEGY", "WORKFLOW", "AUTOMATION",
         "MARKET", "LIMIT", "OPEN", "CLOSE", "HIGH", "LOW",
         "PRICE", "QUANTITY",
+        # "sell my ENTIRE RELIANCE holding" — ENTIRE is a modifier, not a
+        # ticker. Same for FULL, WHOLE, ALL, COMPLETE, TOTAL, EVERY.
+        "ENTIRE", "FULL", "WHOLE", "ALL", "COMPLETE", "TOTAL", "EVERY",
+        "HOLDING", "POSITION", "SHARES",
     }
 
     def _pick_symbol(text: str) -> Optional[str]:

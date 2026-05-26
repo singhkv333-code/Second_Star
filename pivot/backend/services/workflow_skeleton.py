@@ -51,6 +51,19 @@ _SYMBOL_BLOCKLIST: frozenset[str] = frozenset({
     "UNIT", "QUANTITY", "QTY", "ORDER", "ORDERS", "TRADE", "TRADES",
     "MARKET", "LIMIT", "OPEN", "CLOSE", "HIGH", "LOW",
     "PRICE", "PRICES", "VALUE", "AT", "ON", "OF", "IN",
+    # "sell my ENTIRE COALINDIA position" — these modifier words look
+    # like tickers to the regex but aren't. Without the blocklist the
+    # _try_sell_my parser grabs the word AFTER "my" / "the" verbatim
+    # and emits symbol="ENTIRE" everywhere, producing a draft that
+    # references a non-existent symbol.
+    "ENTIRE", "FULL", "WHOLE", "ALL", "COMPLETE", "TOTAL", "EVERY",
+    "HOLDING", "HOLDINGS", "POSITION", "POSITIONS",
+    "MY", "THE", "THIS", "THAT", "IT", "THEM",
+    "NOW", "TODAY", "YESTERDAY", "TOMORROW",
+    # Indicator names that the macro doesn't whitelist — if one of
+    # these slips into the symbol slot, we'd ship a draft for a
+    # non-symbol like "MACD".
+    "RSI", "SMA", "EMA", "MACD", "ADX", "ATR", "BB", "VIX",
 })
 
 # Day-of-week → cron DOW digit
@@ -670,6 +683,13 @@ _BUILD_VERB_RE = re.compile(
 # conditions, buying-power gates, and runtime-relative thresholds
 # (e.g. "2% below today's open" — the threshold isn't an absolute
 # value, it depends on the day's data) remain LLM-only.
+#
+# CRITICAL: this regex is the only thing between a user's compound /
+# multi-output / aggregator / cross-symbol prompt and a silently-
+# truncated single-condition draft. The skeleton's competence is RSI/
+# SMA/EMA + price + schedule + sell-my, single-condition only. ANY
+# signal that the user wants something richer MUST bail to the LLM,
+# which routes to propose_dsl_workflow.
 _COMPLEXITY_RE = re.compile(
     r"\b(?:buying[- ]power|sector\s+exposure)\b"
     r"|\bnotify\s+me\b|\bemail\s+me\b|\bsms\s+me\b|\bpush\s+(?:notif|me)"
@@ -681,11 +701,69 @@ _COMPLEXITY_RE = re.compile(
     r"|\d+\s*%\s*(?:below|above|under|over)\s+(?:today|yesterday|prev|previous|last)"
     r"|\b(?:below|above|under|over)\s+(?:today|yesterday|prev(?:ious)?|last)(?:'s)?\s+(?:open|close|high|low)"
     r"|\bif\s+(?:current|today)\s+(?:price|open|close)\s+is\s+(?:above|below|over|under)"
-    # TTL / valid-until phrases. The skeleton emits a perpetual
-    # workflow; if the user expressed a deactivation date, we MUST
-    # let the LLM path through so it can populate `valid_until` on
-    # the WorkflowDraft. Skeleton path drops that field silently.
-    r"|\b(?:valid\s+(?:till|until)|until\s+\d|good\s+(?:for|till)|expires?\s+(?:on|after)|till\s+(?:eod|the\s+end|next|month|week|friday)|next\s+\d+\s+(?:days|weeks))",
+    # TTL / valid-until phrases.
+    r"|\b(?:valid\s+(?:till|until)|until\s+\d|good\s+(?:for|till)|expires?\s+(?:on|after)|till\s+(?:eod|the\s+end|next|month|week|friday)|next\s+\d+\s+(?:days|weeks))"
+    # ── Indicators OUTSIDE the skeleton's RSI/SMA/EMA whitelist.
+    # The skeleton can only emit trigger.indicator with rsi|sma|ema.
+    # Anything else needs propose_dsl_workflow or the LLM hop to
+    # build a richer step shape. NEVER let these silently route to a
+    # single trigger.indicator(rsi…) with the rest dropped.
+    r"|\b(?:macd|adx|bollinger\s+band|bollinger|bb|atr|keltner|donchian|"
+    r"stoch(?:astic)?(?:_rsi)?|supertrend|aroon|cci|mfi|williams[_\s]?r|"
+    r"obv|vwap|roc|trix|psar|vix|ichimoku|chaikin)\b"
+    # ── Multi-output indicator components.
+    r"|\b(?:macd\s+(?:line|signal|hist|histogram)|bollinger\s+(?:upper|lower|middle|%?b|pctb|bandwidth)|"
+    r"stoch(?:astic)?\s+%?[kd]|bb\s+(?:upper|lower|middle)|"
+    r"donchian\s+(?:upper|lower)|keltner\s+(?:upper|lower)|"
+    r"aroon\s+(?:up|down))\b"
+    # ── Aggregate windows (percentrank, zscore, highest-N, lowest-N,
+    # rolling X-day, correlation, barssince, valuewhen).
+    r"|\b(?:percent[- ]?rank|percentile|z[- ]?score|barssince|valuewhen|"
+    r"correlation|correlated\s+with|rolling\s+\d|n[- ]?day\s+high|"
+    r"\d+[- ]?(?:day|bar)\s+(?:high|low|average|mean|std|sigma)|"
+    r"\d+[- ]?bar\s+(?:high|low|mean|std)|highest\s+(?:close\s+)?of\s+"
+    r"(?:the\s+)?last\s+\d|lowest\s+(?:close\s+)?of\s+(?:the\s+)?last\s+\d)\b"
+    # ── Volume-relative comparisons.
+    r"|\bvolume\b[^.]{0,40}?(?:above|greater\s+than|more\s+than|>|exceed|"
+    r"spike|times|x\s+(?:its|the)|x\s+\d+[- ]?(?:day|bar)|\d+x\b)"
+    # ── Cross-symbol spread / ratio (e.g. TCS/INFY, KOTAKBANK/HDFCBANK,
+    # ratio between two tickers, spread phrasing).
+    r"|\b(?:spread|ratio)\s+(?:of|between)\b"
+    r"|\b[A-Z]{3,15}\s*/\s*[A-Z]{3,15}\b"
+    # ── Market-relative time. The skeleton's _try_scheduled only
+    # parses fixed HH:MM. Open/close offsets need trigger.market_relative_time.
+    r"|\b(?:\d+\s+)?(?:minutes?|mins?|hours?|hrs?)\s+(?:before|after)\s+"
+    r"(?:market\s+|the\s+)?(?:open|close)\b"
+    r"|\bpre[- ]?open\s+session\b|\bin\s+(?:the\s+)?pre[- ]?open\b"
+    r"|\b(?:at|after|before)\s+(?:the\s+)?market\s+(?:open|close)\b"
+    r"|\bat\s+market\s+(?:open|close)\b"
+    # ── Exit / position-state references. These belong in a DSL exit
+    # tree (trigger.exit_compound with PositionNode leaves), not a
+    # flat scheduled/threshold workflow.
+    r"|\b(?:drawdown|peak[- ]?to[- ]?(?:current|trough)|peak\s+unrealised|"
+    r"trail(?:ing)?\s+(?:stop|\d+)|trail\s+a?\s*\d|bars?\s+held|"
+    r"after\s+\d+\s+bars?|been\s+holding|"
+    r"unrealised|unrealized|position\s+is\s+up|position\s+up)\b"
+    # ── Gap / pct_change leaves.
+    r"|\bgap[- ]?(?:up|down)\b|\bgaps?\s+(?:down|up)\b"
+    r"|\bpercent\s+change|\bpct[- ]?change\b"
+    # ── Indicator-vs-indicator crossover (golden/death cross, etc).
+    # "20-day EMA crosses above 50-day EMA" / "fast EMA above slow EMA" /
+    # "MACD line crosses signal line".
+    r"|\b\d+[- ]?(?:day|bar|period)?\s*[A-Z]?(?:EMA|SMA|MA)\b[^.]{0,40}?"
+    r"\b(?:cross|above|below)\b[^.]{0,40}?\b\d+[- ]?(?:day|bar|period)?\s*[A-Z]?(?:EMA|SMA|MA)\b"
+    r"|\bgolden\s+cross\b|\bdeath\s+cross\b"
+    # ── Compound logic: explicit "AND" / "OR" / "NOT" connecting two
+    # condition clauses inside a single intent. Indicator-or-price word
+    # on either side is the conservative guard.
+    r"|\b(?:rsi|sma|ema|macd|adx|atr|bollinger|stoch|donchian|keltner|"
+    r"supertrend|aroon|cci|mfi|williams|price|volume|close|open|high|low)"
+    r"[^.]{1,80}?\b(?:AND|and|OR|or)\b[^.]{1,80}?"
+    r"\b(?:rsi|sma|ema|macd|adx|atr|bollinger|stoch|donchian|keltner|"
+    r"supertrend|aroon|cci|mfi|williams|price|volume|close|open|high|low|above|below|>|<)\b"
+    # ── Session-day filter mid-condition ("only on Tuesdays", "Mon-Wed only").
+    r"|\bonly\s+on\s+(?:mon|tue|wed|thu|fri)"
+    r"|\b(?:mon|tue|wed|thu|fri)[a-z]*(?:\s+and\s+(?:mon|tue|wed|thu|fri)[a-z]*)+\s+only\b",
     re.IGNORECASE,
 )
 
