@@ -1144,8 +1144,16 @@ tool("backtest_dsl_tree",
 
 tool("propose_dsl_workflow",
      "FIRST CHOICE for any agent/automation whose entry OR exit "
-     "condition contains ANY of the following — pick this tool, NOT "
-     "propose_workflow / propose_threshold_order:\n"
+     "condition is built from PRICE / INDICATOR / VOLUME / POSITION "
+     "primitives — and ONLY those. The DSL has NO news leaf, NO event "
+     "leaf, NO polymarket leaf, NO calendar leaf. If the user mentions "
+     "news / SEBI / RBI / earnings / event / announcement / report / "
+     "confirms / breaks / corporate action / polymarket / prediction "
+     "market — DO NOT pick this tool; pick propose_pipeline_workflow "
+     "(has trigger.event + trigger.polymarket in its catalog) or "
+     "propose_workflow with trigger.event / fetch.news.\n\n"
+     "Otherwise, pick this tool when the entry or exit contains ANY of "
+     "the following — NOT propose_workflow / propose_threshold_order:\n"
      "  • 2+ conditions joined by AND, OR, NOT\n"
      "  • multi-output indicator components (MACD signal/hist, BB "
      "upper/middle/lower/%B/bandwidth, Stoch %K/%D, Aroon up/down, "

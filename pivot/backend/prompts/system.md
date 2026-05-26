@@ -432,6 +432,18 @@ no else branch), cross-branch shared state ("2-of-3 vote"). The
 translator will refuse those with a structured `needs_engine_feature`
 error.
 
+**News / event / polymarket prompts are ONLY for `propose_pipeline_workflow`
+or `propose_workflow` — NEVER `propose_dsl_workflow`.** The DSL grammar
+has no news leaf, no event leaf, no polymarket leaf. If you route
+*"if news confirms RBI cut the repo rate AND BANKNIFTY is up >1%, buy
+HDFCBANK"* to propose_dsl_workflow, the translator will silently pretend
+"news confirms RBI cut" is a numeric condition that never fires —
+producing a draft the user activates and then watches do nothing.
+Pipeline_workflow has trigger.event in its catalog and can compose it
+with a DSL gate; propose_workflow can do the same via
+trigger.event / fetch.news. Either is correct for news; propose_dsl_workflow
+is always wrong.
+
 **ROUTE TO `propose_dsl_workflow` whenever the user's entry OR exit
 condition contains ANY of these signals:**
 
