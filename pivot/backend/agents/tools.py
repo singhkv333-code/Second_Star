@@ -2,7 +2,8 @@
 backend/agents/tools.py
 
 All Pivot tool definitions in OpenAI function calling format.
-Sarvam reads these at call time to understand available actions.
+The LLM (Azure / OpenAI) reads these at call time to understand
+available actions.
 
 TOOL SUBSETS — intent classifier returns a subset name.
 Main call only receives tools in that subset.

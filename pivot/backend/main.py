@@ -459,8 +459,8 @@ def health_check():
         "redis": redis_status,
         "mock_mode": {
             "kite": not bool(settings.kite_api_key),
-            "sarvam": not bool(settings.sarvam_api_key),
             "openai": not bool(settings.openai_api_key),
+            "azure": not bool(settings.azure_key),
         },
     }
 

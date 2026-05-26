@@ -80,14 +80,14 @@ class RunRequest(BaseModel):
     starting_capital: float = 1_000_000.0
     benchmark_sc_id: Optional[str] = None
     basis: str = "consolidated"
-    auto_map_symbols: bool = True       # call Sarvam to fill in nse_symbol
+    auto_map_symbols: bool = True       # call the LLM to fill in nse_symbol
                                         # for the universe at start_date
 
 
 class MapSymbolsRequest(BaseModel):
     sc_ids: list[str]
     force: bool = False                 # re-map even if nse_symbol already set
-    skip_verify: bool = False           # trust Sarvam without yfinance round-trip
+    skip_verify: bool = False           # trust the LLM without yfinance round-trip
 
 
 # ---- Endpoints ---------------------------------------------------------
@@ -174,7 +174,7 @@ async def screen(req: ScreenRequest, authorization: str = Header(None)):
 
 @router.post("/map-symbols")
 async def map_symbols(req: MapSymbolsRequest, authorization: str = Header(None)):
-    """Resolve a list of sc_ids to NSE tickers via Sarvam, verify with yfinance,
+    """Resolve a list of sc_ids to NSE tickers via the LLM, verify with yfinance,
     persist to ``mc.companies.nse_symbol``. Idempotent."""
     _auth(authorization)
     from backend.agents.symbol_mapper import map_and_persist

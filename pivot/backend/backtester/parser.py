@@ -1,8 +1,8 @@
 """
 Natural-language → structured strategy definition parser.
 
-ONE Sarvam call with emulated function-calling. Falls back to a rule-based
-extractor when Sarvam is in mock mode (no API key) so the parser still
+ONE LLM call with native function-calling. Falls back to a rule-based
+extractor when the LLM call fails so the parser still
 works in tests and dev environments.
 
 Output shape (the "ready" path):
@@ -33,7 +33,8 @@ import logging
 import re
 from typing import Optional
 
-from backend.agents.sarvam_client import SARVAM_MOCK_MODE, call_sarvam
+from backend.llm.base import LLMMessage
+from backend.llm.factory import get_llm_client
 from backend.backtester.exits import EXIT_REGISTRY
 from backend.backtester.primitives import SIGNAL_REGISTRY
 
@@ -79,7 +80,7 @@ def _default_exit() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Sarvam system prompt (full SIGNAL_REGISTRY namespace)
+# LLM system prompt (full SIGNAL_REGISTRY namespace)
 # ---------------------------------------------------------------------------
 
 PARSER_SYSTEM_PROMPT = """
@@ -145,10 +146,10 @@ List missing_params only if the symbol or position_size is genuinely unspecified
 
 
 # ---------------------------------------------------------------------------
-# Sarvam tool definition — structured entry/exit shape
+# LLM tool definition — structured entry/exit shape
 # ---------------------------------------------------------------------------
 
-SARVAM_TOOL = {
+PARSE_TOOL = {
     "type": "function",
     "function": {
         "name": "define_strategy",
@@ -282,22 +283,23 @@ async def parse_strategy(message: str) -> Optional[dict]:
     if not any(k in lower for k in KEYWORDS):
         return None
 
-    if SARVAM_MOCK_MODE:
-        return _rule_based_parse(message)
-
     try:
-        result = await call_sarvam(
-            messages=[{"role": "user", "content": message}],
-            system_prompt=PARSER_SYSTEM_PROMPT,
+        client = get_llm_client()
+        resp = await client.complete(
+            messages=[
+                LLMMessage(role="system", content=PARSER_SYSTEM_PROMPT),
+                LLMMessage(role="user", content=message),
+            ],
+            tools=[PARSE_TOOL],
+            tool_choice="auto",
             temperature=0.1,
-            max_tokens=1200,
-            tools=[SARVAM_TOOL],
+            max_output_tokens=1200,
         )
     except Exception as e:
-        logger.warning(f"Sarvam parse_strategy failed, falling back to rules: {e}")
+        logger.warning(f"LLM parse_strategy failed, falling back to rules: {e}")
         return _rule_based_parse(message)
 
-    tc = (result or {}).get("tool_call")
+    tc = (resp.tool_calls or [None])[0] if resp.tool_calls else None
     if not tc or tc.get("name") != "define_strategy":
         return _rule_based_parse(message)
 
@@ -364,7 +366,7 @@ def _finalise_strategy(args: dict, original_message: str) -> dict:
         }
     err = _validate_entry_block(entry)
     if err:
-        # Sarvam couldn't structure a valid entry — fall back to rule-based.
+        # LLM couldn't structure a valid entry — fall back to rule-based.
         rb = _rule_based_parse(original_message)
         if rb and rb.get("status") in {"ready", "needs_clarification"}:
             return rb
@@ -377,7 +379,7 @@ def _finalise_strategy(args: dict, original_message: str) -> dict:
             ),
         }
 
-    # Position sizing — try Sarvam first, then fall back to extracting from message.
+    # Position sizing — try the LLM first, then fall back to extracting from message.
     missing: list[str] = [
         m for m in (args.get("missing_params") or [])
         if m in {"position_size_inr", "symbol", "entry_signal"}
@@ -428,7 +430,7 @@ def _finalise_strategy(args: dict, original_message: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Rule-based fallback (used when Sarvam is unavailable)
+# Rule-based fallback (used when the LLM call fails)
 #
 # TODO: enrich fallback for full registry. Currently maps the most common
 # patterns: RSI thresholds, MACD crossovers, golden/death cross, simple SMA

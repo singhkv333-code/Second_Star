@@ -475,10 +475,11 @@ async def chat_stream(
                               "latency_breakdown": {...}}
       {"type": "error",      "message": "..."}
 
-    On the OpenAI provider, `delta` events come straight from the
-    Responses API stream — first token typically lands ~1s after
-    request start. On Sarvam (or fast-path), the full reply is emitted
-    as a single `delta` because those paths don't true-stream.
+    On the OpenAI / Azure providers, `delta` events come straight from
+    the Responses API stream — first token typically lands ~1s after
+    request start. On the fast-path (slash-command shortcuts), the full
+    reply is emitted as a single `delta` because that path doesn't
+    true-stream.
     """
     user_id = _auth(authorization)
     last_msg = _last_user_message(request.messages)

@@ -52,9 +52,6 @@ PRICING: dict[str, dict[str, float]] = {
     # ``llm_cost.unknown_model`` for every Azure call because the
     # punctuation differs from the OpenAI family key.
     "gpt-5.4-mini": {"input": 0.25, "output": 2.00},   # placeholder
-
-    # Sarvam dev tier — no per-token billing today.
-    "sarvam-m":     {"input": 0.00, "output": 0.00},
 }
 
 

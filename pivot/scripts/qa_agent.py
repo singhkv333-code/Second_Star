@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Agent A — Conversation Quality Tester
-Runs test conversations against Pivot's Sarvam integration.
+Runs test conversations against Pivot's LLM integration.
 Writes findings to /tmp/pivot_qa_log.json for Agent B to fix.
 
 Run from the pivot/ root:
@@ -20,7 +20,8 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ.setdefault("APP_ENV", "development")
 
-from backend.agents.sarvam_client import call_sarvam
+from backend.llm.base import LLMMessage
+from backend.llm.factory import get_llm_client
 # Live system prompt (the one the running chatbot actually uses)
 from backend.routers.chat import PIVOT_SYSTEM_PROMPT as LIVE_SYSTEM_PROMPT
 
@@ -131,13 +132,16 @@ async def run_single_test(test: dict) -> dict:
     error = None
     response = ""
     try:
-        result = await call_sarvam(
-            messages=messages,
-            system_prompt=LIVE_SYSTEM_PROMPT,
+        client = get_llm_client()
+        resp = await client.complete(
+            messages=[
+                LLMMessage(role="system", content=LIVE_SYSTEM_PROMPT),
+                LLMMessage(role="user", content=test["input"]),
+            ],
             temperature=0.3,
-            max_tokens=400,
+            max_output_tokens=400,
         )
-        response = result.get("content", "") if isinstance(result, dict) else str(result)
+        response = resp.content or ""
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
     elapsed_ms = int((time.time() - t0) * 1000)
@@ -188,7 +192,7 @@ async def run_single_test(test: dict) -> dict:
 
 async def run_all_tests():
     print("\n=" * 1 + "=" * 60)
-    print("PIVOT QA AGENT — running conversation tests against live Sarvam")
+    print("PIVOT QA AGENT — running conversation tests against the live LLM")
     print("=" * 60)
 
     results = []

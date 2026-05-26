@@ -2,13 +2,10 @@
 
 Every Pivot LLM call goes through `LLMClient.complete(...)` with the
 same input/output shape regardless of which provider is wired
-(currently: Azure OpenAI gpt-5.4-mini via the openai_client / azure_client
-path; Sarvam-m still selectable via LLM_PROVIDER=sarvam). The abstraction
-was added when we moved off Sarvam-m as the primary chat backend; before
-this, calls were scattered across two clients with slightly different
-signatures (Sarvam's `call_sarvam` returned a dict, the legacy
-`call_openai` returned a string), which made swapping providers a
-multi-file refactor every time.
+(currently: Azure OpenAI gpt-5.4-mini by default; OpenAI Responses
+selectable via LLM_PROVIDER=openai). The abstraction lets us swap
+providers in one line; before this, calls were scattered across two
+clients with slightly different signatures.
 
 What's intentional in this contract:
 
@@ -144,6 +141,6 @@ class LLMClient(ABC):
           - reasoning_effort is silently ignored on non-reasoning models.
           - response_format='json_object' must coerce the provider into
             JSON-shaped output. Supported by every provider currently
-            wired (Azure / OpenAI Responses / Sarvam).
+            wired (Azure / OpenAI Responses).
         """
         ...

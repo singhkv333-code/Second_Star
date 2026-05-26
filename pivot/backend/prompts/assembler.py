@@ -1,6 +1,6 @@
 """Single source of truth for system-prompt assembly.
 
-Every Sarvam / OpenAI call across the codebase goes through
+Every LLM call across the codebase goes through
 `build_system_prompt(role, user_context, extra_context)`. Auditing
 prompt content is now a single-file job.
 

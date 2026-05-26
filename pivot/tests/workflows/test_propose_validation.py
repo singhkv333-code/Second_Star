@@ -32,8 +32,8 @@ from backend.workflows.registry import STEP_REGISTRY
 @pytest.fixture(autouse=True)
 def _force_mock_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force the deterministic mock path so this suite is hermetic."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "")
     monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
 
 
 # ── The 10 prompts ──────────────────────────────────────────────────

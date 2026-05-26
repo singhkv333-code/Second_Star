@@ -8,8 +8,8 @@ os.environ["REDIS_URL"] = "redis://localhost:6379/0"
 # Force mock mode for all external APIs during tests — empty string is falsy
 os.environ["KITE_API_KEY"] = ""
 os.environ["KITE_API_SECRET"] = ""
-os.environ["SARVAM_API_KEY"] = ""
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["AZURE_KEY"] = ""
 # Demo seeder runs on /auth/register in dev; disable for tests so a
 # freshly-registered user starts truly empty. Tests that exercise the
 # seeder explicitly opt-in by un-setting this in their own setup.

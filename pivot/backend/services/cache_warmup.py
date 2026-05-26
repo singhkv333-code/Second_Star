@@ -81,7 +81,8 @@ async def warmup_prompt_cache() -> None:
         return
 
     # Provider check — only OpenAI has a server-side prompt cache to
-    # warm. Sarvam doesn't expose one.
+    # warm. Azure routes through the same Responses API but is treated
+    # separately by its own warmer; other providers have no prompt cache.
     provider = getattr(client, "provider_name", "") or ""
     if provider.lower() != "openai":
         logger.info("cache warmup: provider=%s has no prompt cache; skipping", provider)

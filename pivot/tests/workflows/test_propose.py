@@ -269,10 +269,10 @@ def test_catalog_summary_includes_every_step_type() -> None:
 async def test_propose_in_mock_mode_uses_pattern_matcher(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When SARVAM/OpenAI keys are empty, route through _mock_propose
-    and never call the LLM."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "")
+    """When the LLM keys (OpenAI / Azure) are empty, route through
+    _mock_propose and never call the LLM."""
     monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
     assert _is_mock_mode() is True
 
     async def _no_llm(*args, **kwargs):  # pragma: no cover
@@ -291,8 +291,8 @@ async def test_propose_with_llm_happy_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Stub LLM to return valid JSON on first try."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "x")
-    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "x")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
     valid = json.dumps({
         "name": "Buy 1 INFY",
         "description": "Daily INFY",
@@ -331,8 +331,8 @@ async def test_propose_with_llm_retries_on_validation_fail(
 ) -> None:
     """First call returns invalid (unknown step_type); second call
     fixed by the retry instruction. Final draft is the corrected one."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "x")
-    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "x")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
     bad = json.dumps({
         "name": "x", "description": None, "rationale": None, "warnings": [],
         "steps": [{"step_type": "trigger.invented", "label": None, "config": {}}],
@@ -371,8 +371,8 @@ async def test_propose_raises_when_llm_fails_twice(
     mock draft was killed on 2026-05-03 — that path silently lied to
     users (canned RELIANCE/buying-power steps regardless of intent).
     """
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "x")
-    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "x")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
 
     async def _always_bad(intent: str, *, extra_instruction: str = "") -> str:
         return "this is not json at all"
@@ -391,8 +391,8 @@ async def test_propose_offline_mode_still_uses_mock(
     """When NO LLM key is set, the offline mock path is preserved —
     that's the demo-recording / CI path. Distinct from the
     LLM-failed-with-key-present path which now raises."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "")
     monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
 
     draft = await propose_workflow_async(
         "Every weekday at 09:30 IST buy 1 RELIANCE and email me."

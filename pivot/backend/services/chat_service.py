@@ -3049,9 +3049,9 @@ class ChatService:
             )
 
         client = self._client()
-        # Streaming is currently OpenAI-only (Sarvam doesn't true-stream
-        # tool calls). Detect at runtime; on Sarvam we degrade to the
-        # non-streaming `handle()` and emit the result as one delta.
+        # Streaming is gated on the LLMOpenAI / LLMAzureOpenAI client
+        # surface; on any other client we degrade to the non-streaming
+        # `handle()` and emit the result as one delta.
         can_stream = isinstance(client, LLMOpenAI)
 
         if not can_stream:

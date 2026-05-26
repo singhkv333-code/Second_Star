@@ -2,7 +2,7 @@
 backend/agents/context_injector.py
 
 Builds compact market + portfolio context block from Redis.
-Injected into every Sarvam call. Always < 250 tokens. Always < 5ms.
+Injected into every LLM call. Always < 250 tokens. Always < 5ms.
 """
 
 import json

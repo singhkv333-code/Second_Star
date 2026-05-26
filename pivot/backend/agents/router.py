@@ -1,27 +1,29 @@
+"""Legacy task-typed routing layer — now a thin wrapper over the
+unified `LLMClient` abstraction.
+
+Historically this module fanned out between two raw clients (one
+HTTP client for chat/intent/explain, the OpenAI client for
+maths / structured JSON). The unified `backend.llm.factory.get_llm_client`
+now returns whichever provider `LLM_PROVIDER` selects (Azure OpenAI
+by default), so `route_and_call` just forwards every TaskType to it.
+The TaskType enum is preserved so existing callers
+(`agents/explainer.py`, `agents/parser.py`) compile unchanged.
 """
-Model routing — decides which AI model handles each request type.
-Sarvam (FREE) for most tasks. OpenAI for complex maths/guaranteed JSON.
-"""
+from __future__ import annotations
+
 from enum import Enum
+
+from backend.llm.base import LLMMessage
+from backend.llm.factory import get_llm_client
 
 
 class TaskType(str, Enum):
-    CHAT = "chat"                   # General conversation → Sarvam
-    INTENT = "intent"               # Intent classification → Sarvam
-    EXPLAIN = "explain"             # Strategy explanation → Sarvam
-    SIZE_LEGS = "size_legs"         # Leg sizing maths → OpenAI (needs precision)
-    BACKTEST = "backtest"           # Backtest interpretation → OpenAI
-    STRUCTURED_JSON = "structured"  # Guaranteed JSON schema → OpenAI
-
-
-ROUTING_TABLE = {
-    TaskType.CHAT: "sarvam",
-    TaskType.INTENT: "sarvam",
-    TaskType.EXPLAIN: "sarvam",
-    TaskType.SIZE_LEGS: "openai",
-    TaskType.BACKTEST: "openai",
-    TaskType.STRUCTURED_JSON: "openai",
-}
+    CHAT = "chat"
+    INTENT = "intent"
+    EXPLAIN = "explain"
+    SIZE_LEGS = "size_legs"
+    BACKTEST = "backtest"
+    STRUCTURED_JSON = "structured"
 
 
 async def route_and_call(
@@ -31,14 +33,21 @@ async def route_and_call(
     json_mode: bool = False,
     max_tokens: int = 1000,
 ) -> str:
-    """Routes to correct model and returns response."""
-    from backend.agents.sarvam_client import call_sarvam
-    from backend.agents.openai_client import call_openai
+    """Forward every task to the configured LLM. Returns content as str."""
+    msgs: list[LLMMessage] = []
+    if system_prompt:
+        msgs.append(LLMMessage(role="system", content=system_prompt))
+    for m in messages:
+        role = m.get("role") if isinstance(m, dict) else None
+        content = m.get("content") if isinstance(m, dict) else None
+        if role and content:
+            msgs.append(LLMMessage(role=role, content=content))
 
-    model = ROUTING_TABLE.get(task_type, "sarvam")
-
-    if model == "sarvam":
-        result = await call_sarvam(messages, system_prompt, json_mode=json_mode, max_tokens=max_tokens)
-        return result.get("content", "") if isinstance(result, dict) else result
-    else:
-        return await call_openai(messages, system_prompt, json_mode=True, max_tokens=max_tokens)
+    client = get_llm_client()
+    resp = await client.complete(
+        messages=msgs,
+        max_output_tokens=max_tokens,
+        temperature=0.2,
+        response_format="json_object" if json_mode else None,
+    )
+    return resp.content or ""

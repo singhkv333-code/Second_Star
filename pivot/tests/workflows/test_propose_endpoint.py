@@ -38,7 +38,7 @@ def test_returns_draft_with_canonical_demo_prompt(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
     """The canonical demo prompt → 5-step draft via the mock matcher
-    (mock mode kicks in because tests run with empty SARVAM/OpenAI keys)."""
+    (mock mode kicks in because tests run with empty LLM keys)."""
     resp = client.post(
         "/api/propose-workflow",
         headers=auth_headers,

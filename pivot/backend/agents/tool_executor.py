@@ -1,7 +1,7 @@
 """
 backend/agents/tool_executor.py
 
-Routes Sarvam tool_call to the right backend function.
+Routes the LLM's tool_call to the right backend function.
 Builds LogicCard dict for every execution-type tool.
 Returns: { success, data, logiccard, error }
 """

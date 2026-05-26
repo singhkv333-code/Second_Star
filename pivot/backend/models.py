@@ -511,13 +511,12 @@ class LlmUsage(Base):
     turn_id = Column(String(64), nullable=True)
     request_id = Column(String(64), nullable=True, index=True)
     endpoint = Column(String(64), nullable=False)    # "chat", "propose", "router", "agentic", ...
-    provider = Column(String(32), nullable=False)    # "openai" | "sarvam"
+    provider = Column(String(32), nullable=False)    # "openai" | "azure"
     model = Column(String(64), nullable=False)
     input_tokens = Column(Integer, nullable=False, default=0)
-    # Subset of input_tokens served from OpenAI's prompt cache. Billed
-    # at 50% of the normal input rate on the Responses API. Always 0
-    # for Sarvam (no prompt-cache surface) and for rows written before
-    # migration 0006 shipped.
+    # Subset of input_tokens served from the OpenAI prompt cache. Billed
+    # at 50% of the normal input rate on the Responses API. 0 for rows
+    # written before migration 0006 shipped.
     cached_input_tokens = Column(Integer, nullable=False, default=0)
     output_tokens = Column(Integer, nullable=False, default=0)
     reasoning_tokens = Column(Integer, nullable=False, default=0)

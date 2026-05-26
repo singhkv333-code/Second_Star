@@ -6,7 +6,7 @@ This module:
 
   1. Builds a focused system prompt that includes the full step-type
      catalog (constraint: LLM may NOT invent step types not in the catalog).
-  2. Calls Sarvam (or OpenAI via route_and_call) with json_mode=True.
+  2. Calls the LLM (Azure / OpenAI via get_llm_client) with json_mode=True.
   3. Parses the JSON, validates EVERY step config against the registry's
      Pydantic models. On validation failure, retries ONCE with the
      concrete error embedded in the prompt.
@@ -14,7 +14,8 @@ This module:
      The frontend's editor renders the draft; the user clicks Activate
      which then POSTs to /api/workflows.
 
-Mock mode: when SARVAM_API_KEY is empty (and OpenAI too), pattern-match
+Mock mode: when no LLM key is configured (OPENAI_API_KEY and AZURE_KEY
+both empty), pattern-match
 a small set of common prompts so the demo recording works without any
 external dependency. The mock is keyed off keywords ("buy", "sell",
 "every weekday", "if my buying power", "RELIANCE", "QQQ", etc.) and
@@ -528,8 +529,8 @@ async def _propose_via_llm(user_intent: str) -> WorkflowDraft:
 
 
 def _is_mock_mode() -> bool:
-    """True when neither Sarvam nor OpenAI is configured. Demo mode."""
-    return not (settings.sarvam_api_key or settings.openai_api_key)
+    """True when no LLM provider is configured. Demo mode."""
+    return not (settings.openai_api_key or settings.azure_key)
 
 
 _RX_NUMBER = re.compile(r"\d+(?:[\.,]\d+)?")
@@ -786,7 +787,7 @@ async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
         raise ProposalValidationError("user_intent is empty")
 
     if _is_mock_mode():
-        # Genuine offline mode (no Sarvam, no OpenAI). The mock path
+        # Genuine offline mode (no OpenAI, no Azure). The mock path
         # is the demo recording's deterministic fallback — kept so CI
         # and screencast runs work without network. NOT a graceful
         # degradation when an LLM call fails.

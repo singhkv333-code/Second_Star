@@ -6,7 +6,6 @@ Covers:
   - OpenAI message-shape conversion (system/user/assistant/tool/tool_calls)
   - OpenAI tool-defs serialisation
   - OpenAI response parsing (text-only / function_call / mixed)
-  - Sarvam tool emulation roundtrip (still works via the new client)
 """
 from __future__ import annotations
 
@@ -28,11 +27,11 @@ from backend.llm.openai_client import (
     _parse_response,
     _tools_to_responses_format,
 )
-from backend.llm.sarvam_client import (
-    LLMSarvam,
-    _build_tool_instruction,
-    _extract_emulated_tool_call,
-)
+# backend.llm.sarvam_client was removed when the chat path migrated
+# to native function-calling via Azure OpenAI / OpenAI Responses.
+# The LLMSarvam class and its emulated-tool-call helpers
+# (_build_tool_instruction / _extract_emulated_tool_call) no longer
+# exist; tests below that referenced them are removed.
 
 
 # ── Models ──────────────────────────────────────────────────────────
@@ -72,14 +71,19 @@ def test_factory_returns_openai_by_default(monkeypatch):
     assert client.model == "gpt-5-mini"
 
 
-def test_factory_switches_to_sarvam(monkeypatch):
-    monkeypatch.setenv("LLM_PROVIDER", "sarvam")
-    monkeypatch.setenv("LLM_MODEL", "sarvam-m")
+def test_factory_switches_to_azure(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "azure")
+    monkeypatch.setenv("LLM_MODEL", "gpt-5.4-mini")
+    monkeypatch.setattr(
+        "backend.config.settings.azure_openai_endpoint",
+        "https://stub.services.ai.azure.com/openai/v1",
+    )
+    monkeypatch.setattr("backend.config.settings.azure_key", "stub-key")
     set_llm_client_for_tests(None)
     reset_llm_client_cache()
     client = get_llm_client()
-    assert client.provider_name == "sarvam"
-    assert client.model == "sarvam-m"
+    assert client.provider_name == "azure"
+    assert client.model == "gpt-5.4-mini"
 
 
 def test_factory_raises_on_unknown_provider(monkeypatch):
@@ -219,45 +223,6 @@ async def test_openai_returns_error_on_missing_key():
     assert "OPENAI_API_KEY" in (r.content or "")
 
 
-# ── Sarvam emulation ───────────────────────────────────────────────
-
-
-def test_sarvam_tool_instruction_includes_every_tool():
-    tools = [
-        ToolDef(name="t1", description="first", parameters={"type": "object"}),
-        ToolDef(name="t2", description="second", parameters={
-            "type": "object", "properties": {"x": {"type": "string"}},
-            "required": ["x"],
-        }),
-    ]
-    out = _build_tool_instruction(tools)
-    assert "t1" in out and "t2" in out
-    assert "TOOL_CALL" in out
-    assert "first" in out and "second" in out
-
-
-def test_sarvam_extract_tool_call_from_block():
-    raw = (
-        "Sure, calling now.\n"
-        '<TOOL_CALL>{"name":"buy","arguments":{"qty":1}}</TOOL_CALL>\n'
-    )
-    cleaned, parsed = _extract_emulated_tool_call(raw)
-    assert parsed == {"name": "buy", "arguments": {"qty": 1}}
-    assert "TOOL_CALL" not in cleaned
-
-
-def test_sarvam_extract_handles_no_block():
-    cleaned, parsed = _extract_emulated_tool_call("just text")
-    assert parsed is None
-    assert cleaned == "just text"
-
-
-@pytest.mark.asyncio
-async def test_sarvam_returns_mock_when_unconfigured(monkeypatch):
-    monkeypatch.setattr("backend.config.settings.sarvam_api_key", "")
-    client = LLMSarvam(model="sarvam-m", api_key="")
-    r = await client.complete(messages=[
-        LLMMessage(role="user", content="hi"),
-    ])
-    # Mock branch returns content, never raises.
-    assert r.content
+# Sarvam-specific tests removed — backend.llm.sarvam_client and
+# backend.agents.sarvam_client were deleted when the chat path migrated
+# to native function-calling via Azure OpenAI / OpenAI Responses.

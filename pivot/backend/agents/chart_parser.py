@@ -4,9 +4,9 @@ Chart-request parser for the Compare feature.
 Two-stage:
   1. Cheap keyword filter — if the message has no chart-ish words, return None
      immediately without an LLM call.
-  2. One Sarvam call with an emulated function-calling tool (parse_chart_request)
+  2. One LLM call with native function-calling (parse_chart_request)
      to extract symbols + period + chart_type. Falls back to a regex/heuristic
-     extractor if Sarvam is in mock mode or the parse fails.
+     extractor if the LLM call fails.
 
 Returns None when the message is not a chart/comparison request, or a dict:
   {symbols, period, start_date, end_date, chart_type, normalise, sip_amount}
@@ -18,7 +18,8 @@ import logging
 import re
 from typing import Optional
 
-from backend.agents.sarvam_client import SARVAM_MOCK_MODE, call_sarvam
+from backend.llm.base import LLMMessage
+from backend.llm.factory import get_llm_client
 from backend.market.yfinance_service import (
     NAME_TO_TICKER,
     VALID_PERIODS,
@@ -215,7 +216,7 @@ def _heuristic_parse(message: str) -> Optional[dict]:
 
 
 def _normalise_parsed(raw: dict) -> Optional[dict]:
-    """Coerce a parsed dict (from Sarvam or heuristic) into the canonical shape."""
+    """Coerce a parsed dict (from the LLM or heuristic) into the canonical shape."""
     if not isinstance(raw, dict):
         return None
     syms_raw = raw.get("symbols") or []
@@ -266,19 +267,20 @@ async def parse_chart_request(message: str) -> Optional[dict]:
     if not _has_chart_keyword(message):
         return None
 
-    if SARVAM_MOCK_MODE:
-        return _normalise_parsed(_heuristic_parse(message) or {})
-
     try:
-        result = await call_sarvam(
-            messages=[{"role": "user", "content": message}],
-            system_prompt=PARSE_SYSTEM_PROMPT,
-            temperature=0.1,
-            max_tokens=400,
+        client = get_llm_client()
+        resp = await client.complete(
+            messages=[
+                LLMMessage(role="system", content=PARSE_SYSTEM_PROMPT),
+                LLMMessage(role="user", content=message),
+            ],
             tools=[PARSE_TOOL],
-            reasoning_effort=None,
+            tool_choice="auto",
+            temperature=0.1,
+            max_output_tokens=400,
         )
-        tool_call = result.get("tool_call") if isinstance(result, dict) else None
+        # Prefer the structured tool call when the model emitted one.
+        tool_call = (resp.tool_calls or [None])[0] if resp.tool_calls else None
         if tool_call and tool_call.get("name") == "parse_chart_request":
             normalised = _normalise_parsed(tool_call.get("arguments") or {})
             if normalised:
@@ -287,7 +289,8 @@ async def parse_chart_request(message: str) -> Optional[dict]:
                     normalised["symbols"], normalised["period"], normalised["chart_type"],
                 )
                 return normalised
-        content = result.get("content") if isinstance(result, dict) else ""
+        # Fallback: try to parse raw content as JSON.
+        content = resp.content or ""
         if content:
             try:
                 cleaned = re.sub(r"```json|```", "", content).strip()
@@ -297,6 +300,6 @@ async def parse_chart_request(message: str) -> Optional[dict]:
             except Exception:
                 pass
     except Exception as e:
-        logger.warning(f"Sarvam chart parse failed, falling back to heuristic: {e}")
+        logger.warning(f"LLM chart parse failed, falling back to heuristic: {e}")
 
     return _normalise_parsed(_heuristic_parse(message) or {})

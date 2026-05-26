@@ -381,8 +381,8 @@ class StreamingClient:
     """Optional streaming surface on LLMOpenAI.
 
     Kept as a separate small helper so the abstract LLMClient contract
-    doesn't grow a `stream()` method that providers without streaming
-    support (e.g. Sarvam) can't honour. Callers feature-test via
+    doesn't grow a `stream()` method that future providers without
+    streaming support couldn't honour. Callers feature-test via
     `isinstance(client, LLMOpenAI)` or the helper function below.
     """
 

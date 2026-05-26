@@ -29,7 +29,6 @@ class Settings(BaseSettings):
     kite_token_enc_key: str = ""
 
     # AI
-    sarvam_api_key: str = ""
     openai_api_key: str = ""
 
     # Azure AI Foundry (chat base URL is the /openai/v1 path on the
@@ -46,12 +45,12 @@ class Settings(BaseSettings):
     newsapi_key: str = ""
 
     # LLM provider selection (read by backend.llm.factory).
-    # `llm_provider`: "openai" | "sarvam" | "azure".
+    # `llm_provider`: "openai" | "azure" (default).
     # `llm_model`:    overrides the per-provider default (gpt-5-mini /
-    #                 sarvam-m / gpt-5.4-mini). For azure this is the
-    #                 *deployment name* from the Azure portal, not the
-    #                 underlying model id.
-    llm_provider: str = "openai"
+    #                 gpt-5.4-mini). For azure this is the *deployment
+    #                 name* from the Azure portal, not the underlying
+    #                 model id.
+    llm_provider: str = "azure"
     llm_model: str = ""
 
     # App

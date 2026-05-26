@@ -3,8 +3,9 @@
 Self-improvement loop for the Pivot chatbot.
 
 Runs:
-  1. qa_agent  -> tests live Sarvam responses, writes /tmp/pivot_qa_log.json
-  2. fix_agent -> reads the log, patches code (system prompt, max_tokens, etc.)
+  1. qa_agent  -> tests live LLM responses, writes /tmp/pivot_qa_log.json
+  2. (fix_agent was removed when backend/agents/sarvam_client.py was deleted;
+     this script's auto-patch step is no-op until a replacement is wired)
   3. repeat until pass rate stops improving or hits 100% or hits max iterations
 
 Run from pivot/ root:

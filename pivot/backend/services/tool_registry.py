@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 # ---- Tool catalogue ----------------------------------------------------
 #
-# Each entry has the OpenAI function-calling shape Sarvam expects (we reuse
-# the existing tools.py definitions; this file simply curates the visible set).
+# Each entry has the OpenAI function-calling shape (we reuse the existing
+# tools.py definitions; this file simply curates the visible set).
 
 # Tools that have a real backing implementation in tool_executor.py.
 # Keep this list aligned with the dispatcher in tool_executor.py:18.
