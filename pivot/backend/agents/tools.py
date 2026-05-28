@@ -140,9 +140,21 @@ tool("create_gtt_order",
      defaults={"exchange": "NSE", "product": "CNC"})
 
 tool("create_sl_order",
-     "Creates a stop-loss GTT order to protect a holding. Accepts "
-     "stop_price OR stop_pct (needs entry_price). ALWAYS prefer this over "
-     "propose_workflow/propose_holding_action for plain stop-loss requests.",
+     "Creates a FIXED-PRICE stop-loss GTT order to protect a holding. "
+     "Accepts stop_price (absolute) OR stop_pct + entry_price (fixed % "
+     "below a known entry).\n\n"
+     "PREFER this for plain fixed SL requests where the user gives a "
+     "specific stop_price or a stop_pct + entry_price, AND quantity is "
+     "supplied.\n\n"
+     "DO NOT pick this when:\n"
+     "  • the user says **trailing** stop loss (this tool has no trail "
+     "support — use propose_holding_action with action_kind='set_stoploss' "
+     "and sl_offset_pct=N for trailing semantics)\n"
+     "  • the user says **'on my <SYMBOL> holding/position'** without a "
+     "quantity (use propose_holding_action — the workflow resolves "
+     "quantity from holdings at fire time via fetch.portfolio)\n"
+     "  • the user wants the SL tied to an entry from another agent "
+     "(use propose_holding_action so the SL lives in the workflow).",
      {
          "symbol":       {"type": "string"},
          "quantity":     {"type": "integer", "minimum": 1},

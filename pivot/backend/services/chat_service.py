@@ -986,6 +986,16 @@ _INDEPENDENT_INTENT_RE = re.compile(
     # Bare data lookups: "tell me about X", "X price", "what's X at"
     r"|\btell\s+me\s+(?:more\s+)?about\b"
     r"|\bsnapshot\s+of\b|\bquote\s+for\b|\bprice\s+of\b"
+    # Price-history / chart-data fetches. Without these, "show me
+    # last week's price" / "chart of X" / "what was the price on
+    # Friday" after a draft were treated as amendments and the
+    # model spawned new workflows. Treat as fresh data lookup.
+    r"|\b(?:show\s+(?:me|us)?\s+)?(?:last|past|prior|previous)\s+"
+    r"(?:week|month|quarter|year|day|\d+\s+(?:days?|weeks?|months?))"
+    r"(?:'s)?\s+(?:price|close|high|low|open|chart|data)?\b"
+    r"|\bshow\s+(?:me|us)?\s+(?:the\s+)?(?:chart|price[- ]?history|"
+    r"history|graph|candles?)\b"
+    r"|\bprice\s+history\b|\bchart\s+(?:of|for)\b|\bcandlestick\b"
     # Help / capabilities
     r"|\bwhat\s+can\s+you\s+do\b"
     # Indicator / metric data lookups — "RSI of X", "MACD on Y",
@@ -1125,7 +1135,20 @@ def _is_independent_prompt(message: str) -> bool:
     msg = (message or "").strip()
     if not msg:
         return False
-    # Explicit amend wins.
+    # Explicit "build another / also build" phrasing trumps any
+    # amendment-shape match. Otherwise "Now also build a sell agent
+    # for TCS at 4200" gets caught by the stepwise "at <number>"
+    # pattern and treated as an amendment to the prior draft.
+    if re.search(
+        r"\b(?:also\s+build|another\s+(?:agent|workflow|automation)|"
+        r"now\s+also\s+(?:build|set|make|create)|"
+        r"build\s+(?:me\s+)?another|"
+        r"new\s+(?:agent|workflow|automation)|"
+        r"different\s+(?:agent|workflow|automation))\b",
+        msg, re.IGNORECASE,
+    ):
+        return True
+    # Explicit amend wins (after the multi-build override).
     if _DEPENDENT_INTENT_RE.search(msg):
         return False
     if _INDEPENDENT_INTENT_RE.search(msg):
@@ -2164,9 +2187,11 @@ class ChatService:
         # re-parsing prose. Carries forward to the system message
         # block below.
         pending_resolution_hint_text: str = ""
+        pending_resolution_active = False
         if not _is_pure_affirmative(message):
             _pr = self.store.get_pending_resolution(conv_id)
             if _pr is not None and (_pr.question or _pr.options):
+                pending_resolution_active = True
                 opts_block = (
                     "Options: " + " | ".join(_pr.options) + "."
                     if _pr.options else ""
@@ -2175,14 +2200,23 @@ class ChatService:
                     f"Default if user says 'yes': {_pr.default_on_yes}."
                     if _pr.default_on_yes else ""
                 )
+                original_block = (
+                    f" Original intent: \"{_pr.original_intent[:200]}\"."
+                    if _pr.original_intent else ""
+                )
                 pending_resolution_hint_text = (
                     "## Pending clarification (structured)\n"
                     f"You asked: \"{_pr.question}\". "
-                    f"{opts_block} {default_block} "
+                    f"{opts_block} {default_block}{original_block} "
                     "The user's CURRENT message is their answer. "
                     "Map it to one of the options if possible, then "
-                    "proceed with the workflow they were building. "
-                    "Do NOT re-ask the same clarification."
+                    "EMIT the workflow / order tool IMMEDIATELY with "
+                    "the resolved value substituted into the original "
+                    "request. Do NOT re-ask. Do NOT write prose like "
+                    "'Drafted: ...' without actually calling the tool. "
+                    "If no tool exists for the merged request, ASK_USER "
+                    "for the next missing piece — never write a fake "
+                    "draft description."
                 ).strip()
                 # Clear once consumed so a stale resolution doesn't
                 # bleed across turns.
@@ -2391,6 +2425,25 @@ class ChatService:
         agent_tool_choice: Literal["auto", "required"] = (
             "required" if is_agent_intent else "auto"
         )
+        # When a PendingResolution is active (user is answering a prior
+        # clarification), force tool_choice=required so the model emits
+        # the workflow / ASK_USER tool instead of writing prose. The
+        # observed L03_04 failure mode: "yes that one" after an M&M
+        # disambiguation → no tool, just prose claiming a draft was made.
+        if pending_resolution_active:
+            agent_tool_choice = "required"
+            # Ensure ALL relevant emit tools are in scope so the model
+            # has a working path. Don't ADD if selected_names is None
+            # (whitelist mode) — preserve existing semantics.
+            if selected_names is not None:
+                selected_names = selected_names | frozenset({
+                    "ASK_USER", "propose_workflow",
+                    "propose_threshold_order", "propose_scheduled_order",
+                    "propose_dsl_workflow", "propose_holding_action",
+                    "propose_basket_allocation",
+                })
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                cache_key = cache_key_for(selected_names)
         # Underspec relaxation: "build me an agent for X" with no action /
         # trigger / quantity is genuinely ambiguous — we want ASK_USER,
         # not a fabricated draft. We do TWO things:
@@ -3378,9 +3431,11 @@ class ChatService:
 
         # ── R3 micro (streaming mirror): structured resolution hint ─
         pending_resolution_hint_text: str = ""
+        pending_resolution_active = False
         if not _is_pure_affirmative(message):
             _pr = self.store.get_pending_resolution(conv_id)
             if _pr is not None and (_pr.question or _pr.options):
+                pending_resolution_active = True
                 opts_block = (
                     "Options: " + " | ".join(_pr.options) + "."
                     if _pr.options else ""
@@ -3389,14 +3444,23 @@ class ChatService:
                     f"Default if user says 'yes': {_pr.default_on_yes}."
                     if _pr.default_on_yes else ""
                 )
+                original_block = (
+                    f" Original intent: \"{_pr.original_intent[:200]}\"."
+                    if _pr.original_intent else ""
+                )
                 pending_resolution_hint_text = (
                     "## Pending clarification (structured)\n"
                     f"You asked: \"{_pr.question}\". "
-                    f"{opts_block} {default_block} "
+                    f"{opts_block} {default_block}{original_block} "
                     "The user's CURRENT message is their answer. "
                     "Map it to one of the options if possible, then "
-                    "proceed with the workflow they were building. "
-                    "Do NOT re-ask the same clarification."
+                    "EMIT the workflow / order tool IMMEDIATELY with "
+                    "the resolved value substituted into the original "
+                    "request. Do NOT re-ask. Do NOT write prose like "
+                    "'Drafted: ...' without actually calling the tool. "
+                    "If no tool exists for the merged request, ASK_USER "
+                    "for the next missing piece — never write a fake "
+                    "draft description."
                 ).strip()
                 self.store.clear_pending_resolution(conv_id)
 
@@ -3538,6 +3602,19 @@ class ChatService:
         agent_tool_choice: Literal["auto", "required"] = (
             "required" if is_agent_intent else "auto"
         )
+        # Streaming mirror: force tool emit when a PendingResolution
+        # is active (see handle() for rationale).
+        if pending_resolution_active:
+            agent_tool_choice = "required"
+            if selected_names is not None:
+                selected_names = selected_names | frozenset({
+                    "ASK_USER", "propose_workflow",
+                    "propose_threshold_order", "propose_scheduled_order",
+                    "propose_dsl_workflow", "propose_holding_action",
+                    "propose_basket_allocation",
+                })
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                cache_key = cache_key_for(selected_names)
         # Underspec relaxation (mirror of non-streaming path).
         # Two-step enforcement: relax tool_choice + strip macros so
         # propose_workflow can't fabricate defaults from history.

@@ -73,3 +73,47 @@ instead of the literal. The pending_resolution hint says "Map it to
 one of the options if possible" but no enumerated option for the
 literal exists. Will revisit in L03 or later.
 
+---
+
+## L02 — boundary tool selection (15 canonical shapes, MOSTLY RESOLVED)
+
+**Probe:** Hand-crafted prompts on the threshold/scheduled/dsl/workflow
+boundary where I know the correct tool.
+
+**Initial state (judged by reading each response):**
+- 11/15 PASS: 01-05 (single + AND/OR), 08 (3-branch), 10-12, 14-15
+- 4 FAIL: 06 (cross-symbol silently corrupted by skeleton → trigger.price(₹3)),
+  07 (multi-symbol → "draft validation issue" prose), 09 (trailing SL →
+  create_sl_order, no trailing support), 13 (relative-threshold →
+  trigger.manual instead of trigger.schedule)
+
+**Root causes + fixes (2 commits):**
+
+1. **workflow_skeleton: cross-symbol guard** — `_distinct_ticker_tokens`
+   helper + 2+-ticker bail at the entry to `try_workflow_skeleton`.
+   Otherwise the skeleton grabs the first ticker and silently produces
+   a wrong draft in <30ms (was the worst class of failure — user
+   can't see it's wrong).
+
+2. **DSL multi-symbol guard refined to multi-ACTION detection** —
+   `_has_multi_action_tickers` walks each action verb and collects
+   tickers up to the trigger word. 2+ in the action span = refuse
+   (multi-action). 1 in action + others elsewhere = allow (cross-symbol
+   trigger, DSL-friendly).
+
+**Retest after fixes (live):**
+- L02_06 cross-symbol → DSL draft ✓
+- L02_06 variant (different phrasing) → DSL draft ✓
+- L02_07 two-symbols → propose_workflow multi-branch draft ✓
+- L02_13 relative-threshold → propose_workflow with trigger.schedule ✓
+
+**Remaining open:**
+- **L02_09 trailing SL** — model still picks `create_sl_order` (lacks
+  trailing support) instead of `propose_holding_action` (which does).
+  Tool description nudging needed. Defer to L03.
+- **L02_07 trigger choice** — emits trigger.manual rather than
+  trigger.schedule for the auto-firing intent. Less critical because
+  the draft still works (user can run manually or convert), but worth
+  fixing.
+
+
