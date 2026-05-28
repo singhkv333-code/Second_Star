@@ -143,7 +143,6 @@ _RULES: list[_Rule] = [
         r"the\s+winner)\b.*?\b(?:build|create|set\s+up|design|make)\b",
         "compose_multistep",
         "compare_backtests",
-        "extract_winner_symbol",
         # Surface the underlying analytical tools too so the LLM can
         # populate the plan steps.
         "compare_performance",

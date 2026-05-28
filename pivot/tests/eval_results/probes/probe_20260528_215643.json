@@ -1,0 +1,2197 @@
+[
+  {
+    "file": "/tmp/probe_L08_comprehensive.json",
+    "data": {
+      "results": [
+        {
+          "name": "L08_01_capability",
+          "conv_id": "probe_3477261a25",
+          "turns": [
+            {
+              "prompt": "what can you do for me",
+              "response": "I can help you with a few practical things right now:\n\n- View your portfolio and holdings\n- Place buys, sells, SIPs, or stop-loss orders\n- Build trading automations and alerts\n- Run backtests on strategy ideas\n- Fetch live prices, market status, and charts\n\nIf you want, I can also help you draft a new rule for one of your holdings or review your current positions.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 3661.5084579971153,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 3615,
+                "llm_hop_1_cached": 17408,
+                "total": 3651
+              },
+              "latency_ms_server": 3651
+            }
+          ]
+        },
+        {
+          "name": "L08_02_small_talk",
+          "conv_id": "probe_01b0aa38da",
+          "turns": [
+            {
+              "prompt": "hi there",
+              "response": "Hi.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 3287.324457982322,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 3248,
+                "llm_hop_1_cached": 27136,
+                "total": 3269
+              },
+              "latency_ms_server": 3269
+            }
+          ]
+        },
+        {
+          "name": "L08_03_explainer",
+          "conv_id": "probe_8cecca8e33",
+          "turns": [
+            {
+              "prompt": "Explain how ETFs differ from mutual funds",
+              "response": "## ETFs vs mutual funds\n\nBoth are pooled investment vehicles, but they work differently.\n\n- **Trading**: ETFs trade on the exchange like stocks during market hours, so the price moves through the day. Mutual funds are bought and sold at the end-of-day NAV.\n- **Pricing**: An ETF has a live market price that can trade slightly above or below its underlying value. A mutual fund is transacted at the fund\u2019s NAV, which is calculated once a day.\n- **Cost**: ETFs usually have lower expense ratios because they are often passive and more operationally simple. Mutual funds can be passive or actively managed, and active funds tend to cost more.\n- **Minimum investment**: ETFs can be bought in a single unit or share, subject to market lot conventions. Mutual funds often allow systematic investments with very small amounts.\n- **Tax and liquidity**: Both are taxed based on the underlying holding period rules, but ETFs generally offer more intraday liquidity. Mutual fund units are redeemed only at NAV-based cut-off times.\n\n## Practical difference\n\nIf you want **intraday flexibility and simple index exposure**, ETFs are usually the cleaner tool. If you want **automatic investing, active management, or very small recurring contributions**, mutual funds are often more convenient.\n\n## Main trade-off\n\n- ETFs: more control, more trading-style behavior\n- Mutual funds: more convenience, less intraday control\n\nIf you want, I can also compare them for **SIP investing**, **taxation**, or **Indian index funds vs index ETFs**.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 4451.984540995909,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 4382,
+                "llm_hop_1_cached": 27136,
+                "total": 4428
+              },
+              "latency_ms_server": 4428
+            }
+          ]
+        },
+        {
+          "name": "L08_04_thesis",
+          "conv_id": "probe_ea608b5f1e",
+          "turns": [
+            {
+              "prompt": "Give me an investment thesis on TCS",
+              "response": "## TCS investment thesis\n\nTCS is one of India\u2019s highest-quality large-cap IT businesses: strong brand, deep client relationships, recurring revenues, and consistently high cash generation. Its model is relatively resilient because a large part of its work is mission-critical outsourcing, application maintenance, infrastructure services, and long-cycle digital transformation. That makes it less volatile than many discretionary businesses, though still tied to global technology spending.\n\n## Why investors like it\n\n- **Scale and execution:** TCS has one of the best delivery engines in Indian IT, with broad exposure across banking, retail, manufacturing, and telecom.\n- **Cash-rich business:** The company typically converts profit into strong free cash flow, which supports dividends and balance-sheet strength.\n- **Client stickiness:** Large enterprise relationships tend to be long duration, which helps reduce revenue churn.\n- **Defensive characteristics:** In slower macro environments, companies still need core IT maintenance and cost-optimization work, which can support demand.\n\n## What drives upside\n\nThe main upside usually comes from:\n- improved deal conversion after weak global IT spending phases,\n- faster growth in digital, cloud, data, and AI-linked services,\n- margin stability if wage pressure and utilisation stay controlled,\n- better commentary on BFSI and North America, which are important demand pools.\n\n## Key risks\n\n- **Global slowdown:** If US or European enterprise spending weakens, discretionary projects get delayed.\n- **Pricing and margin pressure:** IT services can face wage inflation, subcontracting costs, and pricing competition.\n- **Slower growth profile:** TCS is high quality, but often not the fastest grower in the sector, so valuation matters.\n- **Currency and client concentration:** A large share of revenue is tied to export markets and major enterprise budgets.\n\n## How to think about it\n\nTCS is best viewed as a **quality compounder** rather than a high-beta momentum stock. The usual thesis is not \u201cfastest growth,\u201d but **durable earnings, strong governance, and stable capital return**. It tends to suit investors who want exposure to India\u2019s IT export engine with lower operational risk than smaller peers.\n\nIf you want, I can also compare **TCS vs INFY** or give you a **bull / base / bear case** for TCS.",
+              "tools": [
+                "get_live_price"
+              ],
+              "render_hint": null,
+              "wall_ms": 10880.123540991917,
+              "raw_data": {
+                "get_live_price": {
+                  "symbol": "TCS",
+                  "ltp": 2289.9,
+                  "change_pct": 0.37,
+                  "source": "yfinance"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3424,
+                "llm_hop_1_cached": 27136,
+                "tool_get_live_price": 1001,
+                "llm_hop_2": 6393,
+                "llm_hop_2_cached": 27136,
+                "total": 10859
+              },
+              "latency_ms_server": 10859
+            }
+          ]
+        },
+        {
+          "name": "L08_05_compare_value",
+          "conv_id": "probe_b8d3aeed68",
+          "turns": [
+            {
+              "prompt": "Which is cheaper today on PE: HDFC or ICICI?",
+              "response": "I do not have a live PE lookup in this chat, so I cannot reliably tell you which of HDFC or ICICI is cheaper on PE today without risking a stale answer. If you want, I can compare the current price right now, or help you interpret which bank is usually a lower-PE name based on recent fundamentals.",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 15339.25987497787,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3639,
+                "llm_hop_1_cached": 27136,
+                "tool_get_live_price": 545,
+                "llm_hop_2": 3549,
+                "llm_hop_2_cached": 27136,
+                "tool_find_tool": 5,
+                "llm_hop_3": 3496,
+                "llm_hop_4": 4015,
+                "llm_hop_4_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 15320
+              },
+              "latency_ms_server": 15320
+            }
+          ]
+        },
+        {
+          "name": "L08_06_market_status",
+          "conv_id": "probe_0c5b2dc9e1",
+          "turns": [
+            {
+              "prompt": "Is the market open right now",
+              "response": "No \u2014 NSE is closed right now. Current IST time is 03:23:27.",
+              "tools": [
+                "get_market_status"
+              ],
+              "render_hint": null,
+              "wall_ms": 7240.603832993656,
+              "raw_data": {
+                "get_market_status": {
+                  "open": false,
+                  "current_time_ist": "29 May 2026, 03:23:27 IST"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3760,
+                "tool_get_market_status": 0,
+                "llm_hop_2": 3433,
+                "llm_hop_2_cached": 26624,
+                "total": 7226
+              },
+              "latency_ms_server": 7226
+            }
+          ]
+        },
+        {
+          "name": "L08_07_price_now",
+          "conv_id": "probe_90b2673f50",
+          "turns": [
+            {
+              "prompt": "What's INFY trading at",
+              "response": "INFY is trading at **\u20b91,162.00**, down **0.39%**.",
+              "tools": [
+                "get_live_price"
+              ],
+              "render_hint": null,
+              "wall_ms": 7934.92704097298,
+              "raw_data": {
+                "get_live_price": {
+                  "symbol": "INFY",
+                  "ltp": 1162.0,
+                  "change_pct": -0.39,
+                  "source": "yfinance"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3470,
+                "tool_get_live_price": 282,
+                "llm_hop_2": 4126,
+                "llm_hop_2_cached": 25088,
+                "total": 7912
+              },
+              "latency_ms_server": 7912
+            }
+          ]
+        },
+        {
+          "name": "L08_08_rsi_lookup",
+          "conv_id": "probe_964df362e2",
+          "turns": [
+            {
+              "prompt": "What's the current RSI on TCS",
+              "response": "TCS RSI(14) is **35.9**. That is below 50, so momentum is mildly bearish, but it is not in oversold territory.",
+              "tools": [
+                "get_indicator"
+              ],
+              "render_hint": null,
+              "wall_ms": 6778.461542009609,
+              "raw_data": {
+                "get_indicator": {
+                  "indicator_name": "RSI(14)",
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    63.19469784216015,
+                    74.37031004066756,
+                    74.52895746898423,
+                    79.43086787287405,
+                    74.09712858397961,
+                    75.18122200633445,
+                    62.89681410989153,
+                    55.730399351832546,
+                    54.6250418685318,
+                    46.11609213881081,
+                    50.45588234633184,
+                    54.76775975127036,
+                    48.076486446131064,
+                    54.88706665098671,
+                    60.48312310458813,
+                    46.248412227528796,
+                    46.821656064085055,
+                    51.375140748473875,
+                    55.07488164373094,
+                    45.22359678424699,
+                    45.223596784247,
+                    47.28053414141739,
+                    42.11159046851819,
+                    36.07138339345377,
+                    39.18239188876047,
+                    43.254904162854935,
+                    44.98182032760286,
+                    44.44016031502072,
+                    50.451552930654294,
+                    43.712779668872976,
+                    41.51495681184623,
+                    47.81416318309147,
+                    54.27795899334099,
+                    35.20659720527843,
+                    34.76461257068327,
+                    31.9302794520257,
+                    32.71168326349762,
+                    37.00670890738666,
+                    32.426267398152106,
+                    25.24257558837209,
+                    23.232953018145494,
+                    24.835694078984986,
+                    26.082138196979557,
+                    25.146536862048066,
+                    24.433384448718257,
+                    25.5436453078665,
+                    25.070499926203453,
+                    20.775525374679162,
+                    27.97638930631979,
+                    30.236255545024747,
+                    29.674941362720844,
+                    28.359371442168452,
+                    26.974531142462297,
+                    26.486749087166757,
+                    25.32503832653113,
+                    23.72842773051046,
+                    22.98936599430442,
+                    20.654171323146883,
+                    19.650727440471627,
+                    18.29372988958889,
+                    18.238455087785795,
+                    17.473080921047824,
+                    26.75982071369097,
+                    22.128378235412313,
+                    27.63196762773643,
+                    27.224725272813345,
+                    29.686457168796053,
+                    28.219827452714995,
+                    30.36654123540052,
+                    28.11044919676938,
+                    36.24856803587537,
+                    42.311381539435615,
+                    45.365814543988236,
+                    52.98127183503774,
+                    54.97113342709858,
+                    57.91728419995918,
+                    50.232657003162906,
+                    45.08492348200667,
+                    53.2908179756855,
+                    55.217249957103725,
+                    55.629325391046194,
+                    55.40257706735592,
+                    58.37432899885997,
+                    50.01183720406496,
+                    48.28406575186143,
+                    37.7733936446737,
+                    43.18039451045346,
+                    42.95049582476834,
+                    46.14475987655126,
+                    46.070671312202805,
+                    46.070671312202805,
+                    41.91508056896604,
+                    41.536227012010286,
+                    42.66632268184086,
+                    39.23772785575147,
+                    38.55086678047453,
+                    38.395761621263716,
+                    30.2929225564029,
+                    28.37762261698657,
+                    26.61176347261636,
+                    29.772648743752555,
+                    33.083421804815444,
+                    40.04341732333096,
+                    40.089245315229014,
+                    40.06725409208993,
+                    38.928331065713955,
+                    37.86293771628752,
+                    34.307251768314785,
+                    35.92722309288483
+                  ],
+                  "current_value": 35.92722309288483,
+                  "signal": "neutral",
+                  "interpretation": "RSI = 35.9 \u2014 below 50, bearish momentum but not oversold",
+                  "params": {
+                    "period": 14
+                  },
+                  "computed_at_idx": 121,
+                  "symbol": "TCS"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3683,
+                "tool_get_indicator": 144,
+                "llm_hop_2": 2905,
+                "llm_hop_2_cached": 25600,
+                "total": 6763
+              },
+              "latency_ms_server": 6763
+            }
+          ]
+        },
+        {
+          "name": "L08_09_portfolio_view",
+          "conv_id": "probe_6e63f013f0",
+          "turns": [
+            {
+              "prompt": "Show me my portfolio",
+              "response": "Your portfolio is worth **\u20b977,945**, with **\u20b93,355** total P&L, or **+4.5%** overall. Today you are up **\u20b9294** across **5 holdings**.",
+              "tools": [
+                "get_portfolio_summary"
+              ],
+              "render_hint": null,
+              "wall_ms": 6302.941874979297,
+              "raw_data": {
+                "get_portfolio_summary": {
+                  "total_value": 77945.0,
+                  "invested_value": 74590.0,
+                  "total_pnl": 3355.0,
+                  "total_pnl_pct": 4.5,
+                  "day_pnl": 294.0,
+                  "num_holdings": 5
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3523,
+                "tool_get_portfolio_summary": 0,
+                "llm_hop_2": 2724,
+                "llm_hop_2_cached": 25088,
+                "total": 6287
+              },
+              "latency_ms_server": 6287
+            }
+          ]
+        },
+        {
+          "name": "L08_10_market_order_now",
+          "conv_id": "probe_e9841f8665",
+          "turns": [
+            {
+              "prompt": "Buy 10 INFY at market",
+              "response": "Order drafted for `INFY`: buy 10 shares at market on `NSE` with `CNC`. This is automation of your instructions, not financial advice.",
+              "tools": [
+                "place_market_order"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 8224.808084021788,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 5486,
+                "tool_place_market_order": 123,
+                "llm_hop_2": 2571,
+                "llm_hop_2_cached": 22528,
+                "total": 8211
+              },
+              "latency_ms_server": 8211
+            }
+          ]
+        },
+        {
+          "name": "L08_11_limit_order",
+          "conv_id": "probe_93a90d62e6",
+          "turns": [
+            {
+              "prompt": "Buy 5 TCS at limit 3800",
+              "response": "Buy 5 `TCS` at \u20b93,800 limit is ready. Confirm in the card to place it.",
+              "tools": [
+                "place_limit_order"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 7233.661000005668,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3430,
+                "llm_hop_1_cached": 22528,
+                "tool_place_limit_order": 0,
+                "llm_hop_2": 3747,
+                "llm_hop_2_cached": 22528,
+                "total": 7218
+              },
+              "latency_ms_server": 7218
+            }
+          ]
+        },
+        {
+          "name": "L08_12_threshold_buy",
+          "conv_id": "probe_0d6cb4dc05",
+          "turns": [
+            {
+              "prompt": "Buy 10 INFY when RSI < 30",
+              "response": "Here's a draft for **INFY RSI(14) below 30** \u2014 it buys 10 INFY at market when RSI(14) drops below 30.0. Review the steps below and click Activate when you're happy with it.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 15.415750007377937,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "INFY RSI(14) below 30",
+                  "description": "Buy 10 INFY when 14-period RSI is below 30.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) < 30",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": "<",
+                        "value": 30.0
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 10 INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    }
+                  ],
+                  "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card"
+                },
+                "name": "INFY RSI(14) below 30",
+                "description": "Buy 10 INFY when 14-period RSI is below 30.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) < 30",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": "<",
+                      "value": 30.0
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 10 INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  }
+                ],
+                "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card"
+              },
+              "latency_breakdown": {
+                "workflow_skeleton": 1,
+                "total": 1
+              },
+              "latency_ms_server": 1
+            }
+          ]
+        },
+        {
+          "name": "L08_13_threshold_sell",
+          "conv_id": "probe_837b33e80a",
+          "turns": [
+            {
+              "prompt": "Sell 5 TCS when price > 4200",
+              "response": "Here's a draft for **TCS price above \u20b94200** \u2014 it sells 5 TCS at market when TCS rises above \u20b94200. Review the steps below and click Activate when you're happy with it.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 11.472875019535422,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "TCS price above \u20b94200",
+                  "description": "Sell 5 TCS when its price is above \u20b94200.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.price",
+                      "label": "Price > \u20b94200",
+                      "config": {
+                        "symbol": "TCS",
+                        "operator": ">",
+                        "value": 4200.0,
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Sell 5 TCS",
+                      "config": {
+                        "symbol": "TCS",
+                        "side": "sell",
+                        "quantity": 5,
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    }
+                  ],
+                  "rationale": "Price trigger (> \u20b94200) then a market sell.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card"
+                },
+                "name": "TCS price above \u20b94200",
+                "description": "Sell 5 TCS when its price is above \u20b94200.",
+                "steps": [
+                  {
+                    "step_type": "trigger.price",
+                    "label": "Price > \u20b94200",
+                    "config": {
+                      "symbol": "TCS",
+                      "operator": ">",
+                      "value": 4200.0,
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Sell 5 TCS",
+                    "config": {
+                      "symbol": "TCS",
+                      "side": "sell",
+                      "quantity": 5,
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  }
+                ],
+                "rationale": "Price trigger (> \u20b94200) then a market sell.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card"
+              },
+              "latency_breakdown": {
+                "workflow_skeleton": 0,
+                "total": 0
+              },
+              "latency_ms_server": 0
+            }
+          ]
+        },
+        {
+          "name": "L08_14_sip",
+          "conv_id": "probe_cd8c48f037",
+          "turns": [
+            {
+              "prompt": "Start \u20b95000 monthly SIP into NIFTYBEES",
+              "response": "Drafted: monthly `NIFTYBEES` SIP for `\u20b95,000`. Review the card and activate when ready.",
+              "tools": [
+                "create_sip"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 6659.6558750025,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3150,
+                "tool_create_sip": 0,
+                "llm_hop_2": 3470,
+                "llm_hop_2_cached": 25088,
+                "total": 6648
+              },
+              "latency_ms_server": 6648
+            }
+          ]
+        },
+        {
+          "name": "L08_15_compound_buy",
+          "conv_id": "probe_e57895c78b",
+          "turns": [
+            {
+              "prompt": "Buy 10 RELIANCE when RSI<30 AND MACD line > signal",
+              "response": "Drafted for `RELIANCE` \u2014 buy 10 shares when RSI and MACD conditions align. Review the card and activate if it looks right.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 9017.948208987946,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "0963675e-8bf6-4463-9712-8106915d966a",
+                  "name": "RELIANCE RSI and MACD buy",
+                  "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "logic",
+                          "op": "and",
+                          "operands": [
+                            {
+                              "type": "comparison",
+                              "op": "<",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "rsi",
+                                "symbol": "RELIANCE",
+                                "period": 14
+                              },
+                              "right": {
+                                "type": "constant",
+                                "value": 30
+                              }
+                            },
+                            {
+                              "type": "comparison",
+                              "op": ">",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 26,
+                                "component": "macd"
+                              },
+                              "right": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 26,
+                                "component": "signal"
+                              }
+                            }
+                          ]
+                        },
+                        "symbol": "RELIANCE",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2802,
+                    "output_tokens": 121,
+                    "latency_ms": 2217.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T21:54:19.935606Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "0963675e-8bf6-4463-9712-8106915d966a",
+                "name": "RELIANCE RSI and MACD buy",
+                "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "logic",
+                        "op": "and",
+                        "operands": [
+                          {
+                            "type": "comparison",
+                            "op": "<",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "rsi",
+                              "symbol": "RELIANCE",
+                              "period": 14
+                            },
+                            "right": {
+                              "type": "constant",
+                              "value": 30
+                            }
+                          },
+                          {
+                            "type": "comparison",
+                            "op": ">",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 26,
+                              "component": "macd"
+                            },
+                            "right": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 26,
+                              "component": "signal"
+                            }
+                          }
+                        ]
+                      },
+                      "symbol": "RELIANCE",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2802,
+                  "output_tokens": 121,
+                  "latency_ms": 2217.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T21:54:19.935606Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3637,
+                "tool_propose_dsl_workflow": 2242,
+                "llm_hop_2": 3085,
+                "llm_hop_2_cached": 26112,
+                "total": 9000
+              },
+              "latency_ms_server": 9000
+            }
+          ]
+        },
+        {
+          "name": "L08_16_compound_with_exit",
+          "conv_id": "probe_de04798ff4",
+          "turns": [
+            {
+              "prompt": "Buy 10 RELIANCE when RSI<30 AND MACD line > signal. Sell when down 5% from peak",
+              "response": "Drafted RELIANCE with the 10-share buy and the 5% peak-drawdown exit. Review the card and activate when ready.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 11803.317082987633,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "7e35a0fb-09fe-478d-a7cc-3b79049298c1",
+                  "name": "RELIANCE RSI and MACD buy with 5% peak drawdown exit",
+                  "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE \u00b7 Exit: drawdown from peak \u2265 0.05",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "logic",
+                          "op": "and",
+                          "operands": [
+                            {
+                              "type": "comparison",
+                              "op": "<",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "rsi",
+                                "symbol": "RELIANCE",
+                                "period": 14
+                              },
+                              "right": {
+                                "type": "constant",
+                                "value": 30
+                              }
+                            },
+                            {
+                              "type": "comparison",
+                              "op": ">",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 12,
+                                "component": "macd"
+                              },
+                              "right": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 12,
+                                "component": "signal"
+                              }
+                            }
+                          ]
+                        },
+                        "symbol": "RELIANCE",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    },
+                    {
+                      "step_type": "trigger.exit_compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": ">=",
+                          "left": {
+                            "type": "position",
+                            "field": "drawdown_from_peak_pct"
+                          },
+                          "right": {
+                            "type": "constant",
+                            "value": 0.05
+                          }
+                        },
+                        "target_symbol": "RELIANCE"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.portfolio",
+                      "config": {}
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "side": "sell",
+                        "quantity": "{{ context.3.holdings.RELIANCE.quantity }}",
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE",
+                  "exit_readback": "drawdown from peak \u2265 0.05",
+                  "translation_meta": {
+                    "input_tokens": 2802,
+                    "output_tokens": 121,
+                    "latency_ms": 2626.0
+                  },
+                  "exit_translation_meta": {
+                    "input_tokens": 2826,
+                    "output_tokens": 44,
+                    "latency_ms": 1594.0
+                  },
+                  "created_at": "2026-05-28T21:54:30.464210Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "7e35a0fb-09fe-478d-a7cc-3b79049298c1",
+                "name": "RELIANCE RSI and MACD buy with 5% peak drawdown exit",
+                "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE \u00b7 Exit: drawdown from peak \u2265 0.05",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "logic",
+                        "op": "and",
+                        "operands": [
+                          {
+                            "type": "comparison",
+                            "op": "<",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "rsi",
+                              "symbol": "RELIANCE",
+                              "period": 14
+                            },
+                            "right": {
+                              "type": "constant",
+                              "value": 30
+                            }
+                          },
+                          {
+                            "type": "comparison",
+                            "op": ">",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 12,
+                              "component": "macd"
+                            },
+                            "right": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 12,
+                              "component": "signal"
+                            }
+                          }
+                        ]
+                      },
+                      "symbol": "RELIANCE",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  },
+                  {
+                    "step_type": "trigger.exit_compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": ">=",
+                        "left": {
+                          "type": "position",
+                          "field": "drawdown_from_peak_pct"
+                        },
+                        "right": {
+                          "type": "constant",
+                          "value": 0.05
+                        }
+                      },
+                      "target_symbol": "RELIANCE"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.portfolio",
+                    "config": {}
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "side": "sell",
+                      "quantity": "{{ context.3.holdings.RELIANCE.quantity }}",
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE",
+                "exit_readback": "drawdown from peak \u2265 0.05",
+                "translation_meta": {
+                  "input_tokens": 2802,
+                  "output_tokens": 121,
+                  "latency_ms": 2626.0
+                },
+                "exit_translation_meta": {
+                  "input_tokens": 2826,
+                  "output_tokens": 44,
+                  "latency_ms": 1594.0
+                },
+                "created_at": "2026-05-28T21:54:30.464210Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3123,
+                "llm_hop_1_cached": 25984,
+                "tool_propose_dsl_workflow": 4268,
+                "llm_hop_2": 4354,
+                "llm_hop_2_cached": 26112,
+                "total": 11785
+              },
+              "latency_ms_server": 11785
+            }
+          ]
+        },
+        {
+          "name": "L08_17_multi_branch",
+          "conv_id": "probe_3a233ac82d",
+          "turns": [
+            {
+              "prompt": "Every Monday at open buy 5 NIFTYBEES; on Friday close squareoff full position",
+              "response": "Drafted: `NIFTYBEES` Monday open buy and Friday close squareoff. Click Activate.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 13689.481125009479,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "NIFTYBEES Monday open buy, Friday close squareoff",
+                  "description": "Buy 5 NIFTYBEES every Monday at the open, then square off the full position at Friday close.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.market_relative_time",
+                      "label": "Monday open",
+                      "config": {
+                        "anchor": "open",
+                        "offset_minutes": 0,
+                        "timezone": "Asia/Kolkata"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 5 NIFTYBEES",
+                      "config": {
+                        "symbol": "NIFTYBEES",
+                        "side": "buy",
+                        "quantity": 5,
+                        "order_type": "market",
+                        "product": "CNC",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "trigger.market_relative_time",
+                      "label": "Friday close",
+                      "config": {
+                        "anchor": "close",
+                        "offset_minutes": 0,
+                        "timezone": "Asia/Kolkata"
+                      }
+                    },
+                    {
+                      "step_type": "action.squareoff_symbol",
+                      "label": "Square off NIFTYBEES",
+                      "config": {
+                        "symbol": "NIFTYBEES"
+                      }
+                    }
+                  ],
+                  "rationale": "This is a two-branch automation: one branch buys `NIFTYBEES` at the Monday open, and a second branch squares off the symbol at Friday close. Using separate market-relative triggers preserves the requested timing exactly.",
+                  "warnings": [],
+                  "valid_until": null,
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "NIFTYBEES Monday open buy, Friday close squareoff",
+                "description": "Buy 5 NIFTYBEES every Monday at the open, then square off the full position at Friday close.",
+                "steps": [
+                  {
+                    "step_type": "trigger.market_relative_time",
+                    "label": "Monday open",
+                    "config": {
+                      "anchor": "open",
+                      "offset_minutes": 0,
+                      "timezone": "Asia/Kolkata"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 5 NIFTYBEES",
+                    "config": {
+                      "symbol": "NIFTYBEES",
+                      "side": "buy",
+                      "quantity": 5,
+                      "order_type": "market",
+                      "product": "CNC",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "trigger.market_relative_time",
+                    "label": "Friday close",
+                    "config": {
+                      "anchor": "close",
+                      "offset_minutes": 0,
+                      "timezone": "Asia/Kolkata"
+                    }
+                  },
+                  {
+                    "step_type": "action.squareoff_symbol",
+                    "label": "Square off NIFTYBEES",
+                    "config": {
+                      "symbol": "NIFTYBEES"
+                    }
+                  }
+                ],
+                "rationale": "This is a two-branch automation: one branch buys `NIFTYBEES` at the Monday open, and a second branch squares off the symbol at Friday close. Using separate market-relative triggers preserves the requested timing exactly.",
+                "warnings": [],
+                "valid_until": null,
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2622,
+                "llm_hop_1_cached": 22528,
+                "tool_propose_dsl_workflow": 6,
+                "llm_hop_2": 5193,
+                "tool_propose_workflow": 6,
+                "llm_hop_3": 3581,
+                "llm_hop_3_cached": 25600,
+                "total": 11544
+              },
+              "latency_ms_server": 11544
+            }
+          ]
+        },
+        {
+          "name": "L08_18_news_event",
+          "conv_id": "probe_d9d3c64cc2",
+          "turns": [
+            {
+              "prompt": "Buy 30 HDFCBANK if RBI cuts repo rate",
+              "response": "Drafted: HDFCBANK buy on RBI repo rate cut. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 8967.634665983496,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "HDFCBANK buy on RBI repo rate cut",
+                  "description": "Buy 30 HDFCBANK if RBI cuts repo rate.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.event",
+                      "label": null,
+                      "config": {
+                        "event_description": "RBI cuts repo rate",
+                        "keywords": [
+                          "RBI",
+                          "repo rate",
+                          "rate cut",
+                          "MPC"
+                        ]
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": null,
+                      "config": {
+                        "side": "buy",
+                        "symbol": "HDFCBANK",
+                        "quantity": 30,
+                        "order_type": "market"
+                      }
+                    }
+                  ],
+                  "rationale": "This is a news/event-gated buy order: the event itself triggers the workflow, and the action buys 30 HDFCBANK shares when the RBI repo rate cut is confirmed.",
+                  "warnings": [],
+                  "valid_until": null,
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "HDFCBANK buy on RBI repo rate cut",
+                "description": "Buy 30 HDFCBANK if RBI cuts repo rate.",
+                "steps": [
+                  {
+                    "step_type": "trigger.event",
+                    "label": null,
+                    "config": {
+                      "event_description": "RBI cuts repo rate",
+                      "keywords": [
+                        "RBI",
+                        "repo rate",
+                        "rate cut",
+                        "MPC"
+                      ]
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": null,
+                    "config": {
+                      "side": "buy",
+                      "symbol": "HDFCBANK",
+                      "quantity": 30,
+                      "order_type": "market"
+                    }
+                  }
+                ],
+                "rationale": "This is a news/event-gated buy order: the event itself triggers the workflow, and the action buys 30 HDFCBANK shares when the RBI repo rate cut is confirmed.",
+                "warnings": [],
+                "valid_until": null,
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3431,
+                "tool_propose_workflow": 12,
+                "llm_hop_2": 3295,
+                "llm_hop_2_cached": 26624,
+                "total": 6862
+              },
+              "latency_ms_server": 6862
+            }
+          ]
+        },
+        {
+          "name": "L08_19_sell_holding_rsi",
+          "conv_id": "probe_7f0e551bed",
+          "turns": [
+            {
+              "prompt": "Sell my entire INFY position when RSI > 70",
+              "response": "Drafted: `INFY` sell on `RSI(14) > 70`. Click Activate.",
+              "tools": [
+                "propose_holding_action"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 8119.582125014858,
+              "raw_data": {
+                "propose_holding_action": {
+                  "name": "INFY: sell on RSI(14) > 70",
+                  "description": "When RSI(14) > 70, sell the entire INFY holding.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) > 70",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": ">",
+                        "value": 70.0
+                      }
+                    },
+                    {
+                      "step_type": "fetch.portfolio",
+                      "label": "Get holdings",
+                      "config": {}
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Sell entire INFY holding",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "sell",
+                        "quantity": "{{ context.1.holdings.INFY.quantity }}",
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    }
+                  ],
+                  "rationale": "Trigger fires when RSI(14) > 70; the workflow then sell the entire INFY holding.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "INFY: sell on RSI(14) > 70",
+                "description": "When RSI(14) > 70, sell the entire INFY holding.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) > 70",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": ">",
+                      "value": 70.0
+                    }
+                  },
+                  {
+                    "step_type": "fetch.portfolio",
+                    "label": "Get holdings",
+                    "config": {}
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Sell entire INFY holding",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "sell",
+                      "quantity": "{{ context.1.holdings.INFY.quantity }}",
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  }
+                ],
+                "rationale": "Trigger fires when RSI(14) > 70; the workflow then sell the entire INFY holding.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3351,
+                "llm_hop_1_cached": 25984,
+                "tool_propose_holding_action": 2,
+                "llm_hop_2": 4713,
+                "llm_hop_2_cached": 26112,
+                "total": 8104
+              },
+              "latency_ms_server": 8104
+            }
+          ]
+        },
+        {
+          "name": "L08_20_fixed_sl",
+          "conv_id": "probe_6e50403d28",
+          "turns": [
+            {
+              "prompt": "Set a stop loss at \u20b91400 on my 10 INFY",
+              "response": "Drafted: `INFY` stop loss for `10` shares at `\u20b91,400`. Review and activate when ready.",
+              "tools": [
+                "create_sl_order"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 9407.590708025964,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3652,
+                "tool_create_sl_order": 1,
+                "llm_hop_2": 3528,
+                "llm_hop_2_cached": 23040,
+                "total": 7311
+              },
+              "latency_ms_server": 7311
+            }
+          ]
+        },
+        {
+          "name": "L08_21_trailing_sl",
+          "conv_id": "probe_01879b9b64",
+          "turns": [
+            {
+              "prompt": "Set a 2% trailing stop on my INFY holding",
+              "response": "Drafted a 2% stop-loss on `INFY`. Click **Run now** when you want it applied.",
+              "tools": [
+                "propose_holding_action"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 13872.305708006024,
+              "raw_data": {
+                "propose_holding_action": {
+                  "name": "INFY: set stoploss (manual)",
+                  "description": "Manually-triggered: set a 2% stop-loss on the INFY holding. Fires only when you click Run now.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.manual",
+                      "label": "Run now",
+                      "config": {}
+                    },
+                    {
+                      "step_type": "action.set_stoploss",
+                      "label": "Stop-loss on INFY (2%)",
+                      "config": {
+                        "symbol": "INFY",
+                        "trigger_offset_pct": 2.0
+                      }
+                    }
+                  ],
+                  "rationale": "No automatic trigger requested; the workflow is set up to run on demand and set a 2% stop-loss on the INFY holding.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "INFY: set stoploss (manual)",
+                "description": "Manually-triggered: set a 2% stop-loss on the INFY holding. Fires only when you click Run now.",
+                "steps": [
+                  {
+                    "step_type": "trigger.manual",
+                    "label": "Run now",
+                    "config": {}
+                  },
+                  {
+                    "step_type": "action.set_stoploss",
+                    "label": "Stop-loss on INFY (2%)",
+                    "config": {
+                      "symbol": "INFY",
+                      "trigger_offset_pct": 2.0
+                    }
+                  }
+                ],
+                "rationale": "No automatic trigger requested; the workflow is set up to run on demand and set a 2% stop-loss on the INFY holding.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4280,
+                "tool_propose_dsl_workflow": 5,
+                "llm_hop_2": 6123,
+                "tool_propose_holding_action": 2,
+                "llm_hop_3": 3378,
+                "llm_hop_3_cached": 24576,
+                "total": 13845
+              },
+              "latency_ms_server": 13845
+            }
+          ]
+        },
+        {
+          "name": "L08_22_sector_basket",
+          "conv_id": "probe_c843baefaf",
+          "turns": [
+            {
+              "prompt": "Invest \u20b950000 in top 5 banking stocks every Monday at 9:30",
+              "response": "Drafted \u2014 Monday 9:30 banking basket for \u20b950,000. Review the card and activate it.",
+              "tools": [
+                "propose_basket_allocation"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 8260.73379200534,
+              "raw_data": {
+                "propose_basket_allocation": {
+                  "name": "Banking basket",
+                  "description": "Every monday at 09:30 IST, equal allocation of \u20b950,000 across top 5 banking stocks.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.schedule",
+                      "label": "every Monday at 09:30 IST",
+                      "config": {
+                        "cron": "30 9 * * 1",
+                        "timezone": "Asia/Kolkata"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.screener",
+                      "label": "top 5 banking by mcap",
+                      "config": {
+                        "sector": "banking",
+                        "sort_by": "mcap",
+                        "limit": 5
+                      }
+                    },
+                    {
+                      "step_type": "action.allocate_notional",
+                      "label": "Allocate \u20b950,000 across 5 banking stocks",
+                      "config": {
+                        "symbols": "{{ context.1.ranked }}",
+                        "side": "buy",
+                        "total_inr": 50000.0,
+                        "strategy": "equal",
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    },
+                    {
+                      "step_type": "notify.message",
+                      "label": "Notify on allocation",
+                      "config": {
+                        "channel": "push",
+                        "template": "Allocated \u20b950,000 equal across top 5 banking stocks."
+                      }
+                    }
+                  ],
+                  "rationale": "Schedule fires every Monday at 09:30 IST. Screens banking sector top 5 by market cap and allocates \u20b950,000 equal.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": false,
+                  "backtest_blockers": [
+                    "backtester cannot resolve `{{ context.1.ranked }}` (step 1 is `fetch.screener`). Supported refs: `buying_power`, `holdings.<SYM>.quantity`, and `fetch.*` step outputs (`value`, `ltp`, OHLCV, `day_open`/`prior_close`/`prior_high`/`prior_low`)."
+                  ]
+                },
+                "name": "Banking basket",
+                "description": "Every monday at 09:30 IST, equal allocation of \u20b950,000 across top 5 banking stocks.",
+                "steps": [
+                  {
+                    "step_type": "trigger.schedule",
+                    "label": "every Monday at 09:30 IST",
+                    "config": {
+                      "cron": "30 9 * * 1",
+                      "timezone": "Asia/Kolkata"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.screener",
+                    "label": "top 5 banking by mcap",
+                    "config": {
+                      "sector": "banking",
+                      "sort_by": "mcap",
+                      "limit": 5
+                    }
+                  },
+                  {
+                    "step_type": "action.allocate_notional",
+                    "label": "Allocate \u20b950,000 across 5 banking stocks",
+                    "config": {
+                      "symbols": "{{ context.1.ranked }}",
+                      "side": "buy",
+                      "total_inr": 50000.0,
+                      "strategy": "equal",
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  },
+                  {
+                    "step_type": "notify.message",
+                    "label": "Notify on allocation",
+                    "config": {
+                      "channel": "push",
+                      "template": "Allocated \u20b950,000 equal across top 5 banking stocks."
+                    }
+                  }
+                ],
+                "rationale": "Schedule fires every Monday at 09:30 IST. Screens banking sector top 5 by market cap and allocates \u20b950,000 equal.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card",
+                "backtestable": false,
+                "backtest_blockers": [
+                  "backtester cannot resolve `{{ context.1.ranked }}` (step 1 is `fetch.screener`). Supported refs: `buying_power`, `holdings.<SYM>.quantity`, and `fetch.*` step outputs (`value`, `ltp`, OHLCV, `day_open`/`prior_close`/`prior_high`/`prior_low`)."
+                ]
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3955,
+                "llm_hop_1_cached": 24576,
+                "tool_propose_basket_allocation": 3,
+                "llm_hop_2": 4252,
+                "llm_hop_2_cached": 25088,
+                "total": 8242
+              },
+              "latency_ms_server": 8242
+            }
+          ]
+        },
+        {
+          "name": "L08_23_basket_explicit",
+          "conv_id": "probe_13c44d31ce",
+          "turns": [
+            {
+              "prompt": "Place a basket order for RELIANCE, TCS, INFY of 5 shares each",
+              "response": "Drafted the basket order for `RELIANCE`, `TCS`, and `INFY` at 5 shares each. Review the card and confirm to place it.",
+              "tools": [
+                "place_basket_order"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 9732.138332998147,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4773,
+                "tool_place_basket_order": 0,
+                "llm_hop_2": 4905,
+                "llm_hop_2_cached": 26624,
+                "total": 9715
+              },
+              "latency_ms_server": 9715
+            }
+          ]
+        },
+        {
+          "name": "L08_24_expiry",
+          "conv_id": "probe_53813b51ee",
+          "turns": [
+            {
+              "prompt": "Buy 5 INFY when RSI < 30 for the next 60 days only",
+              "response": "Drafted: `INFY` buy 5 when `RSI(14) < 30`, valid until `2026-07-27`. Click Activate.",
+              "tools": [
+                "propose_threshold_order"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 6841.007167007774,
+              "raw_data": {
+                "propose_threshold_order": {
+                  "name": "INFY RSI(14) < 30 \u2192 buy 5 shares",
+                  "description": "Buy 5 shares of INFY when RSI(14) < 30.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) < 30",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": "<",
+                        "value": 30.0
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 5 shares INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "order_type": "market",
+                        "requires_approval": false,
+                        "quantity": 5
+                      }
+                    }
+                  ],
+                  "rationale": "Trigger fires when RSI(14) < 30; market buy for 5 shares of INFY.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card",
+                  "valid_until": "2026-07-27",
+                  "backtestable": true,
+                  "backtest_blockers": [],
+                  "expires_at": "2026-07-27T18:29:00+00:00"
+                },
+                "name": "INFY RSI(14) < 30 \u2192 buy 5 shares",
+                "description": "Buy 5 shares of INFY when RSI(14) < 30.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) < 30",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": "<",
+                      "value": 30.0
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 5 shares INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "order_type": "market",
+                      "requires_approval": false,
+                      "quantity": 5
+                    }
+                  }
+                ],
+                "rationale": "Trigger fires when RSI(14) < 30; market buy for 5 shares of INFY.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card",
+                "valid_until": "2026-07-27",
+                "backtestable": true,
+                "backtest_blockers": [],
+                "expires_at": "2026-07-27T18:29:00+00:00"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3443,
+                "llm_hop_1_cached": 25984,
+                "tool_propose_threshold_order": 1,
+                "llm_hop_2": 3339,
+                "llm_hop_2_cached": 26112,
+                "total": 6826
+              },
+              "latency_ms_server": 6826
+            }
+          ]
+        },
+        {
+          "name": "L08_25_amend",
+          "conv_id": "probe_269363f79b",
+          "turns": [
+            {
+              "prompt": "Buy 10 INFY when RSI < 30",
+              "response": "Here's a draft for **INFY RSI(14) below 30** \u2014 it buys 10 INFY at market when RSI(14) drops below 30.0. Review the steps below and click Activate when you're happy with it.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 15.534832986304536,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "INFY RSI(14) below 30",
+                  "description": "Buy 10 INFY when 14-period RSI is below 30.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) < 30",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": "<",
+                        "value": 30.0
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 10 INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    }
+                  ],
+                  "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card"
+                },
+                "name": "INFY RSI(14) below 30",
+                "description": "Buy 10 INFY when 14-period RSI is below 30.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) < 30",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": "<",
+                      "value": 30.0
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 10 INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  }
+                ],
+                "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card"
+              },
+              "latency_breakdown": {
+                "workflow_skeleton": 1,
+                "total": 1
+              },
+              "latency_ms_server": 1
+            },
+            {
+              "prompt": "make it 25 shares and RSI < 25",
+              "response": "Drafted: INFY buy 25 shares when RSI(14) < 25. Click Activate.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 10394.425416976446,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "INFY RSI(14) below 25",
+                  "description": "Buy 25 INFY when 14-period RSI is below 25.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) < 25",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": "<",
+                        "value": 25
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 25 INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 25,
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    }
+                  ],
+                  "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                  "warnings": [],
+                  "valid_until": null,
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "INFY RSI(14) below 25",
+                "description": "Buy 25 INFY when 14-period RSI is below 25.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) < 25",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": "<",
+                      "value": 25
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 25 INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 25,
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  }
+                ],
+                "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                "warnings": [],
+                "valid_until": null,
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 6269,
+                "tool_propose_workflow": 0,
+                "llm_hop_2": 4040,
+                "llm_hop_2_cached": 27648,
+                "total": 10381
+              },
+              "latency_ms_server": 10381
+            }
+          ]
+        },
+        {
+          "name": "L08_26_cancel",
+          "conv_id": "probe_ba046ef782",
+          "turns": [
+            {
+              "prompt": "Buy 5 NIFTYBEES every Monday at 9:15",
+              "response": "Here's a draft for **Monday NIFTYBEES buy** \u2014 it buys 5 NIFTYBEES at market every Monday at 09:15 IST. Review the steps below and click Activate when you're happy with it.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 23.426458006724715,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "Monday NIFTYBEES buy",
+                  "description": "Buy 5 NIFTYBEES every Monday at 09:15 IST.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.schedule",
+                      "label": "Every Monday at 09:15",
+                      "config": {
+                        "cron": "15 9 * * 1",
+                        "timezone": "Asia/Kolkata"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 5 NIFTYBEES",
+                      "config": {
+                        "symbol": "NIFTYBEES",
+                        "side": "buy",
+                        "quantity": 5,
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    }
+                  ],
+                  "rationale": "Single schedule trigger (15 9 * * 1, IST) followed by a market buy for SIP-style execution.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card"
+                },
+                "name": "Monday NIFTYBEES buy",
+                "description": "Buy 5 NIFTYBEES every Monday at 09:15 IST.",
+                "steps": [
+                  {
+                    "step_type": "trigger.schedule",
+                    "label": "Every Monday at 09:15",
+                    "config": {
+                      "cron": "15 9 * * 1",
+                      "timezone": "Asia/Kolkata"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 5 NIFTYBEES",
+                    "config": {
+                      "symbol": "NIFTYBEES",
+                      "side": "buy",
+                      "quantity": 5,
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  }
+                ],
+                "rationale": "Single schedule trigger (15 9 * * 1, IST) followed by a market buy for SIP-style execution.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card"
+              },
+              "latency_breakdown": {
+                "workflow_skeleton": 0,
+                "total": 0
+              },
+              "latency_ms_server": 0
+            },
+            {
+              "prompt": "cancel that",
+              "response": "Cancelled the draft \"Monday NIFTYBEES buy\". Tell me if you want to start over or build something different.",
+              "tools": [
+                "cancel_draft"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 9.708208992378786,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "total": 1
+              },
+              "latency_ms_server": 1
+            }
+          ]
+        },
+        {
+          "name": "L08_27_yes_disambig",
+          "conv_id": "probe_2c6ec6e5b4",
+          "turns": [
+            {
+              "prompt": "Build an agent buying M&M when RSI < 30",
+              "response": "Do you want this as a live buy agent for `M&M`, and if so how many shares should it buy each time RSI falls below 30?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3178.6287919967435,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3154,
+                "llm_hop_1_cached": 25472,
+                "tool_ASK_USER": 0,
+                "total": 3169
+              },
+              "latency_ms_server": 3169
+            },
+            {
+              "prompt": "yes proceed",
+              "response": "How many shares of M&M should the agent buy per fire? (I won't default to 1 \u2014 set the real size or give me a rupee budget like \u20b910,000.)",
+              "tools": [
+                "propose_threshold_order"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3897.6727919944096,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3865,
+                "llm_hop_1_cached": 27136,
+                "tool_propose_threshold_order": 0,
+                "total": 3883
+              },
+              "latency_ms_server": 3883
+            }
+          ]
+        },
+        {
+          "name": "L08_28_ungrounded_level",
+          "conv_id": "probe_ad3280650c",
+          "turns": [
+            {
+              "prompt": "Buy 10 HDFCBANK if it closes above resistance",
+              "response": "Want me to use the 20-day rolling high as the resistance level, or do you have a specific \u20b9 value in mind?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 2695.63858298352,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2656,
+                "llm_hop_1_cached": 22528,
+                "tool_ASK_USER": 0,
+                "total": 2681
+              },
+              "latency_ms_server": 2681
+            },
+            {
+              "prompt": "use the 20-day rolling high",
+              "response": "How many shares of HDFCBANK should the agent buy per fire? (I won't default to 1 \u2014 set the real size or give me a rupee budget like \u20b910,000.)",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 5926.090333989123,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3936,
+                "tool_propose_dsl_workflow": 1962,
+                "total": 5914
+              },
+              "latency_ms_server": 5914
+            }
+          ]
+        },
+        {
+          "name": "L08_29_drift_then_back",
+          "conv_id": "probe_c670715727",
+          "turns": [
+            {
+              "prompt": "Buy 5 INFY when RSI < 30",
+              "response": "Here's a draft for **INFY RSI(14) below 30** \u2014 it buys 5 INFY at market when RSI(14) drops below 30.0. Review the steps below and click Activate when you're happy with it.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 17.003040993586183,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "INFY RSI(14) below 30",
+                  "description": "Buy 5 INFY when 14-period RSI is below 30.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) < 30",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": "<",
+                        "value": 30.0
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 5 INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 5,
+                        "order_type": "market",
+                        "requires_approval": false
+                      }
+                    }
+                  ],
+                  "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card"
+                },
+                "name": "INFY RSI(14) below 30",
+                "description": "Buy 5 INFY when 14-period RSI is below 30.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) < 30",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": "<",
+                      "value": 30.0
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 5 INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 5,
+                      "order_type": "market",
+                      "requires_approval": false
+                    }
+                  }
+                ],
+                "rationale": "RSI indicator trigger then a market buy. Period 14 is the conventional default.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card"
+              },
+              "latency_breakdown": {
+                "workflow_skeleton": 1,
+                "total": 1
+              },
+              "latency_ms_server": 1
+            },
+            {
+              "prompt": "what's the live price of INFY",
+              "response": "INFY is at \u20b91,162.00, down 0.39% today.",
+              "tools": [
+                "get_live_price"
+              ],
+              "render_hint": null,
+              "wall_ms": 10018.26179100317,
+              "raw_data": {
+                "get_live_price": {
+                  "symbol": "INFY",
+                  "ltp": 1162.0,
+                  "change_pct": -0.39,
+                  "source": "yfinance"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3007,
+                "llm_hop_1_cached": 25088,
+                "tool_get_live_price": 395,
+                "llm_hop_2": 6570,
+                "llm_hop_2_cached": 25088,
+                "total": 10003
+              },
+              "latency_ms_server": 10003
+            },
+            {
+              "prompt": "ok activate it",
+              "response": "Please activate the draft you see for `INFY` \u2014 it buys 5 shares when `RSI(14) < 30`.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 4002.5012920086738,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 3966,
+                "llm_hop_1_cached": 27136,
+                "total": 3986
+              },
+              "latency_ms_server": 3986
+            }
+          ]
+        },
+        {
+          "name": "L08_30_fno_decline",
+          "conv_id": "probe_96135ae27f",
+          "turns": [
+            {
+              "prompt": "Buy 1 lot of NIFTY 22000 call option",
+              "response": "F&O \u2014 options and futures \u2014 isn't wired in Pivot v1; only cash-equity orders execute. Want me to draft this on the underlying, or is this on hold until F&O lands?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 9288.90437501832,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3728,
+                "llm_hop_2": 5518,
+                "llm_hop_2_cached": 20992,
+                "tool_ASK_USER": 0,
+                "total": 9276
+              },
+              "latency_ms_server": 9276
+            }
+          ]
+        }
+      ],
+      "user_id": 165
+    }
+  }
+]

@@ -102,11 +102,14 @@ _REAL_TOOLS: set[str] = {
     "propose_polymarket_trigger", "browse_polymarket_markets",
     # L14: orchestrator + analytics helpers for multi-step compound intents.
     # `compose_multistep` resolves $step.field refs server-side between
-    # sub-calls; `compare_backtests` runs 2-4 strategies in parallel;
-    # `extract_winner_symbol` is a deterministic ranking helper.
+    # sub-calls; `compare_backtests` runs 2-4 strategies in parallel.
+    # `extract_winner_symbol` is INTENTIONALLY NOT in this set — it is
+    # a deterministic helper only meant to be invoked from inside a
+    # compose_multistep plan (where the server resolves $step_id refs
+    # before dispatching). Exposing it directly led to the LLM calling
+    # it standalone with empty `from`, which failed silently.
     "compose_multistep",
     "compare_backtests",
-    "extract_winner_symbol",
     # L14 T2: entity-grounding web lookup (DDG IA → Wikipedia fallback).
     # Use for "what is X" / "explain X" entity definitions where the
     # local fundamentals DB doesn't carry the info. Not for real-time
