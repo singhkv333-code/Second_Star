@@ -50,6 +50,12 @@ CONV_PROMPT_WINDOW_TURNS = 6
 CONV_PREFIX = "chat:conv:"
 PENDING_TTL_SECONDS = 60 * 10                # 10 min
 PENDING_PREFIX = "chat:pending:"
+# R2: deterministic resolution of "yes" / "no" after a clarification.
+# Stored when ASK_USER is fired with structured options or a
+# default_on_yes. The next pure-affirmative turn consumes it
+# without an LLM hop. Short TTL — clarifications are momentary.
+PENDING_RESOLUTION_TTL_SECONDS = 60 * 10     # 10 min
+PENDING_RESOLUTION_PREFIX = "chat:resolution:"
 # Active workflow draft TTL: was 1h. A draft that hangs around for an
 # hour leaks into completely unrelated turns (PDF report case: a stale
 # "Sell HDFCBANK at 10% profit" draft appeared under a "pros and cons of
@@ -86,6 +92,41 @@ class ActiveDraft:
 
     @classmethod
     def from_json(cls, raw: str | bytes) -> "ActiveDraft":
+        data = json.loads(raw if isinstance(raw, str) else raw.decode())
+        return cls(**data)
+
+
+@dataclass
+class PendingResolution:
+    """R2: structured state for a "yes" / "no" deterministic resolve.
+
+    When the LLM emits ASK_USER with either `default_on_yes` (a single
+    value the user is most likely to accept) or `options` (a list of
+    labelled choices), we persist this record. On the next turn, a
+    pure-affirmative reply ("yes", "do it", "go ahead") is resolved
+    to `default_on_yes` without an LLM hop — fixing the
+    over-confirmation loop and the "yes" → fabricated context bug
+    visible in screenshots 7, 9, 10.
+
+    `original_intent` is the user's first request that spawned the
+    clarification — carried so the chat layer can stitch context for
+    the follow-up tool call if needed.
+    """
+    question: str
+    default_on_yes: Optional[str] = None
+    options: list[str] = None  # type: ignore[assignment]
+    original_intent: Optional[str] = None
+    asked_at_iso: str = ""
+
+    def __post_init__(self) -> None:
+        if self.options is None:
+            self.options = []
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), default=str)
+
+    @classmethod
+    def from_json(cls, raw: str | bytes) -> "PendingResolution":
         data = json.loads(raw if isinstance(raw, str) else raw.decode())
         return cls(**data)
 
@@ -252,6 +293,51 @@ class ConversationStore:
             redis_client.delete(self._draft_key(conv_id))
         except Exception as e:
             logger.warning("active_draft clear failed: %s", e)
+
+    # ── Pending resolution (R2 — deterministic "yes" / "no") ─────────
+
+    def _resolution_key(self, conv_id: str) -> str:
+        return f"{PENDING_RESOLUTION_PREFIX}{conv_id}"
+
+    def set_pending_resolution(
+        self, conv_id: str, resolution: PendingResolution,
+    ) -> None:
+        if not conv_id:
+            return
+        try:
+            redis_client.set(
+                self._resolution_key(conv_id),
+                resolution.to_json(),
+                ex=PENDING_RESOLUTION_TTL_SECONDS,
+            )
+        except Exception as e:
+            logger.warning("pending_resolution set failed: %s", e)
+
+    def get_pending_resolution(
+        self, conv_id: str,
+    ) -> Optional[PendingResolution]:
+        if not conv_id:
+            return None
+        try:
+            raw = redis_client.get(self._resolution_key(conv_id))
+        except Exception as e:
+            logger.warning("pending_resolution get failed: %s", e)
+            return None
+        if raw is None:
+            return None
+        try:
+            return PendingResolution.from_json(raw)
+        except (TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.warning("pending_resolution decode failed: %s", e)
+            return None
+
+    def clear_pending_resolution(self, conv_id: str) -> None:
+        if not conv_id:
+            return
+        try:
+            redis_client.delete(self._resolution_key(conv_id))
+        except Exception as e:
+            logger.warning("pending_resolution clear failed: %s", e)
 
 
 _default_store: ConversationStore | None = None

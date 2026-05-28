@@ -55,6 +55,19 @@ class AskUserArgs(BaseModel):
     """One focused clarifying question for the user. Keep it under 200
     characters; the user will reply in the next chat turn."""
 
+    default_on_yes: Optional[str] = None
+    """R2: the value the user is most likely to accept. If supplied,
+    a pure-affirmative reply ('yes', 'do it', 'go ahead') is resolved
+    to this value without an LLM hop on the next turn. Use when the
+    question is a yes/no confirmation ('Did you mean HDFCBANK?' →
+    default_on_yes='HDFCBANK') or a single-option suggestion."""
+
+    options: Optional[list[str]] = None
+    """R2: list of structured choices the user can pick from. When
+    present, the chat layer can render and route a numeric / labelled
+    pick deterministically. Combine with `default_on_yes` to define
+    which option a bare 'yes' should resolve to."""
+
 
 def ask_user_tool_def() -> ToolDef:
     """Tool definition the model sees alongside real tools. Calling it
@@ -65,6 +78,10 @@ def ask_user_tool_def() -> ToolDef:
     the call by passing an empty string — that path was triggering
     a "validation error" surface to the user, which made the model
     look broken on perfectly reasonable prompts.
+
+    R2: also accepts optional `default_on_yes` (str) and `options`
+    (list[str]) so the chat layer can resolve the next-turn 'yes'
+    deterministically instead of letting the LLM re-parse history.
     """
     return ToolDef(
         name=ASK_USER_TOOL_NAME,
@@ -74,7 +91,14 @@ def ask_user_tool_def() -> ToolDef:
             "price threshold, quantity, or specific stock). Pass exactly one "
             "focused question containing real text — do NOT pass an empty "
             "string. Do not call this for greetings, definitions, or topics "
-            "where you can answer directly."
+            "where you can answer directly.\n\n"
+            "ALWAYS set `default_on_yes` when the question is a yes/no "
+            "confirmation (single-option suggestion or disambiguation with "
+            "an obvious pick) — that value is what a bare 'yes' next turn "
+            "deterministically resolves to. ALSO set `options` (list of "
+            "choice labels) when the question is a multi-option pick — the "
+            "chat layer uses them to route a numeric / labelled answer "
+            "without re-parsing prose."
         ),
         parameters={
             "type": "object",
@@ -84,6 +108,23 @@ def ask_user_tool_def() -> ToolDef:
                     "description": "The single question to ask the user. "
                                    "Must be a complete sentence, at least 5 characters.",
                     "minLength": 5,
+                },
+                "default_on_yes": {
+                    "type": "string",
+                    "description": (
+                        "The value a bare 'yes' next turn should resolve "
+                        "to. Set for ANY yes/no question or single-option "
+                        "suggestion. Example: question='Did you mean "
+                        "HDFCBANK?' → default_on_yes='HDFCBANK'."
+                    ),
+                },
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Structured list of choice labels for a "
+                        "multi-option pick. Omit for free-text answers."
+                    ),
                 },
             },
             "required": ["question"],
@@ -217,6 +258,11 @@ class GuardedToolResult:
     # PendingToolCall so the user's next reply resumes deterministically
     # without an LLM hop.
     missing_field: Optional[MissingField] = None
+    # R2: when the LLM emits ASK_USER with default_on_yes / options,
+    # chat_service persists a PendingResolution so the next pure-
+    # affirmative reply resolves deterministically.
+    default_on_yes: Optional[str] = None
+    options: Optional[list[str]] = None
 
     @classmethod
     def from_tool_result(cls, name: str, args: dict[str, Any], r: ToolResult) -> "GuardedToolResult":
@@ -390,10 +436,25 @@ async def execute_with_completeness(
                 name=tool_name, args=args, error=err,
                 latency_ms=int((time.monotonic() - started) * 1000),
             )
+        # R2: extract structured resolution fields so chat_service can
+        # persist a PendingResolution.
+        raw_default = args.get("default_on_yes")
+        default_on_yes = (
+            str(raw_default).strip()
+            if isinstance(raw_default, str) and raw_default.strip()
+            else None
+        )
+        raw_options = args.get("options")
+        options = (
+            [str(o).strip() for o in raw_options if isinstance(o, str) and o.strip()]
+            if isinstance(raw_options, list) else None
+        )
         return GuardedToolResult(
             name=tool_name, args=args,
             needs_clarification=True,
             question=(args.get("question") or "").strip(),
+            default_on_yes=default_on_yes,
+            options=options or None,
             latency_ms=int((time.monotonic() - started) * 1000),
         )
 

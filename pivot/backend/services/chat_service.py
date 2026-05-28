@@ -1699,7 +1699,12 @@ class ChatService:
         AttributeError so a partially-implemented store never breaks
         production code that legitimately relies on these calls.
         """
-        for attr in ("clear_active_draft", "clear_pending", "clear"):
+        for attr in (
+            "clear_active_draft",
+            "clear_pending",
+            "clear_pending_resolution",
+            "clear",
+        ):
             fn = getattr(self.store, attr, None)
             if callable(fn):
                 try:
@@ -1750,6 +1755,28 @@ class ChatService:
             field_type=mf.type_kind,
             field_description=mf.description,
             enum=mf.enum,
+            asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        ))
+
+    def _maybe_set_pending_resolution(
+        self, conv_id: str, original_intent: str,
+        guarded: GuardedToolResult,
+    ) -> None:
+        """R2: persist a PendingResolution when ASK_USER carries
+        default_on_yes or options. A pure-affirmative reply next turn
+        resolves to default_on_yes without an LLM hop. Cleared on the
+        next non-affirmative turn or by TTL."""
+        from backend.services.conversation_store import PendingResolution
+        if not (guarded.default_on_yes or guarded.options):
+            # Clear stale resolution from a prior turn — only the most
+            # recent clarification's options/default should be active.
+            self.store.clear_pending_resolution(conv_id)
+            return
+        self.store.set_pending_resolution(conv_id, PendingResolution(
+            question=(guarded.question or "").strip(),
+            default_on_yes=guarded.default_on_yes,
+            options=guarded.options or [],
+            original_intent=original_intent[:280] if original_intent else None,
             asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         ))
 
@@ -2061,33 +2088,61 @@ class ChatService:
         if cancelled is not None:
             return cancelled
 
-        # ── Pure-affirmative + active draft → ack-only fast-path ──
-        # When the user types "ok" / "yes" / "sure" / "got it" with
-        # a draft already on screen, they're acknowledging — not
-        # asking for a change. Re-emitting the macro tool produces
-        # the same card with the same args. Wasted ~5-10s of LLM
-        # latency and ~22K input tokens for zero behavioural change.
-        # Short-circuit with a one-line acknowledgement.
+        # ── Pure-affirmative fast-path ────────────────────────────
+        # When the user types "ok" / "yes" / "sure" / "got it":
+        #
+        # 1. If a PendingResolution (R2) carries a `default_on_yes`,
+        #    we resolve deterministically — substitute the message
+        #    with the option text and let the normal LLM path proceed
+        #    with the answered clarification. Avoids the
+        #    over-confirmation loop (screenshot 7) and the fabricated
+        #    context bug (screenshots 9, 10).
+        # 2. Else if an active draft exists, surface the short ack —
+        #    re-emitting the macro tool wastes ~5-10s for zero
+        #    behavioural change.
+        # 3. Else fall through to the normal LLM path — but mark
+        #    `_affirm_no_state` so a system hint below tells the
+        #    model "no draft on screen; do NOT fabricate one." Kills
+        #    the "the draft above is what you'll activate"
+        #    fabrication when no draft exists.
+        _affirm_no_state = False
         if _is_pure_affirmative(message):
-            existing = self.store.get_active_draft(conv_id)
-            if existing is not None:
-                ack = (
-                    "Got it — the draft above is what you'll activate. "
-                    "Click **Save & activate** in the card when you're ready."
+            resolution = self.store.get_pending_resolution(conv_id)
+            if resolution is not None and resolution.default_on_yes:
+                trace.event(
+                    "pending_resolution.resolved",
+                    default_on_yes=resolution.default_on_yes,
                 )
-                self.store.append(conv_id, message, ack)
-                total = int((time.monotonic() - turn_started) * 1000)
-                breakdown["affirm_ack"] = total
-                breakdown["total"] = total
-                _log_timing("affirm_ack", message, total, breakdown, tools=[])
-                trace.event("turn.end", total_ms=total, tools_called=[],
-                            reason="pure_affirmative_ack")
-                trace.end()
-                return ChatTurn(
-                    response=ack, tools_called=[],
-                    logiccard=None, raw_data=None,
-                    latency_ms=total, latency_breakdown=breakdown,
-                )
+                self.store.clear_pending_resolution(conv_id)
+                # Substitute the message with the resolved default so
+                # downstream routing treats this as the user typing
+                # the option. Original "yes" still appears in stored
+                # history (appended at turn end).
+                message = resolution.default_on_yes
+            else:
+                affirm_active_draft = self.store.get_active_draft(conv_id)
+                if affirm_active_draft is not None:
+                    ack = (
+                        "Got it — the draft above is what you'll activate. "
+                        "Click **Save & activate** in the card when you're ready."
+                    )
+                    self.store.append(conv_id, message, ack)
+                    total = int((time.monotonic() - turn_started) * 1000)
+                    breakdown["affirm_ack"] = total
+                    breakdown["total"] = total
+                    _log_timing("affirm_ack", message, total, breakdown, tools=[])
+                    trace.event("turn.end", total_ms=total, tools_called=[],
+                                reason="pure_affirmative_ack")
+                    trace.end()
+                    return ChatTurn(
+                        response=ack, tools_called=[],
+                        logiccard=None, raw_data=None,
+                        latency_ms=total, latency_breakdown=breakdown,
+                    )
+                # No draft, no pending resolution. Fall through with
+                # the affirmation-no-state flag so a hint downstream
+                # forbids draft fabrication.
+                _affirm_no_state = True
 
         # ── Fresh-session eviction ─────────────────────────────────
         # When the FE explicitly hands us an EMPTY history list, the
@@ -2545,6 +2600,28 @@ class ChatService:
             base_messages.append(
                 LLMMessage(role="system", content=reply_class_hint_text)
             )
+        # R1: affirmation with no draft + no pending resolution. Prevents
+        # the model from fabricating "the draft above is what you'll
+        # activate" when there is no draft on screen (screenshot 10).
+        if _affirm_no_state:
+            base_messages.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Affirmation with no active state\n"
+                    "The user replied with a bare affirmative ('yes', "
+                    "'sure', 'ok'). There is NO active workflow draft "
+                    "on screen AND no structured pending resolution. "
+                    "Do NOT pretend a draft exists. Do NOT say 'the "
+                    "draft above is what you'll activate'. Do NOT "
+                    "invent a previous failure or a prior plan to "
+                    "retry. Interpret the affirmative as confirming "
+                    "your last assistant message — if that was a "
+                    "general suggestion, briefly act on it; if it was "
+                    "small talk, reply briefly; if you're not sure "
+                    "what they're agreeing to, ask one focused "
+                    "follow-up question."
+                ),
+            ))
         # Mode pin — explicit user pill from the FE composer. This is
         # treated as a HARD route: the user clicked Automation, so the
         # LLM must place an order, not draft a workflow. Without this
@@ -2782,6 +2859,9 @@ class ChatService:
                 if guarded.needs_clarification and guarded.question:
                     self.store.append(conv_id, message, guarded.question)
                     self._maybe_set_pending(conv_id, guarded)
+                    self._maybe_set_pending_resolution(
+                        conv_id, message, guarded,
+                    )
                     total = int((time.monotonic() - turn_started) * 1000)
                     breakdown["total"] = total
                     _log_timing(client.provider_name, message, total, breakdown,
@@ -3190,34 +3270,45 @@ class ChatService:
             }
             return
 
-        # ── Pure-affirmative + active draft (mirror of non-stream) ──
+        # ── Pure-affirmative fast-path (mirror of non-stream) ───────
+        _affirm_no_state = False
         if _is_pure_affirmative(message):
-            existing = self.store.get_active_draft(conv_id)
-            if existing is not None:
-                ack = (
-                    "Got it — the draft above is what you'll activate. "
-                    "Click **Save & activate** in the card when you're ready."
+            resolution = self.store.get_pending_resolution(conv_id)
+            if resolution is not None and resolution.default_on_yes:
+                trace.event(
+                    "pending_resolution.resolved",
+                    default_on_yes=resolution.default_on_yes,
                 )
-                self.store.append(conv_id, message, ack)
-                total = int((time.monotonic() - turn_started) * 1000)
-                breakdown["affirm_ack"] = total
-                breakdown["total"] = total
-                _log_timing("affirm_ack", message, total, breakdown, tools=[])
-                trace.event("turn.end", total_ms=total, tools_called=[],
-                            reason="pure_affirmative_ack")
-                trace.end()
-                yield {"type": "start"}
-                yield {"type": "delta", "text": ack}
-                yield {
-                    "type": "done",
-                    "response": ack,
-                    "tools_called": [],
-                    "logiccard": None,
-                    "raw_data": None,
-                    "latency_ms": total,
-                    "latency_breakdown": breakdown,
-                }
-                return
+                self.store.clear_pending_resolution(conv_id)
+                message = resolution.default_on_yes
+            else:
+                existing = self.store.get_active_draft(conv_id)
+                if existing is not None:
+                    ack = (
+                        "Got it — the draft above is what you'll activate. "
+                        "Click **Save & activate** in the card when you're ready."
+                    )
+                    self.store.append(conv_id, message, ack)
+                    total = int((time.monotonic() - turn_started) * 1000)
+                    breakdown["affirm_ack"] = total
+                    breakdown["total"] = total
+                    _log_timing("affirm_ack", message, total, breakdown, tools=[])
+                    trace.event("turn.end", total_ms=total, tools_called=[],
+                                reason="pure_affirmative_ack")
+                    trace.end()
+                    yield {"type": "start"}
+                    yield {"type": "delta", "text": ack}
+                    yield {
+                        "type": "done",
+                        "response": ack,
+                        "tools_called": [],
+                        "logiccard": None,
+                        "raw_data": None,
+                        "latency_ms": total,
+                        "latency_breakdown": breakdown,
+                    }
+                    return
+                _affirm_no_state = True
 
         # ── Fresh-session eviction (mirror of non-streaming path) ──
         if history_override is not None and len(history_override) == 0:
@@ -3528,6 +3619,26 @@ class ChatService:
             base_msgs.append(
                 LLMMessage(role="system", content=reply_class_hint_text)
             )
+        # R1: affirmation-no-state hint (streaming mirror).
+        if _affirm_no_state:
+            base_msgs.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Affirmation with no active state\n"
+                    "The user replied with a bare affirmative ('yes', "
+                    "'sure', 'ok'). There is NO active workflow draft "
+                    "on screen AND no structured pending resolution. "
+                    "Do NOT pretend a draft exists. Do NOT say 'the "
+                    "draft above is what you'll activate'. Do NOT "
+                    "invent a previous failure or a prior plan to "
+                    "retry. Interpret the affirmative as confirming "
+                    "your last assistant message — if that was a "
+                    "general suggestion, briefly act on it; if it was "
+                    "small talk, reply briefly; if you're not sure "
+                    "what they're agreeing to, ask one focused "
+                    "follow-up question."
+                ),
+            ))
         mode_pin = _format_mode_pin(mode_override)
         if mode_pin:
             base_msgs.append(LLMMessage(role="system", content=mode_pin))
@@ -3811,6 +3922,9 @@ class ChatService:
                 if guarded.needs_clarification and guarded.question:
                     self.store.append(conv_id, message, guarded.question)
                     self._maybe_set_pending(conv_id, guarded)
+                    self._maybe_set_pending_resolution(
+                        conv_id, message, guarded,
+                    )
                     total = int((time.monotonic() - turn_started) * 1000)
                     breakdown["total"] = total
                     yield {"type": "delta", "text": guarded.question}
