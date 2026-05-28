@@ -721,6 +721,15 @@ _BUILD_VERB_RE = re.compile(
 # which routes to propose_dsl_workflow.
 _COMPLEXITY_RE = re.compile(
     r"\b(?:buying[- ]power|sector\s+exposure)\b"
+    # L14: multi-step compound intents must bail to the LLM so the
+    # orchestrator (compose_multistep) can pick them up. Otherwise the
+    # skeleton silently produces ONLY the build step, dropping the
+    # research / compare / regime context the user asked for.
+    r"|\b(?:compare|backtest)\b[^.]{0,140}?\b(?:then|and|,)\b[^.]{0,140}?"
+    r"\b(?:build|create|set\s+up|setup|make|turn\s+into|design|pick|identify)\b"
+    r"|\b(?:before\s+and\s+after|pre[\s-]?\d{4}|post[\s-]?\d{4}|"
+    r"pre[\s-]?(?:and[\s-])?post|in\s+(?:both\s+)?regimes?|regime\s+shift)\b"
+    r"|\b(?:full\s+plan|do\s+all\s+(?:three|four|five))\b"
     r"|\bnotify\s+me\b|\bemail\s+me\b|\bsms\s+me\b|\bpush\s+(?:notif|me)"
     r"|\bif\b[^.]*?\bbuying\s+power\b"
     r"|\bcondition\b[^.]*?\bportfolio\b"
