@@ -102,6 +102,27 @@ _ACTION_TERMINATORS_RE = re.compile(
 )
 
 
+_INDICATOR_OR_PRICE_RE = re.compile(
+    r"\b(?:rsi|sma|ema|wma|macd|adx|atr|cci|mfi|stoch|bollinger|bb|"
+    r"donchian|keltner|supertrend|aroon|williams|obv|vwap|roc|trix|"
+    r"psar|ichimoku|volume|price|close|open|high|low|"
+    r"drawdown|peak|trough|"
+    r">|<|crosses?\s+(?:above|below)|reaches?|hits?|breaches?|"
+    r"oversold|overbought|"
+    r"above|below|under|over|"
+    r"\d+(?:\.\d+)?\s*%)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_indicator_or_price_word(text: str) -> bool:
+    """True when the text mentions an indicator name or price-comparison
+    operator. Used to distinguish schedule-only phrases ("every Monday
+    at open buy 5 NIFTYBEES") from condition-shaped phrases ("RSI<30 on
+    Mondays")."""
+    return bool(_INDICATOR_OR_PRICE_RE.search(text or ""))
+
+
 def _has_multi_action_tickers(condition: str) -> bool:
     """True when the condition string contains 2+ distinct
     action-ticker pairs (the user is asking for orders on multiple
@@ -474,6 +495,40 @@ async def propose_dsl_workflow(args: dict) -> dict:
             "exit_condition='trail N% from peak')."
         )
 
+    # Schedule-shaped condition or exit_condition — the DSL grammar
+    # expects PRICE/INDICATOR/AGGREGATE leaves, not scheduling. When
+    # the user packs a time-anchored phrase ("every Monday at open
+    # buy 5 NIFTYBEES" / "on Friday close squareoff full NIFTYBEES")
+    # into the condition or exit slot, the translator fails with
+    # tautology errors. Detect and refuse with structured route hint.
+    _SCHED_RE = re.compile(
+        r"\b(?:every\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
+        r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|"
+        r"weekday|day|week|month)|"
+        r"on\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
+        r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|"
+        r"squareoff|square[\s-]off|"
+        r"at\s+(?:market\s+)?(?:open|close)|"
+        r"\d{1,2}:\d{2}\s*(?:am|pm|ist)?)",
+        re.IGNORECASE,
+    )
+    if (
+        (_SCHED_RE.search(condition) and not _has_indicator_or_price_word(condition))
+        or (
+            exit_condition_text
+            and _SCHED_RE.search(exit_condition_text)
+            and not _has_indicator_or_price_word(exit_condition_text)
+        )
+    ):
+        raise ValueError(
+            "propose_dsl_workflow can only translate price / "
+            "indicator / aggregate conditions, NOT scheduling phrases. "
+            "The prompt has a time-anchored leg (\"every Monday at "
+            "open\" / \"on Friday close\" / \"squareoff\"). Use "
+            "propose_workflow with one branch per time-anchored leg "
+            "(trigger.schedule + action.* per branch)."
+        )
+
     # Multi-trigger semicolon detector — "Every Monday at open buy 5
     # NIFTYBEES; on Friday close squareoff full NIFTYBEES" packs TWO
     # time-anchored triggers into one condition string. DSL is
@@ -483,8 +538,10 @@ async def propose_dsl_workflow(args: dict) -> dict:
         # Each part has its own time/condition anchor → looks like
         # branches, not a single compound condition.
         _ANCHOR_RE = re.compile(
-            r"\b(?:every|at\s+(?:open|close|\d)|on\s+(?:mon|tue|wed|"
-            r"thu|fri|sat|sun)|when|if)\b",
+            r"\b(?:every|at\s+(?:open|close|\d)|"
+            r"on\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
+            r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|"
+            r"when|if)\b",
             re.IGNORECASE,
         )
         if all(_ANCHOR_RE.search(p) for p in _SEMI_PARTS):
