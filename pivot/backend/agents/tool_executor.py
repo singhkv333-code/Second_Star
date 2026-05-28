@@ -522,6 +522,21 @@ async def _propose_workflow(a, kt, db, uid):
             }
         payload = draft.model_dump()
         payload["_render_hint"] = "workflow_draft_card"
+        # R4a: pre-flight check Mustache refs against the backtester's
+        # resolvable set. When False, the FE hides the Backtest button
+        # and the chat layer surfaces `backtest_blockers` upfront
+        # instead of the user discovering it via a runtime float-cast
+        # error.
+        try:
+            from backend.services.backtest_resolvability import check_draft
+            bt_ok, bt_blockers = check_draft(payload.get("steps") or [])
+            payload["backtestable"] = bool(bt_ok)
+            payload["backtest_blockers"] = bt_blockers
+        except Exception:
+            # Conservative default: assume backtestable rather than
+            # falsely hiding the button for an unrelated bug here.
+            payload["backtestable"] = True
+            payload["backtest_blockers"] = []
         return {"success": True, "data": payload, "logiccard": None}
 
     # Legacy fallback — only `user_intent` provided. Runs the inner
@@ -549,6 +564,14 @@ async def _propose_workflow(a, kt, db, uid):
         }
     payload = draft.model_dump()
     payload["_render_hint"] = "workflow_draft_card"
+    try:
+        from backend.services.backtest_resolvability import check_draft
+        bt_ok, bt_blockers = check_draft(payload.get("steps") or [])
+        payload["backtestable"] = bool(bt_ok)
+        payload["backtest_blockers"] = bt_blockers
+    except Exception:
+        payload["backtestable"] = True
+        payload["backtest_blockers"] = []
     return {"success": True, "data": payload, "logiccard": None}
 
 

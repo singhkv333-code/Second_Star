@@ -567,4 +567,15 @@ async def propose_dsl_workflow(args: dict) -> dict:
         "exit_translation_meta": exit_tx_meta,
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
+    # R4a: pre-flight backtest resolvability so the FE knows whether
+    # to surface the Backtest button — and so the runtime float-cast
+    # error never fires for an unresolvable Mustache ref.
+    try:
+        from backend.services.backtest_resolvability import check_draft
+        bt_ok, bt_blockers = check_draft(steps)
+        draft["backtestable"] = bool(bt_ok)
+        draft["backtest_blockers"] = bt_blockers
+    except Exception:
+        draft["backtestable"] = True
+        draft["backtest_blockers"] = []
     return draft

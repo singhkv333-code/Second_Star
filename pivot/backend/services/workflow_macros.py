@@ -715,7 +715,11 @@ def hydrate_holding_action(
 def _validate_or_raise(draft: dict[str, Any]) -> dict[str, Any]:
     """Run the registry validator on the hydrated draft. Raises on
     failure so the macro fails server-side rather than leaking a
-    malformed draft to the FE."""
+    malformed draft to the FE.
+
+    R4a: also stamps `backtestable` + `backtest_blockers` so the FE
+    can render or hide the Backtest button correctly.
+    """
     from backend.workflows.propose import (
         ProposalValidationError, validate_draft_against_registry,
     )
@@ -725,6 +729,14 @@ def _validate_or_raise(draft: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             f"workflow_macros: hydrated draft failed registry validation: {e}"
         ) from None
+    try:
+        from backend.services.backtest_resolvability import check_draft
+        bt_ok, bt_blockers = check_draft(draft.get("steps") or [])
+        draft["backtestable"] = bool(bt_ok)
+        draft["backtest_blockers"] = bt_blockers
+    except Exception:
+        draft.setdefault("backtestable", True)
+        draft.setdefault("backtest_blockers", [])
     return draft
 
 

@@ -1849,6 +1849,25 @@ def backtest_workflow(
         ({**s, "step_index": s.get("step_index", i)} if isinstance(s, dict) else s)
         for i, s in enumerate(steps)
     ]
+    # R4a: pre-flight Mustache-ref resolvability BEFORE eligibility so
+    # the user sees the structured blocker text ("backtester cannot
+    # resolve {{ context.1.total_value_inr }}") instead of the
+    # downstream `could not convert string to float` crash.
+    try:
+        from backend.services.backtest_resolvability import check_draft
+        ref_ok, ref_blockers = check_draft(steps)
+    except Exception:
+        ref_ok, ref_blockers = True, []
+    if not ref_ok:
+        raise ValueError(
+            "This workflow uses runtime values the backtester can't "
+            "resolve from historical bars: "
+            + "; ".join(ref_blockers[:3])
+            + (". " if ref_blockers else "")
+            + "Backtest needs literal numbers or whitelisted refs "
+            "(`buying_power`, `holdings.<SYM>.quantity`, fetch.* "
+            "step outputs)."
+        )
     elig = check_eligibility(steps)
     if not elig.eligible:
         raise ValueError(elig.reason or "workflow not backtestable")
