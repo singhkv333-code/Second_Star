@@ -360,6 +360,107 @@ mode is documented.
 
 ---
 
+## L14 — compound multi-step intents + web grounding + regime
+
+**Context:** user supplied 20 compound prompts ("compare A, B, C →
+build agent on winner", "backtest X vs Y → set up winner",
+"research → design → backtest → activate") and asked us to handle
+them WITHOUT pre-dividing into fixed-time stages — keep iterating
+until 6 AM IST. Latency budget: ≤ +30-40% over current p50.
+
+**Cumulative new capabilities (commits 5ac4fe8 … c9e89ea):**
+
+1. **`compose_multistep`** orchestrator tool — accepts a `plan` of
+   2-6 sub-step dicts and resolves `$step_id.field` refs between
+   steps server-side (no LLM hop for the threading). Each sub-step
+   dispatches through `validation_handler.execute_with_completeness`
+   so M1/M2 protections still apply. Returns a `multistep_card`
+   payload with per-step timeline + hoisted `final_card`.
+
+2. **`extract_winner_symbol`** (inline helper inside the
+   orchestrator — NOT exposed to the LLM directly). Picks the
+   best/worst symbol from a comparison result. Unwraps the
+   `comparison.results` nested shape and a flat per-symbol dict.
+
+3. **`compare_backtests`** — parallel `asyncio.gather` over 2-4
+   `backtest_workflow` calls. Returns rankings by total_return /
+   sharpe / max_drawdown.
+
+4. **`web_search_brief`** — DuckDuckGo IA + Wikipedia REST fallback
+   for entity grounding (RBI, GIFT Nifty, NIFTYBEES, capital-
+   guaranteed note, arbitrage fund). 1-hour Redis cache. Tool
+   description forbids real-time-news framing (we don't have that
+   feed).
+
+5. **`regime_compare_metrics`** — splits price history at a pivot
+   date and returns risk + return metrics per window plus a delta
+   block. Reuses risk_metrics + performance_metrics.
+
+6. **Rebalance teaching** in system.md — "rebalance every quarter"
+   = `trigger.schedule(quarterly cron) + action.allocate_basket
+   (same legs, recompute at fire)`. Includes worked example with
+   `weight: 0.3334` (decimal, NOT percentage).
+
+7. **Skeleton bail on compound intents** — `_COMPLEXITY_RE` gains
+   patterns for "compare/backtest ... then build", "before and
+   after / pre-2022 / regime", "full plan / do all four". Stops
+   the skeleton from silently dropping the analysis context.
+
+8. **Router rule** — surfaces compose_multistep / compare_backtests
+   on "X vs Y + show me which won" and the analysis→action chain
+   shapes. Uses `[\s\S]` so the pattern spans sentence-ending
+   periods.
+
+9. **Period normalization** at the orchestrator boundary maps
+   LLM-emitted "3y" / "18mo" / "since January" / "100d" to valid
+   yfinance periods. Saves a step failure when the model picks
+   non-standard windows.
+
+**L14 baseline → after (hand-judged by reading every response):**
+
+| Prompt | Baseline | After |
+|---|---|---|
+| 01 compare → momentum agent | PARTIAL ASK | compose_multistep ✓ |
+| 02 SIP vs lump | PARTIAL ASK | ASK for amount (acceptable) |
+| 03 HDFC 5% drop + history | PASS-ish | similar |
+| 04 pairs Nifty/BankNifty | PARTIAL | compare + backtest chart ✓ |
+| 05 covered call | PASS clean decline | PASS |
+| 06 5L 3-stock split + rebalance | PARTIAL | ASK which 3 stocks (fair) |
+| 07 arb vs FD + cap note | PARTIAL | compare_yields + clarify (cap note unknown) |
+| 08 momentum scan + backtest | PARTIAL | propose_workflow w/ screener+alert ✓ |
+| 09 TCS vs ICICI + SL | PARTIAL | extract_winner regression → fixed by hiding |
+| 10 buy dip vs SIP | PARTIAL | backtest_dsl_tree → chart ✓ |
+| 11 RELIANCE research + earnings agent | PARTIAL ASK | ASK which earnings pattern (fair) |
+| 12 gold vs Nifty 70/30 | PARTIAL | compare_performance + compare_backtests ✓✓ |
+| 13 three styles INFY | PARTIAL qty | backtest_dsl_tree w/ partial coverage |
+| 14 MA crossover | PARTIAL qty | backtest + propose_threshold_order ✓ |
+| 15 protective put | PASS clean decline | PASS |
+| 16 SBI vs Kotak Sharpe | PARTIAL | compare_performance + propose-as-is shape |
+| 17 quarterly rebal vs B&H | PARTIAL | backtest_workflow + compare_performance ✓ |
+| 18 bonus cash arb 80% | PARTIAL ASK | propose_workflow + backtest + clarify |
+| 19 INFY pre/post 2022 | PARTIAL | (after skeleton fix) regime + multistep ✓ |
+| 20 full plan Nifty | PARTIAL qty | ASK (still asks; orchestrator needs stronger nudge) |
+
+**Net: ~8-9 clean PASS on compound shape (vs 2 baseline).**
+Latency stays within +30-40% budget on average (~10-15s wall for
+multistep, ~6-10s for sequential).
+
+**L08 30-session regression sweep (run between L14 cycles):**
+no regressions. All existing capability / order / workflow /
+amendment / cancel flows pass.
+
+**Still open:**
+- L14_19/20 — model still asks confirmation on the build step
+  inside a multi-step plan; needs stronger "JUST RUN IT" framing
+  AND a system.md example showing compose_multistep that includes
+  an ASK_USER step for missing args inside the plan rather than
+  asking the user mid-flow.
+- F&O depth (out of scope per user clarification).
+- Live macro / real-time news feed — defer until a paid data
+  source is wired.
+
+---
+
 ## L10 — DSL early-bail + M1 over-confirm patterns
 
 Tackled the two open PARTIALs from L08/L09:
