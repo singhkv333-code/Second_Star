@@ -407,6 +407,40 @@ last propose_* step), with `default_on_yes` set to a sensible
 suggestion based on the symbol's typical lot size. Don't bail the
 whole plan to ASK_USER outside the orchestrator.
 
+**Research step shape (single symbol):** "research X" inside a
+compose_multistep plan = `get_performance_metrics(symbol=X,
+period='5y', metrics=['total_return', 'cagr', 'volatility',
+'max_drawdown', 'sharpe'])` OR `regime_compare_metrics` when the
+user named a pivot date. Do NOT use `compare_performance` (needs
+multiple symbols) for a single-symbol research step — it will
+fail.
+
+EXAMPLE — "Full plan on NIFTYBEES: research the trend, design a
+strategy, backtest it over 5 years, create the agent buying 5 units":
+
+```
+plan = [
+  {step_id: 'research', tool: 'get_performance_metrics',
+   args: {symbol: 'NIFTYBEES', period: '5y',
+          metrics: ['total_return', 'cagr', 'volatility',
+                    'max_drawdown', 'sharpe']}},
+  {step_id: 'backtest', tool: 'backtest_workflow',
+   args: {name: 'NIFTYBEES RSI<30 buy', period: '5y',
+          steps: [
+            {step_type: 'trigger.indicator',
+             config: {symbol:'NIFTYBEES', indicator:'rsi',
+                      operator:'<', value:30}},
+            {step_type: 'action.place_order',
+             config: {symbol:'NIFTYBEES', side:'buy', quantity:5,
+                      order_type:'market'}}
+          ]}},
+  {step_id: 'build', tool: 'propose_threshold_order',
+   args: {symbol: 'NIFTYBEES', side: 'buy', quantity: 5,
+          trigger_kind: 'indicator', indicator: 'rsi',
+          operator: '<', threshold: 30}}
+]
+```
+
 **Valid `period` values for analytics tools** (compare_performance,
 get_returns, get_performance_metrics, etc.): `"5d"`, `"1mo"`, `"3mo"`,
 `"6mo"`, `"1y"`, `"2y"`, `"5y"`, `"max"`, `"ytd"`. For other
