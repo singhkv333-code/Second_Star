@@ -719,6 +719,9 @@ def _validate_or_raise(draft: dict[str, Any]) -> dict[str, Any]:
 
     R4a: also stamps `backtestable` + `backtest_blockers` so the FE
     can render or hide the Backtest button correctly.
+
+    R4b follow-up: stamps `expires_at` from `valid_until` so the FE
+    can POST it as-is on /workflows.
     """
     from backend.workflows.propose import (
         ProposalValidationError, validate_draft_against_registry,
@@ -737,6 +740,11 @@ def _validate_or_raise(draft: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         draft.setdefault("backtestable", True)
         draft.setdefault("backtest_blockers", [])
+    try:
+        from backend.agents.tool_executor import _stamp_expires_at
+        _stamp_expires_at(draft)
+    except Exception:
+        pass
     return draft
 
 
@@ -746,11 +754,21 @@ def hydrate_and_validate(macro_name: str, params: dict[str, Any]) -> dict[str, A
     Maps macro_name → hydration function, calls it with the params,
     and validates the result before returning. Raises ValueError on
     any failure path so the tool executor surfaces a clean error.
+
+    R4b: pulls `valid_until` out of params (the hydrators are typed
+    and won't accept unknown kwargs) and lands it on the draft top
+    level so `_validate_or_raise` → `_stamp_expires_at` can derive
+    the row-level timestamp.
     """
     fn = _MACROS.get(macro_name)
     if fn is None:
         raise ValueError(f"unknown macro {macro_name!r}")
+    extras: dict[str, Any] = {}
+    if "valid_until" in params:
+        extras["valid_until"] = params.pop("valid_until")
     draft = fn(**params)
+    if extras.get("valid_until"):
+        draft["valid_until"] = extras["valid_until"]
     return _validate_or_raise(draft)
 
 

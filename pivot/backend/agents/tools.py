@@ -1240,6 +1240,17 @@ tool("propose_dsl_workflow",
                  "server-side with PositionNode leaves allowed."
              ),
          },
+         "valid_until": {
+             "type": "string",
+             "description": (
+                 "Optional ISO YYYY-MM-DD. Set ONLY when the user "
+                 "attaches a TTL phrase ('for the next 30 days', "
+                 "'until 30 June', 'till next Friday', 'good for "
+                 "the week'). Resolve relative phrases to absolute "
+                 "dates yourself. Omit for perpetual workflows. "
+                 "Scheduler auto-deactivates at 23:59 IST."
+             ),
+         },
      },
      ["condition", "primary_symbol"])
 
@@ -1287,6 +1298,15 @@ tool("propose_scheduled_order",
                     "description": "Optional % stop-loss after the fill."},
          "requires_approval": {"type": "boolean",
                                "description": "Default false (auto-execute)."},
+         "valid_until": {
+             "type": "string",
+             "description": (
+                 "Optional ISO YYYY-MM-DD. Set when the user attaches "
+                 "a TTL phrase ('for the next 30 days', 'until 30 "
+                 "June', 'till next Friday'). Resolve relative phrases "
+                 "to absolute dates yourself. Omit for perpetual."
+             ),
+         },
      },
      ["symbol", "side", "days"])
 
@@ -1308,10 +1328,10 @@ tool("propose_threshold_order",
      "macro can only carry a single comparison and will silently drop the "
      "extra legs.\n\n"
      "DO NOT CALL for runtime-relative thresholds ('5% below today's "
-     "open') — use propose_workflow with fetch.relative_threshold. DO NOT "
-     "CALL when the user attaches a TTL/expiry phrase ('valid till month "
-     "end', 'until Friday') — no deactivation slot; route to "
-     "propose_workflow with top-level valid_until.",
+     "open') — use propose_workflow with fetch.relative_threshold.\n\n"
+     "TTL/expiry phrases ('valid till month end', 'until Friday', "
+     "'for the next N days') ARE supported here — pass the resolved "
+     "absolute date as `valid_until` (YYYY-MM-DD).",
      {
          "symbol": {"type": "string"},
          "side": {"type": "string", "enum": ["buy", "sell"]},
@@ -1335,6 +1355,15 @@ tool("propose_threshold_order",
                               "description": "Default 14 for RSI, 50 for SMA/EMA."},
          "sl_pct": {"type": "number", "minimum": 0.1, "maximum": 50},
          "requires_approval": {"type": "boolean"},
+         "valid_until": {
+             "type": "string",
+             "description": (
+                 "Optional ISO YYYY-MM-DD. Set when the user attaches "
+                 "a TTL phrase ('for the next 30 days', 'until 30 "
+                 "June', 'till next Friday'). Resolve relative phrases "
+                 "to absolute dates yourself. Omit for perpetual."
+             ),
+         },
      },
      ["symbol", "side", "trigger_kind", "operator", "threshold"])
 
@@ -1429,6 +1458,14 @@ tool("propose_holding_action",
                             "XOR with sl_offset_pct.",
          },
          "requires_approval": {"type": "boolean"},
+         "valid_until": {
+             "type": "string",
+             "description": (
+                 "Optional ISO YYYY-MM-DD. Set when the user attaches "
+                 "a TTL phrase ('for the next 30 days', 'until 30 "
+                 "June', 'till next Friday'). Omit for perpetual."
+             ),
+         },
      },
      ["symbol", "action_kind", "trigger_kind"])
 

@@ -555,6 +555,7 @@ async def propose_dsl_workflow(args: dict) -> dict:
     if exit_readback:
         description += f" · Exit: {exit_readback}"
 
+    valid_until_raw = (args.get("valid_until") or "").strip() or None
     draft = {
         "_render_hint": "workflow_draft_card",
         "draft_id": str(uuid.uuid4()),
@@ -567,6 +568,8 @@ async def propose_dsl_workflow(args: dict) -> dict:
         "exit_translation_meta": exit_tx_meta,
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
+    if valid_until_raw:
+        draft["valid_until"] = valid_until_raw
     # R4a: pre-flight backtest resolvability so the FE knows whether
     # to surface the Backtest button — and so the runtime float-cast
     # error never fires for an unresolvable Mustache ref.
@@ -578,4 +581,10 @@ async def propose_dsl_workflow(args: dict) -> dict:
     except Exception:
         draft["backtestable"] = True
         draft["backtest_blockers"] = []
+    # R4b follow-up: derive expires_at from valid_until in one place.
+    try:
+        from backend.agents.tool_executor import _stamp_expires_at
+        _stamp_expires_at(draft)
+    except Exception:
+        pass
     return draft
