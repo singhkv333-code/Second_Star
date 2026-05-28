@@ -724,6 +724,49 @@ For non-canonical themes (AI, EV, green) → ASK_USER.
 When the user omits a schedule, default to one-time manual execution —
 do NOT silently add "every weekday at 09:20".
 
+### Rebalancing baskets — `trigger.schedule` + `action.allocate_basket`
+
+When the user asks for a portfolio that **rebalances** ("rebalance
+every quarter", "rebalance monthly", "quarterly rebalanced"), use
+`propose_workflow` with TWO STEPS:
+
+1. `trigger.schedule` on the requested cadence:
+   - Monthly: `cron='0 9 1 * *'` (1st of every month, 09:00 IST)
+   - Quarterly: `cron='0 9 1 */3 *'` (1st of every 3rd month)
+   - Annually: `cron='0 9 1 1 *'`
+2. `action.allocate_basket` with the SAME legs each fire. The action
+   handler recomputes per-leg quantities at fire-time using the
+   live price, which IS the rebalance (each fire pulls each leg back
+   to its target weight).
+
+EXAMPLE — "Quarterly rebalanced portfolio of RELIANCE, TCS, HDFCBANK,
+equal weight, ₹3 lakh total":
+
+```
+{
+  "name": "Quarterly rebalance equal-weight 3-stock basket",
+  "steps": [
+    {"step_type": "trigger.schedule",
+     "config": {"cron": "0 9 1 */3 *", "timezone": "Asia/Kolkata"}},
+    {"step_type": "action.allocate_basket",
+     "config": {
+       "total_inr": 300000,
+       "legs": [
+         {"symbol": "RELIANCE", "exchange": "NSE", "weight": 0.3334, "side": "long"},
+         {"symbol": "TCS",      "exchange": "NSE", "weight": 0.3333, "side": "long"},
+         {"symbol": "HDFCBANK", "exchange": "NSE", "weight": 0.3333, "side": "long"}
+       ]
+     }}
+  ]
+}
+```
+
+**`weight` is a DECIMAL in [0, 1]**, NOT a percentage. 0.50 = 50%, not 50.
+The executor re-normalises if the legs don't sum exactly to 1.0.
+
+Do NOT add a separate "rebalance step" — the schedule + allocate
+combination IS the rebalance. The backtester respects this shape.
+
 ## Market-relative time triggers — fully supported, USE THEM
 
 Pivot supports time triggers anchored to the daily open or close with a
