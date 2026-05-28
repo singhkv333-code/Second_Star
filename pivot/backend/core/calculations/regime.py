@@ -174,6 +174,15 @@ def regime_compare_metrics(
         )
     period = (period or "5y").strip().lower()
 
+    # Auto-extend the window when the pivot is far back: a "before 2020"
+    # split with period="5y" leaves zero data for the before window.
+    # Bump to "max" automatically when the pivot is more than 4 years
+    # back, regardless of what period the LLM emitted.
+    today = date.today()
+    years_back = (today - pivot).days / 365.25
+    if years_back > 4 and period in ("1y", "2y", "5y"):
+        period = "max"
+
     from backend.core.data.historical import get_ohlcv
 
     df = get_ohlcv(sym, period=period)

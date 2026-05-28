@@ -1,0 +1,194 @@
+[
+  {
+    "file": "/tmp/probe_T4_regime.json",
+    "data": {
+      "results": [
+        {
+          "name": "T4_01_infy_pre_post_2022",
+          "conv_id": "probe_ddd6975d65",
+          "turns": [
+            {
+              "prompt": "Compare INFY before and after 2022 \u2014 show me the key risk and return metrics for each window.",
+              "response": "## INFY pre- vs post-2022\n\nHere\u2019s the regime split around `2022-01-01`:\n\n- **Before 2022**\n  - Total return: **+222,147.82%**\n  - Annualised return: **+34.5%**\n  - Volatility: **215.92%**\n  - Max drawdown: **-73.61%**\n  - Sharpe: **3.865**\n  - Sortino: **5.01**\n\n- **After 2022**\n  - Total return: **-32.27%**\n  - Annualised return: **-8.77%**\n  - Volatility: **114.91%**\n  - Max drawdown: **-40.22%**\n  - Sharpe: **-1.144**\n  - Sortino: **-1.081**\n\n## What changed\n\n- **Return profile weakened sharply** after 2022.\n- **Risk-adjusted performance deteriorated**, with Sharpe turning negative.\n- **Drawdown remained meaningful**, though less severe than the long pre-2022 window.\n- The engine\u2019s interpretation: **Sharpe deteriorated after the pivot; max drawdown widened**.\n\nIf you want, I can also compare this against `TCS` or `HDFCBANK` on the same before/after split.",
+              "tools": [
+                "regime_compare_metrics"
+              ],
+              "render_hint": null,
+              "wall_ms": 8307.318625011249,
+              "raw_data": {
+                "regime_compare_metrics": {
+                  "symbol": "INFY",
+                  "pivot_date": "2022-01-01",
+                  "period": "max",
+                  "before": {
+                    "n_days": 313,
+                    "start_date": "1996-01-01",
+                    "end_date": "2022-01-01",
+                    "total_return_pct": 222147.82,
+                    "annualised_return_pct": 34.5,
+                    "volatility_pct": 215.92,
+                    "max_drawdown_pct": -73.61,
+                    "sharpe_ratio": 3.865,
+                    "sortino_ratio": 5.01
+                  },
+                  "after": {
+                    "n_days": 52,
+                    "start_date": "2022-02-01",
+                    "end_date": "2026-05-01",
+                    "total_return_pct": -32.27,
+                    "annualised_return_pct": -8.77,
+                    "volatility_pct": 114.91,
+                    "max_drawdown_pct": -40.22,
+                    "sharpe_ratio": -1.144,
+                    "sortino_ratio": -1.081
+                  },
+                  "delta": {
+                    "total_return_pct": -222180.09,
+                    "annualised_return_pct": -43.27,
+                    "volatility_pct": -101.01,
+                    "max_drawdown_pct": 33.39,
+                    "sharpe_ratio": -5.009,
+                    "sortino_ratio": -6.091
+                  },
+                  "interpretation": "Sharpe deteriorated after the pivot; max drawdown widened"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3874,
+                "tool_regime_compare_metrics": 16,
+                "llm_hop_2": 4354,
+                "llm_hop_2_cached": 27136,
+                "total": 8297
+              },
+              "latency_ms_server": 8297
+            }
+          ]
+        },
+        {
+          "name": "T4_02_reliance_pre_post_covid",
+          "conv_id": "probe_f006cc1c17",
+          "turns": [
+            {
+              "prompt": "How did RELIANCE behave pre-2020 vs post-2020? Show the regime metrics.",
+              "response": "RELIANCE was far more explosive pre-2020: total return was **10,126.75%** with **21.27%** annualised return, but it also had much higher volatility at **184.47%** and a deeper max drawdown of **-70.46%**.\n\nPost-2020, the profile was steadier: total return was **122.58%**, annualised return **13.67%**, volatility **122.13%**, and max drawdown **-23.34%**. Sharpe slipped from **3.042** to **2.737**, so risk-adjusted performance deteriorated somewhat even though drawdowns improved.",
+              "tools": [
+                "regime_compare_metrics"
+              ],
+              "render_hint": null,
+              "wall_ms": 6836.8473750015255,
+              "raw_data": {
+                "regime_compare_metrics": {
+                  "symbol": "RELIANCE",
+                  "pivot_date": "2020-01-01",
+                  "period": "max",
+                  "before": {
+                    "n_days": 289,
+                    "start_date": "1996-01-01",
+                    "end_date": "2020-01-01",
+                    "total_return_pct": 10126.75,
+                    "annualised_return_pct": 21.27,
+                    "volatility_pct": 184.47,
+                    "max_drawdown_pct": -70.46,
+                    "sharpe_ratio": 3.042,
+                    "sortino_ratio": 3.851
+                  },
+                  "after": {
+                    "n_days": 76,
+                    "start_date": "2020-02-01",
+                    "end_date": "2026-05-01",
+                    "total_return_pct": 122.58,
+                    "annualised_return_pct": 13.67,
+                    "volatility_pct": 122.13,
+                    "max_drawdown_pct": -23.34,
+                    "sharpe_ratio": 2.737,
+                    "sortino_ratio": 3.61
+                  },
+                  "delta": {
+                    "total_return_pct": -10004.17,
+                    "annualised_return_pct": -7.6,
+                    "volatility_pct": -62.34,
+                    "max_drawdown_pct": 47.12,
+                    "sharpe_ratio": -0.305,
+                    "sortino_ratio": -0.241
+                  },
+                  "interpretation": "Sharpe deteriorated after the pivot; max drawdown widened"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2874,
+                "tool_regime_compare_metrics": 11,
+                "llm_hop_2": 3048,
+                "llm_hop_2_cached": 26112,
+                "total": 5968
+              },
+              "latency_ms_server": 5968
+            }
+          ]
+        },
+        {
+          "name": "T4_03_tcs_since_january",
+          "conv_id": "probe_324741d8b7",
+          "turns": [
+            {
+              "prompt": "Compare TCS since January 2023 vs before.",
+              "response": "## TCS before vs since January 2023\n\nThe split is stark: **before January 2023**, TCS was roughly flat, with a **total return of +0.39%** and **annualised return of +0.24%**. Its **max drawdown was -20.65%**, which is moderate for a large-cap IT name, and the sample is too small for reliable Sharpe/Sortino estimates.\n\n**Since January 2023**, the profile weakened materially: **total return was -30.88%**, **annualised return -10.76%**, and **max drawdown deepened to -49.71%**. Volatility remained high in both regimes, but the post-2023 period clearly carried much poorer risk-adjusted performance, with **Sharpe -1.88** and **Sortino -1.58**.\n\n## What changed\n\n- **Return regime:** from flat to materially negative\n- **Risk:** drawdown nearly doubled in magnitude\n- **Risk-adjusted quality:** post-2023 turned decisively weaker\n- **Interpretation:** the regime after January 2023 was much harsher for TCS than the earlier window\n\nIf you want, I can compare this with **INFY** or **HDFCBANK** on the same before/after split.",
+              "tools": [
+                "regime_compare_metrics"
+              ],
+              "render_hint": null,
+              "wall_ms": 8719.535957992775,
+              "raw_data": {
+                "regime_compare_metrics": {
+                  "symbol": "TCS",
+                  "pivot_date": "2023-01-01",
+                  "period": "5y",
+                  "before": {
+                    "n_days": 20,
+                    "start_date": "2021-06-01",
+                    "end_date": "2023-01-01",
+                    "total_return_pct": 0.39,
+                    "annualised_return_pct": 0.24,
+                    "volatility_pct": 107.5,
+                    "max_drawdown_pct": -20.65,
+                    "sharpe_ratio": null,
+                    "sortino_ratio": null
+                  },
+                  "after": {
+                    "n_days": 40,
+                    "start_date": "2023-02-01",
+                    "end_date": "2026-05-01",
+                    "total_return_pct": -30.88,
+                    "annualised_return_pct": -10.76,
+                    "volatility_pct": 101.77,
+                    "max_drawdown_pct": -49.71,
+                    "sharpe_ratio": -1.881,
+                    "sortino_ratio": -1.583
+                  },
+                  "delta": {
+                    "total_return_pct": -31.27,
+                    "annualised_return_pct": -11.0,
+                    "volatility_pct": -5.73,
+                    "max_drawdown_pct": -29.06,
+                    "sharpe_ratio": null,
+                    "sortino_ratio": null
+                  },
+                  "interpretation": "max drawdown tightened"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3537,
+                "llm_hop_1_cached": 27136,
+                "tool_regime_compare_metrics": 6,
+                "llm_hop_2": 5125,
+                "llm_hop_2_cached": 27136,
+                "total": 8701
+              },
+              "latency_ms_server": 8701
+            }
+          ]
+        }
+      ],
+      "user_id": 181
+    }
+  }
+]
