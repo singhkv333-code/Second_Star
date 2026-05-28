@@ -116,4 +116,51 @@ boundary where I know the correct tool.
   the draft still works (user can run manually or convert), but worth
   fixing.
 
+---
+
+## L03 — clarification merging + multi-turn drift (12 sessions, 4/5 FAILS RESOLVED)
+
+**Probe:** 12 sessions probing clarification + multi-turn shapes:
+- yes after disambiguation, fixed vs trailing SL, change-mind,
+  off-topic mid-draft, cancel, two drafts in one session,
+  amendment, negative response, long drift, explain-then-build.
+
+**Initial state (judged by reading):**
+- 4 PASS: 02, 05, 07, 09
+- 3 PARTIAL: 01, 03, 10 (10 = test design issue)
+- 5 FAIL: 04 (hallucinated draft), 06 (fabricated error), 08
+  (sell→notify confusion), 11 (drift broken), 12 (covered call
+  misinterpreted)
+
+**Fixes (1 commit):**
+
+1. **PendingResolution forces tool emit** — when PendingResolution is
+   active and user reply is NOT a pure 'yes', `agent_tool_choice` is
+   forced to `required` AND the propose_* tools are added to the
+   surface. Previously the model wrote "Drafted: M&M buy on RSI <
+   30" prose with no actual tool call. Both `handle()` and
+   `handle_stream()` patched.
+
+2. **Independent-intent regex extensions**:
+   - Price-history / chart-data patterns ("show me last week's
+     price", "chart of X") — were treated as draft amendments.
+   - "Now also build / build another agent / new agent" override —
+     was caught by the stepwise "at <number>" amendment rule.
+
+3. **create_sl_order description sharpened** — points at
+   propose_holding_action for trailing / holding-based shapes.
+
+**Retest after fixes (live probe):**
+- L03_04 "yes that one" → propose_threshold_order draft ✓
+- L03_06 off-topic during draft → live price returned cleanly ✓
+- L03_08 "now also build a sell agent" → place_limit_order ✓
+- L03_11 long drift → no spurious workflows on data lookups ✓
+
+**Remaining open (deferred):**
+- L03_01 trailing SL: model picks `propose_dsl_workflow` but no
+  draft emitted. propose_holding_action would be the right tool.
+- L03_12 covered call: F&O limitation should surface explicitly
+  rather than building a sell-on-RSI workflow.
+
+
 

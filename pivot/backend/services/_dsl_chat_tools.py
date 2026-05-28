@@ -533,7 +533,19 @@ async def propose_dsl_workflow(args: dict) -> dict:
     if action_kind not in ("notify_only", "buy_market", "buy_limit"):
         action_kind = "notify_only"
 
-    qty = int(args.get("quantity") or 1)
+    # Refuse silent qty=1 default for buy actions. The user must
+    # have specified a quantity (the LLM should have asked first).
+    # notify_only is exempt because no order is placed.
+    raw_qty = args.get("quantity")
+    if action_kind in ("buy_market", "buy_limit"):
+        if raw_qty is None or (isinstance(raw_qty, (int, float)) and int(raw_qty) <= 0):
+            raise ValueError(
+                "propose_dsl_workflow: 'quantity' is required when "
+                f"action_kind='{action_kind}'. Call ASK_USER first: "
+                "'How many shares per fire?'. Do NOT default to 1 — "
+                "silent defaults have produced wrong-size trades."
+            )
+    qty = int(raw_qty) if raw_qty is not None else 1
     limit_px = args.get("limit_price")
 
     if action_kind == "notify_only":

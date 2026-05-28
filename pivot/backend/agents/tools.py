@@ -1230,8 +1230,15 @@ tool("propose_dsl_workflow",
          },
          "quantity": {
              "type": "integer",
-             "default": 1,
-             "description": "Shares to buy (only for action_kind=buy_*).",
+             "minimum": 1,
+             "description": (
+                 "Shares to buy (REQUIRED when action_kind='buy_market' "
+                 "or 'buy_limit'). DO NOT default to 1 — the user must "
+                 "have stated a quantity. If they didn't, call ASK_USER "
+                 "first ('How many shares of <SYMBOL> per fire?') and "
+                 "DO NOT emit this tool until the user answers. A "
+                 "silent quantity=1 ships wrong-size trades."
+             ),
          },
          "limit_price": {
              "type": "number",
@@ -1343,12 +1350,17 @@ tool("propose_threshold_order",
      "open') — use propose_workflow with fetch.relative_threshold.\n\n"
      "TTL/expiry phrases ('valid till month end', 'until Friday', "
      "'for the next N days') ARE supported here — pass the resolved "
-     "absolute date as `valid_until` (YYYY-MM-DD).",
+     "absolute date as `valid_until` (YYYY-MM-DD).\n\n"
+     "QUANTITY (REQUIRED): pass exactly ONE of `quantity` or "
+     "`notional_inr`. DO NOT default to 1. If the user did not state a "
+     "size, call ASK_USER first ('How many shares of <SYMBOL> per fire, "
+     "or what rupee budget per fire?'). A silent quantity=1 has shipped "
+     "wrong-size trades.",
      {
          "symbol": {"type": "string"},
          "side": {"type": "string", "enum": ["buy", "sell"]},
-         "quantity": {"type": "integer", "minimum": 1},
-         "notional_inr": {"type": "number", "minimum": 1},
+         "quantity": {"type": "integer", "minimum": 1, "description": "Shares per fire — REQUIRED unless notional_inr is passed. Never default to 1."},
+         "notional_inr": {"type": "number", "minimum": 1, "description": "Rupee budget per fire — REQUIRED unless quantity is passed."},
          "trigger_kind": {
              "type": "string", "enum": ["indicator", "price"],
              "description": "What kind of trigger. 'indicator' for RSI/SMA/EMA,"

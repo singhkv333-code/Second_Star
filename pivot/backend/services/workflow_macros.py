@@ -234,14 +234,21 @@ def hydrate_threshold_order(
         raise ValueError(
             "threshold_order: specify either quantity OR notional_inr"
         )
-    # Default to 1 share when the user didn't specify a size.
-    # WHY: "Buy RELIANCE when RSI goes below 30" carries no quantity. The
-    # LLM sometimes infers quantity=1 (TCS worked), sometimes omits it
-    # (RELIANCE failed validation → "I couldn't complete that"). The LLM is
-    # nondeterministic on this. Defaulting here makes the macro robust — the
-    # card surfaces the value and the user can edit before confirming.
+    # Refuse to default. A silent qty=1 was producing draft cards
+    # like "INFY buy on RSI(14) < 30" with no visible quantity — the
+    # user clicked Activate without seeing the 1-share default. Worse,
+    # for high-priced names the resulting ₹3000 trade looked like a
+    # mistake. Raise instead → the chat loop receives the error and
+    # the LLM re-emits with ASK_USER. system.md's "QUANTITY IS NEVER
+    # A DEFAULT" rule now actually binds.
     if quantity is None and notional_inr is None:
-        quantity = 1
+        raise ValueError(
+            "threshold_order: quantity (or notional_inr) is required. "
+            "Call ASK_USER first: ask the user 'How many shares of "
+            "<SYMBOL> per fire?' or 'What rupee budget per fire?'. "
+            "Do NOT default to 1 — a silent default has produced "
+            "wrong-size trades before."
+        )
     sym = str(symbol).strip().upper()
     side_low = side.lower()
 
