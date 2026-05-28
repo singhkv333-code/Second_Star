@@ -878,6 +878,20 @@ def _looks_like_unstructured_clarification(
             "indicator_backtest_chart",
         }:
             return False
+    # Length-based skip: explainers and long analytical replies
+    # legitimately end with "If you want, I can also..." — a polite
+    # follow-up offer, NOT a clarification request. Only treat
+    # short messages (≤ 320 chars after stripping markdown) as
+    # potential clarification prose. This caught the L13 regression
+    # where M1 wrongly forced ASK_USER on 350-token explainers.
+    stripped = text.strip()
+    if len(stripped) > 320:
+        return False
+    # Markdown structure: if the message contains a `##` heading
+    # OR more than one bullet, it's a structured analytical reply,
+    # not a clarification.
+    if "## " in text or text.count("\n- ") >= 2:
+        return False
     tail = text.rstrip()
     # Strong signal: ends with "?".
     if tail.endswith("?"):
