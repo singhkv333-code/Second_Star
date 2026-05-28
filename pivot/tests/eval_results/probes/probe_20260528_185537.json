@@ -1,0 +1,615 @@
+[
+  {
+    "file": "/tmp/probe_L02_retest.json",
+    "data": {
+      "results": [
+        {
+          "name": "L02_06_cross_symbol_retest",
+          "conv_id": "probe_a09caf633a",
+          "turns": [
+            {
+              "prompt": "Buy 10 HDFCBANK when ICICIBANK drops 3% intraday",
+              "response": "Drafted \u2014 10 `HDFCBANK` buy on `ICICIBANK` 3% intraday drop. Click Activate when ready.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 12818.283792003058,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "1bd3f282-4d4b-46e9-9933-6d6c0cc92de0",
+                  "name": "HDFCBANK buy on ICICIBANK intraday drop",
+                  "description": "Entry: gap of ICICIBANK \u2264 -0.03",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": "<=",
+                          "left": {
+                            "type": "gap",
+                            "symbol": "ICICIBANK"
+                          },
+                          "right": {
+                            "type": "constant",
+                            "value": -0.03
+                          }
+                        },
+                        "symbol": "HDFCBANK",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "HDFCBANK",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "gap of ICICIBANK \u2264 -0.03",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2811,
+                    "output_tokens": 44,
+                    "latency_ms": 2096.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T18:54:53.941228Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "1bd3f282-4d4b-46e9-9933-6d6c0cc92de0",
+                "name": "HDFCBANK buy on ICICIBANK intraday drop",
+                "description": "Entry: gap of ICICIBANK \u2264 -0.03",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": "<=",
+                        "left": {
+                          "type": "gap",
+                          "symbol": "ICICIBANK"
+                        },
+                        "right": {
+                          "type": "constant",
+                          "value": -0.03
+                        }
+                      },
+                      "symbol": "HDFCBANK",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "HDFCBANK",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "gap of ICICIBANK \u2264 -0.03",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2811,
+                  "output_tokens": 44,
+                  "latency_ms": 2096.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T18:54:53.941228Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 6561,
+                "llm_hop_1_cached": 23424,
+                "tool_propose_dsl_workflow": 2118,
+                "llm_hop_2": 3976,
+                "total": 12806
+              },
+              "latency_ms_server": 12806
+            }
+          ]
+        },
+        {
+          "name": "L02_07_two_symbols_retest",
+          "conv_id": "probe_d8222c621d",
+          "turns": [
+            {
+              "prompt": "Buy RELIANCE 10 and TCS 5 when their RSI drops below 30",
+              "response": "Drafted \u2014 RELIANCE and TCS RSI dip-buys. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 14203.317458013771,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "RELIANCE and TCS RSI dip-buys",
+                  "description": "Buy RELIANCE 10 and TCS 5 when their RSI drops below 30.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.manual",
+                      "label": "entry",
+                      "config": {}
+                    },
+                    {
+                      "step_type": "fetch.indicator",
+                      "label": "RELIANCE RSI",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "indicator": "rsi",
+                        "period": 14
+                      }
+                    },
+                    {
+                      "step_type": "condition.numeric",
+                      "label": "RELIANCE RSI check",
+                      "config": {
+                        "left": "{{context.1.value}}",
+                        "operator": "<",
+                        "right": 30
+                      }
+                    },
+                    {
+                      "step_type": "fetch.indicator",
+                      "label": "TCS RSI",
+                      "config": {
+                        "symbol": "TCS",
+                        "indicator": "rsi",
+                        "period": 14
+                      }
+                    },
+                    {
+                      "step_type": "condition.numeric",
+                      "label": "TCS RSI check",
+                      "config": {
+                        "left": "{{context.3.value}}",
+                        "operator": "<",
+                        "right": 30
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy RELIANCE",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy TCS",
+                      "config": {
+                        "symbol": "TCS",
+                        "side": "buy",
+                        "quantity": 5,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "rationale": "This is a multi-symbol, multi-condition entry, so it needs a workflow draft rather than a single-order macro. Each symbol gets its own buy leg, both gated on RSI below 30.",
+                  "warnings": [],
+                  "valid_until": null,
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "RELIANCE and TCS RSI dip-buys",
+                "description": "Buy RELIANCE 10 and TCS 5 when their RSI drops below 30.",
+                "steps": [
+                  {
+                    "step_type": "trigger.manual",
+                    "label": "entry",
+                    "config": {}
+                  },
+                  {
+                    "step_type": "fetch.indicator",
+                    "label": "RELIANCE RSI",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "indicator": "rsi",
+                      "period": 14
+                    }
+                  },
+                  {
+                    "step_type": "condition.numeric",
+                    "label": "RELIANCE RSI check",
+                    "config": {
+                      "left": "{{context.1.value}}",
+                      "operator": "<",
+                      "right": 30
+                    }
+                  },
+                  {
+                    "step_type": "fetch.indicator",
+                    "label": "TCS RSI",
+                    "config": {
+                      "symbol": "TCS",
+                      "indicator": "rsi",
+                      "period": 14
+                    }
+                  },
+                  {
+                    "step_type": "condition.numeric",
+                    "label": "TCS RSI check",
+                    "config": {
+                      "left": "{{context.3.value}}",
+                      "operator": "<",
+                      "right": 30
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy RELIANCE",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy TCS",
+                    "config": {
+                      "symbol": "TCS",
+                      "side": "buy",
+                      "quantity": 5,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "rationale": "This is a multi-symbol, multi-condition entry, so it needs a workflow draft rather than a single-order macro. Each symbol gets its own buy leg, both gated on RSI below 30.",
+                "warnings": [],
+                "valid_until": null,
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4253,
+                "llm_hop_1_cached": 23936,
+                "tool_propose_workflow": 8,
+                "llm_hop_2": 4588,
+                "llm_hop_2_cached": 24576,
+                "llm_hop_3": 5261,
+                "llm_hop_3_cached": 25088,
+                "total": 14181
+              },
+              "latency_ms_server": 14181
+            }
+          ]
+        },
+        {
+          "name": "L02_09_trailing_sl_retest",
+          "conv_id": "probe_2ec3f220c4",
+          "turns": [
+            {
+              "prompt": "Set a 2% trailing stop loss on my INFY holding",
+              "response": "Drafted the stop-loss for `INFY`, but the card could not resolve a trailing reference from the holding itself. If you want, I can set a fixed 2% stop from your entry price instead.",
+              "tools": [
+                "create_sl_order"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 8314.528374990914,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4280,
+                "tool_create_sl_order": 0,
+                "llm_hop_2": 3959,
+                "llm_hop_2_cached": 20992,
+                "total": 8293
+              },
+              "latency_ms_server": 8293
+            }
+          ]
+        },
+        {
+          "name": "L02_13_relative_threshold_retest",
+          "conv_id": "probe_3cdaffebef",
+          "turns": [
+            {
+              "prompt": "Buy 5 INFY if it drops 5% from today's open",
+              "response": "Drafted: `INFY` buy 5 on a 5% drop from today\u2019s open. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 7804.321624978911,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "INFY 5% dip buy from open",
+                  "description": "Buy 5 INFY if it drops 5% from today's open.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.schedule",
+                      "label": "Check during market hours",
+                      "config": {
+                        "cron": "*/5 9-15 * * 1-5"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.quote",
+                      "label": "Get INFY quote",
+                      "config": {
+                        "symbol": "INFY"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.relative_threshold",
+                      "label": "5% below today's open",
+                      "config": {
+                        "symbol": "INFY",
+                        "reference": "day_open",
+                        "offset_pct": -5
+                      }
+                    },
+                    {
+                      "step_type": "condition.numeric",
+                      "label": "Compare to threshold",
+                      "config": {
+                        "left": "{{context.1.ltp}}",
+                        "operator": "<=",
+                        "right": "{{context.2.value}}"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 5,
+                        "order_type": "market"
+                      }
+                    }
+                  ],
+                  "rationale": "The workflow watches INFY during market hours, checks whether the live price is at least 5% below today's open, and then places the requested buy order.",
+                  "warnings": [],
+                  "valid_until": null,
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "INFY 5% dip buy from open",
+                "description": "Buy 5 INFY if it drops 5% from today's open.",
+                "steps": [
+                  {
+                    "step_type": "trigger.schedule",
+                    "label": "Check during market hours",
+                    "config": {
+                      "cron": "*/5 9-15 * * 1-5"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.quote",
+                    "label": "Get INFY quote",
+                    "config": {
+                      "symbol": "INFY"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.relative_threshold",
+                    "label": "5% below today's open",
+                    "config": {
+                      "symbol": "INFY",
+                      "reference": "day_open",
+                      "offset_pct": -5
+                    }
+                  },
+                  {
+                    "step_type": "condition.numeric",
+                    "label": "Compare to threshold",
+                    "config": {
+                      "left": "{{context.1.ltp}}",
+                      "operator": "<=",
+                      "right": "{{context.2.value}}"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 5,
+                      "order_type": "market"
+                    }
+                  }
+                ],
+                "rationale": "The workflow watches INFY during market hours, checks whether the live price is at least 5% below today's open, and then places the requested buy order.",
+                "warnings": [],
+                "valid_until": null,
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4270,
+                "llm_hop_1_cached": 23424,
+                "tool_propose_workflow": 0,
+                "llm_hop_2": 3482,
+                "llm_hop_2_cached": 23552,
+                "total": 7788
+              },
+              "latency_ms_server": 7788
+            }
+          ]
+        },
+        {
+          "name": "L02_06_variant_explicit_pct",
+          "conv_id": "probe_2495648605",
+          "turns": [
+            {
+              "prompt": "Buy 10 HDFCBANK when ICICIBANK falls 3 percent intraday",
+              "response": "Drafted: `HDFCBANK` buy 10 when `ICICIBANK` falls 3% intraday. Review the card and activate if it matches your intent.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 8893.022791977273,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "8b6d57e3-cda3-4593-ab10-1a9b158a76a8",
+                  "name": "Buy HDFCBANK when ICICIBANK falls 3% intraday",
+                  "description": "Entry: price of ICICIBANK < (0.97 \u00d7 open of ICICIBANK)",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": "<",
+                          "left": {
+                            "type": "price",
+                            "symbol": "ICICIBANK",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 0
+                          },
+                          "right": {
+                            "type": "math",
+                            "op": "*",
+                            "operands": [
+                              {
+                                "type": "constant",
+                                "value": 0.97
+                              },
+                              {
+                                "type": "price",
+                                "symbol": "ICICIBANK",
+                                "exchange": "NSE",
+                                "basis": "open",
+                                "offset": 0
+                              }
+                            ]
+                          }
+                        },
+                        "symbol": "HDFCBANK",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "HDFCBANK",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "price of ICICIBANK < (0.97 \u00d7 open of ICICIBANK)",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2803,
+                    "output_tokens": 91,
+                    "latency_ms": 2034.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T18:55:34.297144Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "8b6d57e3-cda3-4593-ab10-1a9b158a76a8",
+                "name": "Buy HDFCBANK when ICICIBANK falls 3% intraday",
+                "description": "Entry: price of ICICIBANK < (0.97 \u00d7 open of ICICIBANK)",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": "<",
+                        "left": {
+                          "type": "price",
+                          "symbol": "ICICIBANK",
+                          "exchange": "NSE",
+                          "basis": "close",
+                          "offset": 0
+                        },
+                        "right": {
+                          "type": "math",
+                          "op": "*",
+                          "operands": [
+                            {
+                              "type": "constant",
+                              "value": 0.97
+                            },
+                            {
+                              "type": "price",
+                              "symbol": "ICICIBANK",
+                              "exchange": "NSE",
+                              "basis": "open",
+                              "offset": 0
+                            }
+                          ]
+                        }
+                      },
+                      "symbol": "HDFCBANK",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "HDFCBANK",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "price of ICICIBANK < (0.97 \u00d7 open of ICICIBANK)",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2803,
+                  "output_tokens": 91,
+                  "latency_ms": 2034.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T18:55:34.297144Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3940,
+                "llm_hop_1_cached": 20480,
+                "tool_propose_dsl_workflow": 2061,
+                "llm_hop_2": 2843,
+                "llm_hop_2_cached": 20992,
+                "total": 8875
+              },
+              "latency_ms_server": 8875
+            }
+          ]
+        }
+      ],
+      "user_id": 126
+    }
+  }
+]

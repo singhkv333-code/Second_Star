@@ -88,6 +88,56 @@ def _distinct_tickers_in(*texts: str) -> list[str]:
     return seen
 
 
+_ACTION_VERB_RE = re.compile(
+    r"\b(buy|buys|buying|sell|sells|selling|short|exit)\b",
+    re.IGNORECASE,
+)
+# Tokens that interrupt a "buy A and B" sequence — once we hit one
+# of these in the post-verb scan, we stop collecting tickers.
+_ACTION_TERMINATORS_RE = re.compile(
+    r"\b(when|if|whenever|while|at\s+(?:\d|the\s+open|the\s+close|"
+    r"market\s+open|market\s+close|open|close)|on\s+(?:mon|tue|wed|"
+    r"thu|fri|sat|sun)|every|after|before|until|till)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_multi_action_tickers(condition: str) -> bool:
+    """True when the condition string contains 2+ distinct
+    action-ticker pairs (the user is asking for orders on multiple
+    symbols). False when only ONE action-ticker pair appears (a
+    legitimate cross-symbol trigger, fine for DSL).
+
+    Strategy: split on action verbs and within the action span
+    (verb → end of clause / trigger word), collect ticker-shaped
+    tokens. 2+ distinct in the action span = multi-action.
+
+    Examples:
+      "buy RELIANCE 10 and TCS 5 when RSI<30" → True  (2 actions)
+      "buy 10 HDFCBANK when ICICIBANK drops 3%" → False (1 action)
+      "sell my INFY and TCS at 3pm" → True (2 actions)
+    """
+    if not condition:
+        return False
+    msg = condition
+    distinct: set[str] = set()
+    for verb_match in _ACTION_VERB_RE.finditer(msg):
+        start = verb_match.end()
+        rest = msg[start: start + 200]
+        # Trim at the first trigger word — "when ICICIBANK drops"
+        # marks the end of the action span.
+        term = _ACTION_TERMINATORS_RE.search(rest)
+        action_span = rest[: term.start()] if term else rest
+        for m in _TICKER_TOKEN_RE.finditer(action_span):
+            tok = m.group(0).upper()
+            if tok in _DSL_NON_TICKER_TOKENS:
+                continue
+            distinct.add(tok)
+        if len(distinct) >= 2:
+            return True
+    return len(distinct) >= 2
+
+
 # ── backtest_dsl_tree ────────────────────────────────────────────────
 
 
@@ -391,24 +441,38 @@ async def propose_dsl_workflow(args: dict) -> dict:
         )
 
     # ── Multi-symbol guard ────────────────────────────────────────
-    # propose_dsl_workflow is SINGLE-SYMBOL by design: one entry trigger
+    # propose_dsl_workflow is SINGLE-ACTION-SYMBOL: one entry trigger
     # fires actions on the primary symbol, optionally with one exit
-    # branch on the same symbol. When the user's intent names multiple
-    # tickers ("buy RELIANCE, TCS and BAJFINANCE when they drop 2% from
-    # open"), the LLM occasionally picks this tool anyway and the
-    # translator silently uses ONLY the primary, dropping the others.
-    # Refuse here with a hint pointing at propose_workflow so the chat
-    # loop's retry / clarification surface presents the right path.
+    # branch on the same symbol.
+    #
+    # Two failure shapes to distinguish:
+    #
+    # (1) Multi-ACTION ticker — "buy RELIANCE, TCS and BAJFINANCE when
+    #     they drop 2% from open". The user expects orders on ALL named
+    #     symbols. The DSL would silently use only the primary, dropping
+    #     the others. → refuse and route to propose_workflow.
+    #
+    # (2) Cross-symbol TRIGGER — "buy 10 HDFCBANK when ICICIBANK drops
+    #     3% intraday". The user expects ONE action (HDFCBANK) gated by
+    #     a condition on a different symbol (ICICIBANK). The DSL's
+    #     PriceLeaf / IndicatorLeaf grammar accepts arbitrary symbols
+    #     on leaves, so this IS supported. Refusing here forces the LLM
+    #     into prose and disappoints the user.
+    #
+    # Heuristic: only fire the guard when MULTIPLE distinct tickers
+    # appear immediately AFTER an action verb (buy/sell). A single
+    # action ticker + condition tickers elsewhere is fine.
     tickers = _distinct_tickers_in(condition, exit_condition_text)
     extras = [t for t in tickers if t != primary]
-    if len(extras) >= 1:
+    if len(extras) >= 1 and _has_multi_action_tickers(condition):
         all_named = sorted(set([primary] + tickers))
         raise ValueError(
             f"propose_dsl_workflow is single-symbol but the condition "
-            f"names multiple tickers ({', '.join(all_named)}). The DSL "
-            f"can only build a workflow for ONE primary symbol — use "
-            f"propose_workflow instead with one branch per (symbol × "
-            f"action), or call this tool three times (once per ticker)."
+            f"names multiple tickers in the ACTION position "
+            f"({', '.join(all_named)}). The DSL can only build a "
+            f"workflow for ONE primary symbol — use propose_workflow "
+            f"instead with one branch per (symbol × action), or call "
+            f"this tool once per ticker."
         )
 
     try:

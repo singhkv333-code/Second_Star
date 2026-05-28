@@ -66,6 +66,35 @@ _SYMBOL_BLOCKLIST: frozenset[str] = frozenset({
     "RSI", "SMA", "EMA", "MACD", "ADX", "ATR", "BB", "VIX",
 })
 
+# Token regex used by the cross-symbol guard. 3-15 uppercase chars +
+# optional digits / dashes covers NSE ticker shapes (HDFCBANK, M&M
+# becomes M_M via tokenization, NIFTYBEES, etc.) without matching
+# common words like "AND", "OR". The 2-char minimum AND blocklist
+# filter together keep this conservative — we'd rather miss a real
+# multi-symbol intent than corrupt a single-symbol one. Module-level
+# constant so it compiles once.
+_TICKER_TOKEN_RE_SKELETON = re.compile(r"\b[A-Z][A-Z0-9_]{2,15}\b")
+
+
+def _distinct_ticker_tokens(message: str) -> set[str]:
+    """Return distinct ticker-shaped tokens in `message`, filtered
+    against the blocklist. Used to detect 2+-ticker prompts that the
+    single-symbol skeleton would silently collapse."""
+    found: set[str] = set()
+    for tok in _TICKER_TOKEN_RE_SKELETON.findall(message or ""):
+        if tok in _SYMBOL_BLOCKLIST:
+            continue
+        # Common all-caps non-tickers that show up in prompts.
+        if tok in {
+            "AND", "OR", "NOT", "BUY", "SELL", "BUYS", "SELLS", "SIP",
+            "GTT", "SL", "OCO", "EOD", "NSE", "BSE", "MCX", "INR",
+            "IST", "AM", "PM", "USD", "INR", "RS",
+        }:
+            continue
+        found.add(tok)
+    return found
+
+
 # Day-of-week → cron DOW digit
 _DOW_TO_CRON = {
     "monday": "1", "mon": "1",
@@ -831,6 +860,17 @@ def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
     if not message or not _BUILD_VERB_RE.search(message):
         return None
     if _COMPLEXITY_RE.search(message):
+        return None
+
+    # Cross-symbol guard: the skeleton's single-symbol parsers grab the
+    # FIRST ticker-shaped token they see, so a prompt naming two
+    # different tickers ("buy 10 HDFCBANK when ICICIBANK drops 3%
+    # intraday") silently collapses to a single-symbol workflow on
+    # HDFCBANK with "₹3" parsed as the price level — a wholly wrong
+    # draft the user can't see is wrong. Detect 2+ distinct
+    # ticker-shaped tokens (after filtering the blocklist) and bail.
+    distinct = _distinct_ticker_tokens(message)
+    if len(distinct) >= 2:
         return None
 
     looks_multi = bool(_LOOKS_MULTI_TRIGGER_RE.search(message))

@@ -1,0 +1,257 @@
+[
+  {
+    "file": "/tmp/probe_L02_retest.json",
+    "data": {
+      "results": [
+        {
+          "name": "L02_06_cross_symbol_retest",
+          "conv_id": "probe_6027892da3",
+          "turns": [
+            {
+              "prompt": "Buy 10 HDFCBANK when ICICIBANK drops 3% intraday",
+              "response": "I can set this up, but it needs one primary symbol since the action is on HDFCBANK while the trigger is ICICIBANK. I can do it as \u201cbuy 10 HDFCBANK when ICICIBANK drops 3% intraday\u201d if you want me to use HDFCBANK as the main leg.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 6097.001125017414,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3984,
+                "llm_hop_1_cached": 23424,
+                "tool_propose_dsl_workflow": 4,
+                "total": 6086
+              },
+              "latency_ms_server": 6086
+            }
+          ]
+        },
+        {
+          "name": "L02_07_two_symbols_retest",
+          "conv_id": "probe_f4b4994c45",
+          "turns": [
+            {
+              "prompt": "Buy RELIANCE 10 and TCS 5 when their RSI drops below 30",
+              "response": "I can set this up, but the RSI trigger needs to be split because it only works for one primary symbol at a time. I can run it as two separate orders: buy RELIANCE 10 when RELIANCE RSI drops below 30, and buy TCS 5 when TCS RSI drops below 30.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 10293.752333003795,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4220,
+                "llm_hop_1_cached": 23936,
+                "tool_propose_workflow": 17,
+                "llm_hop_2": 3703,
+                "llm_hop_2_cached": 24576,
+                "tool_propose_dsl_workflow": 0,
+                "total": 10279
+              },
+              "latency_ms_server": 10279
+            }
+          ]
+        },
+        {
+          "name": "L02_09_trailing_sl_retest",
+          "conv_id": "probe_051eb4351f",
+          "turns": [
+            {
+              "prompt": "Set a 2% trailing stop loss on my INFY holding",
+              "response": "Drafted the `INFY` stop-loss, but the card could not resolve the trailing stop from the holding context. Please open the draft and set the stop method there.",
+              "tools": [
+                "create_sl_order"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 8496.810041979188,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4477,
+                "llm_hop_1_cached": 20992,
+                "tool_create_sl_order": 0,
+                "llm_hop_2": 3975,
+                "llm_hop_2_cached": 20992,
+                "total": 8480
+              },
+              "latency_ms_server": 8480
+            }
+          ]
+        },
+        {
+          "name": "L02_13_relative_threshold_retest",
+          "conv_id": "probe_2ea9bd6d33",
+          "turns": [
+            {
+              "prompt": "Buy 5 INFY if it drops 5% from today's open",
+              "response": "Drafted: INFY buy 5 on a 5% drop from today\u2019s open. Click Activate.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 6990.00554200029,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "INFY 5% below open buy",
+                  "description": "Buy 5 INFY if it drops 5% from today's open.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.manual",
+                      "label": null,
+                      "config": {}
+                    },
+                    {
+                      "step_type": "fetch.relative_threshold",
+                      "label": null,
+                      "config": {
+                        "symbol": "INFY",
+                        "reference": "day_open",
+                        "offset_pct": -5
+                      }
+                    },
+                    {
+                      "step_type": "fetch.quote",
+                      "label": null,
+                      "config": {
+                        "symbol": "INFY"
+                      }
+                    },
+                    {
+                      "step_type": "condition.numeric",
+                      "label": null,
+                      "config": {
+                        "left": "{{context.2.ltp}}",
+                        "operator": "<=",
+                        "right": "{{context.1.value}}"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": null,
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 5,
+                        "order_type": "market"
+                      }
+                    },
+                    {
+                      "step_type": "notify.message",
+                      "label": null,
+                      "config": {
+                        "channel": "push"
+                      }
+                    }
+                  ],
+                  "rationale": "The workflow watches INFY against a runtime-relative level derived from today's open, then buys 5 shares when the live price reaches or falls below that threshold.",
+                  "warnings": [],
+                  "valid_until": null,
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "INFY 5% below open buy",
+                "description": "Buy 5 INFY if it drops 5% from today's open.",
+                "steps": [
+                  {
+                    "step_type": "trigger.manual",
+                    "label": null,
+                    "config": {}
+                  },
+                  {
+                    "step_type": "fetch.relative_threshold",
+                    "label": null,
+                    "config": {
+                      "symbol": "INFY",
+                      "reference": "day_open",
+                      "offset_pct": -5
+                    }
+                  },
+                  {
+                    "step_type": "fetch.quote",
+                    "label": null,
+                    "config": {
+                      "symbol": "INFY"
+                    }
+                  },
+                  {
+                    "step_type": "condition.numeric",
+                    "label": null,
+                    "config": {
+                      "left": "{{context.2.ltp}}",
+                      "operator": "<=",
+                      "right": "{{context.1.value}}"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": null,
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 5,
+                      "order_type": "market"
+                    }
+                  },
+                  {
+                    "step_type": "notify.message",
+                    "label": null,
+                    "config": {
+                      "channel": "push"
+                    }
+                  }
+                ],
+                "rationale": "The workflow watches INFY against a runtime-relative level derived from today's open, then buys 5 shares when the live price reaches or falls below that threshold.",
+                "warnings": [],
+                "valid_until": null,
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3971,
+                "llm_hop_1_cached": 23424,
+                "tool_propose_workflow": 3,
+                "llm_hop_2": 2972,
+                "llm_hop_2_cached": 23552,
+                "total": 6976
+              },
+              "latency_ms_server": 6976
+            }
+          ]
+        },
+        {
+          "name": "L02_06_variant_explicit_pct",
+          "conv_id": "probe_d08e25b52e",
+          "turns": [
+            {
+              "prompt": "Buy 10 HDFCBANK when ICICIBANK falls 3 percent intraday",
+              "response": "I can set this up using HDFCBANK as the main symbol and watch ICICIBANK for the 3% intraday drop trigger. If you want, I\u2019ll run it that way now.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 5398.577665997436,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3425,
+                "llm_hop_1_cached": 20480,
+                "tool_propose_dsl_workflow": 1,
+                "total": 5387
+              },
+              "latency_ms_server": 5387
+            }
+          ]
+        }
+      ],
+      "user_id": 125
+    }
+  }
+]
