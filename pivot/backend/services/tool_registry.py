@@ -112,6 +112,9 @@ _REAL_TOOLS: set[str] = {
     # local fundamentals DB doesn't carry the info. Not for real-time
     # news (we don't have that feed wired).
     "web_search_brief",
+    # L14 T4: pre/post-pivot regime comparison. Splits price history at
+    # a date and computes risk + return metrics for each window.
+    "regime_compare_metrics",
     # Meta tools — escape hatches for cases the regex router misses.
     "find_tool",
 }
@@ -510,6 +513,14 @@ def _ensure_v2_tools_registered() -> None:
         compose_multistep, compare_backtests, extract_winner_symbol,
     )
     from backend.agents.web_tools import web_search_brief
+    from backend.core.calculations.regime import regime_compare_metrics
+
+    async def _regime_compare_async(args: dict) -> dict:
+        return regime_compare_metrics(
+            symbol=args.get("symbol"),
+            pivot_date=args.get("pivot_date"),
+            period=args.get("period") or "5y",
+        )
 
     async def _extract_winner_sync(args: dict) -> dict:
         # extract_winner_symbol is sync but the dispatcher expects an
@@ -528,6 +539,7 @@ def _ensure_v2_tools_registered() -> None:
         "compare_backtests": compare_backtests,
         "extract_winner_symbol": _extract_winner_sync,
         "web_search_brief": web_search_brief,
+        "regime_compare_metrics": _regime_compare_async,
         # find_tool's schema is registered in agents/tools.py; the
         # handler lives here next to the search index.
         "find_tool": _find_tool_handler,

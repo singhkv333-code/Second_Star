@@ -73,6 +73,20 @@ def _r(pattern: str, *tools: str) -> _Rule:
 
 
 _RULES: list[_Rule] = [
+    # ── L14 T4: pre/post-pivot regime comparison ────────────────────
+    _r(
+        r"\b(?:before\s+and\s+after|pre[\s-](?:and[\s-])?post|"
+        r"pre[\s-]?\d{4}|post[\s-]?\d{4}|"
+        r"before\s+(?:covid|2020|2021|2022|2023|2024|2025)|"
+        r"after\s+(?:covid|2020|2021|2022|2023|2024|2025)|"
+        r"pre[\s-]?covid|post[\s-]?covid|"
+        r"in\s+(?:both\s+)?regimes?|regime\s+shift|"
+        r"\bsince\s+(?:january|february|march|april|may|june|july|"
+        r"august|september|october|november|december)\s+\d{4})\b",
+        "regime_compare_metrics",
+        "compose_multistep",
+    ),
+
     # ── L14 T2: entity-grounding web search ─────────────────────────
     # Surface `web_search_brief` when the prompt asks about an
     # institution / concept / financial-instrument category that the

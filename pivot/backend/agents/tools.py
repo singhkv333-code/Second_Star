@@ -1842,6 +1842,40 @@ tool(
 
 
 tool(
+    "regime_compare_metrics",
+    "Pre/post-PIVOT-DATE regime comparison. Splits a symbol's price "
+    "history at the named date and returns risk + return metrics for "
+    "each window separately, plus a delta block + a one-line "
+    "interpretation. Use when the user asks 'compare X before and "
+    "after <date>' / 'how did X behave pre- vs post-2022' / "
+    "'X before Covid vs after'. The pivot is the LAST DAY of the "
+    "before-window (inclusive); the after-window starts the next "
+    "bar.\n\n"
+    "Useful for the regime-aware step of a compose_multistep plan: "
+    "split → identify which regime fits the user's intent → build "
+    "strategy on top.\n\n"
+    "Period: use '5y' or 'max' for far-back pivots; the data layer "
+    "may downsample longer windows to weekly / monthly bars — the "
+    "metrics still work but with coarser resolution.",
+    {
+        "symbol": {"type": "string"},
+        "pivot_date": {
+            "type": "string",
+            "description":
+                "ISO YYYY-MM-DD or a 4-digit year (e.g. '2022' → "
+                "2022-01-01) marking the LAST DAY of the before-window."
+        },
+        "period": {
+            "type": "string",
+            "enum": ["1y", "2y", "5y", "max"],
+            "default": "5y",
+        },
+    },
+    ["symbol", "pivot_date"],
+)
+
+
+tool(
     "web_search_brief",
     "ENTITY-GROUNDING web lookup. Returns 1-3 short snippets (title + "
     "1-2 lines + URL) from DuckDuckGo Instant Answer with a Wikipedia "
