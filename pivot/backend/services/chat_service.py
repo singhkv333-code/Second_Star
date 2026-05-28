@@ -432,6 +432,55 @@ def _is_underspecified_agent_build(message: str) -> bool:
     return not (has_action or has_trigger or has_numeric)
 
 
+# R4c: ban level-invention. When the user names a price level by ROLE
+# (resistance, support, pivot, breakout, Fibonacci, etc.) but does NOT
+# supply a numeric value or a computable definition, the LLM otherwise
+# guesses from training memory — screenshot 6: "above resistance" →
+# 1,643. Detect the bare-level shape and force underspec so the
+# downstream pipeline strips macros and asks one focused question.
+_LEVEL_ROLE_RE = re.compile(
+    r"\b(?:"
+    r"resistance|support|pivot|pivot\s+point|"
+    r"breakout|breakdown|break(?:s|ing)?\s+out|break(?:s|ing)?\s+down|"
+    r"key\s+level|swing\s+(?:high|low)|"
+    r"fib(?:onacci)?(?:\s+(?:level|retracement))?|"
+    r"trend\s*line|trendline|"
+    r"bollinger\s+(?:upper|lower)|donchian\s+(?:upper|lower)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# A numeric anchor anywhere in the message — rupee number, percentage,
+# rolling-window reference, or any decimal/integer that could be the
+# level the user named. When present, the level role is grounded.
+_LEVEL_ANCHOR_RE = re.compile(
+    r"(?:"
+    r"\b\d+\s*(?:-?\s*day|d|sessions?)\s+(?:high|low|rolling)\b|"
+    r"₹\s*[\d,]+|"
+    r"\b(?:rs\.?|inr)\s*[\d,]+\b|"
+    r"\b\d+(?:\.\d+)?\s*%\b|"
+    r"\b\d+\.\d+\b|"   # decimal value like 61.8 (Fibonacci anchor)
+    r"\b\d{3,}\b"      # ≥3-digit raw number → likely a price like 1640
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_ungrounded_level_prompt(message: str) -> bool:
+    """True when the user names a price level by ROLE without supplying
+    a numeric value or computable definition. The chat layer treats
+    this like underspec and asks one focused question instead of
+    letting the LLM invent a number from training memory."""
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    if not _LEVEL_ROLE_RE.search(msg):
+        return False
+    if _LEVEL_ANCHOR_RE.search(msg):
+        return False
+    return True
+
+
 # Filler-reply detector. WHY this exists: when the bot just asked a
 # clarification ("What should the agent do — buy on a schedule, RSI
 # trigger, alert?") and the user replies with "hmm" / "ok" / "you
@@ -2253,7 +2302,10 @@ class ChatService:
         # fabricated defaults, citing "I have a symbol from history"
         # — overriding the system-prompt rule that says ASK first.
         # Removing macros structurally is the only reliable enforcement.
-        is_underspec_agent = is_agent_intent and _is_underspecified_agent_build(message)
+        is_underspec_agent = is_agent_intent and (
+            _is_underspecified_agent_build(message)
+            or _is_ungrounded_level_prompt(message)
+        )
         # Filler reply after our own clarification question is the same
         # class of underspec: user gave us nothing new, we shouldn't
         # fabricate a default. Treat it identically to "build an agent
@@ -2537,6 +2589,32 @@ class ChatService:
                     "trigger?'\n"
                     "Pick the simplest option as a suggestion the "
                     "user can confirm or change."
+                ),
+            ))
+        # R4c: level-role prompt with no numeric anchor — never invent.
+        if _is_ungrounded_level_prompt(message):
+            base_messages.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Price-level role named without a number — "
+                    "do NOT invent a value\n"
+                    "The user named a price level by ROLE (resistance, "
+                    "support, pivot, breakout, swing high/low, "
+                    "Fibonacci, trendline) but supplied no numeric "
+                    "value and no computable definition. NEVER guess "
+                    "the level from training memory — those numbers "
+                    "are stale and wrong.\n\n"
+                    "Call `ASK_USER` with ONE focused question that "
+                    "offers the user a concrete choice between:\n"
+                    "  (a) a specific level the user names (e.g. "
+                    "₹1,640),\n"
+                    "  (b) a rolling N-day high/low (e.g. 'the 20-day "
+                    "rolling high', backed by `fetch.rolling_high`),\n"
+                    "  (c) a Donchian / Bollinger band component.\n"
+                    "Phrase the question with a sensible default the "
+                    "user can accept — e.g. 'Want me to use the 20-day "
+                    "rolling high as the resistance level, or do you "
+                    "have a specific ₹ value in mind?'"
                 ),
             ))
 
@@ -3284,7 +3362,10 @@ class ChatService:
         # propose_workflow can't fabricate defaults from history.
         # Plus filler-reply-after-question, F&O detection, and
         # buy/sell contradiction (same class — strip + force ASK).
-        is_underspec_agent = is_agent_intent and _is_underspecified_agent_build(message)
+        is_underspec_agent = is_agent_intent and (
+            _is_underspecified_agent_build(message)
+            or _is_ungrounded_level_prompt(message)
+        )
         is_filler_after_q = (
             _is_filler_reply(message) and _prev_assistant_was_question(history)
         )
