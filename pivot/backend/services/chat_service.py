@@ -2160,17 +2160,33 @@ class ChatService:
         _affirm_no_state = False
         if _is_pure_affirmative(message):
             resolution = self.store.get_pending_resolution(conv_id)
-            if resolution is not None and resolution.default_on_yes:
+            # When ASK_USER carried options but the model forgot to
+            # set default_on_yes, treat the first option as the
+            # implicit default. This is the convention "the option
+            # I named first is the most likely pick." Without this,
+            # "yes proceed" after "Did you mean MAHINDRA or M&MFIN?"
+            # fell through to a re-ask loop.
+            resolved_value = None
+            if resolution is not None:
+                if resolution.default_on_yes:
+                    resolved_value = resolution.default_on_yes
+                elif resolution.options:
+                    resolved_value = resolution.options[0]
+            if resolved_value:
                 trace.event(
                     "pending_resolution.resolved",
-                    default_on_yes=resolution.default_on_yes,
+                    resolved=resolved_value,
+                    source=(
+                        "default_on_yes"
+                        if resolution.default_on_yes else "options[0]"
+                    ),
                 )
                 self.store.clear_pending_resolution(conv_id)
-                # Substitute the message with the resolved default so
+                # Substitute the message with the resolved value so
                 # downstream routing treats this as the user typing
                 # the option. Original "yes" still appears in stored
                 # history (appended at turn end).
-                message = resolution.default_on_yes
+                message = resolved_value
             else:
                 affirm_active_draft = self.store.get_active_draft(conv_id)
                 if affirm_active_draft is not None:
@@ -3408,13 +3424,23 @@ class ChatService:
         _affirm_no_state = False
         if _is_pure_affirmative(message):
             resolution = self.store.get_pending_resolution(conv_id)
-            if resolution is not None and resolution.default_on_yes:
+            resolved_value = None
+            if resolution is not None:
+                if resolution.default_on_yes:
+                    resolved_value = resolution.default_on_yes
+                elif resolution.options:
+                    resolved_value = resolution.options[0]
+            if resolved_value:
                 trace.event(
                     "pending_resolution.resolved",
-                    default_on_yes=resolution.default_on_yes,
+                    resolved=resolved_value,
+                    source=(
+                        "default_on_yes"
+                        if resolution.default_on_yes else "options[0]"
+                    ),
                 )
                 self.store.clear_pending_resolution(conv_id)
-                message = resolution.default_on_yes
+                message = resolved_value
             else:
                 existing = self.store.get_active_draft(conv_id)
                 if existing is not None:
