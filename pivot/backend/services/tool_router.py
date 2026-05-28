@@ -116,17 +116,29 @@ _RULES: list[_Rule] = [
     #   "compare A, B → tell me which won → build agent on the winner"
     #   "backtest X vs Y → set up the better one"
     #   "research X → design a strategy → backtest → create agent"
-    # Conservative: requires at least one "then" / "," / "and" between
-    # an analysis verb (compare/research/backtest/show) and an action
-    # verb (build/create/set up/make/turn into).
+    # Conservative: requires either (a) analysis verb + connector +
+    # action verb, OR (b) "X vs Y" + ranking ask, OR (c) explicit
+    # "full plan" / "do all four" phrasing.
     _r(
         r"\b(compare|backtest|research|show\s+me|analyze|analyse|compute|"
-        r"rank|score|compute)\b[^.]{0,140}?"
-        r"(?:,|then|and\s+(?:then\s+)?|\s—\s|;)\s*"
-        r"(?:tell\s+me\s+(?:which|the\s+winner)|build|create|set\s+up|"
+        r"rank|score|compute)\b[^.]{0,180}?"
+        r"(?:,|then|and\s+(?:then\s+)?|\s—\s|;|\.\s+(?:then|now|"
+        r"show|tell|then\s+))\s*"
+        r"(?:tell\s+me\s+(?:which|the\s+winner)|"
+        r"show\s+me\s+(?:which|the\s+winner)|"
+        r"build|create|set\s+up|"
         r"setup|make|turn\s+(?:it|that|the\s+winning)|design\s+a\s+"
         r"strategy|pick|identify)\b"
+        # (b) "X vs Y" + ranking verb (compare-and-pick shape).
+        # Use [\s\S] so the regex spans periods between sentences.
+        r"|\b\w+\s+(?:vs|versus)\s+\w+\b[\s\S]{0,200}?"
+        r"(?:tell\s+me\s+(?:which|the\s+winner|which\s+strategy\s+won|"
+        r"which\s+won|by\s+how\s+much)|"
+        r"show\s+me\s+(?:which|the\s+winner|the\s+better|which\s+strategy)|"
+        r"identify|pick|compare\s+(?:to|with))\b"
+        # (c) catch-all "full plan" phrasings.
         r"|\b(?:do\s+all\s+(?:four|three|five)|full\s+plan)\b"
+        # (d) reverse order — "tell me which / show me which" → "build"
         r"|\b(?:tell\s+me\s+which|which\s+(?:one\s+won|had\s+the)|"
         r"the\s+winner)\b.*?\b(?:build|create|set\s+up|design|make)\b",
         "compose_multistep",
