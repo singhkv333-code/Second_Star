@@ -107,6 +107,11 @@ _REAL_TOOLS: set[str] = {
     "compose_multistep",
     "compare_backtests",
     "extract_winner_symbol",
+    # L14 T2: entity-grounding web lookup (DDG IA → Wikipedia fallback).
+    # Use for "what is X" / "explain X" entity definitions where the
+    # local fundamentals DB doesn't carry the info. Not for real-time
+    # news (we don't have that feed wired).
+    "web_search_brief",
     # Meta tools — escape hatches for cases the regex router misses.
     "find_tool",
 }
@@ -504,6 +509,7 @@ def _ensure_v2_tools_registered() -> None:
     from backend.services._orchestrator_chat_tools import (
         compose_multistep, compare_backtests, extract_winner_symbol,
     )
+    from backend.agents.web_tools import web_search_brief
 
     async def _extract_winner_sync(args: dict) -> dict:
         # extract_winner_symbol is sync but the dispatcher expects an
@@ -521,6 +527,7 @@ def _ensure_v2_tools_registered() -> None:
         "compose_multistep": compose_multistep,
         "compare_backtests": compare_backtests,
         "extract_winner_symbol": _extract_winner_sync,
+        "web_search_brief": web_search_brief,
         # find_tool's schema is registered in agents/tools.py; the
         # handler lives here next to the search index.
         "find_tool": _find_tool_handler,

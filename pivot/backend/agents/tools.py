@@ -1841,6 +1841,44 @@ tool(
 )
 
 
+tool(
+    "web_search_brief",
+    "ENTITY-GROUNDING web lookup. Returns 1-3 short snippets (title + "
+    "1-2 lines + URL) from DuckDuckGo Instant Answer with a Wikipedia "
+    "fallback. Use when the user asks about an INSTITUTION / CONCEPT / "
+    "INSTRUMENT that Pivot's local data doesn't cover — e.g. \"what is "
+    "the Reserve Bank of India\", \"explain GIFT Nifty\", \"what's an "
+    "arbitrage fund\", \"how does a capital-guaranteed note work\".\n\n"
+    "DO NOT call for live prices (use get_live_price), current "
+    "indicators (use get_indicator), portfolio data (use "
+    "get_portfolio_summary), or fundamentals on Indian listed equity "
+    "(use fetch.fundamental / propose_workflow). DO NOT call for "
+    "REAL-TIME NEWS — Pivot does not have a live news feed wired "
+    "through this tool. If a user asks for recent earnings / today's "
+    "macro print, say so plainly.\n\n"
+    "Cite the source: include the URL in your reply text so the user "
+    "can verify. Keep the summary tight (1-3 sentences) — this is "
+    "context for the chat layer, not a research dump.",
+    {
+        "query": {
+            "type": "string",
+            "description":
+                "Short entity name or concept. Examples: "
+                "'Reserve Bank of India repo rate', 'NIFTY 50 index', "
+                "'arbitrage fund India', 'gold ETF India'. Avoid "
+                "questions ('what is X') — phrase as a topic.",
+        },
+        "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 2,
+        },
+    },
+    ["query"],
+)
+
+
 def get_tools_for_subset(subset_name: str) -> list:
     """Returns tool definition list for a given subset name."""
     names = TOOL_SUBSETS.get(subset_name, [])

@@ -1,0 +1,148 @@
+[
+  {
+    "file": "/tmp/probe_T2_web.json",
+    "data": {
+      "results": [
+        {
+          "name": "T2_01_what_is_arb_fund",
+          "conv_id": "probe_9815e0cda6",
+          "turns": [
+            {
+              "prompt": "What is an arbitrage fund and how does it work?",
+              "response": "## Arbitrage fund\n\nAn arbitrage fund is a mutual fund that tries to earn small, relatively low-risk returns by exploiting **temporary price differences** between the same stock in two markets or in two related transactions. In practice, most Indian arbitrage funds mainly use the **cash market and futures market** for the same stock.\n\n## How it works\n\nA simple example:\n\n- Buy a stock in the cash market.\n- At the same time, sell the same stock in the futures market.\n- Lock in the price difference between the two legs.\n\nIf the futures price is higher than the cash price, the fund can capture that spread, minus costs. Because both legs are placed together, the fund is not really betting on the stock\u2019s direction.\n\n## Why investors use them\n\nArbitrage funds are popular with investors who want:\n\n- Better tax treatment than many short-term debt-like alternatives, subject to current tax rules\n- Lower volatility than pure equity funds\n- A parking option for money over short to medium periods\n\nThey are usually considered **equity-oriented** for tax purposes because they maintain enough hedged equity exposure, though the exact treatment depends on holding period and current regulations.\n\n## Risks and limitations\n\nArbitrage funds are not risk-free. Key risks include:\n\n- **Thin spreads**: returns can be modest when arbitrage opportunities are scarce\n- **Cost impact**: brokerage, futures costs, and fund expenses reduce the spread\n- **Liquidity / execution risk**: spreads can move quickly\n- **Market stress**: during volatility, pricing and roll costs can behave differently\n\n## When they tend to work best\n\nThey often do better when:\n\n- Equity markets are volatile\n- Short-term futures discounts/premiums are meaningful\n- You want a relatively conservative place for surplus cash\n\nIf you want, I can also compare arbitrage funds with liquid funds or short-term debt funds.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 5584.400291991187,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 5465,
+                "total": 5574
+              },
+              "latency_ms_server": 5574
+            }
+          ]
+        },
+        {
+          "name": "T2_02_explain_capguar",
+          "conv_id": "probe_0614f5fcea",
+          "turns": [
+            {
+              "prompt": "Explain what a capital-guaranteed note is.",
+              "response": "## Capital-guaranteed note\n\nA **capital-guaranteed note** is a structured product designed to return your **original principal at maturity**, subject to the issuer\u2019s ability to pay. In simple terms, it tries to combine **downside protection** on the invested amount with some participation in a market-linked payoff.\n\nTypically, the note is built from two parts:\n\n- **Protection leg:** most of the money is placed into a low-risk instrument, often a bond, so that it can grow enough to repay the principal later.\n- **Growth leg:** the remaining portion is used to buy exposure to an underlying asset, such as an index, stock, commodity, or basket.\n\nAt maturity, the investor usually gets:\n- the **principal back**, and\n- an additional payoff if the underlying performed well enough, depending on the note\u2019s formula.\n\n## Important caveats\n\n- **\u201cGuaranteed\u201d usually means principal protection only at maturity**, not before maturity. If you sell early, the price can be below what you invested.\n- The guarantee is only as good as the **issuer\u2019s credit quality**. If the issuer fails, the protection may not hold in practice.\n- There can be **caps**, **participation limits**, **fees**, and **complex payoff conditions** that reduce returns.\n- Liquidity is often limited, so exit terms matter a lot.\n\n## When it is used\n\nThese notes are usually aimed at investors who want:\n- some exposure to upside,\n- limited downside on the principal,\n- and are willing to hold until maturity.\n\nThey are not the same as a bank deposit, and they are not risk-free. The protection is structural, not absolute.\n\nIf you want, I can also explain how a capital-guaranteed note differs from a fixed deposit or a zero-coupon bond.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 5303.444124991074,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 5264,
+                "llm_hop_1_cached": 26624,
+                "total": 5289
+              },
+              "latency_ms_server": 5289
+            }
+          ]
+        },
+        {
+          "name": "T2_03_rbi_repo_meaning",
+          "conv_id": "probe_18052d8831",
+          "turns": [
+            {
+              "prompt": "What is the RBI repo rate and how does it affect bond yields?",
+              "response": "## RBI repo rate\n\nThe **repo rate** is the rate at which the Reserve Bank of India lends short-term money to banks against government securities. It is the RBI\u2019s main policy rate, so changes in it signal the direction of monetary policy.\n\n## How it affects bond yields\n\nBond yields usually move in the same direction as market interest rates:\n\n- **If the RBI raises the repo rate**, borrowing costs rise, new bonds tend to offer higher yields, and existing bond prices usually fall.\n- **If the RBI cuts the repo rate**, borrowing costs fall, new bonds tend to offer lower yields, and existing bond prices usually rise.\n\nThis happens because a bond\u2019s fixed coupon becomes more or less attractive relative to the new interest-rate environment. When fresh bonds are issued at higher rates, older lower-coupon bonds need to trade at a discount to remain competitive, which pushes their yield up.\n\n## Practical takeaway\n\n- **Short-term bonds** react more directly to repo-rate changes.\n- **Long-duration bonds** are usually more sensitive, so their prices and yields can move more sharply.\n- The impact is not always immediate; markets often price in expected RBI action before the actual announcement.\n\nIf you want, I can also explain the link between repo rate, G-Sec yields, and bond fund NAVs.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 6213.597249996383,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 6173,
+                "total": 6196
+              },
+              "latency_ms_server": 6196
+            }
+          ]
+        },
+        {
+          "name": "T2_04_gift_nifty",
+          "conv_id": "probe_27c194b371",
+          "turns": [
+            {
+              "prompt": "Tell me about GIFT Nifty.",
+              "response": "## GIFT Nifty\n\nGIFT Nifty is the offshore-to-onshore continuation of India\u2019s Nifty derivatives trading, now hosted at NSE International Exchange in GIFT City, Gujarat. It is a **USD-denominated futures contract** linked to the Nifty 50, and it was set up after the earlier SGX Nifty activity migrated to India.\n\n## Why it matters\n\n- It gives a near-real-time signal of global and overnight sentiment toward Indian equities.\n- Traders often watch it before the Indian market opens to gauge whether Nifty is likely to gap up or gap down.\n- Because it trades in a different session and in USD terms, it is useful for international participation and price discovery.\n\n## Important nuance\n\nGIFT Nifty is **not the Nifty 50 index itself**. It is a derivative contract referencing Nifty 50, so it can move differently from the cash index due to currency effects, global flows, and futures pricing.\n\n## Practical takeaway\n\nIf you see headlines about GIFT Nifty being up or down, treat it as a **market sentiment indicator**, not a direct forecast. It is a useful input, but the Indian cash market can still open and trade differently.\n\nSource: Wikipedia \u2014 https://en.wikipedia.org/wiki/GIFT_Nifty",
+              "tools": [
+                "web_search_brief"
+              ],
+              "render_hint": null,
+              "wall_ms": 10211.433165997732,
+              "raw_data": {
+                "web_search_brief": {
+                  "query": "GIFT Nifty India",
+                  "results": [
+                    {
+                      "title": "GIFT Nifty",
+                      "snippet": "GIFT Nifty is a USD\u2011denominated stock index futures contract traded on the NSE International Exchange within GIFT City, Gujarat, India. It was launched on 3 July 2023 following the migration of the Singapore Exchange's Nifty derivatives to India under a connectivity arrangement between Singapore Exchange (SGX) and the National Stock Exchange of India (NSE).",
+                      "url": "https://en.wikipedia.org/wiki/GIFT_Nifty",
+                      "source": "wikipedia"
+                    },
+                    {
+                      "title": "NIFTY 50",
+                      "snippet": "The NIFTY 50 is an Indian stock market index that represents the float-weighted average of 50 of the largest Indian companies listed on the National Stock Exchange (NSE). Nifty 50 is owned and managed by NSE Indices, which is a wholly owned subsidiary of the NSE. The Nifty 50 index was launched on 22 April 1996 with a base date of 3 November 1995 and with 1,000 as its base value.",
+                      "url": "https://en.wikipedia.org/wiki/NIFTY_50",
+                      "source": "wikipedia"
+                    }
+                  ],
+                  "cached": false
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4090,
+                "tool_web_search_brief": 1632,
+                "llm_hop_2": 4436,
+                "llm_hop_2_cached": 25088,
+                "total": 10196
+              },
+              "latency_ms_server": 10196
+            }
+          ]
+        },
+        {
+          "name": "T2_05_what_is_niftybees",
+          "conv_id": "probe_c149c64c6a",
+          "turns": [
+            {
+              "prompt": "What is NIFTYBEES?",
+              "response": "## What NIFTYBEES is\n\n`NIFTYBEES` is an exchange-traded fund in India that aims to track the `Nifty 50` index. In simple terms, it gives you a single tradable security that moves roughly with the 50 largest listed Indian companies.\n\nIt is often used as a low-cost way to get broad market exposure without picking individual stocks. Because it trades on the exchange like a stock, you can buy and sell it during market hours, and it is commonly used for SIP-style investing or as a core equity allocation.\n\n## Key points\n\n- **Underlying**: Nifty 50 index\n- **Structure**: ETF, not a mutual fund\n- **Use case**: Broad Indian equity exposure\n- **Typical appeal**: Diversification, simplicity, relatively low cost\n\nIf you want, I can also explain how `NIFTYBEES` differs from a Nifty index fund or how it fits into a portfolio.",
+              "tools": [
+                "web_search_brief"
+              ],
+              "render_hint": null,
+              "wall_ms": 7734.808167006122,
+              "raw_data": {
+                "web_search_brief": {
+                  "query": "NIFTYBEES India ETF",
+                  "results": [
+                    {
+                      "title": "List of Indian exchange-traded funds",
+                      "snippet": "(NSE: LIQUIDBEES) (Formerly called Reliance ETF Liquid BeES) Nippon India ETF Nifty 50 BeES (NSE: NIFTYBEES) Nippon India ETF Gold BeES (NSE: GOLDBEES) (Formerly",
+                      "url": "https://en.wikipedia.org/wiki/List_of_Indian_exchange-traded_funds",
+                      "source": "wikipedia"
+                    }
+                  ],
+                  "cached": false
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2985,
+                "tool_web_search_brief": 888,
+                "llm_hop_2": 3804,
+                "llm_hop_2_cached": 24576,
+                "total": 7717
+              },
+              "latency_ms_server": 7717
+            }
+          ]
+        }
+      ],
+      "user_id": 161
+    }
+  }
+]

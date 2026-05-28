@@ -73,6 +73,28 @@ def _r(pattern: str, *tools: str) -> _Rule:
 
 
 _RULES: list[_Rule] = [
+    # ── L14 T2: entity-grounding web search ─────────────────────────
+    # Surface `web_search_brief` when the prompt asks about an
+    # institution / concept / financial-instrument category that the
+    # local data doesn't cover. Conservative: requires a definitional
+    # phrase (what is, explain, define, tell me about) OR an entity
+    # the LLM is likely to be uncertain about (RBI, repo rate,
+    # arbitrage fund, capital-guaranteed note, gold ETF, etc.).
+    _r(
+        r"\b(?:what\s+is|what\s+are|explain|define|tell\s+me\s+about|"
+        r"how\s+does\s+(?:a|an|the))\s+"
+        r"(?:rbi|reserve\s+bank|repo\s+rate|"
+        r"arbitrage\s+fund|capital[\s-]?guaranteed|"
+        r"gold\s+etf|liquid\s+fund|debt\s+fund|"
+        r"covered\s+call|protective\s+put|"
+        r"sip|nifty|banknifty|sensex|"
+        r"smallcap|midcap|largecap|"
+        r"gift\s+nifty|niftybees|goldbees|liquidbees)"
+        r"|\b(?:what\s+does|tell\s+me\s+about)\s+\w+\s+"
+        r"(?:mean|stand\s+for)\b",
+        "web_search_brief",
+    ),
+
     # ── L14 multi-step orchestrator ────────────────────────────────
     # Surface `compose_multistep` (and its helpers) when the prompt
     # carries TWO+ sequential verbs whose later step depends on the
