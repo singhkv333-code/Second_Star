@@ -205,6 +205,17 @@ def _validate_args_against_schema(
         "object": dict,
     }
     for field, value in args.items():
+        # OpenAI's function-calling layer sometimes emits explicit
+        # `null` for optional fields the model decided not to use
+        # (observed on propose_dsl_workflow.exit_condition). For a
+        # field that is NOT in `required`, treat null as "field
+        # omitted" — the handler reads args.get(field) which would
+        # have returned None anyway. Without this, a perfectly valid
+        # tool call gets rejected for emitting null on an optional
+        # string, which then bounces back to the LLM as a prose
+        # error and produces an over-confirmation reply.
+        if value is None and field not in required:
+            continue
         prop = props.get(field) or {}
         declared = prop.get("type")
         if declared in type_map:

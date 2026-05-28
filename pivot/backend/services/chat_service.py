@@ -772,8 +772,22 @@ def _is_post_order_clarification(message: str, history: list[dict]) -> bool:
     current message), putting propose_workflow back in scope. The LLM then
     upgraded a one-time buy to a recurring workflow. This helper detects that
     pattern and returns True → caller forces 'automation' intent.
+
+    Guard: if the FIRST user message classifies as 'agent' (e.g. "build
+    an agent — buy X if Y"), this override must NOT fire. Otherwise the
+    clarification answer gets routed to automation tools (place_market_
+    order) and the macro draft path is unreachable — observed on the
+    "use 20-day rolling high" follow-up to "build an agent" prompts.
     """
     if not history or len(history) < 2:
+        return False
+    # If the original (first) user message was already agent intent,
+    # the clarification answer continues the agent flow — don't override.
+    first_user_msg = next(
+        (m.get("content") or "" for m in history if m.get("role") == "user"),
+        "",
+    )
+    if first_user_msg and _classify_intent(first_user_msg) == "agent":
         return False
     # Last two messages: penultimate user, last assistant
     last_assistant = next(
@@ -2572,14 +2586,29 @@ class ChatService:
                     + workflow_hint +
                     " Merge the reply into the original request and call "
                     "the matching tool (propose_workflow / "
-                    "place_market_order / etc.) IMMEDIATELY with the "
-                    "complete arguments. Do NOT restart from scratch. "
-                    "Do NOT ask another question. Do NOT paraphrase back "
-                    "as 'Confirm: …'. Do NOT ignore the original request. "
-                    "If the merged request still has missing required "
-                    "fields, fill them with sensible defaults (qty=1, "
-                    "exchange=NSE, order_type=market) rather than asking "
-                    "a second round."
+                    "propose_dsl_workflow / place_market_order / etc.) "
+                    "IMMEDIATELY with the complete arguments.\n\n"
+                    "CRITICAL — when the original request referenced a "
+                    "placeholder (resistance / support / pivot / 'a level' "
+                    "/ 'a threshold') AND the user's reply names what to "
+                    "use, the tool's `condition` / `threshold` arg MUST "
+                    "be the ORIGINAL phrasing with the placeholder "
+                    "SUBSTITUTED by the reply value. Example: original "
+                    "'buy HDFCBANK if it closes above resistance' + reply "
+                    "'use 20-day rolling high' → "
+                    "condition='close above the 20-day rolling high' "
+                    "(NOT condition='stock closes above resistance' — "
+                    "the abstract placeholder must be replaced).\n\n"
+                    "For OPTIONAL tool fields the user did not mention "
+                    "(exit_condition, sl_pct, valid_until, limit_price), "
+                    "OMIT them entirely — do NOT pass null, 'none', "
+                    "'n/a', or an empty string.\n\n"
+                    "Do NOT restart from scratch. Do NOT ask another "
+                    "question. Do NOT paraphrase back as 'Confirm: …'. "
+                    "Do NOT ignore the original request. If the merged "
+                    "request still has missing required fields, fill them "
+                    "with sensible defaults (qty=1, exchange=NSE, "
+                    "order_type=market) rather than asking a second round."
                 ),
             )
         elif active is not None and workflow_hint:

@@ -371,6 +371,14 @@ async def propose_dsl_workflow(args: dict) -> dict:
     label = (args.get("name") or "").strip() or f"{primary} compound trigger"
     action_kind = (args.get("action_kind") or "notify_only").lower()
     exit_condition_text = (args.get("exit_condition") or "").strip()
+    # Normalize "no exit" placeholders the LLM occasionally emits when
+    # there isn't an exit condition. Without this, the translator tries
+    # to translate the placeholder and produces a vacuous tree
+    # (1.0 == 1.0) → "translated exit tree is invalid" error.
+    if exit_condition_text.lower() in {
+        "none", "null", "n/a", "na", "no exit", "no", "—", "-",
+    }:
+        exit_condition_text = ""
     if not condition:
         raise ValueError(
             "propose_dsl_workflow needs a 'condition' (NL entry "

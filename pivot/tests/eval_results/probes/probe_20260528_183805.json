@@ -1,0 +1,680 @@
+[
+  {
+    "file": "/tmp/probe_s04.json",
+    "data": {
+      "results": [
+        {
+          "name": "S04_replay_exact",
+          "conv_id": "probe_f2f3398d90",
+          "turns": [
+            {
+              "prompt": "Build an agent \u2014 Buy HDFCBANK 10 shares if stock closes above resistance",
+              "response": "Want me to use the 20-day rolling high as the resistance level, or do you have a specific \u20b9 value in mind for HDFCBANK?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3109.5552499755286,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2981,
+                "tool_ASK_USER": 0,
+                "total": 3098
+              },
+              "latency_ms_server": 3098
+            },
+            {
+              "prompt": "use 20-day rolling high",
+              "response": "Great \u2014 I\u2019ll use HDFCBANK, buy 10 shares, and trigger it when the close is above the 20-day rolling high. If you want, I can run it with that setup as-is.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 7038.498000008985,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4607,
+                "tool_propose_dsl_workflow": 0,
+                "total": 7022
+              },
+              "latency_ms_server": 7022
+            }
+          ]
+        },
+        {
+          "name": "S04_paraphrase_a",
+          "conv_id": "probe_10510caedb",
+          "turns": [
+            {
+              "prompt": "Set up an agent that buys 5 INFY when it breaks out above resistance",
+              "response": "Want me to use the 20-day rolling high as the resistance level, or do you have a specific \u20b9 value in mind?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3274.3493340094574,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3237,
+                "tool_ASK_USER": 0,
+                "total": 3258
+              },
+              "latency_ms_server": 3258
+            },
+            {
+              "prompt": "20-day rolling high",
+              "response": "Drafted for `INFY` to buy 5 shares on a breakout above the 20-day high. Review and activate it.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 9224.97400001157,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "93e788cb-9c45-4bdb-9455-aded383db96b",
+                  "name": "INFY breakout above 20-day high",
+                  "description": "Entry: price of INFY > highest(price of INFY (1 bar ago)) over last 20 bars",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": ">",
+                          "left": {
+                            "type": "price",
+                            "symbol": "INFY",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 0
+                          },
+                          "right": {
+                            "type": "aggregate",
+                            "op": "highest",
+                            "source": {
+                              "type": "price",
+                              "symbol": "INFY",
+                              "exchange": "NSE",
+                              "basis": "close",
+                              "offset": 1
+                            },
+                            "bars": 20
+                          }
+                        },
+                        "symbol": "INFY",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 5,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "price of INFY > highest(price of INFY (1 bar ago)) over last 20 bars",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2801,
+                    "output_tokens": 78,
+                    "latency_ms": 1753.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T18:37:19.047679Z",
+                  "valid_until": "2026-05-28",
+                  "backtestable": true,
+                  "backtest_blockers": [],
+                  "expires_at": "2026-05-28T18:29:00+00:00"
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "93e788cb-9c45-4bdb-9455-aded383db96b",
+                "name": "INFY breakout above 20-day high",
+                "description": "Entry: price of INFY > highest(price of INFY (1 bar ago)) over last 20 bars",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": ">",
+                        "left": {
+                          "type": "price",
+                          "symbol": "INFY",
+                          "exchange": "NSE",
+                          "basis": "close",
+                          "offset": 0
+                        },
+                        "right": {
+                          "type": "aggregate",
+                          "op": "highest",
+                          "source": {
+                            "type": "price",
+                            "symbol": "INFY",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 1
+                          },
+                          "bars": 20
+                        }
+                      },
+                      "symbol": "INFY",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 5,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "price of INFY > highest(price of INFY (1 bar ago)) over last 20 bars",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2801,
+                  "output_tokens": 78,
+                  "latency_ms": 1753.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T18:37:19.047679Z",
+                "valid_until": "2026-05-28",
+                "backtestable": true,
+                "backtest_blockers": [],
+                "expires_at": "2026-05-28T18:29:00+00:00"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4176,
+                "tool_propose_dsl_workflow": 1776,
+                "llm_hop_2": 3225,
+                "llm_hop_2_cached": 25600,
+                "total": 9208
+              },
+              "latency_ms_server": 9208
+            }
+          ]
+        },
+        {
+          "name": "S04_paraphrase_b",
+          "conv_id": "probe_c3d974ac2b",
+          "turns": [
+            {
+              "prompt": "Build an automation \u2014 buy 10 TCS when it crosses support",
+              "response": "Want me to use the 20-day rolling low as the support level, or do you have a specific \u20b9 value in mind?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3582.101584004704,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3543,
+                "tool_ASK_USER": 0,
+                "total": 3565
+              },
+              "latency_ms_server": 3565
+            },
+            {
+              "prompt": "use the 50-day low",
+              "response": "Drafted for `TCS` with `10` shares. Review the card and activate when ready.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 11358.172042004298,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "f8be249c-5967-43f3-a8ae-f782577afc42",
+                  "name": "TCS buy on 50-day low support break",
+                  "description": "Entry: price of TCS crosses above lowest(low of TCS (1 bar ago)) over last 50 bars",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": "crosses_above",
+                          "left": {
+                            "type": "price",
+                            "symbol": "TCS",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 0
+                          },
+                          "right": {
+                            "type": "aggregate",
+                            "op": "lowest",
+                            "source": {
+                              "type": "price",
+                              "symbol": "TCS",
+                              "exchange": "NSE",
+                              "basis": "low",
+                              "offset": 1
+                            },
+                            "bars": 50
+                          }
+                        },
+                        "symbol": "TCS",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "TCS",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "price of TCS crosses above lowest(low of TCS (1 bar ago)) over last 50 bars",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2806,
+                    "output_tokens": 87,
+                    "latency_ms": 1917.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T18:37:32.838992Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "f8be249c-5967-43f3-a8ae-f782577afc42",
+                "name": "TCS buy on 50-day low support break",
+                "description": "Entry: price of TCS crosses above lowest(low of TCS (1 bar ago)) over last 50 bars",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": "crosses_above",
+                        "left": {
+                          "type": "price",
+                          "symbol": "TCS",
+                          "exchange": "NSE",
+                          "basis": "close",
+                          "offset": 0
+                        },
+                        "right": {
+                          "type": "aggregate",
+                          "op": "lowest",
+                          "source": {
+                            "type": "price",
+                            "symbol": "TCS",
+                            "exchange": "NSE",
+                            "basis": "low",
+                            "offset": 1
+                          },
+                          "bars": 50
+                        }
+                      },
+                      "symbol": "TCS",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "TCS",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "price of TCS crosses above lowest(low of TCS (1 bar ago)) over last 50 bars",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2806,
+                  "output_tokens": 87,
+                  "latency_ms": 1917.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T18:37:32.838992Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4973,
+                "llm_hop_1_cached": 22528,
+                "tool_propose_dsl_workflow": 1955,
+                "llm_hop_2": 4381,
+                "llm_hop_2_cached": 22528,
+                "total": 11342
+              },
+              "latency_ms_server": 11342
+            }
+          ]
+        },
+        {
+          "name": "S04_paraphrase_c_with_qty",
+          "conv_id": "probe_c05cadaa5e",
+          "turns": [
+            {
+              "prompt": "build me an agent buying SBIN at resistance with quantity 7",
+              "response": "Want me to use the 20-day rolling high as the resistance level for SBIN, or do you have a specific \u20b9 value in mind?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 4023.655625001993,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3967,
+                "llm_hop_1_cached": 21504,
+                "tool_ASK_USER": 0,
+                "total": 4000
+              },
+              "latency_ms_server": 4000
+            },
+            {
+              "prompt": "20 day rolling high please",
+              "response": "Drafted SBIN with quantity 7. The trigger uses the 20-day rolling high as the resistance level; review and activate when ready.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 8775.305290997494,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "fbec6e1d-606f-4770-bf12-28f4e0026bd6",
+                  "name": "SBIN buy at 20-day high resistance",
+                  "description": "Entry: price of SBIN \u2265 highest(price of SBIN (1 bar ago)) over last 20 bars",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": ">=",
+                          "left": {
+                            "type": "price",
+                            "symbol": "SBIN",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 0
+                          },
+                          "right": {
+                            "type": "aggregate",
+                            "op": "highest",
+                            "source": {
+                              "type": "price",
+                              "symbol": "SBIN",
+                              "exchange": "NSE",
+                              "basis": "close",
+                              "offset": 1
+                            },
+                            "bars": 20
+                          }
+                        },
+                        "symbol": "SBIN",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "SBIN",
+                        "side": "buy",
+                        "quantity": 7,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "price of SBIN \u2265 highest(price of SBIN (1 bar ago)) over last 20 bars",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2812,
+                    "output_tokens": 79,
+                    "latency_ms": 2234.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T18:37:46.760468Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "fbec6e1d-606f-4770-bf12-28f4e0026bd6",
+                "name": "SBIN buy at 20-day high resistance",
+                "description": "Entry: price of SBIN \u2265 highest(price of SBIN (1 bar ago)) over last 20 bars",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": ">=",
+                        "left": {
+                          "type": "price",
+                          "symbol": "SBIN",
+                          "exchange": "NSE",
+                          "basis": "close",
+                          "offset": 0
+                        },
+                        "right": {
+                          "type": "aggregate",
+                          "op": "highest",
+                          "source": {
+                            "type": "price",
+                            "symbol": "SBIN",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 1
+                          },
+                          "bars": 20
+                        }
+                      },
+                      "symbol": "SBIN",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "SBIN",
+                      "side": "buy",
+                      "quantity": 7,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "price of SBIN \u2265 highest(price of SBIN (1 bar ago)) over last 20 bars",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2812,
+                  "output_tokens": 79,
+                  "latency_ms": 2234.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T18:37:46.760468Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3203,
+                "llm_hop_1_cached": 25088,
+                "tool_propose_dsl_workflow": 2256,
+                "llm_hop_2": 3250,
+                "llm_hop_2_cached": 25600,
+                "total": 8756
+              },
+              "latency_ms_server": 8756
+            }
+          ]
+        },
+        {
+          "name": "S04_explicit_value_answer",
+          "conv_id": "probe_5c820fbe81",
+          "turns": [
+            {
+              "prompt": "Build agent: buy 10 HDFCBANK if it closes above resistance",
+              "response": "Do you want me to use the 20-day rolling high as the resistance level, or do you have a specific \u20b9 value in mind?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3309.194459026912,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3275,
+                "tool_ASK_USER": 0,
+                "total": 3295
+              },
+              "latency_ms_server": 3295
+            },
+            {
+              "prompt": "use 1700",
+              "response": "Drafted the `HDFCBANK` buy agent at \u20b91,700. Click activate when ready.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 12562.407624995103,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "641240b9-d6f1-4d16-b405-3e8c69106b8c",
+                  "name": "HDFCBANK close above \u20b91,700 buy",
+                  "description": "Entry: price of HDFCBANK > 1,700",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": ">",
+                          "left": {
+                            "type": "price",
+                            "symbol": "HDFCBANK",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 0
+                          },
+                          "right": {
+                            "type": "constant",
+                            "value": 1700
+                          }
+                        },
+                        "symbol": "HDFCBANK",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "HDFCBANK",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "price of HDFCBANK > 1,700",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2799,
+                    "output_tokens": 53,
+                    "latency_ms": 3929.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T18:38:01.345859Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "641240b9-d6f1-4d16-b405-3e8c69106b8c",
+                "name": "HDFCBANK close above \u20b91,700 buy",
+                "description": "Entry: price of HDFCBANK > 1,700",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": ">",
+                        "left": {
+                          "type": "price",
+                          "symbol": "HDFCBANK",
+                          "exchange": "NSE",
+                          "basis": "close",
+                          "offset": 0
+                        },
+                        "right": {
+                          "type": "constant",
+                          "value": 1700
+                        }
+                      },
+                      "symbol": "HDFCBANK",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "HDFCBANK",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "price of HDFCBANK > 1,700",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2799,
+                  "output_tokens": 53,
+                  "latency_ms": 3929.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T18:38:01.345859Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4032,
+                "llm_hop_1_cached": 22528,
+                "tool_propose_dsl_workflow": 3945,
+                "llm_hop_2": 4548,
+                "llm_hop_2_cached": 22528,
+                "total": 12550
+              },
+              "latency_ms_server": 12550
+            }
+          ]
+        }
+      ],
+      "user_id": 119
+    }
+  }
+]

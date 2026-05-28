@@ -1,0 +1,54 @@
+[
+  {
+    "file": "/tmp/probe_s04_solo.json",
+    "data": {
+      "results": [
+        {
+          "name": "S04_replay",
+          "conv_id": "probe_86d6c6cd1f",
+          "turns": [
+            {
+              "prompt": "Build an agent \u2014 Buy HDFCBANK 10 shares if stock closes above resistance",
+              "response": "Want me to use the 20-day rolling high as the resistance level, or do you have a specific \u20b9 value in mind?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 2719.693708990235,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2456,
+                "llm_hop_1_cached": 19456,
+                "tool_ASK_USER": 0,
+                "total": 2709
+              },
+              "latency_ms_server": 2709
+            },
+            {
+              "prompt": "use 20-day rolling high",
+              "response": "Great \u2014 I can run it as: buy 10 shares of HDFCBANK when the close is above the 20-day rolling high. If you want, I\u2019ll proceed with that rule as-is.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 10239.903957990464,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4081,
+                "llm_hop_1_cached": 22016,
+                "tool_propose_dsl_workflow": 4432,
+                "total": 10215
+              },
+              "latency_ms_server": 10215
+            }
+          ]
+        }
+      ],
+      "user_id": 121
+    }
+  }
+]
