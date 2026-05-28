@@ -3234,6 +3234,46 @@ class ChatService:
                 # macro fallback, then deterministic question. All
                 # other tools fail single-shot — no LLM retry.
                 last_tool_error = f"{guarded.name}: {guarded.error}"
+                # L12: when the tool error names a specific replacement
+                # tool ("use propose_holding_action instead"), force
+                # one retry hop with the named tool required. This
+                # bridges the DSL early-bail → propose_holding_action
+                # gap that the L08_21 / L10_01 trailing-SL probes
+                # surfaced.
+                _route_match = re.search(
+                    r"use\s+(propose_workflow|propose_dsl_workflow|"
+                    r"propose_threshold_order|propose_scheduled_order|"
+                    r"propose_holding_action|propose_basket_allocation)\b",
+                    guarded.error or "",
+                    re.IGNORECASE,
+                )
+                if _route_match and not last_was_macro_draft:
+                    target_tool = _route_match.group(1)
+                    trace.event(
+                        f"{guarded.name}.route_redirect",
+                        target=target_tool,
+                        error=(guarded.error or "")[:140],
+                    )
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name=guarded.name,
+                        content=(
+                            f"ERROR from {guarded.name}: "
+                            f"{guarded.error or ''}\n\n"
+                            f"You MUST call `{target_tool}` next "
+                            "with arguments matching the user's "
+                            "original request. Do NOT write prose. "
+                            "Do NOT re-call the failed tool."
+                        ),
+                    ))
+                    # Force the target tool into scope so the model
+                    # can definitely emit it.
+                    if selected_names is not None:
+                        selected_names = selected_names | {target_tool}
+                        tooldefs = _registry_tools_as_tooldefs(selected_names)
+                        cache_key = cache_key_for(selected_names)
+                    continue
                 # backtest_workflow gets the same self-correction pass
                 # as propose_workflow: the LLM sees the validation
                 # error and tries once more before we fall to a user-
@@ -4335,6 +4375,40 @@ class ChatService:
                     continue
 
                 last_tool_error = f"{guarded.name}: {guarded.error}"
+                # L12 (streaming mirror): route-redirect on
+                # "use <other_tool> instead" errors.
+                _route_match = re.search(
+                    r"use\s+(propose_workflow|propose_dsl_workflow|"
+                    r"propose_threshold_order|propose_scheduled_order|"
+                    r"propose_holding_action|propose_basket_allocation)\b",
+                    guarded.error or "",
+                    re.IGNORECASE,
+                )
+                if _route_match and not last_was_macro_draft:
+                    target_tool = _route_match.group(1)
+                    trace.event(
+                        f"{guarded.name}.route_redirect",
+                        target=target_tool,
+                        error=(guarded.error or "")[:140],
+                    )
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name=guarded.name,
+                        content=(
+                            f"ERROR from {guarded.name}: "
+                            f"{guarded.error or ''}\n\n"
+                            f"You MUST call `{target_tool}` next "
+                            "with arguments matching the user's "
+                            "original request. Do NOT write prose. "
+                            "Do NOT re-call the failed tool."
+                        ),
+                    ))
+                    if selected_names is not None:
+                        selected_names = selected_names | {target_tool}
+                        tooldefs = _registry_tools_as_tooldefs(selected_names)
+                        cache_key = cache_key_for(selected_names)
+                    continue
                 # See non-streaming twin: backtest_workflow shares the
                 # steps[] schema with propose_workflow, so it gets the
                 # same single self-correction hop on validation errors.
