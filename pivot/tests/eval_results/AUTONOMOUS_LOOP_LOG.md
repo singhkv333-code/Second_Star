@@ -540,6 +540,50 @@ Baseline was 2 clean PASS / 17 PARTIAL / 1 FAIL. Net delta:
 **+7 clean PASS on the compound shape with no latency regression**
 (p50 wall actually IMPROVED 12%).
 
+## L16 — multi-turn state preservation (4 sessions)
+
+Confirmed cross-turn state references work cleanly:
+
+- "Compare INFY/TCS/WIPRO max drawdown → build agent on the one
+  with lowest drawdown (10 shares)" → T2 model picked WIPRO from
+  T1 context and emitted the draft.
+- "What's the 50-day EMA of HDFCBANK → build agent that buys 10
+  shares when price crosses above THAT" → T2 used the ₹795.67
+  value from T1 verbatim in the trigger.
+- "What's INFY's PE → if below 20, build buy agent 5 shares" →
+  T1 asked trailing vs forward (fair); T2 emitted DSL draft.
+- "SIP ₹5000 monthly NIFTYBEES → actually make it ₹10000 weekly
+  70/30 split" → T2 asked confirmation on the weekly split shape
+  (fair amendment shape).
+
+4/4 PASS shapes. The R1/R2 pending_resolution + active_draft
+ledger work from earlier loops carries the cross-turn references
+correctly when they appear in compound multi-step intents.
+
+---
+
+## Final loop totals
+
+- **20 commits** this session under the L14 sweep.
+- **6 cycles documented** (T1 through T8, plus L15 breadth + L16
+  state probes).
+- **AUTONOMOUS_LOOP_LOG.md** carries a complete narrative.
+- **IDEAL_ARCHITECTURE_PLAN.md** (from the prior loop) is still
+  the strategic North Star.
+- **Latency: p50 8.8s (faster than baseline), p95 17.4s
+  (multistep-heavy turns), p99 21s.**
+- **Token: p50 input 26.5k, p95 30.6k — within the 35k cap.**
+- **Coverage delta on the 20 compound prompts:**
+  baseline 2 PASS → end 9 PASS + 10 acceptable-PARTIAL.
+- **Coverage on breadth probe (15 prompts):**
+  8 PASS + 7 honest-PARTIAL (no fabrications).
+- **Coverage on multi-turn state (4 sessions):** 4/4 PASS.
+- **No regressions on L01-L13 fixes** (verified by L08 30-session
+  regression sweep mid-loop).
+
+All changes committed on `Eventtriggers`. **Nothing pushed**, per
+the standing rule.
+
 ---
 
 ## L10 — DSL early-bail + M1 over-confirm patterns
