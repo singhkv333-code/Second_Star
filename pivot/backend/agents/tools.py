@@ -1686,6 +1686,161 @@ tool(
 )
 
 
+tool(
+    "compose_multistep",
+    "ORCHESTRATOR for COMPOUND user intents that chain analysis → "
+    "decision → action. Use ONLY when the prompt has 2+ sequential "
+    "verbs whose later steps depend on EARLIER step results — e.g. "
+    "'compare A, B, C, find the one with lowest drawdown, build an "
+    "agent on that one' or 'backtest strategy X vs Y, tell me which "
+    "won, set up the winner'. Pass a `plan` array where each step "
+    "names a tool + args; use `$step_id.field` to reference a prior "
+    "step's output deterministically. The server executes each step "
+    "in order and resolves refs between them (no LLM hop for the "
+    "threading). Maximum 6 steps per plan.\n\n"
+    "DO NOT call for single-verb intents — those go to the appropriate "
+    "single tool (place_market_order, propose_workflow, "
+    "compare_performance, etc.) directly. The orchestrator adds "
+    "latency; it only earns its keep on genuine multi-step chains.\n\n"
+    "Inline helpers usable as `tool` inside the plan:\n"
+    "  • `extract_winner_symbol(from, metric, direction)` — pick the "
+    "best/worst symbol from a comparison result.\n"
+    "  • `compare_backtests(strategies, period)` — run 2-4 strategy "
+    "backtests in parallel and rank by total_return / Sharpe / max_dd.\n"
+    "Real tools (propose_threshold_order, propose_workflow, "
+    "compare_performance, etc.) also usable as plan steps.\n\n"
+    "EXAMPLE — \"Compare INFY, TCS, WIPRO over 2 years, find lowest "
+    "drawdown, build momentum agent on winner\":\n"
+    "  plan = [\n"
+    "    {step_id:'compare', tool:'compare_performance',\n"
+    "     args:{symbols:['INFY','TCS','WIPRO'], period:'2y', metric:'max_drawdown'}},\n"
+    "    {step_id:'winner',  tool:'extract_winner_symbol',\n"
+    "     args:{from:'$compare', metric:'max_drawdown', direction:'max'}},\n"
+    "    {step_id:'build',   tool:'propose_threshold_order',\n"
+    "     args:{symbol:'$winner.symbol', side:'buy', quantity:10,\n"
+    "           trigger_kind:'indicator', indicator:'rsi',\n"
+    "           operator:'<', threshold:30}}\n"
+    "  ]\n"
+    "Pass `user_intent` verbatim so the chat layer can summarise "
+    "the plan execution at the end.",
+    {
+        "plan": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 6,
+            "description":
+                "Ordered list of {step_id, tool, args} dicts. step_id "
+                "must be unique within the plan. Args may contain "
+                "`$step_id` or `$step_id.field.path` refs to prior "
+                "step outputs.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "step_id": {"type": "string"},
+                    "tool":    {"type": "string"},
+                    "args":    {"type": "object"},
+                },
+                "required": ["step_id", "tool"],
+            },
+        },
+        "user_intent": {
+            "type": "string",
+            "description":
+                "The user's original message verbatim. The orchestrator "
+                "uses it for the final summary; do NOT paraphrase.",
+        },
+    },
+    ["plan", "user_intent"],
+)
+
+tool(
+    "extract_winner_symbol",
+    "Deterministic helper used INSIDE a compose_multistep plan: given "
+    "a prior step's result (typically from compare_performance / "
+    "compare_backtests / get_performance_metrics), return the symbol "
+    "with the best (or worst) value of a named metric. No LLM hop.\n\n"
+    "Use direction='max' for Sharpe, total_return, win_rate. "
+    "Use direction='min' for max_drawdown (as a negative number, smaller "
+    "magnitude = better — use 'max' for the LEAST DRAWDOWN — i.e. the "
+    "drawdown CLOSEST TO ZERO is the winner) or volatility. Read the "
+    "metric's directional sense and pick accordingly.",
+    {
+        "from": {
+            "type": "object",
+            "description":
+                "Pass `$step_id` referencing a prior step that produced "
+                "per-symbol metric rows (a `ranked` list OR a flat dict "
+                "`{SYM: {metric: value, ...}, ...}`). The server "
+                "resolves the $ref before calling this helper."
+        },
+        "metric": {
+            "type": "string",
+            "description":
+                "Metric name to compare on (must match a key in the "
+                "prior step's rows). Examples: 'max_drawdown', "
+                "'sharpe_ratio', 'total_return_pct', 'volatility', "
+                "'cagr'."
+        },
+        "direction": {
+            "type": "string",
+            "enum": ["min", "max"],
+            "default": "max",
+            "description":
+                "'max' picks the highest, 'min' the lowest. For "
+                "max_drawdown (negative numbers), 'max' picks the "
+                "smallest drawdown — i.e. the BEST performer."
+        },
+    },
+    ["from", "metric"],
+)
+
+tool(
+    "compare_backtests",
+    "Run 2-4 strategy specs through the same workflow backtester in "
+    "PARALLEL and return a side-by-side comparison. Each strategy is "
+    "a {name, steps[]} dict — the same `steps` shape "
+    "`propose_workflow` / `backtest_workflow` accept. Returns rankings "
+    "by total_return_pct / sharpe / max_drawdown.\n\n"
+    "Use inside compose_multistep when the prompt is 'backtest X vs Y "
+    "and tell me which won' / 'compare these 3 styles on INFY'.\n\n"
+    "DO NOT call directly for a single strategy — use backtest_workflow "
+    "instead.",
+    {
+        "strategies": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name":  {"type": "string"},
+                    "steps": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description":
+                            "List of workflow step dicts — same shape "
+                            "as propose_workflow's `steps[]`.",
+                    },
+                },
+                "required": ["name", "steps"],
+            },
+        },
+        "period": {
+            "type": "string",
+            "enum": ["1y", "2y", "3y", "5y"],
+            "default": "2y",
+        },
+        "benchmark_symbol": {
+            "type": "string",
+            "description":
+                "Optional override for the buy-and-hold benchmark. Defaults "
+                "to each strategy's own primary trade symbol.",
+        },
+    },
+    ["strategies"],
+)
+
+
 def get_tools_for_subset(subset_name: str) -> list:
     """Returns tool definition list for a given subset name."""
     names = TOOL_SUBSETS.get(subset_name, [])

@@ -1,0 +1,115 @@
+[
+  {
+    "file": "/tmp/probe_T1_orchestrator.json",
+    "data": {
+      "results": [
+        {
+          "name": "T1_01_compare_drawdown_build",
+          "conv_id": "probe_40e2001fda",
+          "turns": [
+            {
+              "prompt": "Compare INFY, TCS and WIPRO over the last 2 years, tell me which had the lowest drawdown, then build me a momentum agent on the winner with 10 shares.",
+              "response": "The AI backend is temporarily unavailable. You can still:\n\u2022 Run a backtest directly: `backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31`\n\u2022 Screen the universe: `/screen roe > 18`\n\u2022 Type a stock ticker (e.g. `RELIANCE`) for a snapshot.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 2160.793624992948,
+              "raw_data": {
+                "_llm_unavailable": true
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2068,
+                "total": 2150
+              },
+              "latency_ms_server": 2150
+            }
+          ]
+        },
+        {
+          "name": "T1_02_tcs_vs_icici_stoploss",
+          "conv_id": "probe_8590eef0bc",
+          "turns": [
+            {
+              "prompt": "Show me TCS vs ICICIBANK since January, then create a stop-loss agent on whichever one is more volatile and explain why you picked it. Use the user's full holding for the stop loss.",
+              "response": "The AI backend is temporarily unavailable. You can still:\n\u2022 Run a backtest directly: `backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31`\n\u2022 Screen the universe: `/screen roe > 18`\n\u2022 Type a stock ticker (e.g. `RELIANCE`) for a snapshot.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 2349.504625017289,
+              "raw_data": {
+                "_llm_unavailable": true
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2317,
+                "total": 2331
+              },
+              "latency_ms_server": 2331
+            }
+          ]
+        },
+        {
+          "name": "T1_03_sbi_vs_kotak_sharpe",
+          "conv_id": "probe_4817f8e23a",
+          "turns": [
+            {
+              "prompt": "Compare the last 3 years of SBIN vs KOTAKBANK, identify the better risk-adjusted performer using Sharpe ratio, and build a strategy around it \u2014 buy 5 shares when RSI < 30.",
+              "response": "The AI backend is temporarily unavailable. You can still:\n\u2022 Run a backtest directly: `backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31`\n\u2022 Screen the universe: `/screen roe > 18`\n\u2022 Type a stock ticker (e.g. `RELIANCE`) for a snapshot.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 1654.197750001913,
+              "raw_data": {
+                "_llm_unavailable": true
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 1627,
+                "total": 1639
+              },
+              "latency_ms_server": 1639
+            }
+          ]
+        },
+        {
+          "name": "T1_04_ma_crossover_agent",
+          "conv_id": "probe_352ee8e847",
+          "turns": [
+            {
+              "prompt": "Take HDFCBANK, backtest a 50/200 day moving average crossover strategy, then turn the winning logic into an agent buying 5 shares.",
+              "response": "The AI backend is temporarily unavailable. You can still:\n\u2022 Run a backtest directly: `backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31`\n\u2022 Screen the universe: `/screen roe > 18`\n\u2022 Type a stock ticker (e.g. `RELIANCE`) for a snapshot.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 1762.7144160214812,
+              "raw_data": {
+                "_llm_unavailable": true
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 1734,
+                "total": 1746
+              },
+              "latency_ms_server": 1746
+            }
+          ]
+        },
+        {
+          "name": "T1_05_full_plan_nifty",
+          "conv_id": "probe_2360f53186",
+          "turns": [
+            {
+              "prompt": "Build me a full plan on NIFTYBEES: research the trend, design a strategy, backtest it over 5 years, and create the agent to execute \u2014 do all four and summarise. Use 10 shares per fire.",
+              "response": "The AI backend is temporarily unavailable. You can still:\n\u2022 Run a backtest directly: `backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31`\n\u2022 Screen the universe: `/screen roe > 18`\n\u2022 Type a stock ticker (e.g. `RELIANCE`) for a snapshot.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 1903.320999990683,
+              "raw_data": {
+                "_llm_unavailable": true
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 1868,
+                "total": 1885
+              },
+              "latency_ms_server": 1885
+            }
+          ]
+        }
+      ],
+      "user_id": 156
+    }
+  }
+]

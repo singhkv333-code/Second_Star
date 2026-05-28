@@ -875,7 +875,8 @@ def _looks_like_unstructured_clarification(
         render_hint = raw_data.get("_render_hint")
         if render_hint in {
             "workflow_draft_card", "logic_card",
-            "indicator_backtest_chart",
+            "indicator_backtest_chart", "multistep_card",
+            "financial_backtest_chart",
         }:
             return False
     # Length-based skip: explainers and long analytical replies
@@ -5400,6 +5401,7 @@ _WIDGET_RENDER_HINTS = frozenset({
     "logic_card",
     "indicator_backtest_chart",
     "financial_backtest_chart",
+    "multistep_card",          # L14: compose_multistep timeline payload
 })
 
 

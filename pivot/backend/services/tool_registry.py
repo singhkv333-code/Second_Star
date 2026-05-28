@@ -100,6 +100,13 @@ _REAL_TOOLS: set[str] = {
     # ambiguous matches, and the supervisor (news_events worker) opens
     # the CLOB WS subscription when the spec / workflow step activates.
     "propose_polymarket_trigger", "browse_polymarket_markets",
+    # L14: orchestrator + analytics helpers for multi-step compound intents.
+    # `compose_multistep` resolves $step.field refs server-side between
+    # sub-calls; `compare_backtests` runs 2-4 strategies in parallel;
+    # `extract_winner_symbol` is a deterministic ranking helper.
+    "compose_multistep",
+    "compare_backtests",
+    "extract_winner_symbol",
     # Meta tools — escape hatches for cases the regex router misses.
     "find_tool",
 }
@@ -494,6 +501,15 @@ def _ensure_v2_tools_registered() -> None:
     from backend.services._dsl_chat_tools import (
         backtest_dsl_tree, propose_dsl_workflow,
     )
+    from backend.services._orchestrator_chat_tools import (
+        compose_multistep, compare_backtests, extract_winner_symbol,
+    )
+
+    async def _extract_winner_sync(args: dict) -> dict:
+        # extract_winner_symbol is sync but the dispatcher expects an
+        # async handler. Thin wrap.
+        return extract_winner_symbol(args)
+
     _V2_HANDLERS.update({
         "get_price_history": get_price_history,
         "get_52wk_range": get_52wk_range,
@@ -501,6 +517,10 @@ def _ensure_v2_tools_registered() -> None:
         # DSL-tree chat tools (Phase B+1+C.0)
         "backtest_dsl_tree": backtest_dsl_tree,
         "propose_dsl_workflow": propose_dsl_workflow,
+        # L14 orchestrator + helpers.
+        "compose_multistep": compose_multistep,
+        "compare_backtests": compare_backtests,
+        "extract_winner_symbol": _extract_winner_sync,
         # find_tool's schema is registered in agents/tools.py; the
         # handler lives here next to the search index.
         "find_tool": _find_tool_handler,

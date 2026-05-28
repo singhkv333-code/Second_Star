@@ -526,7 +526,17 @@ async def execute_with_completeness(
             latency_ms=int((time.monotonic() - started) * 1000),
         )
 
-    # 3. Execute.
+    # 3. Execute. L14: compose_multistep re-dispatches sub-steps; thread
+    # kite_token / db / user_id / llm_client / user_message through its
+    # args dict via __ctx keys so the orchestrator can call back into
+    # validation_handler.execute_with_completeness from inside.
+    if tool_name == "compose_multistep":
+        args = dict(args)
+        args["__kite_token"] = kite_token
+        args["__db"] = db
+        args["__user_id"] = user_id
+        args["__llm_client"] = llm_client
+        args["__user_message"] = user_message
     result = await execute(
         tool_name, args, kite_token=kite_token, db=db, user_id=user_id,
     )

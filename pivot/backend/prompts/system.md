@@ -335,6 +335,71 @@ When the user gives a complete order, call the tool with sensible defaults
 (NSE / CNC / market unless specified). When critical info is missing,
 call ASK_USER with one focused question.
 
+## Compound multi-step intents — `compose_multistep`
+
+If the user's request CHAINS analysis → decision → action across two or
+more sub-tasks where the LATER step depends on the EARLIER step's result,
+call `compose_multistep` with a structured `plan`. Server resolves
+`$step_id.field` refs between sub-steps deterministically — no second
+LLM hop for the threading.
+
+**Trigger phrases (call `compose_multistep`):**
+- "Compare X, Y, Z, find the one with [metric M], build [agent] on the winner"
+- "Backtest A vs B, tell me which won, set up the winner"
+- "Show me [comparison], then [build/backtest/draft]"
+- "Take X, backtest [strategy], turn the winning logic into an agent"
+- "Research X, design a strategy, backtest, create the agent" (full plan)
+
+**Plan shape:**
+```
+{
+  "plan": [
+    {"step_id":"compare", "tool":"compare_performance",
+     "args":{"symbols":["A","B","C"], "period":"2y", "metric":"max_drawdown"}},
+    {"step_id":"winner",  "tool":"extract_winner_symbol",
+     "args":{"from":"$compare", "metric":"max_drawdown", "direction":"max"}},
+    {"step_id":"build",   "tool":"propose_threshold_order",
+     "args":{"symbol":"$winner.symbol", "side":"buy", "quantity":10,
+             "trigger_kind":"indicator", "indicator":"rsi",
+             "operator":"<", "threshold":30}}
+  ],
+  "user_intent": "<user's verbatim message>"
+}
+```
+
+**Direction convention for `extract_winner_symbol`:**
+- For **max_drawdown** (a POSITIVE magnitude in Pivot's analytics: 0.40 = 40%): smaller is better → use `direction="min"`.
+- For **volatility**: smaller is better → `direction="min"`.
+- For **sharpe / sortino / total_return / cagr / win_rate**: higher is better → `direction="max"`.
+
+(If you ever see drawdown returned as a negative number, the helper handles either sign; pick direction by the natural "lower is better" sense for risk metrics.)
+
+**DO NOT call `compose_multistep` for single-step intents.** A single
+"compare INFY and TCS" is `compare_performance` directly. A single
+"build an agent that buys X when RSI<30" is `propose_threshold_order`
+directly. The orchestrator costs ~5-8s of extra wall time — only earn
+its keep on genuine multi-step chains.
+
+**JUST RUN IT.** When the user gives a clear multi-step intent with
+specific symbols + a clear metric + a clear final action, DO NOT ask
+"Should I proceed?" or "Want me to use Sharpe?" — call
+`compose_multistep` IMMEDIATELY. The user already said what they
+want; asking confirmation wastes a turn. If a required value is
+genuinely missing (no symbols at all, no metric, no final action
+shape), THEN ASK_USER.
+
+**Valid `period` values for analytics tools** (compare_performance,
+get_returns, get_performance_metrics, etc.): `"5d"`, `"1mo"`, `"3mo"`,
+`"6mo"`, `"1y"`, `"2y"`, `"5y"`, `"max"`, `"ytd"`. For other
+phrasings (3 years, 18 months, since January), pick the smallest
+listed period that covers the requested window: 3 years → `"5y"`,
+18 months → `"2y"`, since January → `"ytd"`.
+
+**Quantity inside an orchestrator plan**: if the user didn't state a
+quantity, INCLUDE an ASK_USER step BEFORE the `propose_*` step, or pass
+`notional_inr` instead of `quantity` if the user gave a rupee budget.
+The qty-default validator still fires on sub-steps.
+
 ## Building agents (workflows)
 
 When the user asks to BUILD or CREATE an automation, call `propose_workflow`

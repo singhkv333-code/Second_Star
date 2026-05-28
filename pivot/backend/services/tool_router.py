@@ -73,6 +73,40 @@ def _r(pattern: str, *tools: str) -> _Rule:
 
 
 _RULES: list[_Rule] = [
+    # ── L14 multi-step orchestrator ────────────────────────────────
+    # Surface `compose_multistep` (and its helpers) when the prompt
+    # carries TWO+ sequential verbs whose later step depends on the
+    # earlier step's result. Examples:
+    #   "compare A, B → tell me which won → build agent on the winner"
+    #   "backtest X vs Y → set up the better one"
+    #   "research X → design a strategy → backtest → create agent"
+    # Conservative: requires at least one "then" / "," / "and" between
+    # an analysis verb (compare/research/backtest/show) and an action
+    # verb (build/create/set up/make/turn into).
+    _r(
+        r"\b(compare|backtest|research|show\s+me|analyze|analyse|compute|"
+        r"rank|score|compute)\b[^.]{0,140}?"
+        r"(?:,|then|and\s+(?:then\s+)?|\s—\s|;)\s*"
+        r"(?:tell\s+me\s+(?:which|the\s+winner)|build|create|set\s+up|"
+        r"setup|make|turn\s+(?:it|that|the\s+winning)|design\s+a\s+"
+        r"strategy|pick|identify)\b"
+        r"|\b(?:do\s+all\s+(?:four|three|five)|full\s+plan)\b"
+        r"|\b(?:tell\s+me\s+which|which\s+(?:one\s+won|had\s+the)|"
+        r"the\s+winner)\b.*?\b(?:build|create|set\s+up|design|make)\b",
+        "compose_multistep",
+        "compare_backtests",
+        "extract_winner_symbol",
+        # Surface the underlying analytical tools too so the LLM can
+        # populate the plan steps.
+        "compare_performance",
+        "get_performance_metrics",
+        "get_correlation_matrix",
+        "propose_workflow",
+        "propose_threshold_order",
+        "propose_holding_action",
+        "backtest_workflow",
+    ),
+
     # ── Agent / strategy / workflow building (also covered by
     # _ALWAYS_INCLUDE, but explicit so the LLM understands intent).
     _r(
