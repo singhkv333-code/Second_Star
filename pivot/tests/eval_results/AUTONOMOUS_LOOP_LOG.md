@@ -358,6 +358,137 @@ not yet oversold."
 No code change; just an env sync. Mentioning so the failure
 mode is documented.
 
+---
+
+## L10 — DSL early-bail + M1 over-confirm patterns
+
+Tackled the two open PARTIALs from L08/L09:
+- L08_17 multi-branch semicolon → DSL chosen instead of
+  propose_workflow.
+- L08_21 trailing SL → DSL chosen instead of
+  propose_holding_action.
+
+**Fixes shipped:**
+- `_dsl_chat_tools.propose_dsl_workflow` gains two
+  pre-translation guards:
+  1. Trailing-stop / exit-only on a holding → refuse with
+     structured route hint pointing at propose_holding_action.
+  2. Multi-trigger semicolon shape → refuse with structured
+     route hint pointing at propose_workflow.
+- M1 detector extended to catch "I can run that as-is" /
+  "if you want, I'll proceed" / "I'll treat that as" over-
+  confirmation patterns even without "?". 7/7 detector cases.
+
+**Caveat:** when the LLM writes declaratively ("Got it — I'll
+set a 2% trailing stop") with no "as-is" / "if you want"
+markers, M1 can't reliably distinguish a fabricated action
+summary from a real one without false positives.
+
+---
+
+## L11 — backtest path validation
+
+8 sessions covering simple backtest, draft-then-backtest,
+compound backtest, comparison backtest, vague backtest ask,
+indicator lookups (EMA, MACD).
+
+**Results (judged by reading):**
+- L11_01 simple → returns "0 trades, RSI<30/RSI>70 never fired"
+  — clean honest reporting.
+- L11_02 draft→backtest → "7 trades, +12.4%, 57% win rate."
+- L11_06 vague ("I want to backtest a strategy") → ASK_USER for
+  symbol/entry/exit/window ✓
+- L11_07 "50-day EMA of INFY" → ₹1,231.48 with interpretation ✓
+- L11_08 "MACD value on RELIANCE" → -9.32 with interpretation ✓
+
+The backtest surface is in good shape post-`ta` install.
+
+---
+
+# Final cumulative summary (Eventtriggers branch, this loop)
+
+## Commits this loop (autonomous; not pushed)
+
+| Commit | Loop | Headline |
+|---|---|---|
+| 0cc8d8b | L01 | S04 over-confirm — 4 cascading bugs fixed |
+| bd2d373 | L02 | skeleton cross-symbol guard + DSL multi-action refinement |
+| 95fb5a7 | L03 | pending-resolution emit + drift + build-another override |
+| ef37e4c | L04/05 | quantity-default refusal + notional flow restored |
+| a582ae5 | L07 | pure-affirmative extended + trailing-SL teaching |
+| 5f17394 | L08 | yes-on-options auto-picks first option |
+| 31a3290 | M1+M2 | structured-ASK enforcement + no-default validator |
+| b0499ab | env | `ta` install in system python (no code change) |
+| 70f6d6e | L09 | comprehensive validation — 28/30 PASS clean |
+| 034a2d3 | L10 | DSL early-bail + M1 over-confirm patterns |
+
+## Probe pass-rates (judged by reading every response)
+
+| Probe | Pass rate | Notes |
+|---|---|---|
+| L01 S04 replay + 4 variants | 5/5 | over-confirm regression fixed |
+| L02 boundary tool selection | 11/15 → 14/15 after fixes | cross-symbol guard + DSL refinement |
+| L03 clarification merging | 4/12 → 9/12 after fixes | pending-resolution + drift extensions |
+| L05 quantity-default | 0/7 → 6/7 after M2 | silent qty=1 structurally impossible |
+| L06 analytics quality | 12/12 | explainers 1200-2900 chars with proper markdown |
+| L07 long realistic sessions | 6/10 → 8/10 after fixes | activate-it / monthly SIP / SIP amend |
+| L08 comprehensive 30 | 26/30 → 28/30 after fixes | 2 PARTIALs remain |
+| L11 backtest | 7/8 | one engine-side data-fetch issue |
+
+## Structural improvements
+
+1. **PendingResolution ledger** with default_on_yes fallback to
+   options[0]. Deterministic "yes" resolution.
+2. **M1 structured-ASK enforcement** — chat-layer post-validator
+   re-emits when LLM writes clarification prose without
+   ASK_USER. Catches over-confirmation too.
+3. **M2 no-default validator** — refuses qty=1 / qty=10 silent
+   defaults via the chat layer; LLM is forced to ASK.
+4. **Cross-symbol guard on skeleton** — 2+ ticker prompts bail
+   to LLM so single-symbol parsers never corrupt cross-symbol
+   intents.
+5. **DSL multi-action refinement** — distinguishes "buy A and B"
+   (refuse) from "buy A when B drops" (allow).
+6. **DSL early-bail for trailing-SL / multi-trigger semicolons**
+   with structured route hints.
+7. **Pure-affirmative regex extended** — "ok activate it" /
+   "save and activate" / "proceed with it" / "go ahead and do
+   it" all caught.
+8. **Independent-intent regex extended** — price/chart-history
+   patterns + "now also build another agent" override.
+9. **Post-clarification override guarded** — agent-intent first
+   message bails the helper that promotes 'other' to 'automation'.
+10. **Null-arg validator strip** — Azure-emitted `null` for
+    optional fields no longer breaks the agentic loop.
+11. **Macros propagate valid_until** for all 4 hydrators + DSL
+    handler. R4b end-to-end.
+
+## Remaining open (deferred to next loop)
+
+- L02_07 multi-symbol trigger.manual instead of trigger.schedule
+  for auto-firing intent.
+- L02_09 / L08_21 trailing-SL routing: DSL early-bail returns
+  the error but the LLM writes confident prose ("Got it — I'll
+  set the trailing stop") instead of calling
+  propose_holding_action. Needs either a stronger system-msg
+  retry pattern or tool-description tightening.
+- L08_17 multi-branch semicolon: DSL early-bail returns the
+  structured error but the LLM still writes prose.
+- LLM emits quantity=1 explicitly stubbornly even with tool-
+  description rules; M2 catches it server-side, but a structural
+  fix would be schema-side (qty is anyOf [int>=2, never-1]).
+
+## Artifacts
+
+- `tests/eval_results/AUTONOMOUS_LOOP_LOG.md` — this file.
+- `tests/eval_results/IDEAL_ARCHITECTURE_PLAN.md` — strategic
+  redesign research per user's "research what's the ideal way"
+  ask.
+- `tests/eval_results/probes/probe_*.json` — raw probe results
+  with traces.
+- `scripts/probe_chat.py` — multi-turn probe runner (no auto-
+  verdict; I read each response).
+
 
 
 
