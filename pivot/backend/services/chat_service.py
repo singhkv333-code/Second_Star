@@ -752,6 +752,116 @@ def _looks_like_agent_intent(message: str) -> bool:
     return _classify_intent(message) == "agent"
 
 
+# ── Reply-class classifier (R5) ─────────────────────────────────────
+#
+# `_classify_intent` decides whether to route the turn into a tool
+# (agent / automation / backtest) or leave it as conversation
+# ("other"). That bucket lumps explainers, capability questions, and
+# small talk — three asks with very different ideal reply shapes. The
+# blanket "≤120 words conversational" rule kills explainer answers
+# (image 11: "Explain business model of Reliance" came back as three
+# thin paragraphs with no structure). The reply_class sub-classifier
+# below splits "other" so we can size the budget per-shape.
+
+_EXPLAINER_INTENT_RE = re.compile(
+    r"\b("
+    r"explain|describe|tell\s+me\s+about|tell\s+about|what\s+(?:is|are)\b|"
+    r"what\s+does\s+\w+\s+(?:do|mean|stand\s+for)|how\s+does\b|"
+    r"how\s+(?:do|does|did)\s+\w+\s+work|why\s+(?:is|are|does|did)\b|"
+    r"compare\b|pros\s+and\s+cons|"
+    r"thesis|business\s+model|fundamentals|investment\s+case|"
+    r"which\s+(?:is|has)\s+(?:better|stronger|cheaper|safer|cheaper)|"
+    r"difference\s+between|breakdown\s+of|overview\s+of|key\s+metrics"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_CAPABILITY_INTENT_RE = re.compile(
+    r"^\s*(?:"
+    r"what\s+(?:all\s+)?can\s+you\s+do|"
+    r"what\s+do\s+you\s+do|"
+    r"who\s+are\s+you|"
+    r"^help\b|"
+    r"how\s+(?:do\s+I|can\s+I)\s+use\s+(?:this|you|pivot)|"
+    r"capabilit(?:y|ies)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_SMALLTALK_INTENT_RE = re.compile(
+    r"^\s*(?:"
+    r"hi|hello|hey|namaste|"
+    r"good\s+(?:morning|afternoon|evening|night)|"
+    r"thanks?(?:\s+a\s+lot)?|thank\s+you|cheers|"
+    r"bye|good\s*bye|see\s+you|gn|gm"
+    r")[\s!.\?]*$",
+    re.IGNORECASE,
+)
+
+
+def _classify_reply_class(message: str, intent_kind: str) -> str:
+    """Return one of {'draft', 'automation', 'backtest', 'explainer',
+    'capability', 'small_talk', 'analytical_short'}.
+
+    The first three mirror intent_kind (with 'agent' renamed to 'draft'
+    for clarity at the reply-budget layer); the rest sub-classify the
+    'other' bucket so each shape gets a fitting length + format budget.
+    """
+    if intent_kind == "agent":
+        return "draft"
+    if intent_kind == "automation":
+        return "automation"
+    if intent_kind == "backtest":
+        return "backtest"
+    msg = (message or "").strip()
+    if not msg:
+        return "small_talk"
+    if _SMALLTALK_INTENT_RE.match(msg):
+        return "small_talk"
+    if _CAPABILITY_INTENT_RE.match(msg):
+        return "capability"
+    if _EXPLAINER_INTENT_RE.search(msg):
+        return "explainer"
+    return "analytical_short"
+
+
+# Per-reply-class budget: (max_output_tokens, system hint).
+# Draft / automation / backtest stay at the legacy 1500-token cap and
+# emit no extra hint — those paths are tool-driven and the model's text
+# is summary-of-tool-result, where the existing rules already work.
+# The other four classes carry an explicit length + format directive
+# that overrides the system.md "≤120 words conversational" default.
+_REPLY_BUDGETS: dict[str, tuple[int, str]] = {
+    "draft": (1500, ""),
+    "automation": (1500, ""),
+    "backtest": (1500, ""),
+    "explainer": (2400, (
+        "REPLY-CLASS: EXPLAINER. Aim for 250-500 words. Use `## Section` "
+        "headings or bulleted highlights when the answer has multiple "
+        "facets (segments, drivers, risks, comparisons). Depth and "
+        "structure matter for this class — do NOT pad short. Do NOT "
+        "append the current live price or LTP unless the user "
+        "explicitly asked for a price; the portfolio block is for your "
+        "awareness, not for recitation."
+    )),
+    "capability": (600, (
+        "REPLY-CLASS: CAPABILITY. Reply in ≤120 words, plain prose, no "
+        "headings. List the 3-5 most useful capabilities the user can "
+        "act on right now (build an agent, place an order, view "
+        "portfolio, run a backtest, ask for analysis)."
+    )),
+    "small_talk": (300, (
+        "REPLY-CLASS: SMALL-TALK. Reply in 1-2 short sentences. No "
+        "headings, no bullets, no live-price recital."
+    )),
+    "analytical_short": (1500, (
+        "REPLY-CLASS: SHORT-ANALYTICAL. Reply in ≤120 words of plain "
+        "prose. No `##` headings. Do NOT append unsolicited live "
+        "prices — recite them only if the user asked."
+    )),
+}
+
+
 # ── Independent-vs-dependent prompt detector ────────────────────────
 #
 # Drives whether to inject the cached active workflow draft into the
@@ -2196,6 +2306,15 @@ class ChatService:
         # instead of just calling the right tool.
         effort: ReasoningEffort = "minimal"
         max_output: int = 1500
+        # R5: per-reply-class budget. Explainer asks need 2400 tokens to
+        # cover headed/bulleted depth; capability and small_talk get
+        # tighter caps. The class also drives a system hint injected
+        # below so the model knows the target shape, not just the size.
+        reply_class = _classify_reply_class(message, intent_kind)
+        _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
+            reply_class, _REPLY_BUDGETS["analytical_short"]
+        )
+        max_output = _budget_tokens
         # Scoped retry budget for propose_workflow only — see the
         # documented escape hatch at the bottom of the Change-1 plan.
         # propose_workflow's failures are usually mechanical (unknown
@@ -2213,6 +2332,7 @@ class ChatService:
             tool_choice=agent_tool_choice,
             agent_intent=is_agent_intent,
             underspec_agent=is_underspec_agent,
+            reply_class=reply_class,
         )
 
         prompt_ctx = _build_user_context(ctx)
@@ -2366,6 +2486,13 @@ class ChatService:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:
                 base_messages.append(LLMMessage(role="system", content=uc_block))
+        # R5: per-class length+format directive. Empty string for draft/
+        # automation/backtest (tool-driven turns) — append only when the
+        # class actually carries a hint.
+        if reply_class_hint_text:
+            base_messages.append(
+                LLMMessage(role="system", content=reply_class_hint_text)
+            )
         # Mode pin — explicit user pill from the FE composer. This is
         # treated as a HARD route: the user clicked Automation, so the
         # LLM must place an order, not draft a workflow. Without this
@@ -3185,6 +3312,12 @@ class ChatService:
         # "minimal" on every turn (see commentary there).
         effort: ReasoningEffort = "minimal"
         max_output: int = 1500
+        # R5: mirror of non-streaming reply-class budget.
+        reply_class = _classify_reply_class(message, intent_kind)
+        _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
+            reply_class, _REPLY_BUDGETS["analytical_short"]
+        )
+        max_output = _budget_tokens
         # Same scoped retry budget as the non-streaming path.
         propose_workflow_attempts = 0
         _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2
@@ -3197,6 +3330,7 @@ class ChatService:
             tool_choice=agent_tool_choice,
             agent_intent=is_agent_intent,
             underspec_agent=is_underspec_agent,
+            reply_class=reply_class,
         )
 
         prompt_ctx = _build_user_context(ctx)
@@ -3308,6 +3442,11 @@ class ChatService:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:
                 base_msgs.append(LLMMessage(role="system", content=uc_block))
+        # R5: per-class length+format directive (streaming mirror).
+        if reply_class_hint_text:
+            base_msgs.append(
+                LLMMessage(role="system", content=reply_class_hint_text)
+            )
         mode_pin = _format_mode_pin(mode_override)
         if mode_pin:
             base_msgs.append(LLMMessage(role="system", content=mode_pin))
