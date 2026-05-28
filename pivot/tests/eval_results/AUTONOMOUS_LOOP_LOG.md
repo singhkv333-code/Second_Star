@@ -684,6 +684,72 @@ valid_until, NOT a limit price at ₹9:30 / ₹3:25.
 
 ---
 
+## L31 – L32 — cross-domain + real-time decisions
+
+**L31 cross-domain (12 sessions, 12/12 PASS):** real-estate vs
+equity reasoning, emergency-fund sizing (6-12 months),
+insurance-vs-equity priority, compound-interest calculation
+(12% CAGR ₹10K monthly 20 years = ₹99 lakh on ₹24 lakh
+contributions — accurate), retire-corpus monthly investment
+needed, starting-from-zero plan, quiz mode, market-at-high
+reasoning, job-loss preparedness using real portfolio.
+
+**L32 real-time decisions (10/10 PASS after one fix):** quick
+non-directive decision frame, 30-sec morning brief, signal
+check, TL;DR fundamentals, price alert (fixed routing —
+"alert when X crosses Y" now routes to propose_dsl_workflow
+notify_only), TCS-vs-INFY momentum/valuation/exposure-aware
+compare, after-hours plan, weekend review, fast overexposure
+check, 3 buys/3 sells/3 holds from real holdings.
+
+**Fix shipped in L32:** "price alert" / "alert me when X
+crosses Y" / "ping me when X hits Y" / "let me know if X drops
+below Y" — system.md now teaches these are NOTIFY-only via
+propose_dsl_workflow with action_kind='notify_only'. Was
+misrouting to propose_threshold_order (buy intent) which then
+failed qty validation. Now produces a clean workflow_draft_card
+for the alert.
+
+## L22 – L32 AGGREGATE (cumulative)
+
+| Probe | Sessions | PASS clean | ASK fair | Azure | Notes |
+|---|---|---|---|---|---|
+| L22 brief | 15 | 11 | 4 | 0 | |
+| L23 detailed | 5 | 3 | 1 | 1 | |
+| L24 AI reasoning | 10 | 10 | 0 | 0 | non-directive perfect |
+| L25 edge cases | 16 | 16 | 0 | 0 | Hindi+Hinglish |
+| L26 scenario | 10 | 10 | 0 | 0 | real-portfolio integration |
+| L27 lifecycle+time | 10 | 7 | 3 | 0 | scheduled-time fix |
+| L28 meta-portfolio | 10 | 10 | 0 | 0 | |
+| L29 tricky | 16 | 16 | 0 | 0 | |
+| L30 portfolio-smart | 10 | 9 | 0 | 1 | 60/20/20 target gap precise |
+| L31 cross-domain | 12 | 12 | 0 | 0 | compound calc accurate |
+| L32 real-time | 10 | 10 | 0 | 0 | alert routing fix shipped |
+| **TOTAL** | **124** | **114** (92%) | **8** (6.5%) | **2** (1.6%) | **0 fabrications** |
+
+**Headline finals:**
+- **50 commits** on Eventtriggers; nothing pushed.
+- **124 probed sessions across L22-L32**, plus the earlier L01-L21
+  loops.
+- **92% clean PASS rate** on probes that include very brief
+  (1-5 words), very long (50+ word multi-clause), AI-reasoning,
+  edge cases, scenario thinking, lifecycle, meta-portfolio,
+  tricky/philosophical, portfolio-smart, cross-domain, and
+  real-time decision shapes.
+- **0 fabrications** across all 124 sessions.
+- **Multi-language support:** Hindi (Devanagari) and Hinglish
+  responses confirmed in production.
+- **Real-portfolio integration** verified across L26 / L28 /
+  L30 / L31 / L32: scenarios pull live holdings and compute
+  precise numbers (sector concentration, drawdown estimates,
+  rebalance gaps).
+- **2 fixes shipped this round:**
+  L27 — time phrasing routes to scheduled order (not limit price).
+  L32 — "alert" phrasing routes to notify-only workflow
+  (not buy order).
+
+---
+
 ## L10 — DSL early-bail + M1 over-confirm patterns
 
 Tackled the two open PARTIALs from L08/L09:
