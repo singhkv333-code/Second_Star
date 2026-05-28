@@ -459,6 +459,29 @@ amendment / cancel flows pass.
 - Live macro / real-time news feed — defer until a paid data
   source is wired.
 
+**T8 — Latency / token guardrail check (post-L14 build):**
+
+  Wall latency across 79 turns (L14 + FU + regression sweep):
+    p50: **8.8 s**  (vs ~10s L13 baseline — IMPROVED 12%)
+    p95: 17.4 s  (over the 14s soft cap; concentrated on
+                  multistep orchestrator turns)
+    p99: 21 s
+    avg: 8.9 s
+    >14s: 15% of turns
+    >20s: 1% of turns
+
+  Token usage across 305 LLM hops (last 90 minutes):
+    p50 input:  26474  (within 35k cap ✓)
+    p95 input:  30575  (within 35k cap ✓)
+    avg input:  22749  (unchanged from L13 baseline ✓)
+    avg output:   117  (well under per-turn cap ✓)
+    avg per-hop latency: 4032 ms
+
+  **Verdict:** within the +30-40% budget the user set. The orchestrator
+  adds latency on the heaviest 15% of turns; the median is FASTER
+  than baseline because the skeleton fast-path coverage improved.
+  Token usage unchanged. No remediation needed.
+
 ---
 
 ## L10 — DSL early-bail + M1 over-confirm patterns
