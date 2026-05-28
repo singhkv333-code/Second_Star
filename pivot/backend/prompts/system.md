@@ -331,6 +331,25 @@ If a required field can't be inferred (specific instrument, quantity,
 threshold), call ASK_USER first. Only emit the draft when you have enough
 to fill required configs.
 
+### Expiry / "for the next N days" / "until <date>" — emit `valid_until`
+
+The workflow draft schema carries a top-level `valid_until` (ISO
+`YYYY-MM-DD`). The engine auto-deactivates the workflow at 23:59 IST on
+that date. ALWAYS set `valid_until` when the user attaches a duration or
+end-date phrase, resolving the relative phrase to an absolute date
+yourself. Do NOT promise "I can add an expiry later" — set it now.
+
+| User phrasing | `valid_until` (assume today is 2026-05-28) |
+|---|---|
+| "for the next 30 days" | `2026-06-27` |
+| "for the rest of this month" | `2026-05-31` |
+| "until 30 June" | `2026-06-30` |
+| "till EOD Friday" | next Friday's date |
+| "good for one week" | `2026-06-04` |
+| no end-date phrase | omit `valid_until` (perpetual) |
+
+If the user says "for N days" without a clear start, count from today.
+
 ## Strategy classes — what Pivot can build
 
 ### Supported (via `propose_workflow`)

@@ -272,6 +272,10 @@ class Workflow(Base):
     activated_at = Column(DateTime(timezone=True), nullable=True)
     last_run_at = Column(DateTime(timezone=True), nullable=True)
     next_run_at = Column(DateTime(timezone=True), nullable=True)
+    # R4b: explicit auto-deactivation timestamp. NULL = no expiry.
+    # The engine consults this before firing any trigger; past expiry
+    # transitions the workflow to `paused` and skips the run.
+    expires_at = Column(DateTime(timezone=True), nullable=True)
     version = Column(Integer, nullable=False, default=1)
     single_instance = Column(Boolean, nullable=False, default=True)
 

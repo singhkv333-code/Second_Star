@@ -537,6 +537,14 @@ async def _propose_workflow(a, kt, db, uid):
             # falsely hiding the button for an unrelated bug here.
             payload["backtestable"] = True
             payload["backtest_blockers"] = []
+        # R4b: translate the LLM's valid_until (YYYY-MM-DD) into the
+        # row-level expires_at (ISO timestamp at 23:59 IST end-of-day)
+        # so the FE can POST it directly to /workflows without doing
+        # the date arithmetic. Engine deactivates past this instant.
+        try:
+            _stamp_expires_at(payload)
+        except Exception:
+            pass
         return {"success": True, "data": payload, "logiccard": None}
 
     # Legacy fallback — only `user_intent` provided. Runs the inner
@@ -572,7 +580,40 @@ async def _propose_workflow(a, kt, db, uid):
     except Exception:
         payload["backtestable"] = True
         payload["backtest_blockers"] = []
+    try:
+        _stamp_expires_at(payload)
+    except Exception:
+        pass
     return {"success": True, "data": payload, "logiccard": None}
+
+
+def _stamp_expires_at(payload: dict) -> None:
+    """R4b: derive ``expires_at`` (timestamp) from ``valid_until``
+    (YYYY-MM-DD) so the FE can POST it as-is on /workflows. Sets the
+    moment to 23:59 IST end-of-day on the named date — keeps "valid
+    till 30 June" intuitive for the user.
+
+    No-op when ``valid_until`` is missing or already a full ISO
+    timestamp. Failure is silently absorbed by the caller — the
+    workflow remains perpetual rather than blocking the draft.
+    """
+    raw = payload.get("valid_until")
+    if not raw or not isinstance(raw, str):
+        return
+    if payload.get("expires_at"):
+        return
+    from datetime import datetime, timedelta, timezone
+    # YYYY-MM-DD only — anything else is best left to the user/FE.
+    if len(raw) != 10 or raw[4] != "-" or raw[7] != "-":
+        return
+    try:
+        dt = datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        return
+    # 23:59 IST end-of-day → 18:29 UTC. IST = UTC+5:30.
+    ist = timezone(timedelta(hours=5, minutes=30))
+    eod_ist = dt.replace(hour=23, minute=59, second=0, tzinfo=ist)
+    payload["expires_at"] = eod_ist.astimezone(timezone.utc).isoformat()
 
 
 async def _backtest_workflow(a, kt, db, uid):

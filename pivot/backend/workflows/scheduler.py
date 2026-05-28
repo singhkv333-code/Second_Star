@@ -281,14 +281,43 @@ async def _poll_due_workflows() -> None:
 
     def _fetch_due() -> list[tuple[str, int]]:
         """Returns (workflow_id, step_index) pairs to fire. Runs in a
-        worker thread."""
+        worker thread.
+
+        R4b: also deactivates any workflow whose ``expires_at`` has
+        passed before harvesting due triggers, so an expired strategy
+        never fires its next tick."""
+        from sqlalchemy import or_
         db = SessionLocal()
         try:
+            # Auto-deactivate expired workflows. Single update keeps
+            # this cheap; the next poll cycle no longer sees them
+            # because of the status filter below.
+            expired = (
+                db.query(Workflow)
+                .filter(
+                    Workflow.status == WorkflowStatus.active,
+                    Workflow.expires_at.isnot(None),
+                    Workflow.expires_at <= fired_at,
+                )
+                .all()
+            )
+            if expired:
+                for wf in expired:
+                    wf.status = WorkflowStatus.paused  # type: ignore[assignment]
+                    wf.next_run_at = None  # type: ignore[assignment]
+                    for st in wf.steps:
+                        st.next_run_at = None  # type: ignore[assignment]
+                db.commit()
+
             rows = (
                 db.query(Workflow, WorkflowStep)
                 .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
                 .filter(
                     Workflow.status == WorkflowStatus.active,
+                    or_(
+                        Workflow.expires_at.is_(None),
+                        Workflow.expires_at > fired_at,
+                    ),
                     WorkflowStep.step_type.in_(
                         ["trigger.schedule", "trigger.market_relative_time"],
                     ),
@@ -339,6 +368,18 @@ async def _fire_one(
         try:
             wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
             if wf is None or wf.status != WorkflowStatus.active:
+                return None
+            # R4b: race-safe expiry check (the polling sweep already
+            # deactivates, but a fire can fall between sweeps).
+            if (
+                getattr(wf, "expires_at", None) is not None
+                and wf.expires_at <= fired_at  # type: ignore[operator]
+            ):
+                wf.status = WorkflowStatus.paused  # type: ignore[assignment]
+                wf.next_run_at = None  # type: ignore[assignment]
+                for st in wf.steps:
+                    st.next_run_at = None  # type: ignore[assignment]
+                db.commit()
                 return None
             run = WorkflowRun(
                 workflow_id=wf.id,
@@ -1084,6 +1125,17 @@ async def _fire_watch_run(
         try:
             wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
             if wf is None or wf.status != WorkflowStatus.active:
+                return None
+            # R4b: expiry guard — same race-safe check as _fire_one.
+            if (
+                getattr(wf, "expires_at", None) is not None
+                and wf.expires_at <= fired_at  # type: ignore[operator]
+            ):
+                wf.status = WorkflowStatus.paused  # type: ignore[assignment]
+                wf.next_run_at = None  # type: ignore[assignment]
+                for st in wf.steps:
+                    st.next_run_at = None  # type: ignore[assignment]
+                db.commit()
                 return None
             context: dict = {}
             if audit_context:

@@ -107,6 +107,8 @@ class WorkflowCreate(BaseModel):
     description: Optional[str] = None
     single_instance: bool = True
     steps: list[StepInput] = Field(default_factory=list)
+    # R4b: optional auto-deactivation timestamp. NULL = perpetual.
+    expires_at: Optional[datetime] = None
 
 
 class WorkflowPatch(BaseModel):
@@ -116,6 +118,7 @@ class WorkflowPatch(BaseModel):
     description: Optional[str] = None
     single_instance: Optional[bool] = None
     steps: Optional[list[StepInput]] = None
+    expires_at: Optional[datetime] = None
 
 
 class WorkflowSummary(BaseModel):
@@ -131,6 +134,7 @@ class WorkflowSummary(BaseModel):
     activated_at: Optional[datetime]
     last_run_at: Optional[datetime]
     next_run_at: Optional[datetime]
+    expires_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

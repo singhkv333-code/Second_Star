@@ -215,6 +215,7 @@ def _to_workflow_out(wf: Workflow) -> WorkflowOut:
         activated_at=wf.activated_at,
         last_run_at=wf.last_run_at,
         next_run_at=wf.next_run_at,
+        expires_at=getattr(wf, "expires_at", None),
         steps=[
             StepOut(
                 id=str(s.id),
@@ -243,6 +244,7 @@ def _to_workflow_summary(wf: Workflow) -> WorkflowSummary:
         activated_at=wf.activated_at,
         last_run_at=wf.last_run_at,
         next_run_at=wf.next_run_at,
+        expires_at=getattr(wf, "expires_at", None),
     )
 
 
@@ -329,6 +331,7 @@ def create_workflow(
         description=body.description,
         single_instance=body.single_instance,
         status=WorkflowStatus.draft,
+        expires_at=body.expires_at,
     )
     db.add(wf)
     db.flush()
@@ -417,6 +420,8 @@ def patch_workflow(
         wf.description = body.description
     if body.single_instance is not None:
         wf.single_instance = body.single_instance
+    if body.expires_at is not None:
+        wf.expires_at = body.expires_at
 
     if body.steps is not None:
         steps_in = [s.model_dump() for s in body.steps]
