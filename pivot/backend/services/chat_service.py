@@ -815,6 +815,65 @@ def _looks_like_agent_intent(message: str) -> bool:
     return _classify_intent(message) == "agent"
 
 
+# ── M1: unstructured clarification detector ────────────────────────
+#
+# Catches the failure shape "assistant writes a free-form question
+# instead of calling ASK_USER". When this is detected at the final-
+# text branch, the chat layer pushes a "USE ASK_USER" directive and
+# retries the hop once. Keeps clarifications structured so the
+# next-turn PendingResolution path resolves deterministically.
+_CLARIFY_PROSE_RE = re.compile(
+    r"\b(?:"
+    r"do\s+you\s+(?:want|mean)|"
+    r"did\s+you\s+mean|"
+    r"would\s+you\s+like|"
+    r"want\s+me\s+to|"
+    r"should\s+(?:i|it)|"
+    r"which\s+(?:one|of|symbol|stock|ticker)|"
+    r"how\s+(?:many|much)|"
+    r"what\s+(?:exact|specific|amount|quantity)|"
+    r"or\s+do\s+you\s+have|"
+    r"please\s+(?:confirm|share|specify|tell)|"
+    r"could\s+you\s+(?:confirm|share|specify|tell)|"
+    r"can\s+you\s+(?:confirm|share|specify|tell)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_unstructured_clarification(
+    text: str, tools_called: list[str], raw_data: dict,
+) -> bool:
+    """True when the assistant text is a free-form clarification
+    question AND no ASK_USER tool was called AND no card was
+    emitted. Forces an M1 retry that re-emits via ASK_USER."""
+    if not text:
+        return False
+    # If ASK_USER was already called this turn, the question is
+    # already structured.
+    if "ASK_USER" in (tools_called or []):
+        return False
+    # If a card / draft / order is rendering, the text is a
+    # caption alongside the card — not a clarification.
+    if isinstance(raw_data, dict):
+        render_hint = raw_data.get("_render_hint")
+        if render_hint in {
+            "workflow_draft_card", "logic_card",
+            "indicator_backtest_chart",
+        }:
+            return False
+    tail = text.rstrip()
+    # Strong signal: ends with "?".
+    if tail.endswith("?"):
+        return True
+    # Weaker signal: contains a clarification-shaped phrase
+    # AND a "?" appears anywhere in the text (the model may
+    # have written multiple sentences).
+    if "?" in text and _CLARIFY_PROSE_RE.search(text):
+        return True
+    return False
+
+
 # ── Reply-class classifier (R5) ─────────────────────────────────────
 #
 # `_classify_intent` decides whether to route the turn into a tool
@@ -986,6 +1045,12 @@ _INDEPENDENT_INTENT_RE = re.compile(
     # Bare data lookups: "tell me about X", "X price", "what's X at"
     r"|\btell\s+me\s+(?:more\s+)?about\b"
     r"|\bsnapshot\s+of\b|\bquote\s+for\b|\bprice\s+of\b"
+    # Price-asking variations: "what's the price", "what is X at",
+    # "current price", "live price". Common drift patterns after a
+    # draft that previously kept re-emitting the workflow.
+    r"|\bwhat'?s?\s+(?:the\s+)?(?:current|live)?\s*price\b"
+    r"|\bwhat'?s?\s+(?:it|\w+)\s+(?:trading\s+)?at\b"
+    r"|\bcurrent\s+(?:live\s+)?price\b|\blive\s+price\b"
     # Price-history / chart-data fetches. Without these, "show me
     # last week's price" / "chart of X" / "what was the price on
     # Friday" after a draft were treated as amendments and the
@@ -2855,6 +2920,11 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # M1: When the LLM writes a free-form question (assistant text
+        # ending with "?" / "do you want" / etc.) WITHOUT calling
+        # ASK_USER, the chat layer pushes a "USE ASK_USER" directive
+        # and forces one more hop. Flag prevents infinite recursion.
+        ask_user_retry_used = False
         # Track whether the previous hop emitted a macro-draft tool —
         # used to shrink max_output on the post-draft prose hop in
         # compact mode (the FE already has the card; prose can be
@@ -2943,6 +3013,39 @@ class ChatService:
                 if sanitised and text == _GENERIC_FALLBACK and tools_called:
                     text = _tool_summary_line(tools_called[-1], logiccard)
                     sanitised = False
+                # M1: detect unstructured clarification prose. If the
+                # text is question-shaped, ASK_USER was NOT called, and
+                # no draft/order card was emitted, push a "USE ASK_USER"
+                # directive and re-emit. Once-only retry.
+                if (
+                    not ask_user_retry_used
+                    and _looks_like_unstructured_clarification(
+                        text, tools_called, raw_data,
+                    )
+                ):
+                    ask_user_retry_used = True
+                    trace.event("ask_user.retry", text_preview=text[:120])
+                    messages.append(LLMMessage(
+                        role="assistant",
+                        content=text,
+                    ))
+                    messages.append(LLMMessage(
+                        role="system",
+                        content=(
+                            "## STRUCTURED ASK REQUIRED\n"
+                            "Your previous reply was a clarification "
+                            "question written as prose. The chat layer "
+                            "requires ALL clarifications to go through "
+                            "the `ASK_USER` tool so the next-turn "
+                            "resolution path can fire deterministically. "
+                            "Re-emit your question by calling ASK_USER "
+                            "with: question (verbatim), options (if any "
+                            "obvious choices), default_on_yes (the "
+                            "single most likely answer). Do NOT write "
+                            "the question as text again."
+                        ),
+                    ))
+                    continue
                 # Always ensure the assistant text describes any widget
                 # that's about to render. Prevents a card-with-no-text
                 # bubble that reads as a glitch in the chat.

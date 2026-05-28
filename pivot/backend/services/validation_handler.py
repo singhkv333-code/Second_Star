@@ -27,6 +27,7 @@ it no longer retries.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -531,7 +532,95 @@ async def execute_with_completeness(
     )
     out = GuardedToolResult.from_tool_result(tool_name, args, result)
     out.latency_ms = int((time.monotonic() - started) * 1000)
+    # M2: post-execution no-default validator. For tools that emit a
+    # draft, check whether action.place_order.quantity is a suspicious
+    # default (1, 10) NOT present in the user_message. Convert to a
+    # structured clarification so the LLM asks instead of shipping a
+    # silent default. Skip when user clearly named a quantity.
+    if (
+        out.success
+        and isinstance(out.data, dict)
+        and _draft_has_suspicious_qty_default(out.data, user_message)
+    ):
+        out.success = False
+        out.needs_clarification = True
+        out.question = _qty_clarification_question(out.data)
+        out.data = {}
     return out
+
+
+_USER_QTY_PATTERNS = re.compile(
+    # Explicit share/lot/unit/quantity counts
+    r"\b\d+\s*(?:shares?|share|qty|quantity|lots?|units?|unit)\b"
+    # "buy 10 INFY", "sell 5 TCS" — numeric immediately after action verb
+    r"|\b(?:buy|buys|buying|sell|sells|selling|short|exit|place)\s+"
+    r"(?:a\s+)?\d+\b"
+    # Rupee budget
+    r"|[₹$]\s*[\d,]+|\b(?:rs\.?|inr|usd)\s*[\d,]+\b"
+    # "₹X worth" / "₹X of"
+    r"|[\d,]+\s+(?:k|K)\b|\blakh|\bcrore",
+    re.IGNORECASE,
+)
+
+
+def _draft_has_suspicious_qty_default(
+    payload: dict, user_message: str,
+) -> bool:
+    """True when the draft contains an action.place_order with
+    quantity == 1 or 10 (common LLM defaults) AND the user_message
+    contains NO explicit quantity / rupee / lot reference. The
+    chat layer will turn this into a clarification question so
+    the user picks a real size before activation."""
+    if not isinstance(payload, dict):
+        return False
+    steps = payload.get("steps") or []
+    if not isinstance(steps, list):
+        return False
+    msg = user_message or ""
+    if _USER_QTY_PATTERNS.search(msg):
+        return False
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        if s.get("step_type") != "action.place_order":
+            continue
+        cfg = s.get("config") or {}
+        qty = cfg.get("quantity")
+        # Mustache refs are runtime-resolved; not a default. Skip.
+        if isinstance(qty, str):
+            continue
+        try:
+            qty_int = int(qty) if qty is not None else None
+        except (TypeError, ValueError):
+            continue
+        # Conservative: only flag the canonical default values.
+        # qty=5 or qty=15 etc. are unlikely to be silent defaults.
+        if qty_int in (1, 10):
+            return True
+    return False
+
+
+def _qty_clarification_question(payload: dict) -> str:
+    """Render a focused qty-clarification question naming the
+    first symbol mentioned in the draft."""
+    sym = ""
+    for s in (payload.get("steps") or []):
+        if not isinstance(s, dict):
+            continue
+        if s.get("step_type") == "action.place_order":
+            sym = (s.get("config") or {}).get("symbol", "")
+            break
+    if sym:
+        return (
+            f"How many shares of {sym} should the agent buy per fire? "
+            "(I won't default to 1 — set the real size or give me a "
+            "rupee budget like ₹10,000.)"
+        )
+    return (
+        "How many shares should the agent buy per fire? "
+        "(I won't default to 1 — set the real size or give me a "
+        "rupee budget like ₹10,000.)"
+    )
 
 
 def _description_for_tool(tool_name: str) -> Optional[str]:

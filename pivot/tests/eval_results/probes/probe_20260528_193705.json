@@ -1,0 +1,345 @@
+[
+  {
+    "file": "/tmp/probe_M1_retest.json",
+    "data": {
+      "results": [
+        {
+          "name": "M1_01_trailing_sl",
+          "conv_id": "probe_6946efc317",
+          "turns": [
+            {
+              "prompt": "Set a 2% trailing stop on my INFY holding",
+              "response": "Do you want the 2% trailing stop to protect your entire INFY holding, or only part of it?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 4387.8458330000285,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4241,
+                "llm_hop_1_cached": 22528,
+                "tool_ASK_USER": 0,
+                "total": 4378
+              },
+              "latency_ms_server": 4378
+            }
+          ]
+        },
+        {
+          "name": "M1_02_multi_branch_overconfirm",
+          "conv_id": "probe_62b3ee3281",
+          "turns": [
+            {
+              "prompt": "Every Monday at open buy 5 NIFTYBEES; on Friday close squareoff full position",
+              "response": "That instruction is almost complete: I have NIFTYBEES and the Monday-open buy plus Friday-close squareoff. The one thing to pin down is the start date or date range; if you want, I can run it from the first available trading day onward.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 7137.040583009366,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3206,
+                "llm_hop_1_cached": 20992,
+                "tool_propose_dsl_workflow": 2053,
+                "total": 7122
+              },
+              "latency_ms_server": 7122
+            }
+          ]
+        },
+        {
+          "name": "M1_03_clarify_followup_prose",
+          "conv_id": "probe_2e2db0c670",
+          "turns": [
+            {
+              "prompt": "Build an agent that buys M&M when RSI<30",
+              "response": "Did you mean `M&M` as `MAHINDRA`/`M&M` (Mahindra & Mahindra), and how many shares should the agent buy when RSI < 30?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3128.241333004553,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3084,
+                "llm_hop_1_cached": 23936,
+                "tool_ASK_USER": 0,
+                "total": 3104
+              },
+              "latency_ms_server": 3104
+            },
+            {
+              "prompt": "actually use mahindra finance",
+              "response": "How many shares of MAHINDRA FINANCE should the agent buy when RSI < 30?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3547.671625012299,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3510,
+                "llm_hop_1_cached": 25472,
+                "tool_ASK_USER": 0,
+                "total": 3531
+              },
+              "latency_ms_server": 3531
+            }
+          ]
+        },
+        {
+          "name": "M1_04_drift_normal",
+          "conv_id": "probe_defd13a610",
+          "turns": [
+            {
+              "prompt": "Buy 5 INFY when RSI<30",
+              "response": "Drafted: `INFY` buy 5 when RSI(14) < 30. Click Activate.",
+              "tools": [
+                "propose_threshold_order"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 6841.825207986403,
+              "raw_data": {
+                "propose_threshold_order": {
+                  "name": "INFY RSI(14) < 30 \u2192 buy 5 shares",
+                  "description": "Buy 5 shares of INFY when RSI(14) < 30.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) < 30",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": "<",
+                        "value": 30.0
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 5 shares INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "order_type": "market",
+                        "requires_approval": false,
+                        "quantity": 5
+                      }
+                    }
+                  ],
+                  "rationale": "Trigger fires when RSI(14) < 30; market buy for 5 shares of INFY.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "INFY RSI(14) < 30 \u2192 buy 5 shares",
+                "description": "Buy 5 shares of INFY when RSI(14) < 30.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) < 30",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": "<",
+                      "value": 30.0
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 5 shares INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "order_type": "market",
+                      "requires_approval": false,
+                      "quantity": 5
+                    }
+                  }
+                ],
+                "rationale": "Trigger fires when RSI(14) < 30; market buy for 5 shares of INFY.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2786,
+                "llm_hop_1_cached": 24448,
+                "tool_propose_threshold_order": 7,
+                "llm_hop_2": 3991,
+                "llm_hop_2_cached": 24576,
+                "total": 6823
+              },
+              "latency_ms_server": 6823
+            },
+            {
+              "prompt": "what's the price",
+              "response": "Drafted: `INFY` buy 5 when RSI(14) < 30.",
+              "tools": [
+                "propose_threshold_order"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 6607.060208014445,
+              "raw_data": {
+                "propose_threshold_order": {
+                  "name": "INFY RSI(14) < 30 \u2192 buy 5 shares",
+                  "description": "Buy 5 shares of INFY when RSI(14) < 30.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.indicator",
+                      "label": "RSI(14) < 30",
+                      "config": {
+                        "symbol": "INFY",
+                        "indicator": "rsi",
+                        "period": 14,
+                        "operator": "<",
+                        "value": 30.0
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy 5 shares INFY",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "order_type": "market",
+                        "requires_approval": false,
+                        "quantity": 5
+                      }
+                    }
+                  ],
+                  "rationale": "Trigger fires when RSI(14) < 30; market buy for 5 shares of INFY.",
+                  "warnings": [],
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "INFY RSI(14) < 30 \u2192 buy 5 shares",
+                "description": "Buy 5 shares of INFY when RSI(14) < 30.",
+                "steps": [
+                  {
+                    "step_type": "trigger.indicator",
+                    "label": "RSI(14) < 30",
+                    "config": {
+                      "symbol": "INFY",
+                      "indicator": "rsi",
+                      "period": 14,
+                      "operator": "<",
+                      "value": 30.0
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy 5 shares INFY",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "order_type": "market",
+                      "requires_approval": false,
+                      "quantity": 5
+                    }
+                  }
+                ],
+                "rationale": "Trigger fires when RSI(14) < 30; market buy for 5 shares of INFY.",
+                "warnings": [],
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3133,
+                "llm_hop_1_cached": 23552,
+                "tool_propose_threshold_order": 0,
+                "llm_hop_2": 3421,
+                "llm_hop_2_cached": 24064,
+                "total": 6590
+              },
+              "latency_ms_server": 6590
+            }
+          ]
+        },
+        {
+          "name": "M1_05_pure_explainer",
+          "conv_id": "probe_11f399f44f",
+          "turns": [
+            {
+              "prompt": "Explain how SIPs work",
+              "response": "## SIP basics\n\nA **SIP** is a systematic investment plan: you commit to invest a fixed rupee amount at regular intervals, such as daily, weekly, or monthly. Instead of choosing the number of units yourself, the platform typically uses your rupee amount at the execution time to buy as many units as that amount can cover at the live market price.\n\n## How it works in practice\n\n- You choose the **instrument**: for example, an ETF, stock, or mutual fund.\n- You set the **amount per run**: for example, \u20b95,000 each month.\n- You set the **frequency**: daily, weekly, or monthly.\n- On each scheduled date, the order is placed automatically.\n- Because the price changes, the number of units bought will also change from one execution to the next.\n\n## Why people use SIPs\n\n- It reduces the need to time the market.\n- You invest consistently, which can help build discipline.\n- Buying at different price points can smooth out the effect of volatility over time.\n\n## Important detail\n\nA SIP is not the same as a one-time buy order. It is a recurring instruction, and the exact quantity is calculated at each run based on the live price then.\n\nIf you want, I can also explain the difference between a SIP in mutual funds and a recurring buy in a stock or ETF.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 6400.11279200553,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 6364,
+                "total": 6386
+              },
+              "latency_ms_server": 6386
+            }
+          ]
+        },
+        {
+          "name": "M1_06_smalltalk",
+          "conv_id": "probe_83baa6c554",
+          "turns": [
+            {
+              "prompt": "hi",
+              "response": "Hi! Tell me what you'd like to do \u2014 check a price, build an agent, look at your portfolio, or run a backtest.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 16.56129100592807,
+              "raw_data": {},
+              "latency_breakdown": {
+                "fast_path": 0,
+                "total": 0
+              },
+              "latency_ms_server": 0
+            }
+          ]
+        },
+        {
+          "name": "M1_07_market_status_q",
+          "conv_id": "probe_dc1cbb3164",
+          "turns": [
+            {
+              "prompt": "Is the market open right now",
+              "response": "No \u2014 NSE is closed right now. Current IST time is 29 May 2026, 01:07.",
+              "tools": [
+                "get_market_status"
+              ],
+              "render_hint": null,
+              "wall_ms": 7654.9271660041995,
+              "raw_data": {
+                "get_market_status": {
+                  "open": false,
+                  "current_time_ist": "29 May 2026, 01:07:02 IST"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3942,
+                "tool_get_market_status": 0,
+                "llm_hop_2": 3673,
+                "llm_hop_2_cached": 25088,
+                "total": 7644
+              },
+              "latency_ms_server": 7644
+            }
+          ]
+        }
+      ],
+      "user_id": 136
+    }
+  }
+]
