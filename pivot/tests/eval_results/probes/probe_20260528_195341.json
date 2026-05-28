@@ -1,0 +1,621 @@
+[
+  {
+    "file": "/tmp/probe_L10_retest.json",
+    "data": {
+      "results": [
+        {
+          "name": "L10_01_trailing_sl",
+          "conv_id": "probe_9ff334ca8e",
+          "turns": [
+            {
+              "prompt": "Set a 2% trailing stop on my INFY holding",
+              "response": "Got it \u2014 I can set a 2% trailing stop on your INFY holding as an exit action. If you want, I\u2019ll go ahead with that interpretation now.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 6019.738208007766,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3927,
+                "llm_hop_1_cached": 22528,
+                "tool_propose_dsl_workflow": 6,
+                "total": 6003
+              },
+              "latency_ms_server": 6003
+            }
+          ]
+        },
+        {
+          "name": "L10_02_multi_branch",
+          "conv_id": "probe_2a51ba5226",
+          "turns": [
+            {
+              "prompt": "Every Monday at open buy 5 NIFTYBEES; on Friday close squareoff full NIFTYBEES",
+              "response": "I can run that as-is: every Monday at the open, buy 5 NIFTYBEES, and every Friday close, square off the full NIFTYBEES position. If you meant a different closing rule than full squareoff, say so and I\u2019ll adjust it.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 7323.666625015903,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3298,
+                "llm_hop_1_cached": 20992,
+                "tool_propose_dsl_workflow": 2183,
+                "total": 7258
+              },
+              "latency_ms_server": 7258
+            }
+          ]
+        },
+        {
+          "name": "L10_03_dsl_compound",
+          "conv_id": "probe_04107fed32",
+          "turns": [
+            {
+              "prompt": "Buy 10 RELIANCE when RSI<30 AND MACD line > signal",
+              "response": "Drafted: `RELIANCE` buy 10 on the RSI/MACD condition. Review and activate when ready.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 9560.594292008318,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "f610be48-b756-451f-a8ab-9a16fd182347",
+                  "name": "RELIANCE RSI and MACD buy",
+                  "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "logic",
+                          "op": "and",
+                          "operands": [
+                            {
+                              "type": "comparison",
+                              "op": "<",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "rsi",
+                                "symbol": "RELIANCE",
+                                "period": 14
+                              },
+                              "right": {
+                                "type": "constant",
+                                "value": 30
+                              }
+                            },
+                            {
+                              "type": "comparison",
+                              "op": ">",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 26,
+                                "component": "macd"
+                              },
+                              "right": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 26,
+                                "component": "signal"
+                              }
+                            }
+                          ]
+                        },
+                        "symbol": "RELIANCE",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2802,
+                    "output_tokens": 121,
+                    "latency_ms": 1870.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T19:53:12.184729Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "f610be48-b756-451f-a8ab-9a16fd182347",
+                "name": "RELIANCE RSI and MACD buy",
+                "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "logic",
+                        "op": "and",
+                        "operands": [
+                          {
+                            "type": "comparison",
+                            "op": "<",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "rsi",
+                              "symbol": "RELIANCE",
+                              "period": 14
+                            },
+                            "right": {
+                              "type": "constant",
+                              "value": 30
+                            }
+                          },
+                          {
+                            "type": "comparison",
+                            "op": ">",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 26,
+                              "component": "macd"
+                            },
+                            "right": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 26,
+                              "component": "signal"
+                            }
+                          }
+                        ]
+                      },
+                      "symbol": "RELIANCE",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "RSI(14) of RELIANCE < 30 AND line MACD(26) of RELIANCE > signal MACD(26) of RELIANCE",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2802,
+                  "output_tokens": 121,
+                  "latency_ms": 1870.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T19:53:12.184729Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4052,
+                "llm_hop_1_cached": 24448,
+                "tool_propose_dsl_workflow": 2001,
+                "llm_hop_2": 3413,
+                "llm_hop_2_cached": 24576,
+                "total": 9527
+              },
+              "latency_ms_server": 9527
+            }
+          ]
+        },
+        {
+          "name": "L10_04_dsl_with_trail_exit",
+          "conv_id": "probe_38d7080ad0",
+          "turns": [
+            {
+              "prompt": "Buy 10 RELIANCE when RSI<30 AND MACD line > signal, with a 5% trailing stop from peak",
+              "response": "Drafted: `RELIANCE` buy 10 with RSI/MACD entry and a 5% trailing exit. Click Activate.\n\nThis is automation of your instructions, not financial advice.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 11604.065291990992,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "3dec0918-2fc4-4fad-bbc6-af2c3646689c",
+                  "name": "RELIANCE RSI and MACD buy with trailing stop",
+                  "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE \u00b7 Exit: drawdown from peak \u2265 0.05",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "logic",
+                          "op": "and",
+                          "operands": [
+                            {
+                              "type": "comparison",
+                              "op": "<",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "rsi",
+                                "symbol": "RELIANCE",
+                                "period": 14
+                              },
+                              "right": {
+                                "type": "constant",
+                                "value": 30
+                              }
+                            },
+                            {
+                              "type": "comparison",
+                              "op": ">",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 12,
+                                "component": "macd"
+                              },
+                              "right": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "RELIANCE",
+                                "period": 12,
+                                "component": "signal"
+                              }
+                            }
+                          ]
+                        },
+                        "symbol": "RELIANCE",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    },
+                    {
+                      "step_type": "trigger.exit_compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": ">=",
+                          "left": {
+                            "type": "position",
+                            "field": "drawdown_from_peak_pct"
+                          },
+                          "right": {
+                            "type": "constant",
+                            "value": 0.05
+                          }
+                        },
+                        "target_symbol": "RELIANCE"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.portfolio",
+                      "config": {}
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "RELIANCE",
+                        "side": "sell",
+                        "quantity": "{{ context.3.holdings.RELIANCE.quantity }}",
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE",
+                  "exit_readback": "drawdown from peak \u2265 0.05",
+                  "translation_meta": {
+                    "input_tokens": 2802,
+                    "output_tokens": 121,
+                    "latency_ms": 2501.0
+                  },
+                  "exit_translation_meta": {
+                    "input_tokens": 2826,
+                    "output_tokens": 44,
+                    "latency_ms": 1982.0
+                  },
+                  "created_at": "2026-05-28T19:53:23.804445Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "3dec0918-2fc4-4fad-bbc6-af2c3646689c",
+                "name": "RELIANCE RSI and MACD buy with trailing stop",
+                "description": "Entry: RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE \u00b7 Exit: drawdown from peak \u2265 0.05",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "logic",
+                        "op": "and",
+                        "operands": [
+                          {
+                            "type": "comparison",
+                            "op": "<",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "rsi",
+                              "symbol": "RELIANCE",
+                              "period": 14
+                            },
+                            "right": {
+                              "type": "constant",
+                              "value": 30
+                            }
+                          },
+                          {
+                            "type": "comparison",
+                            "op": ">",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 12,
+                              "component": "macd"
+                            },
+                            "right": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "RELIANCE",
+                              "period": 12,
+                              "component": "signal"
+                            }
+                          }
+                        ]
+                      },
+                      "symbol": "RELIANCE",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  },
+                  {
+                    "step_type": "trigger.exit_compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": ">=",
+                        "left": {
+                          "type": "position",
+                          "field": "drawdown_from_peak_pct"
+                        },
+                        "right": {
+                          "type": "constant",
+                          "value": 0.05
+                        }
+                      },
+                      "target_symbol": "RELIANCE"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.portfolio",
+                    "config": {}
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "RELIANCE",
+                      "side": "sell",
+                      "quantity": "{{ context.3.holdings.RELIANCE.quantity }}",
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "RSI(14) of RELIANCE < 30 AND line MACD(12) of RELIANCE > signal MACD(12) of RELIANCE",
+                "exit_readback": "drawdown from peak \u2265 0.05",
+                "translation_meta": {
+                  "input_tokens": 2802,
+                  "output_tokens": 121,
+                  "latency_ms": 2501.0
+                },
+                "exit_translation_meta": {
+                  "input_tokens": 2826,
+                  "output_tokens": 44,
+                  "latency_ms": 1982.0
+                },
+                "created_at": "2026-05-28T19:53:23.804445Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3408,
+                "llm_hop_1_cached": 24448,
+                "tool_propose_dsl_workflow": 4582,
+                "llm_hop_2": 3437,
+                "llm_hop_2_cached": 24576,
+                "total": 11514
+              },
+              "latency_ms_server": 11514
+            }
+          ]
+        },
+        {
+          "name": "L10_05_cross_symbol",
+          "conv_id": "probe_c4ed33b68d",
+          "turns": [
+            {
+              "prompt": "Buy 10 HDFCBANK when ICICIBANK drops 3% intraday",
+              "response": "Drafted: `HDFCBANK` buy 10 on ICICIBANK\u2019s 3% intraday drop. Click Activate.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 8534.318999998504,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "941f9f5d-0602-4f61-bd21-347833b76951",
+                  "name": "HDFCBANK on ICICIBANK intraday drop",
+                  "description": "Entry: gap of ICICIBANK \u2264 -0.03",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": "<=",
+                          "left": {
+                            "type": "gap",
+                            "symbol": "ICICIBANK"
+                          },
+                          "right": {
+                            "type": "constant",
+                            "value": -0.03
+                          }
+                        },
+                        "symbol": "HDFCBANK",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "HDFCBANK",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "gap of ICICIBANK \u2264 -0.03",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2811,
+                    "output_tokens": 50,
+                    "latency_ms": 1973.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T19:53:32.346118Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "941f9f5d-0602-4f61-bd21-347833b76951",
+                "name": "HDFCBANK on ICICIBANK intraday drop",
+                "description": "Entry: gap of ICICIBANK \u2264 -0.03",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": "<=",
+                        "left": {
+                          "type": "gap",
+                          "symbol": "ICICIBANK"
+                        },
+                        "right": {
+                          "type": "constant",
+                          "value": -0.03
+                        }
+                      },
+                      "symbol": "HDFCBANK",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "HDFCBANK",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "gap of ICICIBANK \u2264 -0.03",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2811,
+                  "output_tokens": 50,
+                  "latency_ms": 1973.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T19:53:32.346118Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2927,
+                "llm_hop_1_cached": 23424,
+                "tool_propose_dsl_workflow": 2047,
+                "llm_hop_2": 3420,
+                "llm_hop_2_cached": 24064,
+                "total": 8471
+              },
+              "latency_ms_server": 8471
+            }
+          ]
+        },
+        {
+          "name": "L10_06_trail_exit_on_buy",
+          "conv_id": "probe_799f627582",
+          "turns": [
+            {
+              "prompt": "Buy 5 INFY when RSI < 30, exit when drawdown from peak >= 5%",
+              "response": "That reads as a stop-loss for an existing INFY holding rather than a fresh entry: I can set it to buy 5 INFY and exit if the peak-to-current drawdown hits 5%. If you meant a new entry too, I\u2019ll need the exact buy trigger; otherwise I can run it as the holding rule you gave.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 5436.876666994067,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2850,
+                "llm_hop_1_cached": 24448,
+                "tool_propose_dsl_workflow": 0,
+                "total": 5374
+              },
+              "latency_ms_server": 5374
+            }
+          ]
+        }
+      ],
+      "user_id": 144
+    }
+  }
+]

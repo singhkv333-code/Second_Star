@@ -840,13 +840,29 @@ _CLARIFY_PROSE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "If you want, I'll proceed" / "I can run that as-is" / "I'll set
+# that up" — non-question prose offering an action without doing
+# anything. Often appears after a tool error the model didn't
+# recover from. Treated as unstructured clarification so M1
+# re-emits via the appropriate tool.
+_OFFER_TO_ACT_RE = re.compile(
+    r"\bif\s+you\s+want[,\.\s]+i('|')?(?:ll|\s*ll|\s*will|\s+can)\b"
+    r"|\bi\s+can\s+(?:run\s+(?:it|that)|set|apply|proceed|go\s+ahead|"
+    r"do\s+(?:it|that))[^.]*?\bas[\s-]*is\b"
+    r"|\bi('|')?(?:ll|\s*ll)\s+(?:proceed|run|set|apply|go|do)\b[^.]*?"
+    r"\bas[\s-]*is\b"
+    r"|\bi('|')?(?:ll|\s*ll)\s+(?:treat|interpret)\s+(?:that|it|this)\s+as\b",
+    re.IGNORECASE,
+)
+
 
 def _looks_like_unstructured_clarification(
     text: str, tools_called: list[str], raw_data: dict,
 ) -> bool:
-    """True when the assistant text is a free-form clarification
-    question AND no ASK_USER tool was called AND no card was
-    emitted. Forces an M1 retry that re-emits via ASK_USER."""
+    """True when the assistant text is a free-form clarification or
+    over-confirmation offer-to-act AND no ASK_USER tool was called
+    AND no card was emitted. Forces an M1 retry that re-emits via
+    the appropriate tool."""
     if not text:
         return False
     # If ASK_USER was already called this turn, the question is
@@ -870,6 +886,11 @@ def _looks_like_unstructured_clarification(
     # AND a "?" appears anywhere in the text (the model may
     # have written multiple sentences).
     if "?" in text and _CLARIFY_PROSE_RE.search(text):
+        return True
+    # Over-confirmation: "If you want, I'll proceed" / "I can run
+    # that as-is" — model is offering to act without doing anything.
+    # Often follows a tool error the model didn't recover from.
+    if _OFFER_TO_ACT_RE.search(text):
         return True
     return False
 

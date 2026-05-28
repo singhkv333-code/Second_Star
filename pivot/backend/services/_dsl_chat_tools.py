@@ -440,6 +440,63 @@ async def propose_dsl_workflow(args: dict) -> dict:
             "symbol the action fires on."
         )
 
+    # Early-bail: trailing-stop / exit-only intents on a holding
+    # belong in propose_holding_action, not DSL. The DSL requires
+    # an entry condition; "set 2% trailing stop on my INFY" has no
+    # entry. The LLM keeps picking DSL anyway, so refuse here with
+    # a structured route hint.
+    _COMBINED = (condition + " " + exit_condition_text).lower()
+    _IS_TRAILING_STOP = bool(re.search(
+        r"\btrailing\s+(?:stop|sl)|\btrail\s+(?:a\s+)?\d|"
+        r"\b\d+%?\s+from\s+(?:peak|high|top)|"
+        r"\bdrawdown\s+from\s+peak\b",
+        _COMBINED,
+    ))
+    _HAS_HOLDING_REF = bool(re.search(
+        r"\b(?:my|existing|current)\s+(?:position|holding|stake)\b|"
+        r"\bon\s+my\s+\w+\s+(?:position|holding|stake)?\b",
+        _COMBINED,
+    ))
+    _MISSING_ENTRY_VERB = not re.search(
+        r"\b(?:buy|enter|long|when|if|whenever|crosses?|>|<|"
+        r"above|below|reaches?|hits?|breaches?)\b",
+        condition.lower(),
+    )
+    if _IS_TRAILING_STOP and (_HAS_HOLDING_REF or _MISSING_ENTRY_VERB):
+        raise ValueError(
+            "propose_dsl_workflow needs an ENTRY condition (buy/enter "
+            "trigger), but the prompt is exit-only / a trailing stop "
+            "on an existing holding. Use propose_holding_action with "
+            "action_kind='set_stoploss' and sl_offset_pct=N for "
+            "trailing-percentage stops. If this is part of a fresh "
+            "buy-entry workflow, include both entry AND exit "
+            "conditions in this tool's args (condition='when X', "
+            "exit_condition='trail N% from peak')."
+        )
+
+    # Multi-trigger semicolon detector — "Every Monday at open buy 5
+    # NIFTYBEES; on Friday close squareoff full NIFTYBEES" packs TWO
+    # time-anchored triggers into one condition string. DSL is
+    # single-trigger. Refuse and point at propose_workflow.
+    _SEMI_PARTS = [p.strip() for p in re.split(r"[;]+", condition) if p.strip()]
+    if len(_SEMI_PARTS) >= 2:
+        # Each part has its own time/condition anchor → looks like
+        # branches, not a single compound condition.
+        _ANCHOR_RE = re.compile(
+            r"\b(?:every|at\s+(?:open|close|\d)|on\s+(?:mon|tue|wed|"
+            r"thu|fri|sat|sun)|when|if)\b",
+            re.IGNORECASE,
+        )
+        if all(_ANCHOR_RE.search(p) for p in _SEMI_PARTS):
+            raise ValueError(
+                f"propose_dsl_workflow is single-trigger but the "
+                f"prompt has {len(_SEMI_PARTS)} semicolon-separated "
+                "trigger clauses, each with its own anchor (time / "
+                "schedule / condition). Use propose_workflow with "
+                "one branch per clause — each branch is a "
+                "(trigger.* + action.*) pair."
+            )
+
     # ── Multi-symbol guard ────────────────────────────────────────
     # propose_dsl_workflow is SINGLE-ACTION-SYMBOL: one entry trigger
     # fires actions on the primary symbol, optionally with one exit
