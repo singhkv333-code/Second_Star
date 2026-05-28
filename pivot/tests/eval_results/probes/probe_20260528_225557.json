@@ -1,0 +1,525 @@
+[
+  {
+    "file": "/tmp/probe_L32_realtime.json",
+    "data": {
+      "results": [
+        {
+          "name": "L32_01_quick_decision",
+          "conv_id": "probe_5085b228ec",
+          "turns": [
+            {
+              "prompt": "Quick decision needed \u2014 INFY just dropped 3%. Buy more or wait?",
+              "response": "I cannot make that decision for you, but a 3% drop in `INFY` is large enough to be worth checking whether it is a broad market move or company-specific news before adding. If you want, I can pull the latest news and a price snapshot, then help you frame the choice around your time horizon and risk tolerance.",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 12074.36520900228,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 7447,
+                "llm_hop_1_cached": 11264,
+                "llm_hop_2": 4482,
+                "llm_hop_2_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 12061
+              },
+              "latency_ms_server": 12061
+            }
+          ]
+        },
+        {
+          "name": "L32_02_morning_brief",
+          "conv_id": "probe_c080f40858",
+          "turns": [
+            {
+              "prompt": "Give me a 30-second morning brief on my portfolio.",
+              "response": "Your portfolio is at **\u20b977,945**, up **\u20b9294 today** and **\u20b93,355 overall** (**+4.5%**). You hold **5 names**; the largest positions are HDFCBANK, TCS, and INFY, so the book is fairly concentrated in financials and IT.",
+              "tools": [
+                "get_portfolio_summary"
+              ],
+              "render_hint": null,
+              "wall_ms": 6275.603457994293,
+              "raw_data": {
+                "get_portfolio_summary": {
+                  "total_value": 77945.0,
+                  "invested_value": 74590.0,
+                  "total_pnl": 3355.0,
+                  "total_pnl_pct": 4.5,
+                  "day_pnl": 294.0,
+                  "num_holdings": 5
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3185,
+                "llm_hop_1_cached": 9728,
+                "tool_get_portfolio_summary": 3,
+                "llm_hop_2": 2985,
+                "llm_hop_2_cached": 26112,
+                "total": 6244
+              },
+              "latency_ms_server": 6244
+            }
+          ]
+        },
+        {
+          "name": "L32_03_signal_check",
+          "conv_id": "probe_a830186ec7",
+          "turns": [
+            {
+              "prompt": "Anything urgent in my portfolio today that needs attention?",
+              "response": "Nothing looks urgent from the portfolio summary alone: you are up **\u20b9294 today** and **\u20b93,355 overall** on **\u20b977,945** total value. To check for actual issues like concentration, tax-loss candidates, or a holding-specific problem, I can break down holdings or sector exposure next.",
+              "tools": [
+                "get_portfolio_summary"
+              ],
+              "render_hint": null,
+              "wall_ms": 6083.6058749991935,
+              "raw_data": {
+                "get_portfolio_summary": {
+                  "total_value": 77945.0,
+                  "invested_value": 74590.0,
+                  "total_pnl": 3355.0,
+                  "total_pnl_pct": 4.5,
+                  "day_pnl": 294.0,
+                  "num_holdings": 5
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2881,
+                "llm_hop_1_cached": 26112,
+                "tool_get_portfolio_summary": 0,
+                "llm_hop_2": 3141,
+                "llm_hop_2_cached": 26112,
+                "total": 6065
+              },
+              "latency_ms_server": 6065
+            }
+          ]
+        },
+        {
+          "name": "L32_04_quick_summary",
+          "conv_id": "probe_dd2c88c70c",
+          "turns": [
+            {
+              "prompt": "TL;DR of HDFCBANK fundamentals.",
+              "response": "## HDFCBANK fundamentals \u2014 TL;DR\n\nHDFCBANK is a **large, retail-heavy private bank** with a strong deposit franchise, broad branch distribution, and a reputation for conservative underwriting. Its fundamentals are typically anchored by **steady loan growth, strong CASA deposits, healthy asset quality, and consistent profitability** rather than high-risk, high-growth bets.\n\n## What matters most\n\n- **Business mix:** Core lending is diversified across retail, corporate, and SME segments, with retail usually the most important long-term driver.\n- **Liability strength:** A strong deposit base and CASA ratio help keep funding costs competitive.\n- **Asset quality:** The key watchpoint is whether slippages stay contained as the book grows.\n- **Profitability:** Net interest margin, fee income, and operating efficiency are the main levers.\n- **Capital position:** The bank usually maintains a solid capital buffer, which supports growth and resilience.\n\n## How to read it\n\nFor HDFCBANK, the market generally cares less about a single quarter\u2019s spike and more about **consistency**: loan growth, deposit growth, margin stability, and bad-loan trends. If those stay healthy, the stock tends to be viewed as a quality compounder.\n\n## Main risks\n\n- Margin compression if funding costs rise faster than loan yields\n- Asset-quality deterioration in unsecured or stressed segments\n- Slower deposit growth versus loan growth\n- Regulatory or macro pressure on banking spreads\n\nIf you want, I can also give you a **valuation-focused TL;DR** or a **bull vs bear case** on HDFCBANK.",
+              "tools": [
+                "get_live_price"
+              ],
+              "render_hint": null,
+              "wall_ms": 8830.975457996828,
+              "raw_data": {
+                "get_live_price": {
+                  "symbol": "HDFCBANK",
+                  "ltp": 759.15,
+                  "change_pct": -2.7,
+                  "source": "yfinance"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2827,
+                "llm_hop_1_cached": 11776,
+                "tool_get_live_price": 984,
+                "llm_hop_2": 4950,
+                "llm_hop_2_cached": 28160,
+                "total": 8798
+              },
+              "latency_ms_server": 8798
+            }
+          ]
+        },
+        {
+          "name": "L32_05_micro_action",
+          "conv_id": "probe_30ba406031",
+          "turns": [
+            {
+              "prompt": "Set me a price alert on INFY when it crosses 1200.",
+              "response": "Drafted: `INFY` price alert at `\u20b91,200`. Click Activate when ready.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 8790.103917010128,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "c92b787d-f206-42aa-abf3-06934e72870c",
+                  "name": "INFY price alert \u20b91200",
+                  "description": "Entry: price of INFY crosses above 1,200",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "comparison",
+                          "op": "crosses_above",
+                          "left": {
+                            "type": "price",
+                            "symbol": "INFY",
+                            "exchange": "NSE",
+                            "basis": "close",
+                            "offset": 0
+                          },
+                          "right": {
+                            "type": "constant",
+                            "value": 1200
+                          }
+                        },
+                        "symbol": "INFY",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "notify.message",
+                      "config": {
+                        "channel": "push",
+                        "message": "INFY price alert \u20b91200 fired \u2014 entry condition: price of INFY crosses above 1,200"
+                      }
+                    }
+                  ],
+                  "readback": "price of INFY crosses above 1,200",
+                  "exit_readback": null,
+                  "translation_meta": {
+                    "input_tokens": 2797,
+                    "output_tokens": 54,
+                    "latency_ms": 1622.0
+                  },
+                  "exit_translation_meta": null,
+                  "created_at": "2026-05-28T22:55:02.356269Z",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "c92b787d-f206-42aa-abf3-06934e72870c",
+                "name": "INFY price alert \u20b91200",
+                "description": "Entry: price of INFY crosses above 1,200",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "comparison",
+                        "op": "crosses_above",
+                        "left": {
+                          "type": "price",
+                          "symbol": "INFY",
+                          "exchange": "NSE",
+                          "basis": "close",
+                          "offset": 0
+                        },
+                        "right": {
+                          "type": "constant",
+                          "value": 1200
+                        }
+                      },
+                      "symbol": "INFY",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "notify.message",
+                    "config": {
+                      "channel": "push",
+                      "message": "INFY price alert \u20b91200 fired \u2014 entry condition: price of INFY crosses above 1,200"
+                    }
+                  }
+                ],
+                "readback": "price of INFY crosses above 1,200",
+                "exit_readback": null,
+                "translation_meta": {
+                  "input_tokens": 2797,
+                  "output_tokens": 54,
+                  "latency_ms": 1622.0
+                },
+                "exit_translation_meta": null,
+                "created_at": "2026-05-28T22:55:02.356269Z",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3319,
+                "llm_hop_1_cached": 9728,
+                "tool_propose_dsl_workflow": 1648,
+                "llm_hop_2": 3764,
+                "llm_hop_2_cached": 26112,
+                "total": 8769
+              },
+              "latency_ms_server": 8769
+            }
+          ]
+        },
+        {
+          "name": "L32_06_quick_compare",
+          "conv_id": "probe_45355caafb",
+          "turns": [
+            {
+              "prompt": "Quick TCS vs INFY \u2014 momentum, valuation, my exposure.",
+              "response": "On your holdings, `TCS` is the larger exposure by value: about `\u20b916,780` versus `\u20b915,230` in `INFY`. Today, `INFY` is up `0.83%` and `TCS` is down `0.24%`, so `INFY` has the cleaner short-term momentum from your portfolio snapshot.\n\nOn valuation, I do not have a fresh live PE or ROE snapshot in this turn, so I would avoid forcing a call there. If you want, I can pull the latest valuation and fundamentals for both and compare them directly.",
+              "tools": [
+                "get_holdings",
+                "get_live_price"
+              ],
+              "render_hint": null,
+              "wall_ms": 12190.90962500195,
+              "raw_data": {
+                "get_holdings": {
+                  "holdings": [
+                    {
+                      "tradingsymbol": "INFY",
+                      "exchange": "NSE",
+                      "quantity": 10,
+                      "average_price": 1450.0,
+                      "last_price": 1523.0,
+                      "pnl": 730.0,
+                      "day_change": 12.5,
+                      "day_change_percentage": 0.83
+                    },
+                    {
+                      "tradingsymbol": "TCS",
+                      "exchange": "NSE",
+                      "quantity": 5,
+                      "average_price": 3200.0,
+                      "last_price": 3356.0,
+                      "pnl": 780.0,
+                      "day_change": -8.2,
+                      "day_change_percentage": -0.24
+                    },
+                    {
+                      "tradingsymbol": "HDFCBANK",
+                      "exchange": "NSE",
+                      "quantity": 20,
+                      "average_price": 1580.0,
+                      "last_price": 1643.0,
+                      "pnl": 1260.0,
+                      "day_change": 5.4,
+                      "day_change_percentage": 0.33
+                    },
+                    {
+                      "tradingsymbol": "NIFTYBEES",
+                      "exchange": "NSE",
+                      "quantity": 50,
+                      "average_price": 215.0,
+                      "last_price": 224.0,
+                      "pnl": 450.0,
+                      "day_change": 1.8,
+                      "day_change_percentage": 0.81
+                    },
+                    {
+                      "tradingsymbol": "GOLDBEES",
+                      "exchange": "NSE",
+                      "quantity": 30,
+                      "average_price": 58.0,
+                      "last_price": 62.5,
+                      "pnl": 135.0,
+                      "day_change": 0.4,
+                      "day_change_percentage": 0.64
+                    }
+                  ]
+                },
+                "get_live_price": {
+                  "symbol": "INFY",
+                  "ltp": 1162.0,
+                  "change_pct": -0.39,
+                  "source": "yfinance"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4050,
+                "llm_hop_1_cached": 28160,
+                "tool_get_holdings": 0,
+                "tool_get_live_price": 539,
+                "llm_hop_2": 7537,
+                "llm_hop_2_cached": 28160,
+                "total": 12170
+              },
+              "latency_ms_server": 12170
+            }
+          ]
+        },
+        {
+          "name": "L32_07_after_hours_plan",
+          "conv_id": "probe_8684829e26",
+          "turns": [
+            {
+              "prompt": "Markets closed. What should I prep for tomorrow?",
+              "response": "Do you want me to prep a watchlist for your existing holdings, or for specific stocks or sectors you name?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 7149.111124977935,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3503,
+                "llm_hop_1_cached": 7168,
+                "llm_hop_2": 3590,
+                "llm_hop_2_cached": 24064,
+                "tool_ASK_USER": 0,
+                "total": 7127
+              },
+              "latency_ms_server": 7127
+            }
+          ]
+        },
+        {
+          "name": "L32_08_weekend_review",
+          "conv_id": "probe_d9c444a752",
+          "turns": [
+            {
+              "prompt": "It's Sunday. Help me review the week and plan next week.",
+              "response": "NSE is closed right now; it\u2019s Sunday at 04:25 IST. The week review and next-week plan can still be built around your holdings and active automations, but I won\u2019t force a trade idea.\n\nIf you want, I can do one of these next:\n- portfolio review for the week\n- check whether your existing automations still fit your holdings\n- help draft a next-week watchlist or schedule\n\nThis is automation of your instructions, not financial advice.",
+              "tools": [
+                "get_market_status"
+              ],
+              "render_hint": null,
+              "wall_ms": 8608.807624987094,
+              "raw_data": {
+                "get_market_status": {
+                  "open": false,
+                  "current_time_ist": "29 May 2026, 04:25:29 IST"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3956,
+                "llm_hop_1_cached": 28160,
+                "tool_get_market_status": 0,
+                "llm_hop_2": 4570,
+                "llm_hop_2_cached": 28160,
+                "total": 8586
+              },
+              "latency_ms_server": 8586
+            }
+          ]
+        },
+        {
+          "name": "L32_09_fast_check",
+          "conv_id": "probe_b8054e13e6",
+          "turns": [
+            {
+              "prompt": "Quick \u2014 am I overexposed to anything?",
+              "response": "Yes \u2014 the main concentration is **financials / banking**: `HDFCBANK` is about **42%** of your portfolio value, and combined with `TCS` and `INFY`, your top three holdings make up roughly **86%**.\n\nYou are also lightly concentrated in large-cap equities overall, with some diversification via `NIFTYBEES` and `GOLDBEES`, but those are relatively small positions. If you want, I can break this down by sector or suggest a simple concentration map.",
+              "tools": [
+                "get_portfolio_summary",
+                "get_holdings"
+              ],
+              "render_hint": null,
+              "wall_ms": 12805.739500006894,
+              "raw_data": {
+                "get_portfolio_summary": {
+                  "total_value": 77945.0,
+                  "invested_value": 74590.0,
+                  "total_pnl": 3355.0,
+                  "total_pnl_pct": 4.5,
+                  "day_pnl": 294.0,
+                  "num_holdings": 5
+                },
+                "get_holdings": {
+                  "holdings": [
+                    {
+                      "tradingsymbol": "INFY",
+                      "exchange": "NSE",
+                      "quantity": 10,
+                      "average_price": 1450.0,
+                      "last_price": 1523.0,
+                      "pnl": 730.0,
+                      "day_change": 12.5,
+                      "day_change_percentage": 0.83
+                    },
+                    {
+                      "tradingsymbol": "TCS",
+                      "exchange": "NSE",
+                      "quantity": 5,
+                      "average_price": 3200.0,
+                      "last_price": 3356.0,
+                      "pnl": 780.0,
+                      "day_change": -8.2,
+                      "day_change_percentage": -0.24
+                    },
+                    {
+                      "tradingsymbol": "HDFCBANK",
+                      "exchange": "NSE",
+                      "quantity": 20,
+                      "average_price": 1580.0,
+                      "last_price": 1643.0,
+                      "pnl": 1260.0,
+                      "day_change": 5.4,
+                      "day_change_percentage": 0.33
+                    },
+                    {
+                      "tradingsymbol": "NIFTYBEES",
+                      "exchange": "NSE",
+                      "quantity": 50,
+                      "average_price": 215.0,
+                      "last_price": 224.0,
+                      "pnl": 450.0,
+                      "day_change": 1.8,
+                      "day_change_percentage": 0.81
+                    },
+                    {
+                      "tradingsymbol": "GOLDBEES",
+                      "exchange": "NSE",
+                      "quantity": 30,
+                      "average_price": 58.0,
+                      "last_price": 62.5,
+                      "pnl": 135.0,
+                      "day_change": 0.4,
+                      "day_change_percentage": 0.64
+                    }
+                  ]
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 5397,
+                "llm_hop_1_cached": 28160,
+                "tool_get_portfolio_summary": 2,
+                "llm_hop_2": 3747,
+                "llm_hop_2_cached": 28160,
+                "tool_get_holdings": 1,
+                "llm_hop_3": 3556,
+                "llm_hop_3_cached": 28160,
+                "total": 12787
+              },
+              "latency_ms_server": 12787
+            }
+          ]
+        },
+        {
+          "name": "L32_10_three_choices",
+          "conv_id": "probe_0dab55717a",
+          "turns": [
+            {
+              "prompt": "Give me 3 buys, 3 sells, 3 holds from my watchlist + holdings.",
+              "response": "Do you want me to rank your holdings by gain/loss, day move, or sector concentration?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 10663.2058340183,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3443,
+                "llm_hop_1_cached": 26112,
+                "tool_get_holdings": 0,
+                "tool_get_portfolio_summary": 0,
+                "llm_hop_2": 3557,
+                "llm_hop_2_cached": 26112,
+                "llm_hop_3": 3575,
+                "llm_hop_3_cached": 26624,
+                "tool_ASK_USER": 0,
+                "total": 10633
+              },
+              "latency_ms_server": 10633
+            }
+          ]
+        }
+      ],
+      "user_id": 197
+    }
+  }
+]

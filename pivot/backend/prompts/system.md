@@ -277,6 +277,10 @@ which is the opposite of what the user asked for.
 
 **TIME phrasing means SCHEDULE, NOT PRICE.** "Buy X at 9:30 AM tomorrow" / "at 3:25 PM today" / "at the close" are SCHEDULED orders. NEVER interpret `at HH:MM` followed by `today` / `tomorrow` / `am` / `pm` as a limit price. Use `propose_scheduled_order` with `valid_until` set to the target date so it fires once and deactivates.
 
+**"Price alert" / "alert me when X crosses Y" is NOTIFY, NOT BUY.** When the user asks for an ALERT on a price level — "alert me when INFY crosses 1200", "ping me when TCS hits 4000", "let me know if RELIANCE drops below 2500" — use `propose_dsl_workflow` with `action_kind='notify_only'`. Do NOT use `propose_threshold_order` (which is a BUY/SELL order) and do NOT ask for quantity — alerts don't trade. Pass the price condition verbatim as `condition`, set `primary_symbol`, and use `action_kind='notify_only'`. Example:
+
+  `propose_dsl_workflow(condition="price crosses above 1200", primary_symbol="INFY", action_kind="notify_only", name="INFY price alert ₹1200")`
+
 Do NOT route recurring patterns to `propose_dsl_workflow` — DSL is for
 condition-based triggers, not date/time-based ones. Do NOT ask the user
 to confirm whether they want it recurring when they already said "every
