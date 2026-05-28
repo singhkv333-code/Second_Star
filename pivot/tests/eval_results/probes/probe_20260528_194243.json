@@ -1,0 +1,35 @@
+[
+  {
+    "file": "/tmp/probe_rsi_lookup.json",
+    "data": {
+      "results": [
+        {
+          "name": "rsi_solo",
+          "conv_id": "probe_17b7d212bc",
+          "turns": [
+            {
+              "prompt": "What's the current RSI on TCS",
+              "response": "I can check TCS\u2019s current RSI, but this run hit a data-library snag on my side. If you want, I can still estimate it from the recent price series for TCS and give you the current reading.",
+              "tools": [
+                "get_indicator"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 4852.649416978238,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3012,
+                "llm_hop_1_cached": 24064,
+                "tool_get_indicator": 5,
+                "total": 4841
+              },
+              "latency_ms_server": 4841
+            }
+          ]
+        }
+      ],
+      "user_id": 139
+    }
+  }
+]

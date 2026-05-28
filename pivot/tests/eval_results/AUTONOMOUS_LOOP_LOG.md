@@ -239,6 +239,125 @@ The screenshot 11 complaint ("no bold, less description, bad
 quality") is now fully addressed for analytics paths. The R5
 reply-class budget is doing its job.
 
+---
+
+## L07 — long realistic sessions (10 sessions)
+
+**Probe:** multi-turn realistic flows (build-an-agent → tweak →
+backtest → activate), analysis→action, F&O-after-intro, scale-out
+exit, amendment-then-cancel, expiry end-to-end, two interleaved
+drafts, garbled typo.
+
+**Fixes shipped:**
+- Pure-affirmative regex extended to "ok activate it" / "save and
+  activate" / "proceed with it" / "go ahead and do it" — 11/11
+  detector cases. Was producing duplicate drafts on activate.
+- system.md: trailing-stop sub-section in "Stop-loss on existing
+  holding" routes to propose_holding_action instead of
+  create_sl_order.
+
+**Results after fixes:**
+- L07_01 6-turn realistic flow: T6 "ok activate it" → ack
+  fast-path (was creating duplicate drafts). ✓
+- L07_02 monthly SIP after weekly: now produces correct monthly
+  cron. ✓
+- L07_06 SIP weekly→monthly amend: correct cadence. ✓
+- L07_07 valid_until=2026-06-27 from "for the next 30 days" ✓
+- L07_08 two interleaved drafts work ✓
+- L07_03 trailing SL: response now structured ("If you want, I'll
+  apply that as an exit rule tied to the current position") but
+  still picks DSL over propose_holding_action. Improved.
+- L07_05 scale-out: limitation acknowledged ("scale-out was
+  translated as a single exit; you can edit").
+
+---
+
+## L08 — comprehensive 30-session health check + first-option default
+
+**Probe:** 30 sessions spanning every category from earlier loops.
+
+**Hand-judged results:**
+- 26 PASS clean
+- 2 PARTIAL (L08_17 multi-branch over-confirm; L08_21 trailing SL
+  picks DSL not propose_holding_action)
+- 1 FAIL (L08_27 yes-disambig) — fixed by this commit
+- 1 RECURRING (L08_08 RSI "indicator library not available" —
+  needs investigation)
+
+**Fix shipped:**
+When ASK_USER has `options` but no `default_on_yes`, the pure-
+affirmative fast-path now treats `options[0]` as the implicit
+default. Convention: "the option I named first is the most
+likely pick." Resolves "yes proceed" after "Did you mean MAHINDRA
+or M&MFIN?" without LLM re-ask.
+
+---
+
+## M1 + M2 (incremental moves toward ideal architecture)
+
+See IDEAL_ARCHITECTURE_PLAN.md for the full design rationale.
+
+**M1 — chat-side post-validator: forbid free-form clarification
+prose.** When the LLM writes a question without calling
+ASK_USER and no card was emitted, the chat layer pushes a "USE
+ASK_USER" directive and forces one more hop. Catches:
+- "Did you mean X?" written as prose → structured ASK on retry
+- "Want me to use 20-day rolling high?" → structured ASK
+- 5/6 detector cases pass (ack-with-card correctly skipped)
+
+**M2 — server-enforced no-qty-default validator.** After draft
+hydration, `validation_handler.execute_with_completeness`
+checks: if `action.place_order.quantity` is 1 or 10 AND the
+user_message has no explicit quantity/lot/notional pattern,
+convert the tool result into a structured ASK_USER clarification
+asking the user for the real size.
+
+**Live retest (L05 probe):**
+- "Buy INFY when RSI<30" → structured "How many shares of INFY
+  should the agent buy per fire? (I won't default to 1...)" ✓
+- "Buy INFY when RSI<30 AND MACD..." (DSL) → same structured ask ✓
+- "Buy 5 INFY when RSI<30" → emits draft with qty=5 ✓
+- "Buy 10 INFY when RSI<30" → emits draft with qty=10 ✓
+  (user explicitly said 10, not a default)
+- Reply "10 shares" after the qty ask → draft with qty=10 ✓
+
+The silent qty=1 default is now structurally impossible.
+
+**M1 live retest:**
+- "Set 2% trailing stop on my INFY" → ASK_USER "Do you want the
+  2% trailing stop to protect your entire INFY holding, or only
+  part of it?" ✓ (was free-form prose before)
+
+Also: _INDEPENDENT_INTENT_RE gains price-asking patterns
+("what's the price", "current price", "live price") so post-
+draft data lookups properly evict the draft.
+
+---
+
+## Environment fix: "indicator library not available" was real
+
+L08_08 / probe rsi: "What's the current RSI on TCS" returned
+"the RSI library isn't available right now" — looks like a
+fabrication, but the trace showed `get_indicator` returning
+`error: No module named 'ta'`. The model was correctly relaying
+a real backend error, but with overconfident text ("I can still
+estimate it from recent price data" — it can't).
+
+Root cause: the running uvicorn was launched with the system
+Python (/Library/Frameworks/Python.framework/Versions/3.11/),
+not the venv. The `ta` package was installed in the venv but
+not in the system Python. So `momentum_indicators.py` failed
+to import at backend startup and `get_indicator` always errored.
+
+Fix: `pip install ta` in the system Python.
+
+Verified: "What's the current RSI on TCS" now returns
+"TCS RSI(14) is 35.9. It is neutral, with bearish momentum but
+not yet oversold."
+
+No code change; just an env sync. Mentioning so the failure
+mode is documented.
+
 
 
 
