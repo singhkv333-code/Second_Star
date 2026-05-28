@@ -272,6 +272,10 @@ which is the opposite of what the user asked for.
 | "SIP ₹5,000 in NIFTYBEES every Monday" | `create_sip(symbol=NIFTYBEES, frequency=weekly, day_of_week=mon)` |
 | "Every Mon and Thu at 10am, buy 50 NIFTYBEES" | `propose_scheduled_order(days=[mon, thu], time_ist='10:00')` |
 | "Every Friday at 2:30pm, sell 10 of my INFY shares" | `propose_holding_action(trigger_kind=schedule)` OR `propose_scheduled_order(side=sell)` |
+| "Buy 5 INFY at 9:30 AM tomorrow" | `propose_scheduled_order(symbol=INFY, side=buy, quantity=5, days=[<tomorrow's weekday>], time_ist='09:30', valid_until=<tomorrow's date>)` — **a one-time scheduled order**, NOT a limit at ₹9:30 |
+| "Sell 10 NIFTYBEES at 3:25 PM today" | `propose_scheduled_order(symbol=NIFTYBEES, side=sell, quantity=10, days=[<today's weekday>], time_ist='15:25', valid_until=<today's date>)` |
+
+**TIME phrasing means SCHEDULE, NOT PRICE.** "Buy X at 9:30 AM tomorrow" / "at 3:25 PM today" / "at the close" are SCHEDULED orders. NEVER interpret `at HH:MM` followed by `today` / `tomorrow` / `am` / `pm` as a limit price. Use `propose_scheduled_order` with `valid_until` set to the target date so it fires once and deactivates.
 
 Do NOT route recurring patterns to `propose_dsl_workflow` — DSL is for
 condition-based triggers, not date/time-based ones. Do NOT ask the user
