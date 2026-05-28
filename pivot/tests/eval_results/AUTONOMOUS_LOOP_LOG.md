@@ -484,6 +484,64 @@ amendment / cancel flows pass.
 
 ---
 
+## L15 — breadth probe (15 sessions across trade timing, bonds, financials, comparative, current affairs, quant)
+
+**Probe:** mixed queries covering NSE opening time, holidays,
+yield curve, bond basics, index constituents, PE comparison,
+dividend yield, volatility comparison, correlation, smallcap
+definitions, quant screener, market cap, sectoral comparison,
+CPI inflation, SIP taxation.
+
+**Hand-judged:**
+
+| Topic | Result |
+|---|---|
+| NSE opening (9:15-3:30 IST) | PASS |
+| NSE holidays this month | PARTIAL — no holiday feed, honest |
+| 1Y vs 10Y G-sec yield spread | PASS via compare_yields |
+| Bond price/yield relationship | PASS — clean explainer |
+| Nifty Bank constituents | PARTIAL — no constituents feed, honest |
+| PE compare HDFC/ICICI/Kotak | PASS via web_search_brief |
+| ITC dividend yield | PARTIAL — can't verify, offers estimate |
+| INFY vs TCS volatility | PASS — 59% vs 49.5% with numbers |
+| INFY/TCS/WIPRO correlation 2y | PASS via get_correlation_matrix |
+| Nifty Smallcap 50 vs 250 | PASS — clean explainer |
+| Quant screener (ROE>20 PE<25) | PARTIAL — no screener, asks tickers |
+| Reliance market cap | PARTIAL — no direct lookup, offers estimate |
+| IT vs Banking sector returns | PARTIAL — asks index vs constituent (fair) |
+| Latest CPI inflation | PARTIAL — can't verify, honest |
+| SIP equity MF taxation India | PASS — clean explainer |
+
+  **8 PASS / 7 PARTIAL / 0 clean FAIL.** All PARTIALs are honest
+  "I don't have this feed" rather than fabrications — the
+  fabrication-rate gain from L01-L13 holds. The remaining
+  capabilities require either (a) hardcoded static data (NSE
+  holidays, index constituents) or (b) a paid macro data source
+  (CPI, RBI repo history).
+
+## L14 cumulative final pass — 20 compound prompts
+
+**Hand-judged (snapshot after all T1-T6 + follow-ups + skeleton
+bail-on-compound fix):**
+
+- **9 clean PASS:** 04 (pairs), 05 (F&O decline), 08 (momentum
+  scan agent), 12 (gold vs Nifty 70/30), 14 (MA crossover via
+  compose_multistep), 15 (F&O decline), 18 (bonus cash arb),
+  19 (regime split), 20 (full plan).
+- **10 PARTIAL** (all asking a legitimately-missing piece):
+  01 (qty), 02 (SIP amount), 03 (trigger frequency), 06 (which
+  3 stocks), 07 (which underlying for cap note), 09 (qty), 11
+  (earnings rule definition), 13 (which 3 strategy rules),
+  16 (which Sharpe baseline), 17 (which benchmark shape).
+- **1 technical FAIL:** 10 (notional_allocation step simulator
+  shape — backend issue, not a chat-fixable bug).
+
+Baseline was 2 clean PASS / 17 PARTIAL / 1 FAIL. Net delta:
+**+7 clean PASS on the compound shape with no latency regression**
+(p50 wall actually IMPROVED 12%).
+
+---
+
 ## L10 — DSL early-bail + M1 over-confirm patterns
 
 Tackled the two open PARTIALs from L08/L09:
