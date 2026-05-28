@@ -586,6 +586,55 @@ the standing rule.
 
 ---
 
+## L17-L20 — extended capability probes (cumulative final state)
+
+**L17 finance breadth (10 prompts):** LTCG tax, margin funding,
+step-up SIP, ETF expense ratio, Zerodha charges, calls vs puts,
+F&O lot size, IPO application, short-sell India, intraday charges
+→ **7 PASS clean, 1 F&O decline ✓, 2 fair ASKs, 0 FAIL.**
+
+**L18 regime auto-extend:** pivot-date > 4 years back now
+automatically upgrades period to "max" inside
+`regime_compare_metrics`. RELIANCE pre-2020 / INFY pre-2020 now
+return real metrics instead of "fewer than 12 bars — suppressed".
+
+**L19 news / concept (5 prompts):** Adani news, Polymarket
+integration, RBI policy history, Nifty 50 vs Sensex, PSU vs
+private bank → **2 PASS clean explainers**, 1 backend-reload
+glitch (recovered), 2 fair ASKs on news/macro feed absence.
+
+**L20 complex multi-turn (3 sessions × 3 turns):**
+- "Sharpe of 3 stocks → correlation → biggest single-day drop"
+  → 3/3 turns clean (get_performance_metrics →
+  get_correlation_matrix → get_price_history).
+- "RSI of HDFCBANK → 50-day EMA → build agent with BOTH
+  conditions, 10 shares" → 3/3 turns; final draft is a
+  propose_dsl_workflow with `trigger.compound` carrying RSI<35
+  AND price<EMA50.
+- "Explain NIFTYBEES → SIP ₹3000 monthly → 5% trailing SL on
+  holding" → 3/3 turns clean (explainer → create_sip →
+  propose_holding_action).
+
+**Final L08 30-session regression sweep (last cycle):** all
+existing capability / order / workflow / amendment / cancel
+flows still PASS. No regressions from L14 T1-T6 + L18 + cleanups.
+
+## Headline cumulative numbers
+
+- **40 commits** on `Eventtriggers` (none pushed).
+- **20 compound prompts:** 9 PASS clean (vs 2 baseline) +
+  10 acceptable-PARTIAL + 1 backend FAIL.
+- **15 breadth prompts:** 8 PASS + 7 honest-PARTIAL + 0 FAIL.
+- **10 finance breadth:** 7 PASS + 1 F&O decline + 2 ASK + 0 FAIL.
+- **5 news/concept:** 2 PASS + 1 reload glitch + 2 ASK.
+- **9 complex multi-turn:** 9/9 PASS.
+- **30-session regression sweep:** no regressions.
+- **Latency p50 = 8.8 s** (12% faster than baseline).
+- **Token p50 input = 26.5 k, p95 = 30.6 k** (within 35 k cap).
+- **No fabrications surfaced** in any probe.
+
+---
+
 ## L10 — DSL early-bail + M1 over-confirm patterns
 
 Tackled the two open PARTIALs from L08/L09:
