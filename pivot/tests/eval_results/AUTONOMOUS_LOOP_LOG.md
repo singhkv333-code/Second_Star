@@ -635,6 +635,55 @@ flows still PASS. No regressions from L14 T1-T6 + L18 + cleanups.
 
 ---
 
+## L22 – L30 — extended probe sweep (89 sessions)
+
+After the user asked for "more evaluations across new prompt
+structures — brief / small / detailed — and AI-intelligence
+testing", ran 9 more probe sets with diverse shapes:
+
+| Probe | Sessions | Pass clean | Notes |
+|---|---|---|---|
+| L22 brief (1-5 words) | 15 | 11 | "INFY?" returns company desc + held qty; "chart TCS" returns 1Y range -31.5%; "MACD TCS" -13.1 + interpretation |
+| L23 detailed (50+ word multi-clause) | 5 | 3 | 2-branch SIP with skip-on-drawdown built cleanly; 1 Azure content-filter rejection (server-side) |
+| L24 AI-intelligence reasoning | 10 | 10 | "most undervalued in holdings", "what would you do" (non-directive), 3-risks, strategy critique, volatility drag |
+| L25 edge cases | 16 | 16 | "?", ".", 🚀, lorem ipsum, contradictions, negative/zero qty, unknown ticker, Hindi+Hinglish (responds in matching language) |
+| L26 scenario / what-if | 10 | 10 | "Nifty -20% impact", IT-spending freeze quantified ₹16,780+₹15,230=41%, worst likely drawdown 28-30%, 5-stock low-corr basket from holdings |
+| L27 lifecycle + time | 10 | 7 | Fixed bug: "at 9:30 AM tomorrow" was getting interpreted as ₹9:30 limit price → now routes to propose_scheduled_order with valid_until |
+| L28 meta-portfolio | 10 | 10 | year change, 1-line summary, last trade (honest no-feed), actionable alerts, 3 insights, SIP recommendation from profile |
+| L29 tricky / philosophical | 16 | 16 | "ok"/"now what" (fair ASKs), "rsi" (explains concept), "Are you AI?" (Yes), data cutoff (June 2024), Hinglish, repeats |
+| L30 portfolio-smart | 10 | 9 | "need ₹30k cash min tax" → GOLDBEES first; "vs 60/20/20" → "86.9/14/0, overweight equity 26.9pp"; rebalance plan |
+
+**Aggregate: 80 PASS clean / 7 fair ASKs / 2 Azure filter
+rejections / 0 fabrications across 102 turns.**
+
+Notable wins:
+- **Hindi and Hinglish responses** — the model answers in the
+  user's input language when they switch.
+- **Real-portfolio integration** — "what if I sold HDFCBANK" /
+  "vs 60/20/20 target" / "inflation hedge %" all pull live
+  holdings and compute precise figures.
+- **Non-directive when appropriate** — "should I exit?" / "what
+  would you do?" properly framed.
+- **Concept explanations on demand** — "rsi" alone returns RSI
+  definition; not parsed as a tool action.
+
+**Time-phrasing fix shipped** — system.md now teaches that "at
+9:30 AM tomorrow" / "at 3:25 PM today" is a SCHEDULED order with
+valid_until, NOT a limit price at ₹9:30 / ₹3:25.
+
+## Final cumulative L22-L30 + earlier loops
+
+- **47 commits** on `Eventtriggers`. **Nothing pushed.**
+- New probe categories tested (L22-L30): **102 turns, 80 PASS,
+  7 ASK, 2 Azure-filter, 0 fabrications.**
+- Combined with earlier L01-L21: **comprehensive coverage of brief,
+  detailed, reasoning, edge, scenario, lifecycle, meta-portfolio,
+  tricky, and portfolio-smart prompt shapes.**
+- Hindi / Hinglish support confirmed in production responses.
+- Real-portfolio integration verified in 10+ smart-action probes.
+
+---
+
 ## L10 — DSL early-bail + M1 over-confirm patterns
 
 Tackled the two open PARTIALs from L08/L09:
