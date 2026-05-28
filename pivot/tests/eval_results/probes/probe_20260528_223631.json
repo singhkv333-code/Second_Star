@@ -1,0 +1,552 @@
+[
+  {
+    "file": "/tmp/probe_L25_edge.json",
+    "data": {
+      "results": [
+        {
+          "name": "L25_01_question_mark_only",
+          "conv_id": "probe_e218a7a9ef",
+          "turns": [
+            {
+              "prompt": "?",
+              "response": "What would you like to do?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 11651.314708025893,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 6284,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 5287,
+                "llm_hop_2_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 11640
+              },
+              "latency_ms_server": 11640
+            }
+          ]
+        },
+        {
+          "name": "L25_02_single_dot",
+          "conv_id": "probe_9f9aa551a9",
+          "turns": [
+            {
+              "prompt": ".",
+              "response": "How can I help?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 7572.4085830152035,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3190,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 4321,
+                "llm_hop_2_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 7553
+              },
+              "latency_ms_server": 7553
+            }
+          ]
+        },
+        {
+          "name": "L25_03_rocket_emoji",
+          "conv_id": "probe_0c8a5ae8a1",
+          "turns": [
+            {
+              "prompt": "\ud83d\ude80",
+              "response": "Hi.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 3440.213041001698,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 3401,
+                "llm_hop_1_cached": 27648,
+                "total": 3422
+              },
+              "latency_ms_server": 3422
+            }
+          ]
+        },
+        {
+          "name": "L25_04_money_emoji",
+          "conv_id": "probe_2d3f773fda",
+          "turns": [
+            {
+              "prompt": "\ud83d\udcb0\ud83d\udcb0\ud83d\udcb0",
+              "response": "What would you like to do \u2014 view your portfolio or check market status?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 6970.319624990225,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3760,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 3169,
+                "llm_hop_2_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 6958
+              },
+              "latency_ms_server": 6958
+            }
+          ]
+        },
+        {
+          "name": "L25_05_hindi_devnagri",
+          "conv_id": "probe_02964c8e86",
+          "turns": [
+            {
+              "prompt": "INFY \u0915\u093e \u0926\u093e\u092e \u092c\u0924\u093e\u0913",
+              "response": "INFY \u0915\u093e live \u0926\u093e\u092e \u20b91,162.00 \u0939\u0948, \u0914\u0930 \u0906\u091c \u092f\u0939 -0.39% \u0939\u0948\u0964",
+              "tools": [
+                "get_live_price"
+              ],
+              "render_hint": null,
+              "wall_ms": 7783.98104198277,
+              "raw_data": {
+                "get_live_price": {
+                  "symbol": "INFY",
+                  "ltp": 1162.0,
+                  "change_pct": -0.39,
+                  "source": "yfinance"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3342,
+                "llm_hop_1_cached": 27648,
+                "tool_get_live_price": 382,
+                "llm_hop_2": 4016,
+                "llm_hop_2_cached": 27648,
+                "total": 7770
+              },
+              "latency_ms_server": 7770
+            }
+          ]
+        },
+        {
+          "name": "L25_06_hinglish",
+          "conv_id": "probe_dc00923b26",
+          "turns": [
+            {
+              "prompt": "bhai INFY ka RSI dikha",
+              "response": "INFY ka RSI(14) **43.6** hai. Signal **neutral** hai \u2014 50 se neeche, so momentum thoda weak hai but oversold nahi.",
+              "tools": [
+                "get_indicator"
+              ],
+              "render_hint": null,
+              "wall_ms": 6966.5115409879945,
+              "raw_data": {
+                "get_indicator": {
+                  "indicator_name": "RSI(14)",
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    61.876438395379324,
+                    70.50272041731492,
+                    73.59065301662181,
+                    82.18252116521342,
+                    71.67407418480292,
+                    69.47328682421765,
+                    66.21146200927598,
+                    61.36597845272315,
+                    52.91554423034408,
+                    50.8899709555904,
+                    55.18118833011137,
+                    58.08462111426816,
+                    47.463528513142066,
+                    49.17099961900263,
+                    56.247055189456695,
+                    49.17697286784938,
+                    49.39022854614135,
+                    44.7860811187638,
+                    45.71433828557443,
+                    45.9667987710269,
+                    45.9667987710269,
+                    66.37171702959682,
+                    63.888924865799176,
+                    57.84632065652257,
+                    56.681307675869654,
+                    58.50143458020494,
+                    59.95502001759622,
+                    62.27480512601355,
+                    57.3999271110508,
+                    55.3825278431254,
+                    50.34628862170565,
+                    47.433621810364194,
+                    54.004812503298645,
+                    33.57806574766997,
+                    31.892078149272606,
+                    30.5068312673301,
+                    29.465227035380494,
+                    29.622062008258965,
+                    26.84702369493327,
+                    20.116089564271405,
+                    19.10142346331517,
+                    18.88892642146942,
+                    25.42389435865161,
+                    24.000372747076838,
+                    23.738630239724856,
+                    22.32134446103268,
+                    20.375198842340097,
+                    17.122290991920636,
+                    20.938810147326492,
+                    20.8679273492598,
+                    23.918931682305725,
+                    22.948736564494865,
+                    28.134092910695998,
+                    27.95884573872597,
+                    28.73567986520223,
+                    30.776279668522562,
+                    28.2185055867117,
+                    25.91135252333352,
+                    24.726871147150646,
+                    22.8519027426822,
+                    23.38814208814513,
+                    21.56908894413928,
+                    32.936464166627744,
+                    27.19086278163411,
+                    36.26759703135367,
+                    36.48623805340946,
+                    41.637197461571105,
+                    41.82625045478267,
+                    40.1793298669326,
+                    36.992035662455734,
+                    43.35166298745084,
+                    48.90552219870586,
+                    50.04035470995078,
+                    56.4453824642277,
+                    57.6431722597395,
+                    54.196900800762464,
+                    46.22617054005056,
+                    43.46214294822332,
+                    49.37929265515865,
+                    52.01693452159447,
+                    51.91215014766554,
+                    50.57364352193328,
+                    50.70827036579828,
+                    41.630949704451915,
+                    37.136396772845885,
+                    27.364434824820947,
+                    30.937259430189116,
+                    29.14740119501799,
+                    32.69564907238147,
+                    35.90545824748209,
+                    35.90545824748209,
+                    34.13620717688029,
+                    36.57265516132395,
+                    35.005589305478054,
+                    34.35118938935686,
+                    38.864114846699124,
+                    38.484242516633586,
+                    32.73591582789449,
+                    30.44101120811277,
+                    27.098670725880993,
+                    33.78569702175075,
+                    39.62542937300215,
+                    50.50718580328016,
+                    49.937017191554396,
+                    47.67306163796365,
+                    46.457299175897376,
+                    45.34213506690898,
+                    45.18638943107796,
+                    43.61340923311554
+                  ],
+                  "current_value": 43.61340923311554,
+                  "signal": "neutral",
+                  "interpretation": "RSI = 43.6 \u2014 below 50, bearish momentum but not oversold",
+                  "params": {
+                    "period": 14
+                  },
+                  "computed_at_idx": 121,
+                  "symbol": "INFY"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3137,
+                "llm_hop_1_cached": 26112,
+                "tool_get_indicator": 161,
+                "llm_hop_2": 3588,
+                "llm_hop_2_cached": 26112,
+                "total": 6938
+              },
+              "latency_ms_server": 6938
+            }
+          ]
+        },
+        {
+          "name": "L25_07_typo_heavy",
+          "conv_id": "probe_005ad75cab",
+          "turns": [
+            {
+              "prompt": "bii 10 INFi at maket pric ples",
+              "response": "Did you mean to buy 10 shares of INFY at market price?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3263.4315409814008,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3219,
+                "llm_hop_1_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 3243
+              },
+              "latency_ms_server": 3243
+            }
+          ]
+        },
+        {
+          "name": "L25_08_curse",
+          "conv_id": "probe_550c981630",
+          "turns": [
+            {
+              "prompt": "yaar this market is f***ing crazy",
+              "response": "If you want, I can help you check a holding, set a stop-loss, or draft a simple rule-based alert. Which one do you want?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 8909.897584002465,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3943,
+                "llm_hop_1_cached": 27136,
+                "llm_hop_2": 4888,
+                "llm_hop_2_cached": 27136,
+                "tool_ASK_USER": 0,
+                "total": 8887
+              },
+              "latency_ms_server": 8887
+            }
+          ]
+        },
+        {
+          "name": "L25_09_negative_test",
+          "conv_id": "probe_a5aa3961f2",
+          "turns": [
+            {
+              "prompt": "DO NOT BUY anything",
+              "response": "Understood \u2014 I will not place any buy orders.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 4746.297375007998,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 4694,
+                "llm_hop_1_cached": 27136,
+                "total": 4725
+              },
+              "latency_ms_server": 4725
+            }
+          ]
+        },
+        {
+          "name": "L25_10_contradiction",
+          "conv_id": "probe_df0cced91e",
+          "turns": [
+            {
+              "prompt": "buy and sell INFY at the same time",
+              "response": "Do you want a single automatic entry and exit rule for INFY in one workflow, or two separate orders?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 5485.799291025614,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2944,
+                "llm_hop_2": 2493,
+                "llm_hop_2_cached": 21504,
+                "tool_ASK_USER": 0,
+                "total": 5472
+              },
+              "latency_ms_server": 5472
+            }
+          ]
+        },
+        {
+          "name": "L25_11_impossible_qty",
+          "conv_id": "probe_d1a63b5343",
+          "turns": [
+            {
+              "prompt": "buy 1 billion shares of INFY",
+              "response": "Did you mean 1 billion shares of INFY, or \u20b91 billion worth of INFY?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3283.47720898455,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3253,
+                "tool_ASK_USER": 0,
+                "total": 3271
+              },
+              "latency_ms_server": 3271
+            }
+          ]
+        },
+        {
+          "name": "L25_12_negative_qty",
+          "conv_id": "probe_eb4a172b9a",
+          "turns": [
+            {
+              "prompt": "buy -10 shares of INFY",
+              "response": "How many shares of INFY do you want to buy? A negative quantity is invalid.",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 8601.901957998052,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3951,
+                "llm_hop_1_cached": 27136,
+                "llm_hop_2": 4593,
+                "llm_hop_2_cached": 27136,
+                "tool_ASK_USER": 0,
+                "total": 8582
+              },
+              "latency_ms_server": 8582
+            }
+          ]
+        },
+        {
+          "name": "L25_13_zero_qty",
+          "conv_id": "probe_cfe9873f5f",
+          "turns": [
+            {
+              "prompt": "buy 0 shares of INFY",
+              "response": "I cannot place a zero-share order. If you want, send a positive quantity and I\u2019ll place it.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 2977.3793340136763,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 2935,
+                "llm_hop_1_cached": 23040,
+                "total": 2957
+              },
+              "latency_ms_server": 2957
+            }
+          ]
+        },
+        {
+          "name": "L25_14_unknown_ticker",
+          "conv_id": "probe_ab61734c5f",
+          "turns": [
+            {
+              "prompt": "buy 10 ZZZUNKNOWN at market",
+              "response": "I do not recognise `ZZZUNKNOWN` as an NSE ticker. Which stock did you mean?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 9614.231209008722,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 5889,
+                "llm_hop_1_cached": 23040,
+                "llm_hop_2": 3672,
+                "llm_hop_2_cached": 23040,
+                "tool_ASK_USER": 0,
+                "total": 9597
+              },
+              "latency_ms_server": 9597
+            }
+          ]
+        },
+        {
+          "name": "L25_15_special_chars",
+          "conv_id": "probe_a8cb7d760a",
+          "turns": [
+            {
+              "prompt": "buy 10 shares of $%^&*()",
+              "response": "Which NSE stock did you mean? Please reply with the ticker or company name, and I\u2019ll place the order for 10 shares.",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3282.006791996537,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3242,
+                "llm_hop_1_cached": 23040,
+                "tool_ASK_USER": 0,
+                "total": 3267
+              },
+              "latency_ms_server": 3267
+            }
+          ]
+        },
+        {
+          "name": "L25_16_very_long_no_meaning",
+          "conv_id": "probe_9b354ca0f0",
+          "turns": [
+            {
+              "prompt": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore",
+              "response": "Could you send the actual request?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 7264.433125004871,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3644,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 3537,
+                "llm_hop_2_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 7248
+              },
+              "latency_ms_server": 7248
+            }
+          ]
+        }
+      ],
+      "user_id": 188
+    }
+  }
+]

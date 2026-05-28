@@ -1,0 +1,648 @@
+[
+  {
+    "file": "/tmp/probe_L23_detailed.json",
+    "data": {
+      "results": [
+        {
+          "name": "L23_01_multi_constraint",
+          "conv_id": "probe_c62d65e299",
+          "turns": [
+            {
+              "prompt": "Build an agent that buys 10 INFY when RSI(14) drops below 30 AND MACD line crosses above signal AND volume is above 1.5x its 20-day average, but only on Tuesdays and Thursdays, and exit when drawdown from peak hits 5% OR position is held for more than 30 trading days, valid until 30 September 2026.",
+              "response": "Drafted for `INFY` with the entry filter and the exit rule you specified. It expires on 30 Sep 2026.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 11687.626958999317,
+              "raw_data": {
+                "propose_dsl_workflow": {
+                  "_render_hint": "workflow_draft_card",
+                  "draft_id": "22ee3943-2c61-421d-96a9-e4c6e64a7360",
+                  "name": "INFY RSI/MACD/volume Tuesday-Thursday buy with 5% trailing exit",
+                  "description": "Entry: RSI(14) of INFY < 30 AND line MACD(12) of INFY crosses above signal MACD(12) of INFY AND volume of INFY > (1.5 \u00d7 VOLUME_MA(20) of INFY) AND on Tuesday or Thursday \u00b7 Exit: drawdown from peak \u2265 0.05 OR bars held > 30",
+                  "steps": [
+                    {
+                      "step_type": "trigger.compound",
+                      "config": {
+                        "entry": {
+                          "type": "logic",
+                          "op": "and",
+                          "operands": [
+                            {
+                              "type": "comparison",
+                              "op": "<",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "rsi",
+                                "symbol": "INFY",
+                                "period": 14
+                              },
+                              "right": {
+                                "type": "constant",
+                                "value": 30
+                              }
+                            },
+                            {
+                              "type": "comparison",
+                              "op": "crosses_above",
+                              "left": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "INFY",
+                                "period": 12,
+                                "component": "macd"
+                              },
+                              "right": {
+                                "type": "indicator",
+                                "indicator": "macd",
+                                "symbol": "INFY",
+                                "period": 12,
+                                "component": "signal"
+                              }
+                            },
+                            {
+                              "type": "comparison",
+                              "op": ">",
+                              "left": {
+                                "type": "volume",
+                                "symbol": "INFY",
+                                "bars": 1,
+                                "exchange": "NSE",
+                                "offset": 0
+                              },
+                              "right": {
+                                "type": "math",
+                                "op": "*",
+                                "operands": [
+                                  {
+                                    "type": "constant",
+                                    "value": 1.5
+                                  },
+                                  {
+                                    "type": "indicator",
+                                    "indicator": "volume_ma",
+                                    "symbol": "INFY",
+                                    "period": 20,
+                                    "exchange": "NSE",
+                                    "offset": 0
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "type": "session_day",
+                              "days": [
+                                "tue",
+                                "thu"
+                              ]
+                            }
+                          ]
+                        },
+                        "symbol": "INFY",
+                        "exchange": "NSE"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "buy",
+                        "quantity": 10,
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    },
+                    {
+                      "step_type": "trigger.exit_compound",
+                      "config": {
+                        "entry": {
+                          "type": "logic",
+                          "op": "or",
+                          "operands": [
+                            {
+                              "type": "comparison",
+                              "op": ">=",
+                              "left": {
+                                "type": "position",
+                                "field": "drawdown_from_peak_pct"
+                              },
+                              "right": {
+                                "type": "constant",
+                                "value": 0.05
+                              }
+                            },
+                            {
+                              "type": "comparison",
+                              "op": ">",
+                              "left": {
+                                "type": "position",
+                                "field": "bars_held"
+                              },
+                              "right": {
+                                "type": "constant",
+                                "value": 30
+                              }
+                            }
+                          ]
+                        },
+                        "target_symbol": "INFY"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.portfolio",
+                      "config": {}
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "config": {
+                        "symbol": "INFY",
+                        "side": "sell",
+                        "quantity": "{{ context.3.holdings.INFY.quantity }}",
+                        "order_type": "market",
+                        "product": "CNC"
+                      }
+                    }
+                  ],
+                  "readback": "RSI(14) of INFY < 30 AND line MACD(12) of INFY crosses above signal MACD(12) of INFY AND volume of INFY > (1.5 \u00d7 VOLUME_MA(20) of INFY) AND on Tuesday or Thursday",
+                  "exit_readback": "drawdown from peak \u2265 0.05 OR bars held > 30",
+                  "translation_meta": {
+                    "input_tokens": 2828,
+                    "output_tokens": 220,
+                    "latency_ms": 2435.0
+                  },
+                  "exit_translation_meta": {
+                    "input_tokens": 2840,
+                    "output_tokens": 89,
+                    "latency_ms": 2103.0
+                  },
+                  "created_at": "2026-05-28T22:32:11.288183Z",
+                  "valid_until": "2026-09-30",
+                  "backtestable": true,
+                  "backtest_blockers": [],
+                  "expires_at": "2026-09-30T18:29:00+00:00"
+                },
+                "_render_hint": "workflow_draft_card",
+                "draft_id": "22ee3943-2c61-421d-96a9-e4c6e64a7360",
+                "name": "INFY RSI/MACD/volume Tuesday-Thursday buy with 5% trailing exit",
+                "description": "Entry: RSI(14) of INFY < 30 AND line MACD(12) of INFY crosses above signal MACD(12) of INFY AND volume of INFY > (1.5 \u00d7 VOLUME_MA(20) of INFY) AND on Tuesday or Thursday \u00b7 Exit: drawdown from peak \u2265 0.05 OR bars held > 30",
+                "steps": [
+                  {
+                    "step_type": "trigger.compound",
+                    "config": {
+                      "entry": {
+                        "type": "logic",
+                        "op": "and",
+                        "operands": [
+                          {
+                            "type": "comparison",
+                            "op": "<",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "rsi",
+                              "symbol": "INFY",
+                              "period": 14
+                            },
+                            "right": {
+                              "type": "constant",
+                              "value": 30
+                            }
+                          },
+                          {
+                            "type": "comparison",
+                            "op": "crosses_above",
+                            "left": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "INFY",
+                              "period": 12,
+                              "component": "macd"
+                            },
+                            "right": {
+                              "type": "indicator",
+                              "indicator": "macd",
+                              "symbol": "INFY",
+                              "period": 12,
+                              "component": "signal"
+                            }
+                          },
+                          {
+                            "type": "comparison",
+                            "op": ">",
+                            "left": {
+                              "type": "volume",
+                              "symbol": "INFY",
+                              "bars": 1,
+                              "exchange": "NSE",
+                              "offset": 0
+                            },
+                            "right": {
+                              "type": "math",
+                              "op": "*",
+                              "operands": [
+                                {
+                                  "type": "constant",
+                                  "value": 1.5
+                                },
+                                {
+                                  "type": "indicator",
+                                  "indicator": "volume_ma",
+                                  "symbol": "INFY",
+                                  "period": 20,
+                                  "exchange": "NSE",
+                                  "offset": 0
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "type": "session_day",
+                            "days": [
+                              "tue",
+                              "thu"
+                            ]
+                          }
+                        ]
+                      },
+                      "symbol": "INFY",
+                      "exchange": "NSE"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "buy",
+                      "quantity": 10,
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  },
+                  {
+                    "step_type": "trigger.exit_compound",
+                    "config": {
+                      "entry": {
+                        "type": "logic",
+                        "op": "or",
+                        "operands": [
+                          {
+                            "type": "comparison",
+                            "op": ">=",
+                            "left": {
+                              "type": "position",
+                              "field": "drawdown_from_peak_pct"
+                            },
+                            "right": {
+                              "type": "constant",
+                              "value": 0.05
+                            }
+                          },
+                          {
+                            "type": "comparison",
+                            "op": ">",
+                            "left": {
+                              "type": "position",
+                              "field": "bars_held"
+                            },
+                            "right": {
+                              "type": "constant",
+                              "value": 30
+                            }
+                          }
+                        ]
+                      },
+                      "target_symbol": "INFY"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.portfolio",
+                    "config": {}
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "config": {
+                      "symbol": "INFY",
+                      "side": "sell",
+                      "quantity": "{{ context.3.holdings.INFY.quantity }}",
+                      "order_type": "market",
+                      "product": "CNC"
+                    }
+                  }
+                ],
+                "readback": "RSI(14) of INFY < 30 AND line MACD(12) of INFY crosses above signal MACD(12) of INFY AND volume of INFY > (1.5 \u00d7 VOLUME_MA(20) of INFY) AND on Tuesday or Thursday",
+                "exit_readback": "drawdown from peak \u2265 0.05 OR bars held > 30",
+                "translation_meta": {
+                  "input_tokens": 2828,
+                  "output_tokens": 220,
+                  "latency_ms": 2435.0
+                },
+                "exit_translation_meta": {
+                  "input_tokens": 2840,
+                  "output_tokens": 89,
+                  "latency_ms": 2103.0
+                },
+                "created_at": "2026-05-28T22:32:11.288183Z",
+                "valid_until": "2026-09-30",
+                "backtestable": true,
+                "backtest_blockers": [],
+                "expires_at": "2026-09-30T18:29:00+00:00"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3747,
+                "tool_propose_dsl_workflow": 4580,
+                "llm_hop_2": 3293,
+                "llm_hop_2_cached": 26624,
+                "total": 11677
+              },
+              "latency_ms_server": 11677
+            }
+          ]
+        },
+        {
+          "name": "L23_02_with_exception",
+          "conv_id": "probe_a494cdda82",
+          "turns": [
+            {
+              "prompt": "Set up a monthly SIP of \u20b95000 into NIFTYBEES on the 5th of every month at 9:30 AM IST, but skip the month if the market is in a 10% drawdown from its 1-year high, and resume automatically when the drawdown recovers above 5%.",
+              "response": "Drafted for `NIFTYBEES`. Review the card and activate when ready.",
+              "tools": [
+                "propose_workflow"
+              ],
+              "render_hint": "workflow_draft_card",
+              "wall_ms": 13233.160542004043,
+              "raw_data": {
+                "propose_workflow": {
+                  "name": "NIFTYBEES monthly SIP with market drawdown gate",
+                  "description": "Set up a monthly SIP of \u20b95,000 into NIFTYBEES on the 5th at 9:30 AM IST, skipping months when the market is 10% below its 1-year high and resuming automatically when drawdown recovers above 5%.",
+                  "steps": [
+                    {
+                      "step_type": "trigger.schedule",
+                      "label": "Monthly SIP on the 5th at 9:30 AM",
+                      "config": {
+                        "cron": "30 9 5 * *",
+                        "timezone": "Asia/Kolkata"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.rolling_high",
+                      "label": "Fetch 1-year high",
+                      "config": {
+                        "symbol": "NIFTYBEES"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.relative_threshold",
+                      "label": "10% drawdown reference",
+                      "config": {
+                        "symbol": "NIFTYBEES",
+                        "reference": "day_open",
+                        "offset_pct": -10
+                      }
+                    },
+                    {
+                      "step_type": "condition.numeric",
+                      "label": "Only if market is not 10% below 1-year high",
+                      "config": {
+                        "left": "{{context.1.value}}",
+                        "operator": ">",
+                        "right": "{{context.2.value}}"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy \u20b95,000 NIFTYBEES",
+                      "config": {
+                        "symbol": "NIFTYBEES",
+                        "side": "buy",
+                        "notional_inr": 5000,
+                        "order_type": "market"
+                      }
+                    },
+                    {
+                      "step_type": "trigger.schedule",
+                      "label": "Monthly resume check on the 5th at 9:30 AM",
+                      "config": {
+                        "cron": "30 9 5 * *",
+                        "timezone": "Asia/Kolkata"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.rolling_high",
+                      "label": "Fetch 1-year high for recovery check",
+                      "config": {
+                        "symbol": "NIFTYBEES"
+                      }
+                    },
+                    {
+                      "step_type": "fetch.relative_threshold",
+                      "label": "5% drawdown recovery reference",
+                      "config": {
+                        "symbol": "NIFTYBEES",
+                        "reference": "day_open",
+                        "offset_pct": -5
+                      }
+                    },
+                    {
+                      "step_type": "condition.numeric",
+                      "label": "Resume only when drawdown has recovered above 5%",
+                      "config": {
+                        "left": "{{context.6.value}}",
+                        "operator": ">",
+                        "right": "{{context.7.value}}"
+                      }
+                    },
+                    {
+                      "step_type": "action.place_order",
+                      "label": "Buy \u20b95,000 NIFTYBEES after recovery",
+                      "config": {
+                        "symbol": "NIFTYBEES",
+                        "side": "buy",
+                        "notional_inr": 5000,
+                        "order_type": "market"
+                      }
+                    }
+                  ],
+                  "rationale": "This drafts the monthly SIP as requested and adds a market-health gate so the contribution skips weak months and automatically resumes once the drawdown improves.",
+                  "warnings": [],
+                  "valid_until": null,
+                  "_render_hint": "workflow_draft_card",
+                  "backtestable": true,
+                  "backtest_blockers": []
+                },
+                "name": "NIFTYBEES monthly SIP with market drawdown gate",
+                "description": "Set up a monthly SIP of \u20b95,000 into NIFTYBEES on the 5th at 9:30 AM IST, skipping months when the market is 10% below its 1-year high and resuming automatically when drawdown recovers above 5%.",
+                "steps": [
+                  {
+                    "step_type": "trigger.schedule",
+                    "label": "Monthly SIP on the 5th at 9:30 AM",
+                    "config": {
+                      "cron": "30 9 5 * *",
+                      "timezone": "Asia/Kolkata"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.rolling_high",
+                    "label": "Fetch 1-year high",
+                    "config": {
+                      "symbol": "NIFTYBEES"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.relative_threshold",
+                    "label": "10% drawdown reference",
+                    "config": {
+                      "symbol": "NIFTYBEES",
+                      "reference": "day_open",
+                      "offset_pct": -10
+                    }
+                  },
+                  {
+                    "step_type": "condition.numeric",
+                    "label": "Only if market is not 10% below 1-year high",
+                    "config": {
+                      "left": "{{context.1.value}}",
+                      "operator": ">",
+                      "right": "{{context.2.value}}"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy \u20b95,000 NIFTYBEES",
+                    "config": {
+                      "symbol": "NIFTYBEES",
+                      "side": "buy",
+                      "notional_inr": 5000,
+                      "order_type": "market"
+                    }
+                  },
+                  {
+                    "step_type": "trigger.schedule",
+                    "label": "Monthly resume check on the 5th at 9:30 AM",
+                    "config": {
+                      "cron": "30 9 5 * *",
+                      "timezone": "Asia/Kolkata"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.rolling_high",
+                    "label": "Fetch 1-year high for recovery check",
+                    "config": {
+                      "symbol": "NIFTYBEES"
+                    }
+                  },
+                  {
+                    "step_type": "fetch.relative_threshold",
+                    "label": "5% drawdown recovery reference",
+                    "config": {
+                      "symbol": "NIFTYBEES",
+                      "reference": "day_open",
+                      "offset_pct": -5
+                    }
+                  },
+                  {
+                    "step_type": "condition.numeric",
+                    "label": "Resume only when drawdown has recovered above 5%",
+                    "config": {
+                      "left": "{{context.6.value}}",
+                      "operator": ">",
+                      "right": "{{context.7.value}}"
+                    }
+                  },
+                  {
+                    "step_type": "action.place_order",
+                    "label": "Buy \u20b95,000 NIFTYBEES after recovery",
+                    "config": {
+                      "symbol": "NIFTYBEES",
+                      "side": "buy",
+                      "notional_inr": 5000,
+                      "order_type": "market"
+                    }
+                  }
+                ],
+                "rationale": "This drafts the monthly SIP as requested and adds a market-health gate so the contribution skips weak months and automatically resumes once the drawdown improves.",
+                "warnings": [],
+                "valid_until": null,
+                "_render_hint": "workflow_draft_card",
+                "backtestable": true,
+                "backtest_blockers": []
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 9069,
+                "tool_propose_workflow": 1,
+                "llm_hop_2": 4073,
+                "llm_hop_2_cached": 27136,
+                "total": 13211
+              },
+              "latency_ms_server": 13211
+            }
+          ]
+        },
+        {
+          "name": "L23_03_scale_in_out",
+          "conv_id": "probe_0ed30ffc69",
+          "turns": [
+            {
+              "prompt": "Buy 50 HDFCBANK in three tranches: 20 immediately at market, 15 if it drops 2%, 15 if it drops 4%. Then sell 10 at +3% profit, 10 more at +5%, and the rest if it drops 5% from peak after entry. Use the average entry price as the stop-loss reference.",
+              "response": "I can run this as-is for HDFCBANK, but the stop-loss part needs one clear anchor: \u201c5% from peak after entry\u201d should be tied to the live post-entry high, not the average entry price. If you want, I\u2019ll use the average entry price only for the profit targets and keep the 5% trailing exit off the peak after entry.",
+              "tools": [
+                "propose_dsl_workflow"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 11209.249833016656,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 6784,
+                "tool_propose_dsl_workflow": 1853,
+                "total": 11189
+              },
+              "latency_ms_server": 11189
+            }
+          ]
+        },
+        {
+          "name": "L23_04_nested_condition",
+          "conv_id": "probe_a68aca41f9",
+          "turns": [
+            {
+              "prompt": "If NIFTY drops more than 2% intraday AND BANKNIFTY drops more than 3%, AND VIX is above 20, AND I'm not already short, then buy 50 NIFTYBEES at market, unless my total cash is less than \u20b950,000, in which case do nothing and notify me instead.",
+              "response": "The AI backend is temporarily unavailable. You can still:\n\u2022 Run a backtest directly: `backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31`\n\u2022 Screen the universe: `/screen roe > 18`\n\u2022 Type a stock ticker (e.g. `RELIANCE`) for a snapshot.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 2107.333749998361,
+              "raw_data": {
+                "_llm_unavailable": true
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2031,
+                "total": 2047
+              },
+              "latency_ms_server": 2047
+            }
+          ]
+        },
+        {
+          "name": "L23_05_long_explanation",
+          "conv_id": "probe_7839859a1c",
+          "turns": [
+            {
+              "prompt": "I want to design a long-term wealth-building strategy for a 15-year horizon. I'm 35 years old, have \u20b950 lakh in savings, monthly surplus of \u20b950,000 after expenses, no major liabilities, mild risk appetite. Help me design an asset allocation, justify it with reasoning, suggest specific instruments for each bucket, and outline a monthly rebalancing rule.",
+              "response": "For a 15-year horizon with mild risk, a sensible starting point is **65% equity, 25% debt, 10% gold/cash**.\n\n- **Equity (65%)**: focus on broad, low-cost exposure rather than stock-picking. Use a Nifty 50 index fund or ETF for the core, and a flexi-cap or Nifty Next 50 fund for some growth.\n- **Debt (25%)**: use short-duration funds, high-quality debt funds, or a ladder of fixed deposits for stability and rebalancing dry powder.\n- **Gold/cash (10%)**: gold ETF or sovereign gold bonds for diversification; keep a small cash buffer for opportunities and emergencies.\n\nWith \u20b950 lakh, that is roughly \u20b932.5 lakh equity, \u20b912.5 lakh debt, \u20b95 lakh gold/cash. For your monthly surplus of \u20b950,000, split new money in the same ratio and **rebalance monthly only if any bucket drifts by more than 5 percentage points**; otherwise just keep investing into the underweight bucket. This is automation of your instructions, not financial advice.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 5698.625874996651,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 5647,
+                "total": 5674
+              },
+              "latency_ms_server": 5674
+            }
+          ]
+        }
+      ],
+      "user_id": 186
+    }
+  }
+]
