@@ -2144,6 +2144,36 @@ class ChatService:
                 # forbids draft fabrication.
                 _affirm_no_state = True
 
+        # ── R3 micro: structured-resolution hint for non-affirmative
+        # replies while a PendingResolution is active. The LLM sees
+        # the question + structured options directly instead of
+        # re-parsing prose. Carries forward to the system message
+        # block below.
+        pending_resolution_hint_text: str = ""
+        if not _is_pure_affirmative(message):
+            _pr = self.store.get_pending_resolution(conv_id)
+            if _pr is not None and (_pr.question or _pr.options):
+                opts_block = (
+                    "Options: " + " | ".join(_pr.options) + "."
+                    if _pr.options else ""
+                )
+                default_block = (
+                    f"Default if user says 'yes': {_pr.default_on_yes}."
+                    if _pr.default_on_yes else ""
+                )
+                pending_resolution_hint_text = (
+                    "## Pending clarification (structured)\n"
+                    f"You asked: \"{_pr.question}\". "
+                    f"{opts_block} {default_block} "
+                    "The user's CURRENT message is their answer. "
+                    "Map it to one of the options if possible, then "
+                    "proceed with the workflow they were building. "
+                    "Do NOT re-ask the same clarification."
+                ).strip()
+                # Clear once consumed so a stale resolution doesn't
+                # bleed across turns.
+                self.store.clear_pending_resolution(conv_id)
+
         # ── Fresh-session eviction ─────────────────────────────────
         # When the FE explicitly hands us an EMPTY history list, the
         # user just opened a new chat. Any active draft / pending
@@ -2621,6 +2651,13 @@ class ChatService:
                     "what they're agreeing to, ask one focused "
                     "follow-up question."
                 ),
+            ))
+        # R3 micro: structured-resolution hint when a PendingResolution
+        # exists and the user replied with something other than "yes".
+        if pending_resolution_hint_text:
+            base_messages.append(LLMMessage(
+                role="system",
+                content=pending_resolution_hint_text,
             ))
         # Mode pin — explicit user pill from the FE composer. This is
         # treated as a HARD route: the user clicked Automation, so the
@@ -3310,6 +3347,30 @@ class ChatService:
                     return
                 _affirm_no_state = True
 
+        # ── R3 micro (streaming mirror): structured resolution hint ─
+        pending_resolution_hint_text: str = ""
+        if not _is_pure_affirmative(message):
+            _pr = self.store.get_pending_resolution(conv_id)
+            if _pr is not None and (_pr.question or _pr.options):
+                opts_block = (
+                    "Options: " + " | ".join(_pr.options) + "."
+                    if _pr.options else ""
+                )
+                default_block = (
+                    f"Default if user says 'yes': {_pr.default_on_yes}."
+                    if _pr.default_on_yes else ""
+                )
+                pending_resolution_hint_text = (
+                    "## Pending clarification (structured)\n"
+                    f"You asked: \"{_pr.question}\". "
+                    f"{opts_block} {default_block} "
+                    "The user's CURRENT message is their answer. "
+                    "Map it to one of the options if possible, then "
+                    "proceed with the workflow they were building. "
+                    "Do NOT re-ask the same clarification."
+                ).strip()
+                self.store.clear_pending_resolution(conv_id)
+
         # ── Fresh-session eviction (mirror of non-streaming path) ──
         if history_override is not None and len(history_override) == 0:
             self._reset_session(conv_id)
@@ -3638,6 +3699,12 @@ class ChatService:
                     "what they're agreeing to, ask one focused "
                     "follow-up question."
                 ),
+            ))
+        # R3 micro (streaming mirror): structured resolution hint.
+        if pending_resolution_hint_text:
+            base_msgs.append(LLMMessage(
+                role="system",
+                content=pending_resolution_hint_text,
             ))
         mode_pin = _format_mode_pin(mode_override)
         if mode_pin:
