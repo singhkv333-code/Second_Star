@@ -748,6 +748,42 @@ for the alert.
   L32 — "alert" phrasing routes to notify-only workflow
   (not buy order).
 
+## L33 + final budget check
+
+**L33 advanced (10/10 PASS):** strategy templates ranked for
+portfolio, backtest + interpretation, holding ranking, what-NOT
+to do after 15% drop, DCA vs lump non-directive, INFY ₹338/share
+loss offset (precise calc), ₹5L 8mo capital preservation, single
+biggest risk reduction = "trim HDFCBANK from 42%", 13-step
+momentum screener strategy with honest limitation note, mean
+reversion 2σ workflow.
+
+**Latency / token budget (591 LLM hops in the L22-L33 window):**
+- p50 input tokens: 26,930 (within 35K cap ✓)
+- p95 input tokens: 29,967 (within 35K cap ✓)
+- avg output tokens: 84 (very tight)
+- p50 per-hop latency: 3.6s (excellent)
+- p95 per-hop latency: 5.9s
+
+Token usage unchanged from L13 baseline; latency per-hop is
+actually faster because the orchestrator amortises decisions
+across a single hop with state threading.
+
+## ABSOLUTE FINAL TOTALS (this autonomous loop, since user's last input)
+
+- **52 commits** on `Eventtriggers`. **Nothing pushed**, per
+  the standing rule.
+- **134 probed sessions in L22-L33**, plus the L14 cumulative
+  + prior L01-L21 fixes.
+- **92% clean PASS rate** across all probe shapes.
+- **0 fabrications**.
+- **0 baseline regressions** (L08 sweep, L13 latency, prior
+  L01-L13 fixes all still hold).
+- Hindi + Hinglish responses working.
+- Real-portfolio reasoning verified across 30+ probes.
+- Budget headroom maintained: token p95 = 30K (vs 35K cap),
+  per-hop latency p50 = 3.6s.
+
 ---
 
 ## L10 — DSL early-bail + M1 over-confirm patterns
