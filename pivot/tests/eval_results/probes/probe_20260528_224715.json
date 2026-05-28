@@ -1,0 +1,535 @@
+[
+  {
+    "file": "/tmp/probe_L29_tricky.json",
+    "data": {
+      "results": [
+        {
+          "name": "L29_01_only_say_ok",
+          "conv_id": "probe_7ee6fc7f4a",
+          "turns": [
+            {
+              "prompt": "ok",
+              "response": "What would you like me to set up or check?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 6989.302292000502,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3562,
+                "llm_hop_2": 3367,
+                "llm_hop_2_cached": 26112,
+                "tool_ASK_USER": 0,
+                "total": 6979
+              },
+              "latency_ms_server": 6979
+            },
+            {
+              "prompt": "now what",
+              "response": "What would you like to do next? You can check a price, build or amend an agent, look at your portfolio, or run a backtest.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 16.38058398384601,
+              "raw_data": {},
+              "latency_breakdown": {
+                "fast_path": 0,
+                "total": 0
+              },
+              "latency_ms_server": 0
+            }
+          ]
+        },
+        {
+          "name": "L29_02_unfinished",
+          "conv_id": "probe_ed0da3b932",
+          "turns": [
+            {
+              "prompt": "Buy",
+              "response": "Which stock or ETF should I buy, and how many shares or what rupee amount per order?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3881.369208014803,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3838,
+                "tool_ASK_USER": 0,
+                "total": 3867
+              },
+              "latency_ms_server": 3867
+            }
+          ]
+        },
+        {
+          "name": "L29_03_just_word",
+          "conv_id": "probe_e5897760fa",
+          "turns": [
+            {
+              "prompt": "rsi",
+              "response": "RSI means **Relative Strength Index**. It is a momentum indicator on a 0\u2013100 scale: below 30 is commonly treated as oversold, above 70 as overbought, and around 50 is neutral.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 4294.836582994321,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 4250,
+                "total": 4276
+              },
+              "latency_ms_server": 4276
+            }
+          ]
+        },
+        {
+          "name": "L29_04_just_number",
+          "conv_id": "probe_9c7b098252",
+          "turns": [
+            {
+              "prompt": "10",
+              "response": "10 of what \u2014 shares, rupees, or a specific stock/ETF?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3989.1737080179155,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3960,
+                "llm_hop_1_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 3976
+              },
+              "latency_ms_server": 3976
+            }
+          ]
+        },
+        {
+          "name": "L29_05_conflicting_context",
+          "conv_id": "probe_18b05dad8a",
+          "turns": [
+            {
+              "prompt": "What's INFY's PE",
+              "response": "Did you mean INFY\u2019s trailing PE, or would you like me to fetch the live fundamentals PE specifically?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 15052.380292007001,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2751,
+                "llm_hop_1_cached": 27648,
+                "tool_find_tool": 3,
+                "llm_hop_2": 3462,
+                "tool_get_live_price": 760,
+                "llm_hop_3": 4658,
+                "llm_hop_3_cached": 28160,
+                "llm_hop_4": 3342,
+                "llm_hop_4_cached": 28160,
+                "tool_ASK_USER": 0,
+                "total": 15036
+              },
+              "latency_ms_server": 15036
+            },
+            {
+              "prompt": "and TCS",
+              "response": "I can fetch both, but I need to know which PE you want for each: trailing PE or live fundamentals PE.",
+              "tools": [
+                "find_tool"
+              ],
+              "render_hint": null,
+              "wall_ms": 6968.10154200648,
+              "raw_data": {
+                "find_tool": {
+                  "matches": [
+                    {
+                      "name": "place_basket_order",
+                      "description": "Places simultaneous orders for multiple stocks.",
+                      "category": "order"
+                    },
+                    {
+                      "name": "get_multiple_indicators",
+                      "description": "Compute several indicators for one ticker in a single call \u2014 saves round-trips when the user asks for multiple ('RSI and MACD for INFY', 'show me Bollinger Bands and ATR for TCS').",
+                      "category": "indicator"
+                    },
+                    {
+                      "name": "create_sip",
+                      "description": "Creates a recurring investment schedule.",
+                      "category": "order"
+                    },
+                    {
+                      "name": "web_search_brief",
+                      "description": "ENTITY-GROUNDING web lookup.",
+                      "category": "meta"
+                    },
+                    {
+                      "name": "get_live_price",
+                      "description": "Returns current live price for any NSE stock or ETF.",
+                      "category": "market_data"
+                    }
+                  ]
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3277,
+                "llm_hop_1_cached": 27520,
+                "tool_find_tool": 0,
+                "llm_hop_2": 3642,
+                "total": 6951
+              },
+              "latency_ms_server": 6951
+            },
+            {
+              "prompt": "now compare them with HDFCBANK",
+              "response": "I can compare INFY, TCS, and HDFCBANK, but I need one choice: trailing PE or live fundamentals PE for all three. If you want, I can use trailing PE and run the comparison as-is.",
+              "tools": [
+                "get_indicator"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 6762.5117499846965,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4156,
+                "llm_hop_1_cached": 9728,
+                "tool_get_indicator": 10,
+                "total": 6738
+              },
+              "latency_ms_server": 6738
+            }
+          ]
+        },
+        {
+          "name": "L29_06_reference_resolve",
+          "conv_id": "probe_d1464f91bd",
+          "turns": [
+            {
+              "prompt": "What's the price of Infosys",
+              "response": "Infosys (`INFY`) is at \u20b91,162.00, down 0.39% today.",
+              "tools": [
+                "get_live_price"
+              ],
+              "render_hint": null,
+              "wall_ms": 6441.340040997602,
+              "raw_data": {
+                "get_live_price": {
+                  "symbol": "INFY",
+                  "ltp": 1162.0,
+                  "change_pct": -0.39,
+                  "source": "yfinance"
+                }
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3021,
+                "llm_hop_1_cached": 25600,
+                "tool_get_live_price": 269,
+                "llm_hop_2": 3098,
+                "llm_hop_2_cached": 26112,
+                "total": 6422
+              },
+              "latency_ms_server": 6422
+            },
+            {
+              "prompt": "and what about its competitor?",
+              "response": "Do you mean `TCS`, its closest listed peer?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 9419.680792023428,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4371,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 5006,
+                "llm_hop_2_cached": 28160,
+                "tool_ASK_USER": 0,
+                "total": 9404
+              },
+              "latency_ms_server": 9404
+            }
+          ]
+        },
+        {
+          "name": "L29_07_implicit_action",
+          "conv_id": "probe_969ea89f3d",
+          "turns": [
+            {
+              "prompt": "I want INFY",
+              "response": "What would you like to do with INFY \u2014 buy, sell, set an alert, or create a recurring plan?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3384.209040988935,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3348,
+                "llm_hop_1_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 3369
+              },
+              "latency_ms_server": 3369
+            }
+          ]
+        },
+        {
+          "name": "L29_08_just_ticker_no_action",
+          "conv_id": "probe_0e987f4e8d",
+          "turns": [
+            {
+              "prompt": "INFY chart",
+              "response": "I can show a different time frame for INFY \u2014 do you want 3 months, 6 months, or 5 years?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 10036.622791987611,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3462,
+                "tool_get_price_history": 155,
+                "llm_hop_2": 3395,
+                "llm_hop_2_cached": 26112,
+                "llm_hop_3": 2957,
+                "llm_hop_3_cached": 26112,
+                "tool_ASK_USER": 0,
+                "total": 10016
+              },
+              "latency_ms_server": 10016
+            }
+          ]
+        },
+        {
+          "name": "L29_09_currency_mix",
+          "conv_id": "probe_21830698d5",
+          "turns": [
+            {
+              "prompt": "Buy $100 worth of INFY",
+              "response": "Did you mean \u20b9100 worth of INFY or 100 shares of INFY?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 6045.883250015322,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 5982,
+                "llm_hop_1_cached": 27136,
+                "tool_ASK_USER": 0,
+                "total": 6028
+              },
+              "latency_ms_server": 6028
+            }
+          ]
+        },
+        {
+          "name": "L29_10_silly",
+          "conv_id": "probe_18278082c8",
+          "turns": [
+            {
+              "prompt": "make me rich",
+              "response": "I can help with a plan, but I can\u2019t promise riches or tell you what will make you rich.\n\nIf you want, I can help with one of these:\n- build a long-term investing plan\n- review your current portfolio\n- set up a disciplined SIP or rules-based strategy\n- explain risk, returns, and compounding\n\nThis is automation of your instructions, not financial advice.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 3272.7287089801393,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 3233,
+                "llm_hop_1_cached": 27648,
+                "total": 3257
+              },
+              "latency_ms_server": 3257
+            }
+          ]
+        },
+        {
+          "name": "L29_11_self_aware",
+          "conv_id": "probe_4ee9f5df4d",
+          "turns": [
+            {
+              "prompt": "Are you AI?",
+              "response": "Yes \u2014 I\u2019m an AI assistant.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 3373.3775839791633,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 3343,
+                "llm_hop_1_cached": 27648,
+                "total": 3360
+              },
+              "latency_ms_server": 3360
+            }
+          ]
+        },
+        {
+          "name": "L29_12_meta_capability",
+          "conv_id": "probe_4076c93c48",
+          "turns": [
+            {
+              "prompt": "What's your data cutoff?",
+              "response": "My training knowledge is current to **June 2024**. For live market data, I can fetch the latest NSE prices, portfolio, and market status on request.",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 3485.08166600368,
+              "raw_data": {},
+              "latency_breakdown": {
+                "llm_hop_1": 3451,
+                "llm_hop_1_cached": 27648,
+                "total": 3470
+              },
+              "latency_ms_server": 3470
+            }
+          ]
+        },
+        {
+          "name": "L29_13_offhand",
+          "conv_id": "probe_dcfc2c92f2",
+          "turns": [
+            {
+              "prompt": "bro yeh market kab chalega",
+              "response": "Indian equity markets are usually open Mon\u2013Fri, 9:15 AM to 3:30 PM IST; weekends are closed, and holidays can also shut the market. If you want, I can check whether it is open right now.",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 9624.372666992713,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 4767,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 4798,
+                "llm_hop_2_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 9607
+              },
+              "latency_ms_server": 9607
+            }
+          ]
+        },
+        {
+          "name": "L29_14_repeat_question",
+          "conv_id": "probe_96ce7ca0b8",
+          "turns": [
+            {
+              "prompt": "What time",
+              "response": "What time for which action or stock?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 6478.165209002327,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3229,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 3170,
+                "llm_hop_2_cached": 28160,
+                "tool_ASK_USER": 0,
+                "total": 6452
+              },
+              "latency_ms_server": 6452
+            },
+            {
+              "prompt": "What time",
+              "response": "Which action or stock do you mean by \"What time\"?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 3260.5831660039257,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3202,
+                "llm_hop_1_cached": 27520,
+                "tool_ASK_USER": 0,
+                "total": 3247
+              },
+              "latency_ms_server": 3247
+            }
+          ]
+        },
+        {
+          "name": "L29_15_strong_disagree",
+          "conv_id": "probe_5ca29b1f8d",
+          "turns": [
+            {
+              "prompt": "The market is going to crash tomorrow.",
+              "response": "What would you like to do if the market drops tomorrow \u2014 buy the dip, set a stop loss, or just get alerts?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 10635.439959005453,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 5723,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 4861,
+                "llm_hop_2_cached": 27648,
+                "tool_ASK_USER": 0,
+                "total": 10620
+              },
+              "latency_ms_server": 10620
+            }
+          ]
+        },
+        {
+          "name": "L29_16_reactive",
+          "conv_id": "probe_c00bb2f860",
+          "turns": [
+            {
+              "prompt": "Markets opened green today, what to do?",
+              "response": "What would you like to do today \u2014 review your holdings, set a rule-based watch, or build a trade workflow for a specific stock?",
+              "tools": [
+                "ASK_USER"
+              ],
+              "render_hint": "ask_user",
+              "wall_ms": 7576.331416988978,
+              "raw_data": {
+                "_render_hint": "ask_user"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 3860,
+                "llm_hop_1_cached": 27648,
+                "llm_hop_2": 3669,
+                "llm_hop_2_cached": 28160,
+                "tool_ASK_USER": 0,
+                "total": 7561
+              },
+              "latency_ms_server": 7561
+            }
+          ]
+        }
+      ],
+      "user_id": 193
+    }
+  }
+]
