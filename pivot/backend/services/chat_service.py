@@ -1057,13 +1057,28 @@ _INDEPENDENT_INTENT_RE = re.compile(
 # no-op → return a one-line acknowledgement, skip the LLM.
 _PURE_AFFIRMATIVE_RE = re.compile(
     r"^\s*(?:"
+    # Bare affirmatives
     r"yes|y|yeah|yep|yup|"
     r"ok(?:ay)?|sure|fine|alright|"
     r"got\s+it|sounds\s+good|looks\s+good|"
     r"perfect|great|cool|nice|"
-    r"do\s+it|go\s+ahead|proceed|let'?s\s+go|"
-    r"activate|confirm|"
-    r"please|ty|thanks?"
+    r"please|ty|thanks?|"
+    # Action-confirm phrases with optional fillers / pronouns. These
+    # ALL acknowledge an existing draft without proposing a change:
+    #   "do it", "go ahead", "let's go", "activate", "activate it",
+    #   "activate that", "proceed with it", "run it", "run that",
+    #   "make it so", "go for it", "yes activate", "ok do it",
+    #   "save and activate", "proceed with it", "save it now".
+    r"(?:yes\s+|ok\s+|okay\s+|sure\s+|alright\s+|fine\s+|now\s+)?"
+    r"(?:do|go(?:\s+ahead)?|proceed|let'?s\s+go|"
+    r"activate|confirm|run|launch|fire|"
+    r"make\s+it\s+so|go\s+for\s+it|save)"
+    # Optional connector + verb (handles "save and activate",
+    # "go ahead and proceed") and/or pronoun fillers.
+    r"(?:\s+(?:and|then)\s+"
+    r"(?:do|go|proceed|activate|confirm|run|launch|save))?"
+    r"(?:\s+(?:with|on)\s+(?:it|that|this))?"
+    r"(?:\s+(?:it|that|this|now|please|ahead))*"
     r")\s*[.!?]?\s*$",
     re.IGNORECASE,
 )

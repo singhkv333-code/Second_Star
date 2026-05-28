@@ -764,6 +764,19 @@ the tool layer fetches the holding when it builds the SL card.
 Same for "exit my X" / "sell my entire Y" — call the order or
 `propose_holding_action` directly, don't preflight.
 
+### Trailing / dynamic stop on a holding — pick the workflow tool
+
+`create_sl_order` is FIXED-PRICE only — it cannot model a trailing
+percentage. When the user says **"trailing stop"**, **"trail N%"**,
+**"% from peak"**, or wants the SL tied to a workflow's own entry
+fill, use `propose_holding_action` with `action_kind='set_stoploss'`
+and `sl_offset_pct=N`. Do NOT call `create_sl_order` for trailing.
+
+If the holding doesn't exist yet (the SL belongs to a fresh
+buy-entry workflow), append `trigger.exit_compound` + `fetch.portfolio`
++ `action.place_order` to the existing buy workflow via
+`propose_dsl_workflow.exit_condition`, NOT a separate SL tool.
+
 ## Tool defaults
 
 The tool layer auto-fills documented defaults (exchange, product,

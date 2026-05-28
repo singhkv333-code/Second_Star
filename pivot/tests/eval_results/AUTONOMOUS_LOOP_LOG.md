@@ -162,5 +162,83 @@ boundary where I know the correct tool.
 - L03_12 covered call: F&O limitation should surface explicitly
   rather than building a sell-on-RSI workflow.
 
+---
+
+## L04 — capability + edge cases (20 sessions, mostly PASS)
+
+**Probe categories:** ambiguous qty units (100 of X, ₹50000 of X,
+2 lakh), implicit qty, full company names (Tata Consultancy Services),
+Tata disambiguation, Hindi-mix, F&O/options decline, time-relative
+(tomorrow), month-end, multi-condition 5+, empty/single char/emoji,
+repeats, half-holding sell, SIP variations.
+
+**Pass / Partial / Fail summary:**
+- 12 PASS clean: 01, 03, 05, 06, 08, 09, 12, 14, 15, 17, 19, 20
+- 6 PARTIAL: 02 (₹50k → calc_qty + prose, no actual draft),
+  04 (silent qty=1 default), 10 (one-time vs recurring asked
+  needlessly), 11 (month-end produced confused prose),
+  16 (repeat draft no recognition), 18 (long explainer good)
+- 2 FAIL: 07 (Hinglish "5 INFY le lo" missed qty), 13 (empty msg)
+
+Hinglish/Hindi-mix limitations are LLM training-dependent — not
+fixable structurally.
+
+---
+
+## L05 — quantity-default refusal (PARTIAL FIX)
+
+**Probe:** 7 sessions probing the silent qty=1 default. Verified
+that for `propose_threshold_order` and `propose_dsl_workflow`, an
+unspecified quantity becomes 1 silently in the draft card,
+contradicting system.md's "QUANTITY IS NEVER A DEFAULT" rule.
+
+**Fixes:**
+- propose_dsl_workflow `quantity` JSON-schema: drop the `default: 1`
+  hint (was nudging the model to fill with 1), add `minimum: 1`,
+  description requires ASK_USER first.
+- propose_threshold_order: similar hardening + "QUANTITY (REQUIRED)"
+  paragraph appended to tool description.
+- workflow_macros.hydrate_threshold_order: raise instead of
+  defaulting when both quantity and notional_inr are None.
+- _dsl_chat_tools.propose_dsl_workflow: raise when action_kind is
+  buy_* and quantity is missing.
+
+**Result:**
+- Notional path now works: "Buy ₹10000 of INFY when RSI<30" →
+  propose_threshold_order with notional_inr=10000 ✓ (was failing
+  OpenAI 400 before)
+- Explicit qty works: "Buy 5 INFY when RSI<30" → qty=5 ✓
+- Implicit qty: LLM still sometimes emits quantity=1 explicitly
+  despite the strong description. Need a chat-side post-validator
+  to fully suppress. Open for next iteration.
+
+---
+
+## L06 — analytics quality (HIGH QUALITY)
+
+**Probe:** 12 prompts spanning explainers, comparisons, capability,
+small talk, "should I buy", market outlook, valuation walkthrough,
+investment thesis.
+
+**Judged by reading every response in full:**
+- L06_01 business model of Reliance: 2302 chars with `## How it
+  makes money` + bullets + `## Why the model is strong` + `## Main
+  risks`. No unsolicited LTPs. EXCELLENT.
+- L06_02 compare banks: 1195 chars with `## Short answer` + `## How
+  they typically compare` + `## Practical takeaway`. Balanced.
+- L06_04 valuation walkthrough: 2902 chars with 5 numbered sections,
+  each with ranges (low / mid / high). EXCELLENT.
+- L06_09 thesis: 1569 chars, 2-paragraph thesis as user asked.
+- L06_11 capability: 381 chars, list of 6 capabilities.
+- L06_05 should-I-buy: properly declined ("I cannot tell you to
+  buy or not").
+- L06_08 market outlook: asked for clarification rather than
+  fabricating ("how the market is looking is broad").
+
+The screenshot 11 complaint ("no bold, less description, bad
+quality") is now fully addressed for analytics paths. The R5
+reply-class budget is doing its job.
+
+
 
 
