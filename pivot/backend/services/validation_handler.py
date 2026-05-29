@@ -463,10 +463,37 @@ async def execute_with_completeness(
             [str(o).strip() for o in raw_options if isinstance(o, str) and o.strip()]
             if isinstance(raw_options, list) else None
         )
+        question_text = (args.get("question") or "").strip()
+        # Echo guard (2026-05-29 retail eval, reliance_pe_roe turn0): the
+        # model sometimes emits ASK_USER whose `question` is a verbatim
+        # restatement of the user's own message ("what's reliance's PE and
+        # ROE?" -> ASK_USER(question="what's reliance's PE and ROE?")). That
+        # is a degenerate clarification — the user gets their own words
+        # parroted back instead of an answer. When the question carries no new
+        # ask (it's substantially identical to the latest user turn), feed an
+        # error back into the agentic loop so the model takes another hop and
+        # answers with a real tool (fetch_fundamentals/get_live_price/...).
+        if question_text and not options and not default_on_yes:
+            _norm = lambda s: re.sub(r"[^a-z0-9 ]+", "", (s or "").lower()).strip()
+            nq, nu = _norm(question_text), _norm(user_message)
+            if nq and nu and (nq == nu or (len(nq) > 12 and nq in nu)):
+                return GuardedToolResult(
+                    name=tool_name, args=args,
+                    error=(
+                        "ASK_USER echoed the user's own message instead of "
+                        "asking something new. This request is answerable "
+                        "directly — do NOT call ASK_USER. Call the appropriate "
+                        "read/data tool (e.g. fetch_fundamentals, get_live_price, "
+                        "get_returns, screen_fundamentals) and answer. Only use "
+                        "ASK_USER for a genuinely NEW question that requests "
+                        "information the user has not given."
+                    ),
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
         return GuardedToolResult(
             name=tool_name, args=args,
             needs_clarification=True,
-            question=(args.get("question") or "").strip(),
+            question=question_text,
             default_on_yes=default_on_yes,
             options=options or None,
             latency_ms=int((time.monotonic() - started) * 1000),
