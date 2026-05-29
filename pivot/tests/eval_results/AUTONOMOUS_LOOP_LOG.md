@@ -918,3 +918,115 @@ The backtest surface is in good shape post-`ta` install.
 
 
 
+
+---
+
+# Cycle L34 — multi-turn refinement probes (4 sessions)
+
+**Target.** Verify the orchestrator and primitive tools survive
+follow-up amendments — the user changes the metric, the qty, the
+budget, or asks an exploratory follow-up after an explainer.
+
+**Probes (sessions × turns = 9 LLM calls):**
+- L34_01 orchestrate_refine — `compare INFY/TCS/WIPRO 2y Sharpe → build agent on winner buying 10 shares` → `actually use max drawdown` → `make it 20 shares`
+- L34_02 partial_then_complete — `buy NIFTYBEES every Monday at 9:15` → `₹3000 per buy + 30-day expiry`
+- L34_03 explain_then_explore — `explain SafeGrow` → `could I build similar?`
+- L34_04 what_then_quantify — `biggest sector concentration` → `quantify overexposure vs equal-weight`
+
+**Results (hand-judged):**
+- L34_01: 3/3 PASS — compare ran, WIPRO winner extracted, agent
+  drafted; refine swapped metric cleanly; second refine bumped qty.
+- L34_02: 2/2 PASS after fix (was 1/2 with `calculate_order_qty`
+  returning success=False on Redis cache miss → propagated as
+  `OpenAI 400: {...`).
+- L34_03: 2/2 PASS — SafeGrow explainer + DIY arbitrage-fund + call
+  reasoning ("rough approximation, but doable").
+- L34_04: 2/2 PASS — HDFCBANK 42.1% biggest, equal-weight ₹15,589
+  each, ₹26K overexposure quantified vs equal-weight.
+
+**Fix shipped (one commit):**
+
+- `calculate_order_qty` — cache miss now falls through to
+  `yfinance.Ticker(SYM.NS).history(period="5d")` and uses the
+  latest Close. Hard error string emitted only when BOTH fail.
+
+**Latency / token snapshot.** Per-turn p50 wall ≈ 5.6s for the
+non-orchestrated turns, ≈ 13s for the orchestrated ones; input
+tokens p50 ≈ 26K. Within budget.
+
+---
+
+# Cycle L08 — regression sweep (28 sessions)
+
+**Target.** Confirm L22-L33 changes didn't regress the L08 baseline
+shapes (limit / threshold / SIP / compound / multi-branch / news /
+holding-action / SL / basket / amend / cancel / yes-disambig /
+ungrounded-level / expiry / sector basket).
+
+**Result.** All 28 sessions surfaced the correct tool on T1.
+Notable:
+- L08_15/16 compound → `propose_dsl_workflow`
+- L08_17 multi-branch → `propose_workflow` (DSL early-bail's
+  route_redirect respected)
+- L08_19 sell-holding-RSI → `propose_holding_action`
+- L08_21 trailing-SL → `propose_holding_action` (no longer
+  prosaic confirm-without-tool)
+- L08_27 yes-disambig → ASK_USER twice (correct refusal to guess)
+- L08_28 ungrounded-level → ASK_USER on T1, draft on T2 after
+  context
+
+**No regressions.** Open issues from L08 baseline (multi-symbol
+trigger.manual on L02_07; qty=1 stubbornness) are server-side
+caught by M1/M2 and were not present in this sweep.
+
+
+---
+
+# Cycle L35 — prompt-shape variety (12 sessions)
+
+**Target.** Per the user's explicit ask, test prompt shapes other
+than the standard sentence-form: very brief (1-5 words), pure
+questions, very long (60+ words), and reasoning-style intelligence
+prompts.
+
+**Probes:**
+- 1-word: "holdings"
+- 2-word: "INFY chart"
+- 3-word: "best holding today"
+- 4-word: "sell all my INFY"
+- 5-word: "buy RELIANCE if below 1200"
+- Question: "what is RSI?"
+- Terse action: "set SL HDFCBANK 5%"
+- Terse compare: "RELIANCE vs TCS"
+- Long detailed (74w): "long-term equity portfolio focused on Indian large-caps with tilt towards ROE > 18% over 5y..., monthly SIP ₹10K Nifty Next 50..., basket SL 25% partial sell at 15% drawdown after 6 months"
+- Reasoning compare: "If RELIANCE has higher Sharpe but lower returns than TCS..."
+- Reasoning strategy: "heavy on financials and IT — diversification without selling existing?"
+- Reasoning correlation: "BANKNIFTY and NIFTY correlated — doubling exposure with NIFTYBEES + BANKBEES?"
+
+**Results (hand-judged):** 11/12 PASS clean, 1 PARTIAL.
+- "holdings" → get_holdings, all 5 listed with P&L ✓
+- "INFY chart" → 1y range + -21.59% ✓
+- "best holding today" → INFY +0.83% / HDFCBANK ₹32K largest ✓
+- "sell all my INFY" → propose_holding_action sell-all ✓
+- "buy RELIANCE if below 1200" → ASK qty (M2 fires) ✓
+- "what is RSI?" → clean explainer, 28ms ✓
+- "set SL HDFCBANK 5%" → create_sl_order drafted ✓
+- "RELIANCE vs TCS" → ASK comparison axis (terse 2-word
+  reasonably triggers clarify) ✓
+- L35_09 long ROE intent → PARTIAL. We don't have fundamentals
+  filtering for "ROE > 18% over 5y" — the response acknowledges
+  the constraint cannot be guaranteed and drafts the simpler
+  SIP shape. Honest degradation, no fabrication.
+- Reasoning prompts (compare, strategy, correlation): 3/3 PASS
+  with structurally correct logic and the correlation prompt
+  invoked `get_correlation_matrix` returning 0.93 NIFTYBEES/
+  BANKBEES.
+
+**Key signal.** The LLM handles AI-intelligence reasoning prompts
+(no tool needed) at ~4s latency without fabrication and with
+appropriate hedging ("does not mean it is pointless: ... a
+deliberate bank tilt can make sense"). Terse prompts still route
+to the right tool. Long prompts surface a draft that captures the
+schedulable + thresholdable parts and explicitly acknowledges
+unsupported constraints.
+
