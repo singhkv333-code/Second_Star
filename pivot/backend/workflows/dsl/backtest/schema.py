@@ -247,6 +247,9 @@ class BacktestMetrics(_Strict):
     profit_factor: Optional[float] = None
     sharpe_ratio: Optional[float] = None
     sortino_ratio: Optional[float] = None
+    # Buy-and-hold of the primary symbol over the window, net of one
+    # round-trip cost — so strategy vs benchmark is apples-to-apples.
+    benchmark_return_pct: Optional[float] = None
     ending_value: float
 
 

@@ -74,7 +74,13 @@ from backend.services.indicator_backtest import IndicatorBacktestResult
 logger = logging.getLogger(__name__)
 
 
-_FRICTION = 0.001
+# P1 cost convergence (2026-05-29 audit): was a flat 10 bps/leg that
+# under-counted real frictions. The per-leg average from the shared India
+# delivery model — round-trip (1±buy)+(1±sell) is identical to per-side, so a
+# single averaged constant keeps every (1±_FRICTION) fill realistic without
+# touching the fill loops. See backend/services/trading_costs.py.
+from backend.services.trading_costs import leg_bps as _leg_bps
+_FRICTION = (_leg_bps("buy") + _leg_bps("sell")) / 2.0
 _STARTING_CAPITAL = 1_000_000.0
 
 
@@ -2061,11 +2067,22 @@ def backtest_workflow(
     total_return_pct = round(
         (final_equity - _STARTING_CAPITAL) / _STARTING_CAPITAL * 100, 2,
     )
-    n_days = len(equity_curve) or 1
-    years_elapsed = max(n_days / 252.0, 1 / 252.0)
-    cagr_pct = round(
-        ((final_equity / _STARTING_CAPITAL) ** (1 / years_elapsed) - 1) * 100, 2,
-    ) if final_equity > 0 else 0.0
+    # CAGR on a CALENDAR-year basis (standardized 2026-05-29; was n_days/252,
+    # which over-states CAGR on short windows). Falls back to bar-count years
+    # if the curve has no usable dates.
+    from backend.services.backtest_metrics import (
+        calendar_cagr_pct, daily_returns_from_equity, sharpe_sortino,
+    )
+    if len(equity_curve) >= 2:
+        cagr_pct = round(calendar_cagr_pct(
+            _STARTING_CAPITAL, final_equity,
+            equity_curve[0]["t"], equity_curve[-1]["t"],
+        ), 2)
+    else:
+        cagr_pct = 0.0
+    _sharpe, _sortino = sharpe_sortino(
+        daily_returns_from_equity([p["v"] for p in equity_curve])
+    )
     peak = _STARTING_CAPITAL
     max_dd = 0.0
     for p in equity_curve:
@@ -2085,12 +2102,14 @@ def backtest_workflow(
         if bench_sym else primary_bars
     )
     if len(bench_bars) >= 2:
-        bench_pct = round(
-            (
-                float(bench_bars["Close"].iloc[-1])
-                / float(bench_bars["Close"].iloc[0]) - 1
-            ) * 100, 2,
+        _bench_gross = (
+            float(bench_bars["Close"].iloc[-1])
+            / float(bench_bars["Close"].iloc[0])
         )
+        # Net of one round-trip so it's apples-to-apples with the cost-bearing
+        # strategy (a frictionless benchmark would unfairly beat it).
+        _rt = (1 - _FRICTION) ** 2
+        bench_pct = round((_bench_gross * _rt - 1) * 100, 2)
     else:
         bench_pct = 0.0
 
@@ -2126,9 +2145,12 @@ def backtest_workflow(
         "total_return_pct": total_return_pct,
         "cagr_pct": cagr_pct,
         "max_drawdown_pct": max_drawdown_pct,
+        "sharpe": _sharpe,
+        "sortino": _sortino,
         "n_trades": n_trades,
         "n_wins": n_wins,
         "hit_rate_pct": hit_rate_pct,
+        "benchmark_return_pct": bench_pct,
         "starting_capital": _STARTING_CAPITAL,
         "ending_value": round(final_equity, 2),
     }
@@ -2167,10 +2189,14 @@ def backtest_workflow(
                 "lookback window (a multi-day dip) or a smaller threshold"
             )
 
+    from backend.services.backtest_metrics import methodology_note
+    _method = methodology_note(period_label=period)
+    _sharpe_txt = f" Sharpe {_sharpe:.2f}." if _sharpe is not None else ""
     summary = (
         f"Backtested {name!r} on {primary_symbol} over {period}. "
         f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
-        f"buy-and-hold returned {bench_pct:+.1f}%."
+        f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt} "
+        f"Results are {_method['costs']}, on {_method['basis']}."
     )
     if elig.warnings:
         summary += " Notes: " + "; ".join(elig.warnings[:3]) + "."
@@ -2232,4 +2258,5 @@ def backtest_workflow(
         metrics=metrics,
         bench_buy_hold_return_pct=bench_pct,
         summary_text=summary,
+        methodology=_method,
     )

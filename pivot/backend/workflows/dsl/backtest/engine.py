@@ -591,6 +591,27 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     )
     profit_factor = _profit_factor(st.trades)
 
+    # Sharpe/Sortino from the daily equity curve (was hardcoded None).
+    from backend.services.backtest_metrics import (
+        daily_returns_from_equity, sharpe_sortino,
+    )
+    from backend.services.trading_costs import leg_bps
+    _sharpe, _sortino = sharpe_sortino(
+        daily_returns_from_equity([p.equity for p in st.equity_curve])
+    )
+
+    # Buy-and-hold benchmark on the primary symbol, net of one round-trip.
+    _bench = None
+    try:
+        closes = st.primary_bars["close"]
+        if len(closes) >= 2 and float(closes.iloc[0]) > 0:
+            _rt = (1 - leg_bps("buy")) * (1 - leg_bps("sell"))
+            _bench = (
+                float(closes.iloc[-1]) / float(closes.iloc[0]) * _rt - 1.0
+            ) * 100.0
+    except Exception:
+        _bench = None
+
     return BacktestMetrics(
         total_return_pct=total_ret * 100.0,
         cagr_pct=cagr * 100.0,
@@ -603,8 +624,9 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
         average_win_pct=avg_win * 100.0 if avg_win is not None else None,
         average_loss_pct=avg_loss * 100.0 if avg_loss is not None else None,
         profit_factor=profit_factor,
-        sharpe_ratio=None,   # Phase B+1
-        sortino_ratio=None,  # Phase B+1
+        sharpe_ratio=_sharpe,
+        sortino_ratio=_sortino,
+        benchmark_return_pct=(round(_bench, 2) if _bench is not None else None),
         ending_value=ending,
     )
 

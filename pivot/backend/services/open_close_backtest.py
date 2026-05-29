@@ -26,11 +26,12 @@ import yfinance as yf  # type: ignore[import-untyped]
 logger = logging.getLogger(__name__)
 
 
-# 10 bps slippage + brokerage per side, applied on every leg. Two legs
-# per day (buy + sell) means ~20 bps round-trip drag — meaningful for
-# a strategy with daily turnover, which is the whole point of surfacing
-# friction here rather than hiding it.
-_FRICTION = 0.001
+# Per-leg cost from the shared India delivery model (P1 convergence; was a
+# flat 10 bps that under-counted STT/GST/stamp). Two legs per day (buy + sell)
+# means ~37 bps round-trip drag — meaningful for daily turnover, which is the
+# whole point of surfacing friction here rather than hiding it.
+from backend.services.trading_costs import leg_bps as _leg_bps
+_FRICTION = (_leg_bps("buy") + _leg_bps("sell")) / 2.0
 _STARTING_CAPITAL = 1_000_000.0
 
 

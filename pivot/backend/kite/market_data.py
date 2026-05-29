@@ -57,6 +57,48 @@ def get_historical_ohlcv(
         return []
 
 
+# Approximate NSE trading-day counts per yfinance period string (smallest →
+# largest). Used to size a historical fetch so a period-N indicator clears the
+# live `len(bars) >= N + buffer` guard. The live sites used to hardcode "6mo"
+# (~126 bars), which silently starved any indicator with period > ~120 (e.g. a
+# 200-day EMA needs ≥205 bars) — it returned None and the agent never fired.
+_PERIOD_BARS: list[tuple[str, int]] = [
+    ("3mo", 63), ("6mo", 126), ("1y", 252), ("2y", 504), ("3y", 756),
+]
+_PERIOD_BARS_MAP = dict(_PERIOD_BARS)
+
+
+def period_for_bars(min_bars: int, *, cap: str = "3y") -> str:
+    """Smallest yfinance period string whose ~trading-day count covers
+    ``min_bars``, clamped to ``cap``. Pure (no I/O)."""
+    cap_bars = _PERIOD_BARS_MAP.get(cap, 756)
+    target = min(max(int(min_bars), 1), cap_bars)
+    for label, bars in _PERIOD_BARS:
+        if bars >= target:
+            return label
+    return cap
+
+
+def period_for_indicator(
+    period: int,
+    *,
+    offset: int = 0,
+    warmup_buffer: int = 5,
+    floor: int = 20,
+    cap: str = "3y",
+) -> str:
+    """Window string sized so a period-``period`` indicator (plus warm-up and
+    any bar ``offset``) clears the live min-history guard
+    ``len(bars) >= max(period + warmup_buffer, floor) + offset`` — mirrors the
+    guards in ``scheduler._compute_indicator_sync`` / ``dsl.data_accessor``.
+
+    Floored at ~6mo (126 bars) so small-period fetches never shrink below the
+    previous hardcoded default (no regression); only long periods extend.
+    """
+    min_bars = max(int(period or 0) + int(warmup_buffer), int(floor)) + int(offset)
+    return period_for_bars(max(min_bars, 126), cap=cap)
+
+
 def get_nifty_level() -> float:
     """Get current Nifty 50 level via yfinance (15-min delayed, no auth needed)."""
     try:

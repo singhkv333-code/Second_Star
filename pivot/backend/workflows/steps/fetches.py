@@ -171,7 +171,7 @@ async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
 
     import pandas as pd  # type: ignore[import-untyped]
 
-    from backend.kite.market_data import get_historical_ohlcv
+    from backend.kite.market_data import get_historical_ohlcv, period_for_indicator
     from backend.services.backtest_indicators import (
         compute_series, get_spec,
     )
@@ -185,7 +185,10 @@ async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     if spec is None:
         raise ValueError(f"unsupported indicator: {indicator!r}")
 
-    bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
+    # P0 parity: window sized to the indicator period (guard floor 30 here).
+    bars = get_historical_ohlcv(
+        symbol, period=period_for_indicator(period, floor=30), interval="1d",
+    ) or []
     if len(bars) < max(period + 5, 30):
         raise NotYetAvailableError(
             f"fetch.indicator: not enough history for {symbol} "
@@ -846,15 +849,17 @@ async def execute_fetch_spread_z_score(
     to symbol_b.
     """
     import pandas as pd  # type: ignore[import-untyped]
-    from backend.kite.market_data import get_historical_ohlcv
+    from backend.kite.market_data import get_historical_ohlcv, period_for_bars
 
     cfg = ctx.config
     sym_a = str(cfg["symbol_a"]).upper()
     sym_b = str(cfg["symbol_b"]).upper()
     lookback = int(cfg.get("lookback", 30))
 
-    bars_a = get_historical_ohlcv(sym_a, period="6mo", interval="1d") or []
-    bars_b = get_historical_ohlcv(sym_b, period="6mo", interval="1d") or []
+    # P0 parity: window sized to the lookback (guard is lookback+5).
+    _spread_period = period_for_bars(lookback + 5, cap="2y")
+    bars_a = get_historical_ohlcv(sym_a, period=_spread_period, interval="1d") or []
+    bars_b = get_historical_ohlcv(sym_b, period=_spread_period, interval="1d") or []
     if len(bars_a) < lookback + 5 or len(bars_b) < lookback + 5:
         raise NotYetAvailableError(
             f"fetch.spread_z_score: need {lookback + 5} bars each for "

@@ -676,5 +676,6 @@ async def backtest_draft(
         "signals": result.signals,
         "metrics": result.metrics,
         "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        "methodology": result.methodology,
         "summary": result.summary_text,
     }

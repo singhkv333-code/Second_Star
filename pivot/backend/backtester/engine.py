@@ -43,38 +43,21 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Indian costs
+# Indian costs — single source of truth now lives in services/trading_costs.py
+# (2026-05-29 audit: STT was sell-only + GST was missing here; the converged
+# model adds STT on both legs + GST). Re-exported so existing importers
+# (`dsl/backtest/engine.py` imports buy_cost/sell_cost from here) keep working.
 # ---------------------------------------------------------------------------
-BROKERAGE_PER_ORDER = 20.0
-SLIPPAGE_PCT = 0.0005      # 0.05% of order value
-STT_SELL_PCT = 0.001       # 0.1% on sell side only
-EXCHANGE_PCT = 0.0000325   # 0.00325% per side (NSE equity delivery)
-SEBI_PCT = 0.00000015      # 0.000015% per side
-STAMP_BUY_PCT = 0.00015    # 0.015% on buy side only
-
-
-def buy_cost(price: float, qty: int) -> tuple[float, float]:
-    """Returns (net_debit, total_costs) for a delivery buy."""
-    notional = price * qty
-    brokerage = BROKERAGE_PER_ORDER
-    slippage = notional * SLIPPAGE_PCT
-    exchange = notional * EXCHANGE_PCT
-    sebi = notional * SEBI_PCT
-    stamp = notional * STAMP_BUY_PCT
-    total = brokerage + slippage + exchange + sebi + stamp
-    return notional + total, total
-
-
-def sell_cost(price: float, qty: int) -> tuple[float, float]:
-    """Returns (net_credit, total_costs) for a delivery sell."""
-    notional = price * qty
-    brokerage = BROKERAGE_PER_ORDER
-    slippage = notional * SLIPPAGE_PCT
-    stt = notional * STT_SELL_PCT
-    exchange = notional * EXCHANGE_PCT
-    sebi = notional * SEBI_PCT
-    total = brokerage + slippage + stt + exchange + sebi
-    return notional - total, total
+from backend.services.trading_costs import (  # noqa: E402
+    BROKERAGE_PER_ORDER,
+    EXCHANGE_PCT,
+    SEBI_PCT,
+    SLIPPAGE_PCT,
+    STAMP_BUY_PCT,
+    STT_SELL_PCT,
+    buy_cost,
+    sell_cost,
+)
 
 
 # ---------------------------------------------------------------------------

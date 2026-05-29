@@ -52,8 +52,21 @@ export type IndicatorBacktestPayload = {
     n_wins: number;
     starting_capital: number;
     ending_value: number;
+    // Risk-adjusted metrics + benchmark (added 2026-05-29; optional so older
+    // payloads still render). Sharpe/Sortino annualized; benchmark net of costs.
+    sharpe?: number | null;
+    sortino?: number | null;
+    benchmark_return_pct?: number | null;
   };
   bench_buy_hold_return_pct: number | null;
+  // Methodology block — window / after-costs / daily-bar basis / survivorship
+  // caveat. Present on backtests run after the 2026-05-29 transparency change.
+  methodology?: {
+    window: string;
+    costs: string;
+    basis: string;
+    caveat: string;
+  } | null;
   // ── DSL-tree extras (present only on responses from the
   // backtest_dsl_tree chat tool). When ``tree_summary`` is set the
   // card uses it as the condition label instead of the indicator/
@@ -325,9 +338,12 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
     bench_buy_hold_return_pct,
   } = payload;
 
+  // Benchmark can be null (e.g. DSL backtest when primary bars are missing) —
+  // coerce to 0 for the delta math + label so the card never renders NaN.
+  const benchPct = bench_buy_hold_return_pct ?? 0;
   const positive = metrics.total_return_pct >= 0;
-  const beatsBench = metrics.total_return_pct > bench_buy_hold_return_pct;
-  const benchDelta = metrics.total_return_pct - bench_buy_hold_return_pct;
+  const beatsBench = metrics.total_return_pct > benchPct;
+  const benchDelta = metrics.total_return_pct - benchPct;
   const benchEqual = Math.abs(benchDelta) < 0.005;
   const netPnl = metrics.ending_value - metrics.starting_capital;
   const conditionLabel = conditionFor(payload);
@@ -507,8 +523,20 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
           <RoomyStat label="Wins" value={`${metrics.n_wins}/${metrics.n_trades}`} />
           <RoomyStat
             label={`${symbol} buy & hold`}
-            value={fmtPct(bench_buy_hold_return_pct)}
+            value={fmtPct(benchPct)}
           />
+          {(metrics.sharpe != null || metrics.sortino != null) && (
+            <>
+              <RoomyStat
+                label="Sharpe"
+                value={metrics.sharpe != null ? metrics.sharpe.toFixed(2) : "—"}
+              />
+              <RoomyStat
+                label="Sortino"
+                value={metrics.sortino != null ? metrics.sortino.toFixed(2) : "—"}
+              />
+            </>
+          )}
         </div>
       </div>
 
@@ -547,6 +575,22 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
         />
       </div>
 
+      {/* Methodology strip — window, after-costs basis, survivorship caveat.
+          Surfaced so the user knows results are net of realistic costs on
+          daily bars, not idealized. Present only on post-2026-05-29 runs. */}
+      {payload.methodology && (
+        <div
+          className="border-t border-border/50 px-10 py-3 text-[10.5px] leading-snug text-muted-foreground/70"
+          data-testid="backtest-methodology"
+        >
+          <span className="tabular-nums">{payload.methodology.window}</span>
+          <span className="mx-1.5 text-muted-foreground/40">·</span>
+          {payload.methodology.costs}
+          <span className="mx-1.5 text-muted-foreground/40">·</span>
+          {payload.methodology.basis}
+        </div>
+      )}
+
       {/* Insight + disclaimer. Footer reads the strategy in plain
           English instead of repeating numbers from the stat grid.
           Disclaimer drops one notch in weight so it stays a footnote. */}
@@ -563,7 +607,7 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
             className="h-3 w-3 shrink-0 text-muted-foreground/40"
             aria-hidden="true"
           />
-          Past performance does not guarantee future results.
+          {payload.methodology?.caveat ?? "Past performance does not guarantee future results."}
         </p>
       </div>
     </div>

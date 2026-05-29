@@ -740,10 +740,14 @@ def _validate_or_raise(draft: dict[str, Any]) -> dict[str, Any]:
             f"workflow_macros: hydrated draft failed registry validation: {e}"
         ) from None
     try:
-        from backend.services.backtest_resolvability import check_draft
-        bt_ok, bt_blockers = check_draft(draft.get("steps") or [])
+        from backend.services.backtest_resolvability import (
+            check_draft, check_live_fireable,
+        )
+        _steps = draft.get("steps") or []
+        bt_ok, bt_blockers = check_draft(_steps)
         draft["backtestable"] = bool(bt_ok)
         draft["backtest_blockers"] = bt_blockers
+        draft["live_warnings"] = check_live_fireable(_steps)
     except Exception:
         draft.setdefault("backtestable", True)
         draft.setdefault("backtest_blockers", [])

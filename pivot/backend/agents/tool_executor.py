@@ -539,10 +539,14 @@ async def _propose_workflow(a, kt, db, uid):
         # instead of the user discovering it via a runtime float-cast
         # error.
         try:
-            from backend.services.backtest_resolvability import check_draft
-            bt_ok, bt_blockers = check_draft(payload.get("steps") or [])
+            from backend.services.backtest_resolvability import (
+                check_draft, check_live_fireable,
+            )
+            _steps = payload.get("steps") or []
+            bt_ok, bt_blockers = check_draft(_steps)
             payload["backtestable"] = bool(bt_ok)
             payload["backtest_blockers"] = bt_blockers
+            payload["live_warnings"] = check_live_fireable(_steps)
         except Exception:
             # Conservative default: assume backtestable rather than
             # falsely hiding the button for an unrelated bug here.
@@ -584,10 +588,14 @@ async def _propose_workflow(a, kt, db, uid):
     payload = draft.model_dump()
     payload["_render_hint"] = "workflow_draft_card"
     try:
-        from backend.services.backtest_resolvability import check_draft
-        bt_ok, bt_blockers = check_draft(payload.get("steps") or [])
+        from backend.services.backtest_resolvability import (
+            check_draft, check_live_fireable,
+        )
+        _steps = payload.get("steps") or []
+        bt_ok, bt_blockers = check_draft(_steps)
         payload["backtestable"] = bool(bt_ok)
         payload["backtest_blockers"] = bt_blockers
+        payload["live_warnings"] = check_live_fireable(_steps)
     except Exception:
         payload["backtestable"] = True
         payload["backtest_blockers"] = []
@@ -726,6 +734,7 @@ async def _backtest_workflow(a, kt, db, uid):
             "signals": result.signals,
             "metrics": result.metrics,
             "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+            "methodology": result.methodology,
             "summary_text": result.summary_text,
         },
         "logiccard": None,

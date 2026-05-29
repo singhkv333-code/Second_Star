@@ -185,11 +185,17 @@ class LiveDataAccessor:
         """Pull the OHLC at (-1 - offset) from the cached historical
         OHLCV. Used for any non-zero offset or non-close basis."""
         try:
-            from backend.kite.market_data import get_historical_ohlcv
+            from backend.kite.market_data import (
+                get_historical_ohlcv, period_for_bars,
+            )
         except ImportError:  # pragma: no cover
             return None
         try:
-            bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
+            # Price offsets are small; size the window to the offset (+ margin).
+            bars = get_historical_ohlcv(
+                symbol, period=period_for_bars(int(offset) + 5, cap="1y"),
+                interval="1d",
+            ) or []
         except Exception as exc:  # noqa: BLE001
             logger.info(
                 "[dsl.data_accessor] historical fetch (price) failed for %s: %s",
@@ -232,7 +238,9 @@ class LiveDataAccessor:
 
         try:
             import pandas as pd  # type: ignore[import-untyped]
-            from backend.kite.market_data import get_historical_ohlcv
+            from backend.kite.market_data import (
+                get_historical_ohlcv, period_for_indicator,
+            )
             from backend.services.backtest_indicators import (
                 compute_series_component,
             )
@@ -242,8 +250,12 @@ class LiveDataAccessor:
             return None
 
         try:
+            # P0 parity: window sized to the indicator period + offset (was a
+            # hardcoded "6mo" that silently starved any period > ~120 live).
             bars = get_historical_ohlcv(
-                symbol, period="6mo", interval="1d"
+                symbol,
+                period=period_for_indicator(int(period or 0), offset=int(offset)),
+                interval="1d",
             ) or []
         except Exception as exc:  # noqa: BLE001
             logger.info(
@@ -328,14 +340,21 @@ class LiveDataAccessor:
             return self._call_cache[cache_key]
 
         try:
-            from backend.kite.market_data import get_historical_ohlcv
+            from backend.kite.market_data import (
+                get_historical_ohlcv, period_for_bars,
+            )
         except ImportError:  # pragma: no cover
             self._call_cache[cache_key] = None
             return None
 
         try:
+            # P0 parity: size to the volume window (+offset+margin) so a
+            # "volume above 50-day average" rule fires live (was hardcoded
+            # "3mo" ≈ 63 bars, which starved windows > ~50).
             ohlcv = get_historical_ohlcv(
-                symbol, period="3mo", interval="1d"
+                symbol,
+                period=period_for_bars(int(bars) + int(offset) + 5, cap="2y"),
+                interval="1d",
             ) or []
         except Exception as exc:  # noqa: BLE001
             logger.info(

@@ -468,10 +468,21 @@ async def backtest_dsl_tree(args: dict) -> dict:
     # unchanged; the card itself sniffs `tree_summary` and trades to
     # decide which surface to draw.
     metrics = result.metrics
+    from backend.services.backtest_metrics import methodology_note
+    _method = methodology_note(start=start_d.isoformat(), end=end_d.isoformat())
+    _bench_txt = (
+        f" Buy-and-hold returned {metrics.benchmark_return_pct:+.1f}%."
+        if metrics.benchmark_return_pct is not None else ""
+    )
+    _sharpe_txt = (
+        f" Sharpe {metrics.sharpe_ratio:.2f}."
+        if metrics.sharpe_ratio is not None else ""
+    )
     summary = (
         f"Strategy returned {metrics.total_return_pct:+.1f}% across "
         f"{metrics.total_trades} trade(s). Max drawdown {metrics.max_drawdown_pct:.1f}%. "
-        f"Win rate {metrics.win_rate_pct:.0f}%."
+        f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt} "
+        f"Results are {_method['costs']}, on {_method['basis']}."
     )
 
     # Build the legacy-shaped signals list (buy + sell as separate
@@ -540,12 +551,16 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "cagr_pct": float(metrics.cagr_pct),
             "max_drawdown_pct": float(metrics.max_drawdown_pct),
             "hit_rate_pct": float(metrics.win_rate_pct),
+            "sharpe": metrics.sharpe_ratio,
+            "sortino": metrics.sortino_ratio,
             "n_trades": int(n_trades),
             "n_wins": int(n_wins),
+            "benchmark_return_pct": metrics.benchmark_return_pct,
             "starting_capital": float(request.starting_capital),
             "ending_value": float(metrics.ending_value),
         },
-        "bench_buy_hold_return_pct": None,
+        "bench_buy_hold_return_pct": metrics.benchmark_return_pct,
+        "methodology": _method,
         "summary_text": summary,
         # DSL-native fields — present ONLY on DSL responses. The card
         # uses these to render the readback as the title and (later)
@@ -950,10 +965,13 @@ async def propose_dsl_workflow(args: dict) -> dict:
     # to surface the Backtest button — and so the runtime float-cast
     # error never fires for an unresolvable Mustache ref.
     try:
-        from backend.services.backtest_resolvability import check_draft
+        from backend.services.backtest_resolvability import (
+            check_draft, check_live_fireable,
+        )
         bt_ok, bt_blockers = check_draft(steps)
         draft["backtestable"] = bool(bt_ok)
         draft["backtest_blockers"] = bt_blockers
+        draft["live_warnings"] = check_live_fireable(steps)
     except Exception:
         draft["backtestable"] = True
         draft["backtest_blockers"] = []

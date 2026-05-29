@@ -124,6 +124,56 @@ def _walk_refs(value: Any) -> list[str]:
     return found
 
 
+# Largest live fetch window (3y ≈ 756 NSE trading days) — matches the cap in
+# market_data.period_for_indicator. An indicator whose min-history need
+# (period + ~5 warm-up) exceeds this can never compute live even after the
+# window-scaling fix, so the agent would silently never fire.
+_LIVE_CAP_BARS = 756
+_LIVE_WARMUP = 5
+
+
+def _indicator_periods(value: Any) -> list[int]:
+    """Recursively collect indicator look-back periods from a step config.
+    Handles both the flat `trigger.indicator`/`fetch.indicator` shape
+    ({"indicator": "ema", "period": N}) and nested DSL IndicatorNodes
+    ({"type": "indicator", "period": N, ...}) inside compound trees."""
+    out: list[int] = []
+    if isinstance(value, dict):
+        is_indicator = (
+            value.get("type") == "indicator" or "indicator" in value
+        )
+        if is_indicator and isinstance(value.get("period"), (int, float)):
+            out.append(int(value["period"]))
+        for v in value.values():
+            out.extend(_indicator_periods(v))
+    elif isinstance(value, list):
+        for v in value:
+            out.extend(_indicator_periods(v))
+    return out
+
+
+def check_live_fireable(steps: list[dict]) -> list[str]:
+    """Return WARNINGS (not blockers) for indicators whose required history
+    exceeds the live fetch cap, so the live watcher could never compute them.
+    Backtesting is unaffected (it uses multi-year windows); this only warns
+    that the agent may not FIRE live. Returns [] when everything is fireable.
+    """
+    worst = 0
+    for st in steps or []:
+        if not isinstance(st, dict):
+            continue
+        for p in _indicator_periods(st.get("config") or {}):
+            if p + _LIVE_WARMUP > _LIVE_CAP_BARS:
+                worst = max(worst, p)
+    if worst:
+        return [
+            f"A {worst}-period indicator needs more than ~3 years of daily "
+            "history; live evaluation caps at 3 years, so this agent may not "
+            "fire reliably. Consider a shorter period (≤ ~750)."
+        ]
+    return []
+
+
 def check_draft(steps: list[dict]) -> tuple[bool, list[str]]:
     """Inspect every Mustache ref in a draft's step configs and report
     backtest resolvability.

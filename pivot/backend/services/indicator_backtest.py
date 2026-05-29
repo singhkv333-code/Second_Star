@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 import pandas as pd
 import yfinance as yf  # type: ignore[import-untyped]
@@ -46,7 +46,10 @@ from backend.services.backtest_indicators import (
 logger = logging.getLogger(__name__)
 
 
-_FRICTION = 0.001  # 10 bps slippage + brokerage per side
+# P1 cost convergence: per-leg average from the shared India delivery model
+# (was a flat 10 bps that under-counted STT/GST/stamp). See trading_costs.py.
+from backend.services.trading_costs import leg_bps as _leg_bps
+_FRICTION = (_leg_bps("buy") + _leg_bps("sell")) / 2.0
 _STARTING_CAPITAL = 1_000_000.0
 
 
@@ -65,6 +68,10 @@ class IndicatorBacktestResult:
     metrics: dict
     bench_buy_hold_return_pct: float
     summary_text: str
+    # Methodology block (window / after-costs / basis / caveat) — see
+    # backend/services/backtest_metrics.methodology_note. Optional so older
+    # callers/tests that construct this result still work.
+    methodology: Optional[dict] = None
 
 
 _OperatorLiteral = Literal[
@@ -340,10 +347,18 @@ def _compute_metrics(
     closed = [t for t in trades if "pnl" in t]
     wins = [t for t in closed if t["pnl"] > 0]
     hit = (len(wins) / len(closed) * 100) if closed else 0.0
+    from backend.services.backtest_metrics import (
+        daily_returns_from_equity, sharpe_sortino,
+    )
+    _sharpe, _sortino = sharpe_sortino(
+        daily_returns_from_equity([p["v"] for p in equity_curve])
+    )
     return {
         "total_return_pct": round(total_ret, 2),
         "cagr_pct": round(cagr, 2),
         "max_drawdown_pct": round(max_dd, 2),
+        "sharpe": _sharpe,
+        "sortino": _sortino,
         "hit_rate_pct": round(hit, 2),
         "n_trades": len(closed),
         "n_wins": len(wins),

@@ -1049,10 +1049,15 @@ def _compute_indicator_sync(
     it instantly fire-able here."""
     import pandas as pd  # type: ignore[import-untyped]
 
-    from backend.kite.market_data import get_historical_ohlcv
+    from backend.kite.market_data import get_historical_ohlcv, period_for_indicator
     from backend.services.backtest_indicators import latest_value
 
-    bars = get_historical_ohlcv(symbol, period="6mo", interval="1d") or []
+    # P0 parity: size the window to the indicator period (was hardcoded "6mo",
+    # which silently starved any period > ~120, e.g. a 200-EMA, → returned None
+    # and the agent never fired live despite backtesting fine).
+    bars = get_historical_ohlcv(
+        symbol, period=period_for_indicator(int(period or 0)), interval="1d",
+    ) or []
     if len(bars) < max(int(period or 0) + 5, 20):
         return None
     df = pd.DataFrame(bars)
