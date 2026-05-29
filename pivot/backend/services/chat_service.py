@@ -150,6 +150,51 @@ def _strip_reasoning_leakage(text: str) -> str:
             continue
         kept.append(para)
     return "\n\n".join(kept).strip()
+# Explicit F&O / option-strategy verbs. Pivot v1 doesn't execute
+# options or futures, and some of these phrases ("naked call/put")
+# also trip Azure's content filter and surface as a hard provider
+# error. Detecting them pre-LLM keeps the decline deterministic and
+# avoids the generic "AI backend temporarily unavailable" banner.
+_FO_STRATEGY_RE = re.compile(
+    r"\b("
+    r"naked\s+(?:call|put)"
+    r"|covered\s+call"
+    r"|protective\s+put"
+    r"|cash[- ]?secured\s+put"
+    r"|iron\s+condor"
+    r"|iron\s+butterfly"
+    r"|bull\s+(?:call|put)\s+spread"
+    r"|bear\s+(?:call|put)\s+spread"
+    r"|short\s+strangle"
+    r"|long\s+strangle"
+    r"|short\s+straddle"
+    r"|long\s+straddle"
+    r"|calendar\s+spread"
+    r"|diagonal\s+spread"
+    r"|sell\s+a?\s*(?:call|put)\s+option"
+    r"|buy\s+a?\s*(?:call|put)\s+option"
+    r"|write\s+a?\s*(?:call|put)"
+    r")\b",
+    re.IGNORECASE,
+)
+_FO_DECLINE = (
+    "F&O — options and futures — isn't wired in Pivot v1; only "
+    "cash-equity orders execute. Want me to draft this on the "
+    "underlying, or hold this until F&O lands?"
+)
+
+
+def _fo_strategy_decline(message: str) -> str | None:
+    """Detect explicit option/F&O strategy verbs and emit a canonical
+    decline. Returns None if the message isn't an F&O strategy ask.
+    """
+    if not message:
+        return None
+    if _FO_STRATEGY_RE.search(message):
+        return _FO_DECLINE
+    return None
+
+
 _GENERIC_FALLBACK = "Sorry, I had trouble with that — could you rephrase?"
 _LLM_UNAVAILABLE = (
     "The AI backend is temporarily unavailable. You can still:\n"
@@ -2164,6 +2209,29 @@ class ChatService:
             trace.end()
             return ChatTurn(
                 response=fast_response,
+                latency_ms=total,
+                latency_breakdown=breakdown,
+            )
+
+        # ── F&O / option-strategy pre-LLM decline ──────────────────
+        # Phrases like "naked call" trip Azure's content filter and
+        # surface as a hard provider error → generic
+        # "AI backend temporarily unavailable" banner. Pivot v1
+        # doesn't execute options/futures anyway; emit the canonical
+        # decline directly. Keeps behaviour consistent with how the
+        # LLM declines "iron condor" / "short sell" prompts.
+        fo_response = _fo_strategy_decline(message)
+        if fo_response is not None:
+            trace.event("fo_strategy.declined")
+            self.store.append(conv_id, message, fo_response)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["fo_strategy"] = total
+            breakdown["total"] = total
+            _log_timing("fo_strategy", message, total, breakdown, tools=[])
+            trace.event("turn.end", total_ms=total, tools_called=[])
+            trace.end()
+            return ChatTurn(
+                response=fo_response,
                 latency_ms=total,
                 latency_breakdown=breakdown,
             )

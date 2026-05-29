@@ -1030,3 +1030,42 @@ to the right tool. Long prompts surface a draft that captures the
 schedulable + thresholdable parts and explicitly acknowledges
 unsupported constraints.
 
+
+---
+
+# Cycle L36 — edge-shape sweep (15 sessions) + F&O pre-LLM guard
+
+**Target.** Vague intents, missing fields, unsupported requests
+(F&O strategies, short selling), macro/news questions.
+
+**Initial results: 13/15 PASS.**
+- Vague intents (L36_01..03) → ASK ✓
+- Missing-field intents (L36_04..07) → ASK with focused options ✓
+- L36_08 bracket order → propose_dsl_workflow ✓
+- L36_10 pairs trade → propose_workflow + ASK qty ✓
+- L36_11 iron condor → "F&O isn't wired" + alternative ✓
+- L36_12 short sell → "F&O + cash short not supported" + alternative ✓
+- L36_13 futures margin → reasonable "not a fixed number" ✓
+- L36_14 INFY news → honest "no real-time feed" ✓
+- L36_15 RBI repo rate → honest "couldn't verify, see rbi.org.in" ✓
+
+**FAIL on L36_09 "Sell a naked call on NIFTY"** — Azure content
+filter rejected the prompt → OpenAI 400 → generic "AI backend
+temporarily unavailable" banner. Real bug.
+
+**Fix shipped.** Added `_fo_strategy_decline` pre-LLM short-circuit
+in `chat_service.py:handle`. Regex matches explicit option/F&O
+strategy verbs: naked call/put, covered call, protective put,
+cash-secured put, iron condor/butterfly, bull/bear spreads, short/
+long strangle/straddle, calendar/diagonal spread, sell/buy/write
+a call/put option. Emits the canonical "F&O isn't wired" decline
+in <15ms with no LLM call. Sidesteps content filter entirely.
+
+**Retest (5 sessions):**
+- L36_09r naked call → decline in 11ms ✓ (was unavailable banner)
+- L36_11r iron condor → decline in 7ms ✓ (was 7.6s LLM decline)
+- L36_16 covered call (new) → decline in 7ms ✓
+- L36_17 bull call spread (new) → decline in 7ms ✓
+- L36_18 normal "Buy 10 RELIANCE at 1200" → place_limit_order
+  (no false-positive on the F&O guard) ✓
+

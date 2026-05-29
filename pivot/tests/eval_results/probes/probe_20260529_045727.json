@@ -1,0 +1,113 @@
+[
+  {
+    "file": "/tmp/probe_L36_fo_retry.json",
+    "data": {
+      "results": [
+        {
+          "name": "L36_09r_naked_call",
+          "conv_id": "probe_7d3d1ab931",
+          "turns": [
+            {
+              "prompt": "Sell a naked call on NIFTY",
+              "response": "F&O \u2014 options and futures \u2014 isn't wired in Pivot v1; only cash-equity orders execute. Want me to draft this on the underlying, or hold this until F&O lands?",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 10.765333019662648,
+              "raw_data": {},
+              "latency_breakdown": {
+                "fo_strategy": 1,
+                "total": 1
+              },
+              "latency_ms_server": 1
+            }
+          ]
+        },
+        {
+          "name": "L36_11r_iron_condor",
+          "conv_id": "probe_5d152b54ab",
+          "turns": [
+            {
+              "prompt": "Build an iron condor on NIFTY",
+              "response": "F&O \u2014 options and futures \u2014 isn't wired in Pivot v1; only cash-equity orders execute. Want me to draft this on the underlying, or hold this until F&O lands?",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 6.910624972078949,
+              "raw_data": {},
+              "latency_breakdown": {
+                "fo_strategy": 0,
+                "total": 0
+              },
+              "latency_ms_server": 0
+            }
+          ]
+        },
+        {
+          "name": "L36_16_covered_call",
+          "conv_id": "probe_5d3ab05679",
+          "turns": [
+            {
+              "prompt": "Set up a covered call on my INFY",
+              "response": "F&O \u2014 options and futures \u2014 isn't wired in Pivot v1; only cash-equity orders execute. Want me to draft this on the underlying, or hold this until F&O lands?",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 6.702207989292219,
+              "raw_data": {},
+              "latency_breakdown": {
+                "fo_strategy": 0,
+                "total": 0
+              },
+              "latency_ms_server": 0
+            }
+          ]
+        },
+        {
+          "name": "L36_17_bull_spread",
+          "conv_id": "probe_126a8092a3",
+          "turns": [
+            {
+              "prompt": "I want a bull call spread on RELIANCE",
+              "response": "F&O \u2014 options and futures \u2014 isn't wired in Pivot v1; only cash-equity orders execute. Want me to draft this on the underlying, or hold this until F&O lands?",
+              "tools": [],
+              "render_hint": null,
+              "wall_ms": 6.567958014784381,
+              "raw_data": {},
+              "latency_breakdown": {
+                "fo_strategy": 0,
+                "total": 0
+              },
+              "latency_ms_server": 0
+            }
+          ]
+        },
+        {
+          "name": "L36_18_normal_buy",
+          "conv_id": "probe_028c42b751",
+          "turns": [
+            {
+              "prompt": "Buy 10 RELIANCE at 1200",
+              "response": "Placed as a limit order for `RELIANCE`: buy 10 shares at `\u20b91,200` or better.",
+              "tools": [
+                "place_limit_order"
+              ],
+              "render_hint": "logic_card",
+              "wall_ms": 6381.605250004213,
+              "raw_data": {
+                "_render_hint": "logic_card"
+              },
+              "latency_breakdown": {
+                "llm_hop_1": 2834,
+                "llm_hop_1_cached": 23552,
+                "tool_place_limit_order": 2,
+                "llm_hop_2": 3352,
+                "llm_hop_2_cached": 23552,
+                "total": 6370
+              },
+              "latency_ms_server": 6370
+            }
+          ]
+        }
+      ],
+      "user_id": 204
+    }
+  }
+]
