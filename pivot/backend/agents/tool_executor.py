@@ -1336,12 +1336,26 @@ async def _get_yield_recommendation(a, kt, db, uid):
 async def _calculate_order_qty(a, kt, db, uid):
     budget = a["budget_inr"]
     price = a.get("price")
-    if not price and a.get("symbol"):
+    sym = (a.get("symbol") or "").upper()
+    if not price and sym:
         from backend.agents.context_injector import _cached_price
-        d = _cached_price(a["symbol"].upper())
+        d = _cached_price(sym)
         price = d.get("ltp") if d else None
+    # L34 fix: cache miss → yfinance fallback so the calc doesn't fail
+    # silently and surface a raw provider error to the chat layer.
+    if not price and sym:
+        try:
+            import yfinance as yf
+            yf_sym = sym if sym.endswith(".NS") else f"{sym}.NS"
+            hist = yf.Ticker(yf_sym).history(period="5d")
+            if not hist.empty:
+                price = float(hist["Close"].iloc[-1])
+        except Exception:
+            price = None
     if not price:
-        return {"success": False, "data": {"error": "Cannot determine price"}, "logiccard": None}
+        return {"success": False,
+                "data": {"error": f"Could not fetch a live price for {sym or 'the symbol'}"},
+                "logiccard": None}
     qty = int(budget / price)
     return {"success": True, "data": {"quantity": qty, "price": price, "total": qty * price},
             "logiccard": None}
