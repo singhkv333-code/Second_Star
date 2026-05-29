@@ -511,12 +511,14 @@ plan = [
 ]
 ```
 
-**Valid `period` values for analytics tools** (compare_performance,
-get_returns, get_performance_metrics, etc.): `"5d"`, `"1mo"`, `"3mo"`,
-`"6mo"`, `"1y"`, `"2y"`, `"5y"`, `"max"`, `"ytd"`. For other
-phrasings (3 years, 18 months, since January), pick the smallest
-listed period that covers the requested window: 3 years → `"5y"`,
-18 months → `"2y"`, since January → `"ytd"`.
+**`period` values for analytics tools** (compare_performance,
+get_returns, get_performance_metrics, etc.): the canonical buckets are
+`"5d"`, `"1mo"`, `"3mo"`, `"6mo"`, `"1y"`, `"2y"`, `"5y"`, `"max"`,
+`"ytd"`, BUT arbitrary spans are now honoured exactly — pass the user's
+window verbatim in compact form and the data layer slices to it: "3
+years" → `"3y"`, "18 months" → `"18mo"`, "30 weeks" → `"30w"`, "4
+years" → `"4y"`. Do NOT round 3y up to 5y — pass `"3y"`. "since
+January" → `"ytd"`.
 
 **Quantity inside an orchestrator plan**: if the user didn't state a
 quantity, INCLUDE an ASK_USER step BEFORE the `propose_*` step, or pass
