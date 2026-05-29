@@ -93,6 +93,25 @@ _RULES: list[_Rule] = [
         "screen_fundamentals",
     ),
 
+    # ── Sector outlook / sector-health analysis (P3, 2026-05-29) ─────
+    # "outlook for the IT sector", "how is the pharma sector doing",
+    # "view on the auto sector". These are think-AND-ground asks: surface
+    # the cross-sectional screener + comparison + news so the LLM answers
+    # with data, not evergreen prose. Requires the literal token 'sector'
+    # adjacent to an analysis verb/noun, so 'nifty level?' / 'sector
+    # breakdown' (portfolio) / 'cheap banking stocks' (screener) do NOT match.
+    _r(
+        r"\b(?:outlook|prospects?|view|thesis|how(?:'?s| is| are)|state)\b"
+        r"[^.]{0,40}?"
+        r"\b(?:it|tech|pharma|bank(?:ing|s)?|auto|metal|metals|energy|fmcg|infra|"
+        r"realty|real\s+estate|chemical|chemicals|finance|psu|defen[cs]e|telecom|cement)\b"
+        r"\s*sector\b"
+        r"|\bsector\b[^.]{0,20}\b(?:outlook|prospects?|view|thesis|doing|health)\b"
+        r"|\b(?:outlook|prospects?|view|thesis)\b[^.]{0,30}\bsector\b",
+        "screen_fundamentals", "compare_performance", "get_symbol_news",
+        "get_top_movers", "get_live_price",
+    ),
+
     # ── Single-stock fundamentals + buy-decision reasoning ───────────
     # "should I buy reliance", "what's TCS's PE/ROE", "is X a good buy".
     _r(

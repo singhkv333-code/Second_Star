@@ -185,6 +185,132 @@ def _action_tickers_in(*texts: str) -> list[str]:
     return found
 
 
+# ── Non-structural amendment PATCH (P1, 2026-05-29 retail eval) ──────
+# An expiry / quantity / notes / channel tweak to an EXISTING DSL draft
+# must MUTATE the prior steps in place. Otherwise the model re-emits
+# propose_dsl_workflow from the amendment text alone, drops action_kind/
+# quantity/exit_condition, and silently collapses a 5-step buy+sell into a
+# 2-step notify-only draft under the old name (snapshot session
+# qty_amendment_expiry turn 2). The lost-action guardrail in
+# validation_handler backstops anything this classifier conservatively skips.
+
+_STRUCTURAL_AMEND_RE = re.compile(
+    r"\b(?:add|also|include|append|remove|delete|instead|replace|besides)\b"
+    r"|\bstop[\s-]?loss\b|\btrailing\b"
+    r"|\b(?:sell|exit|square[\s-]?off)\b"
+    r"|\bchange\s+it\s+to\b|\bswitch\s+to\b"
+    r"|\b(?:rsi|macd|sma|ema|bollinger|stochastic|supertrend|vwap|atr|aroon|"
+    r"donchian|keltner)\b"
+    r"|\b(?:dip|rises?|drops?|falls?|crosses?|crossing|breakout|above|below|gap)\b",
+    re.IGNORECASE,
+)
+
+
+def _amend_expiry_value(msg: str):
+    """Return an ISO date str or an int day-count for an expiry amendment."""
+    m = re.search(
+        r"\b(?:valid\s+(?:until|till)|expir\w*\s+(?:on|date))\s*:?\s*"
+        r"(\d{4}-\d{2}-\d{2})", msg)
+    if m:
+        return m.group(1)
+    m = re.search(r"\b(\d{1,4})\s*[\s-]?(day|days|week|weeks|month|months)\b", msg)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        if unit.startswith("week"):
+            n *= 7
+        elif unit.startswith("month"):
+            n *= 30
+        return n
+    return 30  # expiry mentioned with no number → default 30 days
+
+
+def _is_nonstructural_dsl_amendment(message: str) -> dict:
+    """Classify an amendment. Returns {field: value} for a NON-structural
+    tweak (valid_until / quantity / name / channel), or {} when the message
+    is empty, structural, or not an amendment. Conservative: ANY structural
+    signal → {} (full re-translation; the lost-action guardrail backstops)."""
+    msg = (message or "").strip().lower()
+    if not msg or _STRUCTURAL_AMEND_RE.search(msg):
+        return {}
+    fields: dict = {}
+    if re.search(r"\bexpir\w*\b|\bvalid\s+(?:until|till|for)\b", msg):
+        fields["valid_until"] = _amend_expiry_value(msg)
+    qm = (re.search(r"\bmake\s+it\s+(\d{1,7})\b", msg)
+          or re.search(r"\bchange\s+(?:the\s+)?(?:qty|quantity)\s+(?:to\s+)?(\d{1,7})\b", msg)
+          or re.search(r"\bset\s+(?:the\s+)?(?:qty|quantity)\s+(?:to\s+)?(\d{1,7})\b", msg)
+          or re.search(r"\b(\d{1,7})\s+shares?\b", msg))
+    if qm:
+        fields["quantity"] = int(qm.group(1))
+    rm = re.search(r"\b(?:rename|call\s+it|name\s+it)\s+(?:to\s+)?(.+)$", msg)
+    if rm:
+        fields["name"] = rm.group(1).strip()[:80]
+    cm = re.search(
+        r"\bnotify\s+(?:me\s+)?(?:by|on|via|through)\s+"
+        r"(email|push|sms|whatsapp)\b", msg)
+    if cm:
+        fields["channel"] = cm.group(1)
+    return fields
+
+
+def _patch_dsl_draft(prior: dict, fields: dict):
+    """Deep-copy the prior DSL draft and mutate ONLY the named non-structural
+    fields, preserving every buy/exit/sell step byte-for-byte. Returns the
+    patched draft (same shape propose_dsl_workflow returns), or None on error."""
+    import copy
+    from datetime import datetime, timezone, timedelta
+    try:
+        draft = copy.deepcopy(prior)
+        steps = draft.get("steps") or []
+        if "quantity" in fields and fields["quantity"]:
+            q = int(fields["quantity"])
+            for s in steps:
+                if not isinstance(s, dict) or s.get("step_type") != "action.place_order":
+                    continue
+                cfg = s.get("config") or {}
+                # Only mutate the BUY leg's explicit qty; leave the sell leg's
+                # runtime mustache ref ({{ context...holdings...quantity }}) alone.
+                if str(cfg.get("side", "")).lower() == "buy" and isinstance(
+                    cfg.get("quantity"), (int, float)
+                ):
+                    cfg["quantity"] = q
+                    s["config"] = cfg
+        if fields.get("valid_until") is not None:
+            v = fields["valid_until"]
+            if isinstance(v, int):
+                v = (datetime.now(timezone.utc).date() + timedelta(days=v)).isoformat()
+            draft["valid_until"] = str(v)
+            draft.pop("expires_at", None)
+            try:
+                from backend.agents.tool_executor import _stamp_expires_at
+                _stamp_expires_at(draft)
+            except Exception:
+                pass
+        if fields.get("name"):
+            draft["name"] = str(fields["name"])
+        if fields.get("channel"):
+            for s in steps:
+                if isinstance(s, dict) and s.get("step_type") == "notify.message":
+                    cfg = s.get("config") or {}
+                    cfg["channel"] = fields["channel"]
+                    s["config"] = cfg
+        draft["steps"] = steps
+        draft["draft_id"] = str(uuid.uuid4())
+        draft["created_at"] = datetime.utcnow().isoformat() + "Z"
+        draft["_render_hint"] = "workflow_draft_card"
+        try:
+            from backend.services.backtest_resolvability import check_draft
+            bt_ok, bt_blockers = check_draft(steps)
+            draft["backtestable"] = bool(bt_ok)
+            draft["backtest_blockers"] = bt_blockers
+        except Exception:
+            pass
+        return draft
+    except Exception:
+        logger.exception("DSL draft patch failed; falling back to re-translation")
+        return None
+
+
 # ── backtest_dsl_tree ────────────────────────────────────────────────
 
 
@@ -463,6 +589,24 @@ async def propose_dsl_workflow(args: dict) -> dict:
                           when drawdown from peak >= 5%".
     """
     args = args or {}
+
+    # ── PATCH fast-path (P1) ─────────────────────────────────────────
+    # A non-structural amendment (expiry/qty/notes/channel) on an EXISTING
+    # DSL draft mutates the prior steps in place instead of re-translating
+    # from the amendment text — re-translation silently dropped the buy/
+    # exit/sell legs (action_kind fell back to notify_only). __prior_dsl_draft
+    # and __user_message are injected post-validation by validation_handler.
+    _prior = args.get("__prior_dsl_draft")
+    if isinstance(_prior, dict) and (_prior.get("steps") or []):
+        _fields = _is_nonstructural_dsl_amendment(args.get("__user_message") or "")
+        if _fields:
+            _patched = _patch_dsl_draft(_prior, _fields)
+            if _patched is not None:
+                logger.info(
+                    "propose_dsl_workflow PATCH applied (fields=%s) — preserved "
+                    "%d steps", sorted(_fields), len(_patched.get("steps") or []))
+                return _patched
+
     condition = (args.get("condition") or "").strip()
     primary = (args.get("primary_symbol") or "").strip().upper()
     label = (args.get("name") or "").strip() or f"{primary} compound trigger"

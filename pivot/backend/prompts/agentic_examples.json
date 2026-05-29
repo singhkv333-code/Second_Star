@@ -1,5 +1,5 @@
 {
-  "_doc": "Calibration examples injected into the chat system prompt. Each example pairs a user prompt with the ideal first-call decision: a tool to invoke, the args, and a confidence score [0.0-1.0]. Confidence < 0.6 means DO NOT call the tool — call ASK_USER instead. The list is intentionally short — every example here ships on every chat turn.",
+  "_doc": "Calibration examples injected into the chat system prompt. Each example pairs a user prompt with the ideal first-call decision: a tool to invoke, the args, and a confidence score [0.0-1.0]. Confidence < 0.6 means DO NOT call the tool \u2014 call ASK_USER instead. The list is intentionally short \u2014 every example here ships on every chat turn.",
   "examples": [
     {
       "id": "single_action_market_order",
@@ -41,17 +41,17 @@
         ]
       },
       "confidence": 0.93,
-      "note": "Recurring schedule + single instrument + fixed qty + NO second action → propose_scheduled_order. NOT propose_workflow."
+      "note": "Recurring schedule + single instrument + fixed qty + NO second action \u2192 propose_scheduled_order. NOT propose_workflow."
     },
     {
       "id": "multi_branch_agent_negative",
       "prompt": "every Monday 09:15 buy 5 NIFTYBEES and at Monday close sell my entire NIFTYBEES holding if RSI(14) is below 30",
       "tool": "propose_workflow",
       "args": {
-        "_steps_summary": "trigger.market_relative_time(open Mon) → action.place_order(buy 5) → trigger.market_relative_time(close Mon) → fetch.indicator(rsi 14) → condition.numeric → fetch.portfolio → action.place_order(sell)"
+        "_steps_summary": "trigger.market_relative_time(open Mon) \u2192 action.place_order(buy 5) \u2192 trigger.market_relative_time(close Mon) \u2192 fetch.indicator(rsi 14) \u2192 condition.numeric \u2192 fetch.portfolio \u2192 action.place_order(sell)"
       },
       "confidence": 0.95,
-      "note": "TWO triggers / TWO branches → propose_workflow, NEVER propose_scheduled_order. Whenever the prompt has 'AND … at <other time>' or any conditional second leg, route to propose_workflow."
+      "note": "TWO triggers / TWO branches \u2192 propose_workflow, NEVER propose_scheduled_order. Whenever the prompt has 'AND \u2026 at <other time>' or any conditional second leg, route to propose_workflow."
     },
     {
       "id": "threshold_order_agent",
@@ -66,7 +66,7 @@
         "threshold": 3500
       },
       "confidence": 0.92,
-      "note": "Single-symbol price threshold, no expiry → propose_threshold_order. ABSOLUTE price level required (not 'X% below open')."
+      "note": "Single-symbol price threshold, no expiry \u2192 propose_threshold_order. ABSOLUTE price level required (not 'X% below open')."
     },
     {
       "id": "holding_action_sell_all",
@@ -80,7 +80,7 @@
         "threshold": 1700
       },
       "confidence": 0.93,
-      "note": "Acts on existing holding → propose_holding_action. Quantity comes from holding lookup at fire time."
+      "note": "Acts on existing holding \u2192 propose_holding_action. Quantity comes from holding lookup at fire time."
     },
     {
       "id": "basket_sector_agent",
@@ -97,27 +97,27 @@
         ]
       },
       "confidence": 0.94,
-      "note": "Sector basket — propose_basket_allocation hydrates the screener + allocate steps. Steel is a canonical sector."
+      "note": "Sector basket \u2014 propose_basket_allocation hydrates the screener + allocate steps. Steel is a canonical sector."
     },
     {
       "id": "ambiguous_symbol_ask",
       "prompt": "buy some Tata at market",
       "tool": "ASK_USER",
       "args": {
-        "question": "Several Tata stocks are listed — TATAMOTORS, TATASTEEL, TATAPOWER, TCS, TATACONSUM. Which one, and how many shares?"
+        "question": "Several Tata stocks are listed \u2014 TATAMOTORS, TATASTEEL, TATAPOWER, TCS, TATACONSUM. Which one, and how many shares?"
       },
       "confidence": 0.4,
-      "note": "Ambiguous symbol AND missing quantity. Two missing fields → one focused question covering both."
+      "note": "Ambiguous symbol AND missing quantity. Two missing fields \u2192 one focused question covering both."
     },
     {
       "id": "ambiguous_unit_ask",
       "prompt": "buy 50000 of HDFCBANK",
       "tool": "ASK_USER",
       "args": {
-        "question": "Did you mean 50,000 shares of HDFCBANK or ₹50,000 worth (≈30 shares at current price)?"
+        "question": "Did you mean 50,000 shares of HDFCBANK or \u20b950,000 worth (\u224830 shares at current price)?"
       },
       "confidence": 0.45,
-      "note": "Unit ambiguity (rupees vs shares) — never assume."
+      "note": "Unit ambiguity (rupees vs shares) \u2014 never assume."
     },
     {
       "id": "snapshot_query",
@@ -142,17 +142,17 @@
       "prompt": "make it 25 instead of 30",
       "tool": "propose_threshold_order",
       "args": {
-        "_steps_summary": "Re-emit the prior threshold draft with threshold:25 (was 30). Carry over symbol, side, quantity, kind, schedule from the prior turn UNCHANGED. Do NOT ASK for size/qty/symbol again — they were already set."
+        "_steps_summary": "Re-emit the prior threshold draft with threshold:25 (was 30). Carry over symbol, side, quantity, kind, schedule from the prior turn UNCHANGED. Do NOT ASK for size/qty/symbol again \u2014 they were already set."
       },
       "confidence": 0.9,
-      "note": "When the immediately-preceding turn drafted a *_threshold_* / *_scheduled_* / propose_workflow, and the user replies with a NUMBER tweak ('make it 25', 'lower to 20', 'change to 5%') — re-emit the SAME tool with only the changed number. NEVER re-ask for parameters the prior turn already established. NEVER route to a different propose_* tool."
+      "note": "When the immediately-preceding turn drafted a *_threshold_* / *_scheduled_* / propose_workflow, and the user replies with a NUMBER tweak ('make it 25', 'lower to 20', 'change to 5%') \u2014 re-emit the SAME tool with only the changed number. NEVER re-ask for parameters the prior turn already established. NEVER route to a different propose_* tool."
     },
     {
       "id": "edit_workflow_indicator_threshold",
       "prompt": "lower ADX to 20",
       "tool": "propose_workflow",
       "args": {
-        "_steps_summary": "Re-emit the prior workflow with the ADX condition value changed from 25 → 20. Carry over ALL other steps unchanged. Output is the FULL updated steps[], not a diff."
+        "_steps_summary": "Re-emit the prior workflow with the ADX condition value changed from 25 \u2192 20. Carry over ALL other steps unchanged. Output is the FULL updated steps[], not a diff."
       },
       "confidence": 0.9,
       "note": "Tweaking an indicator threshold inside a workflow draft: stay in propose_workflow. NEVER route to propose_scheduled_order, create_sl_order, or any other tool when editing a workflow's internal numbers."
@@ -165,17 +165,17 @@
         "_steps_summary": "Re-run backtest_workflow with SMA periods updated to 20/50 (was 10/20). Carry over symbol, period (e.g. 3y), entry/exit shape. Emit the full steps[] with the new periods."
       },
       "confidence": 0.9,
-      "note": "Backtest parameter tweaks ('try with 20/50', 'use 14-period RSI instead', 'over 5 years instead'): re-emit backtest_workflow with the changed numbers. NEVER switch to get_multiple_indicators or get_indicator. The prior backtest draft is in scope — change only what the user named."
+      "note": "Backtest parameter tweaks ('try with 20/50', 'use 14-period RSI instead', 'over 5 years instead'): re-emit backtest_workflow with the changed numbers. NEVER switch to get_multiple_indicators or get_indicator. The prior backtest draft is in scope \u2014 change only what the user named."
     },
     {
       "id": "cancel_after_draft",
       "prompt": "cancel that",
       "tool": "ASK_USER",
       "args": {
-        "question": "Cancelling the pending draft. Confirm — say 'yes' and I'll discard it."
+        "question": "Cancelling the pending draft. Confirm \u2014 say 'yes' and I'll discard it."
       },
       "confidence": 0.9,
-      "note": "When the IMMEDIATELY-PRECEDING assistant turn proposed a draft (order, workflow, basket, SIP) and the user replies 'cancel', 'cancel that', 'never mind', 'drop it', or 'no don't' — DO NOT create a new order or call any propose_* tool. The runtime cancels the active draft. If unsure, route to ASK_USER asking for confirmation. NEVER interpret 'cancel that' as a fresh order."
+      "note": "When the IMMEDIATELY-PRECEDING assistant turn proposed a draft (order, workflow, basket, SIP) and the user replies 'cancel', 'cancel that', 'never mind', 'drop it', or 'no don't' \u2014 DO NOT create a new order or call any propose_* tool. The runtime cancels the active draft. If unsure, route to ASK_USER asking for confirmation. NEVER interpret 'cancel that' as a fresh order."
     },
     {
       "id": "extend_existing_draft",
@@ -219,7 +219,7 @@
         ]
       },
       "confidence": 0.95,
-      "note": "Single-indicator backtest. ALWAYS call backtest_workflow with the full steps[] shape. NEVER call run_backtest — legacy path."
+      "note": "Single-indicator backtest. ALWAYS call backtest_workflow with the full steps[] shape. NEVER call run_backtest \u2014 legacy path."
     },
     {
       "id": "backtest_fundamental_named",
@@ -268,7 +268,7 @@
         ]
       },
       "confidence": 0.94,
-      "note": "Fundamentals-gated backtest. The user explicitly said 'Backtest:' AND named a fundamental gate → ALWAYS route to backtest_workflow (run it) and ALWAYS emit fetch.fundamental + condition.numeric. NEVER drop the fundamental gate. Named metrics include: roe, roce, roa, debt_to_equity, current_ratio, quick_ratio, eps_basic, revenue, net_profit, net_profit_margin, ebitda_margin, price_to_book, ev_to_ebitda, earnings_yield, interest_coverage, book_value_per_share, asset_turnover. Legacy short codes pe/roe/de/mcap still accepted."
+      "note": "Fundamentals-gated backtest. The user explicitly said 'Backtest:' AND named a fundamental gate \u2192 ALWAYS route to backtest_workflow (run it) and ALWAYS emit fetch.fundamental + condition.numeric. NEVER drop the fundamental gate. Named metrics include: roe, roce, roa, debt_to_equity, current_ratio, quick_ratio, eps_basic, revenue, net_profit, net_profit_margin, ebitda_margin, price_to_book, ev_to_ebitda, earnings_yield, interest_coverage, book_value_per_share, asset_turnover. Legacy short codes pe/roe/de/mcap still accepted."
     },
     {
       "id": "backtest_fundamental_roce",
@@ -317,7 +317,7 @@
         ]
       },
       "confidence": 0.94,
-      "note": "ROCE, current_ratio, ebitda_margin, eps_basic, and every other named field in financials_db.FIELD_MAP work the same way — emit metric: '<name>' literally. Do NOT default to legacy short codes pe/roe/de when a longer named field fits better."
+      "note": "ROCE, current_ratio, ebitda_margin, eps_basic, and every other named field in financials_db.FIELD_MAP work the same way \u2014 emit metric: '<name>' literally. Do NOT default to legacy short codes pe/roe/de when a longer named field fits better."
     },
     {
       "id": "backtest_fundamental_formula",
@@ -367,7 +367,7 @@
         ]
       },
       "confidence": 0.92,
-      "note": "When the user asks for a derived metric that isn't in FIELD_MAP (ROIC, FCF margin, custom score, etc.), emit metric: 'formula' with a formula string built ONLY from named FIELD_MAP identifiers and arithmetic (+ - * / ** %, parentheses, numeric literals). NO function calls, NO attribute access. Use formulas ONLY when no named metric fits — never wrap a named metric in a redundant formula."
+      "note": "When the user asks for a derived metric that isn't in FIELD_MAP (ROIC, FCF margin, custom score, etc.), emit metric: 'formula' with a formula string built ONLY from named FIELD_MAP identifiers and arithmetic (+ - * / ** %, parentheses, numeric literals). NO function calls, NO attribute access. Use formulas ONLY when no named metric fits \u2014 never wrap a named metric in a redundant formula."
     },
     {
       "id": "fundamental_screen",
@@ -385,14 +385,14 @@
         "limit": 15
       },
       "confidence": 0.9,
-      "note": "Cross-sectional fundamental screens ARE supported via screen_fundamentals (fields: pe, roe, roce, de, payout; optional coarse sector pharma/bank/it/energy/auto/metal/finance/chemicals/fmcg/infra/textiles). Call it DIRECTLY for 'X stocks with ROE>N', 'cheap banking stocks', 'low debt high roe' — do NOT deflect to a fixed ticker list. Data is basic and may include small-caps; never invent names or numbers."
+      "note": "Cross-sectional fundamental screens ARE supported via screen_fundamentals (fields: pe, roe, roce, de, payout; optional coarse sector pharma/bank/it/energy/auto/metal/finance/chemicals/fmcg/infra/textiles). Call it DIRECTLY for 'X stocks with ROE>N', 'cheap banking stocks', 'low debt high roe' \u2014 do NOT deflect to a fixed ticker list. Data is basic and may include small-caps; never invent names or numbers."
     },
     {
       "id": "news_gate_on_open_buy",
       "prompt": "Buy 5 RELIANCE at open. At 10 AM IST, if RBI announces a repo rate cut, sell my entire RELIANCE holding; otherwise hold for the day.",
       "tool": "propose_workflow",
       "args": {
-        "_steps_summary": "trigger.schedule(cron: 0 9 * * 1-5, market-open) → action.place_order(buy 5 RELIANCE market) → trigger.schedule(cron: 0 10 * * 1-5, 10 AM IST) → fetch.news(keywords: [\"RBI\",\"repo rate\",\"MPC\",\"rate cut\"], event_description: \"RBI announces a repo rate cut\", min_confidence: 0.85) → condition.boolean(left: {{context.3.matched}}, value: true) → action.place_order(sell entire RELIANCE holding) ; on false branch: notify.message(hold for the day)"
+        "_steps_summary": "trigger.schedule(cron: 0 9 * * 1-5, market-open) \u2192 action.place_order(buy 5 RELIANCE market) \u2192 trigger.schedule(cron: 0 10 * * 1-5, 10 AM IST) \u2192 fetch.news(keywords: [\"RBI\",\"repo rate\",\"MPC\",\"rate cut\"], event_description: \"RBI announces a repo rate cut\", min_confidence: 0.85) \u2192 condition.boolean(left: {{context.3.matched}}, value: true) \u2192 action.place_order(sell entire RELIANCE holding) ; on false branch: notify.message(hold for the day)"
       },
       "confidence": 0.94,
       "note": "News-gated intraday workflow. Use propose_workflow whenever a workflow has a news condition gating a downstream order. fetch.news's `matched` aggregate feeds condition.boolean."
@@ -402,7 +402,7 @@
       "prompt": "If Apple confirms iPhone manufacturing expansion in India in the next 2 days, buy a basket of 5 Indian electronics manufacturing stocks.",
       "tool": "propose_workflow",
       "args": {
-        "_steps_summary": "trigger.event(event_description: \"Apple confirms iPhone manufacturing expansion in India\", keywords: [\"Apple\",\"iPhone\",\"manufacturing\",\"India\",\"Foxconn\",\"Tata Electronics\"], min_confidence: 0.85, hours_back: 48) → fetch.screener(sector: electronics, sort_by: mcap, limit: 5) → action.allocate_notional(symbols: {{context.1.ranked}}, total_inr: 100000, strategy: equal)"
+        "_steps_summary": "trigger.event(event_description: \"Apple confirms iPhone manufacturing expansion in India\", keywords: [\"Apple\",\"iPhone\",\"manufacturing\",\"India\",\"Foxconn\",\"Tata Electronics\"], min_confidence: 0.85, hours_back: 48) \u2192 fetch.screener(sector: electronics, sort_by: mcap, limit: 5) \u2192 action.allocate_notional(symbols: {{context.1.ranked}}, total_inr: 100000, strategy: equal)"
       },
       "confidence": 0.92,
       "note": "Pure news-event trigger (no schedule). Use trigger.event when the event itself is the trigger and there is no pre-news leg. Keywords specific, event_description in natural language for the LLM verifier."
@@ -412,10 +412,30 @@
       "prompt": "If SEBI penalises any large private bank by 3 PM, short that bank's holding; otherwise hold.",
       "tool": "propose_workflow",
       "args": {
-        "_steps_summary": "trigger.schedule(cron: 0 15 * * 1-5) → fetch.news(keywords: [\"SEBI\",\"penalty\",\"private bank\",\"fine\"], event_description: \"SEBI imposes a penalty on a large private bank\", min_confidence: 0.85) → condition.boolean(left: {{context.1.matched}}, value: true) → action.place_order(short the named bank from top_article) ; on false branch: notify.message(no SEBI action, holding)"
+        "_steps_summary": "trigger.schedule(cron: 0 15 * * 1-5) \u2192 fetch.news(keywords: [\"SEBI\",\"penalty\",\"private bank\",\"fine\"], event_description: \"SEBI imposes a penalty on a large private bank\", min_confidence: 0.85) \u2192 condition.boolean(left: {{context.1.matched}}, value: true) \u2192 action.place_order(short the named bank from top_article) ; on false branch: notify.message(no SEBI action, holding)"
       },
       "confidence": 0.91,
       "note": "Time-bounded news check inside a scheduled workflow. fetch.news's top_article carries the named entity downstream actions can interpolate via {{context.<idx>.top_article.title}}."
+    },
+    {
+      "id": "sector_outlook_grounded",
+      "prompt": "what's the outlook for the IT sector right now?",
+      "tool": "screen_fundamentals",
+      "args": {
+        "sector": "it"
+      },
+      "confidence": 0.9,
+      "note": "Sector outlook = think AND ground. Start with screen_fundamentals(sector=it) (ranks by ROE), then compare_performance on the top names; optionally get_symbol_news. Never answer with 0 tools / evergreen prose."
+    },
+    {
+      "id": "index_why_down_chain",
+      "prompt": "why is nifty down today?",
+      "tool": "get_index_level",
+      "args": {
+        "index": "NIFTY50"
+      },
+      "confidence": 0.95,
+      "note": "State the actual level + change% from get_index_level, THEN chain get_top_movers (losers) to name real movers (and get_symbol_news on the biggest). Do not omit the number; do not defer with \"if you want I can check losers\"."
     }
   ]
 }

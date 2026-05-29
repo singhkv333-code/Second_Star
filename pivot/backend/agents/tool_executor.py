@@ -1340,6 +1340,7 @@ async def _screen_fundamentals(a, kt, db, uid):
         sector=a.get("sector"),
         sort_by=a.get("sort_by"),
         limit=int(a.get("limit", 15)),
+        market_cap_tier=a.get("market_cap_tier"),
     )
     return {"success": True, "data": out, "logiccard": None}
 

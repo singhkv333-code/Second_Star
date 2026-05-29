@@ -419,6 +419,7 @@ async def execute_with_completeness(
     user_id: int,
     qty_context: str = "",
     suppress_qty_default_check: bool = False,
+    prior_dsl_draft: Optional[dict] = None,
 ) -> GuardedToolResult:
     """Schema-first tool execution.
 
@@ -577,6 +578,11 @@ async def execute_with_completeness(
         # otherwise.
         args = dict(args)
         args["__user_message"] = user_message
+        # P1: thread the prior DSL draft so the PATCH fast-path can mutate
+        # the prior steps for a non-structural amendment instead of
+        # re-translating (which silently dropped the buy/exit/sell legs).
+        if isinstance(prior_dsl_draft, dict):
+            args["__prior_dsl_draft"] = prior_dsl_draft
     result = await execute(
         tool_name, args, kite_token=kite_token, db=db, user_id=user_id,
     )
@@ -607,7 +613,93 @@ async def execute_with_completeness(
         out.needs_clarification = True
         out.question = _qty_clarification_question(out.data)
         out.data = {}
+
+    # M2b (P4, 2026-05-29 retail eval): single-leg conditional order tools
+    # carry their quantity in the LogicCard register_payload, NOT in
+    # out.data["steps"], so the steps-based M2 guard above never sees them.
+    # gtt_reliance ("set a GTT to buy reliance at 1200") shipped a silent
+    # qty=1. Mirror dip_simple: when one of these tools lands qty==1 and the
+    # user named no size anywhere, ask instead of defaulting. qty==1 ONLY —
+    # 10 is a legitimately user-confirmed workflow default elsewhere (the
+    # create_gtt resume test relies on qty=10 NOT being re-asked).
+    elif (
+        not suppress_qty_default_check
+        and out.success
+        and tool_name in _QTY_DEFAULTING_ORDER_TOOLS
+        and isinstance(out.logiccard, dict)
+        and out.logiccard.get("register_payload", {}).get("quantity") == 1
+        and not _USER_QTY_PATTERNS.search(user_message or "")
+        and not _USER_QTY_PATTERNS.search(qty_context or "")
+    ):
+        sym = out.logiccard.get("symbol") or out.logiccard.get(
+            "register_payload", {}
+        ).get("symbol") or "this stock"
+        out.success = False
+        out.needs_clarification = True
+        out.question = (
+            f"How many shares of {sym} should I use? (I won't default to 1 — "
+            "give me a share count or a rupee budget like ₹10,000.)"
+        )
+        out.data = {}
+        out.logiccard = None
+
+    # P1 lost-action guardrail: if this propose_dsl_workflow turn was an
+    # amendment of a prior draft that HAD order legs, but the new draft has
+    # FEWER action.place_order steps, the model silently dropped an order
+    # (the notify-only collapse). Unless the user explicitly asked to remove
+    # the order ("just notify me", "drop the buy"), fail LOUD so the agentic
+    # loop re-emits with the full draft — never ship a corrupted card under
+    # the old name. The PATCH fast-path preserves steps, so this only fires
+    # when re-translation was taken and dropped a leg.
+    if (
+        tool_name == "propose_dsl_workflow"
+        and out.success
+        and isinstance(prior_dsl_draft, dict)
+        and isinstance(out.data, dict)
+        and not _AMEND_DROP_ACTION_RE.search(user_message or "")
+    ):
+        prior_orders = _count_place_orders(prior_dsl_draft.get("steps"))
+        new_orders = _count_place_orders(out.data.get("steps"))
+        if prior_orders >= 1 and new_orders < prior_orders:
+            out.success = False
+            out.error = (
+                f"propose_dsl_workflow dropped an action.place_order that the "
+                f"prior draft had (prior={prior_orders} orders, new={new_orders}). "
+                "This was a non-structural amendment — re-emit with ALL of the "
+                "prior draft preserved: action_kind (e.g. 'buy_market'), quantity, "
+                "exit_condition and condition from the prior draft's readback, "
+                "changing ONLY the field the user asked for."
+            )
+            out.data = {}
     return out
+
+
+# Amendment phrasings that LEGITIMATELY reduce order legs (user wants fewer
+# actions) — the lost-action guardrail must NOT fire on these.
+_AMEND_DROP_ACTION_RE = re.compile(
+    r"\b(?:just\s+notify|only\s+notify|notify\s+only|alert\s+only)\b"
+    r"|\b(?:drop|remove|delete|cancel)\s+the\s+(?:order|buy|sell|trade|exit)\b"
+    r"|\bno\s+(?:order|trade|buy|sell)\b|\bdon'?t\s+(?:buy|sell|trade|place)\b",
+    re.IGNORECASE,
+)
+
+
+def _count_place_orders(steps) -> int:
+    if not isinstance(steps, list):
+        return 0
+    return sum(
+        1 for s in steps
+        if isinstance(s, dict) and s.get("step_type") == "action.place_order"
+    )
+
+
+# Single-leg conditional-order tools whose qty lands in the LogicCard
+# register_payload (not in steps[]) — checked by the M2b guard. Scoped to
+# conditional orders only (NOT place_market/limit_order) to keep blast
+# radius minimal; the bug report is about GTT.
+_QTY_DEFAULTING_ORDER_TOOLS = frozenset({
+    "create_gtt_order", "create_sl_order", "create_oco_order",
+})
 
 
 _USER_QTY_PATTERNS = re.compile(

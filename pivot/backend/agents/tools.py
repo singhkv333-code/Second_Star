@@ -650,10 +650,16 @@ tool("screen_fundamentals",
      "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the "
      "user to pick a threshold first): 'cheap banking stocks' → sector=bank, "
      "sort_by={field:pe,dir:asc}; 'best dividend payers' → sort_by="
-     "{field:payout,dir:desc}; 'highest quality IT names' → sector=it, "
-     "sort_by={field:roe,dir:desc}; 'low debt companies' → sort_by="
-     "{field:de,dir:asc}. filters is OPTIONAL — pass it only when the user "
-     "named an explicit number ('PE under 25').",
+     "{field:payout,dir:desc} (the DB has dividend PAYOUT ratio, not yield, "
+     "capped at 100% — tell the user it ranks by payout ratio, and prefer "
+     "market_cap_tier='large' so recognizable names surface); 'highest quality "
+     "IT names' → sector=it, sort_by={field:roe,dir:desc}; 'low debt companies' "
+     "→ sort_by={field:de,dir:asc}. filters is OPTIONAL — pass it only when the "
+     "user named an explicit number ('PE under 25').\n\n"
+     "CAP CONSTRAINT: if the user says 'large cap' / 'bluechip' / 'big "
+     "companies' / 'mid cap' / 'small cap', set market_cap_tier accordingly — "
+     "it is REQUIRED to honour that phrasing, do NOT drop it. large/mid are "
+     "backed by a curated NIFTY universe (the DB has no market-cap field).",
      {
          "filters": {"type": "array",
                      "description": "Numeric constraints, AND-ed. At least one required.",
@@ -666,6 +672,11 @@ tool("screen_fundamentals",
          "sector":  {"type": "string",
                      "enum": ["pharma", "bank", "it", "energy", "auto", "metal",
                               "finance", "chemicals", "fmcg", "infra", "textiles"]},
+         "market_cap_tier": {"type": "string", "enum": ["large", "mid", "small"],
+                     "description": "Restrict to large/mid/small-cap NSE names. "
+                     "Emit 'large' whenever the user says large-cap / bluechip / "
+                     "'big companies'. Backed by a curated NIFTY universe "
+                     "because the DB has no market-cap field."},
          "sort_by": {"type": "object", "properties": {
                          "field": {"type": "string",
                                    "enum": ["pe", "roe", "roce", "de", "payout"]},

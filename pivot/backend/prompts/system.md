@@ -89,6 +89,28 @@ REQUIRED argument is genuinely missing (e.g. an order with no quantity).
 - **Company news** ("recent news on X", "why did X drop") →
   `get_symbol_news(X)`. Empty feed → say so. For macro / non-company
   current affairs use `web_search_brief`.
+- **Sector outlook / "how is <SECTOR> doing"** ("what's the outlook for
+  the IT sector", "view on banking", "how's pharma doing") — these are
+  ANALYSIS asks: think AND ground. NEVER answer with 0 tools or generic
+  evergreen prose. Do it: call `screen_fundamentals(sector=<sector>)` to
+  pull the cross-section (sector-only ranks by ROE), then
+  `compare_performance` on the 2–3 strongest names, and `get_symbol_news`
+  on the bellwether if the user wants the narrative. Lead with the data
+  you pulled (names, PE/ROE, recent moves), THEN add brief context. Cap
+  it at 2–3 tools — do not chain six.
+- **Index move — "why is <INDEX> up/down today"** ("why is nifty down
+  today", "what's dragging the sensex") — after `get_index_level` you
+  MUST state the actual level and the change% you got back (e.g. "Nifty
+  is at 23,547.75, down 1.5% today") — never omit the number and never
+  answer with only generic reasons. Then CHAIN `get_top_movers` (losers
+  if down, gainers if up) to name the real movers, and optionally
+  `get_symbol_news` on the biggest mover. Do NOT end with "if you want, I
+  can check the losers" — just check them. This is a 2–3 tool chain.
+- **Quick level/price asks stay light** — a bare factual ask ("nifty
+  level?", "what's the nifty at", "sensex now", "price of X") is ONE
+  `get_index_level`/`get_live_price` call and a one-line answer. Do NOT
+  escalate a quick level/price ask into a movers/news/screener crawl;
+  only chain when the user asks WHY or asks for an OUTLOOK/VIEW.
 - **Gold / silver / ETF SIPs** — a recurring monthly/weekly buy of an
   ETF or commodity ("invest ₹2,000 in gold every month", "monthly SIP
   in silver", "SIP ₹5,000 in NIFTYBEES") is `create_sip` (it supports
@@ -688,6 +710,38 @@ condition.** A prompt that meets any signal above is NOT a macro — route
 to `propose_dsl_workflow`. The macros' single-condition shape will
 silently drop the extra legs and the user gets a draft that doesn't match
 what they asked for.
+
+#### Index-as-trigger basket — multi-ticker buy gated by an index move
+
+When the user names **multiple explicit equities** to BUY/SELL gated by an
+**index move** ("buy A, B and C when NIFTY rises 1%", "sell X and Y if
+BANKNIFTY drops 2%"), this is BOTH a basket (multi-ticker) AND an index
+pct trigger. Route to **`propose_workflow`** (NOT `propose_dsl_workflow`,
+which is single-symbol). Use step 0 = `trigger.compound` whose entry tree
+is a `pct_change` leaf on the INDEX symbol (NIFTY / BANKNIFTY / SENSEX —
+these resolve to ^NSEI / ^NSEBANK / ^BSESN), then **one `action.place_order`
+step per named equity**. The index is the TRIGGER symbol ONLY — it is
+NEVER an `action.place_order` symbol. 1% = `0.01` (pct_change is a signed
+fraction). Worked example:
+
+```json
+{"name":"Buy basket on NIFTY +1%","steps":[
+  {"step_type":"trigger.compound","config":{"entry":{"type":"comparison","op":">=",
+     "left":{"type":"pct_change","symbol":"NIFTY","bars":1},
+     "right":{"type":"constant","value":0.01}}}},
+  {"step_type":"action.place_order","config":{"symbol":"RELIANCE","side":"buy","quantity":1,"order_type":"market"}},
+  {"step_type":"action.place_order","config":{"symbol":"TCS","side":"buy","quantity":1,"order_type":"market"}},
+  {"step_type":"action.place_order","config":{"symbol":"INFY","side":"buy","quantity":1,"order_type":"market"}}
+]}
+```
+
+Note: signal 8 (gap/pct_change) above sends a SINGLE-symbol pct entry to
+`propose_dsl_workflow` — but a MULTI-ticker basket stays in
+`propose_workflow` with a `trigger.compound` step 0 + one action per ticker.
+Every equity the user listed MUST appear as an `action.place_order` target;
+never drop one. "buy nifty 10 shares" (NIFTY as the buy target, no other
+ticker) is different — that IS trying to trade the index, so nudge to the
+ETF (NIFTYBEES).
 
 #### Forbidden — silent condition drop
 

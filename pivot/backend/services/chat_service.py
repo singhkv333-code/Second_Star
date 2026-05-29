@@ -2993,9 +2993,11 @@ class ChatService:
                     "Do NOT restart from scratch. Do NOT ask another "
                     "question. Do NOT paraphrase back as 'Confirm: …'. "
                     "Do NOT ignore the original request. If the merged "
-                    "request still has missing required fields, fill them "
-                    "with sensible defaults (qty=1, exchange=NSE, "
-                    "order_type=market) rather than asking a second round."
+                    "request still has missing required fields, fill the "
+                    "optional ones with sensible defaults (exchange=NSE, "
+                    "order_type=market). If a share count or rupee budget was "
+                    "never given, call ASK_USER for it — do NOT default the "
+                    "quantity to 1."
                 ),
             )
         elif active is not None and workflow_hint:
@@ -3337,6 +3339,13 @@ class ChatService:
                     # [C1/C2] earlier user turns count toward "user named
                     # a qty" so the M2 guard doesn't re-ask on amendments.
                     qty_context=_recent_user_text(history),
+                    # P1: pass the prior DSL draft so a non-structural
+                    # amendment patches it in place (no notify-only collapse).
+                    prior_dsl_draft=(
+                        active.draft if (active is not None
+                                         and active.tool_name == "propose_dsl_workflow")
+                        else None
+                    ),
                 )
                 breakdown[f"tool_{guarded.name}"] = (
                     breakdown.get(f"tool_{guarded.name}", 0) + guarded.latency_ms
@@ -4206,10 +4215,11 @@ class ChatService:
                         if _is_delegation_reply(message) else ""
                     )
                     + "Do NOT restart from scratch. "
-                    "Do NOT ask another question. If the merged request "
-                    "still has missing required fields, fill them with "
-                    "sensible defaults (qty=1, exchange=NSE, "
-                    "order_type=market) rather than asking a second round."
+                    "If the merged request still has missing required "
+                    "fields, fill the optional ones with sensible defaults "
+                    "(exchange=NSE, order_type=market). If a share count or "
+                    "rupee budget was never given, call ASK_USER for it — do "
+                    "NOT default the quantity to 1."
                 ),
             )
         elif active is not None and workflow_hint:
@@ -4538,6 +4548,13 @@ class ChatService:
                     # [C1/C2] earlier user turns count toward "user named
                     # a qty" so the M2 guard doesn't re-ask on amendments.
                     qty_context=_recent_user_text(history),
+                    # P1: pass the prior DSL draft so a non-structural
+                    # amendment patches it in place (no notify-only collapse).
+                    prior_dsl_draft=(
+                        active.draft if (active is not None
+                                         and active.tool_name == "propose_dsl_workflow")
+                        else None
+                    ),
                 )
                 breakdown[f"tool_{guarded.name}"] = (
                     breakdown.get(f"tool_{guarded.name}", 0) + guarded.latency_ms
@@ -5420,14 +5437,33 @@ def _format_recoverable_failure_question(
     # commonly trip propose_workflow. Each entry is (regex pattern in
     # user message, tailored question).
     if tool_name == "propose_workflow" and msg_lc:
-        if re.search(r"\bnifty\b(?!\s*bees|\s*50\b)", msg_lc):
+        # P2 (2026-05-29): only fire the "index isn't tradeable" nudge when
+        # the index is the ACTION TARGET (buy/sell nifty) — NOT when it
+        # merely appears in a WHEN/trigger clause ("buy A,B,C when nifty
+        # rises 1%"). The old detector fired on any nifty mention and
+        # dropped the named-equity basket with a misleading NIFTYBEES reply.
+        _nifty_is_trigger = bool(re.search(
+            r"\b(?:when|if|once|after|as\s+soon\s+as|whenever)\b[^.]*\bnifty\b",
+            msg_lc))
+        _nifty_is_action = bool(re.search(
+            r"\b(?:buy|sell|short|purchase|trade)\b(?:\s+\d[\d,]*)?"
+            r"(?:\s+(?:shares?|units?|lots?)\s+of)?\s+nifty\b", msg_lc))
+        if (re.search(r"\bnifty\b(?!\s*bees|\s*50\b)", msg_lc)
+                and _nifty_is_action and not _nifty_is_trigger):
             return (
                 "I couldn't draft that — `NIFTY` is the index, not a "
                 "tradeable instrument. To run a daily open→close round-"
                 "trip you'd use the ETF that tracks it: `NIFTYBEES`. "
                 "Want me to draft the same agent on NIFTYBEES instead?"
             )
-        if re.search(r"\bbank\s*nifty\b(?!\s*bees)", msg_lc):
+        _bn_is_trigger = bool(re.search(
+            r"\b(?:when|if|once|after|as\s+soon\s+as|whenever)\b[^.]*\bbank\s*nifty\b",
+            msg_lc))
+        _bn_is_action = bool(re.search(
+            r"\b(?:buy|sell|short|purchase|trade)\b(?:\s+\d[\d,]*)?"
+            r"(?:\s+(?:shares?|units?|lots?)\s+of)?\s+bank\s*nifty\b", msg_lc))
+        if (re.search(r"\bbank\s*nifty\b(?!\s*bees)", msg_lc)
+                and _bn_is_action and not _bn_is_trigger):
             return (
                 "I couldn't draft that — `BANKNIFTY` is the index, not "
                 "a tradeable instrument. The ETF that tracks it is "

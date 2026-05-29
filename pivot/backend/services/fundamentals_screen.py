@@ -48,6 +48,27 @@ from sqlalchemy.orm import Session
 
 from backend.database import FinancialsSessionLocal
 from backend.market.financials_db import FIELD_MAP
+from backend.services.sector_universe import _UNIVERSE as _SECTOR_UNIVERSE
+
+# Curated cap tiers (P5, 2026-05-29 retail eval). The financials DB has NO
+# usable market_cap column (mc.companies.market_cap is 100% NULL), so a
+# "large cap" screen would otherwise rank an 11K-row micro-cap universe by
+# ROE and surface artifacts (Kimia Bio ROE 96%). We restrict cap-qualified
+# screens to the curated ~130-name sector_universe by approximate ₹-crore
+# market cap. Narrower than NIFTY100/500 but recognizable + safe; disclosed
+# in the result note.
+_LARGE_CAP_SYMS: frozenset = frozenset(
+    e.symbol.upper() for e in _SECTOR_UNIVERSE if e.mcap_cr >= 50000
+)
+_MID_CAP_SYMS: frozenset = frozenset(
+    e.symbol.upper() for e in _SECTOR_UNIVERSE if 20000 <= e.mcap_cr < 50000
+)
+_CAP_TIER_ALIASES = {
+    "largecap": "large", "large-cap": "large", "large": "large",
+    "bluechip": "large", "blue chip": "large", "blue-chip": "large", "big": "large",
+    "midcap": "mid", "mid-cap": "mid", "mid": "mid",
+    "smallcap": "small", "small-cap": "small", "small": "small",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +210,7 @@ def screen_by_fundamentals(
     sort_by: dict | None = None,
     limit: int = 15,
     *,
+    market_cap_tier: str | None = None,
     min_period_end: date | None | str = "default",
     session: Session | None = None,
 ) -> dict:
@@ -223,6 +245,7 @@ def screen_by_fundamentals(
     set and explained in `note`.
     """
     limit = max(1, min(int(limit), 100))
+    tier = _CAP_TIER_ALIASES.get((market_cap_tier or "").strip().lower())
 
     if min_period_end == "default":
         floor: date | None = _default_min_period_end()
@@ -372,18 +395,41 @@ def screen_by_fundamentals(
                 f"{', '.join(sorted(_SECTOR_SLUG_PREFIXES))}) — sector filter ignored"
             )
 
+    # ── 5a. Market-cap tier whitelist (P5) ───────────────────────────────
+    # The DB has no market-cap field, so "large cap"/"bluechip" is honoured
+    # by restricting to the curated cap universe. Without this the cap word
+    # is silently dropped and micro-cap artifacts dominate the ranking.
+    if tier in ("large", "mid"):
+        syms = _LARGE_CAP_SYMS if tier == "large" else (_LARGE_CAP_SYMS | _MID_CAP_SYMS)
+        params["cap_syms"] = list(syms)
+        where_parts.append("UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:cap_syms)")
+        notes.append(
+            f"restricted to curated {tier}-cap universe (~{len(syms)} NSE names; "
+            "DB has no market-cap field)"
+        )
+    elif tier == "small":
+        notes.append(
+            "small-cap filter is approximate — no curated small-cap list, "
+            "so cap is not strictly enforced"
+        )
+
     # ── 5b. Plausibility bounds — exclude data-quality artifacts ─────────
     # Tiny-equity firms report nonsense ratios (ROE 666%, etc.) that
     # otherwise dominate the ORDER BY and make the screen look broken to
     # a retail user. Bound EVERY metric in play (filter ∪ sort field),
     # not just the explicitly-filtered ones. Ranges are generous so
-    # legitimately high-quality names (e.g. ROE ~100%) survive.
+    # legitimately high-quality names survive; for an explicit large/mid-cap
+    # screen we tighten ROE/ROCE further (a genuine large-cap almost never
+    # sustains >80% ROE — anything higher is a residual data artifact).
     _PLAUSIBLE = {
         "roe":    "BETWEEN -200 AND 200",
         "roce":   "BETWEEN -200 AND 200",
         "de":     "BETWEEN 0 AND 50",
-        "payout": "BETWEEN -50 AND 500",
+        "payout": "BETWEEN 0 AND 100",
     }
+    if tier in ("large", "mid"):
+        _PLAUSIBLE = {**_PLAUSIBLE, "roe": "BETWEEN -50 AND 80",
+                      "roce": "BETWEEN -50 AND 80"}
     for mf in metric_fields:
         cte_name = f"m_{mf}"
         if _FIELD_DEFS[mf]["kind"] == "pe_from_ey":
@@ -436,6 +482,13 @@ def screen_by_fundamentals(
     if floor is not None:
         notes.append(f"latest filing on/after {floor.isoformat()} (recency floor)")
     notes.append("basis: consolidated preferred, else standalone")
+
+    if tier in ("large", "mid") and not results:
+        notes.append(
+            f"no {tier}-cap names passed these constraints — try relaxing the "
+            f"thresholds or dropping the {tier}-cap filter (not degrading to "
+            "micro-caps)"
+        )
 
     return {
         "count": len(results),
