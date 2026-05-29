@@ -417,6 +417,8 @@ async def execute_with_completeness(
     kite_token: str,
     db: Any,
     user_id: int,
+    qty_context: str = "",
+    suppress_qty_default_check: bool = False,
 ) -> GuardedToolResult:
     """Schema-first tool execution.
 
@@ -537,6 +539,17 @@ async def execute_with_completeness(
         args["__user_id"] = user_id
         args["__llm_client"] = llm_client
         args["__user_message"] = user_message
+    elif tool_name == "propose_dsl_workflow":
+        # C6: thread the original user message so the DSL tool's
+        # multi-symbol guard can see action tickers that live only in
+        # the prompt (e.g. "buy RELIANCE, TCS and BAJAJFIN when …") and
+        # route a multi-symbol order to propose_workflow instead of
+        # silently dropping all but the primary ticker. Injected AFTER
+        # schema validation above, so the extra key never trips the
+        # validator; the handler reads it via args.get and ignores it
+        # otherwise.
+        args = dict(args)
+        args["__user_message"] = user_message
     result = await execute(
         tool_name, args, kite_token=kite_token, db=db, user_id=user_id,
     )
@@ -544,13 +557,24 @@ async def execute_with_completeness(
     out.latency_ms = int((time.monotonic() - started) * 1000)
     # M2: post-execution no-default validator. For tools that emit a
     # draft, check whether action.place_order.quantity is a suspicious
-    # default (1, 10) NOT present in the user_message. Convert to a
-    # structured clarification so the LLM asks instead of shipping a
-    # silent default. Skip when user clearly named a quantity.
+    # default (1, 10) NOT named anywhere in the user-side conversation.
+    # Convert to a structured clarification so the LLM asks instead of
+    # shipping a silent default. Skip when:
+    #   - the user clearly named a quantity in the CURRENT message OR
+    #     earlier in the conversation. `qty_context` carries recent
+    #     user turns, so a qty confirmed two turns ago ("10 shares") is
+    #     NOT re-asked when the user later amends an unrelated field
+    #     ("set an expiry", "bank"). [C1/C2]
+    #   - `suppress_qty_default_check` is set — compose_multistep plan
+    #     steps carry an LLM-authored explicit quantity that is a
+    #     deliberate choice, not a silent fallback. [C9]
     if (
-        out.success
+        not suppress_qty_default_check
+        and out.success
         and isinstance(out.data, dict)
-        and _draft_has_suspicious_qty_default(out.data, user_message)
+        and _draft_has_suspicious_qty_default(
+            out.data, (user_message or "") + " " + (qty_context or ""),
+        )
     ):
         out.success = False
         out.needs_clarification = True
@@ -560,8 +584,12 @@ async def execute_with_completeness(
 
 
 _USER_QTY_PATTERNS = re.compile(
+    # C3: a message that is ENTIRELY a number — the natural answer to a
+    # qty ASK ("How many shares?" → "10"). Anchored ^…$ so it never
+    # matches a number embedded in a longer phrase ("buy when 20 dma…").
+    r"^\s*\d{1,7}\s*$"
     # Explicit share/lot/unit/quantity counts
-    r"\b\d+\s*(?:shares?|share|qty|quantity|lots?|units?|unit)\b"
+    r"|\b\d+\s*(?:shares?|share|qty|quantity|lots?|units?|unit)\b"
     # "buy 10 INFY", "sell 5 TCS" — numeric immediately after action verb
     r"|\b(?:buy|buys|buying|sell|sells|selling|short|exit|place)\s+"
     r"(?:a\s+)?\d+\b"

@@ -502,6 +502,17 @@ async def _dispatch_step(
     user_id = int(ctx.get("__user_id") or 0)
     llm_client = ctx.get("__llm_client")
 
+    # C9: an explicit numeric quantity / rupee notional in a resolved
+    # plan step is an LLM-authored deliberate choice (the orchestrator
+    # has already substituted any $ref into a literal arg), NOT a silent
+    # qty=1/10 fallback. The M2 suspicious-default guard must not bounce
+    # it back as a clarification — that aborts the compose_multistep
+    # chain (completed=False, no final_card) and the hop-2 LLM narrates
+    # "I couldn't build the agent, it needs a size".
+    explicit_qty = (
+        isinstance(args.get("quantity"), (int, float))
+        or args.get("notional_inr") is not None
+    )
     guarded = await execute_with_completeness(
         tool_name,
         args,
@@ -510,6 +521,7 @@ async def _dispatch_step(
         kite_token=kite_token,
         db=db,
         user_id=user_id,
+        suppress_qty_default_check=explicit_qty,
     )
     if guarded.needs_clarification:
         return (

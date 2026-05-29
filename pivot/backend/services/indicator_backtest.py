@@ -92,8 +92,10 @@ def run_indicator_backtest(
     the indicator series (0 for plain price-cross signals).
     """
     sym = symbol.upper().strip()
-    suffix = ".NS" if exchange.upper() == "NSE" else ".BO"
-    yf_sym = sym if sym.endswith((".NS", ".BO")) else f"{sym}{suffix}"
+    # [C4] shared resolver maps index aliases (NIFTY→^NSEI, …) and
+    # shorthand (RIL→RELIANCE) to real yfinance tickers.
+    from backend.market.yfinance_service import resolve_symbol
+    yf_sym = resolve_symbol(sym)
 
     spec = _ind_spec(indicator)
     if spec is None:

@@ -732,6 +732,13 @@ _STASH_DRAFT_TOOLS: frozenset[str] = frozenset({
     "propose_scheduled_order",
     "propose_basket_allocation",
     "propose_holding_action",
+    # [C1] propose_dsl_workflow produces an editable workflow_draft_card
+    # exactly like propose_workflow. Omitting it meant DSL agent drafts
+    # were never stashed → the next turn had no active_draft → amendments
+    # ("set an expiry for 30 days", "make it the 50-day high") got no
+    # amendment hint and re-entered slot-filling (the "re-asks shares"
+    # bug). It belongs in this set alongside every other draft tool.
+    "propose_dsl_workflow",
     # backtest_workflow draft cards are amendable too — "try it with
     # 20/50 SMA instead", "add a trailing stop", "use 5 years not 3"
     # were producing wrong-tool dispatches because the prior backtest
@@ -744,6 +751,10 @@ _STASH_DRAFT_TOOLS: frozenset[str] = frozenset({
 _MACRO_AMENDMENT_TOOLS: frozenset[str] = frozenset({
     "propose_workflow", "propose_threshold_order", "propose_scheduled_order",
     "propose_basket_allocation", "propose_holding_action",
+    # [C1] DSL agent drafts amend identically — the generic re-emit hint
+    # ("Re-emit `propose_dsl_workflow` with ALL parameters from the
+    # draft, only updating the changed field") is correct for them.
+    "propose_dsl_workflow",
     # See _STASH_DRAFT_TOOLS comment — backtest amendments must re-emit
     # backtest_workflow, not propose_workflow or get_multiple_indicators.
     "backtest_workflow",
@@ -1277,6 +1288,14 @@ _DEPENDENT_INTENT_RE = re.compile(
     r"|^\s*\d+\s+(?:shares?|units?|lots?|qty)\s*[.!?]?\s*$"
     r"|\bvalid\s+(?:for|until|till|through)\b"
     r"|\bexpir(?:e|es|ing)\s+(?:in|on|after|by)\b"
+    # [C1] expiry NOUN amendment shapes — "set an expiry for next 30
+    # days", "add the expiration", "30-day expiry", "expiry of 30 days".
+    # Scoped to set/add/give/put/apply + expiry (or N-day expiry / expiry
+    # of|in|date) so it stays an amendment cue and never matches a fresh
+    # "build an agent … with a 30-day expiry" top-level intent.
+    r"|\b(?:set|add|give|put|apply)\b[^.]{0,20}\bexpir(?:y|ation)\b"
+    r"|\bexpir(?:y|ation)\s+(?:of|in|for|date)\b"
+    r"|\b\d+[- ]?day\s+expir(?:y|ation)\b"
     r"|\bgood\s+(?:for|till|until)\s+\d"
     r"|\b(?:until|till)\s+(?:end\s+of|next|this)\b"
     r"|\bat\s+[₹$]?\s*\d[\d,]*(?:\.\d+)?\s*[.!?]?\s*$"
@@ -1688,6 +1707,58 @@ def _looks_like_clarification_followup(history: list[dict]) -> bool:
     # Look at the trailing portion (clarifications end with the ask).
     tail = last_text.rstrip()[-400:]
     return bool(_CLARIFICATION_CUES_RE.search(tail))
+
+
+def _recent_user_text(history: Optional[list[dict]]) -> str:
+    """Concatenate the user-side turns in the prompt window.
+
+    Fed to the M2 suspicious-qty guard as `qty_context` so a quantity
+    the user stated on an EARLIER turn ("10 shares") still counts as
+    user-named when they later amend an unrelated field ("set an
+    expiry for next 30 days") and the draft is re-emitted carrying that
+    qty. Without this the guard sees only the current message, decides
+    the qty looks defaulted, and re-asks "How many shares?". [C1/C2]
+    """
+    if not history:
+        return ""
+    return " ".join(
+        (h.get("content") or "")
+        for h in history
+        if isinstance(h, dict) and h.get("role") == "user"
+    )
+
+
+# [C7] Backtest-intent keyword. Used on a clarification/confirmation
+# follow-up turn to detect that the ORIGINAL request was a backtest, so
+# backtest_workflow is kept in scope when the user confirms ("right",
+# "yes, run it") — otherwise select_tool_names("right") drops it and the
+# model loops back to ASK_USER instead of running the backtest.
+_BACKTEST_INTENT_RE = re.compile(
+    r"\bback[\s-]?test(?:s|ed|ing)?\b"
+    r"|\blump[\s-]?sum\b"
+    r"|\bhow\s+(?:would|much).{0,40}\b(?:performed?|returned?|done)\b",
+    re.IGNORECASE,
+)
+
+# [C7] Delegation replies — the user is handing the decision back to us
+# ("you pick"), NOT answering with a specific value. On these we must
+# choose a sensible default and DRAFT, never re-ask the same menu.
+_DELEGATION_RE = re.compile(
+    r"^\s*(?:"
+    r"suggest\s+(?:something|one|any)?|"
+    r"you\s+(?:decide|choose|pick)|"
+    r"(?:whatever|anything)\s+(?:you\s+)?(?:think|recommend|want|prefer|suggest)?|"
+    r"your\s+(?:call|choice|pick)|"
+    r"(?:pick|choose)\s+(?:one|something|any|for\s+me)?|"
+    r"recommend\s+(?:something|one)?|"
+    r"up\s+to\s+you|i\s+don'?t\s+(?:know|mind)|either|any(?:thing)?"
+    r")\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_delegation_reply(message: str) -> bool:
+    return bool(_DELEGATION_RE.match((message or "").strip()))
 
 
 # ── Deterministic resume after clarification (Change 2) ──────────────
@@ -2105,6 +2176,11 @@ class ChatService:
             pending.tool_name, new_args,
             llm_client=client, user_message=message,
             kite_token=ctx.kite_token, db=ctx.db, user_id=ctx.user_id,
+            # [C1/C2] include prior user turns so a qty named earlier
+            # isn't re-flagged as a silent default during resume.
+            qty_context=_recent_user_text(
+                self.store.get_history(conv_id, limit=CONV_PROMPT_WINDOW_TURNS)
+            ),
         )
         breakdown[f"tool_{guarded.name}"] = guarded.latency_ms
         trace.event("resume.tool", tool=guarded.name,
@@ -2404,14 +2480,35 @@ class ChatService:
                     f" Original intent: \"{_pr.original_intent[:200]}\"."
                     if _pr.original_intent else ""
                 )
+                # [C7] If the user DELEGATES ("suggest something", "you
+                # decide"), do NOT re-ask the same menu — pick a default.
+                _deleg_clause = (
+                    "The user is DELEGATING the choice to you — do NOT "
+                    "re-ask the same menu. Choose the single most sensible "
+                    "option yourself (favour the simplest actionable "
+                    "strategy, e.g. a momentum / moving-average or "
+                    "threshold buy) and emit the tool with it. "
+                    if _is_delegation_reply(message) else ""
+                )
+                # [C7] If the original request was a backtest, the emit
+                # tool is backtest_workflow — say so explicitly.
+                _bt_clause = (
+                    "The ORIGINAL request is a BACKTEST — you MUST call "
+                    "backtest_workflow (NOT propose_workflow) and report "
+                    "the winner and by how much. "
+                    if (_pr.original_intent
+                        and _BACKTEST_INTENT_RE.search(_pr.original_intent))
+                    else ""
+                )
                 pending_resolution_hint_text = (
                     "## Pending clarification (structured)\n"
                     f"You asked: \"{_pr.question}\". "
                     f"{opts_block} {default_block}{original_block} "
                     "The user's CURRENT message is their answer. "
+                    + _deleg_clause + _bt_clause +
                     "Map it to one of the options if possible, then "
-                    "EMIT the workflow / order tool IMMEDIATELY with "
-                    "the resolved value substituted into the original "
+                    "EMIT the workflow / order / backtest tool IMMEDIATELY "
+                    "with the resolved value substituted into the original "
                     "request. Do NOT re-ask. Do NOT write prose like "
                     "'Drafted: ...' without actually calling the tool. "
                     "If no tool exists for the merged request, ASK_USER "
@@ -2644,6 +2741,28 @@ class ChatService:
                 })
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
+        # [C7] Backtest-confirmation follow-up. When the user is answering
+        # a clarification on a BACKTEST request — "right" / "yes, run it" /
+        # "use 2022" / an amount — the emit tool is backtest_workflow. But
+        # select_tool_names("right") doesn't surface it, and the
+        # pending-resolution block above only force-adds the propose_*
+        # macros — so the model has no backtest tool, can't emit, and
+        # loops back to ASK_USER ("...sound right?" forever). Detect a
+        # backtest original intent anywhere in the window and force
+        # backtest_workflow into scope with tool_choice=required.
+        _backtest_followup = False
+        if (selected_names is not None
+                and (pending_resolution_active
+                     or (history and _looks_like_clarification_followup(history)))
+                and any(_BACKTEST_INTENT_RE.search((h or {}).get("content") or "")
+                        for h in (history or [])
+                        if (h or {}).get("role") == "user")):
+            selected_names = selected_names | {"backtest_workflow"}
+            tooldefs = _registry_tools_as_tooldefs(selected_names)
+            cache_key = cache_key_for(selected_names)
+            agent_tool_choice = "required"
+            _backtest_followup = True
+            trace.event("backtest_followup.scope_forced")
         # Underspec relaxation: "build me an agent for X" with no action /
         # trigger / quantity is genuinely ambiguous — we want ASK_USER,
         # not a fabricated draft. We do TWO things:
@@ -2839,9 +2958,24 @@ class ChatService:
                     + workflow_hint +
                     " Merge the reply into the original request and call "
                     "the matching tool (propose_workflow / "
-                    "propose_dsl_workflow / place_market_order / etc.) "
+                    "propose_dsl_workflow / backtest_workflow / "
+                    "place_market_order / etc.) "
                     "IMMEDIATELY with the complete arguments.\n\n"
-                    "CRITICAL — when the original request referenced a "
+                    + (
+                        "If the ORIGINAL request was a BACKTEST (compare "
+                        "strategies, SIP vs lump sum, 'how would X have "
+                        "performed'), you MUST call backtest_workflow — NOT "
+                        "propose_workflow — and report the winner and by how "
+                        "much.\n\n"
+                        if _BACKTEST_INTENT_RE.search(original_intent) else ""
+                    )
+                    + (
+                        "The user is DELEGATING the choice to you — do NOT "
+                        "re-ask; pick the single most sensible option and "
+                        "emit the tool.\n\n"
+                        if _is_delegation_reply(message) else ""
+                    )
+                    + "CRITICAL — when the original request referenced a "
                     "placeholder (resistance / support / pivot / 'a level' "
                     "/ 'a threshold') AND the user's reply names what to "
                     "use, the tool's `condition` / `threshold` arg MUST "
@@ -3200,6 +3334,9 @@ class ChatService:
                     kite_token=ctx.kite_token,
                     db=ctx.db,
                     user_id=ctx.user_id,
+                    # [C1/C2] earlier user turns count toward "user named
+                    # a qty" so the M2 guard doesn't re-ask on amendments.
+                    qty_context=_recent_user_text(history),
                 )
                 breakdown[f"tool_{guarded.name}"] = (
                     breakdown.get(f"tool_{guarded.name}", 0) + guarded.latency_ms
@@ -3736,14 +3873,35 @@ class ChatService:
                     f" Original intent: \"{_pr.original_intent[:200]}\"."
                     if _pr.original_intent else ""
                 )
+                # [C7] If the user DELEGATES ("suggest something", "you
+                # decide"), do NOT re-ask the same menu — pick a default.
+                _deleg_clause = (
+                    "The user is DELEGATING the choice to you — do NOT "
+                    "re-ask the same menu. Choose the single most sensible "
+                    "option yourself (favour the simplest actionable "
+                    "strategy, e.g. a momentum / moving-average or "
+                    "threshold buy) and emit the tool with it. "
+                    if _is_delegation_reply(message) else ""
+                )
+                # [C7] If the original request was a backtest, the emit
+                # tool is backtest_workflow — say so explicitly.
+                _bt_clause = (
+                    "The ORIGINAL request is a BACKTEST — you MUST call "
+                    "backtest_workflow (NOT propose_workflow) and report "
+                    "the winner and by how much. "
+                    if (_pr.original_intent
+                        and _BACKTEST_INTENT_RE.search(_pr.original_intent))
+                    else ""
+                )
                 pending_resolution_hint_text = (
                     "## Pending clarification (structured)\n"
                     f"You asked: \"{_pr.question}\". "
                     f"{opts_block} {default_block}{original_block} "
                     "The user's CURRENT message is their answer. "
+                    + _deleg_clause + _bt_clause +
                     "Map it to one of the options if possible, then "
-                    "EMIT the workflow / order tool IMMEDIATELY with "
-                    "the resolved value substituted into the original "
+                    "EMIT the workflow / order / backtest tool IMMEDIATELY "
+                    "with the resolved value substituted into the original "
                     "request. Do NOT re-ask. Do NOT write prose like "
                     "'Drafted: ...' without actually calling the tool. "
                     "If no tool exists for the merged request, ASK_USER "
@@ -4033,8 +4191,21 @@ class ChatService:
                     + workflow_hint +
                     " Merge the reply into the original request and call "
                     "the matching tool (propose_workflow / "
+                    "propose_dsl_workflow / backtest_workflow / "
                     "place_market_order / etc.) IMMEDIATELY with the "
-                    "complete arguments. Do NOT restart from scratch. "
+                    "complete arguments. "
+                    + (
+                        "If the ORIGINAL request was a BACKTEST, you MUST "
+                        "call backtest_workflow (NOT propose_workflow) and "
+                        "report the winner and by how much. "
+                        if _BACKTEST_INTENT_RE.search(original_intent) else ""
+                    )
+                    + (
+                        "The user is DELEGATING the choice — do NOT re-ask; "
+                        "pick the most sensible option and emit the tool. "
+                        if _is_delegation_reply(message) else ""
+                    )
+                    + "Do NOT restart from scratch. "
                     "Do NOT ask another question. If the merged request "
                     "still has missing required fields, fill them with "
                     "sensible defaults (qty=1, exchange=NSE, "
@@ -4364,6 +4535,9 @@ class ChatService:
                     kite_token=ctx.kite_token,
                     db=ctx.db,
                     user_id=ctx.user_id,
+                    # [C1/C2] earlier user turns count toward "user named
+                    # a qty" so the M2 guard doesn't re-ask on amendments.
+                    qty_context=_recent_user_text(history),
                 )
                 breakdown[f"tool_{guarded.name}"] = (
                     breakdown.get(f"tool_{guarded.name}", 0) + guarded.latency_ms

@@ -59,8 +59,10 @@ def run_open_close_backtest(
     catches this and surfaces a friendly message.
     """
     sym = symbol.upper().strip()
-    suffix = ".NS" if exchange.upper() == "NSE" else ".BO"
-    yf_sym = sym if sym.endswith((".NS", ".BO")) else f"{sym}{suffix}"
+    # [C4] shared resolver maps index aliases (NIFTY→^NSEI, …) and
+    # shorthand (RIL→RELIANCE) to real yfinance tickers.
+    from backend.market.yfinance_service import resolve_symbol
+    yf_sym = resolve_symbol(sym)
 
     hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
     if hist.empty or len(hist) < 30:
@@ -205,8 +207,10 @@ def run_weekly_swing_backtest(
     FinancialBacktestCard renders without a new component.
     """
     sym = symbol.upper().strip()
-    suffix = ".NS" if exchange.upper() == "NSE" else ".BO"
-    yf_sym = sym if sym.endswith((".NS", ".BO")) else f"{sym}{suffix}"
+    # [C4] shared resolver maps index aliases (NIFTY→^NSEI, …) and
+    # shorthand (RIL→RELIANCE) to real yfinance tickers.
+    from backend.market.yfinance_service import resolve_symbol
+    yf_sym = resolve_symbol(sym)
 
     hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
     if hist.empty or len(hist) < 30:

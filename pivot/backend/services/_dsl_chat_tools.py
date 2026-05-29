@@ -159,6 +159,32 @@ def _has_multi_action_tickers(condition: str) -> bool:
     return len(distinct) >= 2
 
 
+def _action_tickers_in(*texts: str) -> list[str]:
+    """Distinct ticker tokens that appear inside an ACTION span (after
+    a buy/sell verb, before the trigger word). Unlike
+    `_distinct_tickers_in`, this excludes trigger-only symbols (e.g.
+    NIFTY in "buy RELIANCE when NIFTY rises 1%"), so the multi-symbol
+    redirect suggests only the symbols the user actually wants ordered.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for txt in texts:
+        if not txt:
+            continue
+        for verb_match in _ACTION_VERB_RE.finditer(txt):
+            start = verb_match.end()
+            rest = txt[start: start + 200]
+            term = _ACTION_TERMINATORS_RE.search(rest)
+            span = rest[: term.start()] if term else rest
+            for m in _TICKER_TOKEN_RE.finditer(span):
+                tok = m.group(0).upper()
+                if tok in _DSL_NON_TICKER_TOKENS or tok in seen:
+                    continue
+                seen.add(tok)
+                found.append(tok)
+    return found
+
+
 # ── backtest_dsl_tree ────────────────────────────────────────────────
 
 
@@ -576,17 +602,25 @@ async def propose_dsl_workflow(args: dict) -> dict:
     # Heuristic: only fire the guard when MULTIPLE distinct tickers
     # appear immediately AFTER an action verb (buy/sell). A single
     # action ticker + condition tickers elsewhere is fine.
-    tickers = _distinct_tickers_in(condition, exit_condition_text)
-    extras = [t for t in tickers if t != primary]
-    if len(extras) >= 1 and _has_multi_action_tickers(condition):
-        all_named = sorted(set([primary] + tickers))
+    # C6: action tickers frequently live ONLY in the original user
+    # prompt ("buy RELIANCE, TCS and BAJAJFIN when NIFTY rises 1%"),
+    # never in the `condition` arg the model passes here. Scan the
+    # threaded user message (uppercased) too — otherwise the guard sees
+    # one symbol, builds a single-ticker draft, and silently drops the
+    # rest (the "applies to RELIANCE only" UI bug).
+    user_msg = (args.get("__user_message") or "").upper()
+    action_tickers = _action_tickers_in(condition, exit_condition_text, user_msg)
+    extras = [t for t in action_tickers if t != primary]
+    if extras:
+        all_named = sorted(set([primary] + action_tickers))
         raise ValueError(
-            f"propose_dsl_workflow is single-symbol but the condition "
-            f"names multiple tickers in the ACTION position "
-            f"({', '.join(all_named)}). The DSL can only build a "
-            f"workflow for ONE primary symbol — use propose_workflow "
-            f"instead with one branch per (symbol × action), or call "
-            f"this tool once per ticker."
+            f"propose_dsl_workflow is single-symbol but the request "
+            f"names multiple ACTION tickers ({', '.join(all_named)}). "
+            f"Use propose_workflow with "
+            f"action.allocate_notional(symbols=[{', '.join(all_named)}]) "
+            f"so ONE trigger fans the order across every named symbol. "
+            f"Do NOT build for just the first symbol and tell the user "
+            f"to duplicate the card."
         )
 
     try:

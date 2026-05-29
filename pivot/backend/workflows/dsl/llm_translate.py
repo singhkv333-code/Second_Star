@@ -85,6 +85,10 @@ Prefer the SHORTCUT LEAVES whenever they fit:
   "NIFTY opens 1% below yesterday's close"      → { "type":"comparison", "op":"<", "left":{"type":"gap","symbol":"NIFTY"}, "right":{"type":"constant","value":-0.01} }
   "TCS price up 3% over last 5 bars"           → { "type":"comparison", "op":">", "left":{"type":"pct_change","symbol":"TCS","bars":5}, "right":{"type":"constant","value":0.03} }
   "TCS/INFY spread is below 1.5"               → { "type":"comparison", "op":"<", "left":{"type":"spread","a":"TCS","b":"INFY"}, "right":{"type":"constant","value":1.5} }
+
+DIP / DROP WINDOW: a bare percentage DIP / DROP / FALL / PULLBACK / CORRECTION with NO explicit time window means a decline over the PAST WEEK — use bars=5, NOT bars=1. A single-day move of 5%+ essentially never happens for large-caps, so bars=1 makes a "buy the dip" strategy that NEVER fires. Only use bars=1 when the user explicitly says "in a day" / "intraday" / "single session".
+  "buy HDFCBANK on a 10% dip"                  → { "type":"comparison", "op":"<=", "left":{"type":"pct_change","symbol":"HDFCBANK","bars":5}, "right":{"type":"constant","value":-0.10} }
+  "RELIANCE drops 5% in a week"                → { "type":"comparison", "op":"<=", "left":{"type":"pct_change","symbol":"RELIANCE","bars":5}, "right":{"type":"constant","value":-0.05} }
 Use the general `math` node ONLY when the shortcuts don't fit (e.g. "TCS close minus its 20-day SMA, divided by ATR").
 
 Examples:

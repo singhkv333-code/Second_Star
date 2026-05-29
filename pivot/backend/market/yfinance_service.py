@@ -33,6 +33,7 @@ INDEX_TICKERS: dict[str, str] = {
     "SENSEX": "^BSESN",
     "BANKNIFTY": "^NSEBANK",
     "BANK NIFTY": "^NSEBANK",
+    "NIFTY BANK": "^NSEBANK",
     "NIFTYBANK": "^NSEBANK",
     "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
     "NIFTYIT": "^CNXIT",
@@ -75,6 +76,10 @@ NAME_TO_TICKER: dict[str, str] = {
     "l&t": "LT",
     "adani enterprises": "ADANIENT",
     "adanient": "ADANIENT",
+    # [C4] common shorthand aliases that previously resolved to dead
+    # tickers (RIL.NS / NIFTY BANK.NS) and returned "no quote".
+    "ril": "RELIANCE",
+    "nifty bank": "BANKNIFTY",
     "nifty": "NIFTY50",
     "nifty50": "NIFTY50",
     "nifty 50": "NIFTY50",

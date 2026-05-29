@@ -412,11 +412,13 @@ class SimState:
 
 
 def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
-    sym = symbol.upper().strip()
-    if sym.endswith((".NS", ".BO")):
-        return sym
-    suffix = ".NS" if exchange.upper() == "NSE" else ".BO"
-    return f"{sym}{suffix}"
+    # [C4] delegate to the shared resolver so index aliases map to ^
+    # tickers (NIFTY→^NSEI, SENSEX→^BSESN, BANKNIFTY→^NSEBANK) and
+    # shorthand (RIL→RELIANCE). The old naive ".NS" suffix turned NIFTY
+    # into the dead ticker NIFTY.NS → "insufficient data … got 0 bars"
+    # for any backtest whose trigger references an index.
+    from backend.market.yfinance_service import resolve_symbol
+    return resolve_symbol(symbol)
 
 
 def _load_bars(symbol: str, period: str) -> pd.DataFrame:
@@ -1956,6 +1958,10 @@ def backtest_workflow(
     union_index = union_index.sort_values()
 
     events_by_ts: dict[pd.Timestamp, list[int]] = {}
+    # [C5] track per-branch fire counts so we can warn (instead of
+    # silently returning an all-zero card) when an ENTRY trigger never
+    # fired across the whole window.
+    branch_fire_counts: dict[int, int] = {}
     for i, b in enumerate(elig.branches):
         trigger_sym = b.trigger_symbol() or b.primary_symbol() or primary_symbol
         bars_for_trigger = symbol_bars.get(trigger_sym, primary_bars)
@@ -1973,6 +1979,7 @@ def backtest_workflow(
             fires = _expand_exit_compound(union_index)
         else:
             fires = []
+        branch_fire_counts[i] = len(fires)
         for ts in fires:
             events_by_ts.setdefault(ts, []).append(i)
 
@@ -2140,6 +2147,25 @@ def backtest_workflow(
         }
         for s in signals
     ]
+
+    # [C5] When NOTHING traded, don't ship a silent all-zero card —
+    # explain why. The most common cause is an ENTRY trigger whose
+    # threshold can't physically occur over the window (e.g. a 1-day
+    # -10% move on a large-cap). %-change thresholds are signed
+    # fractions: -0.1 means -10%, so 0.1% is -0.001.
+    if n_trades == 0:
+        zero_entry = any(
+            branch_fire_counts.get(i, 0) == 0
+            and b.trigger_type != "trigger.exit_compound"
+            for i, b in enumerate(elig.branches)
+        )
+        if zero_entry:
+            elig.warnings.append(
+                "the entry condition never triggered across this period — "
+                "the threshold may be unreachable (e.g. a single-day move "
+                "that large never happens for this stock). Try a wider "
+                "lookback window (a multi-day dip) or a smaller threshold"
+            )
 
     summary = (
         f"Backtested {name!r} on {primary_symbol} over {period}. "

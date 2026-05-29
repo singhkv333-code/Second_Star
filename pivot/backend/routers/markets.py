@@ -236,8 +236,22 @@ def get_quote(
     if cached is not None:
         return cached
 
-    suffix = ".NS" if exchange == "NSE" else ".BO"
-    yf_symbol = sym if sym.endswith((".NS", ".BO")) else f"{sym}{suffix}"
+    # [C4] resolve_symbol maps index aliases (NIFTY→^NSEI, SENSEX→^BSESN,
+    # BANKNIFTY→^NSEBANK) and shorthand (RIL→RELIANCE) to real yfinance
+    # tickers. The old naive ".NS" suffix produced dead tickers
+    # (SENSEX.NS / RIL.NS) → "no quote available". Keep explicit BSE
+    # lookups for plain (non-index, non-alias) symbols.
+    from backend.market.yfinance_service import (
+        resolve_symbol, INDEX_TICKERS, NAME_TO_TICKER,
+    )
+    if sym.endswith((".NS", ".BO")) or sym.startswith("^"):
+        yf_symbol = sym
+    elif (exchange == "BSE"
+          and sym.upper() not in INDEX_TICKERS
+          and sym.lower() not in NAME_TO_TICKER):
+        yf_symbol = f"{sym}.BO"
+    else:
+        yf_symbol = resolve_symbol(sym)
 
     try:
         ticker = yf.Ticker(yf_symbol)
@@ -423,13 +437,21 @@ def get_sparkline(
         except Exception as e:  # noqa: BLE001 — fall through to yfinance
             pass
 
-    suffix = ".NS" if exchange == "NSE" else ".BO"
-    yf_symbol = (
-        sym
-        if sym.endswith((".NS", ".BO", "^NSEI", "^BSESN", "^NSEBANK", "^NSEMDCP50"))
-        or sym.startswith("^")
-        else f"{sym}{suffix}"
+    # [C4] route through the shared resolver so index aliases / shorthand
+    # map to real yfinance tickers (was: naive ".NS" suffix → dead
+    # NIFTY.NS / SENSEX.NS → "no historical data"). Keep explicit BSE
+    # for plain non-index symbols.
+    from backend.market.yfinance_service import (
+        resolve_symbol, INDEX_TICKERS, NAME_TO_TICKER,
     )
+    if sym.endswith((".NS", ".BO")) or sym.startswith("^"):
+        yf_symbol = sym
+    elif (exchange == "BSE"
+          and sym.upper() not in INDEX_TICKERS
+          and sym.lower() not in NAME_TO_TICKER):
+        yf_symbol = f"{sym}.BO"
+    else:
+        yf_symbol = resolve_symbol(sym)
 
     try:
         hist = yf.Ticker(yf_symbol).history(period=period, interval=interval)
