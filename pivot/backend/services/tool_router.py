@@ -355,8 +355,20 @@ _RULES: list[_Rule] = [
     ),
 
     # ── SIP (recurring investment) ────────────────────────────────
+    # Broadened (2026-05-29): "invest ₹2000 in gold every month",
+    # "put 5000 in niftybees monthly", "start investing 3000 in silver
+    # every month" carry no literal "sip" token but ARE monthly SIPs.
+    # create_sip supports day_of_month; propose_scheduled_order does NOT
+    # (it only has a weekday cron), so without surfacing create_sip these
+    # silently downgraded "every month" → "every weekday". "every day"
+    # is deliberately NOT matched (a daily scheduled buy, not a SIP).
     _r(
-        r"\bs\.?i\.?p\.?s?\b|recurring\s+(invest|buy)|monthly\s+invest",
+        r"\bs\.?i\.?p\.?s?\b"
+        r"|recurring\s+(?:invest|buy|order|purchase)"
+        r"|monthly\s+(?:invest|buy|purchase)"
+        r"|\b(?:invest|buy|put|add|start)\b[^.]{0,40}\bevery\s+(?:month|week|fortnight)\b"
+        r"|\b(?:invest|buy|put|add|start)\b[^.]{0,40}\b(?:monthly|weekly|fortnightly)\b"
+        r"|\bevery\s+(?:month|week)\b[^.]{0,30}\b(?:invest|buy|in\s+(?:gold|silver|nifty))\b",
         "create_sip", "list_sips", "pause_sip", "resume_sip",
         "delete_sip", "pause_all_sips",
     ),

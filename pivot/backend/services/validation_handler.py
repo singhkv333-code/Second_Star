@@ -573,7 +573,7 @@ async def execute_with_completeness(
         and out.success
         and isinstance(out.data, dict)
         and _draft_has_suspicious_qty_default(
-            out.data, (user_message or "") + " " + (qty_context or ""),
+            out.data, user_message or "", qty_context or "",
         )
     ):
         out.success = False
@@ -602,21 +602,26 @@ _USER_QTY_PATTERNS = re.compile(
 
 
 def _draft_has_suspicious_qty_default(
-    payload: dict, user_message: str,
+    payload: dict, *texts: str,
 ) -> bool:
     """True when the draft contains an action.place_order with
-    quantity == 1 or 10 (common LLM defaults) AND the user_message
-    contains NO explicit quantity / rupee / lot reference. The
-    chat layer will turn this into a clarification question so
-    the user picks a real size before activation."""
+    quantity == 1 or 10 (common LLM defaults) AND NONE of the supplied
+    texts contain an explicit quantity / rupee / lot reference.
+
+    `texts` is checked SEPARATELY (current message, then prior-turn
+    context) — NOT concatenated — because the bare-integer pattern is
+    ^…$ anchored: a bare "10" reply must match on its own, and gluing
+    it to the conversation context ("10 buy reliance when 20 dma…")
+    would break the anchor and wrongly re-ask the quantity. [C3 regression]
+    """
     if not isinstance(payload, dict):
         return False
     steps = payload.get("steps") or []
     if not isinstance(steps, list):
         return False
-    msg = user_message or ""
-    if _USER_QTY_PATTERNS.search(msg):
-        return False
+    for t in texts:
+        if t and _USER_QTY_PATTERNS.search(t):
+            return False
     for s in steps:
         if not isinstance(s, dict):
             continue
