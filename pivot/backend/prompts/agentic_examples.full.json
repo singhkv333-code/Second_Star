@@ -5,7 +5,12 @@
       "id": "single_action_market_order",
       "prompt": "buy 10 RELIANCE at market",
       "tool": "place_market_order",
-      "args": {"symbol": "RELIANCE", "transaction_type": "BUY", "quantity": 10, "order_type": "MARKET"},
+      "args": {
+        "symbol": "RELIANCE",
+        "transaction_type": "BUY",
+        "quantity": 10,
+        "order_type": "MARKET"
+      },
       "confidence": 0.97,
       "note": "Single deterministic action, all required fields present. NEVER use propose_workflow for one-shot orders."
     },
@@ -13,7 +18,12 @@
       "id": "single_action_sip",
       "prompt": "create a SIP of 5000 in NIFTYBEES on the 5th of every month",
       "tool": "create_sip",
-      "args": {"symbol": "NIFTYBEES", "amount_inr": 5000, "frequency": "monthly", "day_of_month": 5},
+      "args": {
+        "symbol": "NIFTYBEES",
+        "amount_inr": 5000,
+        "frequency": "monthly",
+        "day_of_month": 5
+      },
       "confidence": 0.95,
       "note": "SIP is an automation, not an agent. ALWAYS use create_sip for recurring fixed-amount investments."
     },
@@ -21,7 +31,11 @@
       "id": "single_action_sl_on_holding",
       "prompt": "place a stop loss 5% below my INFY entry price",
       "tool": "create_sl_order",
-      "args": {"symbol": "INFY", "transaction_type": "SELL", "trigger_pct_from_avg": -5},
+      "args": {
+        "symbol": "INFY",
+        "transaction_type": "SELL",
+        "trigger_pct_from_avg": -5
+      },
       "confidence": 0.9,
       "note": "Single action against an existing holding — create_sl_order, not propose_workflow. Anchor is avg_buy_price (already known to the system)."
     },
@@ -37,7 +51,15 @@
       "id": "scheduled_order_agent",
       "prompt": "every Monday at 9:15 buy 10 NIFTYBEES at market",
       "tool": "propose_scheduled_order",
-      "args": {"symbol": "NIFTYBEES", "side": "buy", "quantity": 10, "schedule_time_ist": "09:15", "days": ["monday"]},
+      "args": {
+        "symbol": "NIFTYBEES",
+        "side": "buy",
+        "quantity": 10,
+        "schedule_time_ist": "09:15",
+        "days": [
+          "monday"
+        ]
+      },
       "confidence": 0.93,
       "note": "Recurring schedule + single instrument + fixed qty + NO second action → propose_scheduled_order. NOT propose_workflow."
     },
@@ -45,7 +67,9 @@
       "id": "multi_branch_agent_negative",
       "prompt": "every Monday 09:15 buy 5 NIFTYBEES and at Monday close sell my entire NIFTYBEES holding if RSI(14) is below 30",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.market_relative_time(open Mon) → action.place_order(buy 5 NIFTYBEES) → trigger.market_relative_time(close Mon) → fetch.indicator(rsi 14) → condition.numeric → fetch.portfolio → action.place_order(sell)"},
+      "args": {
+        "_steps_summary": "trigger.market_relative_time(open Mon) → action.place_order(buy 5 NIFTYBEES) → trigger.market_relative_time(close Mon) → fetch.indicator(rsi 14) → condition.numeric → fetch.portfolio → action.place_order(sell)"
+      },
       "confidence": 0.95,
       "note": "TWO triggers / TWO branches in one ask → propose_workflow, NEVER propose_scheduled_order. The scheduled-order macro is single-trigger only. Whenever the prompt has 'AND … sells/buys at <other time>' or any conditional second leg, route to propose_workflow."
     },
@@ -53,7 +77,16 @@
       "id": "basket_sector_agent",
       "prompt": "invest 100000 equally across the top 5 steel stocks every Monday at 9:20",
       "tool": "propose_basket_allocation",
-      "args": {"sector": "steel", "total_inr": 100000, "strategy": "equal", "limit": 5, "schedule_time_ist": "09:20", "days": ["monday"]},
+      "args": {
+        "sector": "steel",
+        "total_inr": 100000,
+        "strategy": "equal",
+        "limit": 5,
+        "schedule_time_ist": "09:20",
+        "days": [
+          "monday"
+        ]
+      },
       "confidence": 0.94,
       "note": "Sector basket — propose_basket_allocation hydrates the screener + allocate steps. Steel is a canonical sector."
     },
@@ -61,7 +94,9 @@
       "id": "explicit_symbol_basket_negative",
       "prompt": "every Monday 09:30 split 10000 rupees equally across HDFCBANK, ICICIBANK, AXISBANK and TCS",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.schedule(09:30 Mon) → action.allocate_notional(symbols=[HDFCBANK,ICICIBANK,AXISBANK,TCS], side=buy, total_inr=10000, strategy=equal)"},
+      "args": {
+        "_steps_summary": "trigger.schedule(09:30 Mon) → action.allocate_notional(symbols=[HDFCBANK,ICICIBANK,AXISBANK,TCS], side=buy, total_inr=10000, strategy=equal)"
+      },
       "confidence": 0.95,
       "note": "EXPLICIT TICKER LIST → propose_workflow with action.allocate_notional, NEVER propose_basket_allocation. The basket macro is sector-only ('top N steel stocks'); when the user names individual symbols, action.allocate_notional accepts a literal symbols list directly. One trigger + one allocate step is all that's needed."
     },
@@ -69,7 +104,9 @@
       "id": "index_relative_single_symbol_negative",
       "prompt": "every weekday at 09:20 if NIFTY 50 is up more than 0.5% from previous close, buy 5 SBIN at market",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.schedule(09:20 weekday) → fetch.day_open(NIFTY 50) → fetch.prior_close(NIFTY 50) → condition.numeric (open/prior - 1 > 0.005) → action.place_order(buy 5 SBIN)"},
+      "args": {
+        "_steps_summary": "trigger.schedule(09:20 weekday) → fetch.day_open(NIFTY 50) → fetch.prior_close(NIFTY 50) → condition.numeric (open/prior - 1 > 0.005) → action.place_order(buy 5 SBIN)"
+      },
       "confidence": 0.9,
       "note": "Index-relative gate but action on a SINGLE symbol → propose_workflow, NEVER propose_basket_allocation. The basket macro forces a sector ticker list; single-symbol action with a gap condition needs the explicit fetch chain. A schedule + fetch.day_open + fetch.prior_close + condition.numeric + action.place_order is the right shape."
     },
@@ -77,7 +114,14 @@
       "id": "threshold_order_agent",
       "prompt": "buy 50 TCS at market when its price drops below 3500",
       "tool": "propose_threshold_order",
-      "args": {"symbol": "TCS", "side": "buy", "quantity": 50, "trigger_kind": "price", "operator": "<", "threshold": 3500},
+      "args": {
+        "symbol": "TCS",
+        "side": "buy",
+        "quantity": 50,
+        "trigger_kind": "price",
+        "operator": "<",
+        "threshold": 3500
+      },
       "confidence": 0.92,
       "note": "Single-symbol price threshold, no expiry → propose_threshold_order. ABSOLUTE price level required (not 'X% below open')."
     },
@@ -85,7 +129,16 @@
       "id": "indicator_threshold_agent",
       "prompt": "buy 10 RELIANCE when RSI(14) crosses above 30",
       "tool": "propose_threshold_order",
-      "args": {"symbol": "RELIANCE", "side": "buy", "quantity": 10, "trigger_kind": "indicator", "indicator": "rsi", "indicator_period": 14, "operator": "crosses_above", "threshold": 30},
+      "args": {
+        "symbol": "RELIANCE",
+        "side": "buy",
+        "quantity": 10,
+        "trigger_kind": "indicator",
+        "indicator": "rsi",
+        "indicator_period": 14,
+        "operator": "crosses_above",
+        "threshold": 30
+      },
       "confidence": 0.92,
       "note": "Indicator threshold on a single symbol, no TTL → propose_threshold_order. Daily candle only."
     },
@@ -93,7 +146,9 @@
       "id": "expiry_window_negative",
       "prompt": "buy 10 RELIANCE if its 14-day RSI drops below 30, valid till the end of this month",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.indicator(RELIANCE rsi 14 < 30) → action.place_order(buy 10 RELIANCE market). Workflow carries valid_until='YYYY-MM-DD' (resolve relative date to absolute)."},
+      "args": {
+        "_steps_summary": "trigger.indicator(RELIANCE rsi 14 < 30) → action.place_order(buy 10 RELIANCE market). Workflow carries valid_until='YYYY-MM-DD' (resolve relative date to absolute)."
+      },
       "confidence": 0.95,
       "note": "TTL / EXPIRY phrases — 'valid till', 'until <date>', 'good for the month', 'till EOD', 'next 7 days', 'till Friday' — MUST go to propose_workflow, NEVER propose_threshold_order. The threshold macro has no expiry slot and would create a workflow that runs forever, the wrong intent. Resolve the relative date to ISO YYYY-MM-DD before emitting the draft."
     },
@@ -101,7 +156,13 @@
       "id": "holding_action_sell_all",
       "prompt": "sell my entire INFY holding when it crosses 1700",
       "tool": "propose_holding_action",
-      "args": {"symbol": "INFY", "action": "sell_all", "trigger_kind": "price", "operator": ">", "threshold": 1700},
+      "args": {
+        "symbol": "INFY",
+        "action": "sell_all",
+        "trigger_kind": "price",
+        "operator": ">",
+        "threshold": 1700
+      },
       "confidence": 0.93,
       "note": "Acts on existing holding → propose_holding_action. Quantity comes from holding lookup at fire time, not the prompt."
     },
@@ -109,7 +170,13 @@
       "id": "oco_bracket_negative",
       "prompt": "buy 5 LT at market then place a 2% stop loss and a 5% target as an OCO bracket",
       "tool": "create_oco_order",
-      "args": {"symbol": "LT", "transaction_type": "BUY", "quantity": 5, "stop_loss_pct": 2, "target_pct": 5},
+      "args": {
+        "symbol": "LT",
+        "transaction_type": "BUY",
+        "quantity": 5,
+        "stop_loss_pct": 2,
+        "target_pct": 5
+      },
       "confidence": 0.85,
       "note": "OCO (one-cancels-other) bracket on a freshly-bought position is a single deterministic chat tool, NOT a workflow. NEVER call propose_holding_action or propose_workflow with symbol='OCO' — OCO is the bracket type, never the ticker. If the chat tool can't take the buy + bracket together, split into place_market_order then create_oco_order on the resulting position."
     },
@@ -117,7 +184,9 @@
       "id": "cross_symbol_negative",
       "prompt": "sell my SBIN if NIFTY 50 drops more than 1% from today's open",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.schedule(*/5 mkt-hours) → fetch.quote(NIFTY 50) → fetch.relative_threshold(NIFTY 50, day_open, -1) → condition.numeric → fetch.portfolio → action.place_order(sell {{holdings.SBIN.qty}} SBIN)"},
+      "args": {
+        "_steps_summary": "trigger.schedule(*/5 mkt-hours) → fetch.quote(NIFTY 50) → fetch.relative_threshold(NIFTY 50, day_open, -1) → condition.numeric → fetch.portfolio → action.place_order(sell {{holdings.SBIN.qty}} SBIN)"
+      },
       "confidence": 0.9,
       "note": "Cross-symbol rule (trigger watches one symbol, action targets another) → propose_workflow. The macro tools all bind trigger and action to the same symbol; this shape needs the polling/fetch/condition chain. Use trigger.schedule to poll, fetch.relative_threshold on the index, then act on the holding via fetch.portfolio."
     },
@@ -133,7 +202,9 @@
       "id": "ambiguous_theme_ask",
       "prompt": "build me an agent that buys top AI stocks worth 1 lakh every Monday",
       "tool": "ASK_USER",
-      "args": {"question": "‘AI’ isn’t a canonical sector on NSE. I can map it to the IT sector (closest proxy — TCS, INFY, HCLTECH etc.) or you can give me explicit tickers. Which would you like?"},
+      "args": {
+        "question": "‘AI’ isn’t a canonical sector on NSE. I can map it to the IT sector (closest proxy — TCS, INFY, HCLTECH etc.) or you can give me explicit tickers. Which would you like?"
+      },
       "confidence": 0.55,
       "note": "Theme not in canonical sector list. NEVER silently substitute a sector. Approximations the system supports: AI/ML/semiconductors → IT, EV → auto, green/clean/renewables → energy, fintech → private_bank+IT."
     },
@@ -141,7 +212,9 @@
       "id": "ambiguous_symbol_ask",
       "prompt": "buy some Tata at market",
       "tool": "ASK_USER",
-      "args": {"question": "Several Tata stocks are listed — TATAMOTORS, TATASTEEL, TATAPOWER, TCS, TATACONSUM. Which one, and how many shares?"},
+      "args": {
+        "question": "Several Tata stocks are listed — TATAMOTORS, TATASTEEL, TATAPOWER, TCS, TATACONSUM. Which one, and how many shares?"
+      },
       "confidence": 0.4,
       "note": "Ambiguous symbol AND missing quantity. Two missing fields → one focused question covering both."
     },
@@ -149,7 +222,9 @@
       "id": "ambiguous_unit_ask",
       "prompt": "buy 50000 of HDFCBANK",
       "tool": "ASK_USER",
-      "args": {"question": "Did you mean 50,000 shares of HDFCBANK or ₹50,000 worth (≈30 shares at current price)?"},
+      "args": {
+        "question": "Did you mean 50,000 shares of HDFCBANK or ₹50,000 worth (≈30 shares at current price)?"
+      },
       "confidence": 0.45,
       "note": "Unit ambiguity (rupees vs shares) — never assume. The numeric magnitude alone doesn't disambiguate; ask."
     },
@@ -157,7 +232,9 @@
       "id": "incomplete_agent_ask",
       "prompt": "build an agent that buys steel on dip",
       "tool": "ASK_USER",
-      "args": {"question": "How big is the 'dip' — a fixed price level, a percentage from previous close, or an RSI threshold? And how much per fire (₹ amount or share count)?"},
+      "args": {
+        "question": "How big is the 'dip' — a fixed price level, a percentage from previous close, or an RSI threshold? And how much per fire (₹ amount or share count)?"
+      },
       "confidence": 0.4,
       "note": "Incomplete spec — multiple critical fields missing (threshold definition, size, schedule). One focused multi-part question is fine."
     },
@@ -173,7 +250,9 @@
       "id": "pronoun_followup_extend",
       "prompt": "and infy",
       "tool": "ASK_USER",
-      "args": {"_context_hint": "Prior turn was a PE/snapshot lookup for TCS. The user wants the same lookup repeated for INFY."},
+      "args": {
+        "_context_hint": "Prior turn was a PE/snapshot lookup for TCS. The user wants the same lookup repeated for INFY."
+      },
       "confidence": 0.7,
       "note": "Pronoun extension — reuse the prior tool with the new symbol. If the prior was get_live_price(TCS), call get_live_price(INFY). Do NOT re-ask clarifying questions you already resolved."
     },
@@ -181,7 +260,20 @@
       "id": "yield_compare",
       "prompt": "where should I park 200000 idle cash for a month, FD 7.2 vs liquid 6.5",
       "tool": "compare_yields",
-      "args": {"options": [{"name": "FD", "rate": 7.2}, {"name": "Liquid fund", "rate": 6.5}], "amount_inr": 200000, "horizon_months": 1},
+      "args": {
+        "options": [
+          {
+            "name": "FD",
+            "rate": 7.2
+          },
+          {
+            "name": "Liquid fund",
+            "rate": 6.5
+          }
+        ],
+        "amount_inr": 200000,
+        "horizon_months": 1
+      },
       "confidence": 0.9,
       "note": "Yield/parking question — compare_yields. NOT a workflow. Tax-bracket assumption defaults to 30% if not given."
     },
@@ -189,7 +281,9 @@
       "id": "snapshot_query",
       "prompt": "what's the price of reliance",
       "tool": "get_live_price",
-      "args": {"symbol": "RELIANCE"},
+      "args": {
+        "symbol": "RELIANCE"
+      },
       "confidence": 0.95,
       "note": "Single-symbol price lookup. Snapshot card. NEVER use propose_workflow for a quote."
     },
@@ -205,23 +299,39 @@
       "id": "screener_explicit",
       "prompt": "show me the top 10 banking stocks by market cap",
       "tool": "_FETCH_SCREENER",
-      "args": {"sector": "banking", "sort_by": "mcap", "limit": 10},
+      "args": {
+        "sector": "banking",
+        "sort_by": "mcap",
+        "limit": 10
+      },
       "confidence": 0.88,
       "note": "Read-only sector ranking — runs through the deterministic screener path; no agent needed. If the user follows up with 'now build me an agent for those', THEN propose_basket_allocation."
     },
     {
-      "id": "fundamental_screen_unsupported",
-      "prompt": "screen for stocks with PE under 15 and ROE above 18",
-      "tool": "ASK_USER",
-      "args": {"question": "Pivot v1's screener uses sector + market cap, not PE/ROE filters. I can show you the top stocks in a sector you name, or you can list specific tickers — would either work?"},
-      "confidence": 0.5,
-      "note": "Fundamentals screen NOT supported (no fundamentals data provider in v1). Be honest about the gap; don't fabricate. Suggest the workable alternatives."
+      "id": "fundamental_screen",
+      "prompt": "pharma stocks with P/E under 25",
+      "tool": "screen_fundamentals",
+      "args": {
+        "filters": [
+          {
+            "field": "pe",
+            "op": "<",
+            "value": 25
+          }
+        ],
+        "sector": "pharma",
+        "limit": 15
+      },
+      "confidence": 0.9,
+      "note": "Cross-sectional fundamental screens ARE supported via screen_fundamentals (fields: pe, roe, roce, de, payout; optional coarse sector pharma/bank/it/energy/auto/metal/finance/chemicals/fmcg/infra/textiles). Call it DIRECTLY for 'X stocks with ROE>N', 'cheap banking stocks', 'low debt high roe' — do NOT deflect to a fixed ticker list. Data is basic and may include small-caps; never invent names or numbers."
     },
     {
       "id": "intraday_tick_unsupported",
       "prompt": "buy reliance the moment its 5-minute RSI crosses 70",
       "tool": "ASK_USER",
-      "args": {"question": "Pivot v1 watches indicators on the daily candle, not intraday. I can wire the same RSI(14) crossing on the daily — or check every minute during market hours and act if the live price moves a fixed amount. Which would you prefer?"},
+      "args": {
+        "question": "Pivot v1 watches indicators on the daily candle, not intraday. I can wire the same RSI(14) crossing on the daily — or check every minute during market hours and act if the live price moves a fixed amount. Which would you prefer?"
+      },
       "confidence": 0.5,
       "note": "Intraday tick-level indicators NOT supported (poll-based architecture, daily candles only). Surface the gap and offer the closest supported shape."
     },
@@ -233,8 +343,27 @@
         "name": "RELIANCE RSI dip-buy",
         "period": "5y",
         "steps": [
-          {"step_index": 0, "step_type": "trigger.indicator", "config": {"symbol": "RELIANCE", "indicator": "rsi", "period": 14, "operator": "<", "value": 30}},
-          {"step_index": 1, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 10, "order_type": "market"}}
+          {
+            "step_index": 0,
+            "step_type": "trigger.indicator",
+            "config": {
+              "symbol": "RELIANCE",
+              "indicator": "rsi",
+              "period": 14,
+              "operator": "<",
+              "value": 30
+            }
+          },
+          {
+            "step_index": 1,
+            "step_type": "action.place_order",
+            "config": {
+              "symbol": "RELIANCE",
+              "side": "buy",
+              "quantity": 10,
+              "order_type": "market"
+            }
+          }
         ]
       },
       "confidence": 0.95,
@@ -248,14 +377,80 @@
         "name": "RELIANCE price+RSI dip buy",
         "period": "1y",
         "steps": [
-          {"step_index": 0, "step_type": "trigger.price", "config": {"symbol": "RELIANCE", "operator": "<", "value": 1400}},
-          {"step_index": 1, "step_type": "fetch.indicator", "config": {"symbol": "RELIANCE", "indicator": "rsi", "period": 14}},
-          {"step_index": 2, "step_type": "condition.numeric", "config": {"left": "{{ context.1.value }}", "operator": "<", "right": 50}},
-          {"step_index": 3, "step_type": "condition.position", "config": {"symbol": "RELIANCE", "require": "not_held"}},
-          {"step_index": 4, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 10, "order_type": "market"}},
-          {"step_index": 5, "step_type": "trigger.indicator", "config": {"symbol": "RELIANCE", "indicator": "rsi", "period": 14, "operator": "crosses_above", "value": 50}},
-          {"step_index": 6, "step_type": "condition.position", "config": {"symbol": "RELIANCE", "require": "held"}},
-          {"step_index": 7, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "sell", "quantity": 10, "order_type": "market"}}
+          {
+            "step_index": 0,
+            "step_type": "trigger.price",
+            "config": {
+              "symbol": "RELIANCE",
+              "operator": "<",
+              "value": 1400
+            }
+          },
+          {
+            "step_index": 1,
+            "step_type": "fetch.indicator",
+            "config": {
+              "symbol": "RELIANCE",
+              "indicator": "rsi",
+              "period": 14
+            }
+          },
+          {
+            "step_index": 2,
+            "step_type": "condition.numeric",
+            "config": {
+              "left": "{{ context.1.value }}",
+              "operator": "<",
+              "right": 50
+            }
+          },
+          {
+            "step_index": 3,
+            "step_type": "condition.position",
+            "config": {
+              "symbol": "RELIANCE",
+              "require": "not_held"
+            }
+          },
+          {
+            "step_index": 4,
+            "step_type": "action.place_order",
+            "config": {
+              "symbol": "RELIANCE",
+              "side": "buy",
+              "quantity": 10,
+              "order_type": "market"
+            }
+          },
+          {
+            "step_index": 5,
+            "step_type": "trigger.indicator",
+            "config": {
+              "symbol": "RELIANCE",
+              "indicator": "rsi",
+              "period": 14,
+              "operator": "crosses_above",
+              "value": 50
+            }
+          },
+          {
+            "step_index": 6,
+            "step_type": "condition.position",
+            "config": {
+              "symbol": "RELIANCE",
+              "require": "held"
+            }
+          },
+          {
+            "step_index": 7,
+            "step_type": "action.place_order",
+            "config": {
+              "symbol": "RELIANCE",
+              "side": "sell",
+              "quantity": 10,
+              "order_type": "market"
+            }
+          }
         ]
       },
       "confidence": 0.95,

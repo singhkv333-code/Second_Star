@@ -207,9 +207,27 @@ def annualised_return(price_series: pd.Series, periods_per_year: int = 252) -> d
         if n_periods == 0:
             return {"error": "Need at least 2 periods to annualise", "metric_name": "Annualised Return"}
 
-        # Calculate CAGR: (end/start)^(periods_per_year/n_periods) - 1
+        # Calculate CAGR: (end/start)^(1/years) - 1.
+        # Derive `years` from the ACTUAL calendar span of the index when it's
+        # a DatetimeIndex — NOT from n_periods/periods_per_year. The latter
+        # fabricates the CAGR when the series is sampled at a non-daily
+        # frequency: a 2-year window returned as ~105 weekly bars gave
+        # years = 104/252 = 0.41, turning a true +13% into a reported
+        # "+34.62% per year" (2026-05-29 audit). Calendar span is immune to
+        # sampling frequency. Fall back to the period count only when the
+        # index carries no usable dates.
         total_return = end_price / start_price
-        years = n_periods / periods_per_year
+        years = None
+        idx = prices.index
+        try:
+            if isinstance(idx, pd.DatetimeIndex) and len(idx) >= 2:
+                span_days = (idx[-1] - idx[0]).days
+                if span_days > 0:
+                    years = span_days / 365.25
+        except Exception:  # noqa: BLE001 — defensive; fall back below
+            years = None
+        if not years or years <= 0:
+            years = n_periods / periods_per_year
 
         if total_return <= 0:
             return {"error": "Cannot annualise negative total return (price went to zero)", "metric_name": "Annualised Return"}

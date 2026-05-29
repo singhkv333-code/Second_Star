@@ -5,7 +5,12 @@
       "id": "single_action_market_order",
       "prompt": "buy 10 RELIANCE at market",
       "tool": "place_market_order",
-      "args": {"symbol": "RELIANCE", "transaction_type": "BUY", "quantity": 10, "order_type": "MARKET"},
+      "args": {
+        "symbol": "RELIANCE",
+        "transaction_type": "BUY",
+        "quantity": 10,
+        "order_type": "MARKET"
+      },
       "confidence": 0.97,
       "note": "Single deterministic action, all required fields present. NEVER use propose_workflow for one-shot orders."
     },
@@ -13,7 +18,12 @@
       "id": "single_action_sip",
       "prompt": "create a SIP of 5000 in NIFTYBEES on the 5th of every month",
       "tool": "create_sip",
-      "args": {"symbol": "NIFTYBEES", "amount_inr": 5000, "frequency": "monthly", "day_of_month": 5},
+      "args": {
+        "symbol": "NIFTYBEES",
+        "amount_inr": 5000,
+        "frequency": "monthly",
+        "day_of_month": 5
+      },
       "confidence": 0.95,
       "note": "SIP is an automation, not an agent. ALWAYS use create_sip for recurring fixed-amount investments."
     },
@@ -21,7 +31,15 @@
       "id": "scheduled_order_agent",
       "prompt": "every Monday at 9:15 buy 10 NIFTYBEES at market",
       "tool": "propose_scheduled_order",
-      "args": {"symbol": "NIFTYBEES", "side": "buy", "quantity": 10, "schedule_time_ist": "09:15", "days": ["monday"]},
+      "args": {
+        "symbol": "NIFTYBEES",
+        "side": "buy",
+        "quantity": 10,
+        "schedule_time_ist": "09:15",
+        "days": [
+          "monday"
+        ]
+      },
       "confidence": 0.93,
       "note": "Recurring schedule + single instrument + fixed qty + NO second action → propose_scheduled_order. NOT propose_workflow."
     },
@@ -29,7 +47,9 @@
       "id": "multi_branch_agent_negative",
       "prompt": "every Monday 09:15 buy 5 NIFTYBEES and at Monday close sell my entire NIFTYBEES holding if RSI(14) is below 30",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.market_relative_time(open Mon) → action.place_order(buy 5) → trigger.market_relative_time(close Mon) → fetch.indicator(rsi 14) → condition.numeric → fetch.portfolio → action.place_order(sell)"},
+      "args": {
+        "_steps_summary": "trigger.market_relative_time(open Mon) → action.place_order(buy 5) → trigger.market_relative_time(close Mon) → fetch.indicator(rsi 14) → condition.numeric → fetch.portfolio → action.place_order(sell)"
+      },
       "confidence": 0.95,
       "note": "TWO triggers / TWO branches → propose_workflow, NEVER propose_scheduled_order. Whenever the prompt has 'AND … at <other time>' or any conditional second leg, route to propose_workflow."
     },
@@ -37,7 +57,14 @@
       "id": "threshold_order_agent",
       "prompt": "buy 50 TCS at market when its price drops below 3500",
       "tool": "propose_threshold_order",
-      "args": {"symbol": "TCS", "side": "buy", "quantity": 50, "trigger_kind": "price", "operator": "<", "threshold": 3500},
+      "args": {
+        "symbol": "TCS",
+        "side": "buy",
+        "quantity": 50,
+        "trigger_kind": "price",
+        "operator": "<",
+        "threshold": 3500
+      },
       "confidence": 0.92,
       "note": "Single-symbol price threshold, no expiry → propose_threshold_order. ABSOLUTE price level required (not 'X% below open')."
     },
@@ -45,7 +72,13 @@
       "id": "holding_action_sell_all",
       "prompt": "sell my entire INFY holding when it crosses 1700",
       "tool": "propose_holding_action",
-      "args": {"symbol": "INFY", "action": "sell_all", "trigger_kind": "price", "operator": ">", "threshold": 1700},
+      "args": {
+        "symbol": "INFY",
+        "action": "sell_all",
+        "trigger_kind": "price",
+        "operator": ">",
+        "threshold": 1700
+      },
       "confidence": 0.93,
       "note": "Acts on existing holding → propose_holding_action. Quantity comes from holding lookup at fire time."
     },
@@ -53,7 +86,16 @@
       "id": "basket_sector_agent",
       "prompt": "invest 100000 equally across the top 5 steel stocks every Monday at 9:20",
       "tool": "propose_basket_allocation",
-      "args": {"sector": "steel", "total_inr": 100000, "strategy": "equal", "limit": 5, "schedule_time_ist": "09:20", "days": ["monday"]},
+      "args": {
+        "sector": "steel",
+        "total_inr": 100000,
+        "strategy": "equal",
+        "limit": 5,
+        "schedule_time_ist": "09:20",
+        "days": [
+          "monday"
+        ]
+      },
       "confidence": 0.94,
       "note": "Sector basket — propose_basket_allocation hydrates the screener + allocate steps. Steel is a canonical sector."
     },
@@ -61,7 +103,9 @@
       "id": "ambiguous_symbol_ask",
       "prompt": "buy some Tata at market",
       "tool": "ASK_USER",
-      "args": {"question": "Several Tata stocks are listed — TATAMOTORS, TATASTEEL, TATAPOWER, TCS, TATACONSUM. Which one, and how many shares?"},
+      "args": {
+        "question": "Several Tata stocks are listed — TATAMOTORS, TATASTEEL, TATAPOWER, TCS, TATACONSUM. Which one, and how many shares?"
+      },
       "confidence": 0.4,
       "note": "Ambiguous symbol AND missing quantity. Two missing fields → one focused question covering both."
     },
@@ -69,7 +113,9 @@
       "id": "ambiguous_unit_ask",
       "prompt": "buy 50000 of HDFCBANK",
       "tool": "ASK_USER",
-      "args": {"question": "Did you mean 50,000 shares of HDFCBANK or ₹50,000 worth (≈30 shares at current price)?"},
+      "args": {
+        "question": "Did you mean 50,000 shares of HDFCBANK or ₹50,000 worth (≈30 shares at current price)?"
+      },
       "confidence": 0.45,
       "note": "Unit ambiguity (rupees vs shares) — never assume."
     },
@@ -77,7 +123,9 @@
       "id": "snapshot_query",
       "prompt": "what's the price of reliance",
       "tool": "get_live_price",
-      "args": {"symbol": "RELIANCE"},
+      "args": {
+        "symbol": "RELIANCE"
+      },
       "confidence": 0.95,
       "note": "Single-symbol price lookup. NEVER use propose_workflow for a quote."
     },
@@ -93,7 +141,9 @@
       "id": "edit_threshold_number",
       "prompt": "make it 25 instead of 30",
       "tool": "propose_threshold_order",
-      "args": {"_steps_summary": "Re-emit the prior threshold draft with threshold:25 (was 30). Carry over symbol, side, quantity, kind, schedule from the prior turn UNCHANGED. Do NOT ASK for size/qty/symbol again — they were already set."},
+      "args": {
+        "_steps_summary": "Re-emit the prior threshold draft with threshold:25 (was 30). Carry over symbol, side, quantity, kind, schedule from the prior turn UNCHANGED. Do NOT ASK for size/qty/symbol again — they were already set."
+      },
       "confidence": 0.9,
       "note": "When the immediately-preceding turn drafted a *_threshold_* / *_scheduled_* / propose_workflow, and the user replies with a NUMBER tweak ('make it 25', 'lower to 20', 'change to 5%') — re-emit the SAME tool with only the changed number. NEVER re-ask for parameters the prior turn already established. NEVER route to a different propose_* tool."
     },
@@ -101,7 +151,9 @@
       "id": "edit_workflow_indicator_threshold",
       "prompt": "lower ADX to 20",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "Re-emit the prior workflow with the ADX condition value changed from 25 → 20. Carry over ALL other steps unchanged. Output is the FULL updated steps[], not a diff."},
+      "args": {
+        "_steps_summary": "Re-emit the prior workflow with the ADX condition value changed from 25 → 20. Carry over ALL other steps unchanged. Output is the FULL updated steps[], not a diff."
+      },
       "confidence": 0.9,
       "note": "Tweaking an indicator threshold inside a workflow draft: stay in propose_workflow. NEVER route to propose_scheduled_order, create_sl_order, or any other tool when editing a workflow's internal numbers."
     },
@@ -109,7 +161,9 @@
       "id": "edit_backtest_params",
       "prompt": "try it with 20/50 SMA instead",
       "tool": "backtest_workflow",
-      "args": {"_steps_summary": "Re-run backtest_workflow with SMA periods updated to 20/50 (was 10/20). Carry over symbol, period (e.g. 3y), entry/exit shape. Emit the full steps[] with the new periods."},
+      "args": {
+        "_steps_summary": "Re-run backtest_workflow with SMA periods updated to 20/50 (was 10/20). Carry over symbol, period (e.g. 3y), entry/exit shape. Emit the full steps[] with the new periods."
+      },
       "confidence": 0.9,
       "note": "Backtest parameter tweaks ('try with 20/50', 'use 14-period RSI instead', 'over 5 years instead'): re-emit backtest_workflow with the changed numbers. NEVER switch to get_multiple_indicators or get_indicator. The prior backtest draft is in scope — change only what the user named."
     },
@@ -117,7 +171,9 @@
       "id": "cancel_after_draft",
       "prompt": "cancel that",
       "tool": "ASK_USER",
-      "args": {"question": "Cancelling the pending draft. Confirm — say 'yes' and I'll discard it."},
+      "args": {
+        "question": "Cancelling the pending draft. Confirm — say 'yes' and I'll discard it."
+      },
       "confidence": 0.9,
       "note": "When the IMMEDIATELY-PRECEDING assistant turn proposed a draft (order, workflow, basket, SIP) and the user replies 'cancel', 'cancel that', 'never mind', 'drop it', or 'no don't' — DO NOT create a new order or call any propose_* tool. The runtime cancels the active draft. If unsure, route to ASK_USER asking for confirmation. NEVER interpret 'cancel that' as a fresh order."
     },
@@ -125,7 +181,9 @@
       "id": "extend_existing_draft",
       "prompt": "make it 50/100 SMA instead, and add an 8% profit target",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "Edit the active draft in-place: change indicator periods to 50/100, append a sell trigger when unrealized P&L >= 8%. Emit the FULL updated draft, not just the diff."},
+      "args": {
+        "_steps_summary": "Edit the active draft in-place: change indicator periods to 50/100, append a sell trigger when unrealized P&L >= 8%. Emit the FULL updated draft, not just the diff."
+      },
       "confidence": 0.9,
       "note": "Workflow modifications (changing thresholds, adding profit targets / stop-losses, swapping indicator periods, adding notify steps) STAY in propose_workflow. NEVER route to create_sip, place_market_order, or another macro when extending an existing draft. Emit the full updated steps[]."
     },
@@ -137,8 +195,27 @@
         "name": "RELIANCE RSI dip-buy",
         "period": "5y",
         "steps": [
-          {"step_index": 0, "step_type": "trigger.indicator", "config": {"symbol": "RELIANCE", "indicator": "rsi", "period": 14, "operator": "<", "value": 30}},
-          {"step_index": 1, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 10, "order_type": "market"}}
+          {
+            "step_index": 0,
+            "step_type": "trigger.indicator",
+            "config": {
+              "symbol": "RELIANCE",
+              "indicator": "rsi",
+              "period": 14,
+              "operator": "<",
+              "value": 30
+            }
+          },
+          {
+            "step_index": 1,
+            "step_type": "action.place_order",
+            "config": {
+              "symbol": "RELIANCE",
+              "side": "buy",
+              "quantity": 10,
+              "order_type": "market"
+            }
+          }
         ]
       },
       "confidence": 0.95,
@@ -152,10 +229,42 @@
         "name": "INFY weekday buy if D/E<0.5",
         "period": "2y",
         "steps": [
-          {"step_index": 0, "step_type": "trigger.schedule", "config": {"cron": "0 10 * * 1-5", "timezone": "Asia/Kolkata"}},
-          {"step_index": 1, "step_type": "fetch.fundamental", "config": {"symbol": "INFY", "metric": "debt_to_equity"}},
-          {"step_index": 2, "step_type": "condition.numeric", "config": {"left": "{{context.1.value}}", "operator": "<", "right": 0.5}},
-          {"step_index": 3, "step_type": "action.place_order", "config": {"symbol": "INFY", "side": "buy", "quantity": 1, "order_type": "market", "product": "CNC"}}
+          {
+            "step_index": 0,
+            "step_type": "trigger.schedule",
+            "config": {
+              "cron": "0 10 * * 1-5",
+              "timezone": "Asia/Kolkata"
+            }
+          },
+          {
+            "step_index": 1,
+            "step_type": "fetch.fundamental",
+            "config": {
+              "symbol": "INFY",
+              "metric": "debt_to_equity"
+            }
+          },
+          {
+            "step_index": 2,
+            "step_type": "condition.numeric",
+            "config": {
+              "left": "{{context.1.value}}",
+              "operator": "<",
+              "right": 0.5
+            }
+          },
+          {
+            "step_index": 3,
+            "step_type": "action.place_order",
+            "config": {
+              "symbol": "INFY",
+              "side": "buy",
+              "quantity": 1,
+              "order_type": "market",
+              "product": "CNC"
+            }
+          }
         ]
       },
       "confidence": 0.94,
@@ -169,10 +278,42 @@
         "name": "Mon RELIANCE if ROCE>10",
         "period": "3y",
         "steps": [
-          {"step_index": 0, "step_type": "trigger.schedule", "config": {"cron": "0 10 * * 1", "timezone": "Asia/Kolkata"}},
-          {"step_index": 1, "step_type": "fetch.fundamental", "config": {"symbol": "RELIANCE", "metric": "roce"}},
-          {"step_index": 2, "step_type": "condition.numeric", "config": {"left": "{{context.1.value}}", "operator": ">", "right": 10}},
-          {"step_index": 3, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 1, "order_type": "market", "product": "CNC"}}
+          {
+            "step_index": 0,
+            "step_type": "trigger.schedule",
+            "config": {
+              "cron": "0 10 * * 1",
+              "timezone": "Asia/Kolkata"
+            }
+          },
+          {
+            "step_index": 1,
+            "step_type": "fetch.fundamental",
+            "config": {
+              "symbol": "RELIANCE",
+              "metric": "roce"
+            }
+          },
+          {
+            "step_index": 2,
+            "step_type": "condition.numeric",
+            "config": {
+              "left": "{{context.1.value}}",
+              "operator": ">",
+              "right": 10
+            }
+          },
+          {
+            "step_index": 3,
+            "step_type": "action.place_order",
+            "config": {
+              "symbol": "RELIANCE",
+              "side": "buy",
+              "quantity": 1,
+              "order_type": "market",
+              "product": "CNC"
+            }
+          }
         ]
       },
       "confidence": 0.94,
@@ -186,28 +327,73 @@
         "name": "Mon RELIANCE if ROIC>8 (formula)",
         "period": "3y",
         "steps": [
-          {"step_index": 0, "step_type": "trigger.schedule", "config": {"cron": "0 10 * * 1", "timezone": "Asia/Kolkata"}},
-          {"step_index": 1, "step_type": "fetch.fundamental", "config": {"symbol": "RELIANCE", "metric": "formula", "formula": "(net_profit + interest_expense) / (total_equity + total_debt) * 100"}},
-          {"step_index": 2, "step_type": "condition.numeric", "config": {"left": "{{context.1.value}}", "operator": ">", "right": 8}},
-          {"step_index": 3, "step_type": "action.place_order", "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 1, "order_type": "market", "product": "CNC"}}
+          {
+            "step_index": 0,
+            "step_type": "trigger.schedule",
+            "config": {
+              "cron": "0 10 * * 1",
+              "timezone": "Asia/Kolkata"
+            }
+          },
+          {
+            "step_index": 1,
+            "step_type": "fetch.fundamental",
+            "config": {
+              "symbol": "RELIANCE",
+              "metric": "formula",
+              "formula": "(net_profit + interest_expense) / (total_equity + total_debt) * 100"
+            }
+          },
+          {
+            "step_index": 2,
+            "step_type": "condition.numeric",
+            "config": {
+              "left": "{{context.1.value}}",
+              "operator": ">",
+              "right": 8
+            }
+          },
+          {
+            "step_index": 3,
+            "step_type": "action.place_order",
+            "config": {
+              "symbol": "RELIANCE",
+              "side": "buy",
+              "quantity": 1,
+              "order_type": "market",
+              "product": "CNC"
+            }
+          }
         ]
       },
       "confidence": 0.92,
       "note": "When the user asks for a derived metric that isn't in FIELD_MAP (ROIC, FCF margin, custom score, etc.), emit metric: 'formula' with a formula string built ONLY from named FIELD_MAP identifiers and arithmetic (+ - * / ** %, parentheses, numeric literals). NO function calls, NO attribute access. Use formulas ONLY when no named metric fits — never wrap a named metric in a redundant formula."
     },
     {
-      "id": "fundamental_screen_deflect",
-      "prompt": "Rank the top 10 Nifty 50 stocks by ROE and buy the top 3 every month.",
-      "tool": "ASK_USER",
-      "args": {"question": "Cross-sectional ranking (top N by ROE / P/E across an index) isn't wired — fetch.fundamental is per-symbol only. Want me to apply the ROE>X gate to a fixed ticker list (e.g. 5 Nifty 50 names you pick), or to a sector basket via propose_basket_allocation?"},
-      "confidence": 0.45,
-      "note": "Cross-sectional fundamentals screens (rank top N by RoE, top X by P/E, etc.) are NOT supported — fetch.fundamental is per-symbol. Deflect to a fixed ticker list or a sector basket. NEVER pretend the screen is supported by silently dropping the rank requirement from a workflow draft."
+      "id": "fundamental_screen",
+      "prompt": "pharma stocks with P/E under 25",
+      "tool": "screen_fundamentals",
+      "args": {
+        "filters": [
+          {
+            "field": "pe",
+            "op": "<",
+            "value": 25
+          }
+        ],
+        "sector": "pharma",
+        "limit": 15
+      },
+      "confidence": 0.9,
+      "note": "Cross-sectional fundamental screens ARE supported via screen_fundamentals (fields: pe, roe, roce, de, payout; optional coarse sector pharma/bank/it/energy/auto/metal/finance/chemicals/fmcg/infra/textiles). Call it DIRECTLY for 'X stocks with ROE>N', 'cheap banking stocks', 'low debt high roe' — do NOT deflect to a fixed ticker list. Data is basic and may include small-caps; never invent names or numbers."
     },
     {
       "id": "news_gate_on_open_buy",
       "prompt": "Buy 5 RELIANCE at open. At 10 AM IST, if RBI announces a repo rate cut, sell my entire RELIANCE holding; otherwise hold for the day.",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.schedule(cron: 0 9 * * 1-5, market-open) → action.place_order(buy 5 RELIANCE market) → trigger.schedule(cron: 0 10 * * 1-5, 10 AM IST) → fetch.news(keywords: [\"RBI\",\"repo rate\",\"MPC\",\"rate cut\"], event_description: \"RBI announces a repo rate cut\", min_confidence: 0.85) → condition.boolean(left: {{context.3.matched}}, value: true) → action.place_order(sell entire RELIANCE holding) ; on false branch: notify.message(hold for the day)"},
+      "args": {
+        "_steps_summary": "trigger.schedule(cron: 0 9 * * 1-5, market-open) → action.place_order(buy 5 RELIANCE market) → trigger.schedule(cron: 0 10 * * 1-5, 10 AM IST) → fetch.news(keywords: [\"RBI\",\"repo rate\",\"MPC\",\"rate cut\"], event_description: \"RBI announces a repo rate cut\", min_confidence: 0.85) → condition.boolean(left: {{context.3.matched}}, value: true) → action.place_order(sell entire RELIANCE holding) ; on false branch: notify.message(hold for the day)"
+      },
       "confidence": 0.94,
       "note": "News-gated intraday workflow. Use propose_workflow whenever a workflow has a news condition gating a downstream order. fetch.news's `matched` aggregate feeds condition.boolean."
     },
@@ -215,7 +401,9 @@
       "id": "news_gate_on_iphone_basket",
       "prompt": "If Apple confirms iPhone manufacturing expansion in India in the next 2 days, buy a basket of 5 Indian electronics manufacturing stocks.",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.event(event_description: \"Apple confirms iPhone manufacturing expansion in India\", keywords: [\"Apple\",\"iPhone\",\"manufacturing\",\"India\",\"Foxconn\",\"Tata Electronics\"], min_confidence: 0.85, hours_back: 48) → fetch.screener(sector: electronics, sort_by: mcap, limit: 5) → action.allocate_notional(symbols: {{context.1.ranked}}, total_inr: 100000, strategy: equal)"},
+      "args": {
+        "_steps_summary": "trigger.event(event_description: \"Apple confirms iPhone manufacturing expansion in India\", keywords: [\"Apple\",\"iPhone\",\"manufacturing\",\"India\",\"Foxconn\",\"Tata Electronics\"], min_confidence: 0.85, hours_back: 48) → fetch.screener(sector: electronics, sort_by: mcap, limit: 5) → action.allocate_notional(symbols: {{context.1.ranked}}, total_inr: 100000, strategy: equal)"
+      },
       "confidence": 0.92,
       "note": "Pure news-event trigger (no schedule). Use trigger.event when the event itself is the trigger and there is no pre-news leg. Keywords specific, event_description in natural language for the LLM verifier."
     },
@@ -223,7 +411,9 @@
       "id": "news_gate_on_sebi_action",
       "prompt": "If SEBI penalises any large private bank by 3 PM, short that bank's holding; otherwise hold.",
       "tool": "propose_workflow",
-      "args": {"_steps_summary": "trigger.schedule(cron: 0 15 * * 1-5) → fetch.news(keywords: [\"SEBI\",\"penalty\",\"private bank\",\"fine\"], event_description: \"SEBI imposes a penalty on a large private bank\", min_confidence: 0.85) → condition.boolean(left: {{context.1.matched}}, value: true) → action.place_order(short the named bank from top_article) ; on false branch: notify.message(no SEBI action, holding)"},
+      "args": {
+        "_steps_summary": "trigger.schedule(cron: 0 15 * * 1-5) → fetch.news(keywords: [\"SEBI\",\"penalty\",\"private bank\",\"fine\"], event_description: \"SEBI imposes a penalty on a large private bank\", min_confidence: 0.85) → condition.boolean(left: {{context.1.matched}}, value: true) → action.place_order(short the named bank from top_article) ; on false branch: notify.message(no SEBI action, holding)"
+      },
       "confidence": 0.91,
       "note": "Time-bounded news check inside a scheduled workflow. fetch.news's top_article carries the named entity downstream actions can interpolate via {{context.<idx>.top_article.title}}."
     }

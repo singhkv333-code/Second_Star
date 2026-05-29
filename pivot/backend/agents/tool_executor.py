@@ -74,6 +74,13 @@ async def execute_tool(tool_name: str, arguments: dict,
         "get_market_status":          _get_market_status,
         "get_upcoming_events":        _get_upcoming_events,
         "get_top_movers":             _get_top_movers,
+        # retail capability tools (2026-05-29): fundamental screen,
+        # single-stock fundamentals + news, IPO feed
+        "screen_fundamentals":        _screen_fundamentals,
+        "fetch_fundamentals":         _fetch_fundamentals,
+        "get_symbol_news":            _get_symbol_news,
+        "list_upcoming_ipos":         _list_upcoming_ipos,
+        "get_ipo_details":            _get_ipo_details,
         # /core/ analytics bridge
         "get_indicator":              _get_indicator,
         "get_multiple_indicators":    _get_multiple_indicators,
@@ -377,7 +384,11 @@ async def _cancel_gtt(a, kt, db, uid):
 async def _create_sip(a, kt, db, uid):
     from backend.routers.sip import compute_next_execution
     from backend.utils.time_utils import format_ist
-    sym = a["symbol"].upper()
+    from backend.market.yfinance_service import canonical_symbol
+    # Canonicalize so bare "gold"/"silver"/"nifty" map to the tradeable
+    # ETF (GOLDBEES / SILVERBEES / NIFTYBEES) instead of persisting a
+    # dead symbol — create_sip is the right home for recurring ETF buys.
+    sym = canonical_symbol(a["symbol"])
     amt, freq = a["amount_inr"], a["frequency"]
     nxt = compute_next_execution(freq, a.get("day_of_month"), a.get("day_of_week"))
     nxt_str = format_ist(nxt, include_seconds=False)
@@ -1275,6 +1286,52 @@ async def _get_returns(a, kt, db, uid):
     )
     success = "error" not in data
     return {"success": success, "data": data, "logiccard": None}
+
+
+# ── Retail capability tools (2026-05-29) ──────────────────────────────────────
+# Sync service call inside an async tool — the established pattern here
+# (see _get_top_movers): the DB/network round-trip is the cost and the
+# engine awaits us. No exotic _render_hint: the FE has no card for these
+# yet, so the LLM consumes the data and answers in prose (no FE change
+# needed). Honesty fields (note / found / source) flow through so the
+# model never fabricates when data is sparse or a feed is unreachable.
+
+async def _screen_fundamentals(a, kt, db, uid):
+    from backend.services.fundamentals_screen import screen_by_fundamentals
+    out = screen_by_fundamentals(
+        filters=a.get("filters") or [],
+        sector=a.get("sector"),
+        sort_by=a.get("sort_by"),
+        limit=int(a.get("limit", 15)),
+    )
+    return {"success": True, "data": out, "logiccard": None}
+
+
+async def _fetch_fundamentals(a, kt, db, uid):
+    from backend.services.analysis_chat_tools import fetch_fundamentals
+    return {"success": True,
+            "data": fetch_fundamentals(str(a.get("symbol", ""))),
+            "logiccard": None}
+
+
+async def _get_symbol_news(a, kt, db, uid):
+    from backend.services.analysis_chat_tools import get_symbol_news
+    return {"success": True,
+            "data": get_symbol_news(str(a.get("symbol", "")), int(a.get("limit", 5))),
+            "logiccard": None}
+
+
+async def _list_upcoming_ipos(a, kt, db, uid):
+    from backend.services.ipo_feed import list_upcoming_ipos
+    data = list_upcoming_ipos()
+    return {"success": data.get("source") != "unreachable",
+            "data": data, "logiccard": None}
+
+
+async def _get_ipo_details(a, kt, db, uid):
+    from backend.services.ipo_feed import get_ipo_details
+    data = get_ipo_details(str(a.get("name_or_symbol", "")))
+    return {"success": bool(data.get("found")), "data": data, "logiccard": None}
 
 
 async def _get_top_movers(a, kt, db, uid):

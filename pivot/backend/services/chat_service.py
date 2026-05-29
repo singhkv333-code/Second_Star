@@ -5110,15 +5110,20 @@ def _conversational_unsupported_reply(user_message_lower: str) -> str:
         )
 
     # ── Cue: per-lot / fundamentals / multi-leg requests.
+    # Fundamentals screening IS wired now (screen_fundamentals for
+    # cross-sectional PE/ROE/etc. screens, fetch_fundamentals for one
+    # stock). This fallback only fires when a workflow DRAFT failed to
+    # validate — so steer the user to ask for the screen as a plain
+    # query, which routes to the screen tool.
     if any(p in msg for p in (
         "pe ratio", "p/e ratio", "earnings", "eps", "roe", "fundamental",
         "screen by", "screen for stocks",
     )):
         return (
-            "Fundamentals screening (P/E, ROE, EPS) isn't wired in "
-            "yet — Pivot only screens by sector and market cap today. "
-            "Want me to use a sector basket instead, or pick specific "
-            "tickers and I'll set up the rule on those?"
+            "I can screen on fundamentals — ask it as a plain query like "
+            "*\"pharma stocks with P/E under 25\"* or *\"stocks with ROE "
+            "above 18\"* and I'll pull the list. For one company's "
+            "P/E / ROE just ask *\"what's RELIANCE's PE and ROE\"*."
         )
 
     if any(p in msg for p in (

@@ -18,7 +18,10 @@ TOOL_SUBSETS = {
     "ORDER_FNO":         ["place_futures_order", "place_options_order", "place_multileg_options", "roll_futures_position", "get_option_chain", "get_option_greeks", "get_margin_required"],
     "ORDER_MANAGE":      ["cancel_order", "modify_order", "list_pending_orders", "list_gtt_orders", "cancel_gtt", "squareoff_all_intraday", "squareoff_symbol"],
     "PORTFOLIO_QUERY":   ["get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_holding_detail", "get_tax_summary", "get_active_products"],
-    "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain"],
+    "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain", "fetch_fundamentals", "get_symbol_news", "list_upcoming_ipos"],
+    "FUNDAMENTAL_SCREEN": ["screen_fundamentals"],
+    "ANALYSIS":          ["fetch_fundamentals", "get_symbol_news"],
+    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details"],
     "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow", "propose_polymarket_trigger"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
     "WORKFLOW_PROPOSE":  ["propose_workflow"],
@@ -592,10 +595,16 @@ tool("get_performance_metrics",
      ["symbol"])
 
 tool("compare_performance",
-     "Rank a list of tickers by a chosen metric. Use for: 'rank "
-     "RELIANCE TCS INFY by Sharpe', 'which of these has best risk-"
-     "adjusted return last year', 'compare these stocks'. Returns the "
-     "full comparison table.",
+     "Compare/rank 2+ tickers by a metric over a period. Use for ANY "
+     "multi-stock comparison: 'compare RELIANCE and TCS', 'INFY vs TCS "
+     "which gave better return last year', 'compare returns of HDFCBANK "
+     "and ICICIBANK over 3 years', 'which is better WIPRO or INFOSYS', "
+     "'rank these by Sharpe'. CRITICAL: for a two-stock comparison you "
+     "MUST call this with BOTH symbols — never call get_returns/"
+     "get_price_history on one stock and state the other's number from "
+     "memory (that fabricates). Returns the full side-by-side table "
+     "(total return %, volatility, Sharpe, max drawdown) for every "
+     "symbol with a declared winner.",
      {
          "symbols":  {"type": "array", "items": {"type": "string"}},
          "period":   {"type": "string", "default": "1y"},
@@ -624,6 +633,82 @@ tool("get_returns",
          "cumulative": {"type": "boolean", "default": False},
      },
      ["symbol"])
+
+# ── FUNDAMENTAL SCREEN / SINGLE-STOCK FUNDAMENTALS / NEWS / IPO ───────────────
+
+tool("screen_fundamentals",
+     "Cross-sectional fundamental SCREEN over the financials DB — the "
+     "'screener.in for basics' tool. Returns the LIST of companies passing "
+     "EVERY numeric constraint (filters are AND-ed). Use for: 'pharma stocks "
+     "with P/E under 25', 'show me stocks with ROE > 18', 'low debt high ROE "
+     "names', 'cheap banking stocks', 'screen for payout > 40%'. This is the "
+     "MANY-company tool; for ONE company's PE/ROE use fetch_fundamentals. "
+     "Fields: pe, roe, roce, de (debt/equity), payout. market_cap is NOT "
+     "screenable. Sector is optional + coarse: pharma, bank, it, energy, auto, "
+     "metal, finance, chemicals, fmcg, infra, textiles. Data is basic and may "
+     "include small-caps; never invent names or numbers.",
+     {
+         "filters": {"type": "array",
+                     "description": "Numeric constraints, AND-ed. At least one required.",
+                     "items": {"type": "object", "properties": {
+                         "field": {"type": "string",
+                                   "enum": ["pe", "roe", "roce", "de", "payout", "market_cap"]},
+                         "op":    {"type": "string", "enum": ["<", "<=", ">", ">=", "="]},
+                         "value": {"type": "number"}},
+                         "required": ["field", "op", "value"]}},
+         "sector":  {"type": "string",
+                     "enum": ["pharma", "bank", "it", "energy", "auto", "metal",
+                              "finance", "chemicals", "fmcg", "infra", "textiles"]},
+         "sort_by": {"type": "object", "properties": {
+                         "field": {"type": "string",
+                                   "enum": ["pe", "roe", "roce", "de", "payout"]},
+                         "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
+         "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15},
+     },
+     ["filters"],
+     defaults={"limit": 15})
+
+tool("fetch_fundamentals",
+     "Snapshot of ONE stock's fundamentals (P/E, ROE, ROCE, D/E, net margin, "
+     "EPS, book value, dividend payout) from the financials DB. Use for 'should "
+     "I buy X', 'what is X's PE/ROE', or one leg of a 'compare A vs B' (call "
+     "once per symbol). Returns null for any metric not populated (coverage is "
+     "sparse outside large caps) — if a value is null SAY it's unavailable, "
+     "NEVER invent it. Not a live-price tool (use get_live_price for price).",
+     {"symbol": {"type": "string",
+                 "description": "NSE ticker, uppercase. Infosys->INFY, Reliance->RELIANCE."}},
+     ["symbol"])
+
+tool("get_symbol_news",
+     "Recent news headlines for ONE stock via yfinance. Use for 'recent news "
+     "on X', 'what's happening with X', 'any news on X'. Returns "
+     "{title, publisher, link, published}. If empty, say so — do not fabricate "
+     "headlines. For macro / non-company current-affairs use web_search_brief.",
+     {"symbol": {"type": "string", "description": "NSE ticker, uppercase."},
+      "limit":  {"type": "integer", "minimum": 1, "maximum": 50, "default": 5}},
+     ["symbol"],
+     defaults={"limit": 5})
+
+tool("list_upcoming_ipos",
+     "Lists current open + upcoming mainboard and SME IPOs from the live NSE "
+     "feed (name, symbol, price band, open/close dates, lot size, issue size, "
+     "type, status). Use for 'any IPOs open right now?', 'upcoming IPOs', 'new "
+     "IPOs this week', 'SME IPOs'. Read-only. Empty list = no live issues right "
+     "now (not an error); if the feed is unreachable relay the note verbatim — "
+     "NEVER invent IPOs.",
+     {},
+     [])
+
+tool("get_ipo_details",
+     "Full detail of ONE IPO matched by name or symbol from the live NSE list "
+     "(price band, dates, lot size, issue size, type, status). Use after "
+     "list_upcoming_ipos when the user asks about a specific IPO ('tell me "
+     "about the X IPO', 'details on <symbol>', 'I want to apply for X'). If "
+     "found is false, present the candidate matches to disambiguate. NEVER "
+     "fabricate IPO details.",
+     {"name_or_symbol": {"type": "string",
+                         "description": "IPO company name or NSE symbol. Case-insensitive."}},
+     ["name_or_symbol"])
 
 # ── YIELDS ───────────────────────────────────────────────────────────────────
 

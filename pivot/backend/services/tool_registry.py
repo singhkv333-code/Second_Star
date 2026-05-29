@@ -52,6 +52,14 @@ _REAL_TOOLS: set[str] = {
     # Market data
     "get_live_price", "get_index_level", "get_ohlc", "get_market_status",
     "get_52wk_range", "get_price_history", "get_top_movers",
+    # Retail capability tools (2026-05-29): fundamental screen,
+    # single-stock fundamentals, company news, IPO feed. These MUST be
+    # here (not just in agents/tools.py ALL_TOOLS) — get_tool_schema()
+    # gates the per-hop routed surface on this set, so omitting them
+    # meant the router selected them but they never reached the model
+    # (only find_tool's lazy-load could surface them, wasting a hop).
+    "screen_fundamentals", "fetch_fundamentals", "get_symbol_news",
+    "list_upcoming_ipos", "get_ipo_details",
     # /core/ analytics bridge — indicators / risk / comparison
     "get_indicator", "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_correlation_matrix", "get_returns",

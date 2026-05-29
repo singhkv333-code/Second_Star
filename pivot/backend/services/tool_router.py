@@ -73,6 +73,67 @@ def _r(pattern: str, *tools: str) -> _Rule:
 
 
 _RULES: list[_Rule] = [
+    # ── Cross-sectional fundamental screener (2026-05-29) ────────────
+    # "pharma stocks under PE 25", "stocks with ROE > 18", "low debt
+    # high roe names", "cheap banking stocks". The MANY-company screen;
+    # the single-company PE/ROE ask routes to fetch_fundamentals below.
+    _r(
+        r"\b(?:screen|screener|filter|find|show\s+me|list|give\s+me)\b[^.]{0,80}?"
+        r"\b(?:stocks?|companies|names|shares)\b"
+        r"|\b(?:stocks?|companies|names|shares)\b[^.]{0,40}?"
+        r"\b(?:roe|roce|p\/?e|pe\s+ratio|debt[\s/-]?to[\s/-]?equity|d\/e|payout|dividend)\b"
+        r"|\b(?:roe|roce|p\/?e|pe|debt[\s/-]?to[\s/-]?equity|payout)\b\s*"
+        r"(?:>|<|>=|<=|=|under|over|above|below|greater|less|more)\s*\d"
+        r"|\b(?:low\s+debt|high\s+roe|high\s+roce|cheap|undervalued)\b[^.]{0,30}\b(?:stocks?|companies|names)\b",
+        "screen_fundamentals",
+    ),
+
+    # ── Single-stock fundamentals + buy-decision reasoning ───────────
+    # "should I buy reliance", "what's TCS's PE/ROE", "is X a good buy".
+    _r(
+        r"\bshould\s+i\s+(?:buy|invest\s+in|sell)\b"
+        r"|\bis\s+\w+\s+a\s+(?:good\s+)?(?:buy|investment)\b"
+        r"|\bgood\s+time\s+to\s+(?:buy|invest)\b"
+        r"|\b(?:fundamentals?|valuation)\s+(?:of|for|on)\b"
+        r"|\b(?:pe|p\/e|roe|roce|net\s+margin|book\s+value|eps|debt[\s-]to[\s-]equity)\s+(?:of|for|on)\s+\w+"
+        r"|\bhow\s+(?:financially\s+)?(?:strong|healthy|sound)\s+is\b",
+        "fetch_fundamentals", "get_live_price", "get_symbol_news",
+    ),
+
+    # ── Company-specific news ────────────────────────────────────────
+    _r(
+        r"\b(?:recent|latest|any)\s+news\s+(?:on|about|for)?\s*\w+"
+        r"|\bnews\s+(?:on|about|for)\s+\w+"
+        r"|\bwhat'?s?\s+happening\s+(?:with|to)\s+\w+"
+        r"|\bwhy\s+(?:is|did)\s+\w+\s+(?:up|down|fall|drop|rise|jump|crash)",
+        "get_symbol_news", "get_top_movers", "get_live_price",
+    ),
+
+    # ── IPOs (upcoming / open mainboard + SME) ───────────────────────
+    # "any IPOs open?", "upcoming IPOs", "tell me about the X IPO",
+    # "I want to apply for the <name> IPO".
+    _r(
+        r"\bipos?\b"
+        r"|\binitial\s+public\s+offering\b"
+        r"|\b(?:mainboard|sme)\s+(?:issue|listing|ipo)\b"
+        r"|\bnew\s+(?:listing|issue)s?\b"
+        r"|\bapply\s+(?:for|to)\s+(?:the\s+)?[\w\s]+\bipo\b",
+        "list_upcoming_ipos", "get_ipo_details",
+    ),
+
+    # ── Two-stock comparison (2026-05-29) ───────────────────────────
+    # "compare X and Y", "X vs Y", "which is better X or Y", "compare
+    # returns of X and Y over N years". Surface compare_performance so
+    # the model uses the real two-symbol tool instead of fetching one
+    # and asserting the other's number (the fabrication the audit found).
+    _r(
+        r"\b(?:compare|comparison\s+of|versus|vs\.?)\b"
+        r"|\bwhich\s+(?:is|one\s+is|of\s+\w+)\s+(?:better|stronger|the\s+best)\b"
+        r"|\b\w+\s+vs\.?\s+\w+\b"
+        r"|\bbetter\s+(?:return|performer|investment)\b",
+        "compare_performance", "get_correlation_matrix", "fetch_fundamentals",
+    ),
+
     # ── L14 T4: pre/post-pivot regime comparison ────────────────────
     _r(
         r"\b(?:before\s+and\s+after|pre[\s-](?:and[\s-])?post|"

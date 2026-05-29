@@ -89,6 +89,10 @@ NAME_TO_TICKER: dict[str, str] = {
     "niftybees": "NIFTYBEES",
     "goldbees": "GOLDBEES",
     "gold": "GOLDBEES",
+    # silver was missing → resolve_symbol('silver') hit the dead SILVER.NS.
+    # SILVERBEES is the liquid NSE silver ETF (live on yfinance).
+    "silver": "SILVERBEES",
+    "silverbees": "SILVERBEES",
 }
 
 DISPLAY_NAMES: dict[str, str] = {
@@ -121,6 +125,7 @@ DISPLAY_NAMES: dict[str, str] = {
     "NIFTYIT": "Nifty IT",
     "NIFTYBEES": "Nifty BeES",
     "GOLDBEES": "Gold BeES",
+    "SILVERBEES": "Silver BeES",
 }
 
 PERIOD_MAP: dict[str, tuple[str, str]] = {
@@ -233,8 +238,21 @@ def fetch_price_history(symbol: str, period: str, interval: str) -> list[dict]:
     if not symbol:
         return []
 
-    if (period or "").strip().lower() in PERIOD_MAP:
-        period, interval = PERIOD_MAP[period.strip().lower()]
+    # Normalize the period string to a yfinance-valid period. RESPECT the
+    # caller's interval — only adopt the chart-oriented downsample
+    # (PERIOD_MAP's 1y→1wk / 5y→1mo) when the caller didn't specify one.
+    # get_ohlcv passes interval='1d' for return/Sharpe/volatility metrics
+    # and MUST get DAILY bars; the old unconditional override silently
+    # returned weekly (1y/2y) or monthly (5y) data, corrupting CAGR and
+    # overstating volatility by ~sqrt(5) (2026-05-29 audit). Chart callers
+    # (routers/compare.py) pass their own resolved interval, so they are
+    # unaffected.
+    _key = (period or "").strip().lower()
+    if _key in PERIOD_MAP:
+        mapped_period, mapped_interval = PERIOD_MAP[_key]
+        period = mapped_period
+        if not interval:
+            interval = mapped_interval
 
     resolved = resolve_symbol(symbol)
     cache_key = _cache_key(resolved, period, interval)
