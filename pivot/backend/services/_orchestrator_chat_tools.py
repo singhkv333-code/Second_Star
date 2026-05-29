@@ -83,38 +83,40 @@ logger = logging.getLogger(__name__)
 # for) before any tool that fetches OHLCV gets called.
 
 _VALID_PERIODS = ("5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max", "ytd")
-_PERIOD_DAYS_ORDER = [
-    ("5d", 5), ("1mo", 30), ("3mo", 90), ("6mo", 180),
-    ("1y", 365), ("2y", 730), ("5y", 1825), ("max", 99999),
-]
 
 
 def _normalize_period(value: Any) -> str:
-    """Map a user-supplied period string to a valid yfinance period.
-    Rounds UP to the nearest supported window so we don't silently lose
-    data the user asked for. Default "1y" on anything unrecognised."""
+    """Canonicalise a user-supplied period for the OHLCV data layer.
+
+    Canonical yfinance periods (5d/1mo/3mo/6mo/1y/2y/5y/max/ytd) pass
+    through. Arbitrary spans ('3y', '18 months', '30 weeks') are now
+    PRESERVED in a compact form ('3y', '18mo', '30w') instead of being
+    rounded to a bucket — backend.core.data.historical.get_ohlcv fetches
+    the next-larger valid period and slices to the EXACT requested span,
+    so "compare … over 3 years" honours 3y (not 2y/5y). Unknown phrasings
+    default to '1y' (or 'ytd')."""
     if not value:
         return "1y"
     s = str(value).strip().lower().replace(" ", "")
     if s in _VALID_PERIODS:
         return s
-    # Match "Ny" / "Nyear" / "Nyears"
-    m = re.fullmatch(r"(\d+)\s*(d|day|days|mo|month|months|y|yr|yrs|year|years)", s)
+    # Preserve arbitrary 'N<unit>' spans in a compact canonical form.
+    m = re.fullmatch(
+        r"(\d+)\s*(d|day|days|w|wk|week|weeks|mo|month|months|y|yr|yrs|year|years)",
+        s,
+    )
     if m:
-        n = int(m.group(1))
+        n = m.group(1)
         unit = m.group(2)
         if unit.startswith("d"):
-            days = n
-        elif unit.startswith("mo"):
-            days = n * 30
-        else:
-            days = n * 365
-        for name, max_days in _PERIOD_DAYS_ORDER:
-            if days <= max_days:
-                return name
-        return "5y"
+            return f"{n}d"
+        if unit.startswith("w"):
+            return f"{n}w"
+        if unit.startswith("mo"):
+            return f"{n}mo"
+        return f"{n}y"
     # "since january" / "ytd" / unknown
-    if "ytd" in s or "year" in s and "to" in s:
+    if "ytd" in s or ("year" in s and "to" in s):
         return "ytd"
     return "1y"
 

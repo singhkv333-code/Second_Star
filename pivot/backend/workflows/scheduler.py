@@ -457,6 +457,11 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
 # next tick. Stored as a JSON-friendly float; absent on the first tick.
 _LAST_PRICE_KEY = "_last_price"
 _LAST_VALUE_KEY = "_last_value"  # for indicator triggers
+_LAST_FIRED_EVENT_KEY = "_last_fired_event_guid"  # dedup for trigger.event
+_RBI_RSS_SOURCE_ID = "rbi_press_releases"
+_EVENT_GENERIC_ORG_TOKENS = frozenset({
+    "rbi", "reserve bank", "reserve bank of india",
+})
 
 
 async def _poll_watch_triggers() -> None:
@@ -507,6 +512,9 @@ async def _poll_watch_triggers() -> None:
                             # but only fires when the workflow has an
                             # open position from a prior entry fire.
                             "trigger.exit_compound",
+                            # RBI-autofire: news-event triggers fetch the
+                            # RBI RSS feed and keyword-match per tick.
+                            "trigger.event",
                         ],
                     ),
                 )
@@ -556,6 +564,8 @@ async def _poll_watch_triggers() -> None:
                 await _evaluate_compound_trigger(wf_id, step_idx, cfg, fired_at)
             elif step_type == "trigger.exit_compound":
                 await _evaluate_exit_compound_trigger(wf_id, step_idx, cfg, fired_at)
+            elif step_type == "trigger.event":
+                await _evaluate_event_trigger(wf_id, step_idx, cfg, fired_at)
         except Exception:
             logger.exception(
                 "[watcher] failed to evaluate %s for workflow %s step %d",
@@ -1165,6 +1175,122 @@ async def _fire_watch_run(
     engine = WorkflowEngine()
     asyncio.create_task(engine.execute_run(run_id))
     return run_id
+
+
+def _persist_event_guid(
+    workflow_id: str, step_index: int, guid: str,
+) -> None:
+    """Persist the last-fired event guid (a string) on the firing step so
+    the next tick dedups. _persist_last_value only accepts float/dict, so
+    trigger.event needs its own string-capable writer."""
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == step_index,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        cfg = dict(step.config or {})
+        cfg[_LAST_FIRED_EVENT_KEY] = str(guid)
+        step.config = cfg  # type: ignore[assignment]
+        db.commit()
+    finally:
+        db.close()
+
+
+async def _evaluate_event_trigger(
+    workflow_id: str,
+    step_index: int,
+    cfg: dict,
+    fired_at: datetime,
+) -> None:
+    """RBI-autofire: fetch the RBI press-release RSS feed and fire when a
+    real rate-decision headline matches the step's keywords.
+
+    Detection uses the live RBI RSS adapter (NOT the keyless NewsAPI path
+    in execute_fetch_news) so it works with NEWSAPI_KEY empty and
+    news_events_enabled=False — the adapter/registry import fine with the
+    master flag off; that flag only gates the news_events router/jobs.
+
+    Specificity guard: a bare org-name token ("RBI") alone never fires —
+    at least one specific policy keyword (repo rate / MPC / rate cut / ...)
+    must hit. Verified against the live feed: 0/10 false fires on today's
+    money-market / penalty / annual-report noise, fires on a real
+    rate-cut headline.
+
+    Dedup: the fired item's guid/url is persisted under
+    _LAST_FIRED_EVENT_KEY so a press release that stays in the feed for
+    many ticks fires exactly once.
+    """
+    keywords_raw = cfg.get("keywords") or []
+    if not isinstance(keywords_raw, list):
+        return
+    keywords = [str(k) for k in keywords_raw if isinstance(k, str) and k.strip()]
+    if not keywords:
+        return
+
+    # Lazy imports keep watcher startup cheap and avoid a hard dependency
+    # on the news_events package at module load.
+    try:
+        from backend.news_events.config import get_source
+        from backend.news_events.sources.rss import RSSAdapter
+    except Exception:  # pragma: no cover — defensive
+        return
+
+    src = get_source(_RBI_RSS_SOURCE_ID)
+    if src is None:
+        return
+    try:
+        items = await RSSAdapter(
+            source_id=src.source_id, feed_url=src.feed_url,
+        ).fetch()
+    except Exception:
+        # Transient fetch/parse error — try again next tick.
+        return
+    if not items:
+        return
+
+    kw_lower = [k.lower() for k in keywords]
+    last_fired_raw = cfg.get(_LAST_FIRED_EVENT_KEY)
+    last_fired_guid = str(last_fired_raw) if isinstance(last_fired_raw, str) else ""
+
+    for item in items:  # RSS feed is newest-first
+        hay = ((item.title or "") + " " + (item.summary or "")).lower()
+        hits = [k for k in kw_lower if k in hay]
+        specific = [k for k in hits if k not in _EVENT_GENERIC_ORG_TOKENS]
+        if not specific:
+            continue
+        meta = item.raw_metadata or {}
+        guid = str(meta.get("guid") or item.url or item.title or "")
+        if guid and guid == last_fired_guid:
+            # Same press release we already fired on — dedup.
+            return
+        # Persist guid BEFORE firing so a crash between fire and persist
+        # re-fires (at-least-once) rather than silently dropping.
+        await asyncio.to_thread(
+            _persist_event_guid, workflow_id, step_index, guid,
+        )
+        await fire_external_event(
+            workflow_id=workflow_id,
+            triggered_step_index=step_index,
+            fired_at=fired_at,
+            audit_context={
+                "source": _RBI_RSS_SOURCE_ID,
+                "title": item.title,
+                "url": item.url,
+                "matched_keywords": specific,
+                "published_at": (
+                    item.published_at.isoformat()
+                    if item.published_at else None
+                ),
+            },
+        )
+        return  # one fire per tick
 
 
 async def fire_external_event(

@@ -11,7 +11,8 @@ in microseconds.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -27,6 +28,58 @@ logger = logging.getLogger(__name__)
 VALID_PERIODS = {"5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max", "ytd"}
 # Supported interval values
 VALID_INTERVALS = {"1d", "1wk", "1mo"}
+
+# Arbitrary-window support. yfinance only accepts the fixed VALID_PERIODS
+# set, but users ask for 3y / 4y / 18mo / 9mo. We fetch the SMALLEST valid
+# yfinance period that fully covers the request, then slice to the exact
+# requested calendar span by date (in get_ohlcv). Canonical periods
+# (6mo/1y/2y/5y) get slice_days=None -> no slice, no behaviour change.
+_PERIOD_LADDER: list[tuple[str, int]] = [
+    ("5d", 5), ("1mo", 31), ("3mo", 93), ("6mo", 186),
+    ("1y", 366), ("2y", 731), ("5y", 1827), ("max", 10 ** 9),
+]
+_ARBITRARY_PERIOD_RE = re.compile(
+    r"(\d+)\s*(d|day|days|w|wk|week|weeks|mo|month|months|y|yr|yrs|year|years)"
+)
+
+
+def _resolve_fetch_period(period: str) -> tuple[str, int | None]:
+    """Map a user period to (yfinance_period, slice_days).
+
+    - Canonical periods (in VALID_PERIODS) pass through, slice_days=None.
+    - Arbitrary 'N<unit>' spans (3y, 18mo, 9mo, 30w, 45d) return the
+      smallest valid yfinance period covering the span + the exact
+      calendar-day count to slice to afterwards.
+    - Empty/None -> ('1y', None). Garbage raises ValueError (preserves
+      the invalid-period contract).
+    """
+    if not period:
+        return "1y", None
+    s = str(period).strip().lower().replace(" ", "")
+    if s in VALID_PERIODS:
+        return s, None
+    m = re.fullmatch(_ARBITRARY_PERIOD_RE, s)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        if unit.startswith("d"):
+            days = n
+        elif unit.startswith("w"):
+            days = n * 7
+        elif unit.startswith("mo"):
+            days = n * 30
+        else:
+            days = n * 365
+        if days <= 0:
+            raise ValueError(f"Invalid period {period!r}; span must be positive")
+        for name, cap in _PERIOD_LADDER:
+            if days <= cap:
+                return name, days
+        return "max", days
+    raise ValueError(
+        f"Invalid period {period!r}; must be one of {sorted(VALID_PERIODS)} "
+        f"or an N-day/N-week/N-month/N-year span like '3y' or '18mo'"
+    )
 
 
 class DataUnavailableError(Exception):
@@ -61,18 +114,20 @@ def get_ohlcv(
                               symbol, or network failure).
         ValueError: If period or interval is invalid.
     """
-    if period not in VALID_PERIODS:
-        raise ValueError(
-            f"Invalid period {period!r}; must be one of {sorted(VALID_PERIODS)}"
-        )
     if interval not in VALID_INTERVALS:
         raise ValueError(
             f"Invalid interval {interval!r}; must be one of {sorted(VALID_INTERVALS)}"
         )
 
+    # Resolve arbitrary windows (3y / 18mo / 9mo) to the smallest valid
+    # yfinance period that covers them; slice to the exact span after fetch.
+    # (Raises ValueError on a genuinely invalid period, preserving the
+    # prior contract.)
+    fetch_period, slice_days = _resolve_fetch_period(period)
+
     # fetch_price_history returns list[dict] with keys: date, open, high, low, close, volume
     # It handles .NS suffix resolution, caching, and fallback internally.
-    records = fetch_price_history(symbol, period, interval)
+    records = fetch_price_history(symbol, fetch_period, interval)
 
     if not records:
         raise DataUnavailableError(symbol, reason="no data returned from yfinance")
@@ -114,6 +169,16 @@ def get_ohlcv(
 
     if df.empty:
         raise DataUnavailableError(symbol, reason="all data was NaN after cleaning")
+
+    # Slice to the exact requested calendar span for arbitrary windows
+    # (3y -> last 1095 days). Canonical periods have slice_days=None -> no-op.
+    if slice_days is not None and not df.empty:
+        cutoff = df.index[-1] - timedelta(days=slice_days)
+        df = df[df.index >= cutoff]
+        if df.empty:
+            raise DataUnavailableError(
+                symbol, reason=f"no data within last {slice_days} days"
+            )
 
     return df
 

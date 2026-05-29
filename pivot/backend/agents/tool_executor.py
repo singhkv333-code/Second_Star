@@ -1192,9 +1192,46 @@ async def _get_live_price(a, kt, db, uid):
 async def _get_index_level(a, kt, db, uid):
     from backend.agents.context_injector import _cached_price
     idx = a.get("index", "NIFTY50")
+
+    # Fast path: Kite tick cache (unchanged when the ticker is running).
     key = idx.replace("50", " 50") if "NIFTY50" in idx else idx
     d = _cached_price(key)
-    return {"success": True, "data": {"index": idx, "level": d.get("ltp") if d else None},
+    if d and d.get("ltp"):
+        return {"success": True,
+                "data": {"index": idx, "level": d.get("ltp"),
+                         "change_pct": d.get("change_pct", 0),
+                         "source": "kite"},
+                "logiccard": None}
+
+    # Fallback: yfinance via the same resolver the quote path uses
+    # (NIFTY50->^NSEI, SENSEX->^BSESN, BANKNIFTY->^NSEBANK). Without this
+    # every chat user without a live Kite session saw level=None and
+    # couldn't even confirm the day's move ("why is nifty down today").
+    # fetch_price_history is Redis-cached (1h), so no yfinance hammering.
+    try:
+        from backend.market.yfinance_service import fetch_price_history
+        records = fetch_price_history(idx, period="5d", interval="1d")
+        if records:
+            last_close = records[-1].get("close")
+            prev_close = records[-2].get("close") if len(records) >= 2 else None
+            if last_close is not None:
+                change_pct = (((last_close - prev_close) / prev_close) * 100
+                              if prev_close else 0.0)
+                return {"success": True,
+                        "data": {"index": idx,
+                                 "level": round(float(last_close), 2),
+                                 "change_pct": round(change_pct, 2),
+                                 "source": "yfinance"},
+                        "logiccard": None}
+    except Exception as e:
+        return {"success": False,
+                "data": {"index": idx, "level": None,
+                         "error": f"index level fetch failed: {e}"},
+                "logiccard": None}
+
+    return {"success": False,
+            "data": {"index": idx, "level": None,
+                     "error": f"no level available for {idx}"},
             "logiccard": None}
 
 
