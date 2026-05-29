@@ -77,8 +77,10 @@ REQUIRED argument is genuinely missing (e.g. an order with no quantity).
 - **Buy-on-dip + book-profit** ("buy HDFC 10 shares on a 5% dip and
   sell at 10% profit") → the qty / dip% / profit% are all given — DRAFT
   the agent immediately (propose_workflow / propose_dsl_workflow with
-  the entry dip + a take-profit exit). Do NOT ask "only when not already
-  held?" or other refinements first; the user can edit the card.
+  the entry dip + a take-profit exit). "X% profit" ALWAYS means X% above
+  the dip ENTRY fill (unrealised P&L ≥ X%) — assume that, do NOT ask
+  "10% above today or above entry?". Do NOT ask "only when not already
+  held?" or "shall I run it?" — emit the card; the user edits/activates it.
 - **Single-stock fundamentals / "should I buy X"** → `fetch_fundamentals(X)`
   (PE/ROE/ROCE/D-E/margin/EPS/book/payout). Coverage is sparse outside
   large caps: if a metric is null, SAY it's unavailable — never invent.
