@@ -84,7 +84,12 @@ _RULES: list[_Rule] = [
         r"\b(?:roe|roce|p\/?e|pe\s+ratio|debt[\s/-]?to[\s/-]?equity|d\/e|payout|dividend)\b"
         r"|\b(?:roe|roce|p\/?e|pe|debt[\s/-]?to[\s/-]?equity|payout)\b\s*"
         r"(?:>|<|>=|<=|=|under|over|above|below|greater|less|more)\s*\d"
-        r"|\b(?:low\s+debt|high\s+roe|high\s+roce|cheap|undervalued)\b[^.]{0,30}\b(?:stocks?|companies|names)\b",
+        r"|\b(?:low\s+debt|high\s+roe|high\s+roce|cheap|undervalued)\b[^.]{0,30}\b(?:stocks?|companies|names)\b"
+        # vague/quality screens: "best dividend paying stocks", "high
+        # dividend yield names", "best value stocks", "cheap banks".
+        r"|\b(?:dividend|high[\s-]?yield|best\s+dividend)\b[^.]{0,30}\b(?:stocks?|companies|names|payers?|paying)\b"
+        r"|\bbest\s+(?:dividend|value|quality)\b[^.]{0,20}\b(?:stocks?|companies|names|payers?)\b"
+        r"|\bcheap\s+(?:bank|banking|it|pharma|auto|metal|energy|fmcg)\b",
         "screen_fundamentals",
     ),
 
@@ -96,6 +101,10 @@ _RULES: list[_Rule] = [
         r"|\bgood\s+time\s+to\s+(?:buy|invest)\b"
         r"|\b(?:fundamentals?|valuation)\s+(?:of|for|on)\b"
         r"|\b(?:pe|p\/e|roe|roce|net\s+margin|book\s+value|eps|debt[\s-]to[\s-]equity)\s+(?:of|for|on)\s+\w+"
+        # "reliance PE", "TCS's ROE", "infy pe and roe" — ticker BEFORE
+        # the metric (surfaces fetch_fundamentals on hop 1, no wasted find_tool).
+        r"|\b\w+'?s?\s+(?:pe|p\/?e|roe|roce|eps|book\s+value|margins?|d\/e)\b"
+        r"|\b(?:pe|p\/?e|roe|roce)\b\s*(?:and|&|,)\s*(?:pe|p\/?e|roe|roce)\b"
         r"|\bhow\s+(?:financially\s+)?(?:strong|healthy|sound)\s+is\b",
         "fetch_fundamentals", "get_live_price", "get_symbol_news",
     ),

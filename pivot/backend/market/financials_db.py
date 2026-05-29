@@ -120,11 +120,20 @@ FIELD_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
             "Return on Networth / Equity (%)",
             "Return on Networth/Equity (%)",
             "Return on Equity (%)",
+            # Banks/NBFCs report ROE under these label variants — without
+            # them every banking screen returned 0 names (2026-05-29).
+            "Return On Equity/Networth (%)",
+            "Return on Equity / Networth (%)",
+            "Return On Equity / Networth (%)",
+            "Return on Equity/Networth (%)",
         ),
     ),
     "roce": (
         "ratios",
-        ("Return on Capital Employed (%)",),
+        (
+            "Return on Capital Employed (%)",
+            "Return On Capital Employed (%)",
+        ),
     ),
     "roa": (
         "ratios",
@@ -164,7 +173,9 @@ FIELD_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "earnings_yield": (
         "ratios",
-        ("Earnings Yield",),
+        # Banks/NBFCs publish it as "Earnings Yield (X)" — without this
+        # variant every bank P/E screen (P/E = 1/EY) returned 0.
+        ("Earnings Yield", "Earnings Yield (X)"),
     ),
     "dividend_payout": (
         "ratios",

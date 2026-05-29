@@ -646,7 +646,14 @@ tool("screen_fundamentals",
      "Fields: pe, roe, roce, de (debt/equity), payout. market_cap is NOT "
      "screenable. Sector is optional + coarse: pharma, bank, it, energy, auto, "
      "metal, finance, chemicals, fmcg, infra, textiles. Data is basic and may "
-     "include small-caps; never invent names or numbers.",
+     "include small-caps; never invent names or numbers.\n\n"
+     "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the "
+     "user to pick a threshold first): 'cheap banking stocks' → sector=bank, "
+     "sort_by={field:pe,dir:asc}; 'best dividend payers' → sort_by="
+     "{field:payout,dir:desc}; 'highest quality IT names' → sector=it, "
+     "sort_by={field:roe,dir:desc}; 'low debt companies' → sort_by="
+     "{field:de,dir:asc}. filters is OPTIONAL — pass it only when the user "
+     "named an explicit number ('PE under 25').",
      {
          "filters": {"type": "array",
                      "description": "Numeric constraints, AND-ed. At least one required.",
@@ -665,7 +672,7 @@ tool("screen_fundamentals",
                          "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
          "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15},
      },
-     ["filters"],
+     [],
      defaults={"limit": 15})
 
 tool("fetch_fundamentals",

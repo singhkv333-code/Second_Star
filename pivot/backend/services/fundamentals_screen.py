@@ -258,15 +258,12 @@ def screen_by_fundamentals(
             continue
         valid_filters.append({"field": field, "op": op, "value": value})
 
-    if not valid_filters:
-        return {
-            "count": 0,
-            "results": [],
-            "applied_filters": [],
-            "note": "; ".join(notes) or "no valid filters supplied",
-        }
-
-    # ── 2. Determine which metrics need a CTE (filters ∪ sort field) ─────
+    # ── 2. Determine the sort field. Supports a SORT-ONLY screen where
+    # the user named no hard threshold — we RANK instead of hard-filter:
+    #   "cheap banking stocks"      -> sector=bank, sort pe asc
+    #   "best dividend payers"      -> sort payout desc
+    #   "highest quality IT names"  -> sort roe desc
+    # so a vague-but-real ask returns a list instead of a clarifier.
     sort_field = None
     sort_dir = "desc"
     if sort_by:
@@ -276,10 +273,24 @@ def screen_by_fundamentals(
             sort_field = sf
             sort_dir = "asc" if sd == "asc" else "desc"
         elif sf:
-            notes.append(f"cannot sort by {sf!r}; falling back to first filter")
-    if sort_field is None:
+            notes.append(f"cannot sort by {sf!r}")
+    if sort_field is None and valid_filters:
         sort_field = valid_filters[0]["field"]
         sort_dir = "desc"
+    if sort_field is None and sector:
+        # sector-only ask with no metric/sort -> rank by quality (ROE desc).
+        sort_field = "roe"
+        sort_dir = "desc"
+        notes.append("no metric given — ranked by ROE (quality)")
+
+    if not valid_filters and sort_field is None:
+        return {
+            "count": 0,
+            "results": [],
+            "applied_filters": [],
+            "note": "; ".join(notes)
+            or "give me a metric (PE/ROE/ROCE/D-E/payout) or a sector to screen",
+        }
 
     metric_fields = list({f["field"] for f in valid_filters} | {sort_field})
 

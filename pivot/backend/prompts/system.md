@@ -68,6 +68,17 @@ REQUIRED argument is genuinely missing (e.g. an order with no quantity).
   Fields: pe, roe, roce, de, payout (+ optional coarse sector). The
   data is basic and may include small-caps; present what comes back,
   never invent. Do NOT deflect these — the screen IS wired now.
+  VAGUE/QUALITY asks have NO explicit threshold — run a sort-only screen,
+  do NOT ask the user to pick a number first: "cheap banking stocks" →
+  `screen_fundamentals(sector=bank, sort_by={field:pe,dir:asc})`; "best
+  dividend stocks" → `sort_by={field:payout,dir:desc}`; "highest quality
+  IT" → `sector=it, sort_by={field:roe,dir:desc}`. Show the list, then
+  offer to refine.
+- **Buy-on-dip + book-profit** ("buy HDFC 10 shares on a 5% dip and
+  sell at 10% profit") → the qty / dip% / profit% are all given — DRAFT
+  the agent immediately (propose_workflow / propose_dsl_workflow with
+  the entry dip + a take-profit exit). Do NOT ask "only when not already
+  held?" or other refinements first; the user can edit the card.
 - **Single-stock fundamentals / "should I buy X"** → `fetch_fundamentals(X)`
   (PE/ROE/ROCE/D-E/margin/EPS/book/payout). Coverage is sparse outside
   large caps: if a metric is null, SAY it's unavailable — never invent.
