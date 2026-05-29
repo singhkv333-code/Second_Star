@@ -439,6 +439,20 @@ def screen_by_fundamentals(
             where_parts.append(f"{cte_name}.v {_PLAUSIBLE[mf]}")
     notes.append("data-quality bounds applied (extreme outliers excluded)")
 
+    # ── 5c. Symbol-collision dedup (P5 follow-up, 2026-05-29) ────────────
+    # The DB has impostor rows: e.g. "Reliance Infra"/"Reliance Info" carry
+    # nse_symbol=NULL but ticker="RELIANCE", so COALESCE(nse_symbol,ticker)
+    # makes them display as RELIANCE and (ranked by ROE) surface ABOVE the
+    # real Reliance Industries (sc_id RI, nse_symbol="RELIANCE", P/E ~25) as
+    # "RELIANCE P/E 2.08" — badly misleading. Keep a row only when it owns a
+    # real nse_symbol OR its ticker does NOT impersonate some other company's
+    # real nse_symbol. Prefers the canonical nse_symbol holder; legit
+    # ticker-only names (no collision) are untouched.
+    where_parts.append(
+        "(c.nse_symbol IS NOT NULL OR c.ticker NOT IN "
+        "(SELECT nse_symbol FROM mc.companies WHERE nse_symbol IS NOT NULL))"
+    )
+
     # ── 6. Assemble + run ────────────────────────────────────────────────
     order_dir = "DESC" if sort_dir == "desc" else "ASC"
     params["lim"] = limit

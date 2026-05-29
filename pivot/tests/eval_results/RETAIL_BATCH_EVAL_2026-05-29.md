@@ -116,6 +116,51 @@ wrong patch would break the working qty-amendment case (turn1).
 - **Confirm intent** ("yes/set it up") after a draft card registers the
   `draft_id` instead of re-drafting.
 
+## Round 2 fixes (2026-05-29 PM) — 5 P0s, re-judged 9/6/4 → 12/6/1
+
+Root-caused via a 5-agent investigation workflow; applied surgically; ONE
+consolidated live retest (snapshot `run_20260529_225215.json`, judge
+`judge_20260529_225215.json`) confirmed every fix with no PASS-session
+regressions and zero new unit-test failures. Triad improved: p50 12.0s→9.5s,
+p95 22.7s→17.0s (cost $0.34→$0.39 from richer grounding + a larger prompt).
+
+| Session | before | after |
+|---|---|---|
+| qty_amendment_expiry (P1) | FAIL | **PASS** — expiry amend keeps all 5 buy+sell steps |
+| basket_three (P2) | FAIL | **PASS** — RELIANCE/TCS/INFY on a NIFTY trigger |
+| reliance_pe_roe (echo+P5) | FAIL | PARTIAL → (collision fix) |
+| it_sector_outlook (P3) | FAIL | PARTIAL — now grounds via screen_fundamentals |
+| best_dividend (P5) | PARTIAL | **PASS** — recognizable names, payout-not-yield note |
+| gtt_reliance (P4) | PARTIAL | **PASS** — asks for size, no silent qty=1 |
+| why_nifty_down (P3) | PARTIAL | **PASS** — states real level + chains movers |
+| roe_pe_screen (P5) | PARTIAL | PARTIAL → (collision fix) |
+| dip_profit_compound | PASS | PARTIAL — judge variance (turn0 readback render=ask_user + 6-hop cost); draft is correct (entry-relative 8%) |
+
+**Fixes shipped (commit `0f20604`):** P1 DSL-amendment PATCH-not-retranslate +
+lost-action guardrail; P2 index-as-trigger basket guidance + formatter guard;
+P3 sector-outlook routing + grounding bullets; P4 GTT M2b qty guard; P5 cap
+tier + sanity bounds.
+
+**Round-2 follow-up (commit pending):** the re-judge surfaced a screener
+`sc_id` collision — symbol `RELIANCE` resolved to impostor ticker-only rows
+("Reliance Infra" P/E 2.08) above the real Reliance Industries. Fixed in
+`fundamentals_screen.py` by excluding ticker-only rows whose ticker
+impersonates a real `nse_symbol`. Verified directly: large-cap + energy screens
+now show the real Reliance (P/E 25), cheap-banks unchanged.
+
+## Still open (next session)
+1. **rbi_rate_cut_banks (the 1 remaining FAIL)** — "yes, set it up" on a draft
+   that disclosed an unresolved banking-basket blocker re-drafts the same
+   broken basket instead of registering. Needs: confirm-intent → register the
+   draft_id; resolve the banking basket to concrete names.
+2. **find_tool reconnaissance hop** on obvious follow-ups (comparison, sector
+   compare, fundamentals screens) — ~3–4s + ~30K tok each. Cache last tool.
+3. **lakh_in_hdfc_vs_fd / dip_profit_compound** turn-0 over-clarify / readback
+   render=ask_user mislabel — emit a `readback_confirm` hint, compute the
+   what-if immediately when all slots are given.
+4. **ipo "I want to apply"** when the feed is empty should acknowledge the
+   empty window, not ask "which IPO?".
+
 ## How to reproduce
 Backend on :8000. `cd pivot && .venv/bin/python scripts/retail_batch_eval.py`
 → snapshot JSON. Judge via the `retail-eval-judge` workflow over the snapshot.

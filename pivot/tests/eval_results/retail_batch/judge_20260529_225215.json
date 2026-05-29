@@ -1,0 +1,586 @@
+{
+  "summary": "Grade the batched retail chat-eval snapshot per category as a thinking model, adversarially verify every non-PASS, then synthesize cross-cutting failure patterns + next-iteration instructions",
+  "agentCount": 19,
+  "logs": [],
+  "result": {
+    "reconciled": [
+      {
+        "category": "comparison",
+        "sessions": [
+          {
+            "name": "compare_tcs_infy_3y",
+            "verdict": "PASS",
+            "headline": "User wanted A-vs-B over 1y then 3y with a volatility follow-up; got real numbers each turn with full context retention.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "compare_performance returned grounded 1y metrics (return, vol, Sharpe, DD) for both TCS and INFY; phrasing 'INFY has been the weaker loser' is awkward but data is correct and actionable.",
+                "latency_wall_ms": 10290,
+                "total_tok": 60060
+              },
+              {
+                "i": 1,
+                "verdict": "PASS",
+                "reason": "Retained both symbols, correctly extended period to 3y, returned real grounded numbers (TCS -31.9% / INFY -12.3%, Sharpe, vol, DD). Find_tool hop was wasted but answer is complete.",
+                "latency_wall_ms": 11746,
+                "total_tok": 96082
+              },
+              {
+                "i": 2,
+                "verdict": "PASS",
+                "reason": "Pulled the volatility answer directly from prior turn context (TCS less volatile per 3y data), no redundant tool call, terse and correct.",
+                "latency_wall_ms": 3903,
+                "total_tok": 29931
+              }
+            ],
+            "worst_issue": "Turn 0 lede 'INFY has been the weaker loser' is grammatically awkward and Turn 1 issued an unnecessary find_tool hop before compare_performance (extra ~36k input tokens).",
+            "fix_hint": "Drop the find_tool reconnaissance on follow-up turns that obviously map to the same tool just invoked; cache the prior tool choice in conv state. Polish summary phrasing in compare_performance render to avoid constructions like 'the weaker loser' — prefer 'INFY declined less than TCS'.",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "lakh_in_hdfc_vs_fd",
+            "verdict": "PARTIAL",
+            "headline": "User asked a concrete what-if (₹1L in HDFCBANK 5y ago) then an FD comparison; got over-clarification on turn 0 then a clean answer on turn 1.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PARTIAL",
+                "reason": "Symbol, amount, and period were all given; bot stalled to ask price-vs-total-return instead of computing the obvious price-return answer and noting dividends as a caveat. Render_hint=ask_user blocks progress.",
+                "latency_wall_ms": 9558,
+                "total_tok": 30089
+              },
+              {
+                "i": 1,
+                "verdict": "PASS",
+                "reason": "Recovered: computed HDFCBANK 5y price return (-1.76%, ₹98,235), FD math at 7% (₹1,40,255 pre-tax), retained symbol and period across turns, flagged price-only caveat without re-asking.",
+                "latency_wall_ms": 9440,
+                "total_tok": 60722
+              }
+            ],
+            "worst_issue": "Turn 0 over-clarified a fully-specified question instead of answering with price-return + a one-line dividend caveat, costing the user an extra round-trip.",
+            "fix_hint": "In system prompt / get_returns wrapper: when user gives symbol + period + amount for a historical what-if, compute price return immediately and disclose 'price-only; dividends not included' inline. Reserve ask_user for genuinely missing slots, not optional precision toggles.",
+            "final_verdict": "PARTIAL",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "screening",
+        "sessions": [
+          {
+            "name": "cheap_banks",
+            "verdict": "PASS",
+            "headline": "User asked for cheap banks; got 6 names ranked by lowest P/E with real (non-zero) values for bank sector.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "screen_fundamentals returned 6 banking names with real P/E (CANBK 4.55, CSBBANK 9.09, FEDERALBNK 11.11, AXISBANK 14.29, KOTAKBANK 20.0, RBLBANK 20.0). Sorted by lowest P/E as expected, named with both symbol and full name, and offered a useful narrowing follow-up (large cap / sort by ROE). No fabrication, no clarifier-instead-of-results, banks return non-zero P/E.",
+                "latency_wall_ms": 10248,
+                "total_tok": 58852
+              }
+            ],
+            "worst_issue": "Minor — Kotak P/E shown as exactly 20.0 hints at the known quantization in the underlying P/E field, but the response stays within sensible bounds and offers refinement.",
+            "fix_hint": "none",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "best_dividend",
+            "verdict": "PASS",
+            "headline": "User asked for best dividend payers; got a ranked top-5 by payout ratio with an honest 'this is payout, not yield' caveat.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "screen_fundamentals returned a ranked list; the assistant correctly surfaced the top 5 (MPHASIS 61.1%, NMDC 35.35%, BAJAJ-AUTO 28.85%, JSWSTEEL 13.93%, AMBUJACEM 7.41%) and explicitly clarified 'payout ratio, not dividend yield' — exactly the disambiguation a retail user needs. Offered follow-ups (consistent payers, ex-div dates). Latency 17s is a bit slow but tolerable.",
+                "latency_wall_ms": 16980,
+                "total_tok": 95133
+              }
+            ],
+            "worst_issue": "Underlying raw_trim has data-quality cruft (RELIANCE listed twice as 'Reliance Infra' 0.15% and 'Reliance' 0.0%, plus a 'Gurunanak Agric' under GAIL symbol), but none of this leaked into the user-visible response since the assistant only quoted the top 5 which are all plausible. The latency (17s, 3 hops because of find_tool) is on the slow side for a single screen.",
+            "fix_hint": "Drop the find_tool hop for fundamentals screens — the LLM should go straight to screen_fundamentals for 'best dividends' / 'highest payout' phrasings (system prompt already lists this tool). Also fix the underlying universe map so symbol RELIANCE doesn't double-resolve to both 'Reliance Infra' and 'Reliance' rows (FIELD_MAP / sc_id collision in screener — pivot/backend/agents/tools.py).",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "reliance_pe_roe",
+            "verdict": "PARTIAL",
+            "headline": "User asked for Reliance P/E + ROE then 'is that expensive for the sector?'; got a clean direct answer on turn 0, but the sector comparison on turn 1 leans on a screener slice containing duplicate-RELIANCE rows and slightly misreads the position in the ranking.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "fetch_fundamentals resolved directly; reply gave P/E 25.0 and ROE 8.93% with bonus context (ROCE 9.17, D/E 0.41). No find_tool hop, no preamble, exactly what was asked. Latency 7s, 58k tokens.",
+                "latency_wall_ms": 7132,
+                "total_tok": 57920
+              },
+              {
+                "i": 1,
+                "verdict": "PARTIAL",
+                "reason": "Context retained (knew sector was energy, knew P/E was 25.0). Conclusion 'not cheap for energy, ROE modest' is defensible. BUT the underlying screen returns BOTH 'RELIANCE - Reliance Infra - P/E 2.08' AND 'RELIANCE - Reliance - P/E 25.0' as separate energy-sector rows — the assistant didn't flag this obvious data anomaly to the user, and the framing 'sits above several sector names' is loose given Reliance at 25.0 is actually 6th of 9 (median-ish, not 'middle-to-upper'). Also wasted a find_tool hop before screen_fundamentals.",
+                "latency_wall_ms": 13648,
+                "total_tok": 95612
+              }
+            ],
+            "worst_issue": "Sector comparison turn relies on a screener slice that has the FIELD_MAP duplicate-RELIANCE bug (Reliance Infra and Reliance both surfacing under symbol RELIANCE with wildly different P/Es). Assistant doesn't surface the anomaly and reasons over it.",
+            "fix_hint": "Two fixes: (1) Fix the sc_id collision in screen_fundamentals so symbol RELIANCE maps to exactly one company; (2) Skip find_tool when the user is already in a sector-comparison follow-up after a fetch_fundamentals turn — the system prompt should route 'expensive for the sector?' directly to screen_fundamentals(sector=<known>) without a discovery hop.",
+            "final_verdict": "PARTIAL",
+            "verifier_note": ""
+          },
+          {
+            "name": "roe_pe_screen",
+            "verdict": "PARTIAL",
+            "headline": "Explicit ROE>15 & PE<20 screen ran with both filters applied; results returned 3 names, but top-ranked 'RELIANCE — ROE 34.21%, P/E 2.08' is actually Reliance Infra mislabeled under the RELIANCE ticker and would mislead a retail user.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PARTIAL",
+                "reason": "Both filters applied correctly (applied_filters shows roe>15.0 AND pe<20.0). NMDC ROE 22.03 P/E 9.09 and CANBK ROE 17.72 P/E 4.55 are plausible large-cap pass-throughs. However the top line 'RELIANCE — ROE 34.21%, P/E 2.08' in the response actually refers to 'Reliance Infra' in the raw payload (name field), not the Reliance Industries the retail user means when they read 'RELIANCE'. A retail user would treat this as 'Reliance Industries has a 2.08 P/E', which is wildly wrong (Reliance Industries P/E is ~25 per the prior session). The bot flags 'quantized P/E, boundary cases coarse' but does not catch the name/symbol mismatch.",
+                "latency_wall_ms": 12786,
+                "total_tok": 59467
+              }
+            ],
+            "worst_issue": "Same FIELD_MAP / sc_id collision as the reliance session — 'Reliance Infra' returns under symbol RELIANCE, and the assistant surfaces it to the user as `RELIANCE` without surfacing the name. Retail users will read this as Reliance Industries trading at 2.08x earnings.",
+            "fix_hint": "In screen_fundamentals (pivot/backend/agents/tools.py), de-dupe / disambiguate when multiple sc_ids resolve to the same NSE symbol — either drop the lookalike (Reliance Infra ≠ RELIANCE on NSE; it's RELINFRA) or always surface the company name alongside the ticker in the result. As a presentation patch in system.md: when screen_fundamentals returns a row whose `name` clearly differs from the symbol's canonical large-cap entity, render as `RELINFRA — Reliance Infra` instead of `RELIANCE — Reliance Infra`. This single fix removes the misleading line in BOTH this session and reliance_pe_roe turn 1.",
+            "final_verdict": "PARTIAL",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "sip_gold_silver_gtt",
+        "sessions": [
+          {
+            "name": "nifty_sip_amend",
+            "verdict": "PASS",
+            "headline": "User asked for a 5000 monthly Nifty 50 SIP then amended to 10000; bot drafted NIFTYBEES, retained context on the amend, and framed both as registerable drafts.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "Mapped 'nifty 50 index fund' -> NIFTYBEES, drafted monthly SIP for 5000, correct register-not-execute framing ('Click Activate when ready'), no preamble.",
+                "latency_wall_ms": 8680,
+                "total_tok": 58344
+              },
+              {
+                "i": 1,
+                "verdict": "PASS",
+                "reason": "Amendment to 10000 retained NIFTYBEES + monthly + SIP context, did not re-ask any filled slot, kept draft framing.",
+                "latency_wall_ms": 6605,
+                "total_tok": 60038
+              }
+            ],
+            "worst_issue": "None material; both turns clean.",
+            "fix_hint": "",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "gold_sip_every_month",
+            "verdict": "PASS",
+            "headline": "User asked to invest 2000/mo in gold; bot drafted a GOLDBEES SIP rather than declining.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "Correctly resolved 'gold' -> GOLDBEES, drafted monthly SIP for 2000, register-not-execute framing, no over-clarification.",
+                "latency_wall_ms": 8289,
+                "total_tok": 57999
+              }
+            ],
+            "worst_issue": "None.",
+            "fix_hint": "",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "silver_sip",
+            "verdict": "PASS",
+            "headline": "User asked for 1500/mo silver SIP; bot drafted SILVERBEES with correct framing (no 'no quote' degenerate path).",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "Resolved 'silver' -> SILVERBEES (the specific failure mode this session probes), drafted 1500 monthly SIP with draft/activate framing.",
+                "latency_wall_ms": 8229,
+                "total_tok": 51830
+              }
+            ],
+            "worst_issue": "None.",
+            "fix_hint": "",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "gtt_reliance",
+            "verdict": "PASS",
+            "headline": "User asked for a GTT buy of RELIANCE at 1200 with no quantity; bot correctly asked for share count or rupee budget instead of silently defaulting to 1.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "M1 quantity rule applied correctly: single focused ask for size, explicitly states it will not default to 1, offers both share-count and rupee-budget options. create_gtt_order tool engaged, ask_user render hint appropriate.",
+                "latency_wall_ms": 4504,
+                "total_tok": 26220
+              }
+            ],
+            "worst_issue": "None; this is the textbook M1 quantity-ask behaviour.",
+            "fix_hint": "",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "rbi_event",
+        "sessions": [
+          {
+            "name": "rbi_rate_cut_banks",
+            "verdict": "FAIL",
+            "headline": "User asked for a registerable RBI-rate-cut banking agent; turn 0 drafted the right shape and honestly flagged a screener->buy-leg blocker, but turn 1 ('yes, set it up') re-emitted the SAME unbacktestable draft and falsely claimed 'set up' while silently dropping the blocker disclosure.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PARTIAL",
+                "reason": "propose_workflow produced the right shape (trigger.event RBI/MPC/repo + fetch.screener banking + action.allocate_notional buy equal-weight Rs 1L), but backtestable=false because `{{context.1.ranked}}` is not a resolvable ref. Response honestly tells the user 'the screen-to-allocation handoff needs a small edit before activation' — honest failure handling is good, but the user does not yet have a registerable agent. Latency 8.5s, 60.2K tok — fine.",
+                "latency_wall_ms": 8496,
+                "total_tok": 60154
+              },
+              {
+                "i": 1,
+                "verdict": "FAIL",
+                "reason": "On 'yes, set it up' the agent called propose_workflow AGAIN with the IDENTICAL draft — same `{{context.1.ranked}}` reference, same backtest_blockers, no patch applied — but the user-facing text is 'Drafted. Banking stocks on RBI repo-rate cut are set up.' This is a false confirmation: the previously-disclosed blocker is now hidden, and the workflow is not actually in a registerable/activatable state. This directly defeats the session's purpose (confirm should register, not loop on a broken draft). Latency 9.1s, 63.4K tok — fine.",
+                "latency_wall_ms": 9072,
+                "total_tok": 63376
+              }
+            ],
+            "worst_issue": "Confirm turn re-drafts the same unbacktestable workflow (unresolved `{{context.1.ranked}}` ref between fetch.screener and action.allocate_notional) and asserts 'set up' while silently dropping the blocker disclosure made one turn earlier — false confirmation of a known-broken draft.",
+            "fix_hint": "On a confirm turn for a workflow whose previous draft had non-empty backtest_blockers, do NOT re-call propose_workflow and do NOT emit 'set up'. Either (a) on confirm, materialise fetch.screener output into a static symbol list at draft-finalisation time so action.allocate_notional gets concrete tickers (e.g. top-5 banks at draft moment) and the {{context.N.ranked}} ref disappears, or (b) keep the honest wording and surface the concrete patch as a follow-up suggestion. Long-term: extend the workflow runtime resolver (pivot/backend/workflows/dsl/runtime.py and wherever context refs are evaluated) so fetch.screener exposes a `ranked` field, and update propose_workflow to either avoid emitting unresolvable refs or to auto-materialise them; also add a guard in the agent confirm handler that refuses to say 'set up' when backtest_blockers is non-empty.",
+            "final_verdict": "FAIL",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "dip_profit",
+        "sessions": [
+          {
+            "name": "dip_simple",
+            "verdict": "PASS",
+            "headline": "User asked to buy HDFCBANK on a 10% dip with no qty; system correctly issued one focused qty/budget ask per M1 rule.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "Sizeless buy order: 'buy hdfc bank on a 10% dip' has no qty/budget. System asked 'How many shares of HDFCBANK should I buy on the 10% dip, or what rupee budget should I use?' — exactly the M1-mandated single focused ask, named the resolved symbol (HDFCBANK), no over-clarification, no silent default. Render_hint=ask_user is correct.",
+                "latency_wall_ms": 7388,
+                "total_tok": 58334
+              }
+            ],
+            "worst_issue": "None — textbook M1 size-ask behavior on a sizeless dip-buy.",
+            "fix_hint": "",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "dip_profit_compound",
+            "verdict": "PARTIAL",
+            "headline": "User gave a fully-specified compound order (RELIANCE, 5 sh, 10% dip entry, 8% profit exit); system stalled with an unnecessary 'I can set this up... if you meant a different baseline, I can run it as-is' confirmation turn before drafting — correct draft only arrived on turn 1 after a wasted 'yes'.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PARTIAL",
+                "reason": "All slots filled: symbol=RELIANCE, qty=5, entry=10% dip, exit=8% profit. System should have drafted directly (the eval's stated 'why' explicitly warns against a re-confirm loop). Instead it produced a hedged paragraph ('I can set this up... If you meant a different dip baseline, I can use the simple interpretation... and run it as-is') with render_hint=ask_user — classic preamble/over-confirmation when no clarification was needed. propose_workflow tool was invoked but the response surfaced as a question, not a draft card. Also expensive: 6 hops, 150,736 total tokens, 14.6s wall — disproportionate for a known-shape compound dip+TP order.",
+                "latency_wall_ms": 14663,
+                "total_tok": 150736
+              },
+              {
+                "i": 1,
+                "verdict": "PASS",
+                "reason": "After the wasted 'yes', system drafted cleanly: propose_dsl_workflow produced entry = 5-bar pct_change(RELIANCE) ≤ -0.1, exit = position.unrealised_pct ≥ 0.08 (correctly entry-relative, not an absolute price), buy 5 shares CNC market, sell via fetch.portfolio→quantity ref. backtestable=true, no blockers. Response was short and action-oriented ('Drafted: RELIANCE 5-share dip-buy with an 8% profit exit. Click Activate.'). DSL is the right shape; exit really is entry-relative as the eval requires.",
+                "latency_wall_ms": 10643,
+                "total_tok": 64723
+              }
+            ],
+            "worst_issue": "Turn 0 inserted a re-confirm loop on a fully-specified compound order (all four slots were given) — exactly the failure mode the test was designed to catch. Burned 14.6s and 150k tokens to produce a hedged question instead of the same draft that landed one turn later.",
+            "fix_hint": "In pivot/backend/prompts/system.md (or the workflow-drafting branch), tighten the rule for compound dip+take-profit intents: when symbol, quantity, dip%, and profit% are ALL present in the user's first message, skip the 'I can set this up… if you meant a different baseline' confirmation paragraph and emit propose_dsl_workflow directly with render_hint=workflow_draft_card. Treat 'X% dip from recent price' as the default baseline silently; only ask if the user explicitly invokes an alternative (e.g. '52-week high', 'open'). Also cap the planning budget for dip+TP compound intents — 6 hops / 150k tokens for a known-shape order indicates the agent is re-deriving the schema each time; consider a short-circuit path in pivot/backend/agents/tools.py that maps this pattern to propose_dsl_workflow in one hop.",
+            "final_verdict": "PARTIAL",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "ipo",
+        "sessions": [
+          {
+            "name": "ipo_browse_apply",
+            "verdict": "PARTIAL",
+            "headline": "Empty-feed handled honestly across turns 0-1, but turn 2 asks 'which IPO?' after just saying none exist — context slip on the apply intent.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "Called list_upcoming_ipos, reported empty live NSE mainboard+SME cleanly and honestly. No fabrication, concise, retail-readable.",
+                "latency_wall_ms": 7855,
+                "total_tok": 57663
+              },
+              {
+                "i": 1,
+                "verdict": "PASS",
+                "reason": "Asked for 'most recent' IPO details; bot refused to invent and clearly said the current list is empty so no detail can be pulled. Honest handling. Minor miss: could have offered to lookup a recent past IPO or set an alert, but no fabrication.",
+                "latency_wall_ms": 14220,
+                "total_tok": 93782
+              },
+              {
+                "i": 2,
+                "verdict": "PARTIAL",
+                "reason": "User says 'I want to apply'. Bot asks 'Which IPO?' — but the prior two turns established the feed is empty. The retail-honest answer is 'nothing is open right now, want an alert when one opens?'. Asking which IPO implies one exists, which is a context-retention slip from turns 0-1.",
+                "latency_wall_ms": 11592,
+                "total_tok": 61841
+              }
+            ],
+            "worst_issue": "Turn 2 loses the empty-feed context: after twice telling the user no IPOs are open, the bot then asks 'which IPO do you want to apply for?' instead of saying nothing is available and offering an alert/watch.",
+            "fix_hint": "In the IPO 'apply' path, before calling ASK_USER for an IPO name, check whether the prior list_upcoming_ipos result in conversation state returned count==0. If so, respond with 'no IPOs are open right now' and offer to register an alert / list past closed issues, rather than asking which IPO. Concretely: add a guard in the chat agent (pivot/backend/agents/tools.py around the IPO apply intent, or system prompt rule in pivot/backend/prompts/system.md) that consults last-seen IPO list state before asking for a name.",
+            "final_verdict": "PARTIAL",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "oil_mcx_decline",
+        "sessions": [
+          {
+            "name": "war_oil_mcx",
+            "verdict": "PASS",
+            "headline": "User asked to buy MCX crude oil futures on a war trigger; bot declined cleanly, named the F&O constraint, and offered a supported energy-equity proxy.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "Graceful, specific decline: explicitly states F&O/futures aren't wired in v1, doesn't crash, doesn't fabricate an MCX order, and proactively offers a supported proxy (energy stock basket) plus a hold-until-F&O option. ASK_USER + ask_user render_hint is appropriate since the next step is the user's call. Minor nit: it labels the ask under generic 'F&O' rather than separately calling out 'MCX commodity futures', but the practical user outcome is correct.",
+                "latency_wall_ms": 5580,
+                "total_tok": 81325
+              }
+            ],
+            "worst_issue": "Lumps MCX commodity futures under generic 'F&O' rather than naming commodity futures separately; cosmetic, not a behavioural failure.",
+            "fix_hint": "In pivot/backend/prompts/system.md (or the decline copy used for out-of-scope derivative asks), distinguish 'equity F&O' from 'commodity futures (MCX/NCDEX)' so the decline reads more precisely for crude/gold/silver-futures asks; keep the proxy offer (energy stock basket / oil-linked equity/ETF) and the 'hold until X lands' option as-is.",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "analysis_search",
+        "sessions": [
+          {
+            "name": "why_nifty_down",
+            "verdict": "PASS",
+            "headline": "User asked why Nifty is down; got a real index level (23,547.75, -1.5%) plus honest acknowledgment that the movers feed was flat, no fabrication.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "get_index_level returned a real Nifty level (23547.75, -1.5%) — the exact 'level=None' failure mode the test guards against was avoided. get_top_movers returned all losers at change_pct 0.0 (stale/flat feed), and the bot transparently called this out ('movers feed is not showing meaningful downside breadth right now') instead of inventing dragger stocks. Answer offered a sensible follow-up (sector/stock breakdown). No fabricated numbers, no preamble.",
+                "latency_wall_ms": 11868,
+                "total_tok": 90020
+              }
+            ],
+            "worst_issue": "The flat top_movers feed (all losers at 0.0%) means the bot could only describe the index move in general terms — it couldn't actually name what's dragging Nifty down, so the 'why' is partially unsatisfied even though it was handled honestly.",
+            "fix_hint": "When get_top_movers returns all change_pct=0.0 (clearly stale data), fall back to a second source — e.g. sector-index get_index_level for BANKNIFTY/CNXIT/CNXAUTO, or per-symbol pct_change on the heaviest Nifty weights — so 'why is X down' can name an actual sector or stock dragger instead of just admitting the breadth feed is flat.",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          },
+          {
+            "name": "it_sector_outlook",
+            "verdict": "PARTIAL",
+            "headline": "User asked for IT sector outlook; got a single ROE screen (containing mis-tagged non-IT names like 'Nexus Surgical') and an explicit punt back to the user instead of news/peer-comparison substance.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PARTIAL",
+                "reason": "Only tool called was screen_fundamentals — no get_symbol_news, no compare_performance across IT bellwethers (TCS/INFY/WIPRO/HCLTECH), no search. The 'outlook' answer is a ROE list plus the line 'the next useful step would be comparing the main IT bellwethers and checking recent company news' — i.e. the bot named the next step instead of taking it. Worse, the screen output includes obviously mis-sectored names ('Centerac Tech', 'Nexus Surgical', 'Hit Kit Global', 'ASM Tech') tagged sector='it' which the bot surfaces without flagging the data-quality issue. Substance is thin, no fabrication of numbers, no crash. Falls between deflect and answer.",
+                "latency_wall_ms": 9340,
+                "total_tok": 91538
+              }
+            ],
+            "worst_issue": "Sector-outlook prompts collapse to a single screen_fundamentals call and a 'next step would be...' deflection, with no news fetch, no peer comparison, and no filtering of mis-tagged sector rows.",
+            "fix_hint": "For 'outlook for the X sector' intents, the system prompt (pivot/backend/prompts/system.md) should require a multi-tool plan: (1) compare_performance over Tier-1 sector bellwethers on 1y/3m, (2) get_symbol_news on the top 2-3 names, (3) screen_fundamentals filtered to the curated large-cap universe so mis-tagged micro-caps like 'Nexus Surgical'/'Hit Kit Global' don't leak in, then synthesize. Also add a sanity filter in screen_fundamentals to drop sector='it' rows whose name clearly isn't IT (or restrict 'outlook' queries to the large-cap whitelist).",
+            "final_verdict": "PARTIAL",
+            "verifier_note": ""
+          }
+        ]
+      },
+      {
+        "category": "context_regression",
+        "sessions": [
+          {
+            "name": "qty_amendment_expiry",
+            "verdict": "PARTIAL",
+            "headline": "M2 guard works perfectly (qty + symbol retained across expiry amendment) but turn 0 failed M1 — it offered an exit-default instead of cleanly asking for quantity on a sizeless order.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PARTIAL",
+                "reason": "Sizeless buy/sell order should trigger ONE focused ask for qty/budget (M1). Instead the assistant said 'If you want, I'll run it with the exit tied to the entry price by default' — it surfaced an exit-baseline choice but did not explicitly ask for the missing quantity. render_hint=ask_user, so the intent was a clarifier, but the wording targeted the wrong slot. User had to volunteer '10 shares' on the next turn unprompted. Also heavy: 20.3s latency, 123k tokens, n_hops=5.",
+                "latency_wall_ms": 20261,
+                "total_tok": 123060
+              },
+              {
+                "i": 1,
+                "verdict": "PASS",
+                "reason": "User says '10 shares' — assistant correctly drafted HDFCBANK 10-share workflow via propose_dsl_workflow: entry 5-bar pct_change <= -0.1, exit unrealised_pct >= 0.05, sell uses {{context.3.holdings.HDFCBANK.quantity}}. Full context retained (symbol + dip% + profit%), backtestable=true, no re-asking. 14.9s / 68k tok.",
+                "latency_wall_ms": 14929,
+                "total_tok": 68554
+              },
+              {
+                "i": 2,
+                "verdict": "PASS",
+                "reason": "M2 guard test passes cleanly: 'set an expiry for the next 30 days' → assistant retains qty=10, symbol=HDFCBANK, dip 10%, exit 5%, adds valid_until=2026-06-28 and expires_at. No re-ask of quantity, no dropped symbol, response correctly names the expiry date. 8.9s / 55k tok.",
+                "latency_wall_ms": 8891,
+                "total_tok": 55443
+              }
+            ],
+            "worst_issue": "Turn 0 misdirected the M1 clarifier — instead of 'how many shares / what rupee budget?', it asked about exit-baseline defaulting, leaving the qty slot dangling. The user happened to volunteer qty on the next turn, but a less specific user could have entered an ambiguous loop.",
+            "fix_hint": "In the chat system prompt / propose_workflow path: when a Buy or Sell intent is detected with no quantity AND no rupee budget, the M1 clarifier MUST be a single direct question naming both slot options ('how many shares of HDFCBANK, or what rupee budget like Rs 50,000?'). Do NOT bundle the qty ask with an unrelated parameter choice (like exit-baseline defaulting) — that splits attention and risks the user not noticing the qty slot is empty. The exit-baseline choice can be a separate confirm after qty lands.",
+            "final_verdict": "PASS",
+            "verifier_note": "OVERTURNED: The first-pass PARTIAL misreads Turn 0's actual text. Turn 0 says \"I can set that up for HDFC Bank as a recurring agent: buy on a 10% dip and exit on a 5% rise. If you want, I'll run it with the exit tied to the entry price by default.\" — that is an offer of a default exit-baseline, not a clarifier in place of a qty question. It is not \"misdirected M1\"; it just doesn't pose an explicit \"how many shares?\" question. Crucially, the session's stated test target is the M2 guard: \"after '10 shares', an unrelated expiry amendment must NOT re-ask qty.\" That guard held cleanly in Turn 2 — \"Drafted with a 30-day expiry for HDFCBANK\", qty=10 retained in the DSL, symbol HDFCBANK retained, expiry math correct (2026-05-29 + 30d = 2026-06-28), no re-ask of qty, no dropped slot. Turn 1 cleanly drafted with 10 shares (no fabricated default, no double-ask) and honestly noted the exit is tied to unrealised P&L, not a separate price target. No fabrication anywhere, no dropped symbols, no None/0 quotes, latency healthy (20s/15s/9s, none >40s). The mild Turn-0 softness on explicit qty solicitation does not rise to PARTIAL given the test's actual focus held perfectly and the user was never trapped in an ambiguous loop. Corrected verdict: PASS."
+          }
+        ]
+      },
+      {
+        "category": "multi_symbol",
+        "sessions": [
+          {
+            "name": "basket_three",
+            "verdict": "PASS",
+            "headline": "User asked for a 3-symbol basket buy gated by NIFTY +1%; got a draft workflow naming all three symbols with qty=1 each and the correct index trigger.",
+            "per_turn": [
+              {
+                "i": 0,
+                "verdict": "PASS",
+                "reason": "Draft workflow names RELIANCE, TCS, INFY (no silent drop to RELIANCE-only), each with quantity=1 as specified; trigger.compound is NIFTY pct_change >= 0.01 (1%) which matches the user's condition; render_hint=workflow_draft_card and 'Drafted... Click Activate' is the correct register-not-execute language for M1; backtestable=true with no blockers; no fabricated numbers; latency 9.5s is well within budget.",
+                "latency_wall_ms": 9526,
+                "total_tok": 59227
+              }
+            ],
+            "worst_issue": "None material. Minor nit: the disclaimer 'This is automation of your instructions, not financial advice.' is slight padding on a draft confirmation that could be dropped for tighter UX, but it does not change correctness.",
+            "fix_hint": "Optional UX tightening: suppress the 'automation of your instructions, not financial advice' tail on simple basket draft confirmations where the user already gave a complete, explicit instruction (symbols + qty + trigger) — keep it for ambiguous or higher-risk drafts. No correctness change needed.",
+            "final_verdict": "PASS",
+            "verifier_note": ""
+          }
+        ]
+      }
+    ],
+    "synthesis": {
+      "totals": {
+        "pass": 12,
+        "partial": 6,
+        "fail": 1
+      },
+      "cross_cutting_patterns": [
+        {
+          "pattern": "FIELD_MAP / sc_id collision in screen_fundamentals: symbol RELIANCE resolves to BOTH 'Reliance Industries' (P/E ~25) AND 'Reliance Infra' (P/E 2.08) as distinct rows under the same NSE ticker, with the assistant surfacing 'RELIANCE - Reliance Infra - P/E 2.08' as a top-ranked result. A retail user reads this as Reliance Industries trading at 2x earnings — high-severity fabrication-class miss because the bot reasons over the duplicate without flagging.",
+          "sessions_affected": [
+            "roe_pe_screen",
+            "reliance_pe_roe"
+          ],
+          "severity": "high"
+        },
+        {
+          "pattern": "Unnecessary find_tool reconnaissance hop on follow-up turns and on well-known intents (fundamentals screens, sector comparisons). Adds ~30-40k input tokens and a wall-clock second per affected turn without changing the routing decision the LLM ends up making anyway.",
+          "sessions_affected": [
+            "compare_tcs_infy_3y",
+            "best_dividend",
+            "reliance_pe_roe",
+            "dip_profit_compound"
+          ],
+          "severity": "medium"
+        },
+        {
+          "pattern": "Over-clarification / preamble on fully-specified instructions: when the user provides all required slots (symbol+amount+period, or symbol+qty+dip%+profit%), the agent inserts a 'I can set this up... if you meant a different baseline, I can run it as-is' hedged paragraph with render_hint=ask_user instead of drafting directly. Costs a full extra turn and (in dip_profit_compound) 14.6s / 150k tokens before the same draft lands one turn later.",
+          "sessions_affected": [
+            "lakh_in_hdfc_vs_fd",
+            "dip_profit_compound"
+          ],
+          "severity": "high"
+        },
+        {
+          "pattern": "Confirm-turn semantics broken for multi-turn workflow drafting: on user 'yes, set it up' for a workflow that previously disclosed backtest_blockers, the agent re-invokes propose_workflow with the IDENTICAL unresolvable ref ({{context.1.ranked}}) and asserts 'set up' while silently dropping the prior blocker disclosure. False confirmation of a known-broken draft — the worst failure in the batch.",
+          "sessions_affected": [
+            "rbi_rate_cut_banks"
+          ],
+          "severity": "high"
+        },
+        {
+          "pattern": "Context slip on multi-turn empty-state intents: after twice telling the user the IPO feed is empty, turn 2 ('I want to apply') asks 'which IPO?' instead of consulting prior list state and saying nothing is open. The agent does not consult conversation state for empty-feed before issuing ask_user.",
+          "sessions_affected": [
+            "ipo_browse_apply"
+          ],
+          "severity": "medium"
+        },
+        {
+          "pattern": "Sector-outlook and 'why is X down' queries collapse to a single screen_fundamentals or get_top_movers call and a 'next useful step would be...' deflection — naming the next step instead of taking it. No news fetch, no peer comparison, no fallback when the primary feed is flat (all change_pct=0.0). Also leaks mis-sectored micro-caps ('Nexus Surgical', 'Hit Kit Global' tagged sector='it') into user-visible output without flagging.",
+          "sessions_affected": [
+            "it_sector_outlook",
+            "why_nifty_down"
+          ],
+          "severity": "medium"
+        },
+        {
+          "pattern": "Awkward natural-language framing on otherwise correct comparisons: 'INFY has been the weaker loser', 'sits above several sector names', 'middle-to-upper' applied to a median-ish position. Doesn't break correctness but feels off for retail readers.",
+          "sessions_affected": [
+            "compare_tcs_infy_3y",
+            "reliance_pe_roe"
+          ],
+          "severity": "low"
+        }
+      ],
+      "next_iteration_instructions": [
+        {
+          "instruction": "Fix the FIELD_MAP / sc_id collision in pivot/backend/agents/tools.py screen_fundamentals so that NSE symbol RELIANCE maps to exactly one row (Reliance Industries). Either drop the lookalike (Reliance Infra trades as RELINFRA, not RELIANCE) or always surface company name alongside ticker so the user sees 'RELINFRA - Reliance Infra' instead of 'RELIANCE - Reliance Infra'. Add a presentation guard in pivot/backend/prompts/system.md: when screen_fundamentals returns a row whose name diverges from the symbol's canonical large-cap entity, render the corrected ticker. This single fix removes a fabrication-class miss in roe_pe_screen and reliance_pe_roe.",
+          "rationale": "High-severity correctness bug — retail users will read 'RELIANCE P/E 2.08' as Reliance Industries trading at 2x earnings, which is wildly wrong. The bot reasons over the duplicate without flagging it, so this is the closest thing in the batch to actively misleading numeric output.",
+          "priority": "P0"
+        },
+        {
+          "instruction": "Fix the workflow confirm-turn handler: when a user says 'yes, set it up' for a workflow whose previous draft had non-empty backtest_blockers, the agent MUST NOT re-call propose_workflow with the same unresolvable refs AND MUST NOT emit 'set up'. Either (a) materialise fetch.screener output into a static symbol list at draft-finalisation time so action.allocate_notional receives concrete tickers (e.g. top-5 banks at confirm moment) and the {{context.N.ranked}} ref disappears, or (b) keep the honest blocker disclosure on every re-draft. Long-term, extend pivot/backend/workflows/dsl/runtime.py so fetch.screener exposes a `ranked` field, and add a guard in the agent confirm handler that refuses to say 'set up' while backtest_blockers is non-empty.",
+          "rationale": "Only FAIL in the batch and it is a trust-breaking false confirmation: the bot tells the user the agent is 'set up' while silently dropping a blocker it disclosed one turn earlier. Defeats the entire register-not-execute contract.",
+          "priority": "P0"
+        },
+        {
+          "instruction": "Tighten the M1 / propose_workflow path in pivot/backend/prompts/system.md so that when the user provides ALL required slots up front (e.g. symbol+amount+period for a what-if, or symbol+qty+dip%+profit% for a compound order), the agent SKIPS the 'I can set this up... if you meant a different baseline' hedged paragraph and emits propose_dsl_workflow / answers directly with render_hint=workflow_draft_card. Treat conventional defaults (e.g. 'X% dip from recent price', 'price-only return') silently; only ask if the user explicitly invokes an alternative. Reserve ask_user for genuinely missing slots, not optional precision toggles.",
+          "rationale": "Recurs across lakh_in_hdfc_vs_fd and dip_profit_compound and was the failure mode the latter session was explicitly built to catch. Costs a full extra turn each time and in one case burned 14.6s / 150k tokens to produce a hedged question that became the same draft one turn later.",
+          "priority": "P1"
+        },
+        {
+          "instruction": "Suppress find_tool reconnaissance on follow-up turns and on intents that map deterministically to a single tool. Concretely: (a) cache the prior tool choice on conv state and skip find_tool when the next user turn obviously extends the same intent (period change, sector comparison after fetch_fundamentals, follow-up vol/Sharpe question after compare_performance); (b) in the system prompt, route 'best dividends', 'highest payout', 'cheap X', 'expensive for the sector' directly to screen_fundamentals without a discovery hop.",
+          "rationale": "Affects compare_tcs_infy_3y T1, best_dividend, reliance_pe_roe T1, and dip_profit_compound T0 — wastes ~30-40k input tokens and a wall-clock second per affected turn with no routing benefit. Cumulative budget hit across the loop is meaningful even though no single session fails on it.",
+          "priority": "P1"
+        },
+        {
+          "instruction": "Make sector-outlook and 'why is X down' intents multi-tool by default. In pivot/backend/prompts/system.md, require a plan: (1) compare_performance over Tier-1 sector bellwethers (TCS/INFY/WIPRO/HCLTECH for IT; HDFCBANK/ICICIBANK/SBIN/AXISBANK for banks) over 1y/3m, (2) get_symbol_news on the top 2-3 names, (3) screen_fundamentals filtered to a curated large-cap whitelist so mis-tagged micro-caps don't leak, then synthesize. For 'why is X down' specifically: when get_top_movers returns all change_pct=0.0 (clearly stale), fall back to sector-index get_index_level for BANKNIFTY/CNXIT/CNXAUTO so the bot can name an actual sector dragger instead of saying the breadth feed is flat.",
+          "rationale": "it_sector_outlook collapsed to a single screen plus a 'next step would be...' deflection AND leaked mis-sectored names ('Nexus Surgical', 'Hit Kit Global'); why_nifty_down handled the flat feed honestly but could not name what's dragging Nifty. Both are direct hits on the retail prompt priorities (analysis-with-search, fundamental screening) called out in current focus.",
+          "priority": "P1"
+        },
+        {
+          "instruction": "Add empty-feed context-retention guards on multi-turn list-and-act intents. In the IPO 'apply' path (pivot/backend/agents/tools.py around the apply intent, or a system prompt rule), before issuing ASK_USER for an IPO name, check whether the prior list_upcoming_ipos result in conversation state returned count==0. If so, respond 'no IPOs are open right now' and offer to register an alert or list past closed issues, rather than asking which IPO.",
+          "rationale": "ipo_browse_apply T2 told the user nothing was open twice, then asked 'which IPO?' on the apply intent — a context slip that would frustrate a retail user. Same shape will likely repeat for other empty-state feeds (no upcoming results, no open positions, etc.).",
+          "priority": "P1"
+        },
+        {
+          "instruction": "Polish summary phrasing in compare_performance and screen_fundamentals renders to avoid awkward constructions. Avoid 'the weaker loser' — prefer 'INFY declined less than TCS'. Avoid loose ranking language like 'sits above several sector names' or 'middle-to-upper' when the underlying numerical rank is median-ish; report the rank directly (e.g. '6th of 9 in the energy sector by P/E'). Also suppress the boilerplate 'This is automation of your instructions, not financial advice' tail on simple, fully-specified draft confirmations (basket_three style) — keep it only for ambiguous or higher-risk drafts.",
+          "rationale": "Low-severity but cumulative: awkward natural-language framing turned up in two comparison sessions and basket_three; it doesn't break correctness but reads off for retail users and is cheap to fix at the rendering layer.",
+          "priority": "P2"
+        },
+        {
+          "instruction": "In the decline copy used for out-of-scope derivative asks (pivot/backend/prompts/system.md), distinguish 'equity F&O' from 'commodity futures (MCX/NCDEX)' so a crude/gold/silver-futures ask reads precisely instead of being lumped under generic 'F&O'. Keep the proxy offer (energy/commodity-linked equity or ETF) and the 'hold until X lands' option as-is.",
+          "rationale": "war_oil_mcx passed but the decline labelled MCX commodity futures under generic 'F&O' — cosmetic, no behavioural failure, but precise scope-decline copy strengthens trust on the next out-of-scope ask.",
+          "priority": "P2"
+        }
+      ],
+      "headline": "12 PASS / 6 PARTIAL / 1 FAIL across 19 sessions — chat-first basics (sizing, drafting, declining out-of-scope derivatives, multi-symbol baskets, context retention) are solid, but a screener data-quality bug surfaces 'RELIANCE P/E 2.08' as Reliance Infra, and the only FAIL is a workflow confirm turn that falsely claims 'set up' while silently dropping a previously-disclosed blocker."
+    }
+  }
+}
