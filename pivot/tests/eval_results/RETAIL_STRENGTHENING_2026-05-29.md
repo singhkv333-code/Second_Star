@@ -43,21 +43,42 @@ outliers; tool-heavy turns add hops).
 - The 9 original screenshot clusters (context retention, index symbols,
   multi-symbol baskets, dip semantics, confirmation loops) — see `7a0eb50`.
 
-## Remaining (documented, NOT done)
-1. **RBI event AUTOFIRE** — chat drafts good `trigger.event` agents, but the
-   scheduler (`workflows/scheduler.py:_poll_watch_triggers`) doesn't scan
-   `trigger.event`, and detection needs the RBI RSS pipeline
-   (`news_events/`, `NEWSAPI_KEY` empty) wired to fire. Deliberately
-   deferred — scheduler sub-project, risk to live triggers, not verifiable
-   end-to-end without an event. This is the `Eventtriggers` branch's headline TODO.
-2. **PARTIALs (real, not broken):** vague screens ("cheap banking", "best
-   dividend") gate behind a clarifier instead of a default screen; 3y window
-   silently → 2y; sector-outlook answers ungrounded (no tool); occasional
-   wasted `find_tool` hop; `get_index_level` returns None for NIFTY50
-   (index level data path, separate from the quote path fix).
+## Round 2 (2026-05-29 PM) — PARTIALs closed + RBI seam built
+Workflow `w76u0pxnt` returned tested patch specs; applied + verified.
+- **RBI event AUTOFIRE — DONE** (`4f7f6bf`): `scheduler.py` poll now scans
+  `trigger.event` (4 existing types byte-for-byte unchanged) →
+  `_evaluate_event_trigger` fetches the LIVE RBI press-release RSS
+  (`news_events` RSSAdapter; works with `NEWSAPI_KEY` empty) and fires via
+  the existing `fire_external_event`. **Specificity guard**: a bare org
+  token ("RBI") never fires; a policy keyword (repo rate/MPC/rate cut) must
+  hit. Verified live: 0/10 false-fires on today's feed (money-market/penalty/
+  VRR/annual-report), fires on a synthetic rate-cut headline. Per-step guid
+  dedup. `events_calendar` event_type now derived from keywords.
+- **Vague screens — DONE** (`974a5e3`): sort-only screens ("cheap banking"
+  → CANBK/FEDERALBNK/AXISBANK by P/E; "best dividend" → payout desc). Bank
+  ROE/PE label variants added to FIELD_MAP (banks were returning 0).
+- **3y/18mo windows — DONE** (`4f7f6bf`+`5a60cb6`): get_ohlcv slices any
+  N-day/week/month/year span exactly; prompt passes the span verbatim.
+  Verified live: "compare over 3 years" returns a real 3y window.
+- **`get_index_level` — DONE** (`4f7f6bf`): yfinance ^-ticker fallback;
+  "why is nifty down" returns a real level + grounds with top movers.
+- **find_tool hop / dip drafting — DONE**: fundamentals routing broadened
+  ("reliance PE"); simple dip drafts directly; compound dip+profit guidance
+  added (profit = entry-relative).
+
+## Still remaining (documented)
+1. **Latency on the dip / DSL-translation path** (~40–75s): propose_dsl/
+   propose_workflow with a dip + take-profit runs multiple LLM condition
+   translations. Functional but slow; worth caching/trimming hops.
+2. **Off-market-hours autofire**: the watcher returns early outside market
+   hours, so RBI events landing after close fire at next open — acceptable
+   for v1, note for later. NewsAPI path remains keyless (RSS is the live one).
 3. **Data limits:** fundamentals DB sparse outside large caps (TCS/INFY
    return only EPS); screen names skew small-cap (no market_cap in DB);
-   IPO feed live but currently 0 issues (genuine).
+   IPO feed live but currently 0 issues (genuine); analysis sector-outlook
+   answers still lean on prose when no single ticker is named.
+4. **Azure transient errors** under heavy parallel load ("temporarily
+   unavailable") — observed only during back-to-back eval bursts, not normal use.
 
 ## How to verify
 Backend: `cd pivot && .venv/bin/python -m uvicorn backend.main:app --port 8000`.
