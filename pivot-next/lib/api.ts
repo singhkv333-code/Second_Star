@@ -1259,3 +1259,84 @@ export function getPaperNavCurve(
 ): Promise<ApiResult<PaperNavPoint[]>> {
   return requestLegacy<PaperNavPoint[]>("/paper/nav", { query: { start, end } });
 }
+
+// ── Forward-test scorecards (P6) ──────────────────────────────────────────
+// Per-idea forward-test track records. Scorecard headline metrics arrive as
+// number|null (null = insufficient data → DASH on the FE). verdict ∈
+// {"on_track","decayed","execution_problem","insufficient_data"}.
+
+/** One idea's list-view scorecard headline. */
+export type PaperIdea = {
+  id: string;
+  label: string;
+  origin_kind: string; // "workflow" | "chat" | "strategy" | "manual"
+  status: string; // "paper" | "candidate" | "promoted" | "retired"
+  inception_date: string | null;
+  maturity_days: number | null;
+  n_obs: number | null;
+  cum_return_pct: number | null;
+  sharpe: number | null;
+  alpha: number | null;
+  psr: number | null;
+  max_drawdown_pct: number | null;
+  verdict: string | null;
+  has_backtest: boolean;
+};
+
+/** A point on an idea's forward (live) NAV curve. */
+export type IdeaNavPoint = {
+  as_of_date: string | null;
+  idea_nav: number;
+  committed_capital: number;
+  positions_mv: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  nifty_close: number | null;
+};
+
+/** The stored backtest baseline this idea is compared against (if any). */
+export type IdeaBacktest = {
+  sharpe_ratio: number | null;
+  total_return_pct: number | null;
+  cagr_pct: number | null;
+  max_drawdown_pct: number | null;
+  benchmark_return_pct: number | null;
+  total_trades: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  primary_symbol: string | null;
+  equity_curve: { date: string | null; equity: number }[];
+};
+
+/** One backtest-vs-forward stat-gate row. */
+export type IdeaGate = {
+  label: string;
+  forward: number | null;
+  backtest: number | null;
+  pass: boolean | null;
+};
+
+/** Full per-idea scorecard: headline + forward curve + backtest baseline + gates. */
+export type PaperIdeaDetail = PaperIdea & {
+  cohort_trial_count: number;
+  backtest_run_id: string | null;
+  status_changed_at: string | null;
+  mintrl: number | null;
+  dsr: number | null;
+  promotion_ready: boolean;
+  forward_curve: IdeaNavPoint[];
+  backtest: IdeaBacktest | null;
+  gates: IdeaGate[];
+};
+
+/** `GET /paper/ideas` — the forward-test idea list (newest first). */
+export function getPaperIdeas(): Promise<ApiResult<PaperIdea[]>> {
+  return requestLegacy<PaperIdea[]>("/paper/ideas");
+}
+
+/** `GET /paper/ideas/{id}` — one idea's full scorecard. */
+export function getPaperIdeaDetail(
+  id: string,
+): Promise<ApiResult<PaperIdeaDetail>> {
+  return requestLegacy<PaperIdeaDetail>(`/paper/ideas/${encodeURIComponent(id)}`);
+}

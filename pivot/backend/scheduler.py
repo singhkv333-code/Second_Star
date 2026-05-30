@@ -194,6 +194,7 @@ async def snapshot_paper_navs():
     Runs at 15:35 IST."""
     from backend.database import SessionLocal
     from backend.paper.jobs import snapshot_all_navs
+    from backend.paper.scorecards import refresh_all_idea_scorecards
 
     db = SessionLocal()
     try:
@@ -204,8 +205,16 @@ async def snapshot_paper_navs():
         except Exception:
             pass
         n = snapshot_all_navs(db, nifty_close=nifty)
+        # Forward-test (P6): same EOD txn + same NIFTY close — write each
+        # idea's idea-grain NAV snapshot and refresh its scorecard_cache
+        # (metrics + verdict + promotion gate), so account and idea series
+        # share one benchmark and commit atomically.
+        m = refresh_all_idea_scorecards(db, nifty_close=nifty)
         db.commit()
-        logger.info(f"[paper] NAV snapshot written for {n} account(s)")
+        logger.info(
+            f"[paper] NAV snapshot written for {n} account(s); "
+            f"scorecards refreshed for {m} idea(s)"
+        )
     except Exception:
         db.rollback()
         logger.exception("paper NAV snapshot failed")

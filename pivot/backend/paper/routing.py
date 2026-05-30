@@ -136,6 +136,9 @@ def submit_order(
             origin_kind="workflow",
             workflow_id=str(ctx.workflow.id),
             workflow_run_id=str(ctx.run.id),
+            # Forward-test idea label (display only — the workflow idea's
+            # natural key is account_id+workflow_id, not the label).
+            label=getattr(ctx.workflow, "name", None),
         )
     return _kite.place_order(
         access_token=access_token or "mock_token",
@@ -182,6 +185,7 @@ def submit_gtt(
             origin_kind="workflow",
             workflow_id=str(ctx.workflow.id),
             workflow_run_id=str(ctx.run.id),
+            label=getattr(ctx.workflow, "name", None),
         )
     return _kite.place_gtt_order(
         access_token=access_token or "mock_token",
@@ -215,6 +219,7 @@ def submit_order_for_user(
     client_request_id: Optional[str] = None,
     source: str = "chat",
     conversation_id: Optional[str] = None,
+    label: Optional[str] = None,
     **_ignored: Any,
 ) -> dict:
     uid = int(user_id)
@@ -237,6 +242,12 @@ def submit_order_for_user(
             source=source,
             origin_kind="chat",
             conversation_id=conversation_id,
+            # Chat idea label = the SYMBOL (not side+symbol), so a BUY and a
+            # later SELL of the same symbol in one conversation attribute to
+            # ONE idea (the chat natural key is conversation_id+label). The
+            # SELL then closes the BUY idea's FIFO lots instead of forking a
+            # phantom "SELL" idea.
+            label=label or symbol,
         )
     return _kite.place_order(
         access_token=access_token or "mock_token",
@@ -268,6 +279,7 @@ def submit_gtt_for_user(
     client_request_id: Optional[str] = None,
     source: str = "chat",
     conversation_id: Optional[str] = None,
+    label: Optional[str] = None,
     **_ignored: Any,
 ) -> dict:
     uid = int(user_id)
@@ -285,6 +297,7 @@ def submit_gtt_for_user(
             source=source,
             origin_kind="chat",
             conversation_id=conversation_id,
+            label=label or symbol,
         )
     return _kite.place_gtt_order(
         access_token=access_token or "mock_token",

@@ -15,12 +15,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AllocationDonut } from "@/components/paper/AllocationDonut";
 import { EquityCurveChart } from "@/components/paper/EquityCurveChart";
 import { HoldingsTable } from "@/components/paper/HoldingsTable";
+import { IdeaScorecards } from "@/components/paper/IdeaScorecards";
 import { KpiStatCards } from "@/components/paper/KpiStatCards";
 import { OpenOrdersBlotter } from "@/components/paper/OpenOrdersBlotter";
 import { TradeJournal } from "@/components/paper/TradeJournal";
 
 const TABS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "overview", label: "Overview" },
+  { value: "ideas", label: "Ideas" },
   { value: "positions", label: "Positions" },
   { value: "orders", label: "Orders" },
   { value: "journal", label: "Journal" },
@@ -96,6 +98,11 @@ export function PaperDashboard(): React.ReactElement {
             </div>
           </div>
           <HoldingsTable />
+        </TabsContent>
+
+        {/* Ideas — forward-test scorecards */}
+        <TabsContent value="ideas" className="mt-0">
+          <IdeaScorecards />
         </TabsContent>
 
         {/* Positions */}

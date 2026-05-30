@@ -48,6 +48,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from backend.models import (
+    ForwardIdea,
     PaperAccount,
     PaperFill,
     PaperLedgerEntry,
@@ -188,6 +189,16 @@ def execute_market_fill(
         balance_after=to_money(account.cash_available),
         note=f"{side} {qty} {order.symbol} @ {price}",
     ))
+
+    # Forward-test (P6): stamp the idea's inception on its FIRST fill. Both
+    # MARKET and resting fills route through here, so first-fill is captured
+    # once for every fill type; a rejected order returns above, so a reject
+    # never dates an idea. inception_date drives the scorecard's maturity.
+    if order.idea_id is not None:
+        idea = db.get(ForwardIdea, order.idea_id)
+        if idea is not None and idea.inception_date is None:
+            idea.inception_date = now_ist().date()
+
     db.flush()
     return fill
 

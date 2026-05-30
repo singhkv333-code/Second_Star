@@ -1309,3 +1309,36 @@ no ALTER on any existing table.
 **Deployment note:** the code is correct, but the live dev backend on `:8000` is older code on real Postgres **without** the paper tables — migration `0013_paper_trading` was never applied there. To run the dashboard against the real backend: apply `0013` + restart the backend (then the `/paper/*` routes the FE now calls will resolve). The shared dev Postgres was **not** migrated in this session (per the standing "don't disturb the running backend" constraint).
 
 **Next: P6 — forward-test scorecards** (idea resolver + per-idea NAV series + the scorecard surface). Awaiting go-ahead.
+
+---
+
+## 17. P6 Build Log — Forward-Test Scorecards (shipped 2026-05-30, branch `Eventtriggers`)
+
+**Status: COMPLETE & VERIFIED.** The differentiator: every chat/workflow order now attributes to a durable **ForwardIdea**, accrues an idea-grain NAV series, and is scored against its backtest with statistical gates (PSR/MinTRL/DSR) + a verdict + a promotion gate. **Built with the multi-phase workflow model** (understand → contract → parallel build → integration → adversarial verify → E2E), entirely within the P0 schema (no migration).
+
+**New backend modules** (each agent-built + tested to green, then lead-integrated)
+| File | Role |
+|---|---|
+| `backend/services/forward_stats.py` | PSR / MinTRL / Deflated-Sharpe (Bailey & López de Prado) + skew/kurtosis/max-DD + math-only `_norm_cdf`/`_norm_ppf` (no scipy) — 36 tests |
+| `backend/paper/ideas.py` | `resolve_idea` — race-proof find-or-create (dialect-guarded `pg_advisory_xact_lock` on PG; SELECT→SAVEPOINT-INSERT→re-SELECT), per-origin dedup keys — 11 tests |
+| `backend/paper/idea_valuation.py` | `compute_idea_nav` — FIFO over `paper_fills.idea_id` (cost-inclusive basis, partial-close spanning lots, price-None→cost fallback) — 7 tests |
+| `backend/paper/scorecards.py` | idea-grain snapshot upsert + `refresh_idea_scorecard`/`refresh_all_idea_scorecards` (metrics → `scorecard_cache`, verdict ladder, promotion gate) + the `ideas_list`/`idea_detail` read service — 16 tests |
+
+**Verdict ladder** (`MIN_OBS=20`): `insufficient_data` (n_obs<20 or PSR null or n_obs<MinTRL) → `execution_problem` (backtest positive but forward negative — the slippage signature) → `decayed` (forward Sharpe ≤ ½ backtest, or PSR<0.90) → `on_track`. **Promotion gate** auto-advances `paper→candidate` when PSR≥0.95 ∧ n_obs≥MinTRL ∧ DSR≥0.95; `candidate→promoted` is flag-only (`promotion_ready`), never auto-promoted/retired.
+
+**Integration (lead, shared files):** `broker.py` resolves the idea after the idempotency fast-path + `get_or_create_account` and stamps `order.idea_id`; `fills.py` dates `inception_date` on the FIRST fill (resting orders dated at fill, rejects never); `routing.py` threads the label (workflow=`Workflow.name`; **chat label = the SYMBOL**, so a BUY then SELL of one symbol in a conversation map to ONE idea and the SELL closes the BUY's FIFO lots instead of forking); `routers/paper.py` adds `GET /paper/ideas` + `/ideas/{id}`; `scheduler.py` calls `refresh_all_idea_scorecards` right after `snapshot_all_navs` (same EOD txn + same NIFTY close); `paper/__init__.py` exports. SIP stays unattributed in v1 (FK mismatch).
+
+**Frontend** (`pivot-next/`): `lib/api.ts` `getPaperIdeas`/`getPaperIdeaDetail` + `PaperIdea`/`PaperIdeaDetail`/`IdeaNavPoint`/`IdeaBacktest`/`IdeaGate` types (requestLegacy); a new **Ideas** tab (2nd, after Overview) in `PaperDashboard`; `IdeaScorecards.tsx` (verdict-chipped cards + Dialog drill-in) + `IdeaDetailPanel.tsx` (the **forward-vs-backtest decay chart rebased to 100** — solid forward Area + dashed backtest baseline via `ComposedChart` — plus the PSR/MinTRL/DSR stat panel + the pass/fail gates table). tsc clean (only the pre-existing `ChatDemo.tsx:750`), eslint clean. Visually verified: all four verdicts render correctly + the drill-in dual chart + gates.
+
+**End-to-end test (`tests/test_e2e_chat_to_paper.py`):** drives the REAL chat path (`POST /orders/preview` → `POST /orders/confirm` via TestClient) and proves the whole chain — confirmed chat order → routes to PAPER (not Kite) → fills → lands in the book (order/fill/position/cash) → attributes to a `ForwardIdea` (origin=chat, label=symbol, inception dated) → a later SELL of the same symbol+conversation closes the SAME idea → mark-to-market moves NAV/unrealized → `refresh_idea_scorecard` writes the idea NAV snapshot + cache → `ideas_list`/`idea_detail` surface it. A second test (`RUN_LIVE_TESTS=1`) hits the REAL yfinance mark resolver — verified live 2026-05-30 (RELIANCE ₹1321.20, TCS ₹2258.90, INFY ₹1160.90), proving the marking is wired to live data.
+
+**Verified:** ~70 new backend tests; full paper+P6 suite 215 passed; full backend regression 1166 passed / 18 PRE-EXISTING failures (chat-stub/calendar/step-catalog — proven unrelated to P6 by a stash-and-rerun); ruff clean on all P6 files; FE tsc/eslint clean.
+
+**Adversarially verified** by a 5-agent review (stats-math, scorecard/verdict, integration/txn, FE, + completeness critic — each ran live pytest harnesses). The math was confirmed bit-for-bit correct against Bailey & López de Prado; all three canonical verdicts reproduce END-TO-END via the public refresh path; the FIFO idea-grain realized P&L is recomputed (a poison `realized_pnl` on a fill is ignored); idempotency/dedup/txn-safety all hold. Fixes applied + locked with regression tests (`tests/test_p6_review_fixes.py`):
+- **MAJOR** — the promotion gate auto-advanced a *decayed* idea paper→candidate (gate was pure PSR/MinTRL/DSR). Now ANDed with an `on_track` verdict; degradation verdicts are never promotion-ready.
+- **MAJOR** — the Max DD gate compared a NEGATIVE forward % against the DSL backtest's POSITIVE-magnitude DD (gate permanently ✗, opposite signs shown). Now normalizes the backtest DD to the negative convention in both the gate and the detail payload.
+- **MINOR** — PSR/DSR received the structural `n_pts−1` while the moment estimators use `len(rets)` (a zero idea_nav snapshot drops a return → inflated PSR). Unified `n_obs = len(rets)`.
+- **MINOR** — a crid collision past the idempotency fast-path could orphan a just-created `ForwardIdea`. `resolve_idea` now runs AFTER the order insert succeeds (back-stamping `order.idea_id`), so an idempotent replay never leaves a dangling idea.
+- **MINOR** — chat dedup collapsed unrelated ideas when `conversation_id` was None; the resolver now leaves the order unattributed when the per-origin dedup key is absent.
+- **MINOR (FE)** — the detail "Maturity" KPI showed `n_obs` (observations) with a "d" suffix; split into "Maturity" (calendar days, matches the card) + "Obs vs MinTRL" (observations).
+Skipped (genuine nits, harmless in the long-only non-negative-NAV domain): max-DD peak>0 guard, sub-0.0001 unrealized rounding, the SQLite bare-rollback savepoint quirk (test-infra only), FE negative-base rebase, gates header rowgroup.

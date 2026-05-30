@@ -4,6 +4,13 @@
 
 ---
 
+## Day 12 — 2026-05-30 (frontend-lead) — P6 Ideas scorecard components
+
+### Shipped
+- frontend-lead: built the two P6 forward-test scorecard components in `pivot-next/components/paper/` — `IdeaScorecards.tsx` (Ideas list: responsive idea-card grid, verdict chips, Dialog drill-in) and `IdeaDetailPanel.tsx` (per-idea drill-in: KPI row, dual decay chart with forward-Area + dashed backtest baseline both rebased to 100, semantic gates table). Both consume the existing `getPaperIdeas()`/`getPaperIdeaDetail()` fetchers + types from `lib/api.ts`; Quartr tokens only; tsc clean (only pre-existing ChatDemo:750 error remains) + eslint clean. Lead still owns wiring the PaperDashboard "Ideas" tab.
+
+---
+
 ## Day 11 — 2026-05-04 (afternoon) — Two-LLM-hop audit: Changes 1 + 2 shipped together
 
 **Validation-retry loop killed; deterministic resume after clarification.**

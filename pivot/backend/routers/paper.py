@@ -26,6 +26,7 @@ from backend.paper.portfolio import (
     nav_curve,
     open_orders,
 )
+from backend.paper.scorecards import idea_detail, ideas_list
 
 router = APIRouter(prefix="/paper", tags=["Paper Trading"])
 
@@ -101,3 +102,27 @@ def paper_nav(
     if s is not None and e is not None and e < s:
         raise HTTPException(status_code=400, detail="end must be >= start")
     return nav_curve(db, user_id, s, e)
+
+
+# ── forward-test scorecards (P6) ──────────────────────────────────────────
+
+@router.get("/ideas")
+def paper_ideas(
+    user_id: int = Depends(get_user_id), db: Session = Depends(get_db)
+):
+    """The forward-test idea list — one scorecard headline per ForwardIdea."""
+    return ideas_list(db, user_id)
+
+
+@router.get("/ideas/{idea_id}")
+def paper_idea(
+    idea_id: str,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db),
+):
+    """One idea's full scorecard: forward NAV curve + backtest baseline +
+    stat gates. 404 when the idea doesn't exist or isn't this user's."""
+    detail = idea_detail(db, user_id, idea_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Idea not found")
+    return detail

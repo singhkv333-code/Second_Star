@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from backend.models import PaperFill, PaperLedgerEntry, PaperOrder
 from backend.paper.accounts import get_or_create_account
 from backend.paper.fills import execute_market_fill
+from backend.paper.ideas import resolve_idea
 from backend.paper.marks import get_mark_price
 from backend.paper.money import to_money
 from backend.services.trading_costs import buy_cost
@@ -109,6 +110,9 @@ class PaperBroker:
         conversation_id: Optional[str] = None,
         strategy_id: Optional[int] = None,
         idea_id: Optional[str] = None,
+        # forward-test idea attribution (P6)
+        label: Optional[str] = None,
+        backtest_run_id: Optional[str] = None,
     ) -> dict:
         db = self.db
         side = str(transaction_type).upper()
@@ -131,6 +135,12 @@ class PaperBroker:
                 return self._result(existing, idempotent=True)
 
         account = get_or_create_account(db, self.user_id)
+
+        # Forward-test attribution (P6): find-or-create the ForwardIdea this
+        # order belongs to and stamp order.idea_id. resolve_idea is a no-op
+        # (returns None) for manual / SIP / None origins, so idea_id stays
+        # NULL there. Runs AFTER the idempotency fast-path, so a retried
+        # order never forks an idea. Only resolve when not pre-supplied.
         limit_price = (
             float(price) if (ot in _LIMIT_BEARING and price is not None) else None
         )
@@ -168,6 +178,27 @@ class PaperBroker:
             if existing is not None:
                 return self._result(existing, idempotent=True)
             raise
+
+        # Forward-test attribution (P6): resolve the idea + stamp idea_id
+        # ONLY AFTER the order insert succeeds, so a client_request_id
+        # collision (idempotent replay above) never leaves an orphaned
+        # ForwardIdea behind. resolve_idea is a no-op for manual / SIP /
+        # keyless origins; runs once on a genuinely new order.
+        if order.idea_id is None and origin_kind is not None:
+            idea = resolve_idea(
+                db,
+                account.id,
+                user_id=self.user_id,
+                origin_kind=origin_kind,
+                workflow_id=workflow_id,
+                conversation_id=conversation_id,
+                strategy_id=strategy_id,
+                label=label,
+                backtest_run_id=backtest_run_id,
+            )
+            if idea is not None:
+                order.idea_id = idea.id
+                db.flush()
 
         if ot == "MARKET":
             mark = self._price(order.symbol)
