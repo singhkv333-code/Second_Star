@@ -6,10 +6,12 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     Enum as SQLEnum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -17,6 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -48,6 +51,9 @@ class User(Base):
     sip_schedules = relationship("SIPSchedule", back_populates="user")
     product_positions = relationship("ProductPosition", back_populates="user")
     trade_logs = relationship("TradeLog", back_populates="user")
+    paper_account = relationship(
+        "PaperAccount", back_populates="user", uselist=False,
+    )
 
 
 class WatchlistItem(Base):
@@ -215,6 +221,485 @@ class TradeLog(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="trade_logs")
+
+
+# ─── Paper Trading & Forward-Testing ──────────────────────────────────
+#
+# A simulated broker accrues every triggered/registered order into a
+# structured, evolving portfolio: cash ledger -> immutable fills ->
+# positions -> daily NAV snapshots. Second aim: attribute each fill to
+# the originating idea (a workflow, a chat turn, or a saved strategy)
+# and snapshot per-idea NAV so each idea can be FORWARD-TESTED live and
+# compared against its stored backtest.
+#
+# Conventions mirror the most recent additive table (dsl_backtest_runs,
+# migration 0011) and the cross-dialect notes above: String(36) UUID PKs
+# via _uuid_str; enum-like columns are String + CheckConstraint (NOT a
+# native Postgres ENUM) so the SQLite test DB (Base.metadata.create_all)
+# and the Postgres prod DB (Alembic) share one schema; timestamps are
+# DateTime(timezone=True) with server_default=func.now().
+#
+# Spec: docs/PAPER_TRADING_PLAN.md §6(a). Migration: 0013_paper_trading.
+#
+# Deliberate decisions vs the prose spec (recorded so a later engineer
+# doesn't "fix" them back):
+#   - conversation_id is String(36) (conversations.id is a UUID string),
+#     NOT Integer as the prose draft said.
+#   - forward_ideas.backtest_run_id is a SOFT reference (plain String,
+#     no ForeignKey): the dsl_backtest_runs model lives outside
+#     backend.models, so it is absent from the test create_all metadata;
+#     a hard FK would dangle there. The degradation panel joins by value.
+#   - Reconciled-money columns (cash balances, ledger amounts, fill
+#     economics, accrued P&L, NAV figures) are Numeric(18,4) — paise
+#     precision, crore headroom — mirroring the llm_usage.cost_usd
+#     precedent. Binary Float drifts cents across a long replay chain
+#     (reserve→fill→release→settle), which would break the ledger's
+#     reconcile-by-replay guarantee. Instantaneous market prices
+#     (fill_price, last_price, limit/trigger/intended, nifty_close) and
+#     pure ratios (slippage_bps) stay Float, the way live quotes arrive.
+#     NOTE for the P1 broker: Numeric reads back as decimal.Decimal —
+#     do money math in Decimal and cast to float() only at the JSON edge.
+#   - trade_logs.idea_id is intentionally NOT added here. P0's 0013 is
+#     additive-only (no ALTER on existing tables). Live attribution
+#     already flows through paper_fills.idea_id + paper_fills.trade_log_id
+#     (FK back to trade_logs), so the existing audit timeline stays
+#     linked. The optional §3.5 historical backfill (stamping idea_id on
+#     pre-existing TradeLog rows) is a separate later migration if ever
+#     wanted; it is not required for forward-testing.
+
+# Allowed enum-like values, exported as frozensets so the paper-broker
+# service can validate before INSERT without importing the constraints
+# (mirrors RUN_STATUSES in backend/workflows/dsl/backtest/models.py).
+PAPER_ACCOUNT_MODES: frozenset[str] = frozenset({"paper", "live"})
+PAPER_ORDER_STATUSES: frozenset[str] = frozenset({
+    "pending", "queued", "resting", "partially_filled",
+    "filled", "cancelled", "rejected",
+})
+PAPER_LEDGER_KINDS: frozenset[str] = frozenset({
+    "seed", "buy_debit", "sell_credit", "reserve", "release", "settlement",
+})
+FORWARD_IDEA_STATUSES: frozenset[str] = frozenset({
+    "paper", "candidate", "promoted", "retired",
+})
+
+
+class PaperAccount(Base):
+    """One simulated broker book per user (single-book v1; `label` leaves
+    room for per-idea sub-accounts later). Buying power for the default
+    long-only-CNC mode is `cash_available - cash_reserved`."""
+    __tablename__ = "paper_accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('paper', 'live')", name="ck_paper_accounts_mode",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False,
+        unique=True, index=True,
+    )
+    label = Column(String(64), nullable=False, default="default")
+    currency = Column(String(3), nullable=False, default="INR")
+    # Seed = the existing MOCK_MARGINS figure. cash_settled/available are
+    # seeded equal to starting_capital by the account-creation service.
+    starting_capital = Column(Numeric(18, 4), nullable=False, default=150000.0)
+    cash_settled = Column(Numeric(18, 4), nullable=False, default=150000.0)
+    cash_available = Column(Numeric(18, 4), nullable=False, default=150000.0)
+    cash_reserved = Column(Numeric(18, 4), nullable=False, default=0.0)
+    mode = Column(String(8), nullable=False, default="paper")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    user = relationship("User", back_populates="paper_account")
+    orders = relationship(
+        "PaperOrder", back_populates="account",
+        cascade="all, delete-orphan",
+    )
+    fills = relationship(
+        "PaperFill", back_populates="account",
+        cascade="all, delete-orphan",
+    )
+    positions = relationship(
+        "PaperPosition", back_populates="account",
+        cascade="all, delete-orphan",
+    )
+    ledger_entries = relationship(
+        "PaperLedgerEntry", back_populates="account",
+        cascade="all, delete-orphan",
+    )
+    nav_snapshots = relationship(
+        "PaperNavSnapshot", back_populates="account",
+        cascade="all, delete-orphan",
+    )
+    ideas = relationship(
+        "ForwardIdea", back_populates="account",
+        cascade="all, delete-orphan",
+    )
+
+
+class PaperOrder(Base):
+    """Order lifecycle row. MARKET orders fill synchronously; LIMIT/SL/
+    GTT/SL-M rows REST (status='resting') until the scheduler's fill
+    evaluator marks them. `client_request_id` is UNIQUE for idempotency
+    on scheduler retries. Attribution FKs link the order to its origin."""
+    __tablename__ = "paper_orders"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'queued', 'resting', "
+            "'partially_filled', 'filled', 'cancelled', 'rejected')",
+            name="ck_paper_orders_status",
+        ),
+        # Hot path: the resting-order drain job + the open-orders blotter
+        # filter by (account_id, status). account_id is the selective key;
+        # status is low-cardinality, so the composite is the right shape.
+        Index("ix_paper_orders_account_status", "account_id", "status"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    # Wide enough for the longest id the workflow engine builds — a
+    # squareoff_symbol leg: "sqoff_sym:{SYM}:{run_uuid-36}:{step}:{att}:
+    # legN:{SYM}" = 57 + 2*len(symbol). String(80) overflowed (and lost
+    # the idempotency key) for symbols >= 12 chars; 120 covers a 30-char
+    # symbol with margin. The P1 broker may additionally hash over-length
+    # ids to a fixed-width key.
+    client_request_id = Column(
+        String(120), nullable=True, unique=True, index=True,
+    )
+    symbol = Column(String(50), nullable=False, index=True)
+    exchange = Column(String(10), nullable=False, default="NSE")
+    transaction_type = Column(String(10), nullable=False)  # BUY / SELL
+    order_type = Column(String(16), nullable=False)  # MARKET/LIMIT/SL/SL-M/GTT
+    product = Column(String(8), nullable=False, default="CNC")
+    variety = Column(String(16), nullable=False, default="regular")  # regular/amo
+    quantity = Column(Integer, nullable=False)
+    limit_price = Column(Float, nullable=True)
+    trigger_price = Column(Float, nullable=True)
+    # LTP at decision time + its quote timestamp — drives slippage-vs-
+    # intended and guards against look-ahead in the fill evaluator.
+    intended_price = Column(Float, nullable=True)
+    intended_quote_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(
+        String(16), nullable=False, default="pending", index=True,
+    )
+    reserved_cash = Column(Numeric(18, 4), nullable=False, default=0.0)
+    filled_quantity = Column(Integer, nullable=False, default=0)
+    reject_reason = Column(String(200), nullable=True)
+    # OCO: SL and TP siblings share a group; one fill cancels the other.
+    gtt_oco_group = Column(String(36), nullable=True, index=True)
+    parent_order_id = Column(
+        String(36), ForeignKey("paper_orders.id"), nullable=True,
+    )
+    # Attribution. source mirrors TradeLog.source; origin_kind +
+    # the *_id FKs resolve the durable idea for forward-testing.
+    source = Column(String(50), nullable=True, index=True)
+    origin_kind = Column(String(16), nullable=True)  # workflow/chat/strategy/manual
+    workflow_id = Column(String(36), ForeignKey("workflows.id"), nullable=True)
+    workflow_run_id = Column(
+        String(36), ForeignKey("workflow_runs.id"), nullable=True,
+    )
+    conversation_id = Column(
+        String(36), ForeignKey("conversations.id"), nullable=True,
+    )
+    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
+    idea_id = Column(
+        String(36), ForeignKey("forward_ideas.id"), nullable=True, index=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    account = relationship("PaperAccount", back_populates="orders")
+    fills = relationship(
+        "PaperFill", back_populates="order", cascade="all, delete-orphan",
+    )
+    idea = relationship("ForwardIdea", back_populates="orders")
+    # Self-referential bracket grouping: entry -> SL/TP children.
+    parent = relationship(
+        "PaperOrder", remote_side="PaperOrder.id", backref="children",
+    )
+
+
+class PaperFill(Base):
+    """An immutable execution — the SOURCE OF TRUTH. Positions and cash
+    are derived from the fills log, so scheduler retries can't double-
+    count. Charges come from services/trading_costs (no new cost code)."""
+    __tablename__ = "paper_fills"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    order_id = Column(
+        String(36), ForeignKey("paper_orders.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    symbol = Column(String(50), nullable=False, index=True)
+    transaction_type = Column(String(10), nullable=False)  # BUY / SELL
+    quantity = Column(Integer, nullable=False)
+    fill_price = Column(Float, nullable=False)  # market touch +/- slippage
+    gross_value = Column(Numeric(18, 4), nullable=False)  # fill_price * quantity
+    charges = Column(Numeric(18, 4), nullable=False, default=0.0)  # trading_costs
+    net_cashflow = Column(Numeric(18, 4), nullable=False)  # - on buy, + on sell
+    slippage_bps = Column(Float, nullable=True)  # ratio, not money
+    realized_pnl = Column(Numeric(18, 4), nullable=True)  # booked on SELLs (avg cost)
+    settles_at = Column(DateTime(timezone=True), nullable=True)  # T+1 on SELL
+    idea_id = Column(
+        String(36), ForeignKey("forward_ideas.id"), nullable=True, index=True,
+    )
+    # Link to the existing audit row so order history stays one timeline.
+    trade_log_id = Column(Integer, ForeignKey("trade_logs.id"), nullable=True)
+    filled_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        nullable=False, index=True,
+    )
+
+    order = relationship("PaperOrder", back_populates="fills")
+    account = relationship("PaperAccount", back_populates="fills")
+    idea = relationship("ForwardIdea", back_populates="fills")
+
+
+class PaperPosition(Base):
+    """Open-lot cache derived from fills. unrealized_pnl and day_pnl are
+    computed on read from last_price / prev_close (never stored)."""
+    __tablename__ = "paper_positions"
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id", "symbol",
+            name="uq_paper_positions_account_symbol",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    symbol = Column(String(50), nullable=False)
+    quantity = Column(Integer, nullable=False, default=0)  # long-only >= 0
+    avg_cost = Column(Numeric(18, 4), nullable=False, default=0.0)  # incl. buy charges
+    realized_pnl = Column(Numeric(18, 4), nullable=False, default=0.0)  # cumulative
+    last_price = Column(Float, nullable=True)  # market mark-to-market
+    last_mark_at = Column(DateTime(timezone=True), nullable=True)
+    prev_close = Column(Float, nullable=True)  # for day P&L
+    stale = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    account = relationship("PaperAccount", back_populates="positions")
+
+
+class PaperLedgerEntry(Base):
+    """Append-only cash transaction trail. Every fill, reserve/release,
+    and settlement writes one row; balance_after is the running
+    cash_available so the ledger reconciles the account by replay.
+
+    Replay invariant the P1 broker MUST uphold: balance_after always
+    equals the account's running cash_available AFTER this row. 'reserve'
+    moves money OUT of cash_available into cash_reserved (negative
+    amount); 'release' moves it back (positive). So SUM(amount) over a
+    range reconstructs cash_available, and buying power is
+    cash_available - cash_reserved. Pin this so a future reconciler and
+    the live column can't silently diverge."""
+    __tablename__ = "paper_ledger"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('seed', 'buy_debit', 'sell_credit', "
+            "'reserve', 'release', 'settlement')",
+            name="ck_paper_ledger_kind",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    fill_id = Column(
+        String(36), ForeignKey("paper_fills.id"), nullable=True,
+    )
+    kind = Column(String(24), nullable=False)
+    amount = Column(Numeric(18, 4), nullable=False)  # signed
+    balance_after = Column(Numeric(18, 4), nullable=False)  # running cash_available
+    note = Column(String(200), nullable=True)
+    recorded_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        nullable=False, index=True,
+    )
+
+    account = relationship("PaperAccount", back_populates="ledger_entries")
+
+
+class ForwardIdea(Base):
+    """The forward-test unit: a durable idea (a workflow, a chat turn, or
+    a saved strategy) whose paper fills accrue an attributable, live,
+    out-of-sample track record.
+
+    Dedup of idea creation is enforced in the RESOLVER, not a DB index
+    (P0 keeps the schema permissive). Natural identity per origin_kind:
+    workflow -> (account_id, workflow_id); strategy -> (account_id,
+    strategy_id); chat -> (account_id, conversation_id, label) — note
+    one chat can spawn several distinct ideas, so the chat key includes
+    the label. The resolver MUST be race-proof under the concurrent
+    scheduler: SELECT ... FOR UPDATE (Postgres) or an advisory lock, or
+    add partial UNIQUE indexes in the forward-test phase. Without that a
+    double-fire forks an idea and splits its scorecard series."""
+    __tablename__ = "forward_ideas"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('paper', 'candidate', 'promoted', 'retired')",
+            name="ck_forward_ideas_status",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    origin_kind = Column(String(16), nullable=False)  # workflow/chat/strategy/manual
+    workflow_id = Column(
+        String(36), ForeignKey("workflows.id"), nullable=True, index=True,
+    )
+    conversation_id = Column(
+        String(36), ForeignKey("conversations.id"), nullable=True,
+    )
+    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
+    label = Column(String(140), nullable=False)  # LLM/user-named
+    inception_date = Column(Date, nullable=True)  # first paper fill
+    status = Column(String(16), nullable=False, default="paper")
+    status_changed_at = Column(DateTime(timezone=True), nullable=True)
+    # SOFT reference to dsl_backtest_runs.id (no hard FK — see header).
+    backtest_run_id = Column(String(36), nullable=True)
+    cohort_trial_count = Column(Integer, nullable=False, default=1)  # DSR deflation
+    # List-view copy (cum_return, sharpe, alpha, psr, mdd), refreshed at
+    # each daily close. Everything else is computed on read.
+    # Dialect-aware so create_all matches the migration on Postgres:
+    # JSONB on PG (operator + GIN support), JSON on SQLite. Plain `JSON`
+    # would render as `json` on PG via create_all while the migration
+    # pins `jsonb` — a silent physical-type divergence between the two
+    # build paths. with_variant closes that gap.
+    scorecard_cache = Column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    account = relationship("PaperAccount", back_populates="ideas")
+    orders = relationship("PaperOrder", back_populates="idea")
+    fills = relationship("PaperFill", back_populates="idea")
+    idea_nav_snapshots = relationship(
+        "PaperIdeaNavSnapshot", back_populates="idea",
+        cascade="all, delete-orphan",
+    )
+
+
+class PaperNavSnapshot(Base):
+    """Account-grain daily equity point — backs the NAV / equity curve.
+    One row per (account, as_of_date) (the EOD snapshot job upserts)."""
+    __tablename__ = "paper_nav_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id", "as_of_date",
+            name="uq_paper_nav_snapshots_account_date",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    as_of_date = Column(Date, nullable=False, index=True)
+    cash_available = Column(Numeric(18, 4), nullable=False)
+    cash_settled = Column(Numeric(18, 4), nullable=False)
+    positions_mv = Column(Numeric(18, 4), nullable=False)  # sum qty * LTP
+    nav = Column(Numeric(18, 4), nullable=False)  # cash_available + positions_mv
+    realized_pnl_cum = Column(Numeric(18, 4), nullable=False)
+    unrealized_pnl = Column(Numeric(18, 4), nullable=False)
+    nifty_close = Column(Float, nullable=True)  # market benchmark for alpha/IR
+    is_stale = Column(Boolean, nullable=False, default=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    account = relationship("PaperAccount", back_populates="nav_snapshots")
+
+
+class PaperIdeaNavSnapshot(Base):
+    """Idea-grain daily equity point — the forward-test scorecard series.
+    An idea owns the lots its fills opened (FIFO over paper_fills.idea_id;
+    no separate lots table in v1)."""
+    __tablename__ = "paper_idea_nav_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "idea_id", "as_of_date",
+            name="uq_paper_idea_nav_snapshots_idea_date",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    idea_id = Column(
+        String(36), ForeignKey("forward_ideas.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    # CASCADE for symmetry with every other account-pointing child, so an
+    # account delete drains this table directly (not only via the idea
+    # CASCADE path) — removes the ordering dependency a NO ACTION FK had.
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    as_of_date = Column(Date, nullable=False, index=True)
+    committed_capital = Column(Numeric(18, 4), nullable=False)  # open-lot cost basis
+    positions_mv = Column(Numeric(18, 4), nullable=False)  # MV of this idea's lots
+    idea_nav = Column(Numeric(18, 4), nullable=False)  # committed-cash slice + MV
+    realized_pnl = Column(Numeric(18, 4), nullable=False)
+    unrealized_pnl = Column(Numeric(18, 4), nullable=False)
+    nifty_close = Column(Float, nullable=True)  # market shared benchmark
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    idea = relationship("ForwardIdea", back_populates="idea_nav_snapshots")
 
 
 # ─── Agent System (Workflows v1) ──────────────────────────────────────
