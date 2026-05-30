@@ -14,6 +14,11 @@ os.environ["AZURE_KEY"] = ""
 # freshly-registered user starts truly empty. Tests that exercise the
 # seeder explicitly opt-in by un-setting this in their own setup.
 os.environ["DEMO_SEED_ON_REGISTER"] = "0"
+# Paper trading is ON by default in dev/prod, but pinned OFF in tests so the
+# existing engine/action tests exercise the stable Kite-mock execution path
+# deterministically. Paper-specific tests opt in (monkeypatch the flag True);
+# see tests/test_paper_routing.py.
+os.environ["PAPER_TRADING_ENABLED"] = "false"
 
 import pytest
 from sqlalchemy import create_engine

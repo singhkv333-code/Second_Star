@@ -357,8 +357,10 @@ def test_action_retry_with_distinct_attempt_ids(
             raise RuntimeError("transient broker error")
         return {"order_id": "MOCK_OK", "status": "COMPLETE"}
 
-    import backend.workflows.steps.actions as actions_mod
-    monkeypatch.setattr(actions_mod, "place_order", flaky_place_order)
+    # Patched at the canonical Kite seam — action.place_order now routes
+    # through backend.paper.routing.submit_order, which (paper off in
+    # tests) calls backend.kite.orders.place_order and forwards `tag`.
+    monkeypatch.setattr("backend.kite.orders.place_order", flaky_place_order)
 
     asyncio.run(WorkflowEngine().execute_run(run.id))
 

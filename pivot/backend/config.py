@@ -112,6 +112,15 @@ class Settings(BaseSettings):
     # query is negligible.
     polymarket_ws_reconcile_interval_s: int = 30
 
+    # --- Paper trading (simulated broker) -------------------------------------
+    # When True, orders from chat (/orders/confirm, /orders/gtt) and from
+    # workflow action.* steps route through the PaperBroker (backend/paper/)
+    # for any account in mode='paper' (the default), filling against live
+    # prices and accruing a structured portfolio. When False, orders take the
+    # legacy Kite path (mock in dev). The per-account `mode` column is the
+    # finer switch: mode='live' always uses Kite even with this flag on.
+    paper_trading_enabled: bool = True
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",")]

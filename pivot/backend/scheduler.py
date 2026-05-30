@@ -146,7 +146,10 @@ async def execute_due_sips():
     from backend.database import SessionLocal
     from backend.kite.auth import read_kite_access_token
     from backend.models import SIPSchedule, TradeLog, User
-    from backend.kite.orders import place_order
+    # Route SIP buys through the paper shim too, so a paper-mode user's
+    # recurring SIP fills into the same structured portfolio as their chat
+    # + workflow orders (not a separate kite-mock book).
+    from backend.paper.routing import submit_order_for_user
     from backend.cache import get_redis
 
     fired_at = now_ist()
@@ -193,7 +196,8 @@ async def execute_due_sips():
                     else ""
                 ) or "mock_token"
 
-                result = place_order(
+                result = submit_order_for_user(
+                    db, sip.user_id,
                     access_token=kite_token,
                     tradingsymbol=sip.symbol,
                     exchange="NSE",
@@ -202,6 +206,9 @@ async def execute_due_sips():
                     order_type="MARKET",
                     product="CNC",
                     tag=f"sip_{sip.id}",
+                    # retry-stable per SIP per day so a re-run doesn't double-fill
+                    client_request_id=f"sip:{sip.id}:{now_ist().strftime('%Y-%m-%d')}",
+                    source="sip",
                 )
 
                 execution_time_ist = format_ist(now_ist())

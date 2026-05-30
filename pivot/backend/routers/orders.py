@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from backend.database import get_db
 from backend.models import TradeLog, User
 from backend.auth.jwt_handler import get_user_id_from_token
-from backend.kite import orders as kite_orders
 from backend.kite import portfolio as kite_portfolio
+from backend.paper.routing import submit_gtt_for_user, submit_order_for_user
 from backend.kite.auth import read_kite_access_token
 from backend.agents.explainer import explain_order
 from backend.safety import validate_order_value, is_market_open, REQUIRE_CONFIRMATION
@@ -31,6 +31,9 @@ class OrderPreviewRequest(BaseModel):
 class OrderConfirmRequest(BaseModel):
     preview_id: str
     is_confirmed: bool = Field(..., description="Must be True to execute")
+    # Optional chat conversation id so paper fills can be grouped by the
+    # conversation that produced them (forward-test attribution, P6).
+    conversation_id: Optional[str] = None
 
 
 class GTTOrderRequest(BaseModel):
@@ -42,6 +45,7 @@ class GTTOrderRequest(BaseModel):
     limit_price: float
     last_price: float
     is_confirmed: bool = False
+    conversation_id: Optional[str] = None
 
 
 def get_current_user_token(authorization: str = Header(None)) -> tuple:
@@ -132,7 +136,12 @@ async def confirm_order(
     if user and user.kite_session:
         kite_token = read_kite_access_token(user.kite_session) or "mock_token"
 
-    result = kite_orders.place_order(
+    # Routes to the paper broker for accounts in mode='paper' (so the
+    # confirmed order fills into the structured portfolio); falls back to
+    # the Kite path otherwise. Idempotent on the preview id so a
+    # double-confirm of the same preview doesn't double-fill.
+    result = submit_order_for_user(
+        db, user_id,
         access_token=kite_token,
         tradingsymbol=req["tradingsymbol"],
         exchange=req["exchange"],
@@ -141,6 +150,9 @@ async def confirm_order(
         order_type=req["order_type"],
         price=req.get("price"),
         product=req.get("product", "CNC"),
+        client_request_id=f"chat-confirm:{request.preview_id}",
+        source="chat",
+        conversation_id=request.conversation_id,
     )
 
     # Log to DB — store placed_at as IST-aware datetime
@@ -335,7 +347,8 @@ async def create_gtt_order(
         if user and user.kite_session
         else "mock"
     ) or "mock"
-    return kite_orders.place_gtt_order(
+    result = submit_gtt_for_user(
+        db, user_id,
         access_token=kite_token,
         tradingsymbol=request.tradingsymbol,
         exchange=request.exchange,
@@ -344,4 +357,32 @@ async def create_gtt_order(
         trigger_price=request.trigger_price,
         limit_price=request.limit_price,
         last_price=request.last_price,
+        # Stable idempotency key so a double-submit doesn't double-register
+        # the GTT in the paper book (mirrors /orders/confirm's preview key).
+        client_request_id=(
+            f"chat-gtt:{user_id}:{request.tradingsymbol}:"
+            f"{request.trigger_price}:{request.limit_price}"
+        ),
+        source="chat",
+        conversation_id=request.conversation_id,
     )
+    # The paper broker only FLUSHES; the router owns commit. (The legacy
+    # kite path wrote nothing to the DB, so this commit is new + required
+    # for paper.) Also persist a TradeLog for parity with /orders/confirm
+    # so the GTT shows in /orders/history.
+    db.add(TradeLog(
+        user_id=user_id,
+        kite_order_id=str(result.get("trigger_id") or result.get("order_id") or ""),
+        symbol=request.tradingsymbol,
+        exchange=request.exchange,
+        transaction_type=request.transaction_type,
+        order_type="GTT",
+        quantity=request.quantity,
+        price=request.limit_price,
+        trigger_price=request.trigger_price,
+        status=str(result.get("status", "active")),
+        source="chat",
+        placed_at=now_ist(),
+    ))
+    db.commit()
+    return result

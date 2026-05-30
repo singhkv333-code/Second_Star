@@ -20,9 +20,38 @@ from typing import Any, Optional
 from backend.kite.orders import (
     cancel_order,
     get_orders,
-    place_gtt_order,
     place_order,
 )
+# Entry + GTT placements route through the paper broker (by account mode);
+# squareoff_* / cancel_orders keep using the kite helpers above because
+# they size from kite get_positions / get_orders (paper reads land in P4).
+from backend.paper.routing import (
+    paper_position_qty,
+    should_use_paper,
+    submit_gtt,
+    submit_order,
+)
+
+
+def _paper_unsupported(kind: str) -> dict[str, Any]:
+    """squareoff_* / cancel_orders size from kite get_positions/get_orders,
+    which do NOT reflect the paper book (paper position/order reads land in
+    P4). For a paper account, return an explicit skipped result so the run
+    is HONEST rather than reporting phantom fills from the mock fixture."""
+    if kind == "cancel":
+        return {
+            "cancelled_count": 0, "order_ids": [],
+            "paper_mode_unsupported": True,
+            "message": "cancel_orders not supported in paper mode yet (P4)",
+        }
+    return {
+        "orders": [], "skipped": [], "n_filled": 0, "n_skipped": 0,
+        "paper_mode_unsupported": True,
+        "message": (
+            "squareoff not supported in paper mode yet (P4); use "
+            "action.place_order SELL to exit a paper position"
+        ),
+    }
 from backend.models import StepStatus, WorkflowApproval
 from backend.workflows.engine import _AwaitingApproval
 from backend.workflows.registry import register_step
@@ -241,7 +270,8 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
             "action.place_order: neither quantity nor notional_inr provided"
         )
 
-    result = place_order(
+    result = submit_order(
+        ctx,
         access_token=token,
         tradingsymbol=str(cfg["symbol"]),
         exchange="NSE",
@@ -304,6 +334,8 @@ async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
     filters. Idempotent: cancelling an already-cancelled order is a
     no-op (Kite returns CANCELLED). On retry, only orders still pending
     get re-cancelled — the order_id list shrinks naturally."""
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        return _paper_unsupported("cancel")
     cfg = ctx.config
     symbol_filter = (cfg.get("symbol_filter") or "").upper() or None
     side_filter = (cfg.get("side_filter") or "").upper() or None  # BUY/SELL
@@ -393,14 +425,18 @@ async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_price = float(trigger_price)
 
     if qty is None:
-        # Default to current holding quantity for the symbol.
-        from backend.services.portfolio import get_user_portfolio
-        portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
-        holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
-        for h in holdings:
-            if str(h.get("tradingsymbol", "")).upper() == symbol:
-                qty = int(h.get("quantity", 0))
-                break
+        # Default to the current holding qty — sized from the PAPER
+        # position when this account fills in paper, else the kite holding.
+        if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+            qty = paper_position_qty(ctx.db, int(ctx.workflow.user_id), symbol)
+        else:
+            from backend.services.portfolio import get_user_portfolio
+            portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
+            holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
+            for h in holdings:
+                if str(h.get("tradingsymbol", "")).upper() == symbol:
+                    qty = int(h.get("quantity", 0))
+                    break
     if not qty or int(qty) <= 0:
         raise ValueError(
             f"action.set_stoploss: no quantity specified and no holding "
@@ -408,7 +444,8 @@ async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
         )
 
     # GTT limit price is the trigger_price (sell at the trigger).
-    result = place_gtt_order(
+    result = submit_gtt(
+        ctx,
         access_token=token,
         tradingsymbol=symbol,
         exchange="NSE",
@@ -472,20 +509,24 @@ async def execute_action_set_takeprofit(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_price = float(trigger_price)
 
     if qty is None:
-        from backend.services.portfolio import get_user_portfolio
-        portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
-        holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
-        for h in holdings:
-            if str(h.get("tradingsymbol", "")).upper() == symbol:
-                qty = int(h.get("quantity", 0))
-                break
+        if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+            qty = paper_position_qty(ctx.db, int(ctx.workflow.user_id), symbol)
+        else:
+            from backend.services.portfolio import get_user_portfolio
+            portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
+            holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
+            for h in holdings:
+                if str(h.get("tradingsymbol", "")).upper() == symbol:
+                    qty = int(h.get("quantity", 0))
+                    break
     if not qty or int(qty) <= 0:
         raise ValueError(
             f"action.set_takeprofit: no quantity specified and no "
             f"holding of {symbol} found"
         )
 
-    result = place_gtt_order(
+    result = submit_gtt(
+        ctx,
         access_token=token,
         tradingsymbol=symbol,
         exchange="NSE",
@@ -564,7 +605,7 @@ async def execute_action_allocate_basket(
     placed: list[dict[str, Any]] = []
     deployed = 0.0
     parent_req = ctx.client_request_id
-    for leg in legs_cfg:
+    for _leg_i, leg in enumerate(legs_cfg):
         sym = str(leg["symbol"]).upper()
         weight = float(leg["weight"]) / weights_sum
         slice_inr = total_inr * weight
@@ -578,7 +619,8 @@ async def execute_action_allocate_basket(
             continue
         leg_tag = f"basket_{parent_req[:10]}_{sym[:10]}"
         try:
-            r = place_order(
+            r = submit_order(
+                ctx,
                 access_token=token,
                 tradingsymbol=sym,
                 exchange="NSE",
@@ -588,6 +630,7 @@ async def execute_action_allocate_basket(
                 price=None,
                 product="CNC",
                 tag=leg_tag,
+                leg_key=str(_leg_i),
             )
         except Exception as e:
             placed.append({"symbol": sym, "status": "failed", "error": str(e)[:200]})
@@ -637,6 +680,8 @@ async def execute_action_squareoff_all(
     sends opposite-side market orders to flatten each. Backtest fills
     at close (consistent with squareoff_all_intraday); live executor
     matches the broker's standard squareoff path."""
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        return _paper_unsupported("squareoff")
     from backend.kite.portfolio import get_positions
 
     token = _kite_token_for_run(ctx)
@@ -902,18 +947,20 @@ async def execute_action_allocate_notional(
     orders: list[dict[str, Any]] = []
     deployed = 0.0
     parent_req = ctx.client_request_id
-    for r in symbol_rows:
+    for _leg_i, r in enumerate(symbol_rows):
         if r["qty"] <= 0:
             continue
         leg_tag = f"wf_{parent_req[:10]}_{r['symbol'][:10]}"
         try:
-            result = place_order(
+            result = submit_order(
+                ctx,
                 access_token=token,
                 tradingsymbol=r["symbol"],
                 exchange="NSE",
                 transaction_type=txn_type,
                 quantity=r["qty"],
                 order_type=order_type,
+                leg_key=str(_leg_i),
                 price=None,
                 product="CNC",
                 tag=leg_tag,
@@ -1050,6 +1097,8 @@ async def execute_action_squareoff_all_intraday(
 ) -> Optional[dict[str, Any]]:
     from backend.kite.portfolio import get_positions
 
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        return _paper_unsupported("squareoff")
     token = _kite_token_for_run(ctx)
     positions = get_positions(token)
     legs = _build_squareoff_legs(
@@ -1094,6 +1143,8 @@ async def execute_action_squareoff_symbol(
 ) -> Optional[dict[str, Any]]:
     from backend.kite.portfolio import get_positions
 
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        return _paper_unsupported("squareoff")
     cfg = ctx.config
     symbol = str(cfg["symbol"]).upper()
     product = str(cfg.get("product", "MIS")).upper()

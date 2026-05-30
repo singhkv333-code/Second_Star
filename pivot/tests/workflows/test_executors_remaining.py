@@ -324,7 +324,7 @@ async def test_set_stoploss_uses_explicit_quantity(
         seen.update(kwargs)
         return {"trigger_id": 999, "status": "active"}
 
-    monkeypatch.setattr(actions_mod, "place_gtt_order", _fake_gtt)
+    monkeypatch.setattr("backend.kite.orders.place_gtt_order", _fake_gtt)
     out = await execute_action_set_stoploss(_StubCtx({
         "symbol": "INFY", "trigger_price": 1400.0, "quantity": 10,
     }))
@@ -348,7 +348,7 @@ async def test_set_stoploss_defaults_to_holding_qty(
     )
     seen: dict[str, Any] = {}
     monkeypatch.setattr(
-        actions_mod, "place_gtt_order",
+        "backend.kite.orders.place_gtt_order",
         lambda **kwargs: seen.update(kwargs) or {"trigger_id": 1, "status": "active"},
     )
     await execute_action_set_stoploss(_StubCtx({

@@ -17,13 +17,17 @@ multi-step work in ONE transaction). The risky insert is wrapped in a
 SAVEPOINT (begin_nested) so a client_request_id collision rolls back ONLY
 that insert, never the caller's other uncommitted work.
 
-Idempotency is scoped to the user: a known (user_id, client_request_id)
-replays the prior order; a flush-time collision is caught and resolved.
-NOTE (for the P2 shim): the workflow engine derives its client_request_id
-from sha1(run_id:step_index:attempts) — `attempts` is in the key, so a
-RETRY presents a different id and won't dedup against the prior attempt.
-The shim should pass a retry-stable key (drop attempts) to get true
-at-most-once placement across engine retries.
+Idempotency: the lookup is USER-SCOPED (a known (user_id,
+client_request_id) replays that user's prior order). The DB unique index
+on client_request_id is GLOBAL, however, so callers MUST namespace crids
+per user — all current callers do (workflow: wf:{run_id}:…; chat:
+chat-confirm:{preview_id} / chat-gtt:{user_id}:…; sip:{sip_id}:…, each
+embedding a per-user id). A hypothetical cross-user crid reuse would raise
+IntegrityError (not silently return another user's order); if a future
+caller can't guarantee per-user namespacing, make the index composite
+(user_id, client_request_id). The P2 shim already passes a RETRY-STABLE
+key (run_id:step_index, excluding the engine's attempts counter) so an
+engine retry dedups instead of double-filling.
 """
 from __future__ import annotations
 

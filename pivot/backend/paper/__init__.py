@@ -16,5 +16,22 @@ decimal.Decimal. Everything in this package does money math in Decimal
 """
 from backend.paper.accounts import get_or_create_account
 from backend.paper.broker import PaperBroker
+from backend.paper.routing import (
+    paper_position_qty,
+    should_use_paper,
+    submit_gtt,
+    submit_gtt_for_user,
+    submit_order,
+    submit_order_for_user,
+)
 
-__all__ = ["PaperBroker", "get_or_create_account"]
+__all__ = [
+    "PaperBroker",
+    "get_or_create_account",
+    "should_use_paper",
+    "paper_position_qty",
+    "submit_order",
+    "submit_gtt",
+    "submit_order_for_user",
+    "submit_gtt_for_user",
+]

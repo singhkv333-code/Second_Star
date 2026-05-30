@@ -1182,3 +1182,36 @@ no ALTER on any existing table.
 **Documented simplifications (P1):** sub-2-paise avg-cost/realized rounding residue (bounded, never touches cash, guard-tested ≤ ₹0.02); `cash_settled` moved without its own ledger row; `settles_at` = calendar +1 day; AMO/variety recorded but not honored; engine crid includes `attempts` (P2 shim should pass a retry-stable key for true at-most-once).
 
 **Next: P2 — route chat + workflow actions through the PaperBroker by account `mode`** (the shim), and fold in the retry-stable crid. Awaiting go-ahead.
+
+
+---
+
+## 13. P2 Build Log — Order Routing Shim (shipped 2026-05-30, branch `Eventtriggers`)
+
+**Status: COMPLETE & VERIFIED.** Triggered + chat orders now land in the paper portfolio (by account `mode`).
+
+**Artifacts**
+| File | What |
+|---|---|
+| `pivot/backend/paper/routing.py` | `should_use_paper` (flag + mode); `submit_order`/`submit_gtt` (workflow ctx + retry-stable crid + attribution + `leg_key`); `submit_order_for_user`/`submit_gtt_for_user` (chat); `paper_position_qty` |
+| `pivot/backend/workflows/steps/actions.py` | 5 entry/GTT sites routed; squareoff_*/cancel_orders guarded to skip in paper mode; SL/TP size from paper position; basket legs carry `leg_key` |
+| `pivot/backend/routers/orders.py` | `/orders/confirm` + `/orders/gtt` routed; **`/orders/gtt` now commits + writes a TradeLog**; `conversation_id` threaded |
+| `pivot/backend/scheduler.py` | SIP autofire routed through the shim |
+| `pivot/backend/config.py` | `paper_trading_enabled` flag (default on; pinned off in tests) |
+| `pivot/tests/test_paper_routing.py` | 13 tests incl. a real engine `_ExecutorContext → paper fill` + an HTTP `/orders/gtt` persistence test |
+
+**Routing decision:** paper ⟸ `paper_trading_enabled AND account.mode=='paper'` (the default); else Kite (mock in dev). Kite is called via the **canonical module** (`backend.kite.orders.*`) so it stays the patchable test seam. Crid is **retry-stable** (`wf:{run}:{step}:{side}:{symbol}[:{leg}]`, excludes the engine's `attempts`).
+
+**Verification:** 61 paper tests pass; full backend regression **8 failed / 574 passed with zero P2-caused regressions** (the 8 are pre-existing — proven identical with P2 stashed); ruff/mypy clean on new surfaces; 3 existing tests that mocked the order seam were repointed at the canonical Kite seam without weakening their assertions.
+
+**Adversarially verified** by a 4-agent review (routing, integration, idempotency, completeness critic). Fixes applied:
+- **BLOCKER** — `/orders/gtt` never committed → a chat paper GTT was flushed then rolled back (phantom success). Now commits + writes a TradeLog; HTTP test added.
+- **MAJOR** — SIP autofire bypassed the shim → routed through `submit_order_for_user`.
+- **MAJOR** — squareoff_*/cancel_orders in paper mode silently acted on Kite mock positions (lying run cards) → now return an explicit `paper_mode_unsupported` skip.
+- **MAJOR** — a duplicate symbol+side in one basket step collapsed via the crid → silent under-fill → added a `leg_key` ordinal so each leg fills (position aggregates).
+- **MAJOR** — paper SL/TP sized quantity from the Kite holding → now sizes from the paper position (`paper_position_qty`).
+- **MINOR** — `/orders/gtt` idempotency crid; `conversation_id` attribution for chat; `should_use_paper` logs the swallowed exception; broker crid-namespacing docstring clarified.
+
+**Documented (deferred):** squareoff/cancel coherence + paper position/order reads → P4; the confirm/gtt double-write (paper book + TradeLog audit log) is intentional (TradeLog = append-only history).
+
+**Next: P3 — resting-order fill evaluator + mark-to-market + daily NAV snapshots** (scheduler jobs); then P4 (REST API + paper position reads), P5 (FE dashboard), P6 (forward-test scorecards). Awaiting go-ahead.
