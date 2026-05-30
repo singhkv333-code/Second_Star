@@ -10,6 +10,16 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
+        // The Agent System client (lib/api.ts `request()`) targets the
+        // `/api` base; when NEXT_PUBLIC_PIVOT_API_BASE isn't inlined it
+        // falls back to the RELATIVE `/api/*`, so proxy that to the backend
+        // (which serves the Agent System under /api). Without this, calls
+        // like /api/workflows hit Next's 404 -> "Failed to fetch" in the
+        // Active Agents rail. Mirrors the legacy /chat,/paper,... rewrites.
+        source: "/api/:path*",
+        destination: `${BACKEND}/api/:path*`,
+      },
+      {
         source: "/chat/:path*",
         destination: `${BACKEND}/chat/:path*`,
       },
