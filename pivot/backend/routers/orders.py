@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 from backend.database import get_db
 from backend.models import TradeLog, User
 from backend.auth.jwt_handler import get_user_id_from_token
-from backend.kite import portfolio as kite_portfolio
-from backend.paper.routing import submit_gtt_for_user, submit_order_for_user
+from backend.paper.routing import (
+    should_use_paper,
+    submit_gtt_for_user,
+    submit_order_for_user,
+)
 from backend.kite.auth import read_kite_access_token
 from backend.agents.explainer import explain_order
-from backend.safety import validate_order_value, is_market_open, REQUIRE_CONFIRMATION
+from backend.safety import validate_order_value
 from backend.utils.time_utils import format_ist, now_ist
 import logging
 
@@ -239,21 +242,67 @@ class OrderRegisterRequest(BaseModel):
     # Basket form
     basket: bool = False
     legs: Optional[List[OrderRegisterLeg]] = None
+    # Chat conversation that produced this order — so a paper fill attributes
+    # to the right forward-test idea (P6). Optional.
+    conversation_id: Optional[str] = None
 
 
-def _persist_leg(db: Session, user_id: int, leg: dict) -> TradeLog:
-    """Write a single TradeLog row for a registered (not executed) order."""
+def _persist_leg(
+    db: Session, user_id: int, leg: dict, *, conversation_id: Optional[str] = None,
+) -> TradeLog:
+    """Persist a chat order intent as a TradeLog row.
+
+    When the user's account is in PAPER mode, the order is ALSO routed through
+    the paper broker (so it fills into the paper book and shows up in the Paper
+    dashboard); the TradeLog status then reflects the paper outcome
+    (filled / resting / rejected) and carries the paper order id. Otherwise it
+    stays the legacy register-only intent (status='registered', no broker).
+    """
+    symbol = leg["symbol"].upper()
+    side = leg["transaction_type"]
+    order_type = leg["order_type"]
+    qty = int(leg["quantity"])
+
+    order_status = "registered"
+    paper_order_id: Optional[str] = None
+
+    if should_use_paper(db, user_id):
+        try:
+            result = submit_order_for_user(
+                db, user_id,
+                tradingsymbol=symbol,
+                exchange=leg.get("exchange", "NSE"),
+                transaction_type=side,
+                quantity=qty,
+                order_type=order_type,
+                price=leg.get("price"),
+                product=leg.get("product", "CNC"),
+                trigger_price=leg.get("trigger_price"),
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            # paper_status is one of filled / resting / rejected / pending.
+            order_status = result.get("paper_status") or "registered"
+            paper_order_id = result.get("order_id")
+        except Exception:
+            # A paper-routing failure must not lose the user's intent — fall
+            # back to recording it as a plain registered order.
+            logger.exception(
+                "paper routing failed for chat order %s %s; registering only",
+                side, symbol,
+            )
+
     row = TradeLog(
         user_id=user_id,
-        kite_order_id=None,                    # never sent to a broker
-        symbol=leg["symbol"].upper(),
+        kite_order_id=paper_order_id,          # the paper order id (or None)
+        symbol=symbol,
         exchange=leg.get("exchange", "NSE"),
-        transaction_type=leg["transaction_type"],
-        order_type=leg["order_type"],
-        quantity=int(leg["quantity"]),
+        transaction_type=side,
+        order_type=order_type,
+        quantity=qty,
         price=leg.get("price"),
         trigger_price=leg.get("trigger_price"),
-        status="registered",
+        status=order_status,
         source="chat-confirm",
         placed_at=now_ist(),
     )
@@ -277,7 +326,13 @@ async def register_order(
 
     # Basket: write one TradeLog row per leg.
     if request.basket and request.legs:
-        rows = [_persist_leg(db, user_id, leg.model_dump()) for leg in request.legs]
+        rows = [
+            _persist_leg(
+                db, user_id, leg.model_dump(),
+                conversation_id=request.conversation_id,
+            )
+            for leg in request.legs
+        ]
         db.commit()
         for r in rows:
             db.refresh(r)
@@ -314,7 +369,7 @@ async def register_order(
         "trigger_price": request.trigger_price,
         "product": request.product or "CNC",
     }
-    row = _persist_leg(db, user_id, leg)
+    row = _persist_leg(db, user_id, leg, conversation_id=request.conversation_id)
     db.commit()
     db.refresh(row)
     return {

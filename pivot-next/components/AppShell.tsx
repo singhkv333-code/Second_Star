@@ -407,15 +407,18 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             to the bottom (ChatGPT/Claude-style). Other tabs get the
             old scrollable wrapper. */}
         <main className="flex flex-1 min-w-0 min-h-0 flex-col">
-          {children ? (
-            // Custom main-pane content (e.g. stock detail page). Scrolls
-            // independently; same px-8 / py-6 padding the other full-bleed
-            // tabs use so the page chrome lines up.
-            <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
-              {children}
-            </div>
-          ) : active === "chat" ? (
-            <div className="relative flex h-full w-full min-h-0">
+          {/* Chat surface — ALWAYS mounted so the conversation survives tab
+              switches; hidden via `hidden` when another surface (or custom
+              children) is shown. The OTHER tabs stay conditionally mounted
+              below and re-fetch on mount (desirable for fresh data, e.g. the
+              Paper dashboard picking up a newly-filled order). */}
+          <div
+            className={
+              !children && active === "chat"
+                ? "relative flex h-full w-full min-h-0"
+                : "hidden"
+            }
+          >
               {/* Floating "New chat" button — pinned to the top-right
                   of the entire chat surface (not the thread column),
                   so it doesn't collide with right-aligned user bubbles.
@@ -492,7 +495,13 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 />
               </div>
             </div>
-          ) : active === "calendar" ? (
+          {/* Non-chat surfaces — conditionally mounted (re-fetch on mount). */}
+          {children ? (
+            // Custom main-pane content (e.g. stock detail page).
+            <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
+              {children}
+            </div>
+          ) : active === "chat" ? null : active === "calendar" ? (
             // Calendar gets full pane height (the day panel + month grid
             // consume vertical space; no outer scroll).
             <div className="flex-1 min-h-0 px-8 pt-6 flex flex-col">
