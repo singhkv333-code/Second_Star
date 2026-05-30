@@ -1381,7 +1381,10 @@ export function ChatDemo({
                     </div>
                   )}
                   <div className="flex justify-start">
-                    <LogicCardChip card={msg.card} />
+                    <LogicCardChip
+                      card={msg.card}
+                      conversationId={sessionIdRef.current}
+                    />
                   </div>
                 </div>
               );

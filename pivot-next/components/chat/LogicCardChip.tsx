@@ -116,8 +116,12 @@ type ConfirmState =
 
 export function LogicCardChip({
   card,
+  conversationId,
 }: {
   card: LogicCard;
+  /** Chat session id — sent with the order so a paper fill attributes to
+      the right forward-test idea (Paper → Ideas). */
+  conversationId?: string;
 }): React.ReactElement {
   const [state, setState] = useState<ConfirmState>({ kind: "idle" });
 
@@ -129,9 +133,10 @@ export function LogicCardChip({
   const handleConfirm = async (): Promise<void> => {
     if (!card.register_payload) return;
     setState({ kind: "submitting" });
-    const result = await registerOrder(
-      card.register_payload as unknown as OrderRegisterRequest,
-    );
+    const result = await registerOrder({
+      ...(card.register_payload as unknown as OrderRegisterRequest),
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    });
     if (isError(result)) {
       setState({
         kind: "error",

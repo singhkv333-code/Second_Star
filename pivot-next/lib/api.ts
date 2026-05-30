@@ -582,7 +582,11 @@ export type OrderRegisterLeg = {
 export type OrderRegisterRequest = (
   | OrderRegisterLeg
   | { basket: true; legs: OrderRegisterLeg[] }
-);
+) & {
+  // Chat session id — when the account is in paper mode the order fills into
+  // the paper book and attributes to this conversation's forward-test idea.
+  conversation_id?: string;
+};
 
 export type RegisteredOrder = {
   id: number;
@@ -601,7 +605,8 @@ export type RegisterOrderResponse =
   | RegisteredOrder
   | { registered: RegisteredOrder[]; count: number };
 
-/** `POST /orders/register` — persist a chat LogicCard intent (no broker). */
+/** `POST /orders/register` — persist a chat LogicCard intent. In paper mode
+ *  the backend also routes it through the paper broker (fills the paper book). */
 export function registerOrder(
   body: OrderRegisterRequest,
 ): Promise<ApiResult<RegisterOrderResponse>> {

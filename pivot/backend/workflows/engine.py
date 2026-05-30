@@ -134,6 +134,10 @@ def _single_instance_lock(
         yield True
         return
 
+    # Postgres returns native uuid columns as Python UUID objects (SQLite
+    # returns plain strings); coerce so .encode()/dict-keys work on both.
+    workflow_id = str(workflow_id)
+
     dialect = db.bind.dialect.name if db.bind else ""
     if dialect == "postgresql":
         # Hash the UUID to a 64-bit signed int as required by PG advisory
