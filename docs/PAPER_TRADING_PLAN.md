@@ -1215,3 +1215,35 @@ no ALTER on any existing table.
 **Documented (deferred):** squareoff/cancel coherence + paper position/order reads → P4; the confirm/gtt double-write (paper book + TradeLog audit log) is intentional (TradeLog = append-only history).
 
 **Next: P3 — resting-order fill evaluator + mark-to-market + daily NAV snapshots** (scheduler jobs); then P4 (REST API + paper position reads), P5 (FE dashboard), P6 (forward-test scorecards). Awaiting go-ahead.
+
+
+---
+
+## 14. P3 Build Log — Resting Fills + Mark-to-Market + NAV Equity Curve (shipped 2026-05-30, branch `Eventtriggers`)
+
+**Status: COMPLETE & VERIFIED.** Resting orders now fill on a price tick, positions mark-to-market, and each paper account writes a daily NAV row — the equity curve. **Built with a parallel agent workflow** (4 modules concurrently) + lead integration.
+
+**Artifacts**
+| File | Role | Built by |
+|---|---|---|
+| `backend/paper/valuation.py` | `mark_positions`, `compute_account_nav` (+ position MV/unrealized/day-P&L) | agent |
+| `backend/paper/fills.py` (+`fill_resting_order`/`cancel_resting_order`/`_release_reserve`) | fill a resting order + the `release` ledger row | agent |
+| `backend/paper/evaluator.py` | `should_fill` (LIMIT/SL/GTT cross) + `evaluate_resting_orders` (+ OCO) | agent |
+| `backend/paper/snapshots.py` | `snapshot_account_nav` upsert + `latest_nav`/`nav_series` | agent |
+| `backend/paper/jobs.py` | `tick_paper_accounts` + `snapshot_all_navs` orchestrators (SAVEPOINT per account) | lead |
+| `backend/scheduler.py` | resting tick (every 5m, market hours) + EOD NAV (15:37 IST), gated on the flag | lead |
+| 5 test files + integration test | — | mixed |
+
+**Verified:** 99 paper tests pass (incl. an end-to-end: resting LIMIT → tick fills + releases reserve → NAV snapshot → equity curve grows over 2 days) · ruff/mypy clean · full regression 8 pre-existing fails / 619 passed (zero P3 regressions).
+
+**Adversarially verified** by a 4-agent review of the agent-written logic. Fixes applied:
+- **BLOCKER** — the evaluator discarded `fill_resting_order`'s return, so a REJECTED resting fill was reported as "filled" AND cancelled its OCO sibling (silent order loss). Now captures the return; only marks filled + runs OCO when the fill succeeds; rejects go to a `rejected` bucket. Regression-tested.
+- **MAJOR** — trigger direction was inferred from the *first scheduler tick*, so a stop placed in a falling market misclassified (fired backwards). Now `intended_price` is captured at **placement** (decision-time reference). Regression-tested.
+- **MAJOR** — the resting-BUY reserve excluded charges, so a near-max order self-rejected at fill after releasing → reserve is now charges-inclusive (`buy_cost`).
+- **MAJOR** — NAV omitted `cash_reserved` (equity curve dipped when an order rested, jumped on fill) → `nav = cash_available + cash_reserved + positions_mv`. Regression-tested.
+- **MAJOR** — batch orchestrators had no per-account isolation → SAVEPOINT + try/except per account so one bad account can't abort the pass.
+- **NIT** — `is not None` price checks; EOD snapshot offset to 15:37 (off the tick boundary).
+
+**Documented (deferred):** the OCO consumer is correct but has no producer yet (bracket orders land later); in mock/dev marks use yfinance daily close, not intraday LTP (prod should thread the Kite token — a follow-up); per-idea NAV + strict T+1 are P6/later.
+
+**Next: P4 — REST API for the paper portfolio + paper position/order reads** (which also unblocks squareoff coherence). Then P5 (Quartr dashboard), P6 (forward-test scorecards). Awaiting go-ahead.

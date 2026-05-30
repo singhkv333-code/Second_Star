@@ -187,3 +187,57 @@ def execute_market_fill(
     ))
     db.flush()
     return fill
+
+
+def _release_reserve(db: Session, account: PaperAccount, order: PaperOrder) -> None:
+    """Release a resting order's reserved cash back to cash_available.
+
+    Moves cash_reserved -> cash_available, writes a 'release' ledger row
+    (positive amount), zeroes order.reserved_cash, and flushes. No-op when
+    there is nothing reserved. Used by both the fill and cancel paths.
+    """
+    reserved = to_money(order.reserved_cash) if order.reserved_cash else to_money(0)
+    if reserved <= 0:
+        return
+    account.cash_available = to_money(account.cash_available) + reserved
+    account.cash_reserved = to_money(account.cash_reserved) - reserved
+    db.add(PaperLedgerEntry(
+        account_id=order.account_id,
+        kind="release",
+        amount=reserved,
+        balance_after=to_money(account.cash_available),
+        note=f"release {order.symbol}",
+    ))
+    order.reserved_cash = to_money(0)
+    db.flush()
+
+
+def fill_resting_order(
+    db: Session, order: PaperOrder, fill_price: Decimal,
+) -> Optional[PaperFill]:
+    """Fill a RESTING order at ``fill_price`` (P3 evaluator path).
+
+    Releases any cash this order reserved on placement (a 'release' ledger
+    row), then delegates to execute_market_fill — which re-reads cash, so
+    the release MUST be flushed first for the buying-power check to pass.
+    Reusing execute_market_fill gives the identical position/cash/ledger
+    accrual + the immutable PaperFill and sets order.status='filled'.
+    Returns the PaperFill on success, or None on a reject.
+    """
+    account = db.get(PaperAccount, order.account_id)
+    if account is None:  # FK guarantees this; explicit for safety + typing
+        raise ValueError(f"paper account {order.account_id} not found")
+    _release_reserve(db, account, order)
+    return execute_market_fill(db, order, fill_price)
+
+
+def cancel_resting_order(db: Session, order: PaperOrder) -> None:
+    """Cancel a resting order: release any reserved cash (cash move + a
+    'release' ledger row + zeroed reserved_cash), set status='cancelled',
+    and flush. No fill is written and no position changes."""
+    account = db.get(PaperAccount, order.account_id)
+    if account is None:  # FK guarantees this; explicit for safety + typing
+        raise ValueError(f"paper account {order.account_id} not found")
+    _release_reserve(db, account, order)
+    order.status = "cancelled"
+    db.flush()

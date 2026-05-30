@@ -16,6 +16,9 @@ decimal.Decimal. Everything in this package does money math in Decimal
 """
 from backend.paper.accounts import get_or_create_account
 from backend.paper.broker import PaperBroker
+from backend.paper.evaluator import evaluate_resting_orders
+from backend.paper.fills import cancel_resting_order, fill_resting_order
+from backend.paper.jobs import snapshot_all_navs, tick_paper_accounts
 from backend.paper.routing import (
     paper_position_qty,
     should_use_paper,
@@ -24,6 +27,8 @@ from backend.paper.routing import (
     submit_order,
     submit_order_for_user,
 )
+from backend.paper.snapshots import latest_nav, nav_series, snapshot_account_nav
+from backend.paper.valuation import compute_account_nav, mark_positions
 
 __all__ = [
     "PaperBroker",
@@ -34,4 +39,15 @@ __all__ = [
     "submit_gtt",
     "submit_order_for_user",
     "submit_gtt_for_user",
+    # P3 — resting fills, valuation, snapshots, scheduler orchestrators
+    "fill_resting_order",
+    "cancel_resting_order",
+    "evaluate_resting_orders",
+    "mark_positions",
+    "compute_account_nav",
+    "snapshot_account_nav",
+    "latest_nav",
+    "nav_series",
+    "tick_paper_accounts",
+    "snapshot_all_navs",
 ]

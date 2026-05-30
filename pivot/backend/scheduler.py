@@ -129,10 +129,88 @@ def _register_jobs():
         replace_existing=True,
     )
 
+    # Paper-trading jobs (only when the feature is on): fill resting orders
+    # on a market-hours interval, and snapshot each paper account's NAV at
+    # EOD (the equity curve). NAV mark-to-market is otherwise lazy-on-read.
+    from backend.config import settings as _settings
+    if getattr(_settings, "paper_trading_enabled", True):
+        scheduler.add_job(
+            tick_paper_resting_orders,
+            trigger=CronTrigger(
+                minute="*/5", hour="9-15",
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_tick_resting",
+            name="Paper: fill resting orders (every 5m, market hours IST)",
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            snapshot_paper_navs,
+            trigger=CronTrigger(
+                # 15:37 — deliberately OFF the */5 resting-tick boundary so
+                # the two jobs never coincide; after the 15:30 close + the
+                # last tick, so the snapshot sees the final marks.
+                hour=15, minute=37, second=0,
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_nav_snapshot",
+            name="Paper: daily NAV snapshot at 15:37 IST",
+            replace_existing=True,
+        )
+
     logger.info(
-        f"[{format_ist_short(now_ist())}] "
-        f"Registered 4 scheduler jobs. All times in IST."
+        f"[{format_ist_short(now_ist())}] Registered "
+        f"{len(scheduler.get_jobs())} scheduler jobs. All times in IST."
     )
+
+
+# ── Paper-trading jobs ───────────────────────────────────────────────────────
+
+async def tick_paper_resting_orders():
+    """Fill paper resting LIMIT/SL/GTT orders whose live price has crossed.
+    Runs every 5 minutes during market hours."""
+    from backend.database import SessionLocal
+    from backend.paper.jobs import tick_paper_accounts
+
+    db = SessionLocal()
+    try:
+        summary = tick_paper_accounts(db)
+        db.commit()
+        if summary["filled"] or summary["cancelled"]:
+            logger.info(
+                f"[paper] resting tick: filled={len(summary['filled'])} "
+                f"cancelled={len(summary['cancelled'])} across "
+                f"{summary['accounts']} account(s)"
+            )
+    except Exception:
+        db.rollback()
+        logger.exception("paper resting tick failed")
+    finally:
+        db.close()
+
+
+async def snapshot_paper_navs():
+    """Write each paper account's daily NAV snapshot (the equity curve).
+    Runs at 15:35 IST."""
+    from backend.database import SessionLocal
+    from backend.paper.jobs import snapshot_all_navs
+
+    db = SessionLocal()
+    try:
+        nifty = None
+        try:
+            from backend.kite.market_data import get_nifty_level
+            nifty = get_nifty_level()
+        except Exception:
+            pass
+        n = snapshot_all_navs(db, nifty_close=nifty)
+        db.commit()
+        logger.info(f"[paper] NAV snapshot written for {n} account(s)")
+    except Exception:
+        db.rollback()
+        logger.exception("paper NAV snapshot failed")
+    finally:
+        db.close()
 
 
 # ── Job 1: Execute Due SIPs ──────────────────────────────────────────────────

@@ -41,6 +41,7 @@ from backend.paper.accounts import get_or_create_account
 from backend.paper.fills import execute_market_fill
 from backend.paper.marks import get_mark_price
 from backend.paper.money import to_money
+from backend.services.trading_costs import buy_cost
 from backend.utils.time_utils import now_ist
 
 # Order types that rest until a price tick fills them (P3 evaluator).
@@ -183,12 +184,25 @@ class PaperBroker:
 
         if ot in _RESTING_TYPES:
             order.status = "resting"
+            # Capture a decision-time reference price so the P3 evaluator
+            # infers a trigger's direction (SL below entry vs TP above)
+            # from when the order was PLACED, not the first scheduler tick.
+            # Harmless for LIMIT (which keys off limit_price, not direction).
+            if order.intended_price is None:
+                ref = self._price(order.symbol)
+                if ref is not None and to_money(ref) > 0:
+                    order.intended_price = float(to_money(ref))
             # A resting LIMIT/SL BUY reserves cash up front so buying power
             # can't be double-spent before it fills (P3 fills/releases it).
             # Reject if the reservation exceeds buying power (mirrors the
             # MARKET path's check) so cash_available can't go negative.
             if side == "BUY" and ot in _IMMEDIATE_RESERVE and limit_price:
-                reserve = to_money(limit_price * qty)
+                # Reserve the CHARGES-INCLUSIVE net debit (not just
+                # limit*qty): the fill re-checks net_debit (incl. charges)
+                # against the released reserve, so an exclusive reserve let
+                # a near-max order self-reject after releasing. buy_cost at
+                # the limit is an upper bound on the fill-at-mark net debit.
+                reserve = to_money(buy_cost(float(limit_price), qty)[0])
                 buying_power = (
                     to_money(account.cash_available)
                     - to_money(account.cash_reserved)

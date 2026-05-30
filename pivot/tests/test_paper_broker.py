@@ -228,7 +228,7 @@ def test_limit_buy_rests_and_reserves_cash(session: Session) -> None:
     assert res["status"] == "OPEN" and res["paper_status"] == "resting"
     assert session.query(PaperFill).count() == 0  # not filled yet
     acct = session.query(PaperAccount).one()
-    reserve = to_money(95.0 * 10)
+    reserve = to_money(buy_cost(95.0, 10)[0])
     assert acct.cash_reserved == reserve
     assert acct.cash_available == to_money(Decimal("150000") - reserve)
     order = session.query(PaperOrder).one()
@@ -332,7 +332,7 @@ def test_settled_equals_available_plus_reserved(session: Session) -> None:
     acct = session.query(PaperAccount).one()
     # reserve moves available -> reserved; settled is total owned.
     assert acct.cash_settled == acct.cash_available + acct.cash_reserved
-    assert acct.cash_reserved == to_money(95.0 * 10)
+    assert acct.cash_reserved == to_money(buy_cost(95.0, 10)[0])
 
 
 # ── multi-leg sequences ──────────────────────────────────────────────────
