@@ -31,27 +31,6 @@ from backend.paper.routing import (
     submit_gtt,
     submit_order,
 )
-
-
-def _paper_unsupported(kind: str) -> dict[str, Any]:
-    """squareoff_* / cancel_orders size from kite get_positions/get_orders,
-    which do NOT reflect the paper book (paper position/order reads land in
-    P4). For a paper account, return an explicit skipped result so the run
-    is HONEST rather than reporting phantom fills from the mock fixture."""
-    if kind == "cancel":
-        return {
-            "cancelled_count": 0, "order_ids": [],
-            "paper_mode_unsupported": True,
-            "message": "cancel_orders not supported in paper mode yet (P4)",
-        }
-    return {
-        "orders": [], "skipped": [], "n_filled": 0, "n_skipped": 0,
-        "paper_mode_unsupported": True,
-        "message": (
-            "squareoff not supported in paper mode yet (P4); use "
-            "action.place_order SELL to exit a paper position"
-        ),
-    }
 from backend.models import StepStatus, WorkflowApproval
 from backend.workflows.engine import _AwaitingApproval
 from backend.workflows.registry import register_step
@@ -67,6 +46,112 @@ from backend.workflows.schemas import (
     ActionSquareoffSymbolConfig,
     ActionUpdateWatchlistConfig,
 )
+
+
+def _paper_squareoff(ctx: Any, *, symbol_filter: Optional[str] = None) -> dict[str, Any]:
+    """Square off paper positions (P4): read the PAPER book, place opposite-
+    side MARKET orders through the paper broker so they fill into the same
+    book. Paper is CNC long-only, so we flatten the CNC legs."""
+    from backend.paper.positions import paper_positions_kite_shape
+
+    positions = paper_positions_kite_shape(ctx.db, int(ctx.workflow.user_id))
+    legs = _build_squareoff_legs(
+        positions, product_filter="CNC", symbol_filter=symbol_filter,
+    )
+    placed: list[dict] = []
+    skipped: list[dict] = []
+    for leg in legs:
+        try:
+            r = submit_order(
+                ctx,
+                tradingsymbol=leg["symbol"],
+                transaction_type=leg["transaction_type"],
+                quantity=leg["quantity"],
+                order_type="MARKET",
+                exchange=leg["exchange"],
+                product="CNC",
+                # Retry-stable per-symbol key (one position per symbol per
+                # pass) so a re-fire of the step dedups instead of re-selling.
+                leg_key=leg["symbol"],
+            )
+            placed.append({
+                "symbol": leg["symbol"], "side": leg["transaction_type"],
+                "qty": leg["quantity"], "order_id": str(r.get("order_id", "")),
+                "status": str(r.get("status", "")),
+            })
+        except Exception as e:
+            skipped.append({"symbol": leg["symbol"], "reason": str(e)[:160]})
+
+    n_filled = sum(
+        1 for o in placed if o.get("status") not in ("REJECTED", "failed")
+    )
+    # Cancel the now-orphaned resting SELL guards (stop-loss / take-profit /
+    # GTT) for each flattened symbol, so they can't re-arm against a LATER
+    # position the user re-opens (silent unwanted exit otherwise).
+    cancelled = _paper_cancel_protective_sells(
+        ctx, {leg["symbol"] for leg in legs},
+    )
+    # If legs were expected but NONE filled, don't report success — raise so
+    # the engine's retry fires and a persistent failure surfaces as a failed
+    # step instead of a silent square-off-that-didn't.
+    if legs and n_filled == 0:
+        raise RuntimeError(
+            f"paper squareoff placed no fills ({len(skipped)} skipped)"
+        )
+    return {
+        "orders": placed,
+        "skipped": skipped,
+        "n_filled": n_filled,
+        "n_skipped": len(skipped),
+        "cancelled_guards": cancelled,
+        "scope": "paper",
+    }
+
+
+def _paper_cancel_protective_sells(ctx: Any, symbols: set) -> list[str]:
+    """Cancel resting SELL orders (SL/TP/GTT) for the given symbols — used
+    after a squareoff so an orphaned protective order can't fire against a
+    later re-opened position. Returns the cancelled order ids."""
+    if not symbols:
+        return []
+    from backend.models import PaperOrder
+    from backend.paper.fills import cancel_resting_order
+    from backend.paper.positions import paper_open_orders_kite_shape
+
+    cancelled: list[str] = []
+    for o in paper_open_orders_kite_shape(ctx.db, int(ctx.workflow.user_id)):
+        if str(o.get("transaction_type", "")).upper() != "SELL":
+            continue
+        if str(o.get("tradingsymbol", "")).upper() not in symbols:
+            continue
+        po = ctx.db.get(PaperOrder, o.get("order_id"))
+        if po is not None and str(po.status) == "resting":
+            cancel_resting_order(ctx.db, po)
+            cancelled.append(po.id)
+    return cancelled
+
+
+def _paper_cancel_orders(ctx: Any) -> dict[str, Any]:
+    """Cancel matching paper resting orders (LIMIT/SL/GTT) — the paper-mode
+    equivalent of action.cancel_orders (P4). Releases any reserved cash."""
+    from backend.models import PaperOrder
+    from backend.paper.fills import cancel_resting_order
+    from backend.paper.positions import paper_open_orders_kite_shape
+
+    cfg = ctx.config
+    symbol_filter = (cfg.get("symbol_filter") or "").upper() or None
+    side_filter = (cfg.get("side_filter") or "").upper() or None
+    cancelled: list[str] = []
+    for o in paper_open_orders_kite_shape(ctx.db, int(ctx.workflow.user_id)):
+        if symbol_filter and str(o.get("tradingsymbol", "")).upper() != symbol_filter:
+            continue
+        if side_filter and str(o.get("transaction_type", "")).upper() != side_filter:
+            continue
+        po = ctx.db.get(PaperOrder, o.get("order_id"))
+        if po is not None and str(po.status) == "resting":
+            cancel_resting_order(ctx.db, po)
+            cancelled.append(po.id)
+    return {"cancelled_count": len(cancelled), "order_ids": cancelled}
 
 
 def _kite_token_for_run(ctx: Any) -> str:
@@ -335,7 +420,7 @@ async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
     no-op (Kite returns CANCELLED). On retry, only orders still pending
     get re-cancelled — the order_id list shrinks naturally."""
     if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
-        return _paper_unsupported("cancel")
+        return _paper_cancel_orders(ctx)
     cfg = ctx.config
     symbol_filter = (cfg.get("symbol_filter") or "").upper() or None
     side_filter = (cfg.get("side_filter") or "").upper() or None  # BUY/SELL
@@ -681,7 +766,7 @@ async def execute_action_squareoff_all(
     at close (consistent with squareoff_all_intraday); live executor
     matches the broker's standard squareoff path."""
     if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
-        return _paper_unsupported("squareoff")
+        return _paper_squareoff(ctx)
     from backend.kite.portfolio import get_positions
 
     token = _kite_token_for_run(ctx)
@@ -1098,7 +1183,13 @@ async def execute_action_squareoff_all_intraday(
     from backend.kite.portfolio import get_positions
 
     if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
-        return _paper_unsupported("squareoff")
+        # Paper is CNC delivery-only — there are no intraday (MIS) positions
+        # to flatten, so this is a clean no-op.
+        return {
+            "orders": [], "skipped": [], "n_filled": 0, "n_skipped": 0,
+            "scope": "intraday",
+            "note": "paper has no intraday (MIS) positions",
+        }
     token = _kite_token_for_run(ctx)
     positions = get_positions(token)
     legs = _build_squareoff_legs(
@@ -1144,7 +1235,9 @@ async def execute_action_squareoff_symbol(
     from backend.kite.portfolio import get_positions
 
     if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
-        return _paper_unsupported("squareoff")
+        return _paper_squareoff(
+            ctx, symbol_filter=str(ctx.config["symbol"]).upper(),
+        )
     cfg = ctx.config
     symbol = str(cfg["symbol"]).upper()
     product = str(cfg.get("product", "MIS")).upper()

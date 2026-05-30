@@ -203,10 +203,10 @@ class PaperBroker:
                 # a near-max order self-reject after releasing. buy_cost at
                 # the limit is an upper bound on the fill-at-mark net debit.
                 reserve = to_money(buy_cost(float(limit_price), qty)[0])
-                buying_power = (
-                    to_money(account.cash_available)
-                    - to_money(account.cash_reserved)
-                )
+                # cash_available is the free balance; a new reserve is taken
+                # from it, so gate against cash_available (NOT available -
+                # reserved, which would double-count an existing reserve).
+                buying_power = to_money(account.cash_available)
                 if reserve > buying_power:
                     order.status = "rejected"
                     order.reject_reason = "insufficient_buying_power"

@@ -31,6 +31,7 @@ from backend.paper import (
     submit_order,
     submit_order_for_user,
 )
+from backend.paper.broker import PaperBroker
 from backend.paper.money import to_money
 
 
@@ -281,18 +282,57 @@ def _exec_ctx(stub, config: dict):
     )
 
 
-def test_squareoff_skipped_in_paper_mode(session: Session) -> None:
-    # squareoff sizes from kite get_positions, which doesn't reflect the
-    # paper book — in paper mode it must return an explicit skip, NOT
-    # phantom fills from the mock fixture.
+def test_squareoff_empty_when_no_paper_positions(session: Session) -> None:
+    # P4: squareoff now reads the PAPER book. With no positions it's a clean
+    # no-op (no phantom kite-mock fills).
     from backend.workflows.steps.actions import execute_action_squareoff_all
 
     user = _user(session)
     get_or_create_account(session, user.id)  # mode=paper
     out = asyncio.run(execute_action_squareoff_all(_exec_ctx(_ctx(session, user.id), {})))
-    assert out["paper_mode_unsupported"] is True
     assert out["n_filled"] == 0
     assert out["orders"] == []
+    assert out["scope"] == "paper"
+
+
+def test_squareoff_flattens_paper_position(
+    session: Session, fixed_price: None,
+) -> None:
+    # P4 re-wire: squareoff reads the paper book and SELLs the open lot
+    # through the paper broker (fills into the same book).
+    from backend.models import PaperFill, PaperPosition
+    from backend.workflows.steps.actions import execute_action_squareoff_all
+
+    user = _user(session)
+    PaperBroker(session, user.id, price_fn=lambda _s: to_money(100)).place_order(
+        tradingsymbol="RELIANCE", transaction_type="BUY", quantity=10,
+        order_type="MARKET",
+    )
+    out = asyncio.run(execute_action_squareoff_all(_exec_ctx(_ctx(session, user.id), {})))
+    assert out["n_filled"] == 1
+    pos = session.query(PaperPosition).filter_by(symbol="RELIANCE").one()
+    assert pos.quantity == 0  # flattened
+    assert session.query(PaperFill).filter_by(transaction_type="SELL").count() == 1
+
+
+def test_cancel_orders_cancels_paper_resting(
+    session: Session, fixed_price: None,
+) -> None:
+    # P4 re-wire: cancel_orders cancels paper resting orders + releases the
+    # reserved cash.
+    from backend.workflows.steps.actions import execute_action_cancel_orders
+
+    user = _user(session)
+    PaperBroker(session, user.id, price_fn=lambda _s: to_money(100)).place_order(
+        tradingsymbol="RELIANCE", transaction_type="BUY", quantity=10,
+        order_type="LIMIT", price=95.0,
+    )
+    assert session.query(PaperOrder).filter_by(status="resting").count() == 1
+    out = asyncio.run(execute_action_cancel_orders(_exec_ctx(_ctx(session, user.id), {})))
+    assert out["cancelled_count"] == 1
+    assert session.query(PaperOrder).filter_by(status="cancelled").count() == 1
+    acct = session.query(PaperAccount).filter_by(user_id=user.id).one()
+    assert acct.cash_reserved == to_money(0)  # reserve released on cancel
 
 
 def test_set_stoploss_sizes_from_paper_position(
@@ -365,3 +405,54 @@ def test_http_gtt_commits_paper_order(client, auth_headers, db, monkeypatch) -> 
     # The bug: the endpoint never committed, so the paper GTT was rolled
     # back on request close. Assert it actually persisted.
     assert db.query(PaperOrder).filter_by(order_type="GTT").count() == 1
+
+
+# ── P4 review-fix regressions ─────────────────────────────────────────────
+
+def test_buying_power_not_double_counted_with_reserve(
+    session: Session, fixed_price: None,
+) -> None:
+    # buying_power must equal cash_available (the reserve already left it);
+    # the old `available - reserved` double-counted and went negative, AND
+    # the same flawed gate rejected legit orders.
+    from backend.paper.portfolio import account_summary
+
+    user = _user(session)
+    b = PaperBroker(session, user.id, price_fn=lambda _s: to_money(100))
+    # resting LIMIT BUY reserves ~70k of the 150k book
+    b.place_order(tradingsymbol="RELIANCE", transaction_type="BUY",
+                  quantity=700, order_type="LIMIT", price=100.0)
+    acct = session.query(PaperAccount).filter_by(user_id=user.id).one()
+    assert acct.cash_reserved > to_money(70000)
+    summary = account_summary(session, user.id)
+    assert summary["buying_power"] == float(acct.cash_available)
+    assert summary["buying_power"] > 0  # not negative
+    # a MARKET buy that fits within the free cash is ACCEPTED (was rejected)
+    res = b.place_order(tradingsymbol="INFY", transaction_type="BUY",
+                        quantity=500, order_type="MARKET")
+    assert res["status"] == "COMPLETE"
+
+
+def test_squareoff_cancels_orphaned_protective_sell(
+    session: Session, fixed_price: None,
+) -> None:
+    # After flattening, the resting SELL stop/GTT that guarded the lot must
+    # be cancelled so it can't re-arm against a future position.
+    from backend.models import PaperPosition
+    from backend.workflows.steps.actions import execute_action_squareoff_all
+
+    user = _user(session)
+    b = PaperBroker(session, user.id, price_fn=lambda _s: to_money(100))
+    b.place_order(tradingsymbol="RELIANCE", transaction_type="BUY",
+                  quantity=10, order_type="MARKET")
+    b.place_gtt_order(tradingsymbol="RELIANCE", transaction_type="SELL",
+                      quantity=10, trigger_price=90.0, limit_price=90.0,
+                      last_price=100.0)
+    assert session.query(PaperOrder).filter_by(
+        order_type="GTT", status="resting").count() == 1
+
+    out = asyncio.run(execute_action_squareoff_all(_exec_ctx(_ctx(session, user.id), {})))
+    assert session.query(PaperPosition).filter_by(symbol="RELIANCE").one().quantity == 0
+    assert session.query(PaperOrder).filter_by(
+        order_type="GTT", status="cancelled").count() == 1
+    assert out["cancelled_guards"]  # the orphaned SELL was cancelled

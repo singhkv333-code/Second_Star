@@ -99,7 +99,10 @@ def execute_market_fill(
         net_debit_f, charges_f = buy_cost(float(price), qty)
         net_debit = to_money(net_debit_f)
         charges = to_money(charges_f)
-        buying_power = to_money(account.cash_available) - to_money(account.cash_reserved)
+        # cash_available is the free balance (the reserve has already been
+        # moved into cash_reserved), so it IS the buying power — subtracting
+        # cash_reserved again would double-count and reject legit orders.
+        buying_power = to_money(account.cash_available)
         if net_debit > buying_power:
             order.status = "rejected"
             order.reject_reason = "insufficient_buying_power"

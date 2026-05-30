@@ -1247,3 +1247,32 @@ no ALTER on any existing table.
 **Documented (deferred):** the OCO consumer is correct but has no producer yet (bracket orders land later); in mock/dev marks use yfinance daily close, not intraday LTP (prod should thread the Kite token — a follow-up); per-idea NAV + strict T+1 are P6/later.
 
 **Next: P4 — REST API for the paper portfolio + paper position/order reads** (which also unblocks squareoff coherence). Then P5 (Quartr dashboard), P6 (forward-test scorecards). Awaiting go-ahead.
+
+
+---
+
+## 15. P4 Build Log — Paper Portfolio REST API + Squareoff Unblock (shipped 2026-05-30, branch `Eventtriggers`)
+
+**Status: COMPLETE & VERIFIED.** The `/paper/*` read API (the data layer P5's dashboard renders) + paper position/order reads that re-enable squareoff/cancel in paper mode. **Built with a parallel agent workflow** (2 leaf modules + router) + lead integration.
+
+**Artifacts**
+| File | Role | Built |
+|---|---|---|
+| `backend/paper/portfolio.py` | READ-ONLY service: `account_summary`/`holdings`/`open_orders`/`fills_journal`/`nav_curve` | agent |
+| `backend/paper/positions.py` | kite-shaped reads (`paper_positions_kite_shape`/`paper_open_orders_kite_shape`) | agent |
+| `backend/routers/paper.py` | `GET /paper/summary · /holdings · /orders · /fills · /nav` | agent |
+| `actions.py` squareoff/cancel re-wire + `main.py` registration | replace the P3 skip with real paper squareoff/cancel | lead |
+
+**Verified:** 140 paper tests (37 new + 103 prior) · full regression 8 pre-existing fails / 619 passed (zero P4 regressions) · ruff/mypy clean · all 5 `/paper` routes behind auth.
+
+**Adversarially verified** by a 4-agent review. Fixes applied:
+- **MAJOR** (a pre-existing P1 bug the review exposed) — `buying_power = cash_available − cash_reserved` **double-subtracted** the reserve (the reserve already left cash_available): went negative once anything rested, and the *same formula* in the executor gate **rejected legitimate orders**. Fixed in all 3 places (`portfolio.py`, `fills.py`, `broker.py`) to `buying_power = cash_available`. Regression-tested (incl. a market buy that was wrongly rejected, now accepted).
+- **MAJOR** — squareoff left the orphaned resting stop/GTT SELL armed against a *future* re-opened position (silent unwanted exit). Now `_paper_squareoff` cancels the orphaned protective SELLs for each flattened symbol. Regression-tested.
+- **MINOR** — `/paper/fills?limit` clamped to [1,500] (a negative LIMIT was unbounded); squareoff raises on total-failure (no silent success) + retry-stable per-symbol `leg_key`; `/paper/nav` 400s on end<start; kite-shape `day` independent copies; `user_id` cast consistency.
+- Also moved a latent mid-file import block to the top (E402) introduced in P2.
+
+**Squareoff re-wire:** paper mode now reads the PAPER book and SELLs the open lot through the paper broker (CNC long-only); `squareoff_all_intraday` is a clean no-op (paper has no MIS); `cancel_orders` cancels paper resting orders + releases the reserve. The Kite path (paper off) is unchanged.
+
+**Documented (deferred):** `/paper/*` vs `/portfolio/*` — the FE must select `/paper/*` for paper-mode users (P5); `day_pnl` is 0 until the first EOD snapshot rolls `prev_close` (compute-on-read).
+
+**Next: P5 — the Quartr-themed dashboard** (now has its full data layer: `/paper/summary|holdings|orders|fills|nav`). Then P6 (forward-test scorecards). Awaiting go-ahead.

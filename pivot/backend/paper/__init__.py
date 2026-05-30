@@ -27,6 +27,17 @@ from backend.paper.routing import (
     submit_order,
     submit_order_for_user,
 )
+from backend.paper.portfolio import (
+    account_summary,
+    fills_journal,
+    holdings,
+    nav_curve,
+    open_orders,
+)
+from backend.paper.positions import (
+    paper_open_orders_kite_shape,
+    paper_positions_kite_shape,
+)
 from backend.paper.snapshots import latest_nav, nav_series, snapshot_account_nav
 from backend.paper.valuation import compute_account_nav, mark_positions
 
@@ -50,4 +61,12 @@ __all__ = [
     "nav_series",
     "tick_paper_accounts",
     "snapshot_all_navs",
+    # P4 — REST read service + kite-shaped reads
+    "account_summary",
+    "holdings",
+    "open_orders",
+    "fills_journal",
+    "nav_curve",
+    "paper_positions_kite_shape",
+    "paper_open_orders_kite_shape",
 ]
