@@ -34,6 +34,10 @@ const nextConfig: NextConfig = {
         destination: `${BACKEND}/markets/:path*`,
       },
       {
+        source: "/paper/:path*",
+        destination: `${BACKEND}/paper/:path*`,
+      },
+      {
         source: "/health",
         destination: `${BACKEND}/health`,
       },

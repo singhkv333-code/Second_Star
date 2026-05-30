@@ -1143,3 +1143,119 @@ export function listConversationMessages(
     { query: { limit: params?.limit, cursor: params?.cursor } },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Paper trading endpoints (P5 — /api/paper/*) — backs the Paper Trading tab.
+// The read service is read-only; all money fields are numbers (₹).
+// ---------------------------------------------------------------------------
+
+/** Account summary. `exists:false` means the user has no paper book yet. */
+export type PaperSummaryData = {
+  exists: true;
+  mode: string;
+  starting_capital: number;
+  cash_available: number;
+  cash_settled: number;
+  cash_reserved: number;
+  buying_power: number;
+  positions_mv: number;
+  invested: number;
+  nav: number;
+  unrealized_pnl: number;
+  realized_pnl_cum: number;
+  day_pnl: number;
+  total_pnl: number;
+  total_pnl_pct: number;
+  unrealized_pct: number;
+  num_positions: number;
+  num_open_orders: number;
+  is_stale: boolean;
+};
+export type PaperSummary = { exists: false } | PaperSummaryData;
+
+export type PaperHolding = {
+  symbol: string;
+  quantity: number;
+  avg_cost: number;
+  last_price: number | null;
+  market_value: number;
+  unrealized_pnl: number;
+  unrealized_pct: number;
+  day_pnl: number;
+  invested: number;
+  realized_pnl: number;
+  sector: string;
+  stale: boolean;
+  last_mark_at: string | null;
+};
+
+export type PaperOpenOrder = {
+  id: string;
+  symbol: string;
+  side: string; // "BUY" | "SELL"
+  order_type: string; // MARKET | LIMIT | SL | SL-M | GTT
+  quantity: number;
+  limit_price: number | null;
+  trigger_price: number | null;
+  reserved_cash: number;
+  status: string;
+  source: string | null;
+  origin_kind: string | null;
+  created_at: string | null;
+};
+
+export type PaperFillRow = {
+  id: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  fill_price: number;
+  gross_value: number;
+  charges: number;
+  net_cashflow: number;
+  realized_pnl: number | null;
+  filled_at: string | null;
+  order_id: string;
+};
+
+export type PaperNavPoint = {
+  as_of_date: string | null;
+  nav: number;
+  cash_available: number;
+  positions_mv: number;
+  realized_pnl_cum: number;
+  unrealized_pnl: number;
+  nifty_close: number | null;
+};
+
+// The paper router mounts at `/paper` (no `/api` alias), like the other
+// legacy surfaces (/portfolio, /orders). Use requestLegacy so the trailing
+// `/api` is stripped from the base — request() would 404 on `/api/paper/*`.
+
+/** `GET /paper/summary` */
+export function getPaperSummary(): Promise<ApiResult<PaperSummary>> {
+  return requestLegacy<PaperSummary>("/paper/summary");
+}
+
+/** `GET /paper/holdings` — open positions, sorted by market value. */
+export function getPaperHoldings(): Promise<ApiResult<PaperHolding[]>> {
+  return requestLegacy<PaperHolding[]>("/paper/holdings");
+}
+
+/** `GET /paper/orders` — the resting-order blotter. */
+export function getPaperOpenOrders(): Promise<ApiResult<PaperOpenOrder[]>> {
+  return requestLegacy<PaperOpenOrder[]>("/paper/orders");
+}
+
+/** `GET /paper/fills` — the trade journal (newest first). */
+export function getPaperFills(limit = 50): Promise<ApiResult<PaperFillRow[]>> {
+  return requestLegacy<PaperFillRow[]>("/paper/fills", { query: { limit } });
+}
+
+/** `GET /paper/nav` — the equity curve (oldest first). */
+export function getPaperNavCurve(
+  start?: string,
+  end?: string,
+): Promise<ApiResult<PaperNavPoint[]>> {
+  return requestLegacy<PaperNavPoint[]>("/paper/nav", { query: { start, end } });
+}

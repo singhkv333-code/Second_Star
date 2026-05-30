@@ -41,6 +41,7 @@ import {
   Settings,
   ShieldCheck,
   Sun,
+  Wallet,
   X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -52,11 +53,11 @@ import { AgentPanel, AGENT_PANEL_DEFAULT_WIDTH } from "@/components/agent-panel/
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
+import { PaperDashboard } from "@/components/paper/PaperDashboard";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { DashboardTab } from "@/components/DashboardTab";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import {
   getPortfolioSummary,
   getWorkflow,
@@ -73,6 +74,7 @@ import { isError } from "@/lib/types";
 type TabKey =
   | "chat"
   | "portfolio"
+  | "paper"
   | "agents"
   | "calendar"
   | "screener";
@@ -84,6 +86,7 @@ const NAV_ITEMS: {
 }[] = [
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
+  { key: "paper", label: "Paper", Icon: Wallet },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
@@ -507,6 +510,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             // ("padding: 24px 32px"). Sections scroll inside.
             <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
               <PortfolioTab />
+            </div>
+          ) : active === "paper" ? (
+            // Paper Trading dashboard — the simulated portfolio (/paper/*).
+            // Owns its full pane height; sub-views + tables scroll inside.
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <PaperDashboard />
             </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">

@@ -1276,3 +1276,36 @@ no ALTER on any existing table.
 **Documented (deferred):** `/paper/*` vs `/portfolio/*` — the FE must select `/paper/*` for paper-mode users (P5); `day_pnl` is 0 until the first EOD snapshot rolls `prev_close` (compute-on-read).
 
 **Next: P5 — the Quartr-themed dashboard** (now has its full data layer: `/paper/summary|holdings|orders|fills|nav`). Then P6 (forward-test scorecards). Awaiting go-ahead.
+
+---
+
+## 16. P5 Build Log — Quartr Paper Trading Dashboard (shipped 2026-05-30, branch `Eventtriggers`)
+
+**Status: COMPLETE & VERIFIED (visually + adversarially).** The right-side **Paper** tab in `pivot-next/` — a Quartr-themed forward-testing dashboard rendering the P4 `/paper/*` read API. **Built with a parallel agent workflow** (shared contracts → 6 leaf components → lead-wired data layer + AppShell), then visually verified end-to-end against an isolated mock and adversarially reviewed (3 lenses + completeness critic).
+
+**Artifacts** (all under `pivot-next/`)
+| File | Role | Built |
+|---|---|---|
+| `components/paper/format.ts` | shared formatters (`inr`/`inrCompact`/`signedInr`/`pct`/`qty`/`pnlColor`/`relativeTime`/`dateShort`; U+2212 minus) | lead |
+| `components/paper/KpiStatCards.tsx` | 6 KPI cards (NAV, total/day P&L, buying power, invested, realized) + empty-state on `{exists:false}` | agent |
+| `components/paper/EquityCurveChart.tsx` | recharts NAV area curve + rebased NIFTY overlay; total-return header | agent |
+| `components/paper/AllocationDonut.tsx` | sector donut (MV-weighted) + self-built legend | agent |
+| `components/paper/HoldingsTable.tsx` | open-positions blotter (stale dot, colored unrealized/day P&L) | agent |
+| `components/paper/OpenOrdersBlotter.tsx` | resting LIMIT/SL/GTT orders + reserved cash | agent |
+| `components/paper/TradeJournal.tsx` | fills journal (newest-first, realized P&L) | agent |
+| `components/paper/PaperDashboard.tsx` | container; shadcn Tabs Overview/Positions/Orders/Journal | agent |
+| `lib/api.ts` | `/paper/*` typed fetchers + `Paper*` types | lead |
+| `components/AppShell.tsx` · `next.config.ts` | `paper` nav item (Wallet) + render branch + `#paper` hash routing + rewrite | lead |
+
+**Verified:** `tsc --noEmit` clean for every paper file (only the 1 pre-existing `ChatDemo.tsx:750` error repo-wide) · `eslint` clean on `components/paper/` + `lib/api.ts` + `AppShell.tsx` (removed a pre-existing dead `cn` import) · the 6 failing FE test files are **pre-existing** (identical 29 failures with the P5 diff stashed — zero new regressions). **Visually verified** via an isolated stdlib mock (`/tmp/paper_mock.py`) + headless Playwright: Overview, Orders, and Journal tabs all render correctly with real data on the Quartr theme (KPI strip, equity area curve, sector donut, blotters).
+
+**Adversarially verified** by a 4-agent review (theme, data/a11y, integration + completeness critic). Fixes applied:
+- **BLOCKER** — the 5 paper fetchers used `request()` → `…/api/paper/*`, but the router mounts at `/paper` (no `/api` alias), so every call 404'd in prod (the mock masked it by serving both). Switched all 5 to `requestLegacy()` (strips `/api`), matching `/portfolio` + `/orders`. (Critic correctly overrode a reviewer's wrong "add an `/api/paper` prefix" suggestion.)
+- **MAJOR (a11y)** — all 3 blotters had orphan/absent table roles (screen readers dropped the tabular semantics). Added a complete, valid `role="table" → row → columnheader/cell` set across HoldingsTable, OpenOrdersBlotter, TradeJournal (header rows semantic only in the data path, so loading/empty/error never orphan a role).
+- **MAJOR (layout)** — the blotters wrapped rows in a Radix `<ScrollArea>` given only `max-height` (fragile; paper was the app's sole ScrollArea consumer) **and** rendered the sticky header *outside* that viewport (so `position:sticky` was dead). Replaced with a plain `role="table"` scroll container (`maxHeight + overflowY:auto`) holding both header and rows — the sticky header now actually pins.
+- **MINOR** — OpenOrdersBlotter BUY/SELL pill used hardcoded `rgba` that didn't track the profit/loss tokens across light/dark → switched to `color-mix(in srgb, var(--color-*) 12%, transparent)` (matches TradeJournal); active Tabs label was stuck muted by an inline `color` → moved to `data-[state=active]:text-[var(--text-primary)]`; AllocationDonut overflow bucket renamed `Other` → `Other sectors` (key-collision with a real `Other` sector); EquityCurve gradient id `Math.random()` → `useId()`; TradeJournal header band `--bg-primary` → `--bg-secondary` (matches the other two blotters).
+- **NITS** — chart `role="img"`+`aria-label` summaries (equity + donut); equity loading skeleton height matches the loaded chart (no reflow); donut swatches `--radius-xs`.
+
+**Deployment note:** the code is correct, but the live dev backend on `:8000` is older code on real Postgres **without** the paper tables — migration `0013_paper_trading` was never applied there. To run the dashboard against the real backend: apply `0013` + restart the backend (then the `/paper/*` routes the FE now calls will resolve). The shared dev Postgres was **not** migrated in this session (per the standing "don't disturb the running backend" constraint).
+
+**Next: P6 — forward-test scorecards** (idea resolver + per-idea NAV series + the scorecard surface). Awaiting go-ahead.
