@@ -1152,3 +1152,33 @@ no ALTER on any existing table.
 **Adversarially verified** by a 5-agent review workflow (plan-parity, Postgres-correctness, schema/idempotency integrity, test-adequacy, completeness critic); all MAJOR findings applied above.
 
 **Next: P1 — Paper Broker + Fills (synchronous MARKET path).** Awaiting go-ahead.
+
+
+---
+
+## 12. P1 Build Log — Paper Broker + Fills (shipped 2026-05-30, branch `Eventtriggers`)
+
+**Status: COMPLETE & VERIFIED.** Phase P1 of §8 — the synchronous MARKET fill path — plus the latent `place_order` TypeError fix.
+
+**Artifacts**
+| File | What |
+|---|---|
+| `pivot/backend/paper/broker.py` | `PaperBroker.place_order` / `place_gtt_order` — idempotent, MARKET fills synchronously, LIMIT/SL/GTT rest, accepts the Kite kwarg set (drop-in for P2) |
+| `pivot/backend/paper/fills.py` | `execute_market_fill` — fills at clean LTP, friction from `trading_costs` (no slippage double-count), avg-cost, realized P&L, cash + ledger, all `Decimal` |
+| `pivot/backend/paper/accounts.py` | `get_or_create_account` — ₹1.5L seed + seed ledger, race-safe (SAVEPOINT) |
+| `pivot/backend/paper/marks.py` | injectable mark price (Kite live → yfinance fallback; lazy imports) |
+| `pivot/backend/paper/money.py` | `Decimal` quantize to paise (`Numeric(18,4)`) |
+| `pivot/backend/kite/orders.py` | **TypeError fix** — `place_order` accepts `client_request_id` (squareoff legs `actions.py:665/:1011` now work) |
+| `pivot/tests/test_paper_broker.py` | 25 tests |
+
+**Verification:** 48 paper tests pass (25 broker + 23 P0 models); 534 backend tests pass with zero regressions (the 5 failing are pre-existing — stale step-types catalog + date-dependent calendar/chat — confirmed identical with P1 stashed); ruff clean; 0 genuine mypy errors (only the ambient `Column[T]` noise the whole backend carries).
+
+**Adversarially verified** by a 5-agent review (accounting, idempotency/txn-safety, integration-readiness, edge/tests, completeness critic). Fixes applied:
+- **BLOCKER** — the idempotency-collision handler called `db.rollback()`, which discards the *caller's entire* uncommitted transaction (the workflow engine does multi-step work in one txn). Now wrapped in a **SAVEPOINT** (`begin_nested`) so only the failed insert rolls back. Same fix for `get_or_create_account`. Directly tested.
+- **MAJOR** — resting LIMIT BUY reserved cash with no buying-power check (drove cash negative) → now rejects; `qty<=0` (DivisionByZero / phantom short) → rejected pre-persist; non-positive mark price (credited cash on a BUY) → rejected.
+- **MAJOR (integration)** — `place_gtt_order` now returns `trigger_id` and accepts Kite kwargs (`access_token`/`exchange`/`last_price`); `place_order` accepts `access_token`/`tag` (true P2 drop-in); GTT persists its `limit_price`.
+- **MINOR** — idempotency lookup user-scoped; `cash_settled == cash_available + cash_reserved` invariant corrected.
+
+**Documented simplifications (P1):** sub-2-paise avg-cost/realized rounding residue (bounded, never touches cash, guard-tested ≤ ₹0.02); `cash_settled` moved without its own ledger row; `settles_at` = calendar +1 day; AMO/variety recorded but not honored; engine crid includes `attempts` (P2 shim should pass a retry-stable key for true at-most-once).
+
+**Next: P2 — route chat + workflow actions through the PaperBroker by account `mode`** (the shim), and fold in the retry-stable crid. Awaiting go-ahead.

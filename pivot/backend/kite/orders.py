@@ -26,10 +26,19 @@ def place_order(
     trigger_price: Optional[float] = None,
     tag: str = "pivot",
     variety: str = "regular",  # "regular", "amo", "co", "iceberg", "auction"
+    client_request_id: Optional[str] = None,
 ) -> dict:
     """
     Place a single order via Kite.
     Returns: {order_id, status, message}
+
+    ``client_request_id`` is an optional caller-side idempotency key. Kite
+    has no native request-id dedup, so on the live path we fold it into a
+    Kite-safe ``tag`` (when the caller didn't set one) for traceability,
+    and always echo it back in the response. The paper broker
+    (backend/paper/) uses it as a real idempotency key. Accepting it here
+    fixes the squareoff actions (workflows/steps/actions.py), which pass
+    ``client_request_id=`` and previously raised TypeError.
     """
     global _mock_order_id
 
@@ -37,9 +46,18 @@ def place_order(
         _mock_order_id += 1
         order_id = f"MOCK{_mock_order_id}"
         logger.info(f"[MOCK] Order placed: {transaction_type} {quantity} {tradingsymbol} @ {price or 'MARKET'}")
-        return {"order_id": order_id, "status": "COMPLETE", "message": f"Mock order {order_id} placed"}
+        return {
+            "order_id": order_id, "status": "COMPLETE",
+            "message": f"Mock order {order_id} placed",
+            "client_request_id": client_request_id,
+        }
 
     try:
+        # No explicit tag → derive a Kite-safe label (max 20 chars,
+        # alphanumeric) from the idempotency key for traceability.
+        if client_request_id and tag == "pivot":
+            import re as _re
+            tag = _re.sub(r"[^A-Za-z0-9]", "", client_request_id)[-20:] or "pivot"
         kite = get_authenticated_kite(access_token)
         order_id = kite.place_order(
             tradingsymbol=tradingsymbol,
@@ -59,6 +77,7 @@ def place_order(
             "status": "PENDING",
             "variety": variety,
             "message": "Order placed successfully",
+            "client_request_id": client_request_id,
         }
     except Exception as e:
         logger.error(f"Order placement failed: {e}")
