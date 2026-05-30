@@ -126,14 +126,12 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("origin_kind", sa.String(16), nullable=False),
-        sa.Column(
-            "workflow_id", sa.String(36),
-            sa.ForeignKey("workflows.id"), nullable=True,
-        ),
-        sa.Column(
-            "conversation_id", sa.String(36),
-            sa.ForeignKey("conversations.id"), nullable=True,
-        ),
+        # SOFT references (no hard FK): prod workflows.id is native uuid while
+        # this is String(36), and conversations may be absent in some DBs — a
+        # hard FK fails to build (varchar<->uuid / missing table). Resolved in
+        # code (backend/paper/ideas.py), like backtest_run_id.
+        sa.Column("workflow_id", sa.String(36), nullable=True),
+        sa.Column("conversation_id", sa.String(36), nullable=True),
         sa.Column(
             "strategy_id", sa.Integer(),
             sa.ForeignKey("strategies.id"), nullable=True,
@@ -199,18 +197,10 @@ def upgrade() -> None:
         ),
         sa.Column("source", sa.String(50), nullable=True),
         sa.Column("origin_kind", sa.String(16), nullable=True),
-        sa.Column(
-            "workflow_id", sa.String(36),
-            sa.ForeignKey("workflows.id"), nullable=True,
-        ),
-        sa.Column(
-            "workflow_run_id", sa.String(36),
-            sa.ForeignKey("workflow_runs.id"), nullable=True,
-        ),
-        sa.Column(
-            "conversation_id", sa.String(36),
-            sa.ForeignKey("conversations.id"), nullable=True,
-        ),
+        # SOFT references (no hard FK) — see forward_ideas above.
+        sa.Column("workflow_id", sa.String(36), nullable=True),
+        sa.Column("workflow_run_id", sa.String(36), nullable=True),
+        sa.Column("conversation_id", sa.String(36), nullable=True),
         sa.Column(
             "strategy_id", sa.Integer(),
             sa.ForeignKey("strategies.id"), nullable=True,

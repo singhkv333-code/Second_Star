@@ -407,13 +407,14 @@ class PaperOrder(Base):
     # the *_id FKs resolve the durable idea for forward-testing.
     source = Column(String(50), nullable=True, index=True)
     origin_kind = Column(String(16), nullable=True)  # workflow/chat/strategy/manual
-    workflow_id = Column(String(36), ForeignKey("workflows.id"), nullable=True)
-    workflow_run_id = Column(
-        String(36), ForeignKey("workflow_runs.id"), nullable=True,
-    )
-    conversation_id = Column(
-        String(36), ForeignKey("conversations.id"), nullable=True,
-    )
+    # SOFT references (no hard FK): the prod Agent-System ids are native
+    # `uuid` while these are String(36), and `conversations` may not exist in
+    # every deployment — a hard FK fails to build on Postgres (varchar↔uuid)
+    # and on a DB without that table. We store the id as text and resolve the
+    # idea in code (backend/paper/ideas.py), exactly like backtest_run_id.
+    workflow_id = Column(String(36), nullable=True)
+    workflow_run_id = Column(String(36), nullable=True)
+    conversation_id = Column(String(36), nullable=True)
     strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
     idea_id = Column(
         String(36), ForeignKey("forward_ideas.id"), nullable=True, index=True,
@@ -587,12 +588,11 @@ class ForwardIdea(Base):
         nullable=False, index=True,
     )
     origin_kind = Column(String(16), nullable=False)  # workflow/chat/strategy/manual
-    workflow_id = Column(
-        String(36), ForeignKey("workflows.id"), nullable=True, index=True,
-    )
-    conversation_id = Column(
-        String(36), ForeignKey("conversations.id"), nullable=True,
-    )
+    # SOFT references (no hard FK) — see PaperOrder above: prod ids are uuid,
+    # these are String(36), and `conversations` may be absent. Resolved in
+    # code. workflow_id stays indexed (the resolver dedups on it).
+    workflow_id = Column(String(36), nullable=True, index=True)
+    conversation_id = Column(String(36), nullable=True)
     strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
     label = Column(String(140), nullable=False)  # LLM/user-named
     inception_date = Column(Date, nullable=True)  # first paper fill
