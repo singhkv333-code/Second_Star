@@ -440,6 +440,39 @@ def patch_workflow(
 # ── State transitions ────────────────────────────────────────────────
 
 
+def _register_armed_idea(db: Session, user_id: int, wf) -> None:
+    """Register an ARMED forward-test idea for a trading agent on activation.
+
+    Creates the ForwardIdea (origin='workflow') so the agent shows in
+    Paper -> Ideas right away, WITHOUT placing any order or position. When the
+    agent later fires, action.place_order resolves to this SAME idea (dedup on
+    workflow_id) and the fill sets its inception_date + creates the position.
+    Only for paper-mode users and only for agents that actually place orders.
+    """
+    has_order_action = any(
+        str(s.step_type).startswith(("action.place_order", "action.open_basket",
+                                     "action.allocate"))
+        for s in wf.steps
+    )
+    if not has_order_action:
+        return
+    from backend.paper.routing import should_use_paper
+    from backend.paper.accounts import get_or_create_account
+    from backend.paper.ideas import resolve_idea
+
+    if not should_use_paper(db, user_id):
+        return
+    account = get_or_create_account(db, user_id)
+    resolve_idea(
+        db, account.id,
+        user_id=user_id,
+        origin_kind="workflow",
+        workflow_id=str(wf.id),
+        label=wf.name,
+    )
+    db.commit()
+
+
 @router.post(
     "/workflows/{workflow_id}/activate",
     response_model=WorkflowOut,
@@ -487,6 +520,20 @@ def activate_workflow(
         )
     db.commit()
     db.refresh(wf)
+
+    # Forward-test (P6): register an ARMED idea for trading agents so they
+    # appear in Paper -> Ideas immediately on activation — NO order is placed
+    # and NO position is created here. The position only appears later, when
+    # the agent's trigger actually fires and action.place_order runs (the fill
+    # then attributes to this same idea, via dedup on workflow_id). Paper-mode
+    # only; never let it block activation.
+    try:
+        _register_armed_idea(db, user_id, wf)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "[workflows.activate] armed-idea registration failed wf=%s",
+            workflow_id,
+        )
 
     # Polymarket immediate-reconcile: if this workflow contains any
     # trigger.polymarket step, poke the WS supervisor so the
