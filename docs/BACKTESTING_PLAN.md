@@ -3,7 +3,7 @@
 > **Owner:** lead · **Started:** 2026-06-01 · **Status:** IN PROGRESS — research + audit done; **P0.1 + P1.2 shipped** (2026-06-01)
 > **Branch:** `Eventtriggers` · **Tracking:** this doc is the single source of truth; `STATUS.md` carries the running log.
 >
-> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). Next: P1.4 walk-forward + no-skill permutation → P1.5 CPCV→PBO → P1.9 FE card.
+> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell on every backtest. **Every-backtest battery now: PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** Next: P1.4 walk-forward + no-skill permutation (needs engine-rerun adapter) → P1.5 CPCV→PBO → P1.9 FE card.
 
 **Thesis in one line:** Pivot's wedge for serious algo/quant traders is not a prettier equity
 curve — every retail tool draws those — it is a backtester that tells you *whether to believe
@@ -222,8 +222,10 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   `services/backtest/validation/monte_carlo.py`, on every backtest + the chat summary. ⏳ the no-skill
   **permutation significance** test (re-run strategy on shuffled price paths) needs the engine-rerun adapter —
   lands with 1.4 walk-forward. **[M]**
-- **1.7** **Cost-sensitivity sweep** (1×/2×/3× costs → breakeven bps) + **parameter-plateau** heatmap +
-  **sub-period/regime** breakdown. **[M]**
+- 🟡 **1.7 PARTIAL (2026-06-01)** ✅ **sub-period/regime** breakdown shipped (`validation/sub_periods.py`:
+  per-span returns + positive-span fraction + a `concentration` tell), on every backtest + a chat fragility
+  warning when >60% of the return came from one span. ⏳ cost-sensitivity sweep (1×/2×/3×) + parameter-plateau
+  heatmap need the engine-rerun adapter (land with 1.4). **[M]**
 - **1.8** A **"Trust verdict"** on every backtest — reuse the scorecard verdict-ladder idea: roll the gates
   into one honest summary ("in-sample edge, but PBO 0.34 and DSR 0.41 at N=28 trials → likely overfit"). **[M]**
 - **1.9** Surface it in the FE backtest card (extend `IndicatorBacktestCard`/`BacktestTab`). **[M, frontend-lead]**

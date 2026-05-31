@@ -2146,13 +2146,18 @@ def backtest_workflow(
     # confidence the Sharpe is genuinely > 0; MinTRL = sample needed to prove
     # it; DSR deflates for multiple-trials selection bias (num_trials=1 until
     # trial-tracking lands, so DSR == PSR(0)).
-    from backend.services.backtest.validation import monte_carlo_robustness
+    from backend.services.backtest.validation import (
+        monte_carlo_robustness,
+        sub_period_robustness,
+    )
     from backend.services.forward_stats import forward_stats_block
     _eq_vals = [p["v"] for p in equity_curve]
     forward_stats = forward_stats_block(_eq_vals)
     # Circular-block-bootstrap drawdown / terminal-wealth distribution — how
     # lucky was this single path? (5%-worst drawdown, P(end in loss)).
     monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_eq_vals))
+    # Time-concentration: is the edge spread across sub-periods or one window?
+    sub_periods = sub_period_robustness(_eq_vals)
     # Deflate DSR for how many DISTINCT strategy variants this session has
     # backtested (multiple-trials selection-bias guard). No group → num_trials
     # stays 1 → DSR == PSR(0).
@@ -2238,6 +2243,7 @@ def backtest_workflow(
         "ending_value": round(final_equity, 2),
         "forward_stats": forward_stats,
         "monte_carlo": monte_carlo,
+        "sub_periods": sub_periods,
     }
 
     # Signals must carry the fields the FE chart card reads. The card
@@ -2293,11 +2299,16 @@ def backtest_workflow(
         f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
         if _nt > 1 and isinstance(_dsr, (int, float)) else ""
     )
+    _conc = (sub_periods or {}).get("concentration")
+    _sp_txt = (
+        f" ⚠ Fragile: {_conc:.0%} of the return came from a single sub-period."
+        if isinstance(_conc, (int, float)) and _conc > 0.6 else ""
+    )
     summary = (
         f"Backtested {name!r} on {primary_symbol} over {period}. "
         f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
         f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt}{_psr_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}{_dsr_txt}"
+        f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}{_dsr_txt}{_sp_txt}"
     )
     if elig.warnings:
         summary += " Notes: " + "; ".join(elig.warnings[:3]) + "."

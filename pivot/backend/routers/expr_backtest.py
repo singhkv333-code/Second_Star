@@ -255,7 +255,10 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
     # Statistical-rigor battery (PSR / MinTRL / DSR) + Monte-Carlo (block-
     # bootstrap drawdown / terminal-wealth) on the equity curve — the SAME lens
     # the signal engines and the live forward-test scorecards apply.
-    from backend.services.backtest.validation import monte_carlo_robustness
+    from backend.services.backtest.validation import (
+        monte_carlo_robustness,
+        sub_period_robustness,
+    )
     from backend.services.backtest_metrics import daily_returns_from_equity
     from backend.services.forward_stats import forward_stats_block
     _expr_vals = [row["value"] for row in result.equity_curve]
@@ -263,6 +266,7 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
     metrics["monte_carlo"] = monte_carlo_robustness(
         daily_returns_from_equity(_expr_vals)
     )
+    metrics["sub_periods"] = sub_period_robustness(_expr_vals)
     return {
         "expression": req.expression,
         "start": req.start, "end": req.end, "rebalance": req.rebalance.upper(),

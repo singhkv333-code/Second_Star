@@ -270,6 +270,19 @@ class MonteCarlo(_Strict):
     drawdown_tolerance_pct: Optional[float] = None
 
 
+class SubPeriods(_Strict):
+    """Time-concentration of the edge across contiguous sub-periods. Computed by
+    ``services.backtest.validation.sub_period_robustness``. ``concentration`` ~
+    1/n_periods = evenly spread (robust); near 1 = almost all the return from one
+    window (fragile / regime-dependent)."""
+    n_periods: int = 0
+    period_returns_pct: list[float] = Field(default_factory=list)
+    positive_period_frac: Optional[float] = None
+    best_period_return_pct: Optional[float] = None
+    worst_period_return_pct: Optional[float] = None
+    concentration: Optional[float] = None
+
+
 class BacktestMetrics(_Strict):
     """Headline performance numbers. Delegates to
     backend.backtester.metrics.calculate_metrics where the field
@@ -295,6 +308,8 @@ class BacktestMetrics(_Strict):
     forward_stats: Optional[ForwardStats] = None
     # Monte-Carlo (block-bootstrap) drawdown / terminal-wealth distribution.
     monte_carlo: Optional[MonteCarlo] = None
+    # Time-concentration of the edge across contiguous sub-periods.
+    sub_periods: Optional[SubPeriods] = None
 
 
 class BacktestDiagnostics(_Strict):

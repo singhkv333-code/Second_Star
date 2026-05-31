@@ -595,7 +595,10 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     from backend.services.backtest_metrics import (
         daily_returns_from_equity, sharpe_sortino,
     )
-    from backend.services.backtest.validation import monte_carlo_robustness
+    from backend.services.backtest.validation import (
+        monte_carlo_robustness,
+        sub_period_robustness,
+    )
     from backend.services.forward_stats import forward_stats_block
     from backend.services.trading_costs import leg_bps
     _equity_vals = [p.equity for p in st.equity_curve]
@@ -605,6 +608,8 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     _forward_stats = forward_stats_block(_equity_vals)
     # Circular-block-bootstrap drawdown / terminal-wealth distribution.
     _monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_equity_vals))
+    # Time-concentration of the edge across contiguous sub-periods.
+    _sub_periods = sub_period_robustness(_equity_vals)
 
     # Buy-and-hold benchmark on the primary symbol, net of one round-trip.
     _bench = None
@@ -636,6 +641,7 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
         ending_value=ending,
         forward_stats=_forward_stats,
         monte_carlo=_monte_carlo,
+        sub_periods=_sub_periods,
     )
 
 

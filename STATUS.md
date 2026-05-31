@@ -10,7 +10,7 @@
 Research + source-grounded audit + written plan, then the first two build items.
 Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
 
-### Build shipped — P0.1 (fix look-ahead) + P1.2 (rigor battery) + P1.6 (Monte-Carlo) + P1.3 (trial counter)
+### Build shipped — P0.1 look-ahead + P1.2 rigor battery + P1.6 Monte-Carlo + P1.3 trial counter + P1.7 sub-periods
 
 - **P0.1 — fixed the verified look-ahead bug in the primary engine.**
   `services/workflow_backtester.py`: signal-driven orders (indicator / price /
@@ -50,10 +50,17 @@ Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
   now also states "After N variants this session, deflated-Sharpe DSR NN%." **No Indian platform
   deflates for trials.** **Live RELIANCE: RSI<35→<30→<25 deflated DSR 0.497 → 0.504 → 0.461 as N
   went 1→2→3.** (Stateless `/api/backtest/dsl` + `/expr` opt in via a session id later — follow-up.)
+- **P1.7 (sub-period robustness):** `services/backtest/validation/sub_periods.py` — splits the equity
+  curve into contiguous spans and reports per-span returns, the fraction of spans that made money, and
+  **`concentration`** (|largest span's log-return| / Σ|log-returns|): ~1/n = edge spread evenly (robust),
+  near 1 = almost all the return from one window (fragile/regime-bet) — a time-concentration tell PSR/MC
+  can't see. On every backtest; the chat summary shows "⚠ Fragile: NN% of the return came from a single
+  sub-period" only when concentration > 0.6. Live RELIANCE: 2/4 spans positive, concentration 0.49 (fine).
 - **Tests:** `test_workflow_backtester_lookahead.py` (4, first direct Engine-2 coverage)
-  + `test_backtest_montecarlo.py` (6) + `test_backtest_trials.py` (7, incl. end-to-end deflation).
-  **513 passed**; only failures are pre-existing date-drift (`test_events_calendar`, now-past
-  2026-02 RBI date) + `test_step_types_catalog` catalog drift — both untouched by this work.
+  + `test_backtest_montecarlo.py` (6) + `test_backtest_trials.py` (7, incl. end-to-end deflation)
+  + `test_backtest_subperiods.py` (5). **534 passed**; only failures are pre-existing date-drift
+  (`test_events_calendar`, now-past 2026-02 RBI date) + `test_step_types_catalog` catalog drift —
+  both untouched by this work. New validation files are ruff-clean.
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.
