@@ -10,7 +10,7 @@
 Research + source-grounded audit + written plan, then the first two build items.
 Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
 
-### Build shipped — P0.1 (fix look-ahead) + P1.2 (rigor on every backtest)
+### Build shipped — P0.1 (fix look-ahead) + P1.2 (rigor battery) + P1.6 part 1 (Monte-Carlo)
 
 - **P0.1 — fixed the verified look-ahead bug in the primary engine.**
   `services/workflow_backtester.py`: signal-driven orders (indicator / price /
@@ -34,15 +34,19 @@ Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
   kurtosis 7.33 (fat tails). The backtest now honestly says "don't believe this
   curve" — a verdict no Indian platform (Streak/Tradetron/AlgoTest/Sensibull)
   ships.
-- **Tests:** new `tests/test_workflow_backtester_lookahead.py` (4 tests — first
-  direct unit coverage of Engine 2: next-bar fill, no equity-curve leak,
-  schedule same-bar regression, forward_stats present). **500 passed** in the
-  workflows+paper+forward-stats sweep; the only failures are pre-existing
-  date-drift (`test_events_calendar` asserts a now-past 2026-02 RBI date) and the
-  documented `test_step_types_catalog` catalog drift — both untouched by this work.
+- **P1.6 (Monte-Carlo, part 1):** new `services/backtest/validation/` toolkit +
+  `monte_carlo_robustness()` — circular-block-bootstrap distribution of max-drawdown
+  + terminal wealth on every backtest (5%-worst drawdown, P(end in loss), P(DD > tol)).
+  Wired into all 3 engines; the chat summary now also states "Monte-Carlo: 5%-worst
+  drawdown −NN%, P(end in loss) NN%." **Live RELIANCE: P(loss) 53%, 5%-worst DD −29%.**
+  Block bootstrap preserves vol-clustering so drawdowns aren't understated. (The no-skill
+  *permutation* test — re-run on shuffled prices — lands with walk-forward's rerun adapter.)
+- **Tests:** `test_workflow_backtester_lookahead.py` (4, first direct Engine-2 coverage)
+  + `test_backtest_montecarlo.py` (6). **522 passed**; only failures are pre-existing
+  date-drift (`test_events_calendar`, now-past 2026-02 RBI date) + `test_step_types_catalog`
+  catalog drift — both untouched by this work.
 - **Next:** P1.3 trial-counter (feeds DSR's real `num_trials`), then walk-forward
-  + CPCV→PBO + Monte-Carlo (the rest of the rigor ladder); P1.9 surface the
-  battery on the FE backtest card. Committed locally, **not pushed**.
+  + CPCV→PBO; P1.9 surface the battery on the FE card. Committed locally, **not pushed**.
 
 ### What was done
 - **Web research (4 parallel threads):** (1) how best-in-class engines are architected

@@ -3,7 +3,7 @@
 > **Owner:** lead · **Started:** 2026-06-01 · **Status:** IN PROGRESS — research + audit done; **P0.1 + P1.2 shipped** (2026-06-01)
 > **Branch:** `Eventtriggers` · **Tracking:** this doc is the single source of truth; `STATUS.md` carries the running log.
 >
-> **Progress:** ✅ **P0.1** look-ahead fix in the primary engine (signal-driven orders fill next-bar-open; proven live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (all 3 engines + chat summary shows PSR). Next: P1.3 trial counter → P1.4/1.5/1.6 walk-forward / CPCV→PBO / Monte-Carlo.
+> **Progress:** ✅ **P0.1** look-ahead fix in the primary engine (signal-driven orders fill next-bar-open; proven live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (all 3 engines + chat summary shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest (`services/backtest/validation/`). Next: P1.3 trial counter → P1.4 walk-forward → P1.5 CPCV→PBO.
 
 **Thesis in one line:** Pivot's wedge for serious algo/quant traders is not a prettier equity
 curve — every retail tool draws those — it is a backtester that tells you *whether to believe
@@ -213,8 +213,11 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   trial's return series; feed `N` (clustered effective trials) into DSR's deflation. **[M]**
 - **1.4** **Walk-forward** (anchored + rolling) with Walk-Forward Efficiency. **[M]**
 - **1.5** **Combinatorial Purged CV → PBO** (purge + embargo; `φ[N,k]` OOS paths; CSCV logit → PBO). **[L]**
-- **1.6** **Monte-Carlo** — return-permutation significance test (p-value vs no-skill null) + trade-order /
-  block-bootstrap drawdown distribution (95th-pct DD, P(DD > tolerance)). **[M]**
+- 🟡 **1.6 PARTIAL (2026-06-01)** **Monte-Carlo** — ✅ circular-block-bootstrap drawdown / terminal-wealth
+  distribution (5%-worst DD, P(end in loss), P(DD > tolerance)) shipped in
+  `services/backtest/validation/monte_carlo.py`, on every backtest + the chat summary. ⏳ the no-skill
+  **permutation significance** test (re-run strategy on shuffled price paths) needs the engine-rerun adapter —
+  lands with 1.4 walk-forward. **[M]**
 - **1.7** **Cost-sensitivity sweep** (1×/2×/3× costs → breakeven bps) + **parameter-plateau** heatmap +
   **sub-period/regime** breakdown. **[M]**
 - **1.8** A **"Trust verdict"** on every backtest — reuse the scorecard verdict-ladder idea: roll the gates

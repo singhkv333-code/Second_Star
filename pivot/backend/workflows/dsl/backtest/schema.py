@@ -251,6 +251,25 @@ class ForwardStats(_Strict):
     deflated_sharpe: Optional[float] = None
 
 
+class MonteCarlo(_Strict):
+    """Circular-block-bootstrap distribution of max-drawdown + terminal wealth
+    from the realised return path. Computed by
+    ``services.backtest.validation.monte_carlo_robustness``. Percentages signed
+    (drawdowns negative). ``dd_p95_severity_pct`` = the drawdown breached only
+    ~5% of the time; ``prob_loss`` = fraction of resampled paths ending below
+    water."""
+    n_sims: int = 0
+    block_size: int = 0
+    dd_median_pct: Optional[float] = None
+    dd_p95_severity_pct: Optional[float] = None
+    dd_worst_pct: Optional[float] = None
+    terminal_median_pct: Optional[float] = None
+    terminal_p05_pct: Optional[float] = None
+    prob_loss: Optional[float] = None
+    prob_dd_worse_than_tol: Optional[float] = None
+    drawdown_tolerance_pct: Optional[float] = None
+
+
 class BacktestMetrics(_Strict):
     """Headline performance numbers. Delegates to
     backend.backtester.metrics.calculate_metrics where the field
@@ -274,6 +293,8 @@ class BacktestMetrics(_Strict):
     ending_value: float
     # Statistical-rigor battery (PSR / MinTRL / DSR) on the equity curve.
     forward_stats: Optional[ForwardStats] = None
+    # Monte-Carlo (block-bootstrap) drawdown / terminal-wealth distribution.
+    monte_carlo: Optional[MonteCarlo] = None
 
 
 class BacktestDiagnostics(_Strict):

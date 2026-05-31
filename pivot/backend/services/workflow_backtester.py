@@ -2145,8 +2145,13 @@ def backtest_workflow(
     # confidence the Sharpe is genuinely > 0; MinTRL = sample needed to prove
     # it; DSR deflates for multiple-trials selection bias (num_trials=1 until
     # trial-tracking lands, so DSR == PSR(0)).
+    from backend.services.backtest.validation import monte_carlo_robustness
     from backend.services.forward_stats import forward_stats_block
-    forward_stats = forward_stats_block([p["v"] for p in equity_curve])
+    _eq_vals = [p["v"] for p in equity_curve]
+    forward_stats = forward_stats_block(_eq_vals)
+    # Circular-block-bootstrap drawdown / terminal-wealth distribution — how
+    # lucky was this single path? (5%-worst drawdown, P(end in loss)).
+    monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_eq_vals))
     peak = _STARTING_CAPITAL
     max_dd = 0.0
     for p in equity_curve:
@@ -2218,6 +2223,7 @@ def backtest_workflow(
         "starting_capital": _STARTING_CAPITAL,
         "ending_value": round(final_equity, 2),
         "forward_stats": forward_stats,
+        "monte_carlo": monte_carlo,
     }
 
     # Signals must carry the fields the FE chart card reads. The card
@@ -2262,11 +2268,16 @@ def backtest_workflow(
         f" PSR {_psr:.0%} (confidence the Sharpe is genuinely > 0)."
         if isinstance(_psr, (int, float)) else ""
     )
+    _mc_txt = (
+        f" Monte-Carlo: 5%-worst drawdown {monte_carlo['dd_p95_severity_pct']:.0f}%,"
+        f" P(end in loss) {monte_carlo['prob_loss']:.0%}."
+        if monte_carlo else ""
+    )
     summary = (
         f"Backtested {name!r} on {primary_symbol} over {period}. "
         f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
         f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt}{_psr_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}."
+        f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}"
     )
     if elig.warnings:
         summary += " Notes: " + "; ".join(elig.warnings[:3]) + "."
