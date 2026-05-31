@@ -4,6 +4,97 @@
 
 ---
 
+## Day 13 — 2026-06-01 (lead) — Backtesting strengthening: research + plan + P0.1/P1.2 shipped
+
+**New initiative: make our backtester the most *rigorous* one for algo/quant traders.**
+Research + source-grounded audit + written plan, then the first two build items.
+Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
+
+### Build shipped — P0.1 (fix look-ahead) + P1.2 (rigor on every backtest)
+
+- **P0.1 — fixed the verified look-ahead bug in the primary engine.**
+  `services/workflow_backtester.py`: signal-driven orders (indicator / price /
+  compound / exit_compound triggers — those that read THIS bar's OHLC) now fill
+  at the **next bar's open** via a new `_next_bar_ts` helper + `_SIGNAL_TRIGGERS`
+  set; schedule fires (known a-priori) still fill same-bar. The equity curve is
+  rebuilt from the trade log keyed on each trade's stamped date, so shifting the
+  fill bar also fixes the equity-curve leak (the position now appears only from
+  the fill bar). Added a stable `trades.sort` before the walker as ordering
+  insurance. Engine 2b (`dsl/backtest`) already did next-open correctly — this
+  brings the two principal engines into agreement.
+- **P1.2 — Deflated/Probabilistic Sharpe + MinTRL on EVERY backtest.** New
+  `forward_stats.forward_stats_block()` (the single rigor lens already used by
+  the live paper scorecards) wired into **all three** engines: chat
+  `backtest_workflow` (Engine 2), `/api/backtest/dsl` (Engine 2b, new
+  `ForwardStats` schema model), and `/api/backtest/expr` (Engine 1, in the
+  router). The chat summary now states **"PSR NN% (confidence the Sharpe is
+  genuinely > 0)"** — visible immediately, no FE change needed.
+- **Proven live (real yfinance):** RELIANCE RSI(14)<35 dip-buy over 2y → 61
+  trades, −1.3% return, **PSR 50%** (= no confidence the Sharpe is positive),
+  kurtosis 7.33 (fat tails). The backtest now honestly says "don't believe this
+  curve" — a verdict no Indian platform (Streak/Tradetron/AlgoTest/Sensibull)
+  ships.
+- **Tests:** new `tests/test_workflow_backtester_lookahead.py` (4 tests — first
+  direct unit coverage of Engine 2: next-bar fill, no equity-curve leak,
+  schedule same-bar regression, forward_stats present). **500 passed** in the
+  workflows+paper+forward-stats sweep; the only failures are pre-existing
+  date-drift (`test_events_calendar` asserts a now-past 2026-02 RBI date) and the
+  documented `test_step_types_catalog` catalog drift — both untouched by this work.
+- **Next:** P1.3 trial-counter (feeds DSR's real `num_trials`), then walk-forward
+  + CPCV→PBO + Monte-Carlo (the rest of the rigor ladder); P1.9 surface the
+  battery on the FE backtest card. Committed locally, **not pushed**.
+
+### What was done
+- **Web research (4 parallel threads):** (1) how best-in-class engines are architected
+  (QuantConnect LEAN, Nautilus, Zipline-reloaded, VectorBT, Backtrader, + Indian platforms
+  Streak/Tradetron/AlgoTest/Sensibull/Opstra); (2) the overfitting/validation science that is
+  the real differentiator (Bailey/Borwein/López de Prado/Zhu — PSR/DSR/MinTRL, PBO via CSCV,
+  CPCV with purge+embargo, walk-forward, Monte-Carlo permutation, White/Hansen SPA, haircut
+  Sharpe); (3) advanced strategy classes + their specs (TSMOM/CTA, cross-sectional factor L/S,
+  RSI(2) mean-reversion, cointegration/pairs + OU half-life, options, ML labeling); (4) where
+  AI genuinely fits vs hype.
+- **Source-grounded audit of our own engines** (`pivot-backtester/` + `workflow_backtester.py`
+  + `dsl/backtest/` + `trading_costs`/`backtest_metrics`/`forward_stats`/`scorecards`). We have
+  **~4–7 backtest code paths**, not 2.
+
+### Headline findings (verified in source)
+- **The differentiator is one import away.** `backend/services/forward_stats.py` already implements
+  Probabilistic/Deflated Sharpe + Minimum Track Record Length (pure stdlib) — but it's used **only**
+  by `paper/scorecards.py` on live paper NAV, **never at backtest time.** Wiring it into the backtest
+  path + a trial counter puts us ahead of every Indian retail platform (none report DSR/PBO).
+- **We already own the top and bottom of the "trust ladder"** (in-sample metrics + a live
+  paper-trade forward-test, P0–P6) — we're missing the rigorous *middle* (walk-forward → CPCV/PBO
+  → Monte-Carlo), which is ~400 lines of numpy.
+- **Verified correctness bug (P0):** the *primary* chat engine `workflow_backtester.py:1573` fills
+  `place_order` at the **same bar's** open on a signal computed from that **same bar's** close
+  (`:577`) — a look-ahead bias. Engine 2b (`dsl/backtest`) already does this correctly (next-bar
+  open, shadow-checked) and is the clean engine to standardize on.
+- **Other must-fixes:** two divergent CAGR conventions (`backtest_metrics.py:5` documents its own
+  inconsistency); Engine 1 off the shared cost model (naïve 10+3 bps, no STT/GST); survivorship
+  bias on the whole yfinance technical stack; a vestigial `run_backtest` tool (hardcoded 10 bps).
+- **Strategy coverage:** today we faithfully test single-symbol technical (after the look-ahead fix)
+  and fundamental-factor *screens* — but **not** ranked cross-sectional L/S (Engine 1 can't
+  rank/zscore/neutralize), **not** pairs/stat-arb (no 2-symbol object), **not** vol-targeted CTA
+  (no sizing layer). Those are exactly what the plan's Phase 2 unlocks.
+
+### Plan shape (full detail in the plan doc)
+- **P0 Correctness & consolidation** — fix look-ahead, unify metrics/costs, one no-look-ahead data
+  accessor, cross-engine parity test, retire the vestigial tool.
+- **P1 Rigor layer (the moat)** — wire `forward_stats` into backtests + trial counter; build
+  walk-forward, CPCV→PBO, Monte-Carlo permutation, cost-sensitivity, a "Trust verdict" on every run.
+- **P2 Strategy coverage** — cross-sectional ranking/neutralization, position-sizing (vol-target/ATR),
+  pairs/cointegration as a first-class object, multi-position portfolios.
+- **P3 Data & execution realism** — survivorship-free PIT universe, pluggable LEAN-style reality
+  models, effective-dated India STT/lot/freeze/circuit model, bars cache + vectorized fast-path.
+- **P4 Intraday, options/F&O, AI surface** — minute bars; options chains+Greeks+multi-leg; LLM→
+  sandboxed-PIT-DSL guardrails (route every chat-authored strategy through the rigor ladder).
+- **Out of scope for v1 (stated for credibility):** market-making/HFT/LOB, end-to-end RL alpha.
+
+**Recommended start:** P0.1 (fix look-ahead) + P1.2 (DSR on every backtest) — both small, both
+high-signal. No code changed this session; nothing committed yet.
+
+---
+
 ## Day 12 — 2026-05-30 (frontend-lead) — P6 Ideas scorecard components
 
 ### Shipped

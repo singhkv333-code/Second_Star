@@ -252,6 +252,12 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
         benchmark_curve=result.benchmark_curve,
         trades=result.trades,
     ).to_dict()
+    # Statistical-rigor battery (PSR / MinTRL / DSR) on the equity curve — the
+    # SAME lens the signal engines and the live forward-test scorecards apply.
+    from backend.services.forward_stats import forward_stats_block
+    metrics["forward_stats"] = forward_stats_block(
+        [row["value"] for row in result.equity_curve]
+    )
     return {
         "expression": req.expression,
         "start": req.start, "end": req.end, "rebalance": req.rebalance.upper(),

@@ -384,6 +384,66 @@ def deflated_sharpe_ratio(
     return psr(sharpe_hat, n, skew, kurt, sr_threshold=sr0)
 
 
+# ---------------------------------------------------------------------------
+# One-call battery — the single rigor lens for backtests AND live forward tests
+# ---------------------------------------------------------------------------
+
+def forward_stats_block(
+    equity: Sequence[float],
+    *,
+    num_trials: int = 1,
+    sr_threshold: float = 0.0,
+    confidence: float = 0.95,
+) -> dict:
+    """The full Bailey/Lopez de Prado per-period battery from an equity curve.
+
+    One rigor lens applied to BOTH a backtest equity curve and a live
+    paper-trade NAV, so a strategy's backtest and its realised track record
+    are judged by identical math. Mirrors exactly the call sequence the live
+    scorecards use (``paper/scorecards.py``). Computes the observed
+    (NON-annualized) Sharpe + skew + raw kurtosis, the return-observation
+    count, and:
+
+      * ``psr``  — P(true Sharpe > ``sr_threshold``), correcting for sample
+                   length, skew and fat tails. The honest "should I believe
+                   this Sharpe?" Higher is better; > 0.95 is strong.
+      * ``min_trl`` — observations needed before PSR would clear
+                   ``confidence``. Compare against ``n_obs``: a MinTRL above
+                   your sample means the edge is not yet statistically provable.
+      * ``deflated_sharpe`` — PSR deflated for ``num_trials`` selection bias.
+                   ``num_trials == 1`` ⇒ no deflation ⇒ DSR == PSR(0). Feed the
+                   number of strategy variants actually backtested once
+                   trial-tracking lands, and an inflated in-sample Sharpe will
+                   correctly collapse toward insignificance.
+
+    Values are rounded for display; ``None`` where undefined (n<2, zero
+    dispersion, SR ≤ threshold). Pure stdlib via the primitives above."""
+    rets = daily_returns_from_equity(equity)
+    n_obs = len(rets)
+    sr_hat = observed_sharpe(rets)
+    sk = skewness(rets)
+    kt = kurtosis(rets)  # raw (normal = 3) — what PSR expects
+    psr_val = psr(sr_hat, n_obs, sk, kt, sr_threshold=sr_threshold)
+    mintrl_val = min_track_record_length(
+        sr_hat, sk, kt, sr_threshold=sr_threshold, confidence=confidence
+    )
+    dsr_val = deflated_sharpe_ratio(sr_hat, n_obs, sk, kt, int(num_trials))
+
+    def _r(x: Optional[float], nd: int) -> Optional[float]:
+        return round(x, nd) if x is not None else None
+
+    return {
+        "observed_sharpe": _r(sr_hat, 4),
+        "skew": _r(sk, 4),
+        "kurtosis": _r(kt, 4),
+        "n_obs": n_obs,
+        "num_trials": int(num_trials),
+        "psr": _r(psr_val, 4),
+        "min_trl": _r(mintrl_val, 1),
+        "deflated_sharpe": _r(dsr_val, 4),
+    }
+
+
 __all__ = [
     "DEFAULT_RF_ANNUAL",
     "daily_returns_from_equity",
@@ -394,4 +454,5 @@ __all__ = [
     "psr",
     "min_track_record_length",
     "deflated_sharpe_ratio",
+    "forward_stats_block",
 ]

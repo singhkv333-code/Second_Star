@@ -230,6 +230,27 @@ class EquityPoint(_Strict):
     equity: float
 
 
+class ForwardStats(_Strict):
+    """Bailey/Lopez de Prado per-period rigor battery on the backtest equity
+    curve — the SAME lens the live forward-test scorecards apply to paper NAV.
+    Computed by ``services.forward_stats.forward_stats_block``.
+
+      * ``psr`` — confidence the Sharpe is genuinely > 0 (corrects for sample
+        length, skew, fat tails).
+      * ``min_trl`` — observations needed to prove that at 95%; compare against
+        ``n_obs`` (MinTRL > n_obs ⇒ not yet statistically provable).
+      * ``deflated_sharpe`` — PSR deflated for ``num_trials`` selection bias
+        (1 ⇒ no deflation ⇒ DSR == PSR(0))."""
+    observed_sharpe: Optional[float] = None
+    skew: Optional[float] = None
+    kurtosis: Optional[float] = None
+    n_obs: int = 0
+    num_trials: int = 1
+    psr: Optional[float] = None
+    min_trl: Optional[float] = None
+    deflated_sharpe: Optional[float] = None
+
+
 class BacktestMetrics(_Strict):
     """Headline performance numbers. Delegates to
     backend.backtester.metrics.calculate_metrics where the field
@@ -251,6 +272,8 @@ class BacktestMetrics(_Strict):
     # round-trip cost — so strategy vs benchmark is apples-to-apples.
     benchmark_return_pct: Optional[float] = None
     ending_value: float
+    # Statistical-rigor battery (PSR / MinTRL / DSR) on the equity curve.
+    forward_stats: Optional[ForwardStats] = None
 
 
 class BacktestDiagnostics(_Strict):

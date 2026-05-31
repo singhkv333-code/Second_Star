@@ -1512,6 +1512,41 @@ def _evaluate_stoplosses(
             state.stoplosses.pop(sym, None)
 
 
+# Triggers whose fire is computed from the SAME bar's OHLC (its close, range,
+# or an indicator off its close). An order they raise can only be filled at the
+# NEXT bar's open — the first price knowable after the signal printed —
+# otherwise the backtest trades on information it did not yet have (look-ahead
+# bias). Schedule fires (incl. normalised market_relative_time) are known
+# a-priori, so they legitimately fill at the current bar's open. This mirrors
+# the next-open discipline already enforced by Engine 2b (dsl/backtest).
+_SIGNAL_TRIGGERS = frozenset({
+    "trigger.indicator",
+    "trigger.price",
+    "trigger.compound",
+    "trigger.exit_compound",
+})
+
+
+def _next_bar_ts(
+    bars: pd.DataFrame, ts: pd.Timestamp,
+) -> Optional[pd.Timestamp]:
+    """First bar strictly after ``ts`` in ``bars.index``, or ``None`` when
+    ``ts`` is the last bar (a signal on the final bar can't be filled — there
+    is no subsequent open). ``ts`` is assumed present in the index."""
+    idx = bars.index
+    try:
+        pos = idx.get_loc(ts)
+    except KeyError:
+        return None
+    if isinstance(pos, slice):  # duplicate timestamps — shouldn't occur daily
+        pos = (pos.stop or len(idx)) - 1
+    if not isinstance(pos, int):
+        return None
+    if pos + 1 >= len(idx):
+        return None
+    return idx[pos + 1]
+
+
 def _execute_branch(
     branch: Branch, state: SimState,
     symbol_bars: dict[str, pd.DataFrame],
@@ -1527,6 +1562,9 @@ def _execute_branch(
     ``state`` at this bar; if the tree didn't fire (no position OR
     tree returned FALSE/UNKNOWN), the branch is skipped before any
     body step runs."""
+    # Signal-driven branches decide on THIS bar's data → their orders fill at
+    # the next bar's open (no look-ahead). Schedule branches fill same-bar.
+    signal_driven = branch.trigger_type in _SIGNAL_TRIGGERS
     if branch.trigger_type == "trigger.exit_compound":
         if not _eval_exit_compound(
             branch.trigger_config, state, symbol_bars, ts, branch,
@@ -1565,7 +1603,21 @@ def _execute_branch(
             sym_bars = symbol_bars.get(sym)
             if sym_bars is None or ts not in sym_bars.index:
                 continue
-            row = sym_bars.loc[ts]
+            # No-look-ahead fill bar: a signal-driven order executes at the
+            # NEXT bar's open (the first price knowable after the signal
+            # printed); a schedule order fills at the current bar's open.
+            fill_ts = _next_bar_ts(sym_bars, ts) if signal_driven else ts
+            if fill_ts is None:
+                # Signal printed on the final bar — no subsequent open to
+                # fill against. Mark it but don't fabricate a fill.
+                signals_out.append({
+                    "t": ts.date().isoformat(),
+                    "side": "no_fill_bar",
+                    "price": round(float(sym_bars.at[ts, "Close"]), 2),
+                    "qty": qty,
+                })
+                continue
+            row = sym_bars.loc[fill_ts]
             # Friction direction depends on the cash flow direction:
             # buying / covering pays the offer (open + friction), selling
             # / shorting hits the bid (open - friction).
@@ -1578,14 +1630,14 @@ def _execute_branch(
                 # Long open or extension. Cash check: don't go negative.
                 if fill_price * qty > state.cash:
                     signals_out.append({
-                        "t": ts.date().isoformat(),
+                        "t": fill_ts.date().isoformat(),
                         "side": "buy_skipped",
                         "price": fill_price,
                         "qty": qty,
                     })
                     continue
                 _record_trade(
-                    state, sym, +qty, fill_price, product, ts,
+                    state, sym, +qty, fill_price, product, fill_ts,
                     signals_out, trades_out, reason="trade",
                 )
             elif side == "sell":
@@ -1595,15 +1647,15 @@ def _execute_branch(
                 if exec_qty <= 0:
                     continue
                 _record_trade(
-                    state, sym, -exec_qty, fill_price, product, ts,
+                    state, sym, -exec_qty, fill_price, product, fill_ts,
                     signals_out, trades_out, reason="sell",
                 )
             elif side == "short":
                 # Short open or extension. Naive margin model: deny if
                 # the proceeds would push notional shorted past 50% of
-                # current equity (rough margin check). This is generous
-                # — real brokers cap at 25-33% — but keeps the simulator
-                # from spiraling on absurd workflows.
+                # current equity (rough margin check, at the decision bar).
+                # This is generous — real brokers cap at 25-33% — but keeps
+                # the simulator from spiraling on absurd workflows.
                 cur_equity = state.cash + sum(
                     q * float(symbol_bars[s].at[ts, "Close"])
                     for s, q in state.holdings.items()
@@ -1620,14 +1672,14 @@ def _execute_branch(
                 )
                 if short_notional > 0.5 * max(cur_equity, _STARTING_CAPITAL):
                     signals_out.append({
-                        "t": ts.date().isoformat(),
+                        "t": fill_ts.date().isoformat(),
                         "side": "short_skipped",
                         "price": fill_price,
                         "qty": qty,
                     })
                     continue
                 _record_trade(
-                    state, sym, -qty, fill_price, product, ts,
+                    state, sym, -qty, fill_price, product, fill_ts,
                     signals_out, trades_out, reason="trade",
                 )
             elif side == "cover":
@@ -1637,7 +1689,7 @@ def _execute_branch(
                 if exec_qty <= 0:
                     continue
                 _record_trade(
-                    state, sym, +exec_qty, fill_price, product, ts,
+                    state, sym, +exec_qty, fill_price, product, fill_ts,
                     signals_out, trades_out, reason="cover",
                 )
             continue
@@ -2016,6 +2068,11 @@ def backtest_workflow(
     price_curve: list[dict] = []
     equity_curve: list[dict] = []
     walking_state = SimState()
+    # Next-open fills stamp a trade one bar AFTER its signal, so sort by
+    # execution date before the single-pass walker consumes them (stable sort
+    # preserves same-day entry-before-exit order). Same-bar fills are already
+    # ordered; this is correctness insurance for the shifted ones.
+    trades.sort(key=lambda tr: tr["t"])
     trade_iter = iter(trades)
     next_trade = next(trade_iter, None)
     for ts, row in bars.iterrows():
@@ -2083,6 +2140,13 @@ def backtest_workflow(
     _sharpe, _sortino = sharpe_sortino(
         daily_returns_from_equity([p["v"] for p in equity_curve])
     )
+    # Bailey/Lopez de Prado rigor battery on the backtest equity curve — the
+    # SAME lens the live forward-test scorecards apply to paper NAV. PSR =
+    # confidence the Sharpe is genuinely > 0; MinTRL = sample needed to prove
+    # it; DSR deflates for multiple-trials selection bias (num_trials=1 until
+    # trial-tracking lands, so DSR == PSR(0)).
+    from backend.services.forward_stats import forward_stats_block
+    forward_stats = forward_stats_block([p["v"] for p in equity_curve])
     peak = _STARTING_CAPITAL
     max_dd = 0.0
     for p in equity_curve:
@@ -2153,6 +2217,7 @@ def backtest_workflow(
         "benchmark_return_pct": bench_pct,
         "starting_capital": _STARTING_CAPITAL,
         "ending_value": round(final_equity, 2),
+        "forward_stats": forward_stats,
     }
 
     # Signals must carry the fields the FE chart card reads. The card
@@ -2192,10 +2257,15 @@ def backtest_workflow(
     from backend.services.backtest_metrics import methodology_note
     _method = methodology_note(period_label=period)
     _sharpe_txt = f" Sharpe {_sharpe:.2f}." if _sharpe is not None else ""
+    _psr = forward_stats.get("psr")
+    _psr_txt = (
+        f" PSR {_psr:.0%} (confidence the Sharpe is genuinely > 0)."
+        if isinstance(_psr, (int, float)) else ""
+    )
     summary = (
         f"Backtested {name!r} on {primary_symbol} over {period}. "
         f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
-        f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt} "
+        f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt}{_psr_txt} "
         f"Results are {_method['costs']}, on {_method['basis']}."
     )
     if elig.warnings:
