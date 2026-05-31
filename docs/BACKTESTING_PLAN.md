@@ -3,7 +3,7 @@
 > **Owner:** lead · **Started:** 2026-06-01 · **Status:** IN PROGRESS — research + audit done; **P0.1 + P1.2 shipped** (2026-06-01)
 > **Branch:** `Eventtriggers` · **Tracking:** this doc is the single source of truth; `STATUS.md` carries the running log.
 >
-> **Progress:** ✅ **P0.1** look-ahead fix in the primary engine (signal-driven orders fill next-bar-open; proven live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (all 3 engines + chat summary shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest (`services/backtest/validation/`). Next: P1.3 trial counter → P1.4 walk-forward → P1.5 CPCV→PBO.
+> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). Next: P1.4 walk-forward + no-skill permutation → P1.5 CPCV→PBO → P1.9 FE card.
 
 **Thesis in one line:** Pivot's wedge for serious algo/quant traders is not a prettier equity
 curve — every retail tool draws those — it is a backtester that tells you *whether to believe
@@ -56,7 +56,7 @@ with zero true skill*. Every method below exists to undo that optimism. The head
 | 3 | **Parameter plateau + regime survival** | broad plateau (not a spike); survives sub-periods; live↔BT window parity | ⚠️ parity fixed; no plateau/regime tooling |
 | 4 | **Walk-forward** | aggregate OOS profitable; WFE ≳ 0.5 | ❌ |
 | 5 | **CPCV → PBO** | PBO < ~0.2; inspect worst OOS path | ❌ |
-| 6 | **Deflated Sharpe + multiple-testing** | DSR > 0.95 at realistic `N`; survives haircut | 🟡 **PSR/DSR/MinTRL now on every backtest (P1.2 ✅)**; real `N` from trial-tracking pending (P1.3) |
+| 6 | **Deflated Sharpe + multiple-testing** | DSR > 0.95 at realistic `N`; survives haircut | ✅ **PSR/DSR/MinTRL on every backtest (P1.2); DSR deflates for real trial-count `N` on the chat path (P1.3)**; haircut/SPA + clustered-`N` pending |
 | 7 | **Monte-Carlo realism** | permutation p < 0.05; acceptable 95th-pct drawdown | ❌ |
 | 8 | Capacity check (square-root impact) | net Sharpe holds at target AUM | ❌ (lower priority) |
 | 9 | **Live paper-trade forward test** ≥ MinTRL | matches backtest within stress bounds | ✅ **already built** (paper P0–P6 + scorecards) |
@@ -209,8 +209,12 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   `forward_stats_block()` attaches PSR, MinTRL, DSR, skew/kurtosis to all three engines (chat
   `backtest_workflow`, `/api/backtest/dsl` via a `ForwardStats` schema model, `/api/backtest/expr` in the
   router). Chat summary now shows "PSR NN%". `num_trials=1` until 1.3 lands (DSR == PSR(0) for now).
-- **1.3** **Trial counter** — track how many strategy variants a user/session/chat-LLM backtested; retain each
-  trial's return series; feed `N` (clustered effective trials) into DSR's deflation. **[M]**
+- ✅ **1.3 DONE (2026-06-01)** **Trial counter** — `services/backtest/validation/trials.py`: a per-session
+  registry that deflates DSR for the count of DISTINCT strategy variants backtested (dedup by strategy
+  fingerprint; 2h TTL session). Wired into the chat path (`backtest_workflow` `trial_group`, tool passes
+  `u{uid}`); summary shows "After N variants… DSR NN%". Proven live (DSR fell as N went 1→2→3). *(Effective-N
+  is the distinct-trial count for now; return-correlation clustering for a tighter N is a future refinement.
+  Stateless `/dsl` + `/expr` opt in via a session id later.)*
 - **1.4** **Walk-forward** (anchored + rolling) with Walk-Forward Efficiency. **[M]**
 - **1.5** **Combinatorial Purged CV → PBO** (purge + embargo; `φ[N,k]` OOS paths; CSCV logit → PBO). **[L]**
 - 🟡 **1.6 PARTIAL (2026-06-01)** **Monte-Carlo** — ✅ circular-block-bootstrap drawdown / terminal-wealth
@@ -308,11 +312,13 @@ Naming these honestly is itself a trust signal to the quant persona.
 
 1. ✅ **DONE — Phase 0.1** fixed the same-bar look-ahead in `workflow_backtester.py` (the verified correctness bug).
 2. ✅ **DONE — Phase 1.2** wired `forward_stats` (PSR/DSR/MinTRL) into all three engines + the chat summary.
-3. **Phase 1.3 — trial counter.** Track how many strategy variants a session/chat backtested, retain each
-   trial's returns, and feed the clustered effective `N` into DSR's deflation — turns DSR from PSR(0) into a
-   real selection-bias guard. The keystone that makes the rest of the ladder honest.
-4. Stand up `backend/services/backtest/validation/` and land **walk-forward** + **Monte-Carlo permutation**
-   (cheapest rigor, highest "whoa"), then **CPCV→PBO**, then the **Trust verdict** (1.8) + FE card (1.9).
+3. ✅ **DONE — Phase 1.3** trial counter (`validation/trials.py`); DSR now deflates for the session's
+   distinct-variant count on the chat path. ✅ **DONE — Phase 1.6 (part 1)** Monte-Carlo block-bootstrap.
+4. **Phase 1.4 — walk-forward / sub-period robustness** + the **no-skill permutation test** (re-run the
+   strategy on shuffled price paths). Both want a small **engine-rerun adapter** (run a strategy on injected
+   bars / a sub-window) — build that first; it also unblocks cost-sensitivity sweeps.
+5. **Phase 1.5 — CPCV→PBO** (needs a parameter grid → couples to P2), then the **Trust verdict** (1.8)
+   + the **FE backtest card** (1.9) surfacing PSR/DSR/MinTRL/MC/trial-count.
 
 > Remaining of the moat: the rigor *middle* (walk-forward → CPCV/PBO → Monte-Carlo). We already own the top
 > (in-sample metrics + now PSR/DSR) and the bottom (live paper forward test).

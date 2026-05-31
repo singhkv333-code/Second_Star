@@ -1880,6 +1880,7 @@ def backtest_workflow(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     benchmark_symbol: Optional[str] = None,
+    trial_group: Optional[str] = None,
 ) -> IndicatorBacktestResult:
     """Simulate a workflow draft over historical daily bars.
 
@@ -2152,6 +2153,19 @@ def backtest_workflow(
     # Circular-block-bootstrap drawdown / terminal-wealth distribution — how
     # lucky was this single path? (5%-worst drawdown, P(end in loss)).
     monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_eq_vals))
+    # Deflate DSR for how many DISTINCT strategy variants this session has
+    # backtested (multiple-trials selection-bias guard). No group → num_trials
+    # stays 1 → DSR == PSR(0).
+    if trial_group:
+        from backend.services.backtest.validation.trials import (
+            record_and_deflate, strategy_fingerprint,
+        )
+        forward_stats = record_and_deflate(
+            forward_stats, trial_group,
+            strategy_fingerprint(
+                steps, primary_symbol, period, start_date, end_date,
+            ),
+        )
     peak = _STARTING_CAPITAL
     max_dd = 0.0
     for p in equity_curve:
@@ -2273,11 +2287,17 @@ def backtest_workflow(
         f" P(end in loss) {monte_carlo['prob_loss']:.0%}."
         if monte_carlo else ""
     )
+    _nt = forward_stats.get("num_trials") or 1
+    _dsr = forward_stats.get("deflated_sharpe")
+    _dsr_txt = (
+        f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
+        if _nt > 1 and isinstance(_dsr, (int, float)) else ""
+    )
     summary = (
         f"Backtested {name!r} on {primary_symbol} over {period}. "
         f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
         f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt}{_psr_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}"
+        f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}{_dsr_txt}"
     )
     if elig.warnings:
         summary += " Notes: " + "; ".join(elig.warnings[:3]) + "."

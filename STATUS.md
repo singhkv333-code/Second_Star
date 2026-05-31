@@ -10,7 +10,7 @@
 Research + source-grounded audit + written plan, then the first two build items.
 Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
 
-### Build shipped — P0.1 (fix look-ahead) + P1.2 (rigor battery) + P1.6 part 1 (Monte-Carlo)
+### Build shipped — P0.1 (fix look-ahead) + P1.2 (rigor battery) + P1.6 (Monte-Carlo) + P1.3 (trial counter)
 
 - **P0.1 — fixed the verified look-ahead bug in the primary engine.**
   `services/workflow_backtester.py`: signal-driven orders (indicator / price /
@@ -41,12 +41,22 @@ Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
   drawdown −NN%, P(end in loss) NN%." **Live RELIANCE: P(loss) 53%, 5%-worst DD −29%.**
   Block bootstrap preserves vol-clustering so drawdowns aren't understated. (The no-skill
   *permutation* test — re-run on shuffled prices — lands with walk-forward's rerun adapter.)
+- **P1.3 (trial counter — the keystone):** `services/backtest/validation/trials.py` — a
+  per-session registry that deflates the **Deflated Sharpe for how many DISTINCT strategy
+  variants a user has backtested** (multiple-testing selection-bias guard; Bailey & LdP). Wired
+  into the chat path (`backtest_workflow` gains `trial_group`; the tool passes `u{uid}`). Each
+  new variant raises N and the kept strategy's DSR falls unless the edge is real; re-running the
+  identical strategy is deduped (not a new trial); 2h TTL = a "research session". The chat summary
+  now also states "After N variants this session, deflated-Sharpe DSR NN%." **No Indian platform
+  deflates for trials.** **Live RELIANCE: RSI<35→<30→<25 deflated DSR 0.497 → 0.504 → 0.461 as N
+  went 1→2→3.** (Stateless `/api/backtest/dsl` + `/expr` opt in via a session id later — follow-up.)
 - **Tests:** `test_workflow_backtester_lookahead.py` (4, first direct Engine-2 coverage)
-  + `test_backtest_montecarlo.py` (6). **522 passed**; only failures are pre-existing
-  date-drift (`test_events_calendar`, now-past 2026-02 RBI date) + `test_step_types_catalog`
-  catalog drift — both untouched by this work.
-- **Next:** P1.3 trial-counter (feeds DSR's real `num_trials`), then walk-forward
-  + CPCV→PBO; P1.9 surface the battery on the FE card. Committed locally, **not pushed**.
+  + `test_backtest_montecarlo.py` (6) + `test_backtest_trials.py` (7, incl. end-to-end deflation).
+  **513 passed**; only failures are pre-existing date-drift (`test_events_calendar`, now-past
+  2026-02 RBI date) + `test_step_types_catalog` catalog drift — both untouched by this work.
+- **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
+  engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
+  card. Committed locally, **not pushed**.
 
 ### What was done
 - **Web research (4 parallel threads):** (1) how best-in-class engines are architected

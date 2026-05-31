@@ -701,6 +701,9 @@ async def _backtest_workflow(a, kt, db, uid):
             start_date=start_date,
             end_date=end_date,
             benchmark_symbol=benchmark_symbol,
+            # Group this user's recent backtests so the Deflated Sharpe deflates
+            # for how many variants they've tried (selection-bias guard).
+            trial_group=(f"u{uid}" if uid else None),
         )
     except ValueError as e:
         return {
