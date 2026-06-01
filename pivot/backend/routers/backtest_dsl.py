@@ -125,6 +125,66 @@ async def run(
     return result
 
 
+# ── POST /validate (walk-forward + no-skill permutation) ─────────────
+
+
+class ValidateRequest(BacktestRequest):
+    n_perm: int = 200
+    n_folds: int = 4
+    warmup: int = 200
+
+
+@router.post(
+    "/validate",
+    summary="Deep validation: walk-forward + no-skill permutation test",
+    description=(
+        "Re-runs the single-symbol tree strategy many times to answer two "
+        "questions in-sample metrics can't: (1) does it hold up out-of-sample "
+        "across sequential walk-forward folds (warmup-padded so indicators stay "
+        "warm), and (2) does it beat a no-skill null — the same strategy on "
+        "shuffled returns (a Monte-Carlo permutation p-value). EXPENSIVE: "
+        "n_perm + n_folds engine re-runs."
+    ),
+)
+async def validate(
+    payload: ValidateRequest,
+    user_id: int = Depends(require_user),
+) -> dict:
+    try:
+        tree = _TREE_ADAPTER.validate_python(payload.tree)
+        semantic_validate(tree)
+    except (ValidationError, DSLValidationError) as exc:
+        raise HTTPException(status_code=422, detail=f"tree invalid: {exc}")
+
+    from backend.backtester.engine import _fetch_ohlcv
+    from backend.services.backtest.validation.walkforward import deep_validate_engine2b
+
+    try:
+        bars = await asyncio.to_thread(
+            _fetch_ohlcv, payload.primary_symbol, payload.start_date, payload.end_date,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"price fetch failed: {exc}")
+    if bars is None or bars.empty:
+        raise HTTPException(status_code=400, detail=f"no bars for {payload.primary_symbol}")
+    bars = bars.rename(columns={c: str(c).lower() for c in bars.columns})
+    if len(bars) < payload.warmup + 2 * payload.n_folds:
+        raise HTTPException(
+            status_code=400,
+            detail=f"need >= {payload.warmup + 2 * payload.n_folds} bars for warmup "
+                   f"{payload.warmup} + {payload.n_folds} folds; got {len(bars)}.",
+        )
+
+    out = await asyncio.to_thread(
+        deep_validate_engine2b,
+        tree=payload.tree, primary_symbol=payload.primary_symbol, bars=bars,
+        exit_policy=payload.exit_policy,
+        starting_capital=payload.starting_capital, quantity=payload.quantity,
+        n_perm=payload.n_perm, n_folds=payload.n_folds, warmup=payload.warmup,
+    )
+    return out
+
+
 # ── GET /runs (list) ─────────────────────────────────────────────────
 
 

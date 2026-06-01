@@ -122,9 +122,26 @@ Running log (updated after each build+test run, newest last).
 - **Phase 2 is COMPLETE: 2.1 ✅ · 2.2 ✅ · 2.3 ✅ · 2.4 ✅ · 2.5 ✅.** The strategy classes
   pros run — single-symbol technical, fundamental factor L/S, pairs/baskets, momentum
   portfolios — are all testable and reported through one rigor ladder.
-- **Next (Phase 1 middle, the rigor moat):** P1.4 walk-forward + no-skill permutation
-  (needs the warmup-aware engine-rerun adapter), then P1.5 CPCV→PBO (param grid). Also
-  outstanding: FE cards for the pairs/portfolio render hints.
+### Phase 1.4 — walk-forward + no-skill permutation (the rigor "middle")
+- `backend/services/backtest/validation/walkforward.py` — the rigor middle, built on a
+  **warmup-aware engine-rerun adapter** (every eval window is padded with `warmup` bars
+  before its start so indicators stay warm — the naive clip-to-fold corruption the plan
+  flagged is avoided):
+  - **`permutation_test`** — shuffle the bar-to-bar returns (same distribution, random
+    serial order), rebuild the price path, re-run the strategy, compare to that null →
+    a p-value. **Validated discrimination:** a momentum rule on autocorrelated returns →
+    observed +40% vs null +6.5% → **p=0.01 `beats_random`**; on an iid random walk →
+    +21% vs +7.9% → **p=0.11 `no_skill`** (luck, not edge).
+  - **`walk_forward`** — sequential out-of-sample folds, each re-run with its own warmup,
+    stitched into one OOS curve + a `consistent_oos`/`inconsistent_oos` verdict.
+  - **`deep_validate_engine2b`** — wires both to the single-symbol tree engine.
+- **Exposed:** `POST /api/backtest/dsl/validate` (tree + symbol + window → permutation +
+  walk-forward). EXPENSIVE (n_perm + n_folds re-runs) → opt-in, not in the per-backtest
+  battery. 7 deterministic tests (perm math + discrimination + fold accounting + the
+  Engine-2b adapter end-to-end on synthetic bars).
+- **Remaining P1.4:** a chat tool ("is this overfit / better than random / does it hold
+  out-of-sample") — deferred (the NL→tree translation + routing is a separate run).
+- **Next:** P1.5 CPCV→PBO (needs a parameter grid); FE cards for pairs/portfolio.
 
 ---
 
