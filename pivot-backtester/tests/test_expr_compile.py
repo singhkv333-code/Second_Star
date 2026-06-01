@@ -64,10 +64,30 @@ def test_referenced_fields_are_user_facing_names():
 
 
 def test_quarterly_cte_demands_4_quarters():
-    """Partial TTM is a footgun — the CTE rejects companies with <4 quarters."""
+    """The quarterly leg still demands 4 full quarters (partial-TTM is a footgun)."""
     c = _compile("net_profit_ttm > 0")
     assert "HAVING COUNT(*) = 4" in c.sql
     assert "rn <= 4" in c.sql
+
+
+def test_ttm_targets_real_statement_not_quarterly_results():
+    """TTM must query the field's own statement + period_kind, not a phantom
+    'quarterly_results' statement (which the live mc schema does not have)."""
+    c = _compile("net_profit_ttm > 0")
+    assert "quarterly_results" not in c.sql
+    assert "period_kind = 'quarterly'" in c.sql
+    # net_profit lives on profit_loss.
+    assert "statement = 'profit_loss'" in c.sql
+
+
+def test_ttm_falls_back_to_annual():
+    """When 4 quarters aren't present, TTM resolves to the latest annual value
+    (which already spans 12 months) — so annual-only data still yields a value."""
+    c = _compile("net_profit_ttm > 0")
+    assert "COALESCE(q.val, a.val)" in c.sql
+    assert "FULL OUTER JOIN q USING (sc_id)" in c.sql
+    # The fallback path excludes quarterly rows so it can't double-count.
+    assert "period_kind IS DISTINCT FROM 'quarterly'" in c.sql
 
 
 def test_annual_field_uses_distinct_on_period_end_desc():

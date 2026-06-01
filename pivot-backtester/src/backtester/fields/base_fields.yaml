@@ -6,12 +6,14 @@
 # it here rather than touching engine code.
 #
 # Conventions
-#   statement      — one of balance_sheet | profit_loss | cash_flow | ratios | quarterly_results
+#   statement      — one of balance_sheet | profit_loss | cash_flow | ratios
 #   basis_default  — standalone | consolidated. Resolver may override.
 #   unit           — rupees_crore | rupees | ratio | percentage | shares
 #                    (used only for unit-mismatch warnings)
-#   ttm_eligible   — true if the field can be summed across last 4 quarterly_results
-#                    rows to produce a `<name>_ttm` value.
+#   ttm_eligible   — true if a `<name>_ttm` value can be derived. TTM sums the last
+#                    4 `period_kind='quarterly'` rows when present, else falls back
+#                    to the latest annual value (which already spans 12 months).
+#                    The live mc data is annual-only, so the fallback is what fires.
 #
 # When in doubt about line_items, run:
 #   SELECT DISTINCT line_item FROM mc.statement_lines
@@ -24,6 +26,12 @@ revenue:
   basis_default: consolidated
   ttm_eligible: true
   line_items:
+    # Real mc line_items first (preference order is now authoritative); older
+    # synonyms kept as fallbacks for any differently-formatted rows.
+    - "Total Operating Revenues"
+    - "Revenue From Operations [Net]"
+    - "Total Revenue"
+    - "Revenue From Operations [Gross]"
     - "Total Income From Operations"
     - "Revenue From Operations"
     - "Net Sales"
@@ -159,6 +167,7 @@ cash_from_operations:
   basis_default: consolidated
   ttm_eligible: false
   line_items:
+    - "Net CashFlow From Operating Activities"
     - "Net Cash Flow from Operating Activities"
     - "Cash Flow from Operating Activities"
     - "Net Cash from Operating Activities"
@@ -172,3 +181,139 @@ capex:
     - "Purchase of Fixed Assets"
     - "Purchased of Fixed Assets"
   unit: rupees_crore
+
+# ---- Pre-computed ratios (mc `ratios` statement) ------------------------
+#
+# Moneycontrol already computes these per annual period and stores them in
+# value_numeric. Reading them directly is more reliable than re-deriving from
+# raw line items (and sidesteps balance-sheet line-item synonym drift). They are
+# annual point-in-time values gated by availability_date — NOT TTM-summable, so
+# ttm_eligible is false. These are the factor dimensions a quant screen wants:
+# profitability, margins, leverage, liquidity, valuation, turnover.
+
+return_on_equity:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Return on Networth/Equity (%)"
+  unit: percentage
+  description: "Reported RoE (return on net worth). Reliable; prefer over the derived `roe`."
+
+return_on_assets:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Return on Assets (%)"
+  unit: percentage
+
+return_on_capital_employed:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Return on Capital Employed (%)"
+  unit: percentage
+
+net_profit_margin:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Net Profit Margin (%)"
+  unit: percentage
+
+ebit_margin:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "PBIT Margin (%)"
+  unit: percentage
+  description: "Profit-before-interest-and-tax margin (operating margin)."
+
+ebitda_margin:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "PBDIT Margin (%)"
+  unit: percentage
+
+interest_coverage:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Interest Coverage Ratios (%)"
+  unit: ratio
+  description: "Reported interest coverage. Replaces the old derived field (the
+    raw `operating_profit` line item does not exist in the live mc data)."
+
+debt_to_equity_ratio:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Total Debt/Equity (X)"
+  unit: ratio
+  description: "Reported total-debt-to-equity. Prefer over the derived `debt_to_equity`,
+    which only sees long-term borrowings."
+
+quick_ratio:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Quick Ratio (X)"
+  unit: ratio
+
+price_to_book:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Price/BV (X)"
+  unit: ratio
+
+ev_to_ebitda:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "EV/EBITDA (X)"
+  unit: ratio
+
+earnings_yield:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Earnings Yield"
+  unit: ratio
+
+dividend_payout:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Dividend Payout Ratio (NP) (%)"
+    - "Dividend Payout Ratio (CP) (%)"
+  unit: percentage
+
+asset_turnover:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Asset Turnover Ratio (%)"
+  unit: percentage
+
+inventory_turnover:
+  statement: ratios
+  basis_default: consolidated
+  ttm_eligible: false
+  line_items:
+    - "Inventory Turnover Ratio (X)"
+  unit: ratio

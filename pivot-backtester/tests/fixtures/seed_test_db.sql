@@ -49,19 +49,19 @@ INSERT INTO mc.statement_lines (
    '2020-08-15', 'heuristic', 'mc_html'),
 
   -- X — quarterly Q1 FY21
-  ('X', 'quarterly_results', 'consolidated', 'Jun-20', '2020-06-30', 'quarterly', 'PL',
+  ('X', 'profit_loss', 'consolidated', 'Jun-20', '2020-06-30', 'quarterly', 'PL',
    'Net Profit', 1, '30.00', 30.0, 'Rs. Cr', 1, 'test://x/qr',
    '2020-08-10', 'heuristic', 'mc_html'),
 
   -- X — fill in 3 more historical quarters so net_profit_ttm has 4 values
   --     after 2020-08-16 only — for a TTM-based PIT test.
-  ('X', 'quarterly_results', 'consolidated', 'Mar-20', '2020-03-31', 'quarterly', 'PL',
+  ('X', 'profit_loss', 'consolidated', 'Mar-20', '2020-03-31', 'quarterly', 'PL',
    'Net Profit', 1, '20.00', 20.0, 'Rs. Cr', 1, 'test://x/qr',
    '2020-05-15', 'heuristic', 'mc_html'),
-  ('X', 'quarterly_results', 'consolidated', 'Dec-19', '2019-12-31', 'quarterly', 'PL',
+  ('X', 'profit_loss', 'consolidated', 'Dec-19', '2019-12-31', 'quarterly', 'PL',
    'Net Profit', 1, '25.00', 25.0, 'Rs. Cr', 1, 'test://x/qr',
    '2020-02-15', 'heuristic', 'mc_html'),
-  ('X', 'quarterly_results', 'consolidated', 'Sep-19', '2019-09-30', 'quarterly', 'PL',
+  ('X', 'profit_loss', 'consolidated', 'Sep-19', '2019-09-30', 'quarterly', 'PL',
    'Net Profit', 1, '25.00', 25.0, 'Rs. Cr', 1, 'test://x/qr',
    '2019-11-15', 'heuristic', 'mc_html');
 
@@ -82,16 +82,16 @@ INSERT INTO mc.statement_lines (
    '2015-08-15', 'heuristic', 'mc_html'),
 
   -- Y quarterly EPS — last 4 quarters before mid-2015 to make eps_basic_ttm = 20.
-  ('Y', 'quarterly_results', 'consolidated', 'Mar-15', '2015-03-31', 'quarterly', 'PL',
+  ('Y', 'profit_loss', 'consolidated', 'Mar-15', '2015-03-31', 'quarterly', 'PL',
    'Basic EPS', 1, '5.00', 5.0, 'Rs.', 1, 'test://y/qr',
    '2015-05-15', 'heuristic', 'mc_html'),
-  ('Y', 'quarterly_results', 'consolidated', 'Dec-14', '2014-12-31', 'quarterly', 'PL',
+  ('Y', 'profit_loss', 'consolidated', 'Dec-14', '2014-12-31', 'quarterly', 'PL',
    'Basic EPS', 1, '5.00', 5.0, 'Rs.', 1, 'test://y/qr',
    '2015-02-15', 'heuristic', 'mc_html'),
-  ('Y', 'quarterly_results', 'consolidated', 'Sep-14', '2014-09-30', 'quarterly', 'PL',
+  ('Y', 'profit_loss', 'consolidated', 'Sep-14', '2014-09-30', 'quarterly', 'PL',
    'Basic EPS', 1, '5.00', 5.0, 'Rs.', 1, 'test://y/qr',
    '2014-11-15', 'heuristic', 'mc_html'),
-  ('Y', 'quarterly_results', 'consolidated', 'Jun-14', '2014-06-30', 'quarterly', 'PL',
+  ('Y', 'profit_loss', 'consolidated', 'Jun-14', '2014-06-30', 'quarterly', 'PL',
    'Basic EPS', 1, '5.00', 5.0, 'Rs.', 1, 'test://y/qr',
    '2014-08-15', 'heuristic', 'mc_html');
 -- eps_basic_ttm at any T >= 2015-08-15 = 5+5+5+5 = 20.
@@ -111,16 +111,16 @@ INSERT INTO mc.statement_lines (
   line_item, line_order, value_text, value_numeric, unit, page_no, source_url,
   availability_date, availability_source, source
 ) VALUES
-  ('Z', 'quarterly_results', 'consolidated', 'Mar-15', '2015-03-31', 'quarterly', 'PL',
+  ('Z', 'profit_loss', 'consolidated', 'Mar-15', '2015-03-31', 'quarterly', 'PL',
    'Basic EPS', 1, '2.00', 2.0, 'Rs.', 1, 'test://z/qr',
    '2015-05-15', 'heuristic', 'mc_html'),
-  ('Z', 'quarterly_results', 'consolidated', 'Dec-14', '2014-12-31', 'quarterly', 'PL',
+  ('Z', 'profit_loss', 'consolidated', 'Dec-14', '2014-12-31', 'quarterly', 'PL',
    'Basic EPS', 1, '2.00', 2.0, 'Rs.', 1, 'test://z/qr',
    '2015-02-15', 'heuristic', 'mc_html'),
-  ('Z', 'quarterly_results', 'consolidated', 'Sep-14', '2014-09-30', 'quarterly', 'PL',
+  ('Z', 'profit_loss', 'consolidated', 'Sep-14', '2014-09-30', 'quarterly', 'PL',
    'Basic EPS', 1, '2.00', 2.0, 'Rs.', 1, 'test://z/qr',
    '2014-11-15', 'heuristic', 'mc_html'),
-  ('Z', 'quarterly_results', 'consolidated', 'Jun-14', '2014-06-30', 'quarterly', 'PL',
+  ('Z', 'profit_loss', 'consolidated', 'Jun-14', '2014-06-30', 'quarterly', 'PL',
    'Basic EPS', 1, '2.00', 2.0, 'Rs.', 1, 'test://z/qr',
    '2014-08-15', 'heuristic', 'mc_html');
 -- eps_basic_ttm = 8

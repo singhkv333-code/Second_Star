@@ -14,11 +14,13 @@ Design notes
   AST level, not text level, so injection is impossible.
 * Each leaf becomes one CTE producing ``(sc_id, val)``:
     - ``price`` -> latest close <= T from ``mc.daily_prices``.
-    - TTM leaf -> sum of last 4 quarterly_results values where
-      ``availability_date <= T``. Companies without 4 full quarters are excluded
-      via ``HAVING COUNT(*) = 4``.
-    - Annual leaf -> latest fundamental value where
-      ``availability_date <= T``.
+    - TTM leaf -> sum of the last 4 *quarterly* rows (``period_kind='quarterly'``
+      on the field's own statement) where ``availability_date <= T``, falling
+      back to the latest *annual* value (which already spans twelve months) for
+      companies without 4 full quarters. The live mc data is annual-only, so the
+      annual fallback is what actually fires today.
+    - Annual leaf -> latest fundamental value where ``availability_date <= T``,
+      excluding quarterly rows if any are ever scraped.
 * Division gets ``NULLIF`` on the denominator. This is the difference between
   a clean filter and a backtest crash — please never remove it.
 * The survivorship guard
@@ -213,46 +215,78 @@ def _emit_one_cte(spec: BaseFieldSpec | PriceFieldSpec, *, basis: str) -> str:
 
     # BaseFieldSpec
     line_items_sql = _sql_string_array(spec.line_items)
+    line_item_pref = _line_item_pref_sql(spec.line_items)
 
     if spec.ttm:
+        # Trailing-twelve-months. Two sources, in preference order:
+        #   q — sum of the last 4 *quarterly* rows (the textbook TTM), kept only
+        #       for companies that have all 4 (HAVING COUNT(*) = 4).
+        #   a — the latest *annual* value, which already spans twelve months and
+        #       is the correct TTM proxy when quarterly data is absent.
+        # We COALESCE q over a, so quarterly wins when present and annual is the
+        # fallback. The live mc schema is annual-only (no `quarterly_results`
+        # statement; period_kind = 'annual'), so today every company resolves via
+        # `a`; the quarterly branch lights up automatically if quarters are ever
+        # scraped. Quarterly/annual are distinguished by period_kind on the field's
+        # own statement — NOT by a separate 'quarterly_results' statement name.
         return f"""{alias} AS (
-  WITH per_period AS (
-    SELECT DISTINCT ON (sc_id, period_end)
-           sc_id, period_end, value_numeric
+  WITH q AS (
+    WITH per_period AS (
+      SELECT DISTINCT ON (sc_id, period_end)
+             sc_id, period_end, value_numeric
+      FROM mc.statement_lines
+      WHERE statement = '{spec.statement}'
+        AND period_kind = 'quarterly'
+        AND basis = '{basis}'
+        AND line_item IN ({line_items_sql})
+        AND availability_date IS NOT NULL
+        AND availability_date <= $1
+        AND value_numeric IS NOT NULL
+      ORDER BY sc_id, period_end, availability_date DESC, {line_item_pref}, line_order
+    ),
+    ranked AS (
+      SELECT sc_id, value_numeric,
+             ROW_NUMBER() OVER (
+               PARTITION BY sc_id ORDER BY period_end DESC
+             ) AS rn
+      FROM per_period
+    )
+    SELECT sc_id, SUM(value_numeric)::numeric AS val
+    FROM ranked
+    WHERE rn <= 4
+    GROUP BY sc_id
+    HAVING COUNT(*) = 4
+  ),
+  a AS (
+    SELECT DISTINCT ON (sc_id) sc_id, value_numeric::numeric AS val
     FROM mc.statement_lines
-    WHERE statement = 'quarterly_results'
+    WHERE statement = '{spec.statement}'
+      AND period_kind IS DISTINCT FROM 'quarterly'
       AND basis = '{basis}'
       AND line_item IN ({line_items_sql})
       AND availability_date IS NOT NULL
       AND availability_date <= $1
       AND value_numeric IS NOT NULL
-    ORDER BY sc_id, period_end, availability_date DESC, line_order
-  ),
-  ranked AS (
-    SELECT sc_id, value_numeric,
-           ROW_NUMBER() OVER (
-             PARTITION BY sc_id ORDER BY period_end DESC
-           ) AS rn
-    FROM per_period
+    ORDER BY sc_id, period_end DESC, availability_date DESC, {line_item_pref}, line_order
   )
-  SELECT sc_id, SUM(value_numeric)::numeric AS val
-  FROM ranked
-  WHERE rn <= 4
-  GROUP BY sc_id
-  HAVING COUNT(*) = 4
+  SELECT sc_id, COALESCE(q.val, a.val) AS val
+  FROM a FULL OUTER JOIN q USING (sc_id)
 )"""
 
-    # Annual point-in-time fundamental.
+    # Annual point-in-time fundamental. `period_kind IS DISTINCT FROM 'quarterly'`
+    # keeps annual (and any unlabelled) rows while excluding quarterly rows should
+    # they ever be scraped — a no-op against today's annual-only data.
     return f"""{alias} AS (
   SELECT DISTINCT ON (sc_id) sc_id, value_numeric::numeric AS val
   FROM mc.statement_lines
   WHERE statement = '{spec.statement}'
+    AND period_kind IS DISTINCT FROM 'quarterly'
     AND basis = '{basis}'
     AND line_item IN ({line_items_sql})
     AND availability_date IS NOT NULL
     AND availability_date <= $1
     AND value_numeric IS NOT NULL
-  ORDER BY sc_id, period_end DESC, availability_date DESC, line_order
+  ORDER BY sc_id, period_end DESC, availability_date DESC, {line_item_pref}, line_order
 )"""
 
 
@@ -264,6 +298,24 @@ def _sql_string_array(items: Iterable[str]) -> str:
     """
     escaped = [s.replace("'", "''") for s in items]
     return ", ".join(f"'{s}'" for s in escaped)
+
+
+def _line_item_pref_sql(items: list[str]) -> str:
+    """A CASE expression that turns the YAML ``line_items`` list into an
+    authoritative *preference order*.
+
+    When a company reports several synonyms for the same field in one period
+    (e.g. both "Revenue From Operations [Net]" and "Total Operating Revenues"),
+    the ``DISTINCT ON`` tiebreak would otherwise fall to ``line_order`` — i.e.
+    whichever happens to print first in the statement. By ranking on the YAML
+    position first, the *first listed* synonym wins, so the lists in
+    ``base_fields.yaml`` mean what they say. Strings come from our YAML, not
+    user input; we still escape quotes defensively.
+    """
+    whens = " ".join(
+        f"WHEN '{s.replace(chr(39), chr(39) * 2)}' THEN {i}" for i, s in enumerate(items)
+    )
+    return f"CASE line_item {whens} ELSE {len(items)} END"
 
 
 # ---- Universe SELECT ----------------------------------------------------
