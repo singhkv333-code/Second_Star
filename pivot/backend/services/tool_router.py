@@ -449,6 +449,35 @@ _RULES: list[_Rule] = [
         "backtest_dsl_tree", "backtest_workflow",
     ),
 
+    # ── Quant strategy classes (Phase 2.1-2.4) ────────────────────
+    # pairs / cointegration / Johansen baskets / momentum portfolios.
+    # These tools are NOT in the generic backtest rule above, so without
+    # this the model has to find_tool its way to them (an extra hop ->
+    # tokens + latency) or, lacking the tool in scope, asks for
+    # clarification instead of running. Surface them on the intent.
+    _r(
+        r"\bpairs?\s+trad|\bcointegrat|\bstat[\s-]?arb|\bmean[\s-]?revert"
+        r"|\bjohansen\b|\bspread\b.{0,20}\b(?:trade|strateg|z-?score)"
+        r"|\bmomentum\s+portfolio\b|\blong[\s/-]?short\b|\brotat(?:e|ion|ing)\b"
+        r"|\b(?:top|best|strongest)\s+\d*\s*(?:momentum|names|stocks?)\b"
+        r"|\bhold(?:ing)?\s+the\s+(?:top|strongest)\b",
+        "backtest_pairs", "scan_pairs", "test_cointegration", "backtest_portfolio",
+        "backtest_dsl_tree", "backtest_workflow",
+    ),
+
+    # ── Upcoming events / earnings / dividend calendar ────────────
+    # "when does X report", "next results date", "ex-dividend", "RBI MPC",
+    # "F&O expiry" — surface get_upcoming_events directly (system.md says
+    # call it without a find_tool detour; this makes that possible).
+    _r(
+        r"\bwhen\s+(?:is|are|does|do|will)\b[^.]{0,40}"
+        r"\b(?:report|reporting|results?|earnings|ex[\s-]?div|dividend|expir)"
+        r"|\b(?:next|upcoming)\s+(?:earnings|results?|dividend|ex[\s-]?dividend|mpc|expiry|board\s+meeting|corporate\s+action)\b"
+        r"|\bearnings\s+(?:date|calendar)\b|\bex[\s-]?dividend\b|\bresults?\s+date\b"
+        r"|\b(?:rbi|mpc)\s+(?:meeting|date|decision)\b|\bf&o\s+expiry\b",
+        "get_upcoming_events",
+    ),
+
     # ── Sector basket / multi-stock allocation ────────────────────
     # WHY this rule exists: prompts like "make me a basket of steel
     # stocks with equal weightage and 1L to invest" don't trigger any

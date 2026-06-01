@@ -1223,7 +1223,16 @@ n-day-hold exit, ₹100k capital). If the SYMBOL and the core ENTRY rule are
 present, **run the backtest** — do NOT `ASK_USER` to confirm the window,
 quantity, exit policy, or to "restate it cleanly", and do NOT ask whether to
 proceed. Only ask when the symbol or the core entry condition is genuinely
-missing. On a follow-up that tweaks a prior backtest ("now try RSI<25", "add a
+missing. **A missing time window is NOT missing information — use the default.**
+
+**This applies equally to the multi-name tools** — `backtest_pairs`,
+`scan_pairs`, `test_cointegration`, and **`backtest_portfolio`**. Once the
+stocks/universe are named, RUN with the default lookback, `top_n` (5), rebalance
+(monthly), and window. NEVER `ASK_USER` "which lookback?", "how many names?",
+"long-only or long/short?", or "which window?" — the defaults are correct; pick
+them and run. A 50/200 SMA / EMA / MACD **crossover** is a complete entry rule →
+go straight to `backtest_dsl_tree`, do not ask whether to "run it as a proper
+crossover". On a follow-up that tweaks a prior backtest ("now try RSI<25", "add a
 5% stop"), re-run immediately with the change applied to the remembered shape.
 
 **After a backtest runs, REPORT — never add an `ASK_USER` hop.** Once a backtest

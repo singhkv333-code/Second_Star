@@ -328,6 +328,13 @@ def screen_by_fundamentals(
         items_key = f"items_{i}"
         params[items_key] = defn["items"]
         cte_name = f"m_{mf}"
+        # P/E is derived as 1/EarningsYield. A sane P/E (>= 1) needs 0 < EY <= 1;
+        # sub-1 P/Es (EY > 1) are data artifacts for thinly-covered microcaps
+        # (e.g. P/E 0.03), so bound the EY at the source — keeps filter AND sort
+        # honest. (No effect on other fields.)
+        extra = ""
+        if defn["kind"] == "pe_from_ey":
+            extra = "AND sl.value_numeric > 0 AND sl.value_numeric <= 1.0"
         # DISTINCT ON picks one row per sc_id: prefer consolidated basis,
         # then most recent period. Recency floor applied when `floor` set.
         cte_sqls.append(
@@ -338,6 +345,7 @@ def screen_by_fundamentals(
                 FROM mc.statement_lines sl
                 WHERE sl.line_item = ANY(:{items_key})
                   AND sl.value_numeric IS NOT NULL
+                  {extra}
                   AND (:floor IS NULL OR sl.period_end >= :floor)
                 ORDER BY sl.sc_id,
                          (sl.basis = 'consolidated') DESC,
