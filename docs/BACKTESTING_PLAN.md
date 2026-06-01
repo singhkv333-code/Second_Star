@@ -3,7 +3,7 @@
 > **Owner:** lead · **Started:** 2026-06-01 · **Status:** IN PROGRESS — research + audit done; **P0.1 + P1.2 shipped** (2026-06-01)
 > **Branch:** `Eventtriggers` · **Tracking:** this doc is the single source of truth; `STATUS.md` carries the running log.
 >
-> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). ✅ **P1.9** FE "Trust" panel on the chat backtest card (verdict badge + rigor stat row + flag chips). **Every backtest now shows — in chat AND on the card — a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** ✅ **Phase 0 COMPLETE** (0.1 look-ahead · 0.2 CAGR · 0.3 Engine 1 costs · 0.4 `run_backtest` retired · 0.5 parity test · 0.6 standardized+proven no-look-ahead accessor). 🟢 **Phase 2 started:** ✅ **2.2 position sizing** (fixed/pct-equity/vol-target/ATR-risk, causal, in Engine 2b + chat tool; live-proven). Next in Phase 2: **2.1** cross-sectional ranking (factor L/S) → 2.3 pairs/cointegration. Rigor middle still pending: P1.4 walk-forward / no-skill permutation (engine-rerun adapter) → P1.5 CPCV→PBO (param grid).
+> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). ✅ **P1.9** FE "Trust" panel on the chat backtest card (verdict badge + rigor stat row + flag chips). **Every backtest now shows — in chat AND on the card — a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** ✅ **Phase 0 COMPLETE** (0.1 look-ahead · 0.2 CAGR · 0.3 Engine 1 costs · 0.4 `run_backtest` retired · 0.5 parity test · 0.6 standardized+proven no-look-ahead accessor). 🟢 **Phase 2 in progress:** ✅ **2.2 position sizing** (fixed/pct-equity/vol-target/ATR-risk, causal, Engine 2b + chat tool; live-proven). 🟡 **2.1 cross-sectional transforms** (rank/decile/quantile/zscore/percentrank as SQL window functions → ranked factor selection; live-proven against `mc`; L/S short-leg + winsorize/neutralize + momentum field remain). Next: 2.1 finish (short leg) or 2.3 pairs/cointegration. Rigor middle still pending: P1.4 walk-forward / no-skill permutation (engine-rerun adapter) → P1.5 CPCV→PBO (param grid).
 
 **Thesis in one line:** Pivot's wedge for serious algo/quant traders is not a prettier equity
 curve — every retail tool draws those — it is a backtester that tells you *whether to believe
@@ -246,9 +246,12 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
 **Exit:** every backtest answers "should I believe this?" — a capability *no Indian platform ships.*
 
 ### Phase 2 — Strategy-class coverage (unlock the pro classes) — **L–XL**  *(IN PROGRESS)*
-- **2.1** **Cross-sectional transforms** in Engine 1's grammar: `rank`, `zscore`, `winsorize`, `decile/quantile`,
-  `neutralize(sector|size|beta)` (regression-residual), top-N selection, dollar-neutral long/short, cap on
-  universe size. Unlocks factor L/S. **[L, next]**
+- 🟡 **2.1 PARTIAL (2026-06-01)** **Cross-sectional transforms** in Engine 1's grammar — ✅ `rank` / `decile`
+  / `quantile(x,n)` / `zscore` / `percentrank` compile to SQL window functions over the universe at date T
+  (a `ranked` CTE), so `decile(roe) == 10` selects the top-decile names. Long-only ranked selection works
+  today through the equal-weight runner; proven by executing against live `mc` Postgres. Also fixed a latent
+  `==`/`!=` → `=`/`<>` SQL-operator bug. ⏳ Remaining: `winsorize`, `neutralize(sector|size|beta)`, a
+  lagged-price **momentum** field, and the **dollar-neutral long/short** short leg (runner change). **[L]**
 - ✅ **2.2 DONE (2026-06-01)** **Position sizing layer** in Engine 2b — `fixed` / `pct_equity` / **`vol_target`**
   (size to an annualised volatility target) / **`atr_risk`** (risk N% of equity per trade, stop at ATR×mult).
   All causal (vol/ATR over bars BEFORE the entry) + capped at no-leverage. New `Sizing` schema model, wired into

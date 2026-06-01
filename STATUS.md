@@ -183,7 +183,30 @@ comes from* for trend/CTA — a fixed-share backtest mis-states it. Built in **E
 - **7 sizing tests** (each mode's math, no-leverage cap, causality); existing dsl-backtest suite still 45/45
   (default `fixed` unchanged). **Proven live:** RELIANCE RSI<35 vol-target sized 13 entries to **49–88 shares**
   (varying with realised vol + equity) vs fixed's constant 10 — and the rigor battery + verdict still apply.
-- Follow-up: sizing in Engine 2 + pyramiding/Kelly. **Next Phase 2:** 2.1 cross-sectional ranking (factor L/S).
+- Follow-up: sizing in Engine 2 + pyramiding/Kelly.
+
+### Phase 2 — 2.1 cross-sectional transforms (ranked factor selection)
+
+Engine 1 (the cross-sectional factor engine) could threshold a factor but not RANK it, so "long the
+top-decile names" — the canonical quant-equity move — was inexpressible. Added cross-sectional functions
+to the expression grammar that compile to SQL window functions over the universe at date T:
+- `rank` (RANK) · `decile` (NTILE 10) · `quantile(x,n)` (NTILE n) · `zscore` ((x−AVG)/STDDEV) ·
+  `percentrank` (PERCENT_RANK). So `decile(roe) == 10` = the top-decile-ROE names; the existing
+  equal-weight runner trades them (long-only ranked selection works **today**).
+- Implementation across the `pivot-backtester` package: `ast.Func` node, grammar func-call production +
+  builder, validator (names/arity/quantile-int-literal/no-nesting), and the compiler — a `ranked` CTE
+  computes the window columns over the survivorship-filtered universe (window functions can't sit in a
+  WHERE), then `universe` filters the predicate on them; func-arg params bound before the predicate's.
+- **Fixed a latent bug:** the language uses `==`/`!=` but SQL needs `=`/`<>` — the compiler emitted the raw
+  op (never exercised against the DB since existing screens use `<`/`>`). Benefits every expression.
+- **Proven by EXECUTING against live `mc` Postgres** — compiles, runs, and partitions the universe
+  correctly (deciles/quantiles/percentrank behaved exactly as expected; mc's price table only has 9
+  companies populated, so a large-N demo wasn't possible, but the partition math is verified).
+- 15 new tests (`pivot-backtester/tests/test_expr_xs.py`); 37 package expr tests pass; pivot `test_compare`
+  16/16. (The 8 package integration-test errors are pre-existing — the cleanup deleted the
+  `pivot-mc-scraper/sql` their scratch-DB fixture needs.)
+- **Remaining 2.1:** `winsorize`, `neutralize(sector|size|beta)`, a lagged-price momentum field, and the
+  dollar-neutral **long/short short leg** (a runner change).
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.
