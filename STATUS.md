@@ -101,6 +101,27 @@ Triad: median latency ~13 s (6.9–21.7); input 30k–133k tokens but ~90% cache
 - **Solid:** the `backtest_workflow` path routes cleanly, returns real numbers, the
   full battery, and **honest verdicts** ("No demonstrable edge" on edgeless
   strategies). Options declined instantly (0 tokens); intraday explained as daily-only.
+
+### Eval — fixes + retry on complex algo-trader prompts (`dd26dcb`)
+
+Fixed the three P1s and retried with 15 **detailed** strategies (entry+exit+stop+
+multi-condition). Report:
+[`tests/eval_results/BACKTEST_CHAT_EVAL_RETRY_2026-06-01.md`](tests/eval_results/BACKTEST_CHAT_EVAL_RETRY_2026-06-01.md).
+- **Crossover routing fixed.** The skeleton crossover guard only matched "cross…MA"
+  (verb before MA), missing "SMA/EMA/MACD crossover" → it built a broken
+  `trigger.indicator` shape instead of bailing to the LLM. Regex now catches either
+  word order; `system.md` routes crossovers/multi-condition to `backtest_dsl_tree`.
+  **Golden cross, EMA/SMA/MACD cross, stochastic %K/%D cross, Supertrend, Bollinger,
+  RSI(2) mean-reversion all now run with the full battery + verdict** (were hard-fails).
+- **Over-asking fixed.** `system.md`: run with defaults; after a backtest runs REPORT
+  (0 trades is a valid finding) — never add an `ASK_USER` hop; interpret exit phrasings
+  ("opposite cross", "after N days", "X% stop") literally. The 3 prompts that ran-then-
+  asked now run cleanly (spot-checked).
+- **Trial counter now groups by conversation, not user** (new `turn_context` contextvar
+  threaded through `handle()`/`handle_stream()`) — tuning one idea deflates together,
+  unrelated chats independent. Verified (conv A 1→2; conv B independent).
+- Net: clean-run rate ~7/12 (run 1, crossovers failing) → **~12–13/15 complex** (only an
+  external yfinance data miss for TATAMOTORS.NS remains). 526 tests pass.
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.
