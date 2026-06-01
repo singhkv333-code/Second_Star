@@ -3,7 +3,7 @@
 > **Owner:** lead · **Started:** 2026-06-01 · **Status:** IN PROGRESS — research + audit done; **P0.1 + P1.2 shipped** (2026-06-01)
 > **Branch:** `Eventtriggers` · **Tracking:** this doc is the single source of truth; `STATUS.md` carries the running log.
 >
-> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). ✅ **P1.9** FE "Trust" panel on the chat backtest card (verdict badge + rigor stat row + flag chips). **Every backtest now shows — in chat AND on the card — a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** ✅ **Phase 0 COMPLETE** (0.1 look-ahead · 0.2 CAGR · 0.3 Engine 1 costs · 0.4 `run_backtest` retired · 0.5 parity test · 0.6 standardized+proven no-look-ahead accessor). 🟢 **Phase 2 in progress:** ✅ **2.2 position sizing** (fixed/pct-equity/vol-target/ATR-risk, causal, Engine 2b + chat tool; live-proven). 🟡 **2.1 cross-sectional transforms** — ✅ rank/decile/quantile/zscore/percentrank + ✅ **winsorize** (sigma-clip) + ✅ **neutralize** (industry-demean via `industry_slug`; `sector` is empty), with ✅ **transform→ranking composition** (`decile(neutralize(roe))`, `zscore(winsorize(margin,3))`) via a two-level `ranked_t`→`ranked` CTE; all live-proven against `mc` (top industry-neutral RoE decile → 79 cos; `decile(neutralize(roe))==10 AND D/E<0.5` → 53). **Remaining 2.1 = lagged-price momentum + dollar-neutral L/S short leg — GATED on yfinance-per-name return data, not a price backfill (OHLCV is yfinance's job; the 9 mc.daily_prices rows are a mistake to ignore).** 🟡 **2.3 pairs/stat-arb** — Engle-Granger cointegration + causal spread z-score strategy + OU half-life + pairwise scanner + rigor battery, REST-exposed & live-proven (ADF/OU implemented from scratch — no statsmodels); Johansen + chat-tool wiring remain. Rigor middle still pending: P1.4 walk-forward / no-skill permutation (engine-rerun adapter) → P1.5 CPCV→PBO (param grid).
+> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). ✅ **P1.9** FE "Trust" panel on the chat backtest card (verdict badge + rigor stat row + flag chips). **Every backtest now shows — in chat AND on the card — a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** ✅ **Phase 0 COMPLETE** (0.1 look-ahead · 0.2 CAGR · 0.3 Engine 1 costs · 0.4 `run_backtest` retired · 0.5 parity test · 0.6 standardized+proven no-look-ahead accessor). 🟢 **Phase 2 in progress:** ✅ **2.2 position sizing** (fixed/pct-equity/vol-target/ATR-risk, causal, Engine 2b + chat tool; live-proven). 🟡 **2.1 cross-sectional transforms** — ✅ rank/decile/quantile/zscore/percentrank + ✅ **winsorize** (sigma-clip) + ✅ **neutralize** (industry-demean via `industry_slug`; `sector` is empty), with ✅ **transform→ranking composition** (`decile(neutralize(roe))`, `zscore(winsorize(margin,3))`) via a two-level `ranked_t`→`ranked` CTE; all live-proven against `mc` (top industry-neutral RoE decile → 79 cos; `decile(neutralize(roe))==10 AND D/E<0.5` → 53). **Remaining 2.1 = lagged-price momentum + dollar-neutral L/S short leg — GATED on yfinance-per-name return data, not a price backfill (OHLCV is yfinance's job; the 9 mc.daily_prices rows are a mistake to ignore).** ✅ **2.3 pairs/stat-arb DONE** — Engle-Granger (pairs) + Johansen (baskets) cointegration, causal spread z-score strategy, OU half-life, pairwise scanner, rigor battery; REST (`/run`,`/scan`,`/johansen`) + 3 chat tools (`backtest_pairs`/`scan_pairs`/`test_cointegration`, routing 5/5). All cointegration math from scratch (no statsmodels) + synthetic-validated. Rigor middle still pending: P1.4 walk-forward / no-skill permutation (engine-rerun adapter) → P1.5 CPCV→PBO (param grid).
 
 **Thesis in one line:** Pivot's wedge for serious algo/quant traders is not a prettier equity
 curve — every retail tool draws those — it is a backtester that tells you *whether to believe
@@ -267,17 +267,20 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   `_open_position`, exposed on `/api/backtest/dsl/run` AND the `backtest_dsl_tree` chat tool. 7 sizing tests +
   proven live (RELIANCE vol-target sized 13 entries 49–88 shares vs fixed's constant 10). *(Engine 2 + pyramiding/
   Kelly = follow-up.)* **[M]**
-- 🟡 **2.3 PARTIAL (2026-06-01)** **Pairs / stat-arb as a first-class object** —
-  `backend/services/backtest/pairs/`. ✅ ingest 2 aligned yfinance series; ✅ **Engle-Granger** cointegration
-  (ADF + OU implemented from scratch — no statsmodels/sklearn in the venv — and validated on synthetic series);
-  ✅ static + rolling **hedge ratio**; ✅ a **spread instrument** with causal z-score entry / mean-revert exit /
-  stop and dollar-neutral P&L (trailing-window β+z, position lagged one bar → look-ahead-free, pinned by a test);
-  ✅ **OU half-life** diagnostic; ✅ a pairwise cointegration **scanner**; ✅ the full Phase-1 rigor battery on the
-  spread equity; ✅ REST `/api/backtest/pairs/run` + `/scan`. Proven live: scanner found AXISBANK/UNIONBANK
-  cointegrated@1% (ADF −4.04, 24-day half-life) among 91 pairs; honestly, even cointegrated pairs backtest to
-  `no_edge` (full-sample cointegration is an in-sample diagnostic; the causal backtest + rigor battery refuse a
-  false edge). 14 deterministic tests. ⏳ Remaining: **Johansen** (>2-asset baskets) + a **chat tool** to expose
-  it on the primary surface. **[L]**
+- ✅ **2.3 DONE (2026-06-01)** **Pairs / stat-arb as a first-class object** —
+  `backend/services/backtest/pairs/`. ✅ ingest aligned yfinance series; ✅ **Engle-Granger** cointegration
+  (ADF + OU) AND ✅ **Johansen** trace test for ≥2-asset **baskets** (rank + cointegrating-vector weights) —
+  both implemented from scratch (no statsmodels/sklearn), both validated on synthetic data (EG: cointegrated↔1%,
+  independent↔None; Johansen: rank-0/1/2 recovered + the `[1,1,−1]` vector); ✅ static + rolling **hedge ratio**;
+  ✅ a **spread instrument** with causal z-score entry / mean-revert exit / stop and dollar-neutral P&L
+  (trailing-window β+z, position lagged one bar → look-ahead-free, pinned by a test); ✅ **OU half-life**; ✅ a
+  pairwise cointegration **scanner**; ✅ the full Phase-1 rigor battery on the spread equity. ✅ REST
+  `/api/backtest/pairs/run` + `/scan` + `/johansen`. ✅ **Chat tools** `backtest_pairs` (pair), `scan_pairs`
+  (find pairs in a list), `test_cointegration` (basket Johansen) — LLM routing proven 5/5 across pair/scan/basket
+  prompts, each relaying the honest cointegration + Trust verdict. Proven live: scanner found AXISBANK/UNIONBANK
+  cointegrated@1% (ADF −4.04, 24-day half-life) among 91 pairs; even cointegrated pairs backtest `no_edge` (the
+  causal backtest + rigor battery refuse a false edge). 19 deterministic tests. Nice-to-have left: dedicated FE
+  cards for the pairs render hints (chat shows the text summary today). **[L]**
 - **2.4** **Multi-position portfolio state** in the tree engine (gross/net exposure, sector caps, max names). **[M]**
 - **2.5** Reference-strategy acceptance tests (one per class), each reported through the Phase-1 rigor ladder. **[M]**
 

@@ -7,24 +7,31 @@ same Phase-1 rigor battery as every other engine.
 """
 from .cointegration import (
     EG_CRIT_2VAR,
+    JOHANSEN_TRACE_CRIT,
     EngleGrangerResult,
+    JohansenResult,
     adf_tstat,
     engle_granger,
     hedge_ratio,
+    johansen,
     ou_half_life,
     rolling_zscore,
 )
-from .engine import run_pairs_backtest, simulate_pairs
+from .engine import run_johansen, run_pairs_backtest, simulate_pairs
 from .scanner import scan_pairs
 
 __all__ = [
     "EG_CRIT_2VAR",
+    "JOHANSEN_TRACE_CRIT",
     "EngleGrangerResult",
+    "JohansenResult",
     "adf_tstat",
     "engle_granger",
     "hedge_ratio",
+    "johansen",
     "ou_half_life",
     "rolling_zscore",
+    "run_johansen",
     "run_pairs_backtest",
     "simulate_pairs",
     "scan_pairs",

@@ -1198,10 +1198,13 @@ single-symbol backtester cannot express a TWO-stock spread. For "pairs trade on
 A and B", "is A/B cointegrated", "mean-reversion spread between A and B", or
 "stat-arb backtest", call **`backtest_pairs`** (`symbol_a`, `symbol_b`). For
 "find cointegrated pairs among [list]" / "which of these pair-trade", call
-**`scan_pairs`** with the candidate `symbols`. These tools LEAD with whether the
-legs are cointegrated and a Trust verdict — relay that honestly: a
-non-cointegrated pair has no statistical basis to mean-revert, so don't sell a
-positive return as an edge.
+**`scan_pairs`** with the candidate `symbols`. For a BASKET of 3+ stocks ("are
+RELIANCE, ONGC and BPCL cointegrated", "Johansen test on [list]", "is there a
+stationary basket here"), call **`test_cointegration`** (returns the
+cointegration rank + the stationary basket weights). These tools LEAD with
+whether the legs are cointegrated and a Trust verdict — relay that honestly: a
+non-cointegrated pair/basket has no statistical basis to mean-revert, so don't
+sell a positive return as an edge.
 
 **Run, don't ask.** Backtests have sane defaults (≈3-year window, quantity 10,
 n-day-hold exit, ₹100k capital). If the SYMBOL and the core ENTRY rule are

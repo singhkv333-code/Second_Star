@@ -23,7 +23,7 @@ from backend.services.backtest.validation.monte_carlo import monte_carlo_robustn
 from backend.services.backtest.validation.sub_periods import sub_period_robustness
 from backend.services.backtest.validation.verdict import trust_verdict
 
-from .cointegration import engle_granger, hedge_ratio
+from .cointegration import engle_granger, hedge_ratio, johansen
 
 
 class PairsError(ValueError):
@@ -125,6 +125,50 @@ def simulate_pairs(
 
     equity = starting_capital * np.cumprod(1.0 + net_ret)
     return {"pos": pos, "beta_t": beta_t, "z": z, "net_ret": net_ret, "equity": equity}
+
+
+def run_johansen(symbols: list[str], *, period: str = "2y", k_ar_diff: int = 1) -> dict:
+    """Johansen trace test on a BASKET of ≥2 symbols (yfinance daily closes,
+    aligned on common dates). Returns the cointegration rank, eigenvalues / trace
+    statistics, and — when rank ≥ 1 — the cointegrating weights mapped to symbols
+    (the basket whose weighted combination is stationary)."""
+    canon = list(dict.fromkeys(canonical_symbol(s) for s in symbols))
+    if len(canon) < 2:
+        raise PairsError("Johansen needs at least 2 distinct symbols.")
+    data = fetch_multi_symbol(symbols, period, "1d")
+    names, series = [], []
+    for c in canon:
+        recs = data.get(c, [])
+        if recs:
+            names.append(c)
+            series.append(np.array([r["close"] for r in recs], dtype=float))
+    if len(series) < 2:
+        raise PairsError("fewer than 2 symbols returned aligned data.")
+    L = min(s.size for s in series)        # fetch_multi_symbol aligns; guard anyway
+    series = [s[:L] for s in series]
+    if L < len(series) + k_ar_diff + 30:
+        raise PairsError(
+            f"insufficient aligned data ({L} bars) for {len(series)} symbols over {period}."
+        )
+
+    res = johansen(series, k_ar_diff=k_ar_diff)
+    weights = None
+    if res.cointegrating_vector:
+        weights = {names[i]: res.cointegrating_vector[i] for i in range(len(names))}
+    return {
+        "symbols": names,
+        "period": period,
+        "n_obs": res.n_obs,
+        "rank": res.rank,
+        "is_cointegrated": res.is_cointegrated,
+        "eigenvalues": res.eigenvalues,
+        "trace_stats": res.trace_stats,
+        "crit_95": res.crit_95,
+        "cointegrating_weights": weights,
+        "note": "Johansen trace test, unrestricted-constant model "
+                "(Osterwald-Lenum critical values). rank ≥ 1 ⇒ at least one "
+                "stationary combination (a tradable basket spread).",
+    }
 
 
 def run_pairs_backtest(

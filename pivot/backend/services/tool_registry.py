@@ -86,6 +86,7 @@ _REAL_TOOLS: set[str] = {
     # for a named pair, and a pairwise cointegration scanner over a list.
     "backtest_pairs",
     "scan_pairs",
+    "test_cointegration",
     # Scheduler
     "get_scheduler_status", "list_upcoming_jobs",
     # New v2 tools
@@ -233,6 +234,7 @@ _FIND_TOOL_CATEGORIES: tuple[tuple[str, str], ...] = (
     # shared cost/CAGR model + rigor battery; use backtest_workflow / _dsl_tree.)
     ("backtest_", "backtest"),
     ("scan_pairs", "backtest"),
+    ("test_cointegration", "backtest"),
     # News.
     ("news_", "news"),
     ("get_news", "news"),
@@ -526,7 +528,7 @@ def _ensure_v2_tools_registered() -> None:
         backtest_dsl_tree, propose_dsl_workflow,
     )
     from backend.services._pairs_chat_tools import (
-        backtest_pairs, scan_pairs,
+        backtest_pairs, scan_pairs, test_cointegration,
     )
     from backend.services._orchestrator_chat_tools import (
         compose_multistep, compare_backtests, extract_winner_symbol,
@@ -556,6 +558,7 @@ def _ensure_v2_tools_registered() -> None:
         # Pairs / stat-arb chat tools (Phase 2.3)
         "backtest_pairs": backtest_pairs,
         "scan_pairs": scan_pairs,
+        "test_cointegration": test_cointegration,
         # L14 orchestrator + helpers.
         "compose_multistep": compose_multistep,
         "compare_backtests": compare_backtests,

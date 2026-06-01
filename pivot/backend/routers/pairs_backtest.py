@@ -17,7 +17,11 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.auth.jwt_handler import get_user_id_from_token
-from backend.services.backtest.pairs import run_pairs_backtest, scan_pairs
+from backend.services.backtest.pairs import (
+    run_johansen,
+    run_pairs_backtest,
+    scan_pairs,
+)
 from backend.services.backtest.pairs.engine import PairsError
 
 router = APIRouter(prefix="/api/backtest/pairs", tags=["Pairs backtester"])
@@ -51,6 +55,12 @@ class PairsScanRequest(BaseModel):
     top: int = Field(20, ge=1, le=100)
 
 
+class JohansenRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=2, max_length=6)
+    period: str = "2y"
+    k_ar_diff: int = Field(1, ge=0, le=4)
+
+
 @router.post("/run")
 def run(req: PairsRunRequest, authorization: str = Header(None)):
     _auth(authorization)
@@ -71,3 +81,12 @@ def scan(req: PairsScanRequest, authorization: str = Header(None)):
     return scan_pairs(
         req.symbols, period=req.period, min_level=req.min_level, top=req.top
     )
+
+
+@router.post("/johansen")
+def johansen_basket(req: JohansenRequest, authorization: str = Header(None)):
+    _auth(authorization)
+    try:
+        return run_johansen(req.symbols, period=req.period, k_ar_diff=req.k_ar_diff)
+    except PairsError as e:
+        raise HTTPException(400, str(e))

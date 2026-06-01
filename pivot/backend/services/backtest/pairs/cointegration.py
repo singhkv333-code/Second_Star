@@ -182,6 +182,101 @@ def engle_granger(y: Sequence[float], x: Sequence[float]) -> EngleGrangerResult:
     )
 
 
+# Osterwald-Lenum (1992) trace critical values, unrestricted-constant model
+# ("case 3" — appropriate for I(1) price levels with drift), indexed by (n - r).
+# 90 / 95 / 99 %. Empirically validated by synthetic rank-0/1/2 recovery (a wrong
+# value would misclassify rank); see tests/test_pairs_cointegration.py.
+JOHANSEN_TRACE_CRIT = {
+    1: (7.52, 9.24, 12.97),
+    2: (17.85, 19.96, 24.60),
+    3: (32.00, 34.91, 41.07),
+    4: (49.65, 53.12, 60.16),
+    5: (71.86, 76.07, 84.45),
+}
+_J_LEVELS = ("90%", "95%", "99%")
+
+
+@dataclass
+class JohansenResult:
+    n: int
+    n_obs: int
+    eigenvalues: list[float]
+    trace_stats: list[float]
+    crit_95: list[float]               # 95% trace critical value per r = 0..n-1
+    rank: int                          # inferred cointegration rank at 95%
+    cointegrating_vector: Optional[list[float]]  # top, normalised → basket weights
+    is_cointegrated: bool              # rank >= 1
+
+
+def johansen(series: list[Sequence[float]], *, k_ar_diff: int = 1) -> JohansenResult:
+    """Johansen trace test for the cointegration **rank** of ≥2 aligned series
+    (the multivariate generalisation of Engle-Granger — use it for baskets of 3+).
+
+    Reduced-rank regression on the VECM with an unrestricted constant; eigenvalues
+    of ``S11⁻¹ S01ᵀ S00⁻¹ S01`` give the trace statistics, compared to the
+    Osterwald-Lenum table above. The top eigenvector (normalised so its first
+    weight is 1) is the cointegrating relation — i.e. the basket weights whose
+    combination is stationary. Critical values cap at n=5 (``crit_95`` clamps).
+    """
+    Y = np.column_stack([np.asarray(s, dtype=float) for s in series])
+    T, n = Y.shape
+    if n < 2:
+        raise ValueError("johansen needs at least 2 series.")
+    dY = np.diff(Y, axis=0)
+    k = max(0, int(k_ar_diff))
+    Z0 = dY[k:]                         # ΔY_t
+    Zlev = Y[k:T - 1]                   # Y_{t-1}
+    N = Z0.shape[0]
+    if N < n + k + 5:
+        raise ValueError(f"too few observations ({N}) for {n} series.")
+    cols = [np.ones((N, 1))]           # unrestricted constant
+    for i in range(1, k + 1):
+        cols.append(dY[k - i:T - 1 - i])
+    Z2 = np.hstack(cols)
+
+    def _resid(Z: np.ndarray) -> np.ndarray:
+        beta, _, _, _ = np.linalg.lstsq(Z2, Z, rcond=None)
+        return Z - Z2 @ beta
+
+    R0, R1 = _resid(Z0), _resid(Zlev)
+    S00 = R0.T @ R0 / N
+    S11 = R1.T @ R1 / N
+    S01 = R0.T @ R1 / N
+    M = np.linalg.inv(S11) @ S01.T @ np.linalg.inv(S00) @ S01
+    eigvals, eigvecs = np.linalg.eig(M)
+    eigvals = eigvals.real
+    eigvecs = eigvecs.real
+    order = np.argsort(eigvals)[::-1]
+    eigvals = np.clip(eigvals[order], 1e-12, 1 - 1e-12)
+    eigvecs = eigvecs[:, order]
+
+    trace = np.array([-N * float(np.sum(np.log(1 - eigvals[r:]))) for r in range(n)])
+    crit95 = [JOHANSEN_TRACE_CRIT[min(n - r, 5)][1] for r in range(n)]
+
+    rank = n
+    for r in range(n):
+        if trace[r] < crit95[r]:
+            rank = r
+            break
+
+    coint_vec = None
+    if rank >= 1:
+        v = eigvecs[:, 0]
+        if abs(v[0]) > 1e-9:
+            v = v / v[0]               # normalise so first weight = 1
+        coint_vec = [round(float(x), 6) for x in v]
+
+    return JohansenResult(
+        n=n, n_obs=N,
+        eigenvalues=[round(float(x), 6) for x in eigvals],
+        trace_stats=[round(float(x), 4) for x in trace],
+        crit_95=crit95,
+        rank=rank,
+        cointegrating_vector=coint_vec,
+        is_cointegrated=rank >= 1,
+    )
+
+
 def rolling_zscore(
     spread: Sequence[float], window: int
 ) -> np.ndarray:

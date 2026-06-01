@@ -1287,6 +1287,23 @@ tool("scan_pairs",
      },
      ["symbols"])
 
+tool("test_cointegration",
+     "Tests whether a BASKET of 3+ stocks is cointegrated using the Johansen "
+     "trace test, and returns the cointegration RANK plus the cointegrating "
+     "weights (the basket combination that is stationary / mean-reverting). Use "
+     "for: 'are RELIANCE, ONGC and BPCL cointegrated', 'is there a stationary "
+     "basket among these stocks', 'Johansen test on [list]'. For just TWO stocks "
+     "prefer `backtest_pairs`; to find pairs inside a list prefer `scan_pairs`. "
+     "Rank 0 means no tradable basket spread — relay that honestly.",
+     {
+         "symbols": {"type": "array", "items": {"type": "string"},
+                     "description": "The basket tickers (2-6), e.g. "
+                     "['RELIANCE','ONGC','IOC','BPCL']."},
+         "period": {"type": "string", "description":
+                    "Lookback window, e.g. '2y','5y'. Default '2y'."},
+     },
+     ["symbols"])
+
 
 tool("propose_dsl_workflow",
      "SINGLE-SYMBOL workflow builder. The DSL acts on ONE primary "

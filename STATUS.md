@@ -47,8 +47,25 @@ Running log (updated after each build+test run, newest last).
   and ICICIBANK" → `backtest_pairs`; "is TCS/INFY cointegrated" → `backtest_pairs`;
   "find cointegrated pairs among SBIN/PNB/BANKBARODA/CANBK" → `scan_pairs`. The model
   relayed the honest "not cointegrated → no edge" call each time.
-- **Remaining 2.3:** Johansen (>2-asset baskets); an FE card for the pairs render hints
-  (`pairs_backtest` / `pairs_scan`) — chat renders the text summary today.
+
+### Phase 2.3 — Johansen baskets (run #2 — this commit)
+- **Johansen trace test** for ≥2-asset baskets (`cointegration.johansen`): VECM reduced-rank
+  regression (unrestricted constant), eigenvalues of `S11⁻¹S01ᵀS00⁻¹S01`, trace stats vs
+  Osterwald-Lenum critical values — implemented from scratch (no statsmodels). Returns the
+  cointegration **rank** + the **cointegrating vector** (the stationary basket weights).
+  **Validated like Engle-Granger — synthetic rank-0/1/2 all recovered** (decisive eigenvalue
+  gaps; a wrong critical value would misclassify), and the rank-1 vector recovered as
+  `[1, 1, −1]` for `x3 = x1 + x2 + noise`.
+- `run_johansen(symbols)` (yfinance aligned closes → rank + weights mapped to tickers);
+  REST `POST /api/backtest/pairs/johansen`; chat tool **`test_cointegration`** for baskets
+  (distinct from `backtest_pairs` (2 stocks) and `scan_pairs` (pairwise)).
+- **Routing eval 2/2 PASS:** "are RELIANCE, ONGC and BPCL cointegrated as a basket" and
+  "Johansen test on TATASTEEL/JSWSTEEL/HINDALCO" → `test_cointegration`; the model relayed
+  the honest "rank 0 → not cointegrated → no basket spread" each time. 5 new synthetic tests
+  (19 in the pairs suite).
+- **2.3 now complete** (Engle-Granger pairs + Johansen baskets + chat exposure for both).
+  Only nice-to-have left: dedicated FE cards for the `pairs_backtest`/`pairs_scan`/
+  `cointegration_test` render hints — chat renders the text summary today.
 
 ---
 

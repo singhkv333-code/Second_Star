@@ -14,7 +14,11 @@ from __future__ import annotations
 
 import asyncio
 
-from backend.services.backtest.pairs import run_pairs_backtest, scan_pairs as _scan_pairs
+from backend.services.backtest.pairs import (
+    run_johansen,
+    run_pairs_backtest,
+    scan_pairs as _scan_pairs,
+)
 from backend.services.backtest.pairs.engine import PairsError
 
 
@@ -94,6 +98,44 @@ async def backtest_pairs(args: dict) -> dict:
             "trust_verdict": tv,
         },
     }
+
+
+async def test_cointegration(args: dict) -> dict:
+    """Johansen cointegration-rank test on a BASKET (3+ stocks). See module docstring."""
+    args = args or {}
+    symbols = args.get("symbols") or []
+    if isinstance(symbols, str):
+        symbols = [s.strip() for s in symbols.replace(",", " ").split() if s.strip()]
+    symbols = [s for s in symbols if s]
+    if len(symbols) < 2:
+        raise ValueError(
+            "test_cointegration needs a 'symbols' list of 2+ tickers (best for "
+            "baskets of 3+, e.g. ['RELIANCE','ONGC','IOC','BPCL'])."
+        )
+    period = (args.get("period") or "2y").strip()
+    try:
+        res = await asyncio.to_thread(run_johansen, symbols, period=period)
+    except PairsError as e:
+        raise ValueError(str(e))
+
+    syms = res["symbols"]
+    rank = res["rank"]
+    if rank >= 1:
+        w = res.get("cointegrating_weights") or {}
+        wtxt = " ".join(f"{k} {v:+.2f}" for k, v in w.items())
+        summary = (
+            f"Johansen test on {syms} ({period}): COINTEGRATED — rank {rank} of "
+            f"{len(syms)} at 95% (trace {res['trace_stats'][0]} vs crit "
+            f"{res['crit_95'][0]}). A stationary combination exists"
+            + (f": {wtxt} (the tradable basket spread)." if wtxt else ".")
+        )
+    else:
+        summary = (
+            f"Johansen test on {syms} ({period}): NOT cointegrated (rank 0) — no "
+            "stationary combination, so there's no mean-reverting basket spread to "
+            "trade here."
+        )
+    return {"_render_hint": "cointegration_test", "summary": summary, **res}
 
 
 async def scan_pairs(args: dict) -> dict:

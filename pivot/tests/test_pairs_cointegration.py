@@ -13,8 +13,10 @@ from backend.market.yfinance_service import canonical_symbol
 from backend.services.backtest.pairs import (
     adf_tstat,
     engle_granger,
+    johansen,
     ou_half_life,
     rolling_zscore,
+    run_johansen,
     run_pairs_backtest,
     simulate_pairs,
 )
@@ -88,6 +90,63 @@ def test_rolling_zscore_is_causal_and_correct():
     win = s[1:5]
     expected = (s[4] - win.mean()) / win.std(ddof=1)
     assert abs(z[4] - expected) < 1e-9
+
+
+# ── Johansen (baskets) ───────────────────────────────────────────────
+
+def _basket_rank(rank, n=3, T=800, seed=2024):
+    """Build an n-series basket with a KNOWN cointegration rank.
+
+    (n - rank) PURE independent random walks are the common trends (no two of
+    them combine to anything stationary); the remaining `rank` series are a
+    trend-combo + stationary noise, giving exactly `rank` cointegrating relations.
+    """
+    rng = np.random.default_rng(seed)
+    if rank == 0:
+        return [np.cumsum(rng.standard_normal(T)) for _ in range(n)], rng
+    trends = [np.cumsum(rng.standard_normal(T)) for _ in range(n - rank)]
+    series = list(trends)                       # pure trends as the first series
+    for _ in range(rank):                       # each adds one stationary relation
+        combo = sum((j + 1) * trends[j] for j in range(len(trends)))
+        series.append(combo + _ar1(T, 0.5, rng))
+    return series, rng
+
+
+@pytest.mark.parametrize("rank", [0, 1, 2])
+def test_johansen_recovers_known_rank(rank):
+    series, _ = _basket_rank(rank, n=3)
+    res = johansen(series)
+    assert res.rank == rank
+    assert (res.rank >= 1) == res.is_cointegrated
+    # exactly `rank` eigenvalues should be "large", the rest near zero
+    big = [e for e in res.eigenvalues if e > 0.05]
+    assert len(big) == rank
+
+
+def test_johansen_recovers_cointegrating_vector():
+    # x3 = x1 + x2 + stationary  ⇒  weights ≈ [1, 1, -1] (x1 + x2 - x3 stationary)
+    rng = np.random.default_rng(7)
+    f1 = np.cumsum(rng.standard_normal(800))
+    f2 = np.cumsum(rng.standard_normal(800))
+    x3 = f1 + f2 + _ar1(800, 0.5, rng)
+    res = johansen([f1, f2, x3])
+    assert res.rank == 1
+    v = res.cointegrating_vector
+    assert v is not None and abs(v[0] - 1.0) < 1e-9
+    assert abs(v[1] - 1.0) < 0.15 and abs(v[2] + 1.0) < 0.15
+
+
+def test_run_johansen_maps_weights_to_symbols(monkeypatch):
+    series, _ = _basket_rank(1, n=3, seed=11)
+    syms = ["AAA", "BBB", "CCC"]
+    canon = [canonical_symbol(s) for s in syms]
+    monkeypatch.setattr(
+        "backend.services.backtest.pairs.engine.fetch_multi_symbol",
+        lambda s, p, i: {canon[k]: _records(series[k]) for k in range(3)},
+    )
+    res = run_johansen(syms, period="2y")
+    assert res["rank"] == 1
+    assert set(res["cointegrating_weights"]) == set(canon)
 
 
 # ── simulation core ──────────────────────────────────────────────────
