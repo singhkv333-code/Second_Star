@@ -1242,6 +1242,52 @@ tool("backtest_dsl_tree",
      ["condition", "primary_symbol"])
 
 
+tool("backtest_pairs",
+     "BACKTESTS a PAIRS / statistical-arbitrage (mean-reversion) strategy on TWO "
+     "stocks. Use for: 'pairs trade on HDFCBANK and ICICIBANK', 'is TCS/INFY "
+     "cointegrated', 'mean-reversion spread between SBIN and PNB', 'stat-arb "
+     "backtest on these two'. It runs an Engle-Granger cointegration test, "
+     "estimates the hedge ratio, trades the spread's z-score (enter at ±entry_z, "
+     "exit on mean-reversion), and reports the OU half-life plus the full Trust "
+     "verdict / rigor battery. The result LEADS with whether the legs are "
+     "cointegrated — relay that honestly; a non-cointegrated pair has no "
+     "statistical basis to mean-revert.",
+     {
+         "symbol_a": {"type": "string", "description":
+                      "First leg of the pair (e.g. HDFCBANK)."},
+         "symbol_b": {"type": "string", "description":
+                      "Second leg of the pair (e.g. ICICIBANK)."},
+         "period": {"type": "string", "description":
+                    "Lookback window, e.g. '2y', '3y', '5y'. Default '2y'."},
+         "lookback": {"type": "integer", "description":
+                      "Rolling window (days) for the hedge ratio + z-score. Default 60."},
+         "entry_z": {"type": "number", "description":
+                     "Z-score to enter (default 2.0)."},
+         "exit_z": {"type": "number", "description":
+                    "Z-score to exit toward the mean (default 0.5)."},
+     },
+     ["symbol_a", "symbol_b"])
+
+tool("scan_pairs",
+     "SCANS a list of stocks for cointegrated PAIRS, ranked by cointegration "
+     "strength (ADF) with the mean-reversion half-life. Use for: 'find "
+     "cointegrated pairs among PSU banks', 'which of these stocks pair-trade', "
+     "'scan SBIN, PNB, BANKBARODA, CANBK for pairs'. Supply the candidate "
+     "tickers in `symbols` (from the user's list or a sector you name). The "
+     "result is an IN-SAMPLE screen — tell the user to confirm any hit with "
+     "backtest_pairs before trusting it.",
+     {
+         "symbols": {"type": "array", "items": {"type": "string"},
+                     "description": "Candidate tickers (2-40), e.g. "
+                     "['SBIN','PNB','BANKBARODA','CANBK','UNIONBANK']."},
+         "period": {"type": "string", "description":
+                    "Lookback window, e.g. '2y','5y'. Default '2y'."},
+         "min_level": {"type": "string", "enum": ["1%", "5%", "10%"],
+                       "description": "Min cointegration significance. Default '5%'."},
+     },
+     ["symbols"])
+
+
 tool("propose_dsl_workflow",
      "SINGLE-SYMBOL workflow builder. The DSL acts on ONE primary "
      "symbol — entry trigger fires on it, exit branch closes its "

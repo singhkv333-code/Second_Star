@@ -82,6 +82,10 @@ _REAL_TOOLS: set[str] = {
     # conditions; LLM hands over the user's NL condition as one
     # string and the tool builds the DSL tree internally.
     "backtest_dsl_tree",
+    # Pairs / stat-arb backtester (Phase 2.3): cointegration + spread strategy
+    # for a named pair, and a pairwise cointegration scanner over a list.
+    "backtest_pairs",
+    "scan_pairs",
     # Scheduler
     "get_scheduler_status", "list_upcoming_jobs",
     # New v2 tools
@@ -228,6 +232,7 @@ _FIND_TOOL_CATEGORIES: tuple[tuple[str, str], ...] = (
     # Backtesting. (`run_backtest` retired 2026-06-01 — diverged from the
     # shared cost/CAGR model + rigor battery; use backtest_workflow / _dsl_tree.)
     ("backtest_", "backtest"),
+    ("scan_pairs", "backtest"),
     # News.
     ("news_", "news"),
     ("get_news", "news"),
@@ -520,6 +525,9 @@ def _ensure_v2_tools_registered() -> None:
     from backend.services._dsl_chat_tools import (
         backtest_dsl_tree, propose_dsl_workflow,
     )
+    from backend.services._pairs_chat_tools import (
+        backtest_pairs, scan_pairs,
+    )
     from backend.services._orchestrator_chat_tools import (
         compose_multistep, compare_backtests, extract_winner_symbol,
     )
@@ -545,6 +553,9 @@ def _ensure_v2_tools_registered() -> None:
         # DSL-tree chat tools (Phase B+1+C.0)
         "backtest_dsl_tree": backtest_dsl_tree,
         "propose_dsl_workflow": propose_dsl_workflow,
+        # Pairs / stat-arb chat tools (Phase 2.3)
+        "backtest_pairs": backtest_pairs,
+        "scan_pairs": scan_pairs,
         # L14 orchestrator + helpers.
         "compose_multistep": compose_multistep,
         "compare_backtests": compare_backtests,

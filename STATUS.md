@@ -4,6 +4,54 @@
 
 ---
 
+## Day 14 — 2026-06-01 (lead) — Data audit + DB restructuring + Phase 2.1/2.3
+
+Running log (updated after each build+test run, newest last).
+
+### Data audit + trim + restructuring (committed `8825f3b`)
+- **Audit** (`docs/DATA_AUDIT.md`, evidence from live Postgres): `mc` is fundamentals
+  (`statement_lines` 10.7M / 6,858 cos, real PIT via `availability_date`) + a tiny
+  price table. **OHLCV is yfinance's job — the 9 `mc.daily_prices` rows were a mistake,
+  ignored.** Two root-cause bugs found: the TTM CTE filtered a phantom
+  `statement='quarterly_results'` (data is annual-only) → every TTM field returned 0;
+  and several `line_items` lists named columns MC no longer emits.
+- **Restructure (pivot-backtester):** TTM now sums `period_kind='quarterly'` on the
+  field's own statement, falling back to latest annual → `net_profit_ttm>0` 0→2,574,
+  `roe>0` 0→652. Fixed `revenue`/`cash_from_operations` line_items. Promoted **15
+  pre-computed `ratios` fields** (RoE/RoA/ROCE, margins, interest_coverage, D/E, P/B,
+  EV/EBITDA, …). `line_items` lists are now an authoritative preference order. Guard:
+  `tests/test_mc_field_contract.py` runs compiled SQL vs the live DB.
+- **Trim (financials DB):** dropped dead scraper tables `scrape_jobs` (112k/34MB),
+  `rate_bucket`, `raw_pages`, `appfeeds_probe` + the `v_job_progress` view. `mc` now =
+  companies · daily_prices · statement_lines (+ `v_latest_*`). `docs/data_trim_2026-06-01.sql`.
+
+### Phase 2.1 — winsorize + neutralize + composition (committed `c065941`)
+- `winsorize(x,k)` (sigma-clip) + `neutralize(x)` (industry-demean via `industry_slug`;
+  `sector` is empty). They **compose under rankings** — `decile(neutralize(roe))`,
+  `zscore(winsorize(margin,3))` — via a new two-level `ranked_t`→`ranked` CTE (window
+  funcs can't nest). 10 new tests; live: `decile(neutralize(roe))==10 AND D/E<0.5` → 53.
+
+### Phase 2.3 — pairs / stat-arb engine (committed `d8a9bf2`)
+- `backend/services/backtest/pairs/`: Engle-Granger cointegration + ADF + OU half-life
+  (from scratch — no statsmodels), causal spread z-score strategy (trailing-window β+z,
+  position lagged one bar = look-ahead-free), pairwise scanner, full rigor battery, REST
+  `/api/backtest/pairs/run` + `/scan`. 14 deterministic tests (incl. the no-look-ahead
+  proof). Live: scanner found AXISBANK/UNIONBANK cointegrated@1% among 91 pairs;
+  cointegrated pairs still backtest `no_edge` (causal + rigor refuse a false edge).
+
+### Phase 2.3 — pairs CHAT TOOL (run #1 — this commit)
+- `backtest_pairs` + `scan_pairs` chat tools (`_pairs_chat_tools.py`) wired into the
+  registry (visible set + dispatch + category) + `tools.py` defs + `system.md` routing.
+  Compact, **verdict-led** summary (leads with cointegration + Trust verdict, not the
+  return number). **In-process LLM routing eval — 3/3 PASS:** "pairs trade on HDFCBANK
+  and ICICIBANK" → `backtest_pairs`; "is TCS/INFY cointegrated" → `backtest_pairs`;
+  "find cointegrated pairs among SBIN/PNB/BANKBARODA/CANBK" → `scan_pairs`. The model
+  relayed the honest "not cointegrated → no edge" call each time.
+- **Remaining 2.3:** Johansen (>2-asset baskets); an FE card for the pairs render hints
+  (`pairs_backtest` / `pairs_scan`) — chat renders the text summary today.
+
+---
+
 ## Day 13 — 2026-06-01 (lead) — Backtesting strengthening: research + plan + P0.1/P1.2 shipped
 
 **New initiative: make our backtester the most *rigorous* one for algo/quant traders.**

@@ -1193,6 +1193,16 @@ never AND it into the entry). NEVER reply that "the engine can't resolve the
 crossover / trigger ref" and stop — that is exactly the case you re-route to
 `backtest_dsl_tree`.
 
+**Pairs / stat-arb → `backtest_pairs` (a pair) or `scan_pairs` (a list).** A
+single-symbol backtester cannot express a TWO-stock spread. For "pairs trade on
+A and B", "is A/B cointegrated", "mean-reversion spread between A and B", or
+"stat-arb backtest", call **`backtest_pairs`** (`symbol_a`, `symbol_b`). For
+"find cointegrated pairs among [list]" / "which of these pair-trade", call
+**`scan_pairs`** with the candidate `symbols`. These tools LEAD with whether the
+legs are cointegrated and a Trust verdict — relay that honestly: a
+non-cointegrated pair has no statistical basis to mean-revert, so don't sell a
+positive return as an edge.
+
 **Run, don't ask.** Backtests have sane defaults (≈3-year window, quantity 10,
 n-day-hold exit, ₹100k capital). If the SYMBOL and the core ENTRY rule are
 present, **run the backtest** — do NOT `ASK_USER` to confirm the window,
