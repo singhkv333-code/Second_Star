@@ -143,6 +143,26 @@ def lower_exit_policy(policy) -> "ExitPolicyTree":
 # ── Request ─────────────────────────────────────────────────────────
 
 
+class Sizing(_Strict):
+    """How to size each entry (Phase 2.2). ``fixed`` uses
+    ``BacktestRequest.quantity``; the others size from CURRENT equity + the entry
+    bar's price (and, for the vol/ATR modes, the asset's realised volatility / ATR
+    computed causally over bars BEFORE the entry — no look-ahead). Vol-targeting
+    and ATR-risk are what systematic traders actually run: a fixed-share backtest
+    mis-states the Sharpe because position size is a large part of where it comes
+    from. All non-fixed modes are capped at no-leverage (notional ≤ equity)."""
+    mode: Literal["fixed", "pct_equity", "vol_target", "atr_risk"] = "fixed"
+    # pct_equity — deploy this fraction of current equity per entry.
+    pct: float = Field(default=0.20, gt=0.0, le=1.0)
+    # vol_target — target annualised position volatility + realised-vol lookback.
+    target_vol: float = Field(default=0.15, gt=0.0, le=2.0)
+    vol_lookback: int = Field(default=20, ge=5, le=252)
+    # atr_risk — risk this fraction of equity per trade, stop at atr_mult × ATR.
+    risk_pct: float = Field(default=0.01, gt=0.0, le=0.25)
+    atr_period: int = Field(default=14, ge=2, le=100)
+    atr_mult: float = Field(default=2.0, gt=0.0, le=20.0)
+
+
 class BacktestRequest(_Strict):
     """Inbound payload for POST /api/backtest/dsl/run."""
 
@@ -170,7 +190,15 @@ class BacktestRequest(_Strict):
     )
     quantity: int = Field(
         default=1, ge=1, le=100000,
-        description="Shares per entry trade.",
+        description="Shares per entry trade (used when sizing.mode='fixed').",
+    )
+    sizing: Sizing = Field(
+        default_factory=Sizing,
+        description=(
+            "Position-sizing policy. Default 'fixed' uses `quantity`; "
+            "'pct_equity' / 'vol_target' / 'atr_risk' size from equity + "
+            "the asset's volatility/ATR (no look-ahead)."
+        ),
     )
     exit_policy: ExitPolicy = Field(
         default_factory=lambda: ExitPolicyDeclarative(kind="n_day_hold", bars=10),

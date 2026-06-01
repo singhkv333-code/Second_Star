@@ -1217,6 +1217,27 @@ tool("backtest_dsl_tree",
              "type": "integer",
              "default": 10,
          },
+         "sizing_mode": {
+             "type": "string",
+             "enum": ["fixed", "pct_equity", "vol_target", "atr_risk"],
+             "default": "fixed",
+             "description": (
+                 "Position sizing. fixed = `quantity` shares; pct_equity = a "
+                 "fraction of equity (`pct`); vol_target = size to an annualised "
+                 "volatility target (`target_vol`) — the standard for trend/CTA; "
+                 "atr_risk = risk a fraction of equity (`risk_pct`) per trade with "
+                 "the stop at `atr_mult`×ATR. Use when the user says 'volatility "
+                 "targeting', 'risk N% per trade', 'ATR-based size', or '% of capital'."
+             ),
+         },
+         "pct": {"type": "number", "description":
+                 "pct_equity: fraction of equity per entry (0.2 = 20%)."},
+         "target_vol": {"type": "number", "description":
+                        "vol_target: annualised vol target (0.15 = 15%)."},
+         "risk_pct": {"type": "number", "description":
+                      "atr_risk: fraction of equity risked per trade (0.01 = 1%)."},
+         "atr_mult": {"type": "number", "description":
+                      "atr_risk: stop distance in ATRs (default 2)."},
      },
      ["condition", "primary_symbol"])
 

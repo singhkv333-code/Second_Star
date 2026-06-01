@@ -165,8 +165,25 @@ Completed the plan's correctness/consolidation foundation (the rigor battery now
 - **0.5 Parity test** (`tests/test_backtest_engine_parity.py`, 5 tests) locks the conventions so they can't drift.
 - All new files ruff-clean; the only sweep failures are the pre-existing date/catalog-drift + a pre-existing
   `test_primitives`→`test_compare` event-loop ordering issue (chart_parser; passes in isolation; not my change).
-- **Remaining in Phase 0:** 0.6 — standardize one no-look-ahead `DataAccessor` across engines. Then Phase 2
-  (strategy coverage: cross-sectional ranking, vol-target/ATR sizing, pairs).
+- **0.6 DONE** — standardized + proved the no-look-ahead boundary: both engines' accessors
+  (`_BarStrictAccessor`, `BacktestDataAccessor`) conform to the one `DataAccessor` protocol and pass an
+  adversarial future-trap test (`tests/test_no_lookahead_engine2.py`). **Phase 0 COMPLETE.**
+
+### Phase 2 started — 2.2 position sizing (`vol-target` / `ATR-risk` / `pct-equity`)
+
+The highest value-per-effort strategy-coverage win: vol-targeting/ATR sizing is *where realised Sharpe
+comes from* for trend/CTA — a fixed-share backtest mis-states it. Built in **Engine 2b** (the
+`backtest_dsl_tree` path complex strategies take):
+- New `Sizing` schema model + `_size_position`/`_atr_value` in the engine, wired into `_open_position`.
+  Modes: `fixed` (→ `quantity`), `pct_equity`, **`vol_target`** (size to an annualised vol target),
+  **`atr_risk`** (risk N% of equity/trade, stop at `atr_mult`×ATR). All **causal** (vol/ATR over bars
+  BEFORE the entry — adversarially tested) and capped at **no-leverage**.
+- Exposed on `/api/backtest/dsl/run` (the `sizing` field) AND the `backtest_dsl_tree` chat tool
+  (`sizing_mode`/`target_vol`/`risk_pct`/`atr_mult`/`pct`); the chat summary notes the sizing.
+- **7 sizing tests** (each mode's math, no-leverage cap, causality); existing dsl-backtest suite still 45/45
+  (default `fixed` unchanged). **Proven live:** RELIANCE RSI<35 vol-target sized 13 entries to **49–88 shares**
+  (varying with realised vol + equity) vs fixed's constant 10 — and the rigor battery + verdict still apply.
+- Follow-up: sizing in Engine 2 + pyramiding/Kelly. **Next Phase 2:** 2.1 cross-sectional ranking (factor L/S).
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.

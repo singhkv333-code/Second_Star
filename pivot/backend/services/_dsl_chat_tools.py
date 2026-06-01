@@ -425,6 +425,25 @@ async def backtest_dsl_tree(args: dict) -> dict:
     from backend.workflows.dsl.schema import Tree
     from pydantic import TypeAdapter, ValidationError
 
+    # Position sizing (Phase 2.2). Default 'fixed' uses quantity; the others size
+    # from equity + the asset's volatility/ATR. Only the keys relevant to the
+    # chosen mode are forwarded — the Sizing model fills the rest with defaults.
+    sizing_mode = str(args.get("sizing_mode") or "fixed").lower()
+    if sizing_mode not in ("fixed", "pct_equity", "vol_target", "atr_risk"):
+        sizing_mode = "fixed"
+    sizing: dict = {"mode": sizing_mode}
+    if sizing_mode == "pct_equity" and args.get("pct") is not None:
+        sizing["pct"] = float(args["pct"])
+    elif sizing_mode == "vol_target":
+        if args.get("target_vol") is not None:
+            sizing["target_vol"] = float(args["target_vol"])
+        if args.get("vol_lookback") is not None:
+            sizing["vol_lookback"] = int(args["vol_lookback"])
+    elif sizing_mode == "atr_risk":
+        for k, cast in (("risk_pct", float), ("atr_period", int), ("atr_mult", float)):
+            if args.get(k) is not None:
+                sizing[k] = cast(args[k])
+
     payload = {
         "tree": tree,
         "primary_symbol": primary,
@@ -432,6 +451,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
         "end_date": end_d.isoformat(),
         "starting_capital": float(args.get("starting_capital") or 100_000.0),
         "quantity": int(args.get("quantity") or 10),
+        "sizing": sizing,
         "exit_policy": exit_policy,
         "save": False,
     }
@@ -518,11 +538,21 @@ async def backtest_dsl_tree(args: dict) -> dict:
         f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
         if _nt > 1 and isinstance(_dsr, (int, float)) else ""
     )
+    _sizing_txt = ""
+    if sizing.get("mode") == "vol_target":
+        _sizing_txt = f" Sized to a {sizing.get('target_vol', 0.15):.0%} annualised vol target."
+    elif sizing.get("mode") == "atr_risk":
+        _sizing_txt = (
+            f" Sized by ATR risk ({sizing.get('risk_pct', 0.01):.1%}/trade, "
+            f"{sizing.get('atr_mult', 2.0):g}×ATR stop)."
+        )
+    elif sizing.get("mode") == "pct_equity":
+        _sizing_txt = f" Sized at {sizing.get('pct', 0.2):.0%} of equity per entry."
     summary = (
         _verdict_lead +
         f"Strategy returned {metrics.total_return_pct:+.1f}% across "
         f"{metrics.total_trades} trade(s). Max drawdown {metrics.max_drawdown_pct:.1f}%. "
-        f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt}{_psr_txt}{_dsr_txt} "
+        f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt}{_psr_txt}{_dsr_txt}{_sizing_txt} "
         f"Results are {_method['costs']}, on {_method['basis']}."
     )
 

@@ -443,13 +443,77 @@ def _record_equity(
     st.equity_curve.append(EquityPoint(date=bar_date, equity=equity))
 
 
+def _atr_value(hist: pd.DataFrame, period: int) -> Optional[float]:
+    """Average True Range over the last ``period`` bars of ``hist`` (which ends
+    BEFORE the entry bar, so it's causal). None if too short / non-finite."""
+    if len(hist) < period + 1:
+        return None
+    high = hist["high"].astype(float)
+    low = hist["low"].astype(float)
+    close = hist["close"].astype(float)
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [(high - low), (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+    atr = float(tr.tail(period).mean())
+    return atr if atr > 0 else None  # NaN > 0 is False → None
+
+
+def _size_position(st: _SimState, entry_idx: int, price: float) -> int:
+    """Shares for an entry at ``entry_idx``'s open (Phase 2.2). ``fixed`` →
+    request.quantity; the others derive from current equity + the entry price +
+    (vol/atr) the asset's realised vol / ATR over bars STRICTLY BEFORE the entry
+    (causal — only data knowable at the open). Non-fixed modes are capped at
+    no-leverage (notional ≤ ~equity)."""
+    sizing = st.request.sizing
+    if sizing.mode == "fixed":
+        return int(st.request.quantity)
+    equity = st.cash  # single-position engine: cash == equity at open
+    if price <= 0 or equity <= 0:
+        return 0
+    fallback = int(st.request.quantity)
+    hist = st.primary_bars.iloc[:entry_idx]  # bars before the entry bar
+
+    if sizing.mode == "pct_equity":
+        qty = int((equity * sizing.pct) / price)
+    elif sizing.mode == "vol_target":
+        if len(hist) < max(sizing.vol_lookback // 2, 5):
+            return fallback
+        rets = (
+            hist["close"].astype(float).pct_change().dropna().tail(sizing.vol_lookback)
+        )
+        if len(rets) < 2:
+            return fallback
+        ann_vol = float(rets.std(ddof=1)) * (252.0 ** 0.5)
+        if ann_vol <= 1e-9:
+            return 0
+        notional = min(equity * (sizing.target_vol / ann_vol), equity)
+        qty = int(notional / price)
+    elif sizing.mode == "atr_risk":
+        atr = _atr_value(hist, sizing.atr_period)
+        if atr is None:
+            return fallback
+        risk_per_share = atr * sizing.atr_mult
+        if risk_per_share <= 0:
+            return 0
+        qty = int((equity * sizing.risk_pct) / risk_per_share)
+    else:
+        return fallback
+
+    max_qty = int(equity * 0.98 / price)  # no leverage, leave headroom for costs
+    return max(0, min(qty, max_qty))
+
+
 def _open_position(st: _SimState, entry_idx: int, buy_cost_fn) -> None:
     """Open at entry_idx's OPEN price. Skips silently if the bar's
     open is NaN (rare — typically a feed gap)."""
     open_px = _safe_open(st.primary_bars, entry_idx)
     if open_px is None:
         return
-    qty = int(st.request.quantity)
+    qty = _size_position(st, entry_idx, open_px)
+    if qty <= 0:
+        return  # sizing produced no position (vol too high / too little capital)
     net_debit, charges = buy_cost_fn(open_px, qty)
     if st.cash < net_debit:
         # Not enough capital — skip; don't open a leveraged position.
