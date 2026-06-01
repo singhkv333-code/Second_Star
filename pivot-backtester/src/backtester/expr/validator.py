@@ -12,7 +12,27 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from ..fields import Registry, UnknownFieldError
-from .ast import BinOp, BoolOp, Compare, Expr, Ident, Neg, Not, Number
+from .ast import BinOp, BoolOp, Compare, Expr, Func, Ident, Neg, Not, Number
+
+# Cross-sectional functions and their (min, max) argument counts.
+_XS_FUNC_ARITY = {
+    "rank": (1, 1), "decile": (1, 1), "percentrank": (1, 1),
+    "zscore": (1, 1), "quantile": (2, 2),
+}
+
+
+def _contains_func(node: Expr) -> bool:
+    if isinstance(node, Func):
+        return True
+    if isinstance(node, BoolOp):
+        return any(_contains_func(o) for o in node.operands)
+    if isinstance(node, Not):
+        return _contains_func(node.operand)
+    if isinstance(node, (Compare, BinOp)):
+        return _contains_func(node.left) or _contains_func(node.right)
+    if isinstance(node, Neg):
+        return _contains_func(node.operand)
+    return False
 
 
 class ValidationError(Exception):
@@ -66,6 +86,34 @@ def validate(ast: Expr, registry: Registry) -> ValidationResult:
             return None
         if isinstance(node, Neg):
             return visit(node.operand)
+        if isinstance(node, Func):
+            if node.name not in _XS_FUNC_ARITY:
+                raise ValidationError(
+                    f"Unknown function {node.name!r}. Cross-sectional functions: "
+                    + ", ".join(sorted(_XS_FUNC_ARITY)) + "."
+                )
+            lo, hi = _XS_FUNC_ARITY[node.name]
+            if not (lo <= len(node.args) <= hi):
+                raise ValidationError(
+                    f"{node.name}() takes "
+                    + (f"{lo}" if lo == hi else f"{lo}-{hi}")
+                    + f" argument(s), got {len(node.args)}."
+                )
+            if node.name == "quantile":
+                n_arg = node.args[1]
+                if (not isinstance(n_arg, Number)
+                        or n_arg.value != int(n_arg.value)
+                        or not (2 <= int(n_arg.value) <= 100)):
+                    raise ValidationError(
+                        "quantile(x, n): n must be an integer literal between 2 and 100."
+                    )
+            if _contains_func(node.args[0]):
+                raise ValidationError(
+                    f"{node.name}() can't be nested inside another "
+                    "cross-sectional function."
+                )
+            visit(node.args[0])  # validate the value expression (idents resolve)
+            return None  # a rank/score is a fresh numeric — no field unit
         if isinstance(node, Number):
             return None
         if isinstance(node, Ident):

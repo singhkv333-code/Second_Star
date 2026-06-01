@@ -36,8 +36,14 @@ from ..fields import (
     PriceFieldSpec,
     Registry,
 )
-from .ast import BinOp, BoolOp, Compare, Expr, Ident, Neg, Not, Number
+from .ast import BinOp, BoolOp, Compare, Expr, Func, Ident, Neg, Not, Number
 from .grammar import parse_expression
+
+# Cross-sectional transforms (window functions over the universe at date T).
+_XS_FUNCS = frozenset({"rank", "decile", "quantile", "zscore", "percentrank"})
+
+# The expression language uses ==/!= (Python-ish); SQL needs =/<>.
+_SQL_COMPARE_OP = {"==": "=", "!=": "<>"}
 
 
 # ---- Public API ---------------------------------------------------------
@@ -72,10 +78,15 @@ def compile_to_sql(
         # $1 reserved for backtest_date.
         return len(numbers) + 1
 
-    predicate_sql = _emit(expanded, _next_param)
+    # Cross-sectional pre-pass: window columns for the `ranked` CTE (their
+    # number params are bound FIRST, before the predicate's — the ranked CTE
+    # precedes the universe CTE and params are positional).
+    xs_columns, func_alias = _emit_xs_columns(expanded, _next_param)
+    leaf_ref = "ranked" if xs_columns else "cte"
+    predicate_sql = _emit(expanded, _next_param, func_alias, leaf_ref=leaf_ref)
 
     cte_sql = _emit_ctes(leaves, basis=basis)
-    universe_sql = _emit_universe(leaves, predicate_sql)
+    universe_sql = _emit_universe(leaves, predicate_sql, xs_columns)
 
     sql = cte_sql + ",\n" + universe_sql
 
@@ -110,6 +121,8 @@ def _expand(node: Expr, registry: Registry) -> Expr:
         return BinOp(node.op, _expand(node.left, registry), _expand(node.right, registry))
     if isinstance(node, Neg):
         return Neg(_expand(node.operand, registry))
+    if isinstance(node, Func):
+        return Func(node.name, tuple(_expand(a, registry) for a in node.args))
     if isinstance(node, Number):
         return node
     raise AssertionError(f"unhandled node {type(node)}")
@@ -139,6 +152,9 @@ def _collect_leaves(
             walk(n.left); walk(n.right)
         elif isinstance(n, Neg):
             walk(n.operand)
+        elif isinstance(n, Func):
+            for a in n.args:
+                walk(a)
 
     walk(expanded)
     return list(seen.values())
@@ -158,6 +174,9 @@ def _user_facing_idents(node: Expr) -> list[str]:
             walk(n.left); walk(n.right)
         elif isinstance(n, Neg):
             walk(n.operand)
+        elif isinstance(n, Func):
+            for a in n.args:
+                walk(a)
 
     walk(node)
     return list(seen.keys())
@@ -250,7 +269,13 @@ def _sql_string_array(items: Iterable[str]) -> str:
 # ---- Universe SELECT ----------------------------------------------------
 
 
-def _emit_universe(leaves: list[BaseFieldSpec | PriceFieldSpec], predicate_sql: str) -> str:
+def _emit_universe(
+    leaves: list[BaseFieldSpec | PriceFieldSpec],
+    predicate_sql: str,
+    xs_columns: list[tuple[str, str]] | None = None,
+) -> str:
+    if xs_columns:
+        return _emit_universe_ranked(leaves, predicate_sql, xs_columns)
     joins = "\n".join(
         f"  JOIN {_cte_alias(s)} ON {_cte_alias(s)}.sc_id = c.sc_id"
         for s in leaves
@@ -288,37 +313,155 @@ SELECT * FROM universe"""
 SELECT * FROM universe"""
 
 
+def _emit_universe_ranked(
+    leaves: list[BaseFieldSpec | PriceFieldSpec],
+    predicate_sql: str,
+    xs_columns: list[tuple[str, str]],
+) -> str:
+    """Cross-sectional path: a ``ranked`` CTE computes the leaf vals + the window
+    columns over the survivorship-filtered universe at date T; ``universe`` then
+    filters on the predicate (which references ``_xs_N`` window cols + leaf vals).
+    Window functions can't sit in a WHERE, hence the extra layer."""
+    joins = "\n".join(
+        f"  JOIN {_cte_alias(s)} ON {_cte_alias(s)}.sc_id = c.sc_id"
+        for s in leaves
+    )
+    leaf_cols = ",\n".join(f"    {_cte_alias(s)}.val AS {s.name}_val" for s in leaves)
+    xs_cols = ",\n".join(f"    {sql} AS {alias}" for alias, sql in xs_columns)
+    inner_cols = ",\n".join(c for c in (leaf_cols, xs_cols) if c)
+    out_cols = "".join(f",\n    ranked.{s.name}_val" for s in leaves)
+    return f"""ranked AS (
+  SELECT
+    c.sc_id,
+    c.company_name,
+{inner_cols}
+  FROM mc.companies c
+{joins}
+  WHERE
+    (c.delisted_on IS NULL OR c.delisted_on > $1)
+    AND (c.listed_on IS NULL OR c.listed_on <= $1)
+),
+universe AS (
+  SELECT
+    ranked.sc_id,
+    ranked.company_name{out_cols}
+  FROM ranked
+  WHERE ({predicate_sql})
+)
+SELECT * FROM universe"""
+
+
 # ---- Predicate emission --------------------------------------------------
 
 
-def _emit(node: Expr, next_param) -> str:
+def _emit(
+    node: Expr,
+    next_param,
+    func_alias: dict | None = None,
+    *,
+    leaf_ref: str = "cte",
+) -> str:
     """Walk the expanded AST emitting SQL.
 
-    ``next_param`` is a closure that consumes a Python float and returns the
-    integer parameter index to substitute (used to bind numeric literals).
-    """
+    ``next_param`` binds numeric literals to positional params. ``func_alias``
+    maps id(Func) → its ``_xs_N`` column alias (pre-computed in the ``ranked``
+    CTE). ``leaf_ref`` selects how a leaf Ident renders: ``"cte"`` → ``f_x.val``
+    (inside the ranked CTE / the original universe), ``"ranked"`` → ``ranked.x_val``
+    (the predicate that filters the ranked CTE)."""
+    func_alias = func_alias or {}
     if isinstance(node, BoolOp):
         op = " AND " if node.op == "AND" else " OR "
-        return "(" + op.join(_emit(o, next_param) for o in node.operands) + ")"
+        return "(" + op.join(
+            _emit(o, next_param, func_alias, leaf_ref=leaf_ref) for o in node.operands
+        ) + ")"
     if isinstance(node, Not):
-        return f"(NOT {_emit(node.operand, next_param)})"
+        return f"(NOT {_emit(node.operand, next_param, func_alias, leaf_ref=leaf_ref)})"
     if isinstance(node, Compare):
-        return f"({_emit(node.left, next_param)} {node.op} {_emit(node.right, next_param)})"
+        sql_op = _SQL_COMPARE_OP.get(node.op, node.op)
+        return (
+            f"({_emit(node.left, next_param, func_alias, leaf_ref=leaf_ref)} "
+            f"{sql_op} {_emit(node.right, next_param, func_alias, leaf_ref=leaf_ref)})"
+        )
     if isinstance(node, BinOp):
-        left = _emit(node.left, next_param)
-        right = _emit(node.right, next_param)
+        left = _emit(node.left, next_param, func_alias, leaf_ref=leaf_ref)
+        right = _emit(node.right, next_param, func_alias, leaf_ref=leaf_ref)
         if node.op == "/":
             return f"({left} / NULLIF({right}, 0))"
         return f"({left} {node.op} {right})"
     if isinstance(node, Neg):
-        return f"(-{_emit(node.operand, next_param)})"
+        return f"(-{_emit(node.operand, next_param, func_alias, leaf_ref=leaf_ref)})"
     if isinstance(node, Number):
         idx = next_param(node.value)
         return f"${idx}"
+    if isinstance(node, Func):
+        alias = func_alias.get(id(node))
+        assert alias is not None, "Func node was not pre-collected for the ranked CTE"
+        return f"ranked.{alias}"
     if isinstance(node, Ident):
         # After expansion, every Ident is a leaf.
+        if leaf_ref == "ranked":
+            return f"ranked.{node.name}_val"
         return f"{_cte_alias(_dummy_spec_for_emit(node.name))}.val"
     raise AssertionError(f"unhandled node {type(node)}")
+
+
+def _emit_func_sql(func: Func, next_param, leaf_emit) -> str:
+    """SQL for one cross-sectional window function. ``leaf_emit`` emits its value
+    arg over the JOINed leaf CTEs (``f_x.val``), binding numbers via next_param."""
+    name = func.name
+    if name == "quantile":
+        arg_sql = leaf_emit(func.args[0])
+        n = int(func.args[1].value)  # validator guarantees an int literal 2..100
+        return f"NTILE({n}) OVER (ORDER BY {arg_sql})"
+    arg_sql = leaf_emit(func.args[0])
+    if name == "rank":
+        return f"RANK() OVER (ORDER BY {arg_sql})"
+    if name == "decile":
+        return f"NTILE(10) OVER (ORDER BY {arg_sql})"
+    if name == "percentrank":
+        return f"PERCENT_RANK() OVER (ORDER BY {arg_sql})"
+    if name == "zscore":
+        return (
+            f"(({arg_sql}) - AVG({arg_sql}) OVER ()) "
+            f"/ NULLIF(STDDEV_SAMP({arg_sql}) OVER (), 0)"
+        )
+    raise AssertionError(f"unknown cross-sectional func {name!r}")
+
+
+def _emit_xs_columns(node: Expr, next_param):
+    """Pre-pass: collect Func nodes in source order, emitting each as a window
+    column for the ``ranked`` CTE. Returns ``(columns, alias_map)`` —
+    ``columns`` = ``[(alias, sql), ...]``, ``alias_map`` = id(func) → alias.
+    Func-arg numbers are bound here FIRST, so they get lower $N than the
+    predicate's (which matters because the ranked CTE precedes the universe CTE
+    and params are positional)."""
+    columns: list[tuple[str, str]] = []
+    alias_map: dict[int, str] = {}
+    counter = [0]
+
+    def leaf_emit(n: Expr) -> str:
+        # Func args hold only leaves/arith/numbers (nested cross-sectional funcs
+        # are rejected by the validator), so func_alias is never consulted here.
+        return _emit(n, next_param, alias_map, leaf_ref="cte")
+
+    def walk(n: Expr) -> None:
+        if isinstance(n, BoolOp):
+            for o in n.operands:
+                walk(o)
+        elif isinstance(n, Not):
+            walk(n.operand)
+        elif isinstance(n, (Compare, BinOp)):
+            walk(n.left); walk(n.right)
+        elif isinstance(n, Neg):
+            walk(n.operand)
+        elif isinstance(n, Func):
+            alias = f"_xs_{counter[0]}"
+            counter[0] += 1
+            columns.append((alias, _emit_func_sql(n, next_param, leaf_emit)))
+            alias_map[id(n)] = alias
+
+    walk(node)
+    return columns, alias_map
 
 
 def _dummy_spec_for_emit(name: str):
@@ -349,6 +492,8 @@ def _pretty(node: Expr) -> str:
         return f"({_pretty(node.left)} {node.op} {_pretty(node.right)})"
     if isinstance(node, Neg):
         return f"(-{_pretty(node.operand)})"
+    if isinstance(node, Func):
+        return f"{node.name}(" + ", ".join(_pretty(a) for a in node.args) + ")"
     if isinstance(node, Number):
         return repr(node.value)
     if isinstance(node, Ident):
