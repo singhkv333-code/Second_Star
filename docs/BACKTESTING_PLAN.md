@@ -201,8 +201,12 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   weren't even implemented. Chat backtests route to `backtest_workflow` / `backtest_dsl_tree`. **[S]**
 - ✅ **0.5 DONE (2026-06-01)** `tests/test_backtest_engine_parity.py` locks the conventions (Engine 1
   CAGR == shared calendar; Engine 1 round-trip == shared bps; `run_backtest` gone from the catalog). **[M]**
-- **0.6** Standardize the no-look-ahead **`DataAccessor`** as the one data boundary all engines read
-  through (generalize Engine 2b's). **[M, remaining]**
+- ✅ **0.6 DONE (2026-06-01)** Standardized the no-look-ahead boundary: both engines' accessors
+  (`_BarStrictAccessor`, `BacktestDataAccessor`) conform to the ONE `DataAccessor` protocol and pass an
+  adversarial future-trap test (`tests/test_no_lookahead_engine2.py` + the existing 2b
+  `test_no_lookahead_adversarial`). Full code-unification into one object deferred — both satisfy the same
+  protocol + test, and forcing Engine 2's trigger-expansion through one object is a high-risk refactor for
+  no correctness gain. **Phase 0 COMPLETE.** **[M]**
 
 **Exit:** one trustworthy daily-bar core, consistent metrics, no look-ahead, India costs everywhere.
 
