@@ -122,6 +122,25 @@ multi-condition). Report:
   unrelated chats independent. Verified (conv A 1→2; conv B independent).
 - Net: clean-run rate ~7/12 (run 1, crossovers failing) → **~12–13/15 complex** (only an
   external yfinance data miss for TATAMOTORS.NS remains). 526 tests pass.
+
+### Eval round 3 — breadth + edges (no code change; findings only)
+
+18 turns probing untested ground. Report:
+[`tests/eval_results/BACKTEST_CHAT_EVAL_ROUND3_2026-06-01.md`](tests/eval_results/BACKTEST_CHAT_EVAL_ROUND3_2026-06-01.md).
+**10/18 ran with the full battery.**
+- **Indicator breadth works** — ADX, CCI, MFI, VWAP, Keltner, percentrank aggregator,
+  position-aware exit (up8%/down4%), cross-asset relative-strength all ran with the battery.
+- **The battery discriminates:** **d09 (RSI<40 gated on NIFTY>200-DMA) → "promising", DSR 0.96**
+  — first strategy across 3 runs to clear the bar; the rest honestly "no edge".
+- **Boundary handling correct:** "backtest a profitable strategy on a good stock" → ASKED (the
+  run-with-defaults fix did NOT over-correct); options straddle → instant decline.
+- **NEW top issue (P1): backtest tuning follow-ups mis-route.** "Now try RSI<25" → `get_indicator`
+  (fetched live RSI); "and RSI<20" → `propose_workflow` (drafted an agent). A verb-less tweak isn't
+  tagged as a backtest by the deterministic intent classifier (runs before the LLM), so the DSR
+  deflation can't be observed across turns (it IS verified in isolation). Fix: `_backtest_followup`
+  detection must catch verb-less tweaks after a backtest turn.
+- Minor residual over-asking on *sizing/notional* (pairs leg-size, ₹-SIP notional); pairs is
+  recognised but not auto-run. TATAMOTORS yfinance data unreliable (eval hygiene).
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.
