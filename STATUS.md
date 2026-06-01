@@ -76,6 +76,31 @@ Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
   guarded (old/short payloads render unchanged). The tool already passes `result.metrics` through
   (`tool_executor.py:738`), so it's wired end-to-end. tsc clean (only the documented pre-existing
   ChatDemo:750 error); no new lint. **Backtests now show "should I believe this?" visually, not just in text.**
+
+### Live backtesting-prompt eval (19 turns, real Azure gpt-5.4-mini)
+
+Ran the backtesting prompt shapes through `chat_service.handle()` in-process (the
+`:8000` server is serving stale code → live `/chat` backtests fail with "internal
+import error" until restarted). Full report:
+[`tests/eval_results/BACKTEST_CHAT_EVAL_2026-06-01.md`](tests/eval_results/BACKTEST_CHAT_EVAL_2026-06-01.md).
+Triad: median latency ~13 s (6.9–21.7); input 30k–133k tokens but ~90% cached
+(≈ $0.004/turn — latency, not cost, is the tax); **no fabrication anywhere**.
+
+- **P0 FOUND + FIXED (`5870e74`):** `backtest_dsl_tree` dropped the entire rigor
+  battery — it built its own card payload and copied only the legacy metric keys, so
+  **all of P1.2–P1.9 was invisible on ~⅓ of capable prompts** (every dsl-tree route).
+  Now includes `forward_stats`/`monte_carlo`/`sub_periods`/`trust_verdict` + a
+  verdict-led summary; verified in-process.
+- **Open P1s (LLM-behaviour — need prompt work + a retest loop, not yet fixed):**
+  (3) **crossover prompts fail** (SMA/MACD/EMA — the model tries a `trigger.indicator`
+  crossover the historical engine rejects instead of routing to the compound
+  translator — biggest capability gap); (4) **over-asking ASK_USER** on complete
+  prompts instead of running with defaults; (5) **trial counter groups by user, not
+  conversation** → `num_trials` over-counts across unrelated convs (fix: group by
+  conv_id, needs threading it into the tool handler).
+- **Solid:** the `backtest_workflow` path routes cleanly, returns real numbers, the
+  full battery, and **honest verdicts** ("No demonstrable edge" on edgeless
+  strategies). Options declined instantly (0 tokens); intraday explained as daily-only.
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.
