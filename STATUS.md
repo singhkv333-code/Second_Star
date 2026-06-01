@@ -141,6 +141,15 @@ multi-condition). Report:
   detection must catch verb-less tweaks after a backtest turn.
 - Minor residual over-asking on *sizing/notional* (pairs leg-size, ₹-SIP notional); pairs is
   recognised but not auto-run. TATAMOTORS yfinance data unreliable (eval hygiene).
+- **FIXED (`c85da90`) — the follow-up routing P1 + the deflation gap behind it.** New
+  `_looks_like_backtest_tweak` detector + `_BACKTEST_TWEAK_RE`; `handle()`'s `_backtest_followup`
+  block now fires on a verb-less tweak (gated by a prior backtest) and narrows the surface to the
+  backtest tools, so "now try RSI<25" RE-RUNS the simulation (was get_indicator/propose_workflow).
+  AND the trial counter — which was only wired into `backtest_workflow` — now deflates the DSR on
+  the `backtest_dsl_tree` path too (via `turn_context` + `record_and_deflate`, verdict recomputed
+  from the deflated battery). **Verified end-to-end: tuning RELIANCE RSI<35→<30→<25 shows trials
+  1→2→3 and DSR 0.84→0.48 on the 2nd variant** — the selection-bias deflation finally visible
+  across a chat. 515 tests pass.
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.
