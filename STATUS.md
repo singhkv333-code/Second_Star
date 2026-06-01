@@ -101,7 +101,30 @@ Running log (updated after each build+test run, newest last).
   further (per discipline); the tool is fully functional via REST + 11 unit tests, and the
   wrong-tool failure is fixed.
 - **2.4 complete** (max names + gross/net + sector caps + L/S, multi-symbol, REST + chat).
-  **Next: 2.5** reference-strategy acceptance tests (one per class through the rigor ladder).
+
+### Phase 2.5 — reference-strategy acceptance tests (this commit) → **Phase 2 COMPLETE**
+- `tests/test_reference_strategies.py`: one canonical strategy per class, each asserted
+  **through the Phase-1 rigor ladder** (a shared `_assert_rigor_ladder` checks
+  forward_stats keys + monte_carlo + sub_periods + a verdict ∈ {insufficient_data, no_edge,
+  unproven, promising}). A regression guard: break an engine, the look-ahead, or the rigor
+  wiring and the matching reference fails.
+  1. **single-symbol technical** — RSI(14)<30 mean-reversion on a SYNTHETIC fetcher (no
+     network) → always-on guard for Engine 2b + the rigor wiring.
+  2. **pairs / stat-arb** — HDFCBANK/ICICIBANK Engle-Granger spread (live) → cointegration
+     verdict + rigor ladder.
+  3. **momentum portfolio, long-only** — 10-name top-5 monthly (live) → gross ≤ 1 + ladder.
+  4. **momentum portfolio, dollar-neutral L/S** (live) → net ≈ 0 + ladder.
+  5. **fundamental factor screen** — `decile(neutralize(return_on_equity))==10 AND D/E<0.6`
+     (live mc) → non-trivial selection.
+  6. **Johansen basket** — RELIANCE/ONGC/BPCL (live) → rank verdict.
+  - **6/6 pass live** (single-symbol always; the 5 live ones skip cleanly if yfinance/DB
+    are down). Suites green: reference 6 + pairs 19 + portfolio 11 + expr 49.
+- **Phase 2 is COMPLETE: 2.1 ✅ · 2.2 ✅ · 2.3 ✅ · 2.4 ✅ · 2.5 ✅.** The strategy classes
+  pros run — single-symbol technical, fundamental factor L/S, pairs/baskets, momentum
+  portfolios — are all testable and reported through one rigor ladder.
+- **Next (Phase 1 middle, the rigor moat):** P1.4 walk-forward + no-skill permutation
+  (needs the warmup-aware engine-rerun adapter), then P1.5 CPCV→PBO (param grid). Also
+  outstanding: FE cards for the pairs/portfolio render hints.
 
 ---
 
