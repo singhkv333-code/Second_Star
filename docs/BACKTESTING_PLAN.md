@@ -3,7 +3,7 @@
 > **Owner:** lead · **Started:** 2026-06-01 · **Status:** IN PROGRESS — research + audit done; **P0.1 + P1.2 shipped** (2026-06-01)
 > **Branch:** `Eventtriggers` · **Tracking:** this doc is the single source of truth; `STATUS.md` carries the running log.
 >
-> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). **Every backtest now: a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** Next: **P1.9 FE card** (surface it all visibly), then P1.4 walk-forward + no-skill permutation (needs engine-rerun adapter) → P1.5 CPCV→PBO.
+> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). ✅ **P1.9** FE "Trust" panel on the chat backtest card (verdict badge + rigor stat row + flag chips). **Every backtest now shows — in chat AND on the card — a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** Next (all need bigger pieces): P1.4 walk-forward + no-skill permutation (engine-rerun adapter) → P1.5 CPCV→PBO (param grid, P2) → P3 data realism.
 
 **Thesis in one line:** Pivot's wedge for serious algo/quant traders is not a prettier equity
 curve — every retail tool draws those — it is a backtester that tells you *whether to believe
@@ -230,7 +230,9 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   battery into one ordered call (`insufficient_data` → `no_edge` → `unproven` → `promising`) + rationale +
   risk flags (selection_bias / return_concentrated / drawdown_risk / loss_likely). All 3 engines (+ a
   `TrustVerdict` schema model); the chat summary LEADS with it. *(PBO term joins once 1.5 lands.)*
-- **1.9** Surface it in the FE backtest card (extend `IndicatorBacktestCard`/`BacktestTab`). **[M, frontend-lead]**
+- ✅ **1.9 DONE (2026-06-01)** Surfaced the battery in the FE chat backtest card — a "Trust" panel in
+  `IndicatorBacktestCard` (verdict badge + confidence + rationale + 6-stat rigor row + flag chips) and a
+  compact verdict pill. Types in `lib/api.ts`. tsc/lint clean. *(BacktestTab/expr card = follow-up.)* **[frontend-lead]**
 
 **Exit:** every backtest answers "should I believe this?" — a capability *no Indian platform ships.*
 

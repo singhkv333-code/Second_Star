@@ -890,6 +890,47 @@ export type BacktestFieldsResponse = {
   ttm_suffix_note: string;
 };
 
+export type BacktestForwardStats = {
+  observed_sharpe: number | null;
+  skew: number | null;
+  kurtosis: number | null;
+  n_obs: number;
+  num_trials: number;
+  psr: number | null;
+  min_trl: number | null;
+  deflated_sharpe: number | null;
+};
+
+export type BacktestMonteCarlo = {
+  n_sims: number;
+  block_size: number;
+  dd_median_pct: number | null;
+  dd_p95_severity_pct: number | null;
+  dd_worst_pct: number | null;
+  terminal_median_pct: number | null;
+  terminal_p05_pct: number | null;
+  prob_loss: number | null;
+  prob_dd_worse_than_tol: number | null;
+  drawdown_tolerance_pct: number | null;
+};
+
+export type BacktestSubPeriods = {
+  n_periods: number;
+  period_returns_pct: number[];
+  positive_period_frac: number | null;
+  best_period_return_pct: number | null;
+  worst_period_return_pct: number | null;
+  concentration: number | null;
+};
+
+export type BacktestTrustVerdict = {
+  verdict: "insufficient_data" | "no_edge" | "unproven" | "promising";
+  label: string;
+  confidence: number;
+  rationale: string;
+  flags: string[];
+};
+
 export type BacktestMetrics = {
   cagr_pct: number;
   sharpe: number | null;
@@ -899,6 +940,10 @@ export type BacktestMetrics = {
   hit_rate_pct: number | null;
   n_unique_companies: number | null;
   total_return_pct: number;
+  forward_stats?: BacktestForwardStats | null;
+  monte_carlo?: BacktestMonteCarlo | null;
+  sub_periods?: BacktestSubPeriods | null;
+  trust_verdict?: BacktestTrustVerdict | null;
 };
 
 export type BacktestEquityPoint = { date: string; value: number };

@@ -18,7 +18,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Calendar, ShieldAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Calendar, ShieldAlert, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { getStockQuote, type StockQuote } from "@/lib/api";
@@ -57,6 +57,45 @@ export type IndicatorBacktestPayload = {
     sharpe?: number | null;
     sortino?: number | null;
     benchmark_return_pct?: number | null;
+    // Statistical-rigor battery (added 2026-06-01; optional — older payloads
+    // and short backtests omit them; never break if absent).
+    forward_stats?: {
+      observed_sharpe: number | null;
+      skew: number | null;
+      kurtosis: number | null;
+      n_obs: number;
+      num_trials: number;
+      psr: number | null;
+      min_trl: number | null;
+      deflated_sharpe: number | null;
+    } | null;
+    monte_carlo?: {
+      n_sims: number;
+      block_size: number;
+      dd_median_pct: number | null;
+      dd_p95_severity_pct: number | null;
+      dd_worst_pct: number | null;
+      terminal_median_pct: number | null;
+      terminal_p05_pct: number | null;
+      prob_loss: number | null;
+      prob_dd_worse_than_tol: number | null;
+      drawdown_tolerance_pct: number | null;
+    } | null;
+    sub_periods?: {
+      n_periods: number;
+      period_returns_pct: number[];
+      positive_period_frac: number | null;
+      best_period_return_pct: number | null;
+      worst_period_return_pct: number | null;
+      concentration: number | null;
+    } | null;
+    trust_verdict?: {
+      verdict: "insufficient_data" | "no_edge" | "unproven" | "promising";
+      label: string;
+      confidence: number;
+      rationale: string;
+      flags: string[];
+    } | null;
   };
   bench_buy_hold_return_pct: number | null;
   // Methodology block — window / after-costs / daily-bar basis / survivorship
@@ -264,16 +303,28 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
         <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
           Strategy total return
         </p>
-        <p
-          className={cn(
-            "mt-1 text-[26px] leading-none font-semibold tabular-nums tracking-tight",
-            positive
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-rose-600 dark:text-rose-400",
+        <div className="mt-1 flex items-baseline gap-3 flex-wrap">
+          <p
+            className={cn(
+              "text-[26px] leading-none font-semibold tabular-nums tracking-tight",
+              positive
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-rose-600 dark:text-rose-400",
+            )}
+          >
+            {fmtPct(metrics.total_return_pct)}
+          </p>
+          {metrics.trust_verdict && (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-medium leading-none",
+                verdictClasses(metrics.trust_verdict.verdict).pill,
+              )}
+            >
+              {metrics.trust_verdict.label} · {metrics.trust_verdict.confidence}%
+            </span>
           )}
-        >
-          {fmtPct(metrics.total_return_pct)}
-        </p>
+        </div>
       </div>
 
       {/* View pill — opens the full detail in a modal. */}
@@ -540,6 +591,12 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
         </div>
       </div>
 
+      {/* Trust panel — statistical-rigor verdict. Shown only when the
+          backend attaches trust_verdict to metrics (post-2026-06-01 runs).
+          Placed high in the detail view — "should I trust this?" before
+          the P&L breakdown. */}
+      <TrustPanel metrics={metrics} />
+
       {/* Net P&L | Price thumb | Indicator thumb — equal-weight 3-col so
           the P&L number gets its own column instead of floating in dead
           space, and the two thumbs share alignment with it. */}
@@ -610,6 +667,196 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
           {payload.methodology?.caveat ?? "Past performance does not guarantee future results."}
         </p>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trust panel helpers
+// ---------------------------------------------------------------------------
+
+type TrustVerdict = "insufficient_data" | "no_edge" | "unproven" | "promising";
+
+function verdictClasses(verdict: TrustVerdict): { pill: string; badge: string; text: string } {
+  switch (verdict) {
+    case "promising":
+      return {
+        pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+        badge: "bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
+        text: "text-emerald-700 dark:text-emerald-300",
+      };
+    case "unproven":
+      return {
+        pill: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+        badge: "bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+        text: "text-amber-700 dark:text-amber-300",
+      };
+    case "no_edge":
+      return {
+        pill: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+        badge: "bg-rose-50 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300",
+        text: "text-rose-700 dark:text-rose-300",
+      };
+    case "insufficient_data":
+    default:
+      return {
+        pill: "bg-zinc-100 text-zinc-600 dark:bg-zinc-700/40 dark:text-zinc-400",
+        badge: "bg-zinc-50 text-zinc-700 dark:bg-zinc-700/40 dark:text-zinc-400",
+        text: "text-zinc-600 dark:text-zinc-400",
+      };
+  }
+}
+
+const FLAG_LABELS: Record<string, string> = {
+  selection_bias: "Many variants tried",
+  return_concentrated: "Return concentrated",
+  drawdown_risk: "Deep drawdown risk",
+  loss_likely: "Loss likely",
+};
+
+function flagChipClass(flag: string): string {
+  if (flag === "drawdown_risk" || flag === "loss_likely") {
+    return "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300";
+  }
+  return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
+}
+
+function fmtProbPct(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return `${Math.round(n * 100)}%`;
+}
+
+type TrustPanelMetrics = {
+  trust_verdict?: {
+    verdict: TrustVerdict;
+    label: string;
+    confidence: number;
+    rationale: string;
+    flags: string[];
+  } | null;
+  forward_stats?: {
+    n_obs: number;
+    num_trials: number;
+    psr: number | null;
+    min_trl: number | null;
+    deflated_sharpe: number | null;
+  } | null;
+  monte_carlo?: {
+    dd_p95_severity_pct: number | null;
+    prob_loss: number | null;
+  } | null;
+  sub_periods?: {
+    concentration: number | null;
+  } | null;
+};
+
+function TrustPanel({ metrics }: { metrics: TrustPanelMetrics }): React.ReactElement | null {
+  const tv = metrics.trust_verdict;
+  if (!tv) return null;
+
+  const fs = metrics.forward_stats;
+  const mc = metrics.monte_carlo;
+  const sp = metrics.sub_periods;
+
+  const cls = verdictClasses(tv.verdict);
+
+  const trlMet =
+    fs?.min_trl != null && fs.min_trl <= fs.n_obs;
+  const trlSuffix =
+    fs?.min_trl != null
+      ? trlMet
+        ? " ✓"
+        : " ✗"
+      : "";
+
+  return (
+    <div
+      className="border-t border-border/50 px-10 py-6"
+      data-testid="backtest-trust-panel"
+      aria-label="Statistical trust panel"
+    >
+      {/* Verdict header */}
+      <div className="flex flex-wrap items-start gap-3">
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold tracking-tight",
+            cls.badge,
+          )}
+        >
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {tv.label}
+          <span className="font-normal opacity-75">· {tv.confidence}% confidence</span>
+        </span>
+      </div>
+
+      {/* Rationale */}
+      <p className="mt-2.5 text-[12.5px] leading-snug text-muted-foreground">
+        {tv.rationale}
+      </p>
+
+      {/* Rigor stat row */}
+      {fs && (
+        <div className="mt-4 grid grid-cols-3 gap-x-8 gap-y-4 sm:grid-cols-6">
+          <RoomyStat
+            label="PSR"
+            value={fmtProbPct(fs.psr)}
+          />
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="text-[11px] tracking-tight text-muted-foreground">
+              Deflated Sharpe
+            </span>
+            <span className="text-[17px] font-semibold tabular-nums tracking-tight text-foreground">
+              {fmtProbPct(fs.deflated_sharpe)}
+            </span>
+            <span className="text-[10px] text-muted-foreground/70 tabular-nums">
+              {fs.num_trials} trial{fs.num_trials === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="text-[11px] tracking-tight text-muted-foreground">
+              Min track record
+            </span>
+            <span className={cn(
+              "text-[17px] font-semibold tabular-nums tracking-tight",
+              trlMet ? "text-emerald-600 dark:text-emerald-400" : "text-foreground",
+            )}>
+              {fs.min_trl != null ? `${fs.min_trl} obs${trlSuffix}` : "—"}
+            </span>
+            <span className="text-[10px] text-muted-foreground/70 tabular-nums">
+              {fs.n_obs} observed
+            </span>
+          </div>
+          <RoomyStat
+            label="5%-worst DD"
+            value={mc?.dd_p95_severity_pct != null ? `${mc.dd_p95_severity_pct.toFixed(1)}%` : "—"}
+          />
+          <RoomyStat
+            label="P(loss)"
+            value={fmtProbPct(mc?.prob_loss)}
+          />
+          <RoomyStat
+            label="Concentration"
+            value={fmtProbPct(sp?.concentration)}
+          />
+        </div>
+      )}
+
+      {/* Flag chips */}
+      {tv.flags.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {tv.flags.map((flag) => (
+            <span
+              key={flag}
+              className={cn(
+                "inline-flex items-center rounded-md px-2 py-0.5 text-[10.5px] font-medium",
+                flagChipClass(flag),
+              )}
+            >
+              {FLAG_LABELS[flag] ?? flag}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

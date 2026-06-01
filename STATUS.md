@@ -10,7 +10,7 @@
 Research + source-grounded audit + written plan, then the first two build items.
 Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
 
-### Build shipped — P0.1 look-ahead + P1.2 rigor + P1.6 Monte-Carlo + P1.3 trials + P1.7 sub-periods + P1.8 verdict
+### Build shipped — P0.1 look-ahead + P1.2 rigor + P1.6 MC + P1.3 trials + P1.7 sub-periods + P1.8 verdict + P1.9 FE card
 
 - **P0.1 — fixed the verified look-ahead bug in the primary engine.**
   `services/workflow_backtester.py`: signal-driven orders (indicator / price /
@@ -68,6 +68,14 @@ Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
   + `test_backtest_subperiods.py` (5) + `test_backtest_verdict.py` (8). **542 passed**; only failures are
   pre-existing date-drift (`test_events_calendar`, now-past 2026-02 RBI date) + `test_step_types_catalog`
   catalog drift — both untouched by this work. New validation files are ruff-clean.
+- **P1.9 (FE — make the rigor visible):** frontend-lead added a **"Trust" panel** to the chat backtest
+  card (`pivot-next/components/chat/IndicatorBacktestCard.tsx`, +247 LOC; +45 LOC of types in `lib/api.ts`).
+  Detail view: a color-coded verdict badge (emerald/amber/rose/zinc) + confidence + rationale, a 6-stat
+  rigor row (PSR · Deflated-Sharpe+trials · MinTRL ✓/✗ vs n_obs · 5%-worst DD · P(loss) · concentration),
+  and humanized risk-flag chips. Compact view: a small verdict pill by the return. All fields optional +
+  guarded (old/short payloads render unchanged). The tool already passes `result.metrics` through
+  (`tool_executor.py:738`), so it's wired end-to-end. tsc clean (only the documented pre-existing
+  ChatDemo:750 error); no new lint. **Backtests now show "should I believe this?" visually, not just in text.**
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.
