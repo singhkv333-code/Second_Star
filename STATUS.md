@@ -67,6 +67,24 @@ Running log (updated after each build+test run, newest last).
   Only nice-to-have left: dedicated FE cards for the `pairs_backtest`/`pairs_scan`/
   `cointegration_test` render hints — chat renders the text summary today.
 
+### Phase 2.4 — multi-position portfolio engine (run #1 — this commit)
+- The tree engine (Engine 2b) is single-position/single-symbol, so 2.4's gross/net/max-names/
+  sector caps are built as a NEW multi-symbol engine: `backend/services/backtest/portfolio/`.
+  This also lands the 2.1 **momentum factor + dollar-neutral L/S short leg** that were "gated
+  on prices" — OHLCV is yfinance.
+- Pure causal core: `momentum_scores` (12-1 cross-sectional momentum, data ≤ t only),
+  `target_weights` (constrained construction — **max names** + **gross budget** by
+  construction; long-only equal-weight or **dollar-neutral L/S**), `simulate_portfolio`
+  (drifting weights, one-bar-lag rebalance, turnover costs). `run_portfolio_backtest` fetches
+  aligned yfinance closes, ranks, rebalances on a schedule, runs the full rigor battery.
+- **Live (15 large-caps, monthly, 5y):** long-only momentum top-5 → +28.5%, −21% maxDD,
+  gross 1.0 / net 1.0, verdict **unproven** (PSR 0.83). L/S top-5/bottom-5 → net **0.001**
+  (dollar-neutral confirmed), verdict **no_edge** (momentum L/S added nothing this window) —
+  honest, no manufactured edge. 10 deterministic tests (constraints, compounding, turnover
+  cost, **two no-look-ahead proofs** — signal + simulation).
+- **Remaining 2.4 (next runs):** sector caps (needs a sector map — `industry_slug` for mc
+  names, or yfinance `info`); REST + chat exposure; then 2.5 reference-strategy acceptance tests.
+
 ---
 
 ## Day 13 — 2026-06-01 (lead) — Backtesting strengthening: research + plan + P0.1/P1.2 shipped

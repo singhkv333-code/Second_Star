@@ -281,7 +281,14 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   cointegrated@1% (ADF −4.04, 24-day half-life) among 91 pairs; even cointegrated pairs backtest `no_edge` (the
   causal backtest + rigor battery refuse a false edge). 19 deterministic tests. Nice-to-have left: dedicated FE
   cards for the pairs render hints (chat shows the text summary today). **[L]**
-- **2.4** **Multi-position portfolio state** in the tree engine (gross/net exposure, sector caps, max names). **[M]**
+- 🟡 **2.4 IN PROGRESS (2026-06-01)** **Multi-position portfolio state.** The tree engine is single-position,
+  so this is a NEW multi-symbol engine `backend/services/backtest/portfolio/` (also lands the 2.1 momentum +
+  dollar-neutral L/S that were price-gated; OHLCV = yfinance). ✅ causal core — `momentum_scores` (12-1, data
+  ≤ t), `target_weights` (**max names** + **gross budget** enforced by construction; long-only or dollar-neutral
+  **L/S**), `simulate_portfolio` (drifting weights, one-bar-lag rebalance, turnover cost); `run_portfolio_backtest`
+  (yfinance → rank → schedule → rigor battery). Live (15 large-caps, monthly, 5y): long-only momentum +28.5%
+  (unproven, PSR 0.83); L/S net≈0 (dollar-neutral, no_edge). 10 tests incl. two no-look-ahead proofs.
+  ⏳ Remaining: **sector caps** (needs a sector map), REST + chat exposure. **[M]**
 - **2.5** Reference-strategy acceptance tests (one per class), each reported through the Phase-1 rigor ladder. **[M]**
 
 **Exit:** we can faithfully test the strategies pros actually run — pairs, factor L/S, vol-targeted trend.
