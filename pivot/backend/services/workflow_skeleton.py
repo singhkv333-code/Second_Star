@@ -785,12 +785,16 @@ _COMPLEXITY_RE = re.compile(
     # ── Gap / pct_change leaves.
     r"|\bgap[- ]?(?:up|down)\b|\bgaps?\s+(?:down|up)\b"
     r"|\bpercent\s+change|\bpct[- ]?change\b"
-    # ── Indicator-vs-indicator crossover (golden/death cross, etc).
-    # "20-day EMA crosses above 50-day EMA" / "fast EMA above slow EMA" /
-    # "MACD line crosses signal line".
+    # ── Indicator crossover, in EITHER word order. The skeleton can only
+    # emit a single trigger.indicator vs a SCALAR threshold — it cannot
+    # express two series crossing, so ANY crossover must bail to the LLM →
+    # backtest_dsl_tree. Catches "50/200 SMA crossover", "9/21 EMA crosses",
+    # "MACD crosses signal", "golden/death cross", "fast EMA above slow EMA".
+    r"|\bgolden\s+cross\b|\bdeath\s+cross\b"
+    r"|\b(?:e?ma|sma|macd|moving\s+average)\b[^.]{0,30}?\bcross(?:es|ed|ing|over)?\b"
+    r"|\bcross(?:es|ed|ing|over)?\b[^.]{0,30}?\b(?:e?ma|sma|macd|signal|moving\s+average)\b"
     r"|\b\d+[- ]?(?:day|bar|period)?\s*[A-Z]?(?:EMA|SMA|MA)\b[^.]{0,40}?"
     r"\b(?:cross|above|below)\b[^.]{0,40}?\b\d+[- ]?(?:day|bar|period)?\s*[A-Z]?(?:EMA|SMA|MA)\b"
-    r"|\bgolden\s+cross\b|\bdeath\s+cross\b"
     # ── Compound logic: explicit "AND" / "OR" / "NOT" connecting two
     # condition clauses inside a single intent. Indicator-or-price word
     # on either side is the conservative guard.

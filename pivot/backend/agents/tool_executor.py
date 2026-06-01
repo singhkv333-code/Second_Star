@@ -650,6 +650,7 @@ async def _backtest_workflow(a, kt, db, uid):
     """
     import asyncio
 
+    from backend.services.turn_context import trial_group_for
     from backend.services.workflow_backtester import (
         backtest_workflow as run_workflow_bt,
     )
@@ -701,9 +702,11 @@ async def _backtest_workflow(a, kt, db, uid):
             start_date=start_date,
             end_date=end_date,
             benchmark_symbol=benchmark_symbol,
-            # Group this user's recent backtests so the Deflated Sharpe deflates
-            # for how many variants they've tried (selection-bias guard).
-            trial_group=(f"u{uid}" if uid else None),
+            # Group this CONVERSATION's backtests (falls back to user) so the
+            # Deflated Sharpe deflates for how many variants were tried in this
+            # session — tuning one idea deflates together; unrelated chats stay
+            # independent (selection-bias guard).
+            trial_group=trial_group_for(uid),
         )
     except ValueError as e:
         return {

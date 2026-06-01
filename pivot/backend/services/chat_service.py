@@ -2268,6 +2268,10 @@ class ChatService:
         mode_override: Optional[str] = None,
     ) -> ChatTurn:
         turn_started = time.monotonic()
+        # Make the conversation id ambient so tool handlers that don't take it
+        # (e.g. the backtest tools) can group DSR trials by conversation.
+        from backend.services.turn_context import set_conversation_id
+        set_conversation_id(conv_id)
         breakdown: dict[str, int] = {}
         trace = start_turn(conv_id, message)
         trace.event("turn.start", message_preview=message[:120])
@@ -3686,8 +3690,10 @@ class ChatService:
         mode_override: Optional[str] = None,
     ) -> AsyncIterator[dict]:
         from backend.llm.openai_client import LLMOpenAI, stream_openai
+        from backend.services.turn_context import set_conversation_id
 
         turn_started = time.monotonic()
+        set_conversation_id(conv_id)
         breakdown: dict[str, int] = {}
         trace = start_turn(conv_id, message)
         trace.event("turn.start.stream", message_preview=message[:120])
