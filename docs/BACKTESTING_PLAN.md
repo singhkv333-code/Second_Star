@@ -3,7 +3,7 @@
 > **Owner:** lead · **Started:** 2026-06-01 · **Status:** IN PROGRESS — research + audit done; **P0.1 + P1.2 shipped** (2026-06-01)
 > **Branch:** `Eventtriggers` · **Tracking:** this doc is the single source of truth; `STATUS.md` carries the running log.
 >
-> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). ✅ **P1.9** FE "Trust" panel on the chat backtest card (verdict badge + rigor stat row + flag chips). **Every backtest now shows — in chat AND on the card — a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** Next (all need bigger pieces): P1.4 walk-forward + no-skill permutation (engine-rerun adapter) → P1.5 CPCV→PBO (param grid, P2) → P3 data realism.
+> **Progress:** ✅ **P0.1** look-ahead fix (signal orders fill next-bar-open; live). ✅ **P1.2** Deflated/Probabilistic Sharpe + MinTRL on every backtest (3 engines; chat shows PSR). 🟡 **P1.6** Monte-Carlo block-bootstrap drawdown / P(loss) on every backtest. ✅ **P1.3** trial counter — DSR deflates for how many variants a session backtested (live: DSR fell as N went 1→2→3). 🟡 **P1.7** sub-period robustness — time-concentration tell. ✅ **P1.8** Trust verdict — the battery synthesised into one actionable call (chat summary leads with it). ✅ **P1.9** FE "Trust" panel on the chat backtest card (verdict badge + rigor stat row + flag chips). **Every backtest now shows — in chat AND on the card — a verdict + PSR · MinTRL · DSR(+trials) · Monte-Carlo · sub-periods.** ✅ **Phase 0 consolidation (0.2–0.5)**: Engine 1 on the calendar-CAGR + shared cost model, vestigial `run_backtest` retired, cross-engine convention parity test. Next: **0.6** one no-look-ahead DataAccessor → then Phase 2 strategy coverage (cross-sectional ranking, vol-target/ATR sizing, pairs) and the rigor middle (P1.4 walk-forward / no-skill permutation — needs the engine-rerun adapter → P1.5 CPCV→PBO needs a param grid).
 
 **Thesis in one line:** Pivot's wedge for serious algo/quant traders is not a prettier equity
 curve — every retail tool draws those — it is a backtester that tells you *whether to believe
@@ -190,14 +190,19 @@ Phases are sequenced by *trust-per-unit-effort*. Effort: **S** ≈ hours, **M** 
   Trade-log-keyed equity rebuild means this also closed the equity-curve leak. First unit tests added
   (`tests/test_workflow_backtester_lookahead.py`). Proven live on RELIANCE. *(Full structural shadow-check
   across conditions deferred to 0.6.)*
-- **0.2** Unify CAGR/annualization on one convention (calendar-365.25, matching `backtest_metrics.py`);
-  make `backtest_metrics.py` the *only* metrics source; delete Engine 1's parallel CAGR. **[S]**
-- **0.3** Put Engine 1 on `trading_costs.py` (kill its naïve 10+3 bps). **[S]**
-- **0.4** Retire the vestigial `run_backtest` tool (redirect chat to `backtest_workflow`/Engine 2b). **[S]**
-- **0.5** Write a cross-engine **parity test**: same strategy, same window → engines agree on fills,
-  costs, and metrics within tolerance. Lock it so they can't silently diverge again. **[M]**
+- ✅ **0.2 DONE (2026-06-01)** Engine 1 (`pivot-backtester/.../metrics.py`) CAGR now uses the CALENDAR
+  span (365.25/yr) — was bar-count/252 (the comment even lied "calendar"). Verified it matches
+  `backtest_metrics.calendar_cagr_pct` exactly. **[S]**
+- ✅ **0.3 DONE (2026-06-01)** Engine 1 is on the shared `trading_costs` model — the expr router sets
+  `slippage_bps`/`commission_bps` so the round-trip reproduces `round_trip_bps()` (~37 bps incl. STT/GST),
+  not the old ~26 bps. **[S]**
+- ✅ **0.4 DONE (2026-06-01)** Retired the vestigial `run_backtest` tool (def + registry + dispatch +
+  handler) — it had a hardcoded 10 bps + 10%-of-capital sizing, no rigor battery, and rsi/price_cross
+  weren't even implemented. Chat backtests route to `backtest_workflow` / `backtest_dsl_tree`. **[S]**
+- ✅ **0.5 DONE (2026-06-01)** `tests/test_backtest_engine_parity.py` locks the conventions (Engine 1
+  CAGR == shared calendar; Engine 1 round-trip == shared bps; `run_backtest` gone from the catalog). **[M]**
 - **0.6** Standardize the no-look-ahead **`DataAccessor`** as the one data boundary all engines read
-  through (generalize Engine 2b's). **[M]**
+  through (generalize Engine 2b's). **[M, remaining]**
 
 **Exit:** one trustworthy daily-bar core, consistent metrics, no look-ahead, India costs everywhere.
 

@@ -797,48 +797,10 @@ tool("calculate_margin",
 
 # ── BACKTEST ─────────────────────────────────────────────────────────────────
 
-tool("run_backtest",
-     "LEGACY single-indicator backtest. Use ONLY for the simplest "
-     "RSI / price-cross-SMA / price-drop / SIP-style cases that match "
-     "one of the four `strategy_type` enum values exactly. For ANY "
-     "other backtest — multi-indicator, MACD, Supertrend, Bollinger, "
-     "stoch, cross-asset, with stoploss/squareoff, calendar+condition "
-     "combos — use `backtest_workflow` instead.\n\n"
-     "PREFER `backtest_workflow` when the user names: macd, supertrend, "
-     "bollinger / bb, stoch, mfi, cci, williams_r, atr, keltner, "
-     "donchian, aroon, psar, roc, trix, obv, vwap, wma — or chains "
-     "two conditions ('RSI < 30 AND volume spike') — or wants a "
-     "stoploss / squareoff / time-of-day exit — or trades a different "
-     "symbol than the trigger watches.\n\n"
-     "Do NOT use for fundamentals expressions (PE < 15, ROE > 18) — "
-     "those go through the deterministic `/expr-backtest` slash command.",
-     {
-         "symbol":            {"type": "string", "description":
-                               "NSE ticker, uppercase. Single stock only — "
-                               "this tool is one-symbol; use the fundamentals "
-                               "backtest path for universe-level shapes."},
-         "strategy_type":     {"type": "string",
-                               "enum": ["sip","price_drop","rsi","price_cross"],
-                               "description":
-                               "EXACTLY one of: sip (recurring buy on a "
-                               "schedule), price_drop (buy on % drop), rsi "
-                               "(buy/sell when RSI crosses threshold), "
-                               "price_cross (buy/sell when price crosses an "
-                               "SMA/EMA). If the user's strategy doesn't fit "
-                               "any of these, do NOT pick the closest one — "
-                               "call ASK_USER instead."},
-         "trigger_condition": {"type": "object", "description":
-                               "Strategy-specific config. For rsi: "
-                               "{'period': 14, 'op': '<', 'threshold': 30}. "
-                               "For price_cross: {'period': 200, 'kind': 'sma', "
-                               "'direction': 'above'}. For price_drop: "
-                               "{'pct': 5}. For sip: {'cron': '...', "
-                               "'amount_inr': N}."},
-         "period":            {"type": "string",
-                               "enum": ["1mo","3mo","6mo","1y","2y"], "default": "1y"},
-         "starting_capital":  {"type": "number", "default": 100000},
-     },
-     ["symbol", "strategy_type", "trigger_condition"])
+# run_backtest (legacy single-indicator backtest) RETIRED 2026-06-01 — it used a
+# divergent hardcoded cost model (10 bps) + 10%-of-capital sizing and carried no
+# rigor battery; rsi/price_cross weren't even implemented. Backtests now route to
+# backtest_workflow (simple) / backtest_dsl_tree (compound).
 
 # ── SCHEDULER ────────────────────────────────────────────────────────────────
 
@@ -1067,8 +1029,9 @@ tool("backtest_workflow",
      "'what if I had bought …' prompt. Returns a chart card (price + "
      "equity + signals + metrics + buy-and-hold benchmark). "
      "Shares the EXACT `steps[]` schema with propose_workflow — emit the "
-     "same step list. USE THIS, not propose_workflow (which activates) or "
-     "run_backtest (legacy single-indicator only).\n\n"
+     "same step list. USE THIS for a simple single-indicator backtest, not "
+     "propose_workflow (which activates an agent). For compound / crossover / "
+     "multi-condition strategies, prefer backtest_dsl_tree.\n\n"
      "Supported indicators: rsi, sma, ema, wma, macd (histogram; threshold "
      "0 = signal-line cross), adx, supertrend (direction; 0 = trend flip), "
      "bollinger/bb (%B; 0 = lower, 1 = upper), stoch (%K), stoch_rsi, cci, "

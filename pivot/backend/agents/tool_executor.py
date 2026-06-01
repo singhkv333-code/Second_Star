@@ -95,7 +95,6 @@ async def execute_tool(tool_name: str, arguments: dict,
         "calculate_sl_price":         _calculate_sl_price,
         "calculate_dip_price":        _calculate_dip_price,
         "calculate_margin":           _calculate_margin,
-        "run_backtest":               _run_backtest,
         "get_scheduler_status":       _get_scheduler_status,
         "list_upcoming_jobs":         _list_upcoming_jobs,
     }
@@ -1501,46 +1500,6 @@ async def _calculate_margin(a, kt, db, uid):
     return {"success": True,
             "data": {"note": "Margin calculation requires live Kite session"},
             "logiccard": None}
-
-
-# ── BACKTEST ─────────────────────────────────────────────────────────────────
-
-async def _run_backtest(a, kt, db, uid):
-    from backend.kite.market_data import get_historical_ohlcv
-    symbol = a["symbol"]
-    history = get_historical_ohlcv(symbol, period=a.get("period", "1y"))
-    if len(history) < 10:
-        return {"success": False, "data": {"error": f"Insufficient data for {symbol}"},
-                "logiccard": None}
-    starting_capital = a.get("starting_capital", 100000)
-    capital = starting_capital
-    FRICTION = 0.001
-    position = 0
-    trades = 0
-    prices = [d["close"] for d in history]
-    for i, day in enumerate(history):
-        price = day["close"]
-        triggered = False
-        st = a.get("trigger_condition", {})
-        if a["strategy_type"] == "sip" and i % 30 == 0:
-            triggered = True
-        elif a["strategy_type"] == "price_drop" and i > 0:
-            drop = st.get("drop_pct", 5) / 100
-            if (prices[i - 1] - price) / prices[i - 1] >= drop:
-                triggered = True
-        if triggered and capital > 1000:
-            qty = int(capital * 0.1 / price)
-            if qty > 0:
-                capital -= qty * price * (1 + FRICTION)
-                position += qty
-                trades += 1
-    final = capital + position * prices[-1] * (1 - FRICTION)
-    ret = (final - starting_capital) / starting_capital * 100
-    return {"success": True, "data": {
-        "total_return_pct": round(ret, 2), "total_trades": trades,
-        "final_value": round(final, 2),
-        "disclaimer": "Past performance does not guarantee future results."
-    }, "logiccard": None}
 
 
 # ── SCHEDULER ────────────────────────────────────────────────────────────────

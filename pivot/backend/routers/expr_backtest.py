@@ -199,6 +199,13 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
     from backtester.expr.validator import ValidationError
     import asyncpg as _ap
 
+    # Put Engine 1 on the shared NSE cost model (was a naive 10 bps slippage +
+    # 3 bps commission with no STT/GST — ~2× understated). Reproduce the
+    # converged round-trip: slippage + commission on both legs ≈ 2·(slip+comm)
+    # = round_trip_bps(), so comm = round_trip/2 − slip. Keeps the cross-sectional
+    # engine consistent with the signal engines' trading_costs.
+    from backend.services.trading_costs import round_trip_bps, slippage_bps
+    _slip = slippage_bps()
     cfg = BacktestConfig(
         expression=req.expression,
         start=_date.fromisoformat(req.start),
@@ -207,6 +214,8 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
         starting_capital=req.starting_capital,
         benchmark_sc_id=req.benchmark_sc_id,
         basis=req.basis,
+        slippage_bps=_slip,
+        commission_bps=max(0.0, round_trip_bps() / 2.0 - _slip),
     )
 
     mapping_summary = None

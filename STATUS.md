@@ -150,6 +150,23 @@ multi-condition). Report:
   from the deflated battery). **Verified end-to-end: tuning RELIANCE RSI<35→<30→<25 shows trials
   1→2→3 and DSR 0.84→0.48 on the 2nd variant** — the selection-bias deflation finally visible
   across a chat. 515 tests pass.
+
+### Phase 0 — consolidation (0.2–0.5 done)
+
+Completed the plan's correctness/consolidation foundation (the rigor battery now sits on consistent ground):
+- **0.2 CAGR unified.** Engine 1 (`pivot-backtester/.../metrics.py`) used a bar-count/252 CAGR (comment
+  even lied "calendar") — wildly wrong on short windows. Now uses the **calendar span (365.25/yr)**; verified
+  it matches `backtest_metrics.calendar_cagr_pct` exactly (100.09% vs 100.09% on a 1-yr double).
+- **0.3 Engine 1 on the shared cost model.** The expr router now sets `slippage_bps`/`commission_bps` from
+  `trading_costs` so Engine 1's round-trip reproduces `round_trip_bps()` (~37 bps incl. STT/GST) — was a
+  naïve 10+3 bps (~26 bps, no STT/GST).
+- **0.4 Vestigial `run_backtest` retired** (def + registry + dispatch + handler removed; 84→83 tools). It had a
+  hardcoded 10 bps + 10%-of-capital sizing, no rigor battery, and rsi/price_cross weren't even implemented.
+- **0.5 Parity test** (`tests/test_backtest_engine_parity.py`, 5 tests) locks the conventions so they can't drift.
+- All new files ruff-clean; the only sweep failures are the pre-existing date/catalog-drift + a pre-existing
+  `test_primitives`→`test_compare` event-loop ordering issue (chart_parser; passes in isolation; not my change).
+- **Remaining in Phase 0:** 0.6 — standardize one no-look-ahead `DataAccessor` across engines. Then Phase 2
+  (strategy coverage: cross-sectional ranking, vol-target/ATR sizing, pairs).
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.

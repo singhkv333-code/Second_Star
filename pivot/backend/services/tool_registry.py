@@ -225,9 +225,9 @@ _FIND_TOOL_CATEGORIES: tuple[tuple[str, str], ...] = (
     ("ASK_USER", "meta"),
     # Workflows / proposals.
     ("propose_", "workflow"),
-    # Backtesting.
+    # Backtesting. (`run_backtest` retired 2026-06-01 — diverged from the
+    # shared cost/CAGR model + rigor battery; use backtest_workflow / _dsl_tree.)
     ("backtest_", "backtest"),
-    ("run_backtest", "backtest"),
     # News.
     ("news_", "news"),
     ("get_news", "news"),
