@@ -126,13 +126,19 @@ skeleton sitting on a thin, partly-disconnected dataset.
   results — so this drift can never silently return again.
 
 ### Add (the roadmap that actually unlocks backtest)
-1. **Daily OHLCV for a real universe (the #1 unlock).** Backfill ~500–1,000 liquid NSE
-   names (NIFTY 500). This single addition: (a) makes the cross-sectional factor engine
-   + Phase-2.1 ranking usable, (b) lets Engines 2/2b read prices **from the DB instead
-   of yfinance** (fast, cached, no rate limits — the P3 "bars store"), and (c) enables
-   a survivorship-free universe if delisted names' history is kept. Source: a bulk
-   provider (NSE bhavcopy, or a one-time yfinance/stooq backfill keyed to the
-   `companies` list).
+> **CORRECTION (2026-06-01, per product direction): OHLCV is yfinance's job, NOT `mc`.**
+> The 9 rows in `mc.daily_prices` were populated by mistake and should be ignored —
+> item 1 below (a price backfill into `mc`) is therefore **superseded**. Prices come
+> from yfinance live (Engines 2/2b and the new pairs engine already use it); `mc` is
+> fundamentals-only. The remaining unlock for the cross-sectional *runner* is a
+> yfinance price adapter (map sc_id→NSE ticker, fetch per-name bars) rather than a DB
+> backfill. Items 2–7 (sector/mcap/index/corporate-actions) still stand for `mc`.
+
+1. ~~**Daily OHLCV backfill into `mc` for a real universe.**~~ *(Superseded — see the
+   correction above. OHLCV comes from yfinance; do not backfill `mc.daily_prices`.)*
+   The live equivalent: a yfinance price adapter so the cross-sectional runner can
+   simulate returns over a selected fundamental universe (map sc_id→NSE ticker, fetch
+   per-name daily bars, align), reusing the cached `yfinance_service` layer.
 2. **Sector / industry classification** — populate `sector` (or a GICS-style map keyed
    to `industry_slug`, which *is* populated). Unlocks `neutralize(sector)` + sector screens.
 3. **Market cap + shares-outstanding** (per date, or shares + price → mcap). Unlocks
