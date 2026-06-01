@@ -1740,6 +1740,38 @@ _BACKTEST_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# [C7+] Backtest TUNING follow-up — a short, verb-less continuation that tweaks a
+# backtest the user already ran ("now try RSI<25", "and RSI<20", "add a 5% stop",
+# "run that on RELIANCE instead", "the same but RSI<5"). These carry NO backtest
+# verb, so the intent classifier doesn't tag them and the model mis-routes to
+# get_indicator / propose_workflow. Gated at the call site by a prior backtest in
+# the window, this re-forces the backtest tool surface so the tweak RE-RUNS the
+# simulation (and the Deflated-Sharpe trial counter keeps deflating across turns).
+_BACKTEST_TWEAK_RE = re.compile(
+    r"^\s*(?:now|then|also|next|ok(?:ay)?|alright|and|but)?[\s,]*"
+    r"(?:try|use|make|set|change|switch|swap|lower|raise|tighten|loosen|widen|"
+    r"narrow|add|drop|remove|increase|decrease|bump|re-?run|rerun|redo|"
+    r"run\s+(?:it|that|the\s+same)|do\s+(?:it|that|the\s+same))\b"
+    r"|\binstead\b"
+    r"|\bthe\s+same(?:\s+(?:but|strategy|setup|thing|one))?\b"
+    r"|^[A-Za-z ,'/()-]{0,24}\b(?:rsi|sma|ema|wma|macd|adx|cci|mfi|stoch|atr|"
+    r"bollinger|supertrend|aroon|donchian|keltner|roc|obv|vwap|williams|period|"
+    r"threshold|stop[\s-]?loss|stop|target|window|lookback|trailing)\b"
+    r"[^.]{0,30}?\d",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_backtest_tweak(message: str) -> bool:
+    """A short continuation/tweak to a backtest the user already ran. The length
+    cap keeps a full new strategy restatement (which has its own backtest verb)
+    out of this path; the call site gates on a prior backtest in history so a
+    fresh first-turn "RSI<30 on TCS" can't trip it."""
+    msg = (message or "").strip()
+    if not msg or len(msg.split()) > 20:
+        return False
+    return bool(_BACKTEST_TWEAK_RE.search(msg))
+
 # [C7] Delegation replies — the user is handing the decision back to us
 # ("you pick"), NOT answering with a specific value. On these we must
 # choose a sensible default and DRAFT, never re-ask the same menu.
@@ -2755,18 +2787,39 @@ class ChatService:
         # backtest original intent anywhere in the window and force
         # backtest_workflow into scope with tool_choice=required.
         _backtest_followup = False
+        _prev_backtest_in_window = any(
+            _BACKTEST_INTENT_RE.search((h or {}).get("content") or "")
+            for h in (history or [])
+            if (h or {}).get("role") == "user"
+        )
+        # A verb-less TUNING tweak ("now try RSI<25", "add a stop") of an
+        # already-run backtest — distinct from answering a clarification.
+        _is_backtest_tweak = (
+            _prev_backtest_in_window and _looks_like_backtest_tweak(message)
+        )
         if (selected_names is not None
+                and _prev_backtest_in_window
                 and (pending_resolution_active
-                     or (history and _looks_like_clarification_followup(history)))
-                and any(_BACKTEST_INTENT_RE.search((h or {}).get("content") or "")
-                        for h in (history or [])
-                        if (h or {}).get("role") == "user")):
-            selected_names = selected_names | {"backtest_workflow"}
+                     or (history and _looks_like_clarification_followup(history))
+                     or _is_backtest_tweak)):
+            if _is_backtest_tweak:
+                # NARROW to the backtest tools (+ ASK_USER) so the model re-runs
+                # the simulation rather than fetching a live indicator or
+                # drafting an agent for a verb-less tweak.
+                selected_names = frozenset({
+                    "backtest_workflow", "backtest_dsl_tree", "ASK_USER",
+                })
+            else:
+                # Answering a clarification — keep scope, just ensure both
+                # backtest emit tools are present.
+                selected_names = selected_names | {
+                    "backtest_workflow", "backtest_dsl_tree",
+                }
             tooldefs = _registry_tools_as_tooldefs(selected_names)
             cache_key = cache_key_for(selected_names)
             agent_tool_choice = "required"
             _backtest_followup = True
-            trace.event("backtest_followup.scope_forced")
+            trace.event("backtest_followup.scope_forced", tweak=_is_backtest_tweak)
         # Underspec relaxation: "build me an agent for X" with no action /
         # trigger / quantity is genuinely ambiguous — we want ASK_USER,
         # not a fabricated draft. We do TWO things:

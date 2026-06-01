@@ -470,6 +470,31 @@ async def backtest_dsl_tree(args: dict) -> dict:
     metrics = result.metrics
     from backend.services.backtest_metrics import methodology_note
     _method = methodology_note(start=start_d.isoformat(), end=end_d.isoformat())
+    # Rigor battery as plain dicts. Deflate the Deflated Sharpe for how many
+    # DISTINCT strategy variants this CONVERSATION has backtested (selection-bias
+    # guard — tuning one idea in a chat deflates together), then recompute the
+    # verdict from the deflated battery so it stays consistent.
+    from backend.services.backtest.validation import trust_verdict
+    from backend.services.backtest.validation.trials import (
+        record_and_deflate, strategy_fingerprint,
+    )
+    from backend.services.turn_context import trial_group_for
+    _fs_dict = metrics.forward_stats.model_dump() if metrics.forward_stats else None
+    _mc_dict = metrics.monte_carlo.model_dump() if metrics.monte_carlo else None
+    _sp_dict = metrics.sub_periods.model_dump() if metrics.sub_periods else None
+    _grp = trial_group_for(None)  # conversation, from turn_context
+    if _fs_dict and _grp:
+        _fs_dict = record_and_deflate(
+            _fs_dict, _grp,
+            strategy_fingerprint(
+                tree, primary, start_d.isoformat(), end_d.isoformat(), exit_policy,
+            ),
+        )
+    _verdict_dict = trust_verdict(
+        forward_stats=_fs_dict, monte_carlo=_mc_dict, sub_periods=_sp_dict,
+        total_return_pct=float(metrics.total_return_pct),
+        n_trades=metrics.total_trades,
+    )
     _bench_txt = (
         f" Buy-and-hold returned {metrics.benchmark_return_pct:+.1f}%."
         if metrics.benchmark_return_pct is not None else ""
@@ -478,20 +503,26 @@ async def backtest_dsl_tree(args: dict) -> dict:
         f" Sharpe {metrics.sharpe_ratio:.2f}."
         if metrics.sharpe_ratio is not None else ""
     )
-    _verdict = metrics.trust_verdict
     _verdict_lead = (
-        f"Verdict — {_verdict.label}: {_verdict.rationale} " if _verdict else ""
+        f"Verdict — {_verdict_dict['label']}: {_verdict_dict['rationale']} "
+        if _verdict_dict else ""
     )
-    _psr = metrics.forward_stats.psr if metrics.forward_stats else None
+    _psr = _fs_dict.get("psr") if _fs_dict else None
     _psr_txt = (
         f" PSR {_psr:.0%} (confidence the Sharpe is genuinely > 0)."
         if isinstance(_psr, (int, float)) else ""
+    )
+    _nt = (_fs_dict or {}).get("num_trials") or 1
+    _dsr = (_fs_dict or {}).get("deflated_sharpe")
+    _dsr_txt = (
+        f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
+        if _nt > 1 and isinstance(_dsr, (int, float)) else ""
     )
     summary = (
         _verdict_lead +
         f"Strategy returned {metrics.total_return_pct:+.1f}% across "
         f"{metrics.total_trades} trade(s). Max drawdown {metrics.max_drawdown_pct:.1f}%. "
-        f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt}{_psr_txt} "
+        f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt}{_psr_txt}{_dsr_txt} "
         f"Results are {_method['costs']}, on {_method['basis']}."
     )
 
@@ -569,21 +600,12 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "starting_capital": float(request.starting_capital),
             "ending_value": float(metrics.ending_value),
             # Statistical-rigor battery (PSR/DSR/MinTRL · Monte-Carlo ·
-            # sub-periods · Trust verdict) — the engine computes these; surface
-            # them so the dsl-tree card shows the same Trust panel as the
-            # workflow-backtest card. model_dump → plain dicts for the FE.
-            "forward_stats": (
-                metrics.forward_stats.model_dump() if metrics.forward_stats else None
-            ),
-            "monte_carlo": (
-                metrics.monte_carlo.model_dump() if metrics.monte_carlo else None
-            ),
-            "sub_periods": (
-                metrics.sub_periods.model_dump() if metrics.sub_periods else None
-            ),
-            "trust_verdict": (
-                metrics.trust_verdict.model_dump() if metrics.trust_verdict else None
-            ),
+            # sub-periods · Trust verdict) — same Trust panel as the
+            # workflow-backtest card; DSR + verdict are trial-deflated above.
+            "forward_stats": _fs_dict,
+            "monte_carlo": _mc_dict,
+            "sub_periods": _sp_dict,
+            "trust_verdict": _verdict_dict,
         },
         "bench_buy_hold_return_pct": metrics.benchmark_return_pct,
         "methodology": _method,
