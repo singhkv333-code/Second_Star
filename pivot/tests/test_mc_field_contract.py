@@ -87,6 +87,10 @@ CONTRACT: list[tuple[str, str, int]] = [
         "consolidated",
         20,
     ),
+    # cross-sectional transforms (Phase 2.1) compiled to the two-level CTE and run
+    # against real data: industry-neutral factor + top industry-neutral decile.
+    ("neutralize(return_on_equity) > 0", "consolidated", 50),
+    ("decile(neutralize(return_on_equity)) == 10", "consolidated", 20),
 ]
 
 

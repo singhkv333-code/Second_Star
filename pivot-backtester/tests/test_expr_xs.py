@@ -111,3 +111,60 @@ def test_xs_and_base_filter_combine(reg):
     sql = _sql("decile(roe) == 10 AND pe_ratio < 30", reg)
     assert "ranked._xs_0" in sql
     assert "ranked." in sql  # leaf vals referenced through the ranked CTE too
+
+
+# ── transforms: winsorize / neutralize + composition (Phase 2.1 finish) ──
+
+def test_transforms_parse_and_validate(reg):
+    for expr in (
+        "neutralize(return_on_equity) > 0",
+        "winsorize(return_on_equity, 3) > 10",
+        "decile(neutralize(return_on_equity)) == 10",   # transform inside ranking
+        "zscore(winsorize(net_profit_margin, 3)) > 1",
+    ):
+        validate(parse_expression(expr), reg)  # must not raise
+
+
+@pytest.mark.parametrize("expr,frag", [
+    ("winsorize(roe) > 1", "argument"),                   # arity: needs (x, k)
+    ("winsorize(roe, 0) > 1", "positive"),                # k must be > 0
+    ("neutralize(neutralize(roe)) > 0", "nested"),        # transform in transform
+    ("neutralize(decile(roe)) > 0", "nested"),            # ranking in transform
+    ("rank(zscore(roe)) > 1", "nested"),                  # ranking in ranking
+])
+def test_bad_transform_nesting_rejected(reg, expr, frag):
+    with pytest.raises(ValidationError) as e:
+        validate(parse_expression(expr), reg)
+    assert frag.lower() in str(e.value).lower()
+
+
+def test_neutralize_emits_industry_partition(reg):
+    sql = _sql("neutralize(return_on_equity) > 0", reg)
+    assert "PARTITION BY c.industry_slug" in sql
+    assert "ranked_t AS (" in sql        # transform layer
+    assert "ranked._xt_0" in sql         # predicate reads the transform column
+
+
+def test_winsorize_emits_sigma_clip(reg):
+    sql = _sql("winsorize(return_on_equity, 3) > 10", reg)
+    assert "GREATEST(LEAST(" in sql      # clamp to mean ± k·stdev
+    assert "ranked_t AS (" in sql
+    assert "ranked._xt_0" in sql
+
+
+def test_ranking_over_transform_is_two_level(reg):
+    # decile(neutralize(x)) must compile to ranked_t (transform) -> ranked (NTILE
+    # over the transform column), not a nested window function.
+    sql = _sql("decile(neutralize(return_on_equity)) == 10", reg)
+    assert "ranked_t AS (" in sql
+    assert "PARTITION BY c.industry_slug" in sql          # the inner transform
+    assert "NTILE(10) OVER (ORDER BY ranked_t._xt_0)" in sql
+    assert "ranked._xs_0" in sql                          # predicate reads the ranking
+
+
+def test_plain_ranking_stays_one_level(reg):
+    # No transform => no ranked_t layer (the one-level path is preserved).
+    sql = _sql("decile(return_on_equity) == 10", reg)
+    assert "ranked_t AS (" not in sql
+    assert "_xt_" not in sql
+    assert "NTILE(10) OVER (ORDER BY" in sql

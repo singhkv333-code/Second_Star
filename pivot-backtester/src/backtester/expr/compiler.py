@@ -42,7 +42,12 @@ from .ast import BinOp, BoolOp, Compare, Expr, Func, Ident, Neg, Not, Number
 from .grammar import parse_expression
 
 # Cross-sectional transforms (window functions over the universe at date T).
-_XS_FUNCS = frozenset({"rank", "decile", "quantile", "zscore", "percentrank"})
+# Rankings order/score the cross-section (emitted in the `ranked` CTE).
+# Transforms produce a per-row value (emitted in the inner `ranked_t` CTE so a
+# ranking can be computed over them — window funcs can't nest in one SELECT).
+_XS_RANKINGS = frozenset({"rank", "decile", "quantile", "zscore", "percentrank"})
+_XS_TRANSFORMS = frozenset({"winsorize", "neutralize"})
+_XS_FUNCS = _XS_RANKINGS | _XS_TRANSFORMS
 
 # The expression language uses ==/!= (Python-ish); SQL needs =/<>.
 _SQL_COMPARE_OP = {"==": "=", "!=": "<>"}
@@ -80,15 +85,15 @@ def compile_to_sql(
         # $1 reserved for backtest_date.
         return len(numbers) + 1
 
-    # Cross-sectional pre-pass: window columns for the `ranked` CTE (their
-    # number params are bound FIRST, before the predicate's — the ranked CTE
-    # precedes the universe CTE and params are positional).
-    xs_columns, func_alias = _emit_xs_columns(expanded, _next_param)
-    leaf_ref = "ranked" if xs_columns else "cte"
+    # Cross-sectional pre-pass: transform columns (inner ranked_t CTE) + ranking
+    # columns (ranked CTE). Their number params are bound before the predicate's.
+    transform_cols, ranking_cols, func_alias = _emit_xs_columns(expanded, _next_param)
+    has_xs = bool(transform_cols or ranking_cols)
+    leaf_ref = "ranked" if has_xs else "cte"
     predicate_sql = _emit(expanded, _next_param, func_alias, leaf_ref=leaf_ref)
 
     cte_sql = _emit_ctes(leaves, basis=basis)
-    universe_sql = _emit_universe(leaves, predicate_sql, xs_columns)
+    universe_sql = _emit_universe(leaves, predicate_sql, transform_cols, ranking_cols)
 
     sql = cte_sql + ",\n" + universe_sql
 
@@ -324,10 +329,15 @@ def _line_item_pref_sql(items: list[str]) -> str:
 def _emit_universe(
     leaves: list[BaseFieldSpec | PriceFieldSpec],
     predicate_sql: str,
-    xs_columns: list[tuple[str, str]] | None = None,
+    transform_columns: list[tuple[str, str]] | None = None,
+    ranking_columns: list[tuple[str, str]] | None = None,
 ) -> str:
-    if xs_columns:
-        return _emit_universe_ranked(leaves, predicate_sql, xs_columns)
+    transform_columns = transform_columns or []
+    ranking_columns = ranking_columns or []
+    if transform_columns or ranking_columns:
+        return _emit_universe_ranked(
+            leaves, predicate_sql, transform_columns, ranking_columns
+        )
     joins = "\n".join(
         f"  JOIN {_cte_alias(s)} ON {_cte_alias(s)}.sc_id = c.sc_id"
         for s in leaves
@@ -368,21 +378,35 @@ SELECT * FROM universe"""
 def _emit_universe_ranked(
     leaves: list[BaseFieldSpec | PriceFieldSpec],
     predicate_sql: str,
-    xs_columns: list[tuple[str, str]],
+    transform_columns: list[tuple[str, str]],
+    ranking_columns: list[tuple[str, str]],
 ) -> str:
-    """Cross-sectional path: a ``ranked`` CTE computes the leaf vals + the window
-    columns over the survivorship-filtered universe at date T; ``universe`` then
-    filters on the predicate (which references ``_xs_N`` window cols + leaf vals).
-    Window functions can't sit in a WHERE, hence the extra layer."""
+    """Cross-sectional path. Window functions can't sit in a WHERE (and can't
+    nest), so they live in CTE layers and the predicate filters the result:
+
+      * Rankings only (rank/decile/zscore/…) — one ``ranked`` CTE computes the
+        leaf vals + the ranking window columns over the survivorship-filtered
+        universe at date T.
+      * Transforms present (winsorize/neutralize) — an inner ``ranked_t`` CTE
+        computes leaf vals + ``industry_slug`` + the transform columns (``_xt_N``);
+        the outer ``ranked`` CTE then computes the rankings (``_xs_N``) over those
+        transform columns / leaf vals. This is what lets ``decile(neutralize(roe))``
+        compose without nesting window functions.
+
+    ``universe`` filters the predicate, which references ``_xs_N`` / ``_xt_N`` cols
+    and leaf vals (all surfaced on ``ranked``)."""
     joins = "\n".join(
         f"  JOIN {_cte_alias(s)} ON {_cte_alias(s)}.sc_id = c.sc_id"
         for s in leaves
     )
     leaf_cols = ",\n".join(f"    {_cte_alias(s)}.val AS {s.name}_val" for s in leaves)
-    xs_cols = ",\n".join(f"    {sql} AS {alias}" for alias, sql in xs_columns)
-    inner_cols = ",\n".join(c for c in (leaf_cols, xs_cols) if c)
     out_cols = "".join(f",\n    ranked.{s.name}_val" for s in leaves)
-    return f"""ranked AS (
+
+    if not transform_columns:
+        # One level: rankings computed directly over the JOINed leaf CTEs.
+        xs_cols = ",\n".join(f"    {sql} AS {alias}" for alias, sql in ranking_columns)
+        inner_cols = ",\n".join(c for c in (leaf_cols, xs_cols) if c)
+        return f"""ranked AS (
   SELECT
     c.sc_id,
     c.company_name,
@@ -392,6 +416,41 @@ def _emit_universe_ranked(
   WHERE
     (c.delisted_on IS NULL OR c.delisted_on > $1)
     AND (c.listed_on IS NULL OR c.listed_on <= $1)
+),
+universe AS (
+  SELECT
+    ranked.sc_id,
+    ranked.company_name{out_cols}
+  FROM ranked
+  WHERE ({predicate_sql})
+)
+SELECT * FROM universe"""
+
+    # Two levels: ranked_t (transforms) -> ranked (rankings over them).
+    t_cols = ",\n".join(f"    {sql} AS {alias}" for alias, sql in transform_columns)
+    t_inner = ",\n".join(c for c in (leaf_cols, t_cols) if c)
+    leaf_pass = ",\n".join(f"    ranked_t.{s.name}_val AS {s.name}_val" for s in leaves)
+    t_pass = ",\n".join(f"    ranked_t.{alias} AS {alias}" for alias, _ in transform_columns)
+    r_cols = ",\n".join(f"    {sql} AS {alias}" for alias, sql in ranking_columns)
+    ranked_inner = ",\n".join(c for c in (leaf_pass, t_pass, r_cols) if c)
+    return f"""ranked_t AS (
+  SELECT
+    c.sc_id,
+    c.company_name,
+    c.industry_slug,
+{t_inner}
+  FROM mc.companies c
+{joins}
+  WHERE
+    (c.delisted_on IS NULL OR c.delisted_on > $1)
+    AND (c.listed_on IS NULL OR c.listed_on <= $1)
+),
+ranked AS (
+  SELECT
+    ranked_t.sc_id,
+    ranked_t.company_name,
+{ranked_inner}
+  FROM ranked_t
 ),
 universe AS (
   SELECT
@@ -416,10 +475,10 @@ def _emit(
     """Walk the expanded AST emitting SQL.
 
     ``next_param`` binds numeric literals to positional params. ``func_alias``
-    maps id(Func) → its ``_xs_N`` column alias (pre-computed in the ``ranked``
-    CTE). ``leaf_ref`` selects how a leaf Ident renders: ``"cte"`` → ``f_x.val``
-    (inside the ranked CTE / the original universe), ``"ranked"`` → ``ranked.x_val``
-    (the predicate that filters the ranked CTE)."""
+    maps id(Func) → its ``_xs_N`` / ``_xt_N`` column alias. ``leaf_ref`` selects how
+    a leaf Ident renders: ``"cte"`` → ``f_x.val`` (inside a CTE that JOINs the leaf
+    CTEs); any other value is treated as a CTE alias holding ``<name>_val`` columns
+    (e.g. ``"ranked"`` → ``ranked.x_val``, ``"ranked_t"`` → ``ranked_t.x_val``)."""
     func_alias = func_alias or {}
     if isinstance(node, BoolOp):
         op = " AND " if node.op == "AND" else " OR "
@@ -451,9 +510,9 @@ def _emit(
         return f"ranked.{alias}"
     if isinstance(node, Ident):
         # After expansion, every Ident is a leaf.
-        if leaf_ref == "ranked":
-            return f"ranked.{node.name}_val"
-        return f"{_cte_alias(_dummy_spec_for_emit(node.name))}.val"
+        if leaf_ref == "cte":
+            return f"{_cte_alias(_dummy_spec_for_emit(node.name))}.val"
+        return f"{leaf_ref}.{node.name}_val"
     raise AssertionError(f"unhandled node {type(node)}")
 
 
@@ -477,43 +536,90 @@ def _emit_func_sql(func: Func, next_param, leaf_emit) -> str:
             f"(({arg_sql}) - AVG({arg_sql}) OVER ()) "
             f"/ NULLIF(STDDEV_SAMP({arg_sql}) OVER (), 0)"
         )
+    if name == "winsorize":
+        # Sigma-clip: clamp each value to mean ± k·stdev across the cross-section.
+        # (Percentile winsorization can't be a Postgres window function; this is
+        # the windowable, zscore-compatible robustness primitive — tame outliers
+        # before ranking/zscoring.) k is a validated positive number literal.
+        k = float(func.args[1].value)
+        mean = f"AVG({arg_sql}) OVER ()"
+        sd = f"STDDEV_SAMP({arg_sql}) OVER ()"
+        return (
+            f"GREATEST(LEAST({arg_sql}, {mean} + {k} * {sd}), {mean} - {k} * {sd})"
+        )
+    if name == "neutralize":
+        # Industry-neutral factor: subtract the industry mean (demean within
+        # mc.companies.industry_slug, which is fully populated; `sector` is not).
+        # c.industry_slug is in scope inside the `ranked` CTE's SELECT.
+        return f"(({arg_sql}) - AVG({arg_sql}) OVER (PARTITION BY c.industry_slug))"
     raise AssertionError(f"unknown cross-sectional func {name!r}")
 
 
 def _emit_xs_columns(node: Expr, next_param):
-    """Pre-pass: collect Func nodes in source order, emitting each as a window
-    column for the ``ranked`` CTE. Returns ``(columns, alias_map)`` —
-    ``columns`` = ``[(alias, sql), ...]``, ``alias_map`` = id(func) → alias.
-    Func-arg numbers are bound here FIRST, so they get lower $N than the
-    predicate's (which matters because the ranked CTE precedes the universe CTE
-    and params are positional)."""
-    columns: list[tuple[str, str]] = []
+    """Pre-pass over the expanded AST. Returns ``(transform_columns,
+    ranking_columns, alias_map)``:
+
+      * ``transform_columns`` = ``[(_xt_N, sql), ...]`` for the inner ``ranked_t``
+        CTE — winsorize/neutralize, computed over the JOINed leaf CTEs.
+      * ``ranking_columns`` = ``[(_xs_N, sql), ...]`` for the ``ranked`` CTE —
+        rank/decile/…; their value arg is either a leaf (→ ``ranked_t.x_val`` when
+        transforms exist, else ``f_x.val``) or a transform (→ ``ranked_t._xt_M``).
+      * ``alias_map`` = id(Func) → its column alias (both _xt and _xs).
+
+    Func-arg numbers are bound here (before the predicate's), consistent with the
+    CTE-before-universe textual order."""
+    transforms: list[tuple[str, Func]] = []   # (alias, node) in source order
+    rankings: list[tuple[str, Func]] = []
     alias_map: dict[int, str] = {}
-    counter = [0]
+    t_count = [0]
+    r_count = [0]
 
-    def leaf_emit(n: Expr) -> str:
-        # Func args hold only leaves/arith/numbers (nested cross-sectional funcs
-        # are rejected by the validator), so func_alias is never consulted here.
-        return _emit(n, next_param, alias_map, leaf_ref="cte")
-
-    def walk(n: Expr) -> None:
+    def collect(n: Expr) -> None:
         if isinstance(n, BoolOp):
             for o in n.operands:
-                walk(o)
+                collect(o)
         elif isinstance(n, Not):
-            walk(n.operand)
+            collect(n.operand)
         elif isinstance(n, (Compare, BinOp)):
-            walk(n.left); walk(n.right)
+            collect(n.left); collect(n.right)
         elif isinstance(n, Neg):
-            walk(n.operand)
+            collect(n.operand)
         elif isinstance(n, Func):
-            alias = f"_xs_{counter[0]}"
-            counter[0] += 1
-            columns.append((alias, _emit_func_sql(n, next_param, leaf_emit)))
-            alias_map[id(n)] = alias
+            if n.name in _XS_TRANSFORMS:
+                alias = f"_xt_{t_count[0]}"; t_count[0] += 1
+                alias_map[id(n)] = alias
+                transforms.append((alias, n))
+            else:  # ranking
+                alias = f"_xs_{r_count[0]}"; r_count[0] += 1
+                alias_map[id(n)] = alias
+                rankings.append((alias, n))
+                collect(n.args[0])  # collect a wrapped transform, if any
 
-    walk(node)
-    return columns, alias_map
+    collect(node)
+    has_transforms = bool(transforms)
+
+    # Transforms read the JOINed leaf CTEs (f_x.val); industry_slug is in scope.
+    def t_leaf_emit(x: Expr) -> str:
+        return _emit(x, next_param, alias_map, leaf_ref="cte")
+
+    transform_columns = [
+        (alias, _emit_func_sql(f, next_param, t_leaf_emit)) for alias, f in transforms
+    ]
+
+    # Rankings read ranked_t when transforms exist (leaf -> ranked_t.x_val,
+    # wrapped transform -> ranked_t._xt_M); otherwise the leaf CTEs directly.
+    ranking_leaf_ref = "ranked_t" if has_transforms else "cte"
+
+    def r_leaf_emit(x: Expr) -> str:
+        if isinstance(x, Func):  # a wrapped transform — its column in ranked_t
+            return f"ranked_t.{alias_map[id(x)]}"
+        return _emit(x, next_param, alias_map, leaf_ref=ranking_leaf_ref)
+
+    ranking_columns = [
+        (alias, _emit_func_sql(f, next_param, r_leaf_emit)) for alias, f in rankings
+    ]
+
+    return transform_columns, ranking_columns, alias_map
 
 
 def _dummy_spec_for_emit(name: str):

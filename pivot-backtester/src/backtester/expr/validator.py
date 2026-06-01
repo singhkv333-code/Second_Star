@@ -18,7 +18,14 @@ from .ast import BinOp, BoolOp, Compare, Expr, Func, Ident, Neg, Not, Number
 _XS_FUNC_ARITY = {
     "rank": (1, 1), "decile": (1, 1), "percentrank": (1, 1),
     "zscore": (1, 1), "quantile": (2, 2),
+    "winsorize": (2, 2), "neutralize": (1, 1),
 }
+
+# Rankings order/score the cross-section; transforms produce a per-row value.
+# The only legal nesting is a transform directly inside a ranking
+# (e.g. decile(neutralize(roe))) — see the Func branch in validate().
+_XS_RANKINGS = frozenset({"rank", "decile", "quantile", "zscore", "percentrank"})
+_XS_TRANSFORMS = frozenset({"winsorize", "neutralize"})
 
 
 def _contains_func(node: Expr) -> bool:
@@ -107,12 +114,32 @@ def validate(ast: Expr, registry: Registry) -> ValidationResult:
                     raise ValidationError(
                         "quantile(x, n): n must be an integer literal between 2 and 100."
                     )
-            if _contains_func(node.args[0]):
-                raise ValidationError(
-                    f"{node.name}() can't be nested inside another "
-                    "cross-sectional function."
+            if node.name == "winsorize":
+                k_arg = node.args[1]
+                if not isinstance(k_arg, Number) or k_arg.value <= 0:
+                    raise ValidationError(
+                        "winsorize(x, k): k must be a positive number literal "
+                        "(values are clamped to mean ± k standard deviations)."
+                    )
+            arg0 = node.args[0]
+            if _contains_func(arg0):
+                # The one legal nesting: a transform directly inside a ranking,
+                # e.g. decile(neutralize(roe)) or zscore(winsorize(roe, 3)). The
+                # transform's own value arg must be plain (no further nesting).
+                inner_ok = (
+                    node.name in _XS_RANKINGS
+                    and isinstance(arg0, Func)
+                    and arg0.name in _XS_TRANSFORMS
+                    and not _contains_func(arg0.args[0])
                 )
-            visit(node.args[0])  # validate the value expression (idents resolve)
+                if not inner_ok:
+                    raise ValidationError(
+                        f"{node.name}() can't be nested like that. The only allowed "
+                        "nesting is a transform (winsorize/neutralize) inside a ranking "
+                        "(rank/decile/quantile/zscore/percentrank), e.g. "
+                        "decile(neutralize(roe))."
+                    )
+            visit(arg0)  # validate the value/transform expression (idents resolve)
             return None  # a rank/score is a fresh numeric — no field unit
         if isinstance(node, Number):
             return None
