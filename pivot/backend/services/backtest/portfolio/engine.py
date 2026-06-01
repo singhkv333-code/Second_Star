@@ -14,6 +14,7 @@ from typing import Optional
 import numpy as np
 
 from backend.market.yfinance_service import canonical_symbol, fetch_multi_symbol
+from backend.services.sector_universe import symbol_sector_map
 from backend.services.trading_costs import round_trip_bps
 from backend.services.forward_stats import forward_stats_block
 from backend.services.backtest.validation.monte_carlo import monte_carlo_robustness
@@ -42,6 +43,25 @@ def momentum_scores(prices: np.ndarray, t: int, lookback: int, skip: int) -> np.
     return score
 
 
+def _pick(order, k: int, sectors, max_per_sector: Optional[int], exclude: set) -> list:
+    """Greedily take up to ``k`` indices from ``order`` (already score-sorted),
+    skipping anything in ``exclude`` and respecting the per-sector name cap."""
+    chosen: list = []
+    sec_count: dict = {}
+    for i in order:
+        if len(chosen) >= k:
+            break
+        if i in exclude:
+            continue
+        if sectors is not None and max_per_sector:
+            s = sectors[i]
+            if s is not None and sec_count.get(s, 0) >= max_per_sector:
+                continue
+            sec_count[s] = sec_count.get(s, 0) + 1
+        chosen.append(i)
+    return chosen
+
+
 def target_weights(
     scores: np.ndarray,
     *,
@@ -49,31 +69,34 @@ def target_weights(
     gross: float = 1.0,
     long_short: bool = False,
     bottom_n: Optional[int] = None,
+    sectors: Optional[list] = None,
+    max_names_per_sector: Optional[int] = None,
 ) -> np.ndarray:
     """Constrained target weights from cross-sectional scores.
 
-    Enforces **max names** (``top_n`` long, ``bottom_n`` short) and the **gross
-    exposure** budget by construction. Long-only → fully-invested equal weight;
-    long/short → dollar-neutral (each leg gets gross/2, net ≈ 0). Symbols with a
-    NaN score are ineligible."""
+    Enforces **max names** (``top_n`` long, ``bottom_n`` short), the **gross
+    exposure** budget, and (when ``sectors`` + ``max_names_per_sector`` are given)
+    a **per-sector name cap** — all by construction. Long-only → fully-invested
+    equal weight; long/short → dollar-neutral (each leg gets gross/2, net ≈ 0).
+    Symbols with a NaN score are ineligible."""
     n = scores.size
     w = np.zeros(n)
     valid = np.where(np.isfinite(scores))[0]
     if valid.size == 0:
         return w
-    order = valid[np.argsort(scores[valid])[::-1]]   # high score first
-    n_long = min(top_n, order.size)
-    if n_long == 0:
+    order = list(valid[np.argsort(scores[valid])[::-1]])   # high score first
+    long_idx = _pick(order, top_n, sectors, max_names_per_sector, set())
+    if not long_idx:
         return w
     if not long_short:
-        w[order[:n_long]] = gross / n_long
+        w[long_idx] = gross / len(long_idx)
         return w
     bn = bottom_n or top_n
-    n_short = min(bn, order.size - n_long)            # don't overlap the long leg
+    short_idx = _pick(order[::-1], bn, sectors, max_names_per_sector, set(long_idx))
     half = gross / 2.0
-    w[order[:n_long]] = half / n_long
-    if n_short > 0:
-        w[order[-n_short:]] = -half / n_short
+    w[long_idx] = half / len(long_idx)
+    if short_idx:
+        w[short_idx] = -half / len(short_idx)
     return w
 
 
@@ -148,11 +171,14 @@ def run_portfolio_backtest(
     rebalance: str = "M",
     long_short: bool = False,
     gross: float = 1.0,
+    sector_cap: Optional[float] = None,
     starting_capital: float = 1_000_000.0,
     num_trials: int = 1,
 ) -> dict:
     """Backtest a cross-sectional portfolio over ``symbols`` (yfinance daily closes,
-    aligned). Today the only ``signal`` is ``"momentum"``. Raises :class:`PortfolioError`."""
+    aligned). Today the only ``signal`` is ``"momentum"``. ``sector_cap`` (e.g. 0.4)
+    limits each sector to that fraction of a leg's names (network-free curated map;
+    symbols outside it are uncapped). Raises :class:`PortfolioError`."""
     if signal != "momentum":
         raise PortfolioError(f"unsupported signal {signal!r} (only 'momentum' for now).")
     canon = list(dict.fromkeys(canonical_symbol(s) for s in symbols))
@@ -181,13 +207,21 @@ def run_portfolio_backtest(
     R = np.zeros_like(P)
     R[1:] = P[1:] / P[:-1] - 1.0
 
+    sectors = None
+    max_per_sector = None
+    if sector_cap is not None:
+        smap = symbol_sector_map()
+        sectors = [smap.get(c) for c in names]          # None where unknown → uncapped
+        max_per_sector = max(1, int(sector_cap * top_n))
+
     first = lookback + 1
     rb_days = _rebalance_days(T, first, rebalance)
     targets: dict[int, np.ndarray] = {}
     for d in rb_days:
         sc = momentum_scores(P, d, lookback, skip)
         targets[d] = target_weights(
-            sc, top_n=top_n, gross=gross, long_short=long_short, bottom_n=top_n
+            sc, top_n=top_n, gross=gross, long_short=long_short, bottom_n=top_n,
+            sectors=sectors, max_names_per_sector=max_per_sector,
         )
 
     cost_rate = round_trip_bps() / 1e4
@@ -218,6 +252,7 @@ def run_portfolio_backtest(
         "params": {
             "signal": signal, "lookback": lookback, "skip": skip, "top_n": top_n,
             "rebalance": rebalance, "long_short": long_short, "gross": gross,
+            "sector_cap": sector_cap,
         },
         "metrics": {
             "total_return_pct": round(total_return_pct, 3),

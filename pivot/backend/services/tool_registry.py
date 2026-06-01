@@ -87,6 +87,9 @@ _REAL_TOOLS: set[str] = {
     "backtest_pairs",
     "scan_pairs",
     "test_cointegration",
+    # Multi-position portfolio backtester (Phase 2.4): constrained
+    # cross-sectional momentum portfolio (max names / gross / sector caps, L/S).
+    "backtest_portfolio",
     # Scheduler
     "get_scheduler_status", "list_upcoming_jobs",
     # New v2 tools
@@ -530,6 +533,7 @@ def _ensure_v2_tools_registered() -> None:
     from backend.services._pairs_chat_tools import (
         backtest_pairs, scan_pairs, test_cointegration,
     )
+    from backend.services._portfolio_chat_tools import backtest_portfolio
     from backend.services._orchestrator_chat_tools import (
         compose_multistep, compare_backtests, extract_winner_symbol,
     )
@@ -559,6 +563,8 @@ def _ensure_v2_tools_registered() -> None:
         "backtest_pairs": backtest_pairs,
         "scan_pairs": scan_pairs,
         "test_cointegration": test_cointegration,
+        # Portfolio backtester (Phase 2.4)
+        "backtest_portfolio": backtest_portfolio,
         # L14 orchestrator + helpers.
         "compose_multistep": compose_multistep,
         "compare_backtests": compare_backtests,

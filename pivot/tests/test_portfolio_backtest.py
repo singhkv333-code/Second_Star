@@ -43,6 +43,17 @@ def test_target_weights_excludes_nan_scores():
     assert (w != 0).sum() == 2                    # only 2 eligible
 
 
+def test_target_weights_respects_sector_cap():
+    # 6 names, top_n=4; without a cap the 4 highest are all 'tech'. Cap = 2/sector.
+    sc = np.array([6.0, 5, 4, 3, 2, 1])
+    sectors = ["tech", "tech", "tech", "tech", "bank", "bank"]
+    w = target_weights(sc, top_n=4, gross=1.0, sectors=sectors, max_names_per_sector=2)
+    held = [i for i in range(6) if w[i] != 0]
+    tech_held = sum(1 for i in held if sectors[i] == "tech")
+    assert tech_held <= 2                          # sector cap enforced
+    assert len(held) == 4 and abs(abs(w).sum() - 1.0) < 1e-9
+
+
 # ── simulation ───────────────────────────────────────────────────────
 
 def test_simulate_compounds_and_lags_one_bar():

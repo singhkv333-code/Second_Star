@@ -383,3 +383,10 @@ def known_sectors() -> list[str]:
     """All canonical sector names present in the universe — useful
     for surfacing 'I don't know that sector' errors."""
     return sorted({r.sector for r in _UNIVERSE})
+
+
+def symbol_sector_map() -> dict[str, str]:
+    """``{NSE symbol: canonical sector}`` from the curated universe — a
+    network-free sector lookup (used by the portfolio engine's sector caps).
+    Symbols not present here resolve to ``None`` at the call site."""
+    return {r.symbol: r.sector for r in _UNIVERSE}

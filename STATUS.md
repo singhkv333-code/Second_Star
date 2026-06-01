@@ -82,8 +82,26 @@ Running log (updated after each build+test run, newest last).
   (dollar-neutral confirmed), verdict **no_edge** (momentum L/S added nothing this window) —
   honest, no manufactured edge. 10 deterministic tests (constraints, compounding, turnover
   cost, **two no-look-ahead proofs** — signal + simulation).
-- **Remaining 2.4 (next runs):** sector caps (needs a sector map — `industry_slug` for mc
-  names, or yfinance `info`); REST + chat exposure; then 2.5 reference-strategy acceptance tests.
+### Phase 2.4 — sector caps + REST + chat (run #2 — this commit)
+- **Sector caps**: `target_weights` gained a per-sector NAME cap (greedy selection skips a name
+  once its sector is full); `run_portfolio_backtest` takes `sector_cap` (fraction → max names/
+  sector) using a **network-free curated `symbol→sector` map** (`sector_universe.symbol_sector_map`,
+  80 NSE names). Live-confirmed it binds: a 1-name/sector cap on a steel-heavy basket moved the
+  result 31.9% → 60.5% (forced diversification); at a looser cap that doesn't bind, the result is
+  unchanged (correct). 11 deterministic tests now (added the sector-cap case).
+- **REST** `POST /api/backtest/portfolio/run` (registered in main.py). **Chat tool**
+  `backtest_portfolio` (`_portfolio_chat_tools.py`) — compact verdict-led summary; wired into the
+  registry + `tools.py` + `system.md`.
+- **Routing eval (honest):** clear phrasings route correctly — "top N momentum stocks out of
+  [list]" and "long/short momentum on [list]" → `backtest_portfolio` (verdicts relayed honestly,
+  e.g. L/S → no_edge). One borderline phrasing ("momentum portfolio of [list], hold top 5,
+  rebalanced monthly") was mis-routed to `backtest_workflow` first; after sharpening
+  system.md/tool-desc (explicit "multi-stock list → backtest_portfolio, NOT the single-symbol
+  engines") it now declines-to-guess (`ASK_USER`) rather than mis-route. Not iterating the eval
+  further (per discipline); the tool is fully functional via REST + 11 unit tests, and the
+  wrong-tool failure is fixed.
+- **2.4 complete** (max names + gross/net + sector caps + L/S, multi-symbol, REST + chat).
+  **Next: 2.5** reference-strategy acceptance tests (one per class through the rigor ladder).
 
 ---
 

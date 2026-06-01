@@ -34,6 +34,7 @@ from backend.routers.kite import router as kite_router, callback_alias_router as
 from backend.routers.compare import router as compare_router
 from backend.routers.expr_backtest import router as expr_backtest_router
 from backend.routers.pairs_backtest import router as pairs_backtest_router
+from backend.routers.portfolio_backtest import router as portfolio_backtest_router
 from backend.routers.workflows import router as workflows_router
 from backend.routers.runs import router as runs_router
 from backend.routers.approvals import router as approvals_router
@@ -90,6 +91,7 @@ app.include_router(kite_callback_alias_router)
 app.include_router(compare_router)
 app.include_router(expr_backtest_router)
 app.include_router(pairs_backtest_router)
+app.include_router(portfolio_backtest_router)
 app.include_router(backtest_alias_router)
 # scheduled_router MUST mount before workflows_router — otherwise the
 # more-specific path /api/workflows/scheduled-runs gets caught by the

@@ -1287,6 +1287,35 @@ tool("scan_pairs",
      },
      ["symbols"])
 
+tool("backtest_portfolio",
+     "BACKTESTS a multi-stock MOMENTUM PORTFOLIO over a universe: ranks the names "
+     "by trailing momentum, holds the top N (rebalancing on a schedule), and "
+     "reports return + the Trust verdict / rigor battery. THE tool whenever the "
+     "user gives a LIST/basket of stocks to rank, rotate, or hold-the-top-N of — "
+     "NOT backtest_workflow/backtest_dsl_tree (those are single-symbol; never "
+     "collapse the basket to one ticker). Use for: 'backtest a momentum portfolio "
+     "of [stocks]', 'hold the top 5 momentum names rebalanced monthly', "
+     "'long/short momentum on these', 'rotate into the strongest of this basket'. "
+     "'Rebalanced monthly' is the portfolio rebalance, not a SIP. Supports "
+     "dollar-neutral long/short (`long_short`), a per-"
+     "sector cap (`sector_cap`, e.g. 0.4), and max-names (`top_n`). Relay the "
+     "verdict honestly — a high return with a weak PSR/DSR is not an edge.",
+     {
+         "symbols": {"type": "array", "items": {"type": "string"},
+                     "description": "The universe to rank (3+), e.g. "
+                     "['RELIANCE','TCS','INFY','HDFCBANK','SBIN','ITC','LT','MARUTI']."},
+         "top_n": {"type": "integer", "description": "How many names to hold (default 5)."},
+         "rebalance": {"type": "string", "enum": ["W", "M", "Q"],
+                       "description": "Rebalance frequency (default M = monthly)."},
+         "long_short": {"type": "boolean", "description":
+                        "Dollar-neutral long top / short bottom (default false = long-only)."},
+         "sector_cap": {"type": "number", "description":
+                        "Optional max fraction of a leg per sector, e.g. 0.4."},
+         "period": {"type": "string", "description":
+                    "Lookback window, e.g. '5y'. Default '5y' (momentum needs history)."},
+     },
+     ["symbols"])
+
 tool("test_cointegration",
      "Tests whether a BASKET of 3+ stocks is cointegrated using the Johansen "
      "trace test, and returns the cointegration RANK plus the cointegrating "
