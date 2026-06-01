@@ -7,6 +7,7 @@ Public surface grows as rungs land:
     sub-periods (one lucky window vs. spread). *(P1.7)*
   * ``record_and_deflate`` / ``strategy_fingerprint`` — per-session trial counter
     that deflates DSR for how many variants were backtested. *(P1.3)*
+  * ``trust_verdict`` — synthesises the battery into one actionable call. *(P1.8)*
   * walk-forward, CPCV→PBO — *(P1.4 / P1.5, pending)*
 """
 from backend.services.backtest.validation.monte_carlo import (
@@ -20,6 +21,9 @@ from backend.services.backtest.validation.trials import (
     reset_group,
     strategy_fingerprint,
 )
+from backend.services.backtest.validation.verdict import (
+    trust_verdict,
+)
 
 __all__ = [
     "monte_carlo_robustness",
@@ -27,4 +31,5 @@ __all__ = [
     "record_and_deflate",
     "reset_group",
     "strategy_fingerprint",
+    "trust_verdict",
 ]

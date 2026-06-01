@@ -10,7 +10,7 @@
 Research + source-grounded audit + written plan, then the first two build items.
 Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
 
-### Build shipped — P0.1 look-ahead + P1.2 rigor battery + P1.6 Monte-Carlo + P1.3 trial counter + P1.7 sub-periods
+### Build shipped — P0.1 look-ahead + P1.2 rigor + P1.6 Monte-Carlo + P1.3 trials + P1.7 sub-periods + P1.8 verdict
 
 - **P0.1 — fixed the verified look-ahead bug in the primary engine.**
   `services/workflow_backtester.py`: signal-driven orders (indicator / price /
@@ -56,11 +56,18 @@ Full plan: [`docs/BACKTESTING_PLAN.md`](docs/BACKTESTING_PLAN.md).
   near 1 = almost all the return from one window (fragile/regime-bet) — a time-concentration tell PSR/MC
   can't see. On every backtest; the chat summary shows "⚠ Fragile: NN% of the return came from a single
   sub-period" only when concentration > 0.6. Live RELIANCE: 2/4 spans positive, concentration 0.49 (fine).
+- **P1.8 (Trust verdict — the capstone):** `services/backtest/validation/verdict.py` synthesises the whole
+  battery into ONE ordered call + plain-English rationale + risk flags. Primary axis (statistical confidence):
+  `insufficient_data` → `no_edge` (PSR < 0.6 or a loss) → `unproven` (edge possible, not established —
+  needs more track record / deflated by trials) → `promising` (PSR ≥ 0.95 ∧ DSR ≥ 0.95 ∧ track ≥ MinTRL).
+  Independent risk flags: `selection_bias` / `return_concentrated` / `drawdown_risk` / `loss_likely`. On
+  every backtest (all 3 engines + new `TrustVerdict` schema model); the **chat summary now LEADS with the
+  verdict**. Live RELIANCE RSI dip → **"Verdict — No demonstrable edge: PSR is only 50%…", flag `loss_likely`.**
 - **Tests:** `test_workflow_backtester_lookahead.py` (4, first direct Engine-2 coverage)
   + `test_backtest_montecarlo.py` (6) + `test_backtest_trials.py` (7, incl. end-to-end deflation)
-  + `test_backtest_subperiods.py` (5). **534 passed**; only failures are pre-existing date-drift
-  (`test_events_calendar`, now-past 2026-02 RBI date) + `test_step_types_catalog` catalog drift —
-  both untouched by this work. New validation files are ruff-clean.
+  + `test_backtest_subperiods.py` (5) + `test_backtest_verdict.py` (8). **542 passed**; only failures are
+  pre-existing date-drift (`test_events_calendar`, now-past 2026-02 RBI date) + `test_step_types_catalog`
+  catalog drift — both untouched by this work. New validation files are ruff-clean.
 - **Next:** P1.4 walk-forward / sub-period robustness + the no-skill permutation test (needs the
   engine-rerun adapter), then P1.5 CPCV→PBO (needs a param grid, P2), then P1.9 the FE backtest
   card. Committed locally, **not pushed**.

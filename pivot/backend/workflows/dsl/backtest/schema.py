@@ -283,6 +283,19 @@ class SubPeriods(_Strict):
     concentration: Optional[float] = None
 
 
+class TrustVerdict(_Strict):
+    """One actionable call synthesised from the rigor battery
+    (``services.backtest.validation.trust_verdict``). ``verdict`` ∈
+    {insufficient_data, no_edge, unproven, promising}; ``confidence`` 0–100 = the
+    statistical P(edge is real); ``flags`` = independent risk concerns
+    (return_concentrated / drawdown_risk / loss_likely / selection_bias)."""
+    verdict: str = "insufficient_data"
+    label: str = ""
+    confidence: int = 0
+    rationale: str = ""
+    flags: list[str] = Field(default_factory=list)
+
+
 class BacktestMetrics(_Strict):
     """Headline performance numbers. Delegates to
     backend.backtester.metrics.calculate_metrics where the field
@@ -310,6 +323,8 @@ class BacktestMetrics(_Strict):
     monte_carlo: Optional[MonteCarlo] = None
     # Time-concentration of the edge across contiguous sub-periods.
     sub_periods: Optional[SubPeriods] = None
+    # One actionable call synthesised from the whole rigor battery.
+    trust_verdict: Optional[TrustVerdict] = None
 
 
 class BacktestDiagnostics(_Strict):

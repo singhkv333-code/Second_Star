@@ -258,6 +258,7 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
     from backend.services.backtest.validation import (
         monte_carlo_robustness,
         sub_period_robustness,
+        trust_verdict,
     )
     from backend.services.backtest_metrics import daily_returns_from_equity
     from backend.services.forward_stats import forward_stats_block
@@ -267,6 +268,13 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
         daily_returns_from_equity(_expr_vals)
     )
     metrics["sub_periods"] = sub_period_robustness(_expr_vals)
+    metrics["trust_verdict"] = trust_verdict(
+        forward_stats=metrics["forward_stats"],
+        monte_carlo=metrics["monte_carlo"],
+        sub_periods=metrics["sub_periods"],
+        total_return_pct=metrics.get("total_return_pct"),
+        n_trades=len(result.trades),
+    )
     return {
         "expression": req.expression,
         "start": req.start, "end": req.end, "rebalance": req.rebalance.upper(),

@@ -2226,6 +2226,16 @@ def backtest_workflow(
     n_sells = sum(1 for t in trades if t["side"] == "sell")
     hit_rate_pct = round((n_wins / n_sells * 100) if n_sells else 0.0, 1)
 
+    # Synthesise the whole rigor battery into one honest verdict + rationale.
+    from backend.services.backtest.validation import trust_verdict
+    verdict = trust_verdict(
+        forward_stats=forward_stats,
+        monte_carlo=monte_carlo,
+        sub_periods=sub_periods,
+        total_return_pct=total_return_pct,
+        n_trades=n_trades,
+    )
+
     # The IndicatorBacktestCard expects these extra metric fields —
     # leaving them out crashes the FE with `undefined.toFixed`. Always
     # include them, even when meaningless (e.g. SIP with no sells).
@@ -2244,6 +2254,7 @@ def backtest_workflow(
         "forward_stats": forward_stats,
         "monte_carlo": monte_carlo,
         "sub_periods": sub_periods,
+        "trust_verdict": verdict,
     }
 
     # Signals must carry the fields the FE chart card reads. The card
@@ -2305,6 +2316,7 @@ def backtest_workflow(
         if isinstance(_conc, (int, float)) and _conc > 0.6 else ""
     )
     summary = (
+        f"Verdict — {verdict['label']}: {verdict['rationale']} "
         f"Backtested {name!r} on {primary_symbol} over {period}. "
         f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
         f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt}{_psr_txt} "

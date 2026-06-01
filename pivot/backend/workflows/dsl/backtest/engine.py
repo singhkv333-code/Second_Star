@@ -598,6 +598,7 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     from backend.services.backtest.validation import (
         monte_carlo_robustness,
         sub_period_robustness,
+        trust_verdict,
     )
     from backend.services.forward_stats import forward_stats_block
     from backend.services.trading_costs import leg_bps
@@ -610,6 +611,14 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     _monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_equity_vals))
     # Time-concentration of the edge across contiguous sub-periods.
     _sub_periods = sub_period_robustness(_equity_vals)
+    # One actionable verdict synthesised from the whole battery.
+    _verdict = trust_verdict(
+        forward_stats=_forward_stats,
+        monte_carlo=_monte_carlo,
+        sub_periods=_sub_periods,
+        total_return_pct=total_ret * 100.0,
+        n_trades=total_trades,
+    )
 
     # Buy-and-hold benchmark on the primary symbol, net of one round-trip.
     _bench = None
@@ -642,6 +651,7 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
         forward_stats=_forward_stats,
         monte_carlo=_monte_carlo,
         sub_periods=_sub_periods,
+        trust_verdict=_verdict,
     )
 
 
