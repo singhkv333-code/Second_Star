@@ -229,9 +229,18 @@ export function KiteCredentialsPanel({
             Zerodha Kite credentials
           </DialogTitle>
           <DialogDescription>
-            Enter your Kite Connect API key + secret, then click{" "}
-            <strong>Connect to Zerodha</strong> to authorise this app for
-            order placement.
+            {liveMode ? (
+              <>
+                Kite API credentials are configured on the server for live
+                market-data serving. Just click{" "}
+                <strong>Connect to Zerodha</strong> to authorise this session.
+              </>
+            ) : (
+              <>
+                Enter your Kite Connect API key + secret, then click{" "}
+                <strong>Connect to Zerodha</strong> to authorise this app.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -290,6 +299,7 @@ export function KiteCredentialsPanel({
           )}
         </div>
 
+        {!liveMode && (
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="kite-api-key">API key</Label>
@@ -355,6 +365,15 @@ export function KiteCredentialsPanel({
             </div>
           )}
         </div>
+        )}
+
+        {liveMode && !isConnected && (
+          <p className="text-[11px] text-muted-foreground">
+            Credentials are configured on the server (.env) for market-data
+            serving — no API key entry needed. Click{" "}
+            <strong>Connect to Zerodha</strong> below to authorise this session.
+          </p>
+        )}
 
         {hasCreds && (
           <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
@@ -488,7 +507,7 @@ export function KiteCredentialsPanel({
         )}
 
         <DialogFooter className="gap-2 sm:gap-2">
-          {creds?.has_api_key && (
+          {!liveMode && creds?.has_api_key && (
             <Button
               type="button"
               variant="ghost"
@@ -507,21 +526,23 @@ export function KiteCredentialsPanel({
           >
             Close
           </Button>
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || !apiKey.trim() || !apiSecret.trim()}
-            data-testid="kite-cred-save"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              "Save credentials"
-            )}
-          </Button>
+          {!liveMode && (
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !apiKey.trim() || !apiSecret.trim()}
+              data-testid="kite-cred-save"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Save credentials"
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

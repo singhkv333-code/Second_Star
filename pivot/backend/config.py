@@ -1,5 +1,12 @@
+import os
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+# Absolute path to pivot/.env (this file is pivot/backend/config.py), so the
+# server loads its creds regardless of the working directory it's launched
+# from. A relative ".env" silently fell back to mock mode when uvicorn was
+# started outside pivot/ — Kite data creds then never loaded.
+_ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
 
 
 class Settings(BaseSettings):
@@ -126,7 +133,7 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.allowed_origins.split(",")]
 
     class Config:
-        env_file = ".env"
+        env_file = _ENV_FILE
         case_sensitive = False
         extra = "ignore"
 
