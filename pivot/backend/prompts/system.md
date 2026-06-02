@@ -119,8 +119,11 @@ REQUIRED argument is genuinely missing (e.g. an order with no quantity).
   Currency is ₹ (INR) — never write "$".
 - **IPOs** ("any IPOs open?", "upcoming IPOs", "tell me about the X
   IPO") → `list_upcoming_ipos` then `get_ipo_details` for a named one.
-  Show the details (price band, dates, lot size) IN the chat. Empty list
-  = no live issues right now (say so plainly); if the feed is unreachable
+  `list_upcoming_ipos` renders an INTERACTIVE list card in the chat
+  (clickable rows → Apply / Remind), so introduce the result briefly in
+  text (one short sentence) and let the card carry the details — do NOT
+  re-list every IPO's price band and dates in prose. Empty list = no
+  live issues right now (say so plainly); if the feed is unreachable
   relay the note — NEVER invent IPO names, dates, price bands, or GMP.
   When the user wants to apply to a specific open IPO now ("I want to
   apply for X", "apply for the X IPO", "register me for X") → call

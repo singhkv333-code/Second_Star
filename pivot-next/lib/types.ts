@@ -446,3 +446,32 @@ export type IpoCalendarResponse = {
   count: number;
   items: IpoCalendarItem[];
 };
+
+// ---------------------------------------------------------------------------
+// IPO List Card — chat render hint "ipo_list_card"
+// ---------------------------------------------------------------------------
+
+/** One IPO row from the list_upcoming_ipos tool result. */
+export type IpoListItem = {
+  name: string;
+  symbol: string;
+  price_band: string | null;
+  open_date: string | null;
+  close_date: string | null;
+  lot_size: number | string | null;
+  issue_size: string | null;
+  type: "mainboard" | "sme";
+  status: "upcoming" | "open" | "closed";
+};
+
+/**
+ * Full payload the chat tool returns in `raw_data` when
+ * `_render_hint === "ipo_list_card"`.
+ */
+export type IpoListPayload = {
+  _render_hint: "ipo_list_card";
+  count: number;
+  ipos: IpoListItem[];
+  source: "nse" | "unreachable";
+  note: string | null;
+};

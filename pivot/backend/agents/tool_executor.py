@@ -1378,8 +1378,14 @@ async def _get_symbol_news(a, kt, db, uid):
 async def _list_upcoming_ipos(a, kt, db, uid):
     from backend.services.ipo_feed import list_upcoming_ipos
     data = list_upcoming_ipos()
+    # Attach the FE render hint on EVERY outcome (open list / empty-but-
+    # reachable / unreachable) so the chat surface renders the interactive
+    # IpoListCard with the right empty/unreachable state instead of falling
+    # back to plain text. Hint string is byte-identical to the FE
+    # discriminator in ChatDemo.resolveStreamingMessage.
     return {"success": data.get("source") != "unreachable",
-            "data": data, "logiccard": None}
+            "data": {**data, "_render_hint": "ipo_list_card"},
+            "logiccard": None}
 
 
 async def _get_ipo_details(a, kt, db, uid):
