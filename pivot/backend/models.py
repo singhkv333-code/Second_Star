@@ -1115,3 +1115,96 @@ class IPOApplication(Base):
         DateTime(timezone=True), server_default=func.now(),
         onupdate=func.now(), nullable=False,
     )
+
+
+# ── IPO paper-mode simulated allocations (P3) ─────────────────────────────
+#
+# P3 introduces a LABELLED ledger of simulated IPO allocations parallel to
+# IPOApplication. When a user is in paper mode and registers / arms an IPO
+# intent, a PaperIpoAllocation row is written alongside the IPOApplication
+# with a DETERMINISTIC lottery outcome (the simulator in
+# backend/paper/ipo_sim.py). The row is purely a tracking artefact — it does
+# NOT move paper-account cash/positions/NAV (that is P3.1). The "Simulated"
+# label is load-bearing: the FE renders this set distinctly so the user is
+# never confused about whether real money moved.
+#
+# paper_account_id is a HARD FK to paper_accounts.id (String(36)) — same
+# pattern as paper_orders.account_id, since both live in the paper domain.
+# ipo_application_id is a SOFT reference to ipo_applications.id (Integer):
+# no hard FK because that table is in the IPO domain and we mirror the
+# soft-ref pattern paper_orders adopted for cross-domain links.
+#
+# allotment_status is one of {'allotted', 'not_allotted', 'pending'}:
+#   - allotted     -> quantity_allotted == quantity_applied (all-or-nothing
+#                     simplification; documented in ipo_sim.py)
+#   - not_allotted -> quantity_allotted == 0
+#   - pending      -> result not yet drawn (reserved; the deterministic
+#                     simulator always resolves to allotted/not_allotted in
+#                     P3, but the state is forward-compatible with a future
+#                     defer-until-close path).
+#
+# listing_price / simulated_pnl are P3.1 placeholders — left NULL in P3
+# (no fabricated listing prices, never).
+class PaperIpoAllocation(Base):
+    """Labelled-simulation IPO allocation row written in paper mode.
+
+    See the §"IPO paper-mode simulated allocations" header above. This row
+    is NEVER part of the paper cash/NAV ledger in P3 — that integration is
+    deferred to P3.1. ``simulated=True`` is enforced at the column default
+    and asserted in the simulator so the row is unmistakeable end-to-end.
+    """
+    __tablename__ = "paper_ipo_allocations"
+    __table_args__ = (
+        CheckConstraint(
+            "allotment_status IN ('allotted', 'not_allotted', 'pending')",
+            name="ck_paper_ipo_allocations_status",
+        ),
+        Index(
+            "ix_paper_ipo_allocations_user_symbol",
+            "user_id", "ipo_symbol",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    paper_account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    # SOFT reference to ipo_applications.id (cross-domain, no hard FK).
+    ipo_application_id = Column(Integer, nullable=True)
+    ipo_symbol = Column(String(50), nullable=False, index=True)
+    ipo_name = Column(String(200), nullable=True)
+    ipo_type = Column(String(16), nullable=False)
+
+    lots_applied = Column(Integer, nullable=False)
+    quantity_applied = Column(Integer, nullable=False)
+    amount_applied = Column(Numeric(18, 4), nullable=False)
+    issue_price = Column(Numeric(18, 4), nullable=False)
+
+    quantity_allotted = Column(Integer, nullable=False, default=0)
+    allotment_status = Column(String(16), nullable=False, default="pending")
+    allotment_date = Column(Date, nullable=True)
+
+    # P3.1 placeholders — left NULL in P3 (never fabricate a listing
+    # price; the listing-day price-action sim lives in P3.1).
+    listing_date = Column(Date, nullable=True)
+    listing_price = Column(Numeric(18, 4), nullable=True)
+    simulated_pnl = Column(Numeric(18, 4), nullable=True)
+
+    # SOFT references (no FK) — mirrors IPOApplication / ForwardIdea.
+    conversation_id = Column(String(64), nullable=True)
+    workflow_id = Column(String(36), nullable=True)
+
+    source = Column(String(50), nullable=False)
+    simulated = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )

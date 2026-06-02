@@ -411,6 +411,9 @@ export type IpoRegisterResponse = {
   replace_offer?: { previous_id: number; note: string };
   stale?: boolean;
   note?: string;
+  /** P3: present (non-null) only when the user is in paper mode — the
+   *  simulated IPO allocation written alongside the intent. */
+  paper_simulation?: PaperIpoAllocation | null;
 };
 
 /** Response from `POST /ipo-applications/{id}/withdraw`. */
@@ -445,6 +448,28 @@ export type IpoCalendarItem = {
 export type IpoCalendarResponse = {
   count: number;
   items: IpoCalendarItem[];
+};
+
+// ---------------------------------------------------------------------------
+// Paper IPO Allocation (P3 — simulated allotment record)
+// ---------------------------------------------------------------------------
+
+export type PaperIpoAllocation = {
+  id: string;
+  ipo_symbol: string;
+  ipo_name: string | null;
+  ipo_type: "mainboard" | "sme";
+  lots_applied: number;
+  quantity_applied: number;
+  amount_applied: number;
+  issue_price: number;
+  quantity_allotted: number;
+  allotment_status: "allotted" | "not_allotted" | "pending";
+  allotment_date: string | null;
+  listing_date: string | null;
+  conversation_id: string | null;
+  simulated: boolean;
+  created_at: string;
 };
 
 // ---------------------------------------------------------------------------

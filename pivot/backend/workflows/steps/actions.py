@@ -1290,6 +1290,9 @@ async def execute_action_squareoff_symbol(
             "amount_estimate": {"type": ["number", "null"]},
             "applied": {"type": "boolean"},
             "stale": {"type": "boolean"},
+            # P3: present (string uuid) when the user was in paper mode and
+            # the labelled-simulation row was written; null otherwise.
+            "paper_allocation_id": {"type": ["string", "null"]},
         },
         "required": ["ipo_symbol", "status", "applied"],
     },
@@ -1404,6 +1407,10 @@ async def execute_action_arm_ipo_intent(
         amount_estimate if amount_estimate is not None else 0.0
     )
 
+    # P3: when the user is in paper mode, the IPOApplication row records
+    # paper_mode=True so the audit trail is clear (the parallel
+    # PaperIpoAllocation row written below carries the simulated outcome).
+    paper = should_use_paper(ctx.db, user_id)
     row = persist_ipo_application(
         ctx.db, user_id,
         ipo_symbol=symbol,
@@ -1421,10 +1428,32 @@ async def execute_action_arm_ipo_intent(
         source="workflow-arm",
         stale=stale,
         autonomous=True,
+        paper_mode=paper,
         status="intent_armed",
     )
     ctx.db.commit()
     ctx.db.refresh(row)
+
+    # P3: paper-mode parallel-ledger write. NEVER mutates cash/positions
+    # /NAV — see backend/paper/ipo_sim.py's module header for the
+    # invariants. Only writes when the user is in paper mode AND the
+    # IPOApplication row has a valid id (committed/refreshed above).
+    paper_allocation_id: Optional[str] = None
+    if paper:
+        from backend.paper.ipo_sim import simulate_paper_ipo_allocation
+
+        ipo_record_for_sim = (
+            feed.get("ipo") if (feed and feed.get("found")) else None
+        )
+        alloc = simulate_paper_ipo_allocation(
+            ctx.db, user_id,
+            app_row=row,
+            ipo_record=ipo_record_for_sim,
+            source="workflow-arm",
+        )
+        ctx.db.commit()
+        ctx.db.refresh(alloc)
+        paper_allocation_id = str(alloc.id)
 
     return {
         "ipo_symbol": symbol,
@@ -1434,6 +1463,7 @@ async def execute_action_arm_ipo_intent(
         "amount_estimate": amount_estimate,
         "applied": False,  # Pivot has NOT applied — load-bearing flag.
         "stale": stale,
+        "paper_allocation_id": paper_allocation_id,
     }
 
 

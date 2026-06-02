@@ -30,6 +30,7 @@ import type {
   IpoSubscriptionResponse,
   IpoWithdrawResponse,
   Paginated,
+  PaperIpoAllocation,
   Run,
   RunSummary,
   StepTypeCatalog,
@@ -1395,6 +1396,11 @@ export function getPaperIdeaDetail(
   id: string,
 ): Promise<ApiResult<PaperIdeaDetail>> {
   return requestLegacy<PaperIdeaDetail>(`/paper/ideas/${encodeURIComponent(id)}`);
+}
+
+/** `GET /paper/ipo-allocations` — simulated IPO allotment records (newest first). */
+export function getPaperIpoAllocations(): Promise<ApiResult<PaperIpoAllocation[]>> {
+  return requestLegacy<PaperIpoAllocation[]>("/paper/ipo-allocations");
 }
 
 // ---------------------------------------------------------------------------

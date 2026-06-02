@@ -26,6 +26,11 @@ from sqlalchemy.orm import Session
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
 from backend.models import IPOApplication
+from backend.paper.ipo_sim import (
+    serialize_paper_ipo_allocation,
+    simulate_paper_ipo_allocation,
+)
+from backend.paper.routing import should_use_paper
 from backend.services.ipo_application_service import (
     compute_amount_estimate,
     find_open_duplicate,
@@ -310,6 +315,10 @@ def register_ipo_application(
 
     # ── 5. Persist ─────────────────────────────────────────────────────
     upi_masked = mask_upi_id(request.upi_id_masked)
+    # P3: when the user is in paper mode, the IPOApplication row records
+    # paper_mode=True so the audit trail is clear (the parallel
+    # PaperIpoAllocation row carries the simulated outcome).
+    paper = should_use_paper(db, user_id)
     row = persist_ipo_application(
         db, user_id,
         ipo_symbol=symbol,
@@ -325,13 +334,30 @@ def register_ipo_application(
         conversation_id=request.conversation_id,
         source="chat-confirm",
         stale=stale,
+        paper_mode=paper,
     )
     db.commit()
     db.refresh(row)
 
+    # P3: paper-mode parallel-ledger write. NEVER mutates cash/positions
+    # /NAV — see backend/paper/ipo_sim.py's module header for the
+    # invariants and the all-or-nothing lottery simplification.
+    paper_simulation: Optional[dict] = None
+    if paper:
+        alloc = simulate_paper_ipo_allocation(
+            db, user_id,
+            app_row=row,
+            ipo_record=ipo,
+            source="chat-register",
+        )
+        db.commit()
+        db.refresh(alloc)
+        paper_simulation = serialize_paper_ipo_allocation(alloc)
+
     response: dict = {
         "application": _serialize(row),
         "duplicate": bool(duplicate),
+        "paper_simulation": paper_simulation,
     }
     if duplicate is not None:
         response["replace_offer"] = {

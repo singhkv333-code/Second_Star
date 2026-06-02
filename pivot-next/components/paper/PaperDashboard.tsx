@@ -18,6 +18,7 @@ import { HoldingsTable } from "@/components/paper/HoldingsTable";
 import { IdeaScorecards } from "@/components/paper/IdeaScorecards";
 import { KpiStatCards } from "@/components/paper/KpiStatCards";
 import { OpenOrdersBlotter } from "@/components/paper/OpenOrdersBlotter";
+import { SimulatedIpoAllocations } from "@/components/paper/SimulatedIpoAllocations";
 import { TradeJournal } from "@/components/paper/TradeJournal";
 
 const TABS: ReadonlyArray<{ value: string; label: string }> = [
@@ -25,6 +26,7 @@ const TABS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "ideas", label: "Ideas" },
   { value: "positions", label: "Positions" },
   { value: "orders", label: "Orders" },
+  { value: "ipos", label: "IPOs" },
   { value: "journal", label: "Journal" },
 ];
 
@@ -113,6 +115,11 @@ export function PaperDashboard(): React.ReactElement {
         {/* Orders */}
         <TabsContent value="orders" className="mt-0">
           <OpenOrdersBlotter />
+        </TabsContent>
+
+        {/* IPOs — simulated allotments */}
+        <TabsContent value="ipos" className="mt-0">
+          <SimulatedIpoAllocations />
         </TabsContent>
 
         {/* Journal */}

@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
+from backend.models import PaperIpoAllocation
+from backend.paper.ipo_sim import serialize_paper_ipo_allocation
 from backend.paper.portfolio import (
     account_summary,
     fills_journal,
@@ -126,3 +128,27 @@ def paper_idea(
     if detail is None:
         raise HTTPException(status_code=404, detail="Idea not found")
     return detail
+
+
+# ── P3: labelled IPO allocation ledger ────────────────────────────────────
+
+@router.get("/ipo-allocations")
+def paper_ipo_allocations(
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """The user's simulated IPO allocations (paper mode only).
+
+    Returns a list of allocations sorted most-recent first; empty list
+    when none exist. Each row is clearly labelled ``simulated: true``
+    so the FE renderer can never confuse this set with real cash moves.
+    No paginate / no filter in P3 — IPO intents are small in volume per
+    user (a handful per quarter) and the FE shows them all in one block.
+    """
+    rows = (
+        db.query(PaperIpoAllocation)
+        .filter(PaperIpoAllocation.user_id == int(user_id))
+        .order_by(PaperIpoAllocation.created_at.desc(), PaperIpoAllocation.id.desc())
+        .all()
+    )
+    return [serialize_paper_ipo_allocation(r) for r in rows]
