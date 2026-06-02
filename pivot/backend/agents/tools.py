@@ -21,7 +21,7 @@ TOOL_SUBSETS = {
     "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain", "fetch_fundamentals", "get_symbol_news", "list_upcoming_ipos"],
     "FUNDAMENTAL_SCREEN": ["screen_fundamentals"],
     "ANALYSIS":          ["fetch_fundamentals", "get_symbol_news"],
-    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details", "propose_ipo_application", "propose_ipo_automation"],
+    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details", "get_ipo_listing", "propose_ipo_application", "propose_ipo_automation"],
     "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow", "propose_polymarket_trigger"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
     "WORKFLOW_PROPOSE":  ["propose_workflow"],
@@ -724,6 +724,19 @@ tool("get_ipo_details",
      "about the X IPO', 'details on <symbol>', 'I want to apply for X'). If "
      "found is false, present the candidate matches to disambiguate. NEVER "
      "fabricate IPO details.",
+     {"name_or_symbol": {"type": "string",
+                         "description": "IPO company name or NSE symbol. Case-insensitive."}},
+     ["name_or_symbol"])
+
+tool("get_ipo_listing",
+     "Post-listing performance of an IPO — issue price vs current price, "
+     "listing gain %. Use for 'how did X list', 'X listing gain', 'X listing "
+     "price', 'did X list well', 'how did the X IPO list'. Reads the NSE "
+     "past-issues feed (the IPO has already listed and dropped off the "
+     "upcoming/current feeds) and pairs it with the live price. Returns the "
+     "ipo_listed_card payload (issue/current/gain%/listing date). NEVER "
+     "fabricates the current price, the listing gain, the issue price, or "
+     "the listing date — any unavailable field is null with an honest note.",
      {"name_or_symbol": {"type": "string",
                          "description": "IPO company name or NSE symbol. Case-insensitive."}},
      ["name_or_symbol"])

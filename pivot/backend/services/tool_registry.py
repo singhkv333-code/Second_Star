@@ -64,6 +64,11 @@ _REAL_TOOLS: set[str] = {
     # propose_workflow's output (workflow_draft_card) — the FE renders
     # the same card and the user activates via the existing CRUD path.
     "propose_ipo_automation",
+    # IPO P4: post-listing performance ("how did TIKONA list?" /
+    # "TIKONA listing gain"). Reads NSE past-issues + live price; the
+    # FE renders the ipo_listed_card. Honest-on-failure (null + note),
+    # NEVER fabricates the current price or gain.
+    "get_ipo_listing",
     # /core/ analytics bridge — indicators / risk / comparison
     "get_indicator", "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_correlation_matrix", "get_returns",

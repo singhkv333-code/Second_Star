@@ -74,11 +74,14 @@ _NSE_WARMUP = "https://www.nseindia.com/market-data/all-upcoming-issues-ipo"
 _NSE_UPCOMING = "https://www.nseindia.com/api/all-upcoming-issues"
 _NSE_CURRENT = "https://www.nseindia.com/api/ipo-current-issue"
 _NSE_ACTIVE_CATEGORY = "https://www.nseindia.com/api/ipo-active-category"
+_NSE_PAST_ISSUES = "https://www.nseindia.com/api/public-past-issues"
 
 _CACHE_PREFIX = "ipo_feed:"
 _CACHE_KEY = f"{_CACHE_PREFIX}list"
+_PAST_CACHE_KEY = f"{_CACHE_PREFIX}past_issues"
 _CACHE_TTL_S = 45 * 60          # 45 minutes
 _SUB_CACHE_TTL_S = 15 * 60      # 15 minutes — subscription moves faster
+_PAST_CACHE_TTL_S = 6 * 60 * 60  # 6 hours — past-issues is near-static
 _TIMEOUT_S = 12.0
 
 
@@ -962,6 +965,225 @@ def gmp_payload(symbol: str) -> dict[str, Any] | None:  # noqa: ARG001
     )
     # No vendor wired → still None in v1.
     return None
+
+
+# ── P4: past-issues (listed IPO tracking) ────────────────────────────────────
+#
+# After an IPO closes and lists, it drops off /api/all-upcoming-issues +
+# /api/ipo-current-issue, so ``get_ipo_details`` can no longer find it. The
+# /api/public-past-issues feed carries the listed history (with issuePrice +
+# listingDate) — that's the source we read here so the chat surface can
+# answer "how did TIKONA list?" / "TIKONA listing gain" honestly without
+# fabricating a number.
+#
+# Honest-on-failure: a listed-but-unreachable feed surfaces ``found: False``
+# with ``source: "unreachable"`` rather than an invented record. A reachable
+# feed that doesn't match the query surfaces ``found: False`` with the
+# candidate matches so the chat can disambiguate.
+
+
+def fetch_past_issues() -> list[dict[str, Any]] | None:
+    """Fetch the NSE past-issues (listed IPOs) feed.
+
+    Cookie-warmed GET of ``/api/public-past-issues`` — the SAME warm-up
+    pattern every other NSE call shares. Returns a list of raw records
+    (companyName, symbol, issuePrice, listingDate, ipoStartDate,
+    ipoEndDate, priceRange, securityType, ...).
+
+    Cache: 6-hour TTL under ``ipo_feed:past_issues`` (past-issues is
+    near-static — a new record lands at most once a week). The cache is
+    isolated from ``ipo_feed:list`` (the 45-min live-feed cache) and
+    ``ipo_feed:sub:*`` (the 15-min per-symbol subscription cache).
+
+    Honest-on-failure: unreachable / non-200 / transport-error all
+    return ``None`` and DO NOT cache, so the next call retries. A
+    reachable empty response returns ``[]`` (cached for 6h).
+    """
+    cached = _read_cache(_PAST_CACHE_KEY)
+    if cached is not None:
+        records = cached.get("records")
+        if isinstance(records, list):
+            return [r for r in records if isinstance(r, dict)]
+
+    try:
+        with _warmed_client() as cli:
+            r = cli.get(_NSE_PAST_ISSUES, headers=_nse_api_headers())
+            if r.status_code != 200:
+                logger.debug(
+                    "NSE past-issues -> %s (treating as unreachable)",
+                    r.status_code,
+                )
+                return None
+            try:
+                payload = r.json() if r.content else None
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.debug("NSE past-issues JSON parse failed: %s", e)
+                return None
+    except httpx.TimeoutException:
+        logger.debug("NSE past-issues timed out after %.1fs", _TIMEOUT_S)
+        return None
+    except httpx.HTTPError as e:
+        logger.debug("NSE past-issues transport error: %s", e)
+        return None
+
+    records = _coerce_records(payload)
+    # Cache successful AND reachable-but-empty (so chat bursts re-use).
+    _write_cache(_PAST_CACHE_KEY, {"records": records}, ttl_s=_PAST_CACHE_TTL_S)
+    return records
+
+
+def _parse_issue_price(raw: Any) -> float | None:
+    """Coerce a past-issues ``issuePrice`` field to a float.
+
+    NSE records carry the issue price as a bare numeric string ("139")
+    or — less often — as a number. The price-band string ``priceRange``
+    is parsed separately via ``parse_price_band``. Returns ``None`` for
+    empty / unparseable / non-positive values; NEVER fabricates.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        v = float(raw)
+        return v if v > 0 else None
+    s = str(raw).strip()
+    if not s:
+        return None
+    # Strip common decorations ("Rs.", "₹", commas, " to N", trailing 'x').
+    cleaned = s
+    for token in ("₹", "Rs.", "Rs", "INR", "rs.", "rs"):
+        cleaned = cleaned.replace(token, " ")
+    cleaned = cleaned.replace(",", "").strip()
+    # If the record encodes the price as a band ("Rs.132 to Rs.139"),
+    # prefer the band parser's max (the listing price ≈ cut-off).
+    if "to" in cleaned.lower() or "-" in cleaned:
+        band = parse_price_band(s)
+        if band is not None and band.get("max") is not None:
+            try:
+                return float(band["max"])
+            except (TypeError, ValueError):
+                return None
+        return None
+    import re as _re
+    m = _re.search(r"\d+(?:\.\d+)?", cleaned)
+    if not m:
+        return None
+    try:
+        v = float(m.group(0))
+    except ValueError:
+        return None
+    return v if v > 0 else None
+
+
+def fetch_listed_ipo(name_or_symbol: str) -> dict[str, Any]:
+    """Look up a LISTED IPO in the past-issues feed.
+
+    Matches exact-symbol first (case-insensitive), then substring on
+    symbol/companyName. Honest-on-failure:
+
+      * unreachable → ``{"found": False, "source": "unreachable",
+                         "note": ...}``
+      * no match    → ``{"found": False, "note": ...,
+                         "matches": [{name, symbol, listing_date}, ...]}``
+      * hit         → ``{"found": True, "symbol", "name", "type",
+                         "issue_price", "listing_date"}``
+
+    NEVER fabricates the issue price or listing date — both can be
+    ``None`` when the source record is missing the field, and the
+    caller is responsible for surfacing that honestly to the user.
+    """
+    query = (name_or_symbol or "").strip()
+    if not query:
+        return {
+            "found": False,
+            "note": "Provide an IPO name or symbol.",
+            "matches": [],
+        }
+
+    records = fetch_past_issues()
+    if records is None:
+        return {
+            "found": False,
+            "source": "unreachable",
+            "note": (
+                "NSE past-issues feed unreachable — cannot look up "
+                "listing data for this IPO right now."
+            ),
+            "matches": [],
+        }
+
+    q = query.lower().strip()
+
+    def _sym(rec: dict[str, Any]) -> str:
+        return str(rec.get("symbol") or "").strip().lower()
+
+    def _name(rec: dict[str, Any]) -> str:
+        return str(
+            rec.get("companyName") or rec.get("company") or ""
+        ).strip().lower()
+
+    # Exact-symbol-first (case-insensitive).
+    exact = [r for r in records if _sym(r) == q]
+    if not exact:
+        partial = [
+            r for r in records
+            if (q in _sym(r) and _sym(r)) or (q in _name(r) and _name(r))
+        ]
+    else:
+        partial = []
+
+    hit_list = exact or partial
+    if not hit_list:
+        # Surface a compact candidate list (cap at 8) so the chat surface
+        # can disambiguate without flooding the response.
+        matches = []
+        for r in records[:200]:  # cap the scan for the disambig list
+            sym = str(r.get("symbol") or "").strip().upper()
+            nm = str(r.get("companyName") or r.get("company") or "").strip()
+            if not sym and not nm:
+                continue
+            ldate = _parse_date(r.get("listingDate"))
+            matches.append({
+                "name": nm or None,
+                "symbol": sym or None,
+                "listing_date": ldate.isoformat() if ldate else None,
+            })
+            if len(matches) >= 8:
+                break
+        return {
+            "found": False,
+            "note": (
+                f"No listed IPO matches {query!r} in the past-issues feed."
+            ),
+            "matches": matches,
+        }
+
+    rec = hit_list[0]
+    sec_type = str(rec.get("securityType") or "").strip().upper()
+    ipo_type = "sme" if sec_type == "SME" else "mainboard"
+    listing_date = _parse_date(rec.get("listingDate"))
+    issue_price = _parse_issue_price(rec.get("issuePrice"))
+    # Fall back to the priceRange band's max if issuePrice was unparseable
+    # (some past-issues records carry only the band string).
+    if issue_price is None:
+        band = parse_price_band(rec.get("priceRange"))
+        if band is not None and band.get("max") is not None:
+            try:
+                issue_price = float(band["max"])
+            except (TypeError, ValueError):
+                issue_price = None
+
+    return {
+        "found": True,
+        "symbol": str(rec.get("symbol") or "").strip().upper() or None,
+        "name": str(
+            rec.get("companyName") or rec.get("company") or ""
+        ).strip() or None,
+        "type": ipo_type,
+        "issue_price": issue_price,
+        "listing_date": listing_date.isoformat() if listing_date else None,
+    }
 
 
 if __name__ == "__main__":  # pragma: no cover - manual smoke test

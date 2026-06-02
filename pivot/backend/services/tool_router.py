@@ -152,6 +152,23 @@ _RULES: list[_Rule] = [
         "propose_ipo_automation", "get_ipo_details", "list_upcoming_ipos",
     ),
 
+    # ── IPO post-listing tracking (P4) ───────────────────────────────
+    # "how did TIKONA list", "TIKONA listing gain", "X listing price",
+    # "did X list well/up/down", "listing day pop for X", "IPO listing
+    # gain for X". Routes to get_ipo_listing (past-issues + live price).
+    # IMPORTANT: keep BEFORE the generic IPO route so listing-outcome
+    # phrasings prefer get_ipo_listing; the generic route still surfaces
+    # it as a fallback via the IPO tool list.
+    _r(
+        r"\bhow\s+did\s+\w[\w\s.&'-]*\s+list\b"
+        r"|\blisting\s+(?:gain|gains|price|day|pop|performance)\b"
+        r"|\bipo\b[^.]{0,40}\blisting\b"
+        r"|\blisting\b[^.]{0,30}\bipo\b"
+        r"|\bdid\s+\w[\w\s.&'-]*\s+list\s+(?:well|up|down|good|bad|poor|strong|weak)\b"
+        r"|\b\w[\w.&'-]*\s+listing\s+gain\b",
+        "get_ipo_listing", "get_ipo_details", "list_upcoming_ipos",
+    ),
+
     # ── IPOs (upcoming / open mainboard + SME) ───────────────────────
     # "any IPOs open?", "upcoming IPOs", "tell me about the X IPO",
     # "I want to apply for the <name> IPO".
@@ -162,7 +179,7 @@ _RULES: list[_Rule] = [
         r"|\bnew\s+(?:listing|issue)s?\b"
         r"|\bapply\s+(?:for|to)\s+(?:the\s+)?[\w\s]+\bipo\b",
         "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
-        "propose_ipo_automation",
+        "propose_ipo_automation", "get_ipo_listing",
     ),
 
     # ── Two-stock comparison (2026-05-29) ───────────────────────────

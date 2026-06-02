@@ -55,7 +55,8 @@ import { InlineRunCard } from "@/components/chat/InlineRunCard";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
 import { IpoListCard } from "@/components/chat/IpoListCard";
-import type { Workflow, IpoApplicationPayload, IpoListPayload } from "@/lib/types";
+import { IpoListedCard } from "@/components/chat/IpoListedCard";
+import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -637,6 +638,7 @@ type Message =
   | { kind: "synthetic_security"; payload: SyntheticSecurityPayload; intro: string }
   | { kind: "ipo_application"; payload: IpoApplicationPayload; intro: string }
   | { kind: "ipo_list"; payload: IpoListPayload; intro: string }
+  | { kind: "ipo_listed"; payload: IpoListedPayload; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
@@ -922,6 +924,12 @@ export function ChatDemo({
       finalMessage = {
         kind: "ipo_list",
         payload: rawData as unknown as IpoListPayload,
+        intro: data.response ?? "",
+      };
+    } else if (hint === "ipo_listed_card" && rawData) {
+      finalMessage = {
+        kind: "ipo_listed",
+        payload: rawData as unknown as IpoListedPayload,
         intro: data.response ?? "",
       };
     } else {
@@ -1477,6 +1485,24 @@ export function ChatDemo({
                         )
                       }
                     />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "ipo_listed") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <IpoListedCard payload={msg.payload} />
                   </div>
                 </div>
               );

@@ -81,6 +81,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "get_symbol_news":            _get_symbol_news,
         "list_upcoming_ipos":         _list_upcoming_ipos,
         "get_ipo_details":            _get_ipo_details,
+        "get_ipo_listing":            _get_ipo_listing,
         "propose_ipo_application":    _propose_ipo_application,
         "propose_ipo_automation":     _propose_ipo_automation,
         # /core/ analytics bridge
@@ -1394,6 +1395,146 @@ async def _get_ipo_details(a, kt, db, uid):
     return {"success": bool(data.get("found")), "data": data, "logiccard": None}
 
 
+def _listed_current_price(symbol: str) -> float | None:
+    """Honest current-price fetch for a LISTED equity.
+
+    Mirrors the path ``_get_live_price`` uses: Kite tick cache first
+    (``context_injector._cached_price``), then yfinance's ``fast_info``
+    (``last_price`` / ``previous_close``). Returns ``None`` when neither
+    yields a positive value — the caller surfaces that honestly rather
+    than fabricating a number or substituting the previous close.
+
+    Kept narrow (only `symbol -> float|None`) so the IPO listing handler
+    doesn't drag in the larger live-price response envelope.
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return None
+    try:
+        from backend.agents.context_injector import _cached_price
+        pd = _cached_price(sym)
+        if pd:
+            ltp = pd.get("ltp")
+            if ltp is not None:
+                try:
+                    val = float(ltp)
+                    if val > 0:
+                        return val
+                except (TypeError, ValueError):
+                    pass
+    except Exception as e:  # noqa: BLE001 — Kite cache is best-effort
+        logger.debug("listed price kite cache lookup failed for %s: %s", sym, e)
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(f"{sym}.NS")
+        info = ticker.fast_info
+        last = info.last_price if info.last_price is not None else None
+        if last is None:
+            return None
+        try:
+            val = float(last)
+        except (TypeError, ValueError):
+            return None
+        return val if val > 0 else None
+    except Exception as e:  # noqa: BLE001 — yfinance is best-effort
+        logger.debug("listed price yfinance lookup failed for %s: %s", sym, e)
+        return None
+
+
+async def _get_ipo_listing(a, kt, db, uid):
+    """Post-listing performance card: issue price vs current price + gain %.
+
+    Reads the NSE past-issues feed via ``fetch_listed_ipo`` (a listed IPO
+    has dropped off the upcoming/current endpoints, so ``get_ipo_details``
+    would 404 here) and pairs it with the same live-price path
+    ``_get_live_price`` uses. Honest-on-failure:
+
+      * not-found / unreachable → ``success: False`` + honest note,
+        NO card hint (the chat surface renders the note as plain text).
+      * found, no current price → ``current_price: None`` +
+        ``listing_gain_pct: None`` + note "listing data pending …".
+      * found, no issue price   → same shape, note "issue price unavailable".
+      * found + both prices     → computes gain%; caller renders the card.
+
+    NEVER fabricates the current price, the listing gain, the issue
+    price, or the listing date.
+    """
+    from backend.services.ipo_feed import fetch_listed_ipo
+
+    query = str(a.get("name_or_symbol", "")).strip()
+    if not query:
+        return {
+            "success": False,
+            "data": {
+                "found": False,
+                "note": (
+                    "Provide an IPO name or symbol — e.g. 'TIKONA' or "
+                    "'Tikona Infinet' — to look up the listing outcome."
+                ),
+            },
+            "logiccard": None,
+        }
+
+    rec = fetch_listed_ipo(query)
+    if not rec.get("found"):
+        # Honest miss / unreachable — surface the note without a card hint
+        # so the chat renders it as plain text.
+        return {
+            "success": False,
+            "data": rec,
+            "logiccard": None,
+        }
+
+    symbol = (rec.get("symbol") or "").strip().upper() or None
+    name = rec.get("name")
+    ipo_type = rec.get("type") if rec.get("type") in {"sme", "mainboard"} else "mainboard"
+    issue_price_raw = rec.get("issue_price")
+    issue_price: float | None
+    try:
+        issue_price = float(issue_price_raw) if issue_price_raw is not None else None
+    except (TypeError, ValueError):
+        issue_price = None
+    listing_date = rec.get("listing_date")
+
+    current_price: float | None = (
+        _listed_current_price(symbol) if symbol else None
+    )
+
+    listing_gain_pct: float | None
+    if (
+        issue_price is not None
+        and current_price is not None
+        and issue_price > 0
+    ):
+        listing_gain_pct = round(
+            (current_price - issue_price) / issue_price * 100.0, 2
+        )
+    else:
+        listing_gain_pct = None
+
+    # Honest notes — order matters: missing issue price is the more
+    # fundamental gap (we can't compute the gain at all).
+    note: str | None = None
+    if issue_price is None:
+        note = "issue price unavailable"
+    elif current_price is None:
+        note = "listing data pending — no live price yet"
+
+    payload: dict = {
+        "_render_hint": "ipo_listed_card",
+        "symbol": symbol,
+        "name": name,
+        "type": ipo_type,
+        "issue_price": issue_price,
+        "listing_date": listing_date,
+        "current_price": current_price,
+        "listing_gain_pct": listing_gain_pct,
+        "source": "nse",
+        "note": note,
+    }
+    return {"success": True, "data": payload, "logiccard": None}
+
+
 async def _propose_ipo_application(a, kt, db, uid):
     """Build the editable IPO application card for the chat surface.
 
@@ -1406,6 +1547,7 @@ async def _propose_ipo_application(a, kt, db, uid):
     from backend.services.ipo_feed import (
         IPO_GMP_ENABLED,
         detect_registrar,
+        fetch_listed_ipo,
         fetch_subscription,
         get_ipo_details,
         gmp_payload,
@@ -1441,6 +1583,55 @@ async def _propose_ipo_application(a, kt, db, uid):
             "logiccard": None,
         }
     if not feed.get("found"):
+        # P4: a LISTED IPO has dropped off the upcoming/current feeds, so
+        # the apply flow's "not found" branch hides a graceful answer. Try
+        # the past-issues feed and, if the symbol has listed, return the
+        # ipo_listed_card with a "this IPO has already listed —
+        # applications are closed" note instead of a bare not-found.
+        listed = fetch_listed_ipo(query)
+        if listed.get("found"):
+            sym = (listed.get("symbol") or "").strip().upper() or None
+            iss_raw = listed.get("issue_price")
+            try:
+                iss_price: float | None = (
+                    float(iss_raw) if iss_raw is not None else None
+                )
+            except (TypeError, ValueError):
+                iss_price = None
+            curr = _listed_current_price(sym) if sym else None
+            gain_pct: float | None
+            if iss_price is not None and curr is not None and iss_price > 0:
+                gain_pct = round((curr - iss_price) / iss_price * 100.0, 2)
+            else:
+                gain_pct = None
+            base_note = (
+                "this IPO has already listed — applications are closed"
+            )
+            if iss_price is None:
+                base_note += " (issue price unavailable)"
+            elif curr is None:
+                base_note += " (listing data pending — no live price yet)"
+            listed_payload: dict = {
+                "_render_hint": "ipo_listed_card",
+                "symbol": sym,
+                "name": listed.get("name"),
+                "type": (
+                    listed.get("type")
+                    if listed.get("type") in {"sme", "mainboard"}
+                    else "mainboard"
+                ),
+                "issue_price": iss_price,
+                "listing_date": listed.get("listing_date"),
+                "current_price": curr,
+                "listing_gain_pct": gain_pct,
+                "source": "nse",
+                "note": base_note,
+            }
+            return {
+                "success": True,
+                "data": listed_payload,
+                "logiccard": None,
+            }
         return {
             "success": False,
             "data": {

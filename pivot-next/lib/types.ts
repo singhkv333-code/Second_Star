@@ -506,3 +506,26 @@ export type IpoListPayload = {
   source: "nse" | "unreachable";
   note: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// IPO Listed Card — chat render hint "ipo_listed_card"
+// ---------------------------------------------------------------------------
+
+/**
+ * Full payload the chat tool returns in `raw_data` when
+ * `_render_hint === "ipo_listed_card"`.
+ * Carries post-listing performance: issue price → current price → gain %.
+ * Any field can be null when data is unavailable — never fabricated.
+ */
+export type IpoListedPayload = {
+  _render_hint: "ipo_listed_card";
+  symbol: string;
+  name: string;
+  type: "mainboard" | "sme";
+  issue_price: number | null;
+  listing_date: string | null;
+  current_price: number | null;
+  listing_gain_pct: number | null;
+  source: string;
+  note: string | null;
+};
