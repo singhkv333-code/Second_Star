@@ -82,6 +82,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "list_upcoming_ipos":         _list_upcoming_ipos,
         "get_ipo_details":            _get_ipo_details,
         "propose_ipo_application":    _propose_ipo_application,
+        "propose_ipo_automation":     _propose_ipo_automation,
         # /core/ analytics bridge
         "get_indicator":              _get_indicator,
         "get_multiple_indicators":    _get_multiple_indicators,
@@ -1521,8 +1522,9 @@ async def _propose_ipo_application(a, kt, db, uid):
         # broker-stored KYC. Never store / render fake PAN/demat data.
         "kyc": None,
         "validation": validation,
-        # P2: trigger.ipo_open / action.arm_ipo_intent reminders not built.
-        "automatable": False,
+        # P2: trigger.ipo_open + action.arm_ipo_intent open-day reminder
+        # workflow is now buildable via propose_ipo_automation.
+        "automatable": True,
         "conversation_id": a.get("conversation_id"),
         "disclaimer": (
             "Pivot can't submit or fund this bid. This registers your "
@@ -1532,6 +1534,109 @@ async def _propose_ipo_application(a, kt, db, uid):
     }
 
     return {"success": True, "data": payload, "logiccard": None}
+
+
+async def _propose_ipo_automation(a, kt, db, uid):
+    """Build a workflow_draft_card for "set up open-day reminders for X IPO".
+
+    Returns the same payload shape the WorkflowDraftCard already renders
+    (the draft carries `_render_hint: "workflow_draft_card"`). The 3-step
+    draft is:
+
+      [0] trigger.ipo_open      { symbol }                      # fires once on open
+      [1] action.arm_ipo_intent { ipo_symbol, lots, category,   # writes intent_armed
+                                  bid_price_mode, bid_price? }
+      [2] notify.message        { template: "<open-day handoff>" }
+
+    Sensible defaults: 1 lot mainboard / 2 lots SME, retail category,
+    cut-off mode for mainboard retail (allowed) else fixed (the user can
+    edit lots / category / bid mode on the card before activating).
+    Honest not-found / unreachable fallbacks — never fabricate.
+    """
+    from backend.services.ipo_feed import get_ipo_details
+    from backend.services.workflow_macros import build_ipo_reminder_draft
+
+    query = str(a.get("name_or_symbol", "")).strip()
+    if not query:
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    "Provide an IPO name or symbol — e.g. 'TIKONA' or "
+                    "'Tikona Infinet' — to build the open-day reminder "
+                    "workflow."
+                ),
+            },
+            "logiccard": None,
+        }
+
+    feed = get_ipo_details(query)
+    if feed.get("source") == "unreachable":
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    "Live IPO feed is unreachable right now — cannot "
+                    "build a reminder workflow without verified IPO "
+                    "data. Try again in a minute."
+                ),
+                "source": "unreachable",
+            },
+            "logiccard": None,
+        }
+    if not feed.get("found"):
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    f"No live IPO matches {query!r}. "
+                    + (feed.get("note") or "")
+                ),
+                "matches": feed.get("matches") or [],
+            },
+            "logiccard": None,
+        }
+
+    ipo = feed.get("ipo") or {}
+    symbol = (ipo.get("symbol") or query).strip().upper()
+    ipo_type = "sme" if ipo.get("type") == "sme" else "mainboard"
+
+    # Sensible defaults per IPO type. The user can edit before activating.
+    quantity_lots = 2 if ipo_type == "sme" else 1
+    category = "retail"
+    bid_price_mode = "fixed" if ipo_type == "sme" else "cutoff"
+
+    bid_price = None
+    if bid_price_mode == "fixed":
+        # For SME issues (no cut-off allowed), pin to band.max so the
+        # arm action has an honest in-band default. Surface None when
+        # the band is missing rather than fabricating a number.
+        from backend.services.ipo_feed import parse_price_band
+        band = parse_price_band(ipo.get("price_band"))
+        if band is not None and band.get("max") is not None:
+            bid_price = float(band["max"])
+
+    try:
+        draft = build_ipo_reminder_draft(
+            symbol, ipo,
+            quantity_lots=quantity_lots,
+            category=category,
+            bid_price_mode=bid_price_mode,
+            bid_price=bid_price,
+        )
+    except ValueError as e:
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    f"Couldn't build a reminder workflow for {symbol}: {e}. "
+                    "Try setting up reminders manually via the IPO card."
+                ),
+            },
+            "logiccard": None,
+        }
+
+    return {"success": True, "data": draft, "logiccard": None}
 
 
 async def _get_top_movers(a, kt, db, uid):

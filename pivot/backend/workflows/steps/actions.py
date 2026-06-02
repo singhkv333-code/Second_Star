@@ -36,6 +36,7 @@ from backend.workflows.engine import _AwaitingApproval
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
     ActionAllocateNotionalConfig,
+    ActionArmIpoIntentConfig,
     ActionCancelOrdersConfig,
     ActionPlaceOrderConfig,
     ActionAllocateBasketConfig,
@@ -1260,6 +1261,179 @@ async def execute_action_squareoff_symbol(
         "symbol": symbol,
         "product": product,
         "client_request_id": parent_req,
+    }
+
+
+# ── IPO arm-intent (P2 — register-not-execute) ───────────────────────
+
+
+@register_step(
+    step_type="action.arm_ipo_intent",
+    category="action",
+    label="Arm IPO intent + reminder",
+    description=(
+        "Record an IPO intent and hand off to the user (no broker call, "
+        "never submits a bid). Pivot has NOT applied — you must apply "
+        "and approve the UPI mandate yourself in your broker app."
+    ),
+    icon="file-check",
+    max_retries=2,
+    trigger_only=False,
+    config_model=ActionArmIpoIntentConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "ipo_symbol": {"type": "string"},
+            "ipo_name": {"type": ["string", "null"]},
+            "ipo_type": {"type": "string"},
+            "status": {"type": "string"},
+            "amount_estimate": {"type": ["number", "null"]},
+            "applied": {"type": "boolean"},
+            "stale": {"type": "boolean"},
+        },
+        "required": ["ipo_symbol", "status", "applied"],
+    },
+)
+async def execute_action_arm_ipo_intent(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Write an `intent_armed` row to ``ipo_applications``. NO broker call.
+
+    Flow:
+      1. Read cfg + user_id from ctx.
+      2. Re-validate the IPO via ``ipo_feed.get_ipo_details`` so we
+         catch type/lot_size/band changes vs draft time.
+      3. Compute amount_estimate from the live band + lot size using
+         ``compute_amount_estimate`` (the same helper the REST register
+         path uses). If lot_size or band is missing we skip the math
+         (store 0/None honestly) rather than fabricate.
+      4. On feed-unreachable, still arm with ``stale=True`` — the
+         autonomous path can't block on NSE flaking. But we never
+         invent a band: amount_estimate is None when unverifiable.
+      5. Persist via ``persist_ipo_application(..., status="intent_armed",
+         autonomous=True, source="workflow-arm")``. Pivot's verb is
+         "arm" / "remind", never "apply".
+
+    Hard rule: NEVER calls ``backend.kite.orders.place_order`` or any
+    broker / paper / UPI-mandate entry point. The companion notify step
+    in the same workflow tells the user "Pivot has NOT applied".
+    """
+    from backend.services.ipo_application_service import (
+        compute_amount_estimate,
+        persist_ipo_application,
+    )
+    from backend.services.ipo_feed import get_ipo_details, parse_price_band
+
+    cfg = ctx.config
+    user_id = int(ctx.workflow.user_id)
+    symbol = str(cfg["ipo_symbol"]).strip().upper()
+    quantity_lots = int(cfg["quantity_lots"])
+    category = str(cfg["category"])
+    bid_price_mode = str(cfg["bid_price_mode"])
+    bid_price_raw = cfg.get("bid_price")
+    bid_price: Optional[float] = (
+        float(bid_price_raw) if bid_price_raw is not None else None
+    )
+
+    # workflow_id is a UUID string in this schema; the soft-FK column on
+    # ipo_applications is Integer (mirrors paper_orders' soft-ref pattern).
+    # If we can't safely coerce, skip the link rather than blow up.
+    workflow_id_int: Optional[int]
+    try:
+        workflow_id_int = int(ctx.workflow.id)
+    except (TypeError, ValueError):
+        workflow_id_int = None
+
+    feed = get_ipo_details(symbol)
+    stale = False
+    ipo_name: Optional[str] = None
+    ipo_type: str = "mainboard"
+    lot_size: Optional[int] = None
+    price_band: Optional[dict[str, Any]] = None
+
+    if feed.get("source") == "unreachable":
+        # Autonomous path must not block on NSE flaking. Arm stale.
+        stale = True
+    elif feed.get("found"):
+        ipo = feed.get("ipo") or {}
+        ipo_name = ipo.get("name")
+        ipo_type = "sme" if ipo.get("type") == "sme" else "mainboard"
+        raw_lot = ipo.get("lot_size")
+        try:
+            if raw_lot is None or raw_lot == "":
+                lot_size = None
+            else:
+                lot_size = int(raw_lot)
+        except (TypeError, ValueError):
+            lot_size = None
+        price_band = parse_price_band(ipo.get("price_band"))
+    else:
+        # Honest: feed reachable but the IPO is no longer in the live
+        # window. Still arm (the user explicitly wanted the reminder),
+        # but mark stale + skip amount.
+        stale = True
+
+    # Compute amount_estimate ONLY when we have honest inputs.
+    amount_estimate: Optional[float]
+    if (
+        lot_size is not None and lot_size > 0
+        and price_band is not None
+        and price_band.get("max") is not None
+    ):
+        try:
+            amount_estimate = compute_amount_estimate(
+                quantity_lots=quantity_lots,
+                lot_size=lot_size,
+                bid_price_mode=bid_price_mode,
+                bid_price=bid_price,
+                price_band_max=float(price_band["max"]),
+            )
+        except ValueError:
+            # cfg disagrees with feed (e.g. fixed mode but no bid_price).
+            # Don't fabricate a number; persist None.
+            amount_estimate = None
+    else:
+        amount_estimate = None
+
+    # persist_ipo_application requires a positive lot_size (Integer col).
+    # When we couldn't honestly compute one, store 0 — paired with
+    # amount_estimate=None this is the honest "lot data unavailable"
+    # marker the FE can render distinctly.
+    lot_size_for_row = lot_size if (lot_size and lot_size > 0) else 0
+    amount_estimate_for_row = (
+        amount_estimate if amount_estimate is not None else 0.0
+    )
+
+    row = persist_ipo_application(
+        ctx.db, user_id,
+        ipo_symbol=symbol,
+        ipo_name=ipo_name,
+        ipo_type=ipo_type,
+        category=category,
+        quantity_lots=quantity_lots,
+        lot_size=lot_size_for_row,
+        bid_price_mode=bid_price_mode,
+        bid_price=bid_price,
+        amount_estimate=amount_estimate_for_row,
+        upi_id_masked=None,
+        conversation_id=None,
+        workflow_id=workflow_id_int,
+        source="workflow-arm",
+        stale=stale,
+        autonomous=True,
+        status="intent_armed",
+    )
+    ctx.db.commit()
+    ctx.db.refresh(row)
+
+    return {
+        "ipo_symbol": symbol,
+        "ipo_name": ipo_name,
+        "ipo_type": ipo_type,
+        "status": "intent_armed",
+        "amount_estimate": amount_estimate,
+        "applied": False,  # Pivot has NOT applied — load-bearing flag.
+        "stale": stale,
     }
 
 

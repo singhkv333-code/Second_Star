@@ -38,6 +38,7 @@ import {
   type IndicatorBacktestPayload,
 } from "@/components/chat/IndicatorBacktestCard";
 import { NewsStepRow } from "@/components/chat/steps/NewsStepRow";
+import { IpoStepRow } from "@/components/chat/steps/IpoStepRow";
 import type { NewsStepConfig } from "@/lib/news-types";
 
 // ---------------------------------------------------------------------------
@@ -649,6 +650,30 @@ function DraftStepRow({
           step={{
             step_type: step.step_type as "fetch.news" | "trigger.event",
             config: step.config as NewsStepConfig,
+            label: step.label,
+          }}
+        />
+      </li>
+    );
+  }
+
+  // IPO step types get their own rich row.
+  if (
+    step.step_type === "trigger.ipo_open" ||
+    step.step_type === "action.arm_ipo_intent"
+  ) {
+    return (
+      <li
+        style={{
+          animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
+          animationDelay: `${index * 50}ms`,
+          listStyle: "none",
+        }}
+      >
+        <IpoStepRow
+          step={{
+            step_type: step.step_type as "trigger.ipo_open" | "action.arm_ipo_intent",
+            config: step.config,
             label: step.label,
           }}
         />

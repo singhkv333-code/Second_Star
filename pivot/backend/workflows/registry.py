@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Bumped manually whenever a registered step type is added/changed.
 # Frontend uses this to invalidate its 5-minute catalog cache. Format:
 # ISO-8601 instant string (matches API_CONTRACT.md §8.1).
-CATALOG_VERSION = "2026-05-04T12:00:00Z"
+CATALOG_VERSION = "2026-06-02T12:00:00Z"
 
 
 # Categories listed in the order the picker should render them.

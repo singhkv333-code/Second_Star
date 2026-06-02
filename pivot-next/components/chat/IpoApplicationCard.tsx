@@ -19,6 +19,7 @@ import { useState } from "react";
 import {
   AlertCircle,
   ArrowUpRight,
+  BellRing,
   CheckCircle2,
   ExternalLink,
   Loader2,
@@ -44,6 +45,10 @@ import type {
 
 export type IpoApplicationCardProps = {
   payload: IpoApplicationPayload;
+  /** Called when the user taps "Set up reminders for open day". Receives
+   *  the IPO symbol so ChatDemo can forward it into the chat pipeline.
+   *  Only rendered when `payload.automatable` is true. */
+  onSetupReminders?: (symbol: string) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -208,7 +213,7 @@ function StatusBadge({ status }: { status: IpoApplicationPayload["status"] }): R
 // Main card
 // ---------------------------------------------------------------------------
 
-export function IpoApplicationCard({ payload }: IpoApplicationCardProps): React.ReactElement {
+export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplicationCardProps): React.ReactElement {
   const isReadOnly = payload.status === "closed";
 
   // Editable state — initialised from payload.editable
@@ -411,6 +416,11 @@ export function IpoApplicationCard({ payload }: IpoApplicationCardProps): React.
           onBidPriceChange={setBidPrice}
           onUpiIdChange={setUpiId}
           onRegister={() => void handleRegister()}
+          onSetupReminders={
+            payload.automatable && onSetupReminders
+              ? () => onSetupReminders(payload.symbol)
+              : undefined
+          }
         />
       )}
 
@@ -481,6 +491,7 @@ function EditableForm({
   onBidPriceChange,
   onUpiIdChange,
   onRegister,
+  onSetupReminders,
 }: {
   payload: IpoApplicationPayload;
   category: IpoCategory;
@@ -502,6 +513,9 @@ function EditableForm({
   onBidPriceChange: (p: string) => void;
   onUpiIdChange: (id: string) => void;
   onRegister: () => void;
+  /** When defined (payload.automatable is true), renders the active
+   *  "Set up reminders for open day" CTA in place of the disabled ghost. */
+  onSetupReminders?: () => void;
 }): React.ReactElement {
   const { validation } = payload;
 
@@ -709,17 +723,33 @@ function EditableForm({
         </button>
       )}
 
-      {/* Coming-soon reminders ghost link (P2, disabled) */}
+      {/* Reminders CTA — active when automatable (P2), disabled ghost otherwise */}
       <div className="flex justify-center">
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          title="Event-triggered reminders are coming in a future update"
-          className="text-[11px] text-muted-foreground/40 cursor-not-allowed"
-        >
-          Set up reminders (coming soon)
-        </button>
+        {onSetupReminders ? (
+          <button
+            type="button"
+            onClick={onSetupReminders}
+            data-testid="ipo-setup-reminders-button"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11.5px] font-medium",
+              "border border-border/60 text-muted-foreground transition-colors",
+              "hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <BellRing className="h-3 w-3 shrink-0" aria-hidden="true" />
+            Set up reminders for open day
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            title="Event-triggered reminders are coming in a future update"
+            className="text-[11px] text-muted-foreground/40 cursor-not-allowed"
+          >
+            Set up reminders (coming soon)
+          </button>
+        )}
       </div>
 
       {/* Error message */}

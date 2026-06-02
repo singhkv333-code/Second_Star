@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -32,7 +32,11 @@ from backend.services.ipo_application_service import (
     mask_upi_id,
     persist_ipo_application,
 )
-from backend.services.ipo_feed import get_ipo_details, parse_price_band
+from backend.services.ipo_feed import (
+    get_ipo_details,
+    list_upcoming_ipos,
+    parse_price_band,
+)
 from backend.utils.time_utils import format_ist
 
 
@@ -395,6 +399,92 @@ def withdraw_ipo_application(
 
 
 # ── GET /users/ipo-applications ────────────────────────────────────────
+
+# ── GET /ipo-calendar ──────────────────────────────────────────────────
+
+
+@router.get("/ipo-calendar")
+def get_ipo_calendar(
+    user_id: int = Depends(get_user_id),
+    from_: Optional[str] = Query(default=None, alias="from"),
+    to: Optional[str] = Query(default=None),
+):
+    """Return upcoming / open / recently-closed IPOs in a calendar-friendly
+    shape, optionally filtered to [from, to] (inclusive).
+
+    Used by the FE Calendar tab to render IPO open/close entries
+    alongside scheduled workflows. Date filter is inclusive on both
+    ends; rows missing either date are still included (the FE handles
+    None / TBA display).
+
+    Honest on failure: when the live feed is unreachable we surface the
+    note verbatim (same shape as ``list_upcoming_ipos``) — never
+    fabricate dates / bands. Bare-mount (no /api prefix) to match the
+    other IPO routes; ``get_user_id`` auth kept for consistency.
+
+    Note: FastAPI reserves the keyword ``from`` so we accept the query
+    parameter via the ``from_`` parameter name; the OpenAPI spec
+    exposes ``from`` to clients via FastAPI's standard alias handling
+    on the parameter name. (Clients call ``/ipo-calendar?from=...&to=...``.)
+    """
+    listing = list_upcoming_ipos()
+    if listing.get("source") == "unreachable":
+        return {
+            "count": 0,
+            "items": [],
+            "note": listing.get("note"),
+            "source": "unreachable",
+        }
+
+    rows = listing.get("ipos") or []
+
+    # Date window filtering. We compare lexicographically since
+    # ipo_feed._normalize emits ISO dates ('YYYY-MM-DD') when parseable
+    # — which is the standard branch for NSE responses. Rows with
+    # un-parseable / missing dates pass through (Calendar tab handles
+    # the TBA case).
+    lo = (from_ or "").strip()
+    hi = (to or "").strip()
+
+    def _in_window(item: dict[str, object]) -> bool:
+        if not lo and not hi:
+            return True
+        open_d = str(item.get("open_date") or "")
+        close_d = str(item.get("close_date") or "")
+        # Include rows where any of the dates intersect the window, OR
+        # the dates are missing / un-parseable (don't accidentally drop
+        # an upcoming-but-undated IPO from the calendar).
+        if not open_d and not close_d:
+            return True
+        if lo and close_d and close_d < lo:
+            return False
+        if hi and open_d and open_d > hi:
+            return False
+        return True
+
+    items: list[dict[str, object]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if not _in_window(r):
+            continue
+        items.append({
+            "ipo_symbol": (r.get("symbol") or "").upper(),
+            "name": r.get("name"),
+            "open_date": r.get("open_date"),
+            "close_date": r.get("close_date"),
+            "price_band": r.get("price_band"),
+            "status": r.get("status"),
+            "type": r.get("type"),
+        })
+
+    return {
+        "count": len(items),
+        "items": items,
+        "note": listing.get("note"),
+        "source": listing.get("source"),
+    }
+
 
 @router.get("/users/ipo-applications")
 def list_user_ipo_applications(

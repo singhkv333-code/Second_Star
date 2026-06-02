@@ -398,3 +398,24 @@ export type IpoApplicationsListResponse = {
   /** Always "estimated amount you'll need" — never "blocked". */
   amount_label?: string;
 };
+
+// ---------------------------------------------------------------------------
+// IPO Calendar — GET /ipo-calendar
+// ---------------------------------------------------------------------------
+
+/** One IPO entry returned by GET /ipo-calendar. */
+export type IpoCalendarItem = {
+  ipo_symbol: string;
+  name: string;
+  open_date: string | null;
+  close_date: string | null;
+  price_band: string | null;
+  status: IpoStatus;
+  type: IpoType;
+};
+
+/** Response shape for GET /ipo-calendar. */
+export type IpoCalendarResponse = {
+  count: number;
+  items: IpoCalendarItem[];
+};

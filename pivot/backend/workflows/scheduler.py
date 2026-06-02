@@ -64,6 +64,16 @@ _POLL_INTERVAL_SECONDS = 30
 _WATCHER_INTERVAL_SECONDS = 60
 _WATCHER_JOB_ID = "pivot_workflows_watcher"
 
+# IPO-open watcher cadence. IPO subscription windows move on a multi-hour
+# cadence, not minutes — 30 minutes is fast enough to fire close to the
+# real open time and slow enough to be a small fraction of the cached
+# NSE feed's 45-minute TTL. Crucially this poller is NOT gated on
+# market hours: IPO open-status is readable any time of day, and we
+# want the trigger to fire even when the user activated the workflow
+# overnight.
+_IPO_OPEN_WATCHER_INTERVAL_SECONDS = 1800
+_IPO_OPEN_WATCHER_JOB_ID = "pivot_workflows_ipo_open_watcher"
+
 # APScheduler job id for the workflow poll job — keep stable across
 # restarts so `replace_existing=True` works.
 _POLL_JOB_ID = "pivot_workflows_poll"
@@ -443,9 +453,21 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        _poll_ipo_open_triggers,
+        trigger="interval",
+        seconds=_IPO_OPEN_WATCHER_INTERVAL_SECONDS,
+        id=_IPO_OPEN_WATCHER_JOB_ID,
+        name="Pivot Workflows — IPO open watcher",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     logger.info(
-        "[workflow-scheduler] registered poll job (%ss) + watcher (%ss)",
+        "[workflow-scheduler] registered poll job (%ss) + watcher (%ss) "
+        "+ ipo-open watcher (%ss)",
         _POLL_INTERVAL_SECONDS, _WATCHER_INTERVAL_SECONDS,
+        _IPO_OPEN_WATCHER_INTERVAL_SECONDS,
     )
 
 
@@ -1327,3 +1349,248 @@ async def fire_external_event(
         fired_at=fired_at,
         audit_context=audit_context,
     )
+
+
+# ── IPO-open watcher ─────────────────────────────────────────────────
+
+
+# Fire-once latch for trigger.ipo_open. Stored on the step's config as
+# the string "1" once the watcher has fired. _persist_last_value can
+# only carry float/dict, so we mirror _persist_event_guid's string-
+# capable writer.
+_IPO_OPEN_FIRED_KEY = "_ipo_open_fired"
+
+
+def _persist_ipo_fired(workflow_id: str, step_index: int) -> None:
+    """Persist the fire-once latch on a trigger.ipo_open step.
+
+    Mirrors _persist_event_guid's shape: copy-and-reassign the JSON dict
+    so SQLA tracks the change. Runs in a worker thread via to_thread.
+    """
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == step_index,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        cfg = dict(step.config or {})
+        cfg[_IPO_OPEN_FIRED_KEY] = "1"
+        step.config = cfg  # type: ignore[assignment]
+        db.commit()
+    finally:
+        db.close()
+
+
+def _scan_active_ipo_open_triggers() -> list[tuple[str, int, dict[str, object]]]:
+    """Return (workflow_id, step_index, config_copy) for every active
+    workflow whose has a `trigger.ipo_open` step.
+
+    Mirrors _scan_active_watch_triggers but narrowed to one step type.
+    Multi-trigger: the watcher reads every ipo_open step (not just step
+    0) — a workflow with two IPO triggers fires each one independently
+    (with its own fire-once latch).
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Workflow, WorkflowStep)
+            .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+            .filter(
+                Workflow.status == WorkflowStatus.active,
+                WorkflowStep.step_type == "trigger.ipo_open",
+            )
+            .all()
+        )
+        return [
+            (str(wf.id), int(step.step_index), dict(step.config or {}))
+            for wf, step in rows
+        ]
+    finally:
+        db.close()
+
+
+def _ipo_close_plus_one_trading_day(close_date_str: str) -> Optional[datetime]:
+    """Parse an IPO close_date and return close + 1 trading day at UTC
+    end-of-day. Used to set Workflow.expires_at so the workflow auto-
+    deactivates after the close-day handoff window.
+
+    Trading-day skipping uses is_trading_day (currently weekend-only;
+    the holiday table is a TODO — see backend/utils/time_utils.py:83).
+    For v1 this is acceptable: a workflow that bleeds one extra calendar
+    day past a Diwali holiday is harmless (it won't re-fire — the latch
+    is set).
+
+    Returns None when the date can't be parsed honestly.
+    """
+    from backend.utils.time_utils import is_trading_day
+
+    if not close_date_str:
+        return None
+    s = str(close_date_str).strip()
+    for fmt in ("%Y-%m-%d", "%d-%b-%Y", "%d-%B-%Y", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            parsed = datetime.strptime(s, fmt)
+            break
+        except ValueError:
+            continue
+    else:
+        return None
+
+    # Walk forward at least one calendar day, then keep advancing until
+    # we land on a trading day. is_trading_day takes a tz-aware datetime;
+    # convert to IST then ask. We only need date-level resolution here.
+    from datetime import timedelta as _td
+    candidate = parsed + _td(days=1)
+    for _ in range(7):  # cap the loop at one week
+        # is_trading_day accepts a naive dt → it calls to_ist for us.
+        if is_trading_day(candidate):
+            break
+        candidate += _td(days=1)
+
+    # Anchor expires_at at end-of-trading-day IST = 15:30 IST.
+    # is_trading_day returned True for candidate; build a UTC dt at that
+    # day's 15:30 IST (≈ 10:00 UTC). We don't need exact precision —
+    # the engine just consults expires_at <= now() before firing.
+    return candidate.replace(hour=10, minute=0, second=0, microsecond=0)
+
+
+def _persist_workflow_expires_at(
+    workflow_id: str, expires_at: datetime,
+) -> None:
+    """Set Workflow.expires_at if it's currently NULL or in the future
+    of the proposed value (we never shorten an existing tighter expiry).
+    """
+    db = SessionLocal()
+    try:
+        wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+        if wf is None:
+            return
+        current = getattr(wf, "expires_at", None)
+        if current is None or current > expires_at:
+            wf.expires_at = expires_at  # type: ignore[assignment]
+            db.commit()
+    finally:
+        db.close()
+
+
+async def _poll_ipo_open_triggers() -> None:
+    """Polled every 30 minutes. Fire workflows whose `trigger.ipo_open`
+    step's symbol matches an IPO that flipped to status='open' in the
+    live NSE feed.
+
+    NOT gated on market hours: IPO open-status is readable any time of
+    day. Fires ONCE per (workflow_id, step_index) — the latch
+    `_ipo_open_fired` is persisted on the step config BEFORE the
+    workflow runs so a crash between fire and persist re-fires at-most-
+    once on the next tick (engine retries are idempotent).
+
+    On a successful fire, also sets `Workflow.expires_at` to close_date
+    + 1 trading day so the workflow auto-deactivates after the close-day
+    handoff window (the watcher's expiry sweep in `_poll_due_workflows`
+    handles the eventual transition to paused).
+    """
+    fired_at = datetime.now(timezone.utc)
+
+    try:
+        triggers = await asyncio.to_thread(_scan_active_ipo_open_triggers)
+    except Exception:
+        logger.exception("[watcher.ipo_open] scan failed")
+        return
+    if not triggers:
+        return
+
+    # Filter out already-fired triggers BEFORE the (potentially slow)
+    # IPO feed call — if every trigger has already fired we have nothing
+    # to do this tick.
+    pending = [t for t in triggers if not t[2].get(_IPO_OPEN_FIRED_KEY)]
+    if not pending:
+        return
+
+    # One feed call per tick (the feed is Redis-cached for 45 minutes
+    # so this is typically a cache hit anyway).
+    try:
+        from backend.services.ipo_feed import list_upcoming_ipos
+        listing = await asyncio.to_thread(list_upcoming_ipos)
+    except Exception:
+        logger.exception("[watcher.ipo_open] feed call crashed")
+        return
+
+    if listing.get("source") == "unreachable":
+        # Honest: feed unreachable. Log + return (try next tick).
+        # Do NOT fire, do NOT fabricate.
+        logger.info(
+            "[watcher.ipo_open] feed unreachable; skipping tick (note=%s)",
+            (listing.get("note") or "")[:120],
+        )
+        return
+
+    # Build a (symbol -> ipo_record) lookup so per-trigger evaluation is O(1).
+    ipos = listing.get("ipos") or []
+    by_symbol: dict[str, dict[str, object]] = {}
+    for r in ipos:
+        if not isinstance(r, dict):
+            continue
+        sym = str(r.get("symbol") or "").upper()
+        if sym:
+            by_symbol[sym] = r
+
+    for wf_id, step_idx, cfg in pending:
+        try:
+            target_symbol = str(cfg.get("symbol", "")).upper()
+            if not target_symbol:
+                continue
+            ipo = by_symbol.get(target_symbol)
+            if ipo is None:
+                # Not in the feed yet (still pre-announcement) or no
+                # match — wait for next tick.
+                continue
+            status_ = str(ipo.get("status") or "").lower()
+            if status_ != "open":
+                # upcoming / closed → not the open edge. Skip.
+                continue
+
+            # Fire-once: persist the latch BEFORE the actual fire so a
+            # crash between the two re-fires at-most-once (the next
+            # poll re-evaluates the same trigger; engine idempotency
+            # handles double-runs).
+            await asyncio.to_thread(_persist_ipo_fired, wf_id, step_idx)
+
+            run_id = await _fire_watch_run(
+                wf_id, step_idx, "event_alert", fired_at,
+                audit_context={
+                    "source": "ipo_open_watcher",
+                    "ipo_symbol": target_symbol,
+                    "ipo_name": ipo.get("name"),
+                    "open_date": ipo.get("open_date"),
+                    "close_date": ipo.get("close_date"),
+                },
+            )
+
+            # Best-effort: set Workflow.expires_at = close_date + 1
+            # trading day so the workflow doesn't fire forever if a
+            # future IPO with the same symbol re-uses NSE conventions.
+            close_dt = _ipo_close_plus_one_trading_day(
+                str(ipo.get("close_date") or ""),
+            )
+            if close_dt is not None:
+                expires_utc = close_dt.replace(tzinfo=timezone.utc)
+                await asyncio.to_thread(
+                    _persist_workflow_expires_at, wf_id, expires_utc,
+                )
+
+            logger.info(
+                "[watcher.ipo_open] fired workflow %s step %d "
+                "(ipo=%s run=%s)",
+                wf_id, step_idx, target_symbol, run_id,
+            )
+        except Exception:
+            logger.exception(
+                "[watcher.ipo_open] failed to evaluate workflow %s step %d",
+                wf_id, step_idx,
+            )

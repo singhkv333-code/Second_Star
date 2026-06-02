@@ -789,3 +789,137 @@ _MACROS = {
     "basket_allocation": hydrate_basket_allocation,
     "holding_action": hydrate_holding_action,
 }
+
+
+# ── Macro 5: IPO open-day reminder (P2) ─────────────────────────────
+
+
+def build_ipo_reminder_draft(
+    symbol: str,
+    ipo_details: dict[str, Any],
+    *,
+    quantity_lots: int,
+    category: str,
+    bid_price_mode: str,
+    bid_price: Optional[float] = None,
+) -> dict[str, Any]:
+    """Build the workflow_draft_card for "set up open-day reminder for X IPO".
+
+    Three-step shape:
+      [0] trigger.ipo_open      { symbol }
+      [1] action.arm_ipo_intent { ipo_symbol, quantity_lots, category,
+                                  bid_price_mode, bid_price? }
+      [2] notify.message        { template: "<open-day handoff text>" }
+
+    The notify template leads with "Pivot has NOT applied — you must
+    apply & approve the mandate yourself by 5 PM" so the user is never
+    under the impression Pivot executed the bid for them.
+
+    Validates against the registry before returning — a bad draft fails
+    server-side rather than leaking a malformed payload to the FE.
+
+    DEFERRED to P2.1 (do NOT build now): the separate close-day 5 PM
+    and T+1 allotment-day reminders (date-pinned trigger.schedule
+    workflows). The allotment reminder depends on P1 allotment-date /
+    registrar data which isn't built. The open-day handoff already
+    nudges "apply by 5 PM".
+    """
+    sym = str(symbol).strip().upper()
+    if not sym:
+        raise ValueError("build_ipo_reminder_draft: symbol is required")
+    if quantity_lots < 1:
+        raise ValueError("quantity_lots must be >= 1")
+    if bid_price_mode not in {"cutoff", "fixed"}:
+        raise ValueError(
+            f"bid_price_mode must be 'cutoff' or 'fixed' (got {bid_price_mode!r})"
+        )
+    if bid_price_mode == "fixed" and bid_price is None:
+        raise ValueError("bid_price is required when bid_price_mode='fixed'")
+
+    # Pull display-only fields from the IPO record for the notify
+    # template. Honest fallback when fields are missing — never invent.
+    ipo_name = str(ipo_details.get("name") or sym)
+    ipo_type = "sme" if ipo_details.get("type") == "sme" else "mainboard"
+    open_date = ipo_details.get("open_date") or "open day"
+    close_date = ipo_details.get("close_date") or "close day"
+    price_band_raw = ipo_details.get("price_band") or "N/A"
+
+    arm_cfg: dict[str, Any] = {
+        "ipo_symbol": sym,
+        "quantity_lots": int(quantity_lots),
+        "category": str(category),
+        "bid_price_mode": str(bid_price_mode),
+    }
+    if bid_price is not None:
+        arm_cfg["bid_price"] = float(bid_price)
+
+    # Full open-day handoff text. Leads with the non-execution disclaimer
+    # so the rendered notification can't be mis-read as a fill notice.
+    template = (
+        f"Pivot has NOT applied for {ipo_name} ({sym}) — open your "
+        f"broker / UPI app, place the bid and approve the UPI mandate "
+        f"yourself by 5 PM on close day ({close_date}). This is a "
+        f"reminder only. Subscription window: {open_date} to {close_date}. "
+        f"Price band: {price_band_raw}. Intent armed: {quantity_lots} lot"
+        f"{'s' if quantity_lots != 1 else ''} ({category}, {bid_price_mode})."
+    )
+
+    steps: list[dict[str, Any]] = [
+        {
+            "step_type": "trigger.ipo_open",
+            "label": f"When {sym} IPO opens",
+            "config": {"symbol": sym},
+        },
+        {
+            "step_type": "action.arm_ipo_intent",
+            "label": f"Arm intent: {quantity_lots} lot(s) {sym}",
+            "config": arm_cfg,
+        },
+        {
+            "step_type": "notify.message",
+            "label": "Open-day handoff reminder",
+            "config": {
+                "channel": "push",
+                "template": template,
+                "vars": {},
+            },
+        },
+    ]
+
+    bid_label = (
+        "cut-off" if bid_price_mode == "cutoff"
+        else f"₹{bid_price:g}" if bid_price is not None else "fixed"
+    )
+    name = f"{sym} IPO open-day reminder"
+    description = (
+        f"Fires once when {ipo_name} ({sym}, {ipo_type}) opens for "
+        f"subscription. Arms the intent ({quantity_lots} lot at "
+        f"{bid_label}, {category}) and pushes a reminder. Pivot does "
+        f"NOT apply — you place the bid yourself by 5 PM on {close_date}."
+    )
+    rationale = (
+        f"Listens for the {sym} IPO to flip to 'open' in the live NSE "
+        f"feed. On the open edge, writes an intent_armed row and pushes "
+        f"the open-day handoff text. No broker call — Pivot's verb is "
+        f"'arm' / 'remind', never 'apply'."
+    )
+
+    draft: dict[str, Any] = {
+        "name": name[:60],
+        "description": description,
+        "steps": steps,
+        "rationale": rationale,
+        "warnings": [
+            "Pivot will NOT submit or fund this bid. You must apply "
+            "and approve the UPI mandate yourself in your broker app "
+            "by 5 PM on close day.",
+        ],
+        "_render_hint": "workflow_draft_card",
+    }
+    return _validate_or_raise(draft)
+
+
+# NOTE: build_ipo_reminder_draft is NOT plumbed into _MACROS / hydrate_and_validate
+# because its signature is (symbol, ipo_details, *, ...) — the IPO details
+# come from the live feed, not from LLM params. The chat tool calls it
+# directly (see agents/tool_executor.py:_propose_ipo_automation).

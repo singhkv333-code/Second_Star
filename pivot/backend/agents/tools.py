@@ -21,7 +21,7 @@ TOOL_SUBSETS = {
     "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain", "fetch_fundamentals", "get_symbol_news", "list_upcoming_ipos"],
     "FUNDAMENTAL_SCREEN": ["screen_fundamentals"],
     "ANALYSIS":          ["fetch_fundamentals", "get_symbol_news"],
-    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details", "propose_ipo_application"],
+    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details", "propose_ipo_application", "propose_ipo_automation"],
     "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow", "propose_polymarket_trigger"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
     "WORKFLOW_PROPOSE":  ["propose_workflow"],
@@ -738,6 +738,20 @@ tool("propose_ipo_application",
      "estimate, in-band validation hints) — the FE renders the editable form "
      "and posts to /ipo-applications when the user clicks Register. NEVER "
      "claim Pivot places the bid.",
+     {"name_or_symbol": {"type": "string",
+                         "description": "IPO company name or NSE symbol. Case-insensitive."}},
+     ["name_or_symbol"])
+
+tool("propose_ipo_automation",
+     "Builds the open-day reminder WORKFLOW for a specific upcoming / open IPO "
+     "(a 3-step draft: trigger.ipo_open + action.arm_ipo_intent + notify.message). "
+     "Use when the user wants automation/reminders ('set up reminders for the X "
+     "IPO', 'remind me when X opens', 'automate the X IPO', 'open-day reminder "
+     "for X'). The watcher fires once on the upcoming -> open edge, the action "
+     "writes an intent_armed row, and the notify step pushes the open-day "
+     "handoff text. PIVOT NEVER SUBMITS OR FUNDS THE BID — the verb is 'arm' / "
+     "'remind', never 'apply'. The FE renders the same WorkflowDraftCard as "
+     "propose_workflow; the user edits lots / category / mode and activates.",
      {"name_or_symbol": {"type": "string",
                          "description": "IPO company name or NSE symbol. Case-insensitive."}},
      ["name_or_symbol"])

@@ -32,6 +32,10 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "trigger.compound": "trigger",
     # Slice-4 — Polymarket prediction-market trigger (threshold OR resolution)
     "trigger.polymarket": "trigger",
+    # Phase-D6 — exit-tree compound trigger (entry with position-state leaves)
+    "trigger.exit_compound": "trigger",
+    # P2 — IPO open-day reminder watcher (upcoming -> open edge)
+    "trigger.ipo_open": "trigger",
     # ── Data fetches (11) ──
     "fetch.quote": "fetch",
     "fetch.indicator": "fetch",
@@ -53,6 +57,8 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "condition.market_status": "condition",
     "condition.position": "condition",
     "condition.time_window": "condition",
+    # Phase-D5 — DSL-driven compound condition (mid-branch gate)
+    "condition.compound": "condition",
     # ── Actions (10) ──
     "action.place_order": "action",
     "action.cancel_orders": "action",
@@ -64,6 +70,8 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "action.squareoff_symbol": "action",
     "action.squareoff_all": "action",
     "action.squareoff_all_intraday": "action",
+    # P2 — IPO arm-intent (register-not-execute, no broker call)
+    "action.arm_ipo_intent": "action",
     # ── Communication (3) ──
     "notify.message": "notify",
     "notify.log": "notify",

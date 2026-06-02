@@ -22,6 +22,7 @@ from backend.workflows.schemas import (
     TriggerEventConfig,
     TriggerExitCompoundConfig,
     TriggerIndicatorConfig,
+    TriggerIpoOpenConfig,
     TriggerManualConfig,
     TriggerMarketRelativeTimeConfig,
     TriggerPolymarketConfig,
@@ -272,6 +273,25 @@ async def execute_trigger_market_relative_time(ctx: Any) -> Optional[dict[str, A
     `trigger.schedule`). The scheduler resolves the relative anchor to
     a concrete cron at job-arming time — see
     backend/workflows/scheduler.py:_arm_market_relative_time."""
+    return None
+
+
+@register_step(
+    step_type="trigger.ipo_open",
+    category="trigger",
+    label="On IPO open",
+    description="Fire when an IPO's subscription window opens",
+    icon="rocket",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerIpoOpenConfig,
+    output_schema=None,
+)
+async def execute_trigger_ipo_open(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the IPO open watcher (``backend/workflows/scheduler.py
+    :_poll_ipo_open_triggers``) is what actually fires this trigger. By
+    the time the engine reaches this executor, the run row already
+    exists. The executor's job is purely to return None so step 1 runs."""
     return None
 
 

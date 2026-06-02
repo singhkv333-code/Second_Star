@@ -24,6 +24,7 @@ import type {
   CreateWorkflowRequest,
   ErrorBody,
   IpoApplicationsListResponse,
+  IpoCalendarResponse,
   IpoRegisterRequest,
   IpoRegisterResponse,
   IpoWithdrawResponse,
@@ -1422,4 +1423,25 @@ export function withdrawIpoApplication(
 /** `GET /users/ipo-applications` — list this user's IPO applications. */
 export function listMyIpoApplications(): Promise<ApiResult<IpoApplicationsListResponse>> {
   return requestLegacy<IpoApplicationsListResponse>("/users/ipo-applications");
+}
+
+/**
+ * `GET /ipo-calendar?from=&to=` — upcoming IPO open/close windows.
+ *
+ * Bare-mounted at /ipo-calendar (no /api prefix), same as the other IPO
+ * routes. `from` and `to` are optional ISO date strings; when omitted the
+ * backend returns all upcoming IPOs it has in its feed.
+ *
+ * TODO(P2.1 calendar): wire this response into CalendarTab to show IPO
+ * open/close entries alongside workflow runs. Currently the fetcher + types
+ * are wired; the CalendarTab integration is behind a lightweight feature
+ * flag (see CalendarTab.tsx comment) to avoid risking the existing view.
+ */
+export function getIpoCalendar(
+  from?: string,
+  to?: string,
+): Promise<ApiResult<IpoCalendarResponse>> {
+  return requestLegacy<IpoCalendarResponse>("/ipo-calendar", {
+    query: { from, to },
+  });
 }

@@ -376,6 +376,29 @@ class TriggerManualConfig(_Strict):
     pass
 
 
+class TriggerIpoOpenConfig(_Strict):
+    """Fire when an IPO's subscription window opens (upcoming -> open edge).
+
+    Symbol-only: firing is driven by the live NSE IPO feed's status
+    transition, not by a price band or amount. The watcher (see
+    ``backend/workflows/scheduler.py:_poll_ipo_open_triggers``) calls
+    ``ipo_feed.list_upcoming_ipos`` every 30 minutes (NOT gated on market
+    hours — IPO open-status is readable any time of day) and fires the
+    workflow ONCE when the matched IPO's status flips to 'open'. A
+    fire-once latch is persisted on the step config (under
+    ``_ipo_open_fired``) so a long-open IPO doesn't re-fire the
+    workflow on every poll.
+    """
+    symbol: str = Field(
+        ..., min_length=1,
+        description=(
+            "NSE IPO symbol (case-insensitive; the watcher upper-cases "
+            "before matching). Matches the symbol returned by the live "
+            "IPO feed — see ``backend/services/ipo_feed.py``."
+        ),
+    )
+
+
 class TriggerWebhookConfig(_Strict):
     """Webhook trigger has no config in workflow_steps. The token is
     issued separately and stored in workflow_webhook_tokens."""
@@ -1002,6 +1025,35 @@ class ActionPlaceOrderConfig(_Strict):
         if not has_qty and not has_notional:
             raise ValueError("must specify quantity or notional_inr")
         return self
+
+
+class ActionArmIpoIntentConfig(_Strict):
+    """Arm an IPO application intent — register-not-execute (P2).
+
+    Pivot NEVER submits the bid. This action writes a row to
+    ``ipo_applications`` with ``status='intent_armed'`` so the user has
+    a single visible row of the pending intent on open day, and the
+    chat surface / FE can render a reminder card. The bid itself is
+    placed and the UPI/ASBA mandate is approved BY THE USER in their
+    broker app by 5 PM on close day. The companion ``notify.message``
+    step leads with "Pivot has NOT applied" so the user is never under
+    the impression Pivot executed the bid for them.
+
+    Inputs mirror the editable block on the application card:
+      - ``ipo_symbol``       NSE symbol — case-insensitive.
+      - ``quantity_lots``    integer ≥ 1 (mainboard min 1, SME min 2 —
+                              enforced server-side at amount-compute time).
+      - ``category``         one of IPO_CATEGORIES (retail / snii / ...).
+      - ``bid_price_mode``   'cutoff' (retail only, mainboard only) or
+                              'fixed' (explicit in-band bid_price).
+      - ``bid_price``        Required when ``bid_price_mode='fixed'``;
+                              ignored when ``'cutoff'``.
+    """
+    ipo_symbol: str = Field(..., min_length=1)
+    quantity_lots: int = Field(..., ge=1)
+    category: str = Field(..., min_length=1)
+    bid_price_mode: str = Field(..., min_length=1)
+    bid_price: Optional[float] = Field(default=None)
 
 
 class ActionCancelOrdersConfig(_Strict):

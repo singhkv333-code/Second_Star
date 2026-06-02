@@ -39,6 +39,17 @@ import {
   listWorkflows,
   type ScheduledRun,
 } from "@/lib/api";
+// TODO(P2.1-calendar): import getIpoCalendar and IpoCalendarItem from @/lib/api
+// and @/lib/types, then merge IPO open/close dates into the combined items list
+// below. IpoCalendarItem has {ipo_symbol, open_date, close_date, status, type}
+// whereas ScheduledRun has {workflow_id, workflow_name, fire_time, trigger_type}.
+// Mapping: synthesise two ScheduledRun entries per IPO item — one for open_date
+// (trigger_type "trigger.ipo_open") and one for close_date (trigger_type "trigger.event"),
+// with fire_time=<date>T09:00:00+05:30 and workflow_name=`${name} IPO opens/closes`.
+// The filter chips need a new "ipo" type key in EVENT_TYPES with a distinct color.
+// Risk: the existing month/agenda view renders from a ScheduledRun[] and the
+// DayPanelEvent/AgendaLine click handlers call onOpenWorkflow(workflow_id) — IPO
+// entries have no workflow_id so that branch must be guarded. Deferred to P2.1.
 import { isError } from "@/lib/types";
 
 // ---------------------------------------------------------------------------

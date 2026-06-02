@@ -137,6 +137,21 @@ _RULES: list[_Rule] = [
         "get_symbol_news", "get_top_movers", "get_live_price",
     ),
 
+    # ── IPO open-day reminder / automation (P2) ──────────────────────
+    # "set up reminders for the X IPO", "automate the X IPO",
+    # "remind me when X IPO opens", "open-day reminder for X IPO".
+    # IMPORTANT: keep BEFORE the generic IPO route so this matches first
+    # for automation phrasings; the generic route still surfaces it as a
+    # fallback via the tool list below.
+    _r(
+        r"\b(?:set\s+up|setup)\s+(?:open[\s-]day\s+)?reminders?\b.*\bipo\b"
+        r"|\bautomate\b.*\bipo\b"
+        r"|\bremind\s+me\b.*\bipo\b"
+        r"|\bopen[\s-]day\s+reminders?\b"
+        r"|\bipo\b.*\b(?:reminders?|automation|automate)\b",
+        "propose_ipo_automation", "get_ipo_details", "list_upcoming_ipos",
+    ),
+
     # ── IPOs (upcoming / open mainboard + SME) ───────────────────────
     # "any IPOs open?", "upcoming IPOs", "tell me about the X IPO",
     # "I want to apply for the <name> IPO".
@@ -147,6 +162,7 @@ _RULES: list[_Rule] = [
         r"|\bnew\s+(?:listing|issue)s?\b"
         r"|\bapply\s+(?:for|to)\s+(?:the\s+)?[\w\s]+\bipo\b",
         "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
+        "propose_ipo_automation",
     ),
 
     # ── Two-stock comparison (2026-05-29) ───────────────────────────

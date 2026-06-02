@@ -18,6 +18,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from backend.models import (
+    IPO_APPLICATION_STATUSES,
     IPO_BID_PRICE_MODES,
     IPO_CATEGORIES,
     IPO_TYPES,
@@ -106,12 +107,20 @@ def persist_ipo_application(
     stale: bool = False,
     autonomous: bool = False,
     paper_mode: bool = False,
+    status: str = "registered",
 ) -> IPOApplication:
-    """Persist a registered IPO intent.
+    """Persist an IPO intent row.
 
     Validates enum-like fields before INSERT so an upstream typo surfaces
     here, not as a check-constraint violation deep in the DB driver.
     No broker call. No external state mutation.
+
+    ``status`` defaults to ``"registered"`` for the router register path;
+    the autonomous workflow ``action.arm_ipo_intent`` executor passes
+    ``status="intent_armed"`` so the row clearly shows up as a
+    workflow-armed intent (vs a chat-confirmed registration). Any value
+    must be in ``IPO_APPLICATION_STATUSES`` (matches the DB
+    CheckConstraint).
     """
     if ipo_type not in IPO_TYPES:
         raise ValueError(f"ipo_type must be one of {sorted(IPO_TYPES)}")
@@ -120,6 +129,10 @@ def persist_ipo_application(
     if bid_price_mode not in IPO_BID_PRICE_MODES:
         raise ValueError(
             f"bid_price_mode must be one of {sorted(IPO_BID_PRICE_MODES)}"
+        )
+    if status not in IPO_APPLICATION_STATUSES:
+        raise ValueError(
+            f"status must be one of {sorted(IPO_APPLICATION_STATUSES)}"
         )
 
     row = IPOApplication(
@@ -134,7 +147,7 @@ def persist_ipo_application(
         bid_price=bid_price,
         amount_estimate=float(amount_estimate),
         upi_id_masked=upi_id_masked,
-        status="registered",
+        status=status,
         autonomous=bool(autonomous),
         paper_mode=bool(paper_mode),
         stale=bool(stale),
