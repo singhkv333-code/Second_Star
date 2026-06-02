@@ -288,6 +288,31 @@ export type IpoPriceBand = {
   is_fixed: boolean;
 };
 
+/**
+ * Per-category subscription data from NSE's ipo-active-category endpoint.
+ * All values are "times subscribed" floats (e.g. 2.1 = 2.1×).
+ * A category with no datum is null — never fabricated as 0.
+ */
+export type IpoSubscription = {
+  qib: number | null;
+  nii: number | null;
+  rii: number | null;
+  employee: number | null;
+  shareholder: number | null;
+  overall: number | null;
+  /** ISO timestamp (IST) when the data was fetched from NSE. */
+  as_of?: string;
+};
+
+/** Response from GET /ipo-subscription/{symbol}. */
+export type IpoSubscriptionResponse = {
+  symbol: string;
+  subscription: IpoSubscription | null;
+  as_of?: string;
+  source?: string;
+  note?: string;
+};
+
 /** Locked (server-computed) fields from the IPO data feed. */
 export type IpoLockedFields = {
   price_band: IpoPriceBand | null;
@@ -298,7 +323,9 @@ export type IpoLockedFields = {
   rhp_url: string | null;
   registrar: string | null;
   allotment_deeplink: string | null;
-  subscription: string | null;
+  listing_date: string | null;
+  /** Structured per-category subscription data. Null until IPO is open and data is available. */
+  subscription: IpoSubscription | null;
 };
 
 /** Editable fields that the user can change before registering intent. */

@@ -4,6 +4,12 @@
 
 ---
 
+## Day 15 — 2026-06-02 (frontend-lead) — IPO P1 frontend
+
+- **pivot-next IPO P1**: `lib/types.ts` — added `IpoSubscription`, `IpoSubscriptionResponse`; updated `IpoLockedFields.subscription` from `string|null` to `IpoSubscription|null`; added `listing_date: string|null`. `lib/api.ts` — added `getIpoSubscription(symbol)` via `requestLegacy`. `IpoApplicationCard.tsx` — structured subscription block (per-category "RII 2.1× · NII 0.8× · QIB 1.4×" + as-of + Refresh button, only when open), RHP prospectus link, allotment/registrar fallback ("check with your broker / registrar"), listing date in locked grid, contextual oversubscription note at lots stepper, GMP chip (only when `payload.gmp` present — absent in v1). `tsc --noEmit` clean; per-file lint clean.
+
+---
+
 ## Day 14 — 2026-06-01 (lead) — Data audit + DB restructuring + Phase 2.1/2.3
 
 Running log (updated after each build+test run, newest last).

@@ -33,6 +33,7 @@ from backend.services.ipo_application_service import (
     persist_ipo_application,
 )
 from backend.services.ipo_feed import (
+    fetch_subscription,
     get_ipo_details,
     list_upcoming_ipos,
     parse_price_band,
@@ -483,6 +484,50 @@ def get_ipo_calendar(
         "items": items,
         "note": listing.get("note"),
         "source": listing.get("source"),
+    }
+
+
+# ── GET /ipo-subscription/{symbol} ─────────────────────────────────────
+#
+# Powers the IPO application card's Refresh button: pulls live
+# per-category subscription multiples (QIB / NII / RII / Employee /
+# Shareholder / Overall) without recomputing the rest of the card.
+# Honest-on-failure — when NSE is unreachable or there's no active
+# record, ``subscription`` is None with an honest note.
+
+
+@router.get("/ipo-subscription/{symbol}")
+def get_ipo_subscription(
+    symbol: str,
+    user_id: int = Depends(get_user_id),
+) -> dict:
+    """Return live per-category subscription multiples for one symbol.
+
+    Shape::
+
+        {
+          "symbol": "TIKONA",
+          "subscription": {qib, nii, rii, employee, shareholder, overall} | None,
+          "as_of": "<ISO IST>",
+          "source": "nse" | "unreachable",
+          "note": str | None,
+        }
+
+    Bare-mounted (no /api prefix) to match the rest of the IPO routes;
+    auth via ``get_user_id`` for consistency. The 15-min Redis cache
+    inside ``fetch_subscription`` means burst-Refresh clicks don't
+    hammer NSE.
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=422, detail="symbol is required")
+    body = fetch_subscription(sym)
+    return {
+        "symbol": sym,
+        "subscription": body.get("subscription"),
+        "as_of": body.get("as_of"),
+        "source": body.get("source"),
+        "note": body.get("note"),
     }
 
 

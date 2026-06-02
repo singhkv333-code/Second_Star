@@ -27,6 +27,7 @@ import type {
   IpoCalendarResponse,
   IpoRegisterRequest,
   IpoRegisterResponse,
+  IpoSubscriptionResponse,
   IpoWithdrawResponse,
   Paginated,
   Run,
@@ -1444,4 +1445,20 @@ export function getIpoCalendar(
   return requestLegacy<IpoCalendarResponse>("/ipo-calendar", {
     query: { from, to },
   });
+}
+
+/**
+ * `GET /ipo-subscription/{symbol}` — live per-category subscription data.
+ *
+ * Bare-mounted at /ipo-subscription (no /api prefix), same as other IPO
+ * routes. Returns per-category subscription multiples (times subscribed)
+ * from NSE's ipo-active-category endpoint. Only meaningful when status=="open".
+ * Returns subscription:null + note when data is unavailable (honest-null).
+ */
+export function getIpoSubscription(
+  symbol: string,
+): Promise<ApiResult<IpoSubscriptionResponse>> {
+  return requestLegacy<IpoSubscriptionResponse>(
+    `/ipo-subscription/${encodeURIComponent(symbol)}`,
+  );
 }

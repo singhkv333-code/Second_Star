@@ -1397,7 +1397,16 @@ async def _propose_ipo_application(a, kt, db, uid):
     model so it can speak honestly back to the user. Never fabricates
     IPOs / dates / bands. Never claims Pivot places the bid.
     """
-    from backend.services.ipo_feed import get_ipo_details, parse_price_band
+    from backend.services.ipo_feed import (
+        IPO_GMP_ENABLED,
+        detect_registrar,
+        fetch_subscription,
+        get_ipo_details,
+        gmp_payload,
+        parse_price_band,
+        resolve_listing_date,
+        resolve_rhp,
+    )
 
     query = str(a.get("name_or_symbol", "")).strip()
     if not query:
@@ -1455,8 +1464,26 @@ async def _propose_ipo_application(a, kt, db, uid):
     band = parse_price_band(ipo.get("price_band"))
 
     raw_extra = feed.get("extra") or {}
-    rhp_url = raw_extra.get("rhpLink") or raw_extra.get("rhp_link") \
-        or raw_extra.get("rhpUrl") or raw_extra.get("rhp_url") or None
+    # Stitch the normalized ipo dict + its _raw NSE blob into a single
+    # record shape the P1 helpers (resolve_*, detect_registrar) walk.
+    enrichment_record: dict[str, object] = dict(ipo)
+    if isinstance(raw_extra, dict):
+        enrichment_record["_raw"] = raw_extra
+
+    rhp_url = resolve_rhp(enrichment_record)
+    registrar_name, allotment_deeplink = detect_registrar(enrichment_record)
+    listing_date = resolve_listing_date(enrichment_record)
+
+    # Subscription % is meaningful ONLY for currently-open issues; skip
+    # the network call for upcoming / closed (NSE returns "Missing
+    # Symbol" anyway). Keep the as_of stamp so the FE can render
+    # "as of HH:MM" once data is available.
+    subscription_block: dict[str, object] | None = None
+    if status_ == "open":
+        sub_body = fetch_subscription(symbol)
+        sub_cats = sub_body.get("subscription")
+        if isinstance(sub_cats, dict):
+            subscription_block = {**sub_cats, "as_of": sub_body.get("as_of")}
 
     # FE-driven defaults. Mainboard min 1 lot, SME min 2 lots.
     min_lots = 2 if ipo_type == "sme" else 1
@@ -1473,20 +1500,26 @@ async def _propose_ipo_application(a, kt, db, uid):
 
     # Closed status = read-only variant. The FE disables Register; we still
     # surface the locked fields + any RHP / allotment deep links.
-    locked = {
+    locked: dict[str, object | None] = {
         "price_band": band,
         "lot_size": lot_size,
         "open_date": ipo.get("open_date"),
         "close_date": ipo.get("close_date"),
         "issue_size": ipo.get("issue_size"),
         "rhp_url": rhp_url,
-        # P1: registrar + allotment deep-link resolution. Null in P0 so the
-        # FE hides the link rather than rendering a broken placeholder.
-        "registrar": None,
-        "allotment_deeplink": None,
-        # P1: subscription numbers. Null in P0 -> FE renders
-        # "subscription not available".
-        "subscription": None,
+        # P1: registrar + allotment deep-link from detect_registrar.
+        # The live NSE feed does not carry the registrar name yet, so
+        # these resolve to (None, None) for real records today — the FE
+        # then shows "Allotment: check with your broker/registrar."
+        "registrar": registrar_name,
+        "allotment_deeplink": allotment_deeplink,
+        # P1: per-category subscription multiples. Populated only when
+        # status=="open"; otherwise None → FE renders
+        # "Subscription not available."
+        "subscription": subscription_block,
+        # P1: listing date — populated on listed/past records, None on
+        # upcoming/active. Honest-null, never fabricated.
+        "listing_date": listing_date,
     }
     editable = {
         "category": "retail",
@@ -1532,6 +1565,15 @@ async def _propose_ipo_application(a, kt, db, uid):
             "broker/UPI app by 5 PM on close day."
         ),
     }
+
+    # GMP is fail-closed OFF in v1: only attach the "gmp" key when the
+    # flag is on AND gmp_payload returns a value (which it doesn't in
+    # v1 — no vendor wired). When omitted, the FE never renders the
+    # chip; that's the intended behaviour.
+    if IPO_GMP_ENABLED:
+        gmp = gmp_payload(symbol)
+        if gmp is not None:
+            payload["gmp"] = gmp
 
     return {"success": True, "data": payload, "logiccard": None}
 

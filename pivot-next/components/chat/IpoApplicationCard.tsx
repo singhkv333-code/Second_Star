@@ -11,6 +11,9 @@
  *  - State machine: idle -> saving -> registered(id) -> withdrawn; closed read-only
  *  - KYC block omitted (replaced by one disclaimer line)
  *  - No reminders CTA (P2 — render a disabled ghost link)
+ *  - P1 OFFICIAL block: subscription per-category + Refresh, RHP link,
+ *    allotment/registrar line, listing date, oversubscription note,
+ *    GMP chip (only when payload.gmp is present)
  *
  * Modelled on WorkflowDraftCard.tsx patterns.
  */
@@ -23,11 +26,13 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  RefreshCw,
   ShieldAlert,
   Undo2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  getIpoSubscription,
   registerIpoApplication,
   withdrawIpoApplication,
 } from "@/lib/api";
@@ -37,6 +42,7 @@ import type {
   IpoCategory,
   IpoBidPriceMode,
   IpoApplication,
+  IpoSubscription,
 } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -210,6 +216,71 @@ function StatusBadge({ status }: { status: IpoApplicationPayload["status"] }): R
 }
 
 // ---------------------------------------------------------------------------
+// Subscription helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a subscription times value for display.
+ * Returns e.g. "2.1×" or null when the value is null.
+ */
+function formatTimes(value: number | null): string | null {
+  if (value === null) return null;
+  return `${value.toFixed(1)}×`;
+}
+
+/**
+ * Render the user-relevant subscription categories as a compact string.
+ * E.g. "RII 2.1× · NII 0.8× · QIB 1.4×"
+ * Returns null when all relevant values are null.
+ */
+function formatSubscriptionSummary(sub: IpoSubscription): string | null {
+  const parts: string[] = [];
+  const rii = formatTimes(sub.rii);
+  const nii = formatTimes(sub.nii);
+  const qib = formatTimes(sub.qib);
+  const emp = formatTimes(sub.employee);
+  const sh = formatTimes(sub.shareholder);
+  if (rii) parts.push(`RII ${rii}`);
+  if (nii) parts.push(`NII ${nii}`);
+  if (qib) parts.push(`QIB ${qib}`);
+  if (emp) parts.push(`Employee ${emp}`);
+  if (sh) parts.push(`Shareholder ${sh}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * Return the subscription value for the selected category, used to drive
+ * the oversubscription warning at the lots stepper.
+ */
+function subscriptionForCategory(
+  sub: IpoSubscription | null,
+  category: IpoCategory,
+): number | null {
+  if (!sub) return null;
+  switch (category) {
+    case "retail": return sub.rii;
+    case "snii":
+    case "bnii": return sub.nii;
+    case "employee": return sub.employee;
+    case "shareholder": return sub.shareholder;
+    default: return null;
+  }
+}
+
+/**
+ * Format the as_of ISO timestamp to a compact "HH:MM" string in the local timezone.
+ */
+function formatAsOf(asOf: string | undefined): string | null {
+  if (!asOf) return null;
+  try {
+    const d = new Date(asOf);
+    return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main card
 // ---------------------------------------------------------------------------
 
@@ -225,10 +296,38 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
   );
   const [upiId, setUpiId] = useState<string>(payload.editable.upi_id ?? "");
 
+  // P1 — live subscription data (refreshable by user)
+  const [subscription, setSubscription] = useState<IpoSubscription | null>(
+    payload.locked.subscription,
+  );
+  const [subRefreshing, setSubRefreshing] = useState(false);
+  const [subRefreshError, setSubRefreshError] = useState<string | null>(null);
+
   const [cardState, setCardState] = useState<CardState>({ kind: "idle" });
+
+  async function handleRefreshSubscription(): Promise<void> {
+    if (subRefreshing || payload.status !== "open") return;
+    setSubRefreshing(true);
+    setSubRefreshError(null);
+    try {
+      const result = await getIpoSubscription(payload.symbol);
+      if (isError(result)) {
+        // Keep prior value, show a subtle note
+        setSubRefreshError(result.error.message ?? "Could not refresh subscription data.");
+      } else {
+        setSubscription(result.data.subscription);
+      }
+    } finally {
+      setSubRefreshing(false);
+    }
+  }
 
   const amountPreview = computeAmountPreview(payload, quantityLots, bidPriceMode, bidPrice);
   const validationResult = validate(payload, category, quantityLots, bidPriceMode, bidPrice);
+
+  // P1 — oversubscription note: map category → its subscription value
+  const categorySubValue = subscriptionForCategory(subscription, category);
+  const isOversubscribed = categorySubValue !== null && categorySubValue > 1;
 
   const upiValid = upiId.length > 0 && UPI_REGEX.test(upiId);
   const upiFormatNote = upiId.length > 0 && !upiValid
@@ -353,12 +452,22 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
           <LockedRow label="Open" value={formatDate(payload.locked.open_date)} />
           <LockedRow label="Close" value={formatDate(payload.locked.close_date)} />
           <LockedRow label="Issue size" value={payload.locked.issue_size} />
-          {payload.locked.subscription ? (
-            <LockedRow label="Subscription" value={payload.locked.subscription} />
-          ) : (
-            <LockedRow label="Subscription" value="Not available" muted />
-          )}
+          {payload.locked.listing_date ? (
+            <LockedRow label="Listing" value={formatDate(payload.locked.listing_date)} />
+          ) : null}
         </div>
+
+        {/* P1 — Subscription block (structured per-category) */}
+        <SubscriptionBlock
+          subscription={subscription}
+          isOpen={payload.status === "open"}
+          refreshing={subRefreshing}
+          refreshError={subRefreshError}
+          onRefresh={() => void handleRefreshSubscription()}
+        />
+
+        {/* P1 — RHP, allotment/registrar, GMP */}
+        <OfficialLinksBlock payload={payload} />
 
         {/* KYC disclaimer — never show PAN/demat */}
         <p className="text-[11px] text-muted-foreground/80 italic">
@@ -410,6 +519,8 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
           isReadOnly={isReadOnly}
           isSaving={cardState.kind === "saving"}
           saveError={cardState.kind === "error" ? cardState.message : null}
+          isOversubscribed={isOversubscribed}
+          categorySubValue={categorySubValue}
           onCategoryChange={handleCategoryChange}
           onQuantityChange={setQuantityLots}
           onBidPriceModeChange={setBidPriceMode}
@@ -424,34 +535,6 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
         />
       )}
 
-      {/* Links row */}
-      {(payload.locked.rhp_url || payload.locked.allotment_deeplink) && (
-        <div className="flex items-center gap-3 border-t border-border/40 px-5 py-2">
-          {payload.locked.rhp_url && (
-            <a
-              href={payload.locked.rhp_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-              RHP
-            </a>
-          )}
-          {payload.locked.allotment_deeplink && (
-            <a
-              href={payload.locked.allotment_deeplink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-              Check allotment
-            </a>
-          )}
-        </div>
-      )}
-
       {/* Disclaimer footer */}
       <div className="flex items-start gap-1.5 border-t border-border/40 bg-amber-50/40 px-5 py-2 dark:bg-amber-500/[0.04]">
         <ShieldAlert
@@ -462,6 +545,140 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
           {payload.disclaimer}
         </p>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// P1 sub-components
+// ---------------------------------------------------------------------------
+
+/**
+ * SubscriptionBlock — renders the per-category subscription data with
+ * an as-of timestamp and a Refresh button (only when status=="open").
+ */
+function SubscriptionBlock({
+  subscription,
+  isOpen,
+  refreshing,
+  refreshError,
+  onRefresh,
+}: {
+  subscription: IpoSubscription | null;
+  isOpen: boolean;
+  refreshing: boolean;
+  refreshError: string | null;
+  onRefresh: () => void;
+}): React.ReactElement | null {
+  const summary = subscription ? formatSubscriptionSummary(subscription) : null;
+  const asOfLabel = subscription?.as_of ? formatAsOf(subscription.as_of) : null;
+
+  return (
+    <div className="flex items-start justify-between gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+          Subscription
+        </span>
+        {summary ? (
+          <span className="text-[11.5px] font-medium text-foreground truncate">
+            {summary}
+          </span>
+        ) : (
+          <span className="text-[11.5px] text-muted-foreground">
+            Not available
+          </span>
+        )}
+        {asOfLabel && (
+          <span className="text-[10px] text-muted-foreground/60">as of {asOfLabel}</span>
+        )}
+        {refreshError && (
+          <span className="text-[10px] text-amber-600 dark:text-amber-400">{refreshError}</span>
+        )}
+      </div>
+      {isOpen && (
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={refreshing}
+          aria-label="Refresh subscription data"
+          title="Refresh subscription from NSE"
+          className={cn(
+            "mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground transition-colors",
+            "hover:bg-muted hover:text-foreground",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          <RefreshCw
+            className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
+            aria-hidden="true"
+          />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * OfficialLinksBlock — RHP prospectus link, allotment/registrar line,
+ * and GMP chip (only if payload.gmp is present — absent in v1).
+ */
+function OfficialLinksBlock({
+  payload,
+}: {
+  payload: IpoApplicationPayload & { gmp?: { value: number; disclaimer: string } };
+}): React.ReactElement | null {
+  const { locked } = payload;
+  const hasRhp = Boolean(locked.rhp_url);
+  const hasAllotment = Boolean(locked.allotment_deeplink);
+  const gmp = payload.gmp;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {hasRhp && (
+        <a
+          href={locked.rhp_url!}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 self-start text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+          View prospectus (RHP)
+        </a>
+      )}
+
+      {hasAllotment ? (
+        <a
+          href={locked.allotment_deeplink!}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 self-start text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Check allotment{locked.registrar ? ` on ${locked.registrar}` : ""}
+        </a>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/70">
+          Allotment: check with your broker / registrar
+        </p>
+      )}
+
+      {/* GMP chip — only rendered when payload.gmp is present (v1: always absent) */}
+      {gmp && (
+        <div className="flex items-start gap-1.5 rounded-lg border border-amber-400/30 bg-amber-50/40 px-2.5 py-2 dark:bg-amber-500/[0.06]">
+          <AlertCircle
+            className="mt-px h-3 w-3 shrink-0 text-amber-600/80 dark:text-amber-400/80"
+            aria-hidden="true"
+          />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-medium text-foreground">
+              GMP ≈ {gmp.value > 0 ? "+" : ""}{formatIndianCurrency(gmp.value)}
+            </span>
+            <span className="text-[10px] leading-snug text-amber-700/80 dark:text-amber-300/80">
+              {gmp.disclaimer}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -485,6 +702,8 @@ function EditableForm({
   isReadOnly,
   isSaving,
   saveError,
+  isOversubscribed,
+  categorySubValue,
   onCategoryChange,
   onQuantityChange,
   onBidPriceModeChange,
@@ -507,6 +726,10 @@ function EditableForm({
   isReadOnly: boolean;
   isSaving: boolean;
   saveError: string | null;
+  /** True when the selected category's subscription > 1× (oversubscribed). */
+  isOversubscribed: boolean;
+  /** The raw subscription multiplier for the selected category, for messaging. */
+  categorySubValue: number | null;
   onCategoryChange: (c: IpoCategory) => void;
   onQuantityChange: (q: number) => void;
   onBidPriceModeChange: (m: IpoBidPriceMode) => void;
@@ -552,52 +775,64 @@ function EditableForm({
 
       {/* Quantity */}
       <FormRow label="Lots">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            aria-label="Decrease lots"
-            disabled={isReadOnly || isSaving || quantityLots <= validation.min_lots}
-            onClick={() => onQuantityChange(Math.max(validation.min_lots, quantityLots - 1))}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-[14px] text-muted-foreground",
-              "hover:bg-muted hover:text-foreground transition-colors",
-              "disabled:cursor-not-allowed disabled:opacity-40",
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Decrease lots"
+              disabled={isReadOnly || isSaving || quantityLots <= validation.min_lots}
+              onClick={() => onQuantityChange(Math.max(validation.min_lots, quantityLots - 1))}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-[14px] text-muted-foreground",
+                "hover:bg-muted hover:text-foreground transition-colors",
+                "disabled:cursor-not-allowed disabled:opacity-40",
+              )}
+            >
+              −
+            </button>
+            <input
+              type="number"
+              min={validation.min_lots}
+              value={quantityLots}
+              disabled={isReadOnly || isSaving}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (!isNaN(v)) onQuantityChange(v);
+              }}
+              className={cn(
+                "w-16 rounded-lg border border-border/60 bg-background px-2 py-1.5 text-center text-[12px] text-foreground",
+                "focus:outline-none focus:ring-1 focus:ring-ring",
+                "disabled:cursor-not-allowed disabled:opacity-60",
+              )}
+            />
+            <button
+              type="button"
+              aria-label="Increase lots"
+              disabled={isReadOnly || isSaving}
+              onClick={() => onQuantityChange(quantityLots + 1)}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-[14px] text-muted-foreground",
+                "hover:bg-muted hover:text-foreground transition-colors",
+                "disabled:cursor-not-allowed disabled:opacity-40",
+              )}
+            >
+              +
+            </button>
+            {amountPreview !== null && (
+              <span className="text-[11.5px] text-muted-foreground">
+                ≈ {formatIndianCurrency(amountPreview)}
+              </span>
             )}
-          >
-            −
-          </button>
-          <input
-            type="number"
-            min={validation.min_lots}
-            value={quantityLots}
-            disabled={isReadOnly || isSaving}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (!isNaN(v)) onQuantityChange(v);
-            }}
-            className={cn(
-              "w-16 rounded-lg border border-border/60 bg-background px-2 py-1.5 text-center text-[12px] text-foreground",
-              "focus:outline-none focus:ring-1 focus:ring-ring",
-              "disabled:cursor-not-allowed disabled:opacity-60",
-            )}
-          />
-          <button
-            type="button"
-            aria-label="Increase lots"
-            disabled={isReadOnly || isSaving}
-            onClick={() => onQuantityChange(quantityLots + 1)}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-[14px] text-muted-foreground",
-              "hover:bg-muted hover:text-foreground transition-colors",
-              "disabled:cursor-not-allowed disabled:opacity-40",
-            )}
-          >
-            +
-          </button>
-          {amountPreview !== null && (
-            <span className="text-[11.5px] text-muted-foreground">
-              ≈ {formatIndianCurrency(amountPreview)}
-            </span>
+          </div>
+          {/* P1 — oversubscription note */}
+          {isOversubscribed && categorySubValue !== null && (
+            <p
+              role="note"
+              className="flex items-start gap-1 text-[10.5px] leading-snug text-amber-700/90 dark:text-amber-300/90"
+            >
+              <AlertCircle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+              {CATEGORY_LABELS[category]} is {categorySubValue.toFixed(1)}× oversubscribed — allotment is a lottery; extra lots don&apos;t improve your odds.
+            </p>
           )}
         </div>
       </FormRow>
