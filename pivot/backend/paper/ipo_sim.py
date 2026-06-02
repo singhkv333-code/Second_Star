@@ -382,6 +382,23 @@ def serialize_paper_ipo_allocation(row: PaperIpoAllocation) -> dict[str, Any]:
         "listing_date": (
             row.listing_date.isoformat() if row.listing_date else None
         ),
+        # P3.1 listing-credit fields. ``book_credited`` is the FE's
+        # one-source-of-truth flag for "is this allocation already in the
+        # paper book"; ``paper_fill_id`` lets the UI deep-link to the
+        # actual PaperFill row in the trade blotter. listing_price /
+        # simulated_pnl are the credit-time snapshot — float|None at the
+        # JSON edge, never fabricated. book_note carries the human-
+        # readable reason when book_credited=True with no paper_fill_id
+        # (terminally-skipped credit; e.g. insufficient buying power).
+        "book_credited": bool(row.book_credited),
+        "paper_fill_id": str(row.paper_fill_id) if row.paper_fill_id else None,
+        "listing_price": (
+            float(row.listing_price) if row.listing_price is not None else None
+        ),
+        "simulated_pnl": (
+            float(row.simulated_pnl) if row.simulated_pnl is not None else None
+        ),
+        "book_note": row.book_note,
         "conversation_id": row.conversation_id,
         "simulated": bool(row.simulated),
         "created_at": (

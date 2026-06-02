@@ -74,6 +74,17 @@ _WATCHER_JOB_ID = "pivot_workflows_watcher"
 _IPO_OPEN_WATCHER_INTERVAL_SECONDS = 1800
 _IPO_OPEN_WATCHER_JOB_ID = "pivot_workflows_ipo_open_watcher"
 
+# IPO listing-credit poll cadence (P3.1). The poller is the bridge
+# between an allotted PaperIpoAllocation and the paper book: when
+# listing_date arrives we credit the allotted shares as a paper BUY at
+# the issue price. Daily resolution is sufficient — listing happens once
+# per IPO and we don't need minute-level precision. 1 hour is a
+# defensive cadence that catches a same-day deploy / restart cleanly
+# without hammering the DB. Like the IPO-open watcher, NOT gated on
+# market hours: the credit is a paper-book write, no live feed needed.
+_IPO_LISTING_CREDIT_INTERVAL_SECONDS = 3600
+_IPO_LISTING_CREDIT_JOB_ID = "pivot_workflows_ipo_listing_credit"
+
 # APScheduler job id for the workflow poll job — keep stable across
 # restarts so `replace_existing=True` works.
 _POLL_JOB_ID = "pivot_workflows_poll"
@@ -463,11 +474,22 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        _poll_ipo_listing_fills,
+        trigger="interval",
+        seconds=_IPO_LISTING_CREDIT_INTERVAL_SECONDS,
+        id=_IPO_LISTING_CREDIT_JOB_ID,
+        name="Pivot Workflows — IPO listing-credit",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     logger.info(
         "[workflow-scheduler] registered poll job (%ss) + watcher (%ss) "
-        "+ ipo-open watcher (%ss)",
+        "+ ipo-open watcher (%ss) + ipo-listing-credit (%ss)",
         _POLL_INTERVAL_SECONDS, _WATCHER_INTERVAL_SECONDS,
         _IPO_OPEN_WATCHER_INTERVAL_SECONDS,
+        _IPO_LISTING_CREDIT_INTERVAL_SECONDS,
     )
 
 
@@ -1593,4 +1615,108 @@ async def _poll_ipo_open_triggers() -> None:
             logger.exception(
                 "[watcher.ipo_open] failed to evaluate workflow %s step %d",
                 wf_id, step_idx,
+            )
+
+
+# ── IPO listing-credit poller (P3.1) ─────────────────────────────────
+
+
+def _scan_due_listing_allocations() -> list[str]:
+    """Return the ids of every PaperIpoAllocation that needs a listing
+    credit on this tick.
+
+    Criteria:
+      * allotment_status == 'allotted'
+      * book_credited is False (not yet credited / terminally skipped)
+      * listing_date IS NOT NULL
+      * listing_date <= today (IST)
+
+    Returns ids (not row instances) so the per-row processing loop can
+    open a fresh transaction per allocation, isolating partial failures.
+    Synchronous sync-SQLA scan inside the worker thread; caller wraps
+    this in asyncio.to_thread.
+    """
+    from backend.models import PaperIpoAllocation
+    from backend.utils.time_utils import now_ist
+
+    today = now_ist().date()
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(PaperIpoAllocation.id)
+            .filter(
+                PaperIpoAllocation.allotment_status == "allotted",
+                PaperIpoAllocation.book_credited.is_(False),
+                PaperIpoAllocation.listing_date.isnot(None),
+                PaperIpoAllocation.listing_date <= today,
+            )
+            .order_by(PaperIpoAllocation.created_at.asc())
+            .all()
+        )
+        return [str(r[0]) for r in rows]
+    finally:
+        db.close()
+
+
+def _credit_one_allocation(allocation_id: str) -> None:
+    """Credit a single allocation, opening + committing its own session.
+
+    Runs in a worker thread. Per-row try/except + commit isolates one
+    allocation's failure from the rest of the tick.
+    """
+    from backend.models import PaperIpoAllocation
+    from backend.paper.ipo_fills import credit_listed_allotment
+
+    db = SessionLocal()
+    try:
+        alloc = db.get(PaperIpoAllocation, allocation_id)
+        if alloc is None:
+            return
+        credit_listed_allotment(db, alloc)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "[ipo-listing-credit] failed to credit allocation %s",
+            allocation_id,
+        )
+    finally:
+        db.close()
+
+
+async def _poll_ipo_listing_fills() -> None:
+    """Polled hourly. Credit every allotted PaperIpoAllocation whose
+    ``listing_date`` has arrived into the user's paper book.
+
+    NOT gated on market hours: the credit is a paper-book write (no live
+    trade), and ``listing_price`` is honestly None when the feed has no
+    quote yet. ``credit_listed_allotment`` is idempotent — the
+    ``book_credited`` latch + UNIQUE
+    ``paper_orders.client_request_id='ipo-listing-{alloc.id}'`` together
+    guarantee at-most-once credit per allocation, even across crashes /
+    overlapping ticks.
+
+    One sync scan inside ``asyncio.to_thread`` for the candidate ids,
+    then one per-row thread per allocation with its own SessionLocal +
+    commit. Per-row isolation means a bad row never blocks the rest of
+    the tick.
+    """
+    try:
+        allocation_ids = await asyncio.to_thread(_scan_due_listing_allocations)
+    except Exception:
+        logger.exception("[ipo-listing-credit] scan failed")
+        return
+    if not allocation_ids:
+        return
+
+    logger.info(
+        "[ipo-listing-credit] processing %d due allocation(s)",
+        len(allocation_ids),
+    )
+    for alloc_id in allocation_ids:
+        try:
+            await asyncio.to_thread(_credit_one_allocation, alloc_id)
+        except Exception:
+            logger.exception(
+                "[ipo-listing-credit] worker failed for %s", alloc_id,
             )

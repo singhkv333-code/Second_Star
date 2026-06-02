@@ -470,6 +470,12 @@ export type PaperIpoAllocation = {
   conversation_id: string | null;
   simulated: boolean;
   created_at: string;
+  /** P3.1 — set once the listing-credit poll runs. */
+  book_credited: boolean;
+  paper_fill_id: string | null;
+  listing_price: number | null;
+  simulated_pnl: number | null;
+  book_note: string | null;
 };
 
 // ---------------------------------------------------------------------------

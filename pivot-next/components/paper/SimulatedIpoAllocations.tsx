@@ -21,7 +21,7 @@ import { getPaperIpoAllocations } from "@/lib/api";
 import { isError, type PaperIpoAllocation } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { dateShort, inr, qty } from "@/components/paper/format";
+import { dateShort, inr, pnlColor, qty, signedInr } from "@/components/paper/format";
 
 // ---------------------------------------------------------------------------
 // 4-state machine
@@ -37,9 +37,9 @@ type S<T> =
 // Column geometry — shared by header + body rows
 // ---------------------------------------------------------------------------
 
-/** symbol col wider; rest share space. */
+/** symbol col wider; rest share space. Last col = listing P&L (P3.1). */
 const COLS =
-  "minmax(140px,1.8fr) 80px minmax(80px,1fr) minmax(96px,1fr) minmax(120px,1.2fr) minmax(96px,1fr)";
+  "minmax(140px,1.8fr) 80px minmax(80px,1fr) minmax(96px,1fr) minmax(120px,1.2fr) minmax(96px,1fr) minmax(120px,1.2fr)";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -98,6 +98,7 @@ function HeaderBar(): React.ReactElement {
       <HeaderCell label="≈ Amount" right />
       <HeaderCell label="Status" right />
       <HeaderCell label="Allotment date" right />
+      <HeaderCell label="Listing P&L" right />
     </div>
   );
 }
@@ -130,6 +131,105 @@ function AllotmentBadge({
     <Badge variant="muted" style={{ fontSize: 10 }}>
       Pending
     </Badge>
+  );
+}
+
+/**
+ * Listing credit state for allotted rows (P3.1).
+ *
+ * - book_credited + simulated_pnl: show signed P&L + listing price vs issue price.
+ * - book_credited + book_note (no pnl): show the note (e.g. insufficient buying power).
+ * - allotted + !book_credited: "Awaiting listing {date}".
+ * - all other statuses: empty cell.
+ */
+function ListingCreditCell({
+  row,
+}: {
+  row: PaperIpoAllocation;
+}): React.ReactElement {
+  if (row.allotment_status !== "allotted") {
+    return <div />;
+  }
+
+  if (row.book_credited && row.simulated_pnl != null) {
+    const pnl = row.simulated_pnl;
+    return (
+      <div
+        className="flex flex-col"
+        style={{ gap: 2, alignItems: "flex-end", minWidth: 0 }}
+      >
+        <span
+          className="tabular-nums"
+          style={{ fontSize: 13, fontWeight: 600, color: pnlColor(pnl) }}
+        >
+          {signedInr(pnl)}
+        </span>
+        {row.listing_price != null ? (
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--text-tertiary)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {inr(row.listing_price, 2)} vs {inr(row.issue_price, 2)}
+          </span>
+        ) : null}
+        <span
+          style={{
+            fontSize: 10,
+            color: "var(--text-tertiary)",
+            fontStyle: "italic",
+          }}
+        >
+          In Holdings / NAV
+        </span>
+      </div>
+    );
+  }
+
+  if (row.book_credited && row.book_note) {
+    return (
+      <div style={{ textAlign: "right", minWidth: 0 }}>
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--color-loss)",
+            display: "block",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={row.book_note}
+        >
+          {row.book_note}
+        </span>
+      </div>
+    );
+  }
+
+  // allotted, not yet credited — awaiting listing date
+  return (
+    <div style={{ textAlign: "right", minWidth: 0 }}>
+      <span
+        style={{
+          fontSize: 11,
+          color: "var(--text-tertiary)",
+          display: "block",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Awaiting listing
+        {row.listing_date ? (
+          <>
+            {" "}
+            <span style={{ color: "var(--text-secondary)" }}>
+              {dateShort(row.listing_date)}
+            </span>
+          </>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
@@ -238,6 +338,11 @@ function AllocationRow({
       >
         {dateShort(row.allotment_date)}
       </div>
+
+      {/* Listing P&L (P3.1) — credited / awaiting / note */}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <ListingCreditCell row={row} />
+      </div>
     </div>
   );
 }
@@ -263,7 +368,7 @@ function LoadingRows(): React.ReactElement {
               <Skeleton style={{ height: 12, width: "50%" }} />
               <Skeleton style={{ height: 10, width: "70%" }} />
             </div>
-            {Array.from({ length: 5 }).map((__, j) => (
+            {Array.from({ length: 6 }).map((__, j) => (
               <div key={j} className="flex justify-end">
                 <Skeleton style={{ height: 12, width: "60%" }} />
               </div>
@@ -407,7 +512,9 @@ export function SimulatedIpoAllocations(): React.ReactElement {
           }}
         >
           All allocations are <strong>simulated</strong> — deterministic lottery
-          model, no real ASBA/UPI call, no real funds moved.
+          model, no real ASBA/UPI call, no real funds moved. Allotted shares
+          are credited to the paper book at issue price; listing P&amp;L
+          tracks live via mark-to-market.
         </div>
       </Shell>
     );

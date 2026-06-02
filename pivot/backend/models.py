@@ -1188,11 +1188,28 @@ class PaperIpoAllocation(Base):
     allotment_status = Column(String(16), nullable=False, default="pending")
     allotment_date = Column(Date, nullable=True)
 
-    # P3.1 placeholders — left NULL in P3 (never fabricate a listing
-    # price; the listing-day price-action sim lives in P3.1).
+    # listing-day fields — populated by the P3.1 listing-credit poller
+    # when listing_date arrives. ``listing_price`` is snapshotted at the
+    # moment of credit via marks.get_mark_price (honest None when the
+    # just-listed scrip has no quote yet); ``simulated_pnl`` is the
+    # (listing_price - issue_price) * quantity_allotted record at credit
+    # time. The LIVE mark-to-market on the resulting PaperPosition then
+    # tracks the listing gain in real time on the Paper dashboard.
     listing_date = Column(Date, nullable=True)
     listing_price = Column(Numeric(18, 4), nullable=True)
     simulated_pnl = Column(Numeric(18, 4), nullable=True)
+
+    # P3.1 idempotency latch + bookkeeping. ``book_credited`` flips True
+    # once the allotted shares have either been credited into the paper
+    # book (paper_fill_id set) OR terminally skipped (e.g. insufficient
+    # paper buying power; book_note records the reason). Together with
+    # the UNIQUE paper_orders.client_request_id "ipo-listing-{alloc.id}"
+    # this guarantees we can never double-credit. NULL paper_fill_id =
+    # the credit was skipped (look at book_note); non-NULL = the BUY
+    # PaperFill produced by execute_market_fill at issue price.
+    book_credited = Column(Boolean, nullable=False, default=False)
+    book_note = Column(String, nullable=True)
+    paper_fill_id = Column(String(36), nullable=True)
 
     # SOFT references (no FK) — mirrors IPOApplication / ForwardIdea.
     conversation_id = Column(String(64), nullable=True)
