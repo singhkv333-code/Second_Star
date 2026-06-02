@@ -55,6 +55,8 @@ import datetime as _dt
 import json
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import httpx
@@ -134,8 +136,9 @@ def _write_cache(key: str, value: dict, ttl_s: int = _CACHE_TTL_S) -> None:
 
 # ── Warmed HTTP client (shared by every NSE call) ────────────────────────────
 
-def _warmed_client() -> httpx.Client:
-    """Return an httpx.Client with the NSE cookie jar warmed.
+@contextmanager
+def _warmed_client() -> Iterator[httpx.Client]:
+    """Yield an httpx.Client with the NSE cookie jar warmed.
 
     NSE 403s a bare server request; the browser unlocks the API by setting
     bm_sz / _abck / nsit on the first HTML hit. This helper is the single
@@ -143,8 +146,11 @@ def _warmed_client() -> httpx.Client:
     endpoints) and ``fetch_subscription`` (per-symbol category data) both
     use it, so they don't drift apart.
 
-    Caller is responsible for closing the client (typically via
-    ``with _warmed_client() as cli: ...``).
+    A context manager (NOT a bare client): the warm-up GETs *open* the
+    httpx client, so callers must use ``with _warmed_client() as cli: ...``
+    and we close it on exit. Returning the opened client directly would
+    make ``with`` re-enter it and raise "Cannot open a client instance
+    more than once".
     """
     cli = httpx.Client(
         timeout=_TIMEOUT_S,
@@ -152,15 +158,18 @@ def _warmed_client() -> httpx.Client:
         headers=_BROWSER_HEADERS,
     )
     try:
-        # Warm bm_sz / _abck / nsit. The HTML hits are NOT optional — the
-        # JSON API returns 403 without them.
-        cli.get(_NSE_HOME, headers={"Accept": "text/html,application/xhtml+xml"})
-        cli.get(_NSE_WARMUP, headers={"Accept": "text/html,application/xhtml+xml"})
-    except httpx.HTTPError:
-        # Surface the failure on the actual API call; the caller already
-        # has an honest unreachable branch.
-        pass
-    return cli
+        try:
+            # Warm bm_sz / _abck / nsit. The HTML hits are NOT optional —
+            # the JSON API returns 403 without them.
+            cli.get(_NSE_HOME, headers={"Accept": "text/html,application/xhtml+xml"})
+            cli.get(_NSE_WARMUP, headers={"Accept": "text/html,application/xhtml+xml"})
+        except httpx.HTTPError:
+            # Surface the failure on the actual API call; the caller already
+            # has an honest unreachable branch.
+            pass
+        yield cli
+    finally:
+        cli.close()
 
 
 def _nse_api_headers() -> dict[str, str]:

@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
 import pytest
 
 from backend.services import ipo_feed
@@ -538,3 +539,47 @@ def test_ipo_subscription_endpoint_unreachable_passthrough(
     assert body["subscription"] is None
     assert body["source"] == "unreachable"
     assert "403" in body["note"]
+
+
+def test_warmed_client_real_lifecycle_no_double_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the REAL ``_warmed_client`` must be a re-usable context
+    manager. The warm-up GETs *open* the httpx client, so returning the
+    bare client made ``with _warmed_client() as cli`` re-enter it and raise
+    ``RuntimeError: Cannot open a client instance more than once`` — a 500
+    on the live endpoint that the stubbed tests (which replace
+    ``_warmed_client`` wholesale) never exercised.
+
+    Here we DON'T stub ``_warmed_client``; we inject an ``httpx.MockTransport``
+    into the real ``httpx.Client`` so the genuine open→warm→yield→close
+    lifecycle runs against a fake network. With the bug this raises; with
+    the contextmanager fix it returns the honest-null shape.
+    """
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        # Warm-up HTML hits + the active-category API call all succeed;
+        # the API returns NSE's bare "Missing Symbol" (no active IPO).
+        if "ipo-active-category" in str(request.url):
+            return httpx.Response(200, text="Missing Symbol")
+        return httpx.Response(200, text="<html>ok</html>")
+
+    real_client = httpx.Client
+
+    def _client_with_mock(*args: Any, **kwargs: Any) -> httpx.Client:
+        kwargs["transport"] = httpx.MockTransport(_handler)
+        return real_client(*args, **kwargs)
+
+    # Patch only the constructor inside ipo_feed; _warmed_client itself is
+    # the REAL generator under test.
+    monkeypatch.setattr(ipo_feed.httpx, "Client", _client_with_mock)
+    # Avoid cache short-circuit so the network path actually runs. Use
+    # flexible signatures (real _write_cache takes a ttl_s kwarg).
+    monkeypatch.setattr(ipo_feed, "_read_cache", lambda *a, **k: None)
+    monkeypatch.setattr(ipo_feed, "_write_cache", lambda *a, **k: None)
+
+    out = ipo_feed.fetch_subscription("LIFECYCLETEST")
+    # No RuntimeError + honest-null on the "Missing Symbol" body.
+    assert out["subscription"] is None
+    assert out["source"] == "nse"
+    assert out["note"]
