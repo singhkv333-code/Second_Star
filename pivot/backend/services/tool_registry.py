@@ -59,7 +59,7 @@ _REAL_TOOLS: set[str] = {
     # meant the router selected them but they never reached the model
     # (only find_tool's lazy-load could surface them, wasting a hop).
     "screen_fundamentals", "fetch_fundamentals", "get_symbol_news",
-    "list_upcoming_ipos", "get_ipo_details",
+    "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
     # /core/ analytics bridge — indicators / risk / comparison
     "get_indicator", "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_correlation_matrix", "get_returns",

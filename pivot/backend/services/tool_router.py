@@ -146,7 +146,7 @@ _RULES: list[_Rule] = [
         r"|\b(?:mainboard|sme)\s+(?:issue|listing|ipo)\b"
         r"|\bnew\s+(?:listing|issue)s?\b"
         r"|\bapply\s+(?:for|to)\s+(?:the\s+)?[\w\s]+\bipo\b",
-        "list_upcoming_ipos", "get_ipo_details",
+        "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
     ),
 
     # ── Two-stock comparison (2026-05-29) ───────────────────────────

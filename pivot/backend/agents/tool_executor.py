@@ -81,6 +81,7 @@ async def execute_tool(tool_name: str, arguments: dict,
         "get_symbol_news":            _get_symbol_news,
         "list_upcoming_ipos":         _list_upcoming_ipos,
         "get_ipo_details":            _get_ipo_details,
+        "propose_ipo_application":    _propose_ipo_application,
         # /core/ analytics bridge
         "get_indicator":              _get_indicator,
         "get_multiple_indicators":    _get_multiple_indicators,
@@ -1384,6 +1385,153 @@ async def _get_ipo_details(a, kt, db, uid):
     from backend.services.ipo_feed import get_ipo_details
     data = get_ipo_details(str(a.get("name_or_symbol", "")))
     return {"success": bool(data.get("found")), "data": data, "logiccard": None}
+
+
+async def _propose_ipo_application(a, kt, db, uid):
+    """Build the editable IPO application card for the chat surface.
+
+    Returns the structured payload the FE renders as ``ipo_application_card``.
+    Honest on failure: distinguishes "no match" (success:false + matches[])
+    from "feed unreachable" (success:false + note) — both relayed to the
+    model so it can speak honestly back to the user. Never fabricates
+    IPOs / dates / bands. Never claims Pivot places the bid.
+    """
+    from backend.services.ipo_feed import get_ipo_details, parse_price_band
+
+    query = str(a.get("name_or_symbol", "")).strip()
+    if not query:
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    "Provide an IPO name or symbol — e.g. 'TIKONA' or "
+                    "'Tikona Infinet' — to build the application card."
+                ),
+            },
+            "logiccard": None,
+        }
+
+    feed = get_ipo_details(query)
+    if feed.get("source") == "unreachable":
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    "Live IPO feed is unreachable right now — cannot build "
+                    "an application card without verified IPO data."
+                ),
+                "source": "unreachable",
+            },
+            "logiccard": None,
+        }
+    if not feed.get("found"):
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    f"No live IPO matches {query!r}. "
+                    + (feed.get("note") or "")
+                ),
+                "matches": feed.get("matches") or [],
+            },
+            "logiccard": None,
+        }
+
+    ipo = feed.get("ipo") or {}
+    name = ipo.get("name")
+    symbol = (ipo.get("symbol") or "").upper() or query.upper()
+    ipo_type = "sme" if ipo.get("type") == "sme" else "mainboard"
+    status_ = (ipo.get("status") or "").lower() or "upcoming"
+
+    # Coerce lot size.
+    raw_lot = ipo.get("lot_size")
+    lot_size: int | None
+    try:
+        lot_size = int(raw_lot) if raw_lot not in (None, "") else None
+    except (TypeError, ValueError):
+        lot_size = None
+
+    band = parse_price_band(ipo.get("price_band"))
+
+    raw_extra = feed.get("extra") or {}
+    rhp_url = raw_extra.get("rhpLink") or raw_extra.get("rhp_link") \
+        or raw_extra.get("rhpUrl") or raw_extra.get("rhp_url") or None
+
+    # FE-driven defaults. Mainboard min 1 lot, SME min 2 lots.
+    min_lots = 2 if ipo_type == "sme" else 1
+    default_lots = min_lots
+
+    # Server-side amount estimate (at cut-off — band.max).
+    amount_at_cutoff: float | None
+    if band is not None and lot_size is not None and lot_size > 0:
+        amount_at_cutoff = float(default_lots * lot_size * band["max"])
+    else:
+        amount_at_cutoff = None
+
+    cutoff_allowed = (ipo_type != "sme")
+
+    # Closed status = read-only variant. The FE disables Register; we still
+    # surface the locked fields + any RHP / allotment deep links.
+    locked = {
+        "price_band": band,
+        "lot_size": lot_size,
+        "open_date": ipo.get("open_date"),
+        "close_date": ipo.get("close_date"),
+        "issue_size": ipo.get("issue_size"),
+        "rhp_url": rhp_url,
+        # P1: registrar + allotment deep-link resolution. Null in P0 so the
+        # FE hides the link rather than rendering a broken placeholder.
+        "registrar": None,
+        "allotment_deeplink": None,
+        # P1: subscription numbers. Null in P0 -> FE renders
+        # "subscription not available".
+        "subscription": None,
+    }
+    editable = {
+        "category": "retail",
+        "quantity_lots": default_lots,
+        "bid_price_mode": "cutoff" if cutoff_allowed else "fixed",
+        "bid_price": None,
+        "upi_id": "",
+    }
+    validation = {
+        "min_lots": min_lots,
+        "lot_size": lot_size,
+        "amount_estimate_at_cutoff": amount_at_cutoff,
+        # Mainboard retail cap (₹2L). SME bypasses this cap intentionally.
+        "retail_max_amount": 200000,
+        "sme_bypasses_retail_cap": True,
+        "upi_cap": 500000,
+        "cutoff_allowed": cutoff_allowed,
+        "price_band": band,
+        "category_options": [
+            "retail", "snii", "bnii", "shareholder", "employee",
+        ],
+    }
+
+    payload: dict[str, object] = {
+        "_render_hint": "ipo_application_card",
+        "symbol": symbol,
+        "name": name,
+        "type": ipo_type,
+        "status": status_ if status_ in {"upcoming", "open", "closed"} else "upcoming",
+        "locked": locked,
+        "editable": editable,
+        # KYC OMITTED in P0 by design — the FE renders a single line about
+        # broker-stored KYC. Never store / render fake PAN/demat data.
+        "kyc": None,
+        "validation": validation,
+        # P2: trigger.ipo_open / action.arm_ipo_intent reminders not built.
+        "automatable": False,
+        "conversation_id": a.get("conversation_id"),
+        "disclaimer": (
+            "Pivot can't submit or fund this bid. This registers your "
+            "intent only; YOU place and approve the mandate in your "
+            "broker/UPI app by 5 PM on close day."
+        ),
+    }
+
+    return {"success": True, "data": payload, "logiccard": None}
 
 
 async def _get_top_movers(a, kt, db, uid):

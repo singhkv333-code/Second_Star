@@ -1013,3 +1013,105 @@ class LlmUsage(Base):
     cost_usd = Column(Numeric(12, 6), nullable=False, default=0)
     latency_ms = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+# ─── IPO Applications (P0: register-not-execute) ─────────────────────
+#
+# Mirrors TradeLog: a row per user-registered IPO application intent.
+# v1 model is REGISTER-NOT-EXECUTE — no broker/ASBA/UPI-mandate call ever.
+# We persist what the user said they want to apply for so the UI can
+# show the application card again on reload and a (future) P2 reminder
+# job can email them at the open / close. Statuses kept open-ended for
+# the reminder/applied/allotted lifecycle that follows in later phases;
+# v1 only writes "registered" and "withdrawn".
+#
+# Soft references (no hard FK) for conversation_id / workflow_id —
+# conversations table is owned by another module and prod workflows.id is
+# native uuid which doesn't FK cleanly across the SQLite test DB. Mirrors
+# the soft-ref pattern paper_orders adopted in 0013.
+IPO_APPLICATION_STATUSES: frozenset[str] = frozenset({
+    "registered", "withdrawn",
+    # Reserved for the P2 reminder / broker-cycle bridge — never written
+    # by v1 code, listed here so the CheckConstraint is forward-compatible.
+    "intent_armed", "applied", "blocked", "allotted",
+    "not_allotted", "rejected",
+})
+
+IPO_TYPES: frozenset[str] = frozenset({"mainboard", "sme"})
+
+IPO_CATEGORIES: frozenset[str] = frozenset({
+    "retail", "snii", "bnii", "shareholder", "employee",
+})
+
+IPO_BID_PRICE_MODES: frozenset[str] = frozenset({"cutoff", "fixed"})
+
+
+class IPOApplication(Base):
+    """One row per user-registered IPO application intent.
+
+    P0: registers intent only — Pivot never submits or funds the bid.
+    The user places + approves the UPI/ASBA mandate themselves in the
+    broker app by 5 PM on close day. ``amount_estimate`` is the FE-shown
+    "estimated amount you'll need", computed SERVER-SIDE (we don't trust
+    the client's number). Never store the raw UPI handle — only the
+    masked form (``upi_id_masked``).
+    """
+    __tablename__ = "ipo_applications"
+    __table_args__ = (
+        CheckConstraint(
+            "ipo_type IN ('mainboard', 'sme')",
+            name="ck_ipo_applications_type",
+        ),
+        CheckConstraint(
+            "category IN ('retail', 'snii', 'bnii', 'shareholder', 'employee')",
+            name="ck_ipo_applications_category",
+        ),
+        CheckConstraint(
+            "bid_price_mode IN ('cutoff', 'fixed')",
+            name="ck_ipo_applications_bid_price_mode",
+        ),
+        CheckConstraint(
+            "status IN ('registered', 'withdrawn', 'intent_armed', "
+            "'applied', 'blocked', 'allotted', 'not_allotted', 'rejected')",
+            name="ck_ipo_applications_status",
+        ),
+        Index(
+            "ix_ipo_applications_user_status",
+            "user_id", "status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    ipo_symbol = Column(String(50), nullable=False, index=True)
+    ipo_name = Column(String(200), nullable=True)
+    ipo_type = Column(String(16), nullable=False)
+    category = Column(String(16), nullable=False)
+
+    quantity_lots = Column(Integer, nullable=False)
+    lot_size = Column(Integer, nullable=False)
+    bid_price_mode = Column(String(8), nullable=False)
+    bid_price = Column(Float, nullable=True)
+    amount_estimate = Column(Float, nullable=False)
+
+    upi_id_masked = Column(String(64), nullable=True)
+    status = Column(String(16), nullable=False, default="registered")
+
+    autonomous = Column(Boolean, nullable=False, default=False)
+    paper_mode = Column(Boolean, nullable=False, default=False)
+    stale = Column(Boolean, nullable=False, default=False)
+
+    # SOFT references — no FK, see header above.
+    conversation_id = Column(String(64), nullable=True)
+    workflow_id = Column(Integer, nullable=True)
+
+    source = Column(String(50), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )

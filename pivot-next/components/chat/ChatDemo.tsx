@@ -53,7 +53,8 @@ import {
 } from "@/components/chat/SyntheticSecurityCard";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
 import AssistantMessage from "@/components/chat/AssistantMessage";
-import type { Workflow } from "@/lib/types";
+import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
+import type { Workflow, IpoApplicationPayload } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -633,6 +634,7 @@ type Message =
   | { kind: "financial_backtest"; payload: FinancialBacktestPayload; intro: string }
   | { kind: "logic_card"; card: LogicCard; intro: string }
   | { kind: "synthetic_security"; payload: SyntheticSecurityPayload; intro: string }
+  | { kind: "ipo_application"; payload: IpoApplicationPayload; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
@@ -908,6 +910,12 @@ export function ChatDemo({
         payload: rawData as unknown as FinancialBacktestPayload,
         intro: data.response ?? "",
       };
+    } else if (hint === "ipo_application_card" && rawData) {
+      finalMessage = {
+        kind: "ipo_application",
+        payload: rawData as unknown as IpoApplicationPayload,
+        intro: data.response ?? "",
+      };
     } else {
       finalMessage = { kind: "assistant", text: data.response ?? "" };
     }
@@ -919,7 +927,7 @@ export function ChatDemo({
     });
   }
 
-  const submit = async (text: string): Promise<void> => {
+  const submit = async (text: string, modeOverride?: ChatMode): Promise<void> => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
@@ -1008,7 +1016,10 @@ export function ChatDemo({
         token,
         abortCtrl.signal,
         sessionIdRef.current,
-        mode,
+        // A caller-supplied mode (e.g. news-gated chips forcing "agent")
+        // wins over the mode state, which may not have flushed yet this
+        // tick — the prefill path calls setMode(mode) AND passes it here.
+        modeOverride ?? mode,
       );
 
       for await (const event of gen) {
@@ -1403,6 +1414,24 @@ export function ChatDemo({
                   )}
                   <div className="flex justify-start">
                     <SyntheticSecurityCard payload={msg.payload} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "ipo_application") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <IpoApplicationCard payload={msg.payload} />
                   </div>
                 </div>
               );

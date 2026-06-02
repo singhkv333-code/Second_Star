@@ -23,6 +23,10 @@ import type {
   ApprovalDecisionRequest,
   CreateWorkflowRequest,
   ErrorBody,
+  IpoApplicationsListResponse,
+  IpoRegisterRequest,
+  IpoRegisterResponse,
+  IpoWithdrawResponse,
   Paginated,
   Run,
   RunSummary,
@@ -1389,4 +1393,33 @@ export function getPaperIdeaDetail(
   id: string,
 ): Promise<ApiResult<PaperIdeaDetail>> {
   return requestLegacy<PaperIdeaDetail>(`/paper/ideas/${encodeURIComponent(id)}`);
+}
+
+// ---------------------------------------------------------------------------
+// IPO Applications — router mounted bare at /ipo-applications
+// ---------------------------------------------------------------------------
+
+/** `POST /ipo-applications` — register intent for an IPO. */
+export function registerIpoApplication(
+  body: IpoRegisterRequest,
+): Promise<ApiResult<IpoRegisterResponse>> {
+  return requestLegacy<IpoRegisterResponse>("/ipo-applications", {
+    method: "POST",
+    body,
+  });
+}
+
+/** `POST /ipo-applications/{id}/withdraw` — withdraw a registered intent. */
+export function withdrawIpoApplication(
+  id: number | string,
+): Promise<ApiResult<IpoWithdrawResponse>> {
+  return requestLegacy<IpoWithdrawResponse>(
+    `/ipo-applications/${encodeURIComponent(id)}/withdraw`,
+    { method: "POST" },
+  );
+}
+
+/** `GET /users/ipo-applications` — list this user's IPO applications. */
+export function listMyIpoApplications(): Promise<ApiResult<IpoApplicationsListResponse>> {
+  return requestLegacy<IpoApplicationsListResponse>("/users/ipo-applications");
 }

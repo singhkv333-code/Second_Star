@@ -264,3 +264,137 @@ export type Paginated<T> = {
   items: T[];
   next_cursor: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// IPO Application (chat card payload + persisted row)
+// ---------------------------------------------------------------------------
+
+export type IpoCategory =
+  | "retail"
+  | "snii"
+  | "bnii"
+  | "shareholder"
+  | "employee";
+
+export type IpoBidPriceMode = "cutoff" | "fixed";
+
+export type IpoStatus = "upcoming" | "open" | "closed";
+
+export type IpoType = "mainboard" | "sme";
+
+export type IpoPriceBand = {
+  min: number;
+  max: number;
+  is_fixed: boolean;
+};
+
+/** Locked (server-computed) fields from the IPO data feed. */
+export type IpoLockedFields = {
+  price_band: IpoPriceBand | null;
+  lot_size: number | null;
+  open_date: string;
+  close_date: string;
+  issue_size: string;
+  rhp_url: string | null;
+  registrar: string | null;
+  allotment_deeplink: string | null;
+  subscription: string | null;
+};
+
+/** Editable fields that the user can change before registering intent. */
+export type IpoEditableFields = {
+  category: IpoCategory;
+  quantity_lots: number;
+  bid_price_mode: IpoBidPriceMode;
+  bid_price: number | null;
+  upi_id: string;
+};
+
+/** Validation metadata server sends alongside the payload. */
+export type IpoValidation = {
+  min_lots: number;
+  lot_size: number | null;
+  amount_estimate_at_cutoff: number | null;
+  retail_max_amount: number;
+  sme_bypasses_retail_cap: boolean;
+  upi_cap: number;
+  cutoff_allowed: boolean;
+  price_band: IpoPriceBand | null;
+  category_options: IpoCategory[];
+};
+
+/**
+ * Full payload the chat tool returns in `raw_data` when
+ * `_render_hint === "ipo_application_card"`.
+ */
+export type IpoApplicationPayload = {
+  _render_hint: "ipo_application_card";
+  symbol: string;
+  name: string;
+  type: IpoType;
+  status: IpoStatus;
+  locked: IpoLockedFields;
+  editable: IpoEditableFields;
+  kyc: null;
+  validation: IpoValidation;
+  automatable: boolean;
+  conversation_id: string | null;
+  disclaimer: string;
+};
+
+/** Request body for `POST /ipo-applications`. */
+export type IpoRegisterRequest = {
+  ipo_symbol: string;
+  category: IpoCategory;
+  quantity_lots: number;
+  bid_price_mode: IpoBidPriceMode;
+  bid_price?: number;
+  upi_id_masked?: string;
+  conversation_id?: string | null;
+};
+
+/** Persisted row returned from `POST /ipo-applications` and the list endpoint. */
+export type IpoApplication = {
+  id: number;
+  ipo_symbol: string;
+  ipo_name: string | null;
+  ipo_type: IpoType;
+  category: IpoCategory;
+  quantity_lots: number;
+  lot_size: number;
+  bid_price_mode: IpoBidPriceMode;
+  bid_price: number | null;
+  amount_estimate: number;
+  upi_id_masked: string | null;
+  status: "registered" | "withdrawn" | "intent_armed" | "applied" | "blocked" | "allotted" | "not_allotted" | "rejected";
+  autonomous: boolean;
+  paper_mode: boolean;
+  stale: boolean;
+  conversation_id: string | null;
+  source: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Response from `POST /ipo-applications`. */
+export type IpoRegisterResponse = {
+  application: IpoApplication;
+  duplicate?: boolean;
+  /** Present only when `duplicate` — points at the prior open intent. */
+  replace_offer?: { previous_id: number; note: string };
+  stale?: boolean;
+  note?: string;
+};
+
+/** Response from `POST /ipo-applications/{id}/withdraw`. */
+export type IpoWithdrawResponse = {
+  application: IpoApplication;
+};
+
+/** Response from `GET /users/ipo-applications`. */
+export type IpoApplicationsListResponse = {
+  items: IpoApplication[];
+  count?: number;
+  /** Always "estimated amount you'll need" — never "blocked". */
+  amount_label?: string;
+};

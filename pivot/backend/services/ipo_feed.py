@@ -189,6 +189,67 @@ def _coerce_records(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+# ── Price-band parser (structured shape for the application card) ───────────
+
+def parse_price_band(raw: str | None) -> dict[str, Any] | None:
+    """Parse an NSE price-band string into a structured ``{min, max, is_fixed}``.
+
+    NSE / SME records carry the band in a few common shapes::
+
+        "125-132"
+        "125 - 132"
+        "₹125 – ₹132"      (en-dash, rupee glyph, spaces)
+        "Rs. 125 to Rs. 132"
+        "120"               (fixed-price issue — single value)
+        "120.50"
+
+    The card payload + validation step both need numeric ``min`` / ``max`` so
+    the FE can render the amount preview and we can enforce the in-band-bid
+    rule server-side. Returns ``None`` for empty / garbage input (keeps the
+    existing slim list payload's ``price_band: <raw str>`` untouched — the
+    structured form is built only at the propose-application boundary).
+
+    Honest on failure: when we can't extract at least one number we return
+    ``None`` rather than fabricate a band; the executor surfaces that as
+    "amount not computable" + register CTA disabled, matching the card spec.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+
+    # Normalise unicode separators / currency glyphs so the regex below is
+    # robust to NSE's mixed formatting. Keep digits, dots, ASCII hyphen and
+    # whitespace. Map en-dash / em-dash / minus-sign / Hindi rupee glyph to
+    # ASCII space-hyphen-space.
+    cleaned = s
+    for token in ("–", "—", "−"):  # en, em, minus
+        cleaned = cleaned.replace(token, "-")
+    for token in ("₹", "Rs.", "Rs", "INR", "rs.", "rs"):
+        cleaned = cleaned.replace(token, " ")
+    cleaned = cleaned.replace(" to ", "-").replace(" TO ", "-")
+
+    # Pull every float-shaped run.
+    import re as _re
+    nums = _re.findall(r"\d+(?:\.\d+)?", cleaned)
+    if not nums:
+        return None
+    try:
+        values = [float(n) for n in nums]
+    except ValueError:  # pragma: no cover — re.findall guarantees parseable
+        return None
+    # Sanity: 0 is not a valid IPO band (e.g. NSE sometimes returns "0").
+    values = [v for v in values if v > 0]
+    if not values:
+        return None
+    if len(values) == 1:
+        v = values[0]
+        return {"min": v, "max": v, "is_fixed": True}
+    lo, hi = min(values[0], values[1]), max(values[0], values[1])
+    return {"min": lo, "max": hi, "is_fixed": lo == hi}
+
+
 # ── Normalization ─────────────────────────────────────────────────────────────
 
 def _first(rec: dict[str, Any], *keys: str) -> Any:

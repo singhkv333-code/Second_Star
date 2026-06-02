@@ -21,7 +21,7 @@ TOOL_SUBSETS = {
     "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain", "fetch_fundamentals", "get_symbol_news", "list_upcoming_ipos"],
     "FUNDAMENTAL_SCREEN": ["screen_fundamentals"],
     "ANALYSIS":          ["fetch_fundamentals", "get_symbol_news"],
-    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details"],
+    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details", "propose_ipo_application"],
     "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow", "propose_polymarket_trigger"],
     "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
     "WORKFLOW_PROPOSE":  ["propose_workflow"],
@@ -724,6 +724,20 @@ tool("get_ipo_details",
      "about the X IPO', 'details on <symbol>', 'I want to apply for X'). If "
      "found is false, present the candidate matches to disambiguate. NEVER "
      "fabricate IPO details.",
+     {"name_or_symbol": {"type": "string",
+                         "description": "IPO company name or NSE symbol. Case-insensitive."}},
+     ["name_or_symbol"])
+
+tool("propose_ipo_application",
+     "Builds the editable IPO application card for a specific open IPO. Use "
+     "when the user wants to apply ('I want to apply for X', 'apply for the X "
+     "IPO', 'register me for X'). This REGISTERS THE USER'S INTENT only — "
+     "Pivot never submits or funds the bid; the user places + approves the "
+     "UPI mandate themselves in their broker app by 5 PM on close day. "
+     "Returns the card payload (price band, lot size, default lots, amount "
+     "estimate, in-band validation hints) — the FE renders the editable form "
+     "and posts to /ipo-applications when the user clicks Register. NEVER "
+     "claim Pivot places the bid.",
      {"name_or_symbol": {"type": "string",
                          "description": "IPO company name or NSE symbol. Case-insensitive."}},
      ["name_or_symbol"])
