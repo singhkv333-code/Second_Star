@@ -151,6 +151,9 @@ async def test_critique_tool_flags_naked_short(db):
 
 @pytest.mark.asyncio
 async def test_portfolio_greeks_empty_then_aggregates(db):
+    """P2 contract: the tool returns the portfolio_greeks_card shape
+    (live re-mark when positions exist; registration-snapshot fallback
+    for unfilled live-book intents)."""
     from backend.services.tool_registry import execute
     from backend.models import OptionStrategy, User
     from datetime import date
@@ -159,7 +162,8 @@ async def test_portfolio_greeks_empty_then_aggregates(db):
         "get_portfolio_greeks", {}, kite_token="mock", db=db, user_id=1,
     )
     assert res.success
-    assert res.data["strategy_count"] == 0
+    assert res.data["_render_hint"] == "portfolio_greeks_card"
+    assert res.data["position_count"] == 0
 
     user = User(email="g@x.com", hashed_password="h")
     db.add(user)
@@ -167,7 +171,7 @@ async def test_portfolio_greeks_empty_then_aggregates(db):
     db.add(OptionStrategy(
         user_id=user.id, underlying="NIFTY", segment="NFO-OPT",
         exchange="NSE", template="short_strangle",
-        expiry=date.today(), book="paper", status="registered",
+        expiry=date.today(), book="live", status="registered",
         qty_lots=1, lot_size=65,
         net_greeks_json={"delta": -5.0, "gamma": -0.01,
                          "theta": 250.0, "vega": -200.0},
@@ -177,9 +181,11 @@ async def test_portfolio_greeks_empty_then_aggregates(db):
         "get_portfolio_greeks", {}, kite_token="mock", db=db,
         user_id=user.id,
     )
-    assert res2.data["strategy_count"] == 1
-    assert res2.data["net_greeks"]["theta"] == 250.0
+    # Unfilled live-book intent → registration-snapshot fallback.
+    assert res2.data["position_count"] == 1
+    assert res2.data["net"]["theta"] == 250.0
     assert "NIFTY" in res2.data["by_underlying"]
+    assert "snapshot" in res2.data["basis"]
 
 
 def test_option_draft_spec_is_compact():

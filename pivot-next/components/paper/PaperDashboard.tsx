@@ -20,12 +20,14 @@ import { KpiStatCards } from "@/components/paper/KpiStatCards";
 import { OpenOrdersBlotter } from "@/components/paper/OpenOrdersBlotter";
 import { SimulatedIpoAllocations } from "@/components/paper/SimulatedIpoAllocations";
 import { TradeJournal } from "@/components/paper/TradeJournal";
+import { PortfolioGreeksPanel } from "@/components/paper/PortfolioGreeksPanel";
 
 const TABS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "overview", label: "Overview" },
   { value: "ideas", label: "Ideas" },
   { value: "positions", label: "Positions" },
   { value: "orders", label: "Orders" },
+  { value: "greeks", label: "Greeks" },
   { value: "ipos", label: "IPOs" },
   { value: "journal", label: "Journal" },
 ];
@@ -115,6 +117,11 @@ export function PaperDashboard(): React.ReactElement {
         {/* Orders */}
         <TabsContent value="orders" className="mt-0">
           <OpenOrdersBlotter />
+        </TabsContent>
+
+        {/* Greeks — portfolio-level F&O Greeks */}
+        <TabsContent value="greeks" className="mt-0">
+          <PortfolioGreeksPanel />
         </TabsContent>
 
         {/* IPOs — simulated allotments */}

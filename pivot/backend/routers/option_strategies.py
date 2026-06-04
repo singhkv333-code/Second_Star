@@ -138,9 +138,38 @@ async def register_option_strategy(
         conversation_id=req.conversation_id,
         source="chat",
     )
+
+    # 5. Paper book → execute the legs NOW (F&O P2): mid±half-spread
+    #    fills, margin reserve for shorts, per-leg idempotency. The live
+    #    book never executes — register-not-execute, the user confirms
+    #    in their broker app.
+    execution = None
+    if req.book == "paper":
+        from backend.config import settings as _settings
+
+        if getattr(_settings, "paper_trading_enabled", True):
+            from backend.paper.options_routing import (
+                OptionFillError,
+                submit_option_strategy,
+            )
+
+            try:
+                execution = submit_option_strategy(db, user_id, strategy)
+                db.commit()
+                db.refresh(strategy)
+            except OptionFillError as exc:
+                db.rollback()
+                execution = {"success": False, "fills": [], "error": str(exc)}
+        else:
+            execution = {
+                "success": False, "fills": [],
+                "error": "paper trading is disabled in this deployment",
+            }
+
     return {
         "success": True,
         "strategy": serialize_option_strategy(strategy),
+        "execution": execution,
         "error": None,
     }
 

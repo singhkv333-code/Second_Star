@@ -417,6 +417,11 @@ class PaperOrder(Base):
     workflow_run_id = Column(String(36), nullable=True)
     conversation_id = Column(String(36), nullable=True)
     strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
+    # F&O P2: SOFT reference to option_strategies.id — one PaperOrder per
+    # LEG, grouped by the parent strategy. Soft (no FK) per the
+    # cross-domain pattern above; idempotency key is
+    # "optstrat:{option_strategy_id}:leg{n}".
+    option_strategy_id = Column(String(36), nullable=True, index=True)
     idea_id = Column(
         String(36), ForeignKey("forward_ideas.id"), nullable=True, index=True,
     )
@@ -467,6 +472,10 @@ class PaperFill(Base):
     slippage_bps = Column(Float, nullable=True)  # ratio, not money
     realized_pnl = Column(Numeric(18, 4), nullable=True)  # booked on SELLs (avg cost)
     settles_at = Column(DateTime(timezone=True), nullable=True)  # T+1 on SELL
+    # F&O P2: IV of the option at fill time (from the chain solve) —
+    # feeds P&L attribution (delta/theta/vega decomposition) later.
+    # NULL for equity fills.
+    iv_at_fill = Column(Float, nullable=True)
     idea_id = Column(
         String(36), ForeignKey("forward_ideas.id"), nullable=True, index=True,
     )
@@ -502,13 +511,22 @@ class PaperPosition(Base):
         Integer, ForeignKey("users.id"), nullable=False, index=True,
     )
     symbol = Column(String(50), nullable=False)
-    quantity = Column(Integer, nullable=False, default=0)  # long-only >= 0
+    # EQUITY positions are long-only (>= 0, enforced by the fill engine).
+    # OPTION positions (is_option=True, F&O P2) are SIGNED — a short
+    # straddle holds quantity < 0 on both legs. The equity invariant is
+    # untouched: only paper/options_routing writes negative quantities.
+    quantity = Column(Integer, nullable=False, default=0)
     avg_cost = Column(Numeric(18, 4), nullable=False, default=0.0)  # incl. buy charges
     realized_pnl = Column(Numeric(18, 4), nullable=False, default=0.0)  # cumulative
     last_price = Column(Float, nullable=True)  # market mark-to-market
     last_mark_at = Column(DateTime(timezone=True), nullable=True)
     prev_close = Column(Float, nullable=True)  # for day P&L
     stale = Column(Boolean, nullable=False, default=False)
+    # F&O P2: option-position routing flags. ``segment`` carries
+    # NFO-OPT/BFO-OPT so valuation + greeks services mark through the
+    # option chain instead of the equity quote path.
+    is_option = Column(Boolean, nullable=False, default=False)
+    segment = Column(String(16), nullable=True)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(),
         onupdate=func.now(), nullable=False,
@@ -1407,6 +1425,42 @@ class OptionStrategy(Base):
     legs = relationship(
         "OptionLeg", back_populates="strategy",
         cascade="all, delete-orphan", order_by="OptionLeg.strike",
+    )
+
+
+# F&O P2: daily portfolio-Greeks snapshot — written at market close
+# alongside the NAV snapshot. One row per (account, date). The
+# delta-equivalent (FutEq) notional is SEBI's intraday position-limit
+# accounting basis and the right internal exposure representation.
+class PaperGreeksSnapshot(Base):
+    __tablename__ = "paper_greeks_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id", "as_of",
+            name="uq_paper_greeks_snapshots_account_asof",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    account_id = Column(
+        String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    as_of = Column(Date, nullable=False)
+    net_delta = Column(Float, nullable=False, default=0.0)   # units of underlying
+    net_gamma = Column(Float, nullable=False, default=0.0)
+    net_theta = Column(Float, nullable=False, default=0.0)   # ₹/day
+    net_vega = Column(Float, nullable=False, default=0.0)    # ₹ per vol point
+    delta_notional = Column(Numeric(18, 2), nullable=True)   # FutEq ₹
+    position_count = Column(Integer, nullable=False, default=0)
+    # Per-underlying breakdown {underlying: {delta, gamma, theta, vega,
+    # delta_notional, positions}} — display payload, not a query target.
+    breakdown_json = Column(JSON, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
 
 

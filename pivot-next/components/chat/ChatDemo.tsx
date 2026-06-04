@@ -58,7 +58,8 @@ import { IpoListCard } from "@/components/chat/IpoListCard";
 import { IpoListedCard } from "@/components/chat/IpoListedCard";
 import { OptionChainCard } from "@/components/chat/OptionChainCard";
 import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
-import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload } from "@/lib/types";
+import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
+import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -643,6 +644,7 @@ type Message =
   | { kind: "ipo_listed"; payload: IpoListedPayload; intro: string }
   | { kind: "option_chain"; payload: OptionChainPayload; intro: string }
   | { kind: "option_strategy"; payload: OptionStrategyPayload; intro: string }
+  | { kind: "portfolio_greeks"; payload: PortfolioGreeksPayload; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
@@ -946,6 +948,12 @@ export function ChatDemo({
       finalMessage = {
         kind: "option_strategy",
         payload: rawData as unknown as OptionStrategyPayload,
+        intro: data.response ?? "",
+      };
+    } else if (hint === "portfolio_greeks_card" && rawData) {
+      finalMessage = {
+        kind: "portfolio_greeks",
+        payload: rawData as unknown as PortfolioGreeksPayload,
         intro: data.response ?? "",
       };
     } else {
@@ -1555,6 +1563,24 @@ export function ChatDemo({
                   )}
                   <div className="flex justify-start">
                     <OptionStrategyCard payload={msg.payload} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "portfolio_greeks") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <PortfolioGreeksCard payload={msg.payload} />
                   </div>
                 </div>
               );

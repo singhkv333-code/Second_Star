@@ -678,6 +678,36 @@ export type OptionStrategyPayload = {
 };
 
 // ---------------------------------------------------------------------------
+// F&O — Portfolio Greeks (chat render hint "portfolio_greeks_card")
+// ---------------------------------------------------------------------------
+
+export type GreeksBucket = {
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+};
+
+export type PortfolioGreeksPayload = {
+  _render_hint: "portfolio_greeks_card";
+  net: GreeksBucket;
+  /** FutEq ₹ (signed) */
+  delta_notional: number;
+  by_underlying: Record<
+    string,
+    GreeksBucket & { delta_notional: number; positions: number }
+  >;
+  by_expiry: Record<string, GreeksBucket & { positions: number }>;
+  position_count: number;
+  /** Tradingsymbols we couldn't mark */
+  unmarked: string[];
+  /** Empty-state message */
+  note?: string;
+  /** Small-print provenance */
+  basis?: string;
+};
+
+// ---------------------------------------------------------------------------
 // F&O — Option Strategy register/withdraw request/response
 // ---------------------------------------------------------------------------
 

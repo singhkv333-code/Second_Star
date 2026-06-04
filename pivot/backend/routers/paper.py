@@ -74,6 +74,18 @@ def paper_holdings(
     return holdings(db, user_id)
 
 
+@router.get("/greeks")
+def paper_greeks(
+    user_id: int = Depends(get_user_id), db: Session = Depends(get_db)
+):
+    """F&O P2: live portfolio Greeks over open option positions (net
+    delta/gamma/theta/vega + FutEq delta-notional + per-underlying and
+    per-expiry breakdowns). Same payload shape as the chat card."""
+    from backend.services.portfolio_greeks import portfolio_greeks_card
+
+    return portfolio_greeks_card(db, user_id)
+
+
 @router.get("/orders")
 def paper_orders(
     user_id: int = Depends(get_user_id), db: Session = Depends(get_db)

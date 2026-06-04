@@ -181,6 +181,39 @@ def _register_jobs():
             replace_existing=True,
         )
 
+        # F&O P2: portfolio-Greeks snapshot — 15:39, after the NAV
+        # snapshot so both EOD rows reflect the same closing marks.
+        async def _snapshot_paper_greeks():
+            import asyncio
+
+            def _run() -> None:
+                from backend.database import SessionLocal
+                from backend.services.portfolio_greeks import (
+                    snapshot_portfolio_greeks,
+                )
+
+                db = SessionLocal()
+                try:
+                    snapshot_portfolio_greeks(db)
+                finally:
+                    db.close()
+
+            try:
+                await asyncio.to_thread(_run)
+            except Exception:
+                logger.exception("[greeks-snapshot] EOD snapshot failed")
+
+        scheduler.add_job(
+            _snapshot_paper_greeks,
+            trigger=CronTrigger(
+                hour=15, minute=39, second=0,
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_greeks_snapshot",
+            name="Paper: daily portfolio-Greeks snapshot at 15:39 IST",
+            replace_existing=True,
+        )
+
     logger.info(
         f"[{format_ist_short(now_ist())}] Registered "
         f"{len(scheduler.get_jobs())} scheduler jobs. All times in IST."

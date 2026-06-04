@@ -1749,61 +1749,59 @@ async def _critique_option_strategy(a, kt, db, uid):
 
 
 async def _get_portfolio_greeks(a, kt, db, uid):
-    """Net Greeks across the user's open option strategies (P1: the
-    registration-time snapshot; P2 re-marks against the live chain)."""
+    """Net Greeks across the user's OPEN option positions, re-marked
+    against the live chain (P2) — falls back to registration snapshots
+    for registered-but-unfilled (live-book) strategies."""
     from backend.models import OptionStrategy
+    from backend.services.portfolio_greeks import portfolio_greeks_card
 
+    card = portfolio_greeks_card(db, uid)
+    if card["position_count"] > 0:
+        card["basis"] = "Live re-mark of open paper option positions."
+        return {"success": True, "data": card, "logiccard": None}
+
+    # No filled positions — aggregate registration-time snapshots of
+    # still-registered strategies (live-book intents) so "what's my
+    # delta" answers honestly instead of claiming flat.
     rows = (
         db.query(OptionStrategy)
         .filter(
             OptionStrategy.user_id == uid,
-            OptionStrategy.status.in_(("registered", "intent_armed", "active")),
+            OptionStrategy.status.in_(("registered", "intent_armed")),
         )
         .all()
     )
     if not rows:
-        return {
-            "success": True,
-            "data": {
-                "note": (
-                    "No open option strategies — register one and the "
-                    "portfolio Greeks build up from there."
-                ),
-                "net_greeks": {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0},
-                "strategy_count": 0,
-            },
-            "logiccard": None,
-        }
+        return {"success": True, "data": card, "logiccard": None}
     net = {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
     by_underlying: dict[str, dict] = {}
     for s in rows:
         greeks = s.net_greeks_json or {}
         bucket = by_underlying.setdefault(
             s.underlying,
-            {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0, "strategies": 0},
+            {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0,
+             "positions": 0},
         )
-        bucket["strategies"] += 1
+        bucket["positions"] += 1
         for k in net:
             v = float(greeks.get(k) or 0.0)
             net[k] += v
             bucket[k] += v
-    return {
-        "success": True,
-        "data": {
-            "net_greeks": {k: round(v, 4) for k, v in net.items()},
-            "by_underlying": {
-                u: {k: (round(v, 4) if isinstance(v, float) else v)
-                    for k, v in b.items()}
-                for u, b in by_underlying.items()
-            },
-            "strategy_count": len(rows),
-            "basis": (
-                "Registration-time Greeks snapshot per strategy "
-                "(live re-marking lands with paper execution)."
-            ),
+    card.update({
+        "net": {k: round(v, 4) for k, v in net.items()},
+        "by_underlying": {
+            u: {k: (round(v, 4) if isinstance(v, float) else v)
+                for k, v in b.items()}
+            for u, b in by_underlying.items()
         },
-        "logiccard": None,
-    }
+        "position_count": len(rows),
+        "basis": (
+            "Registration-time snapshot of registered (unfilled) "
+            "strategies — live marks apply once legs fill."
+        ),
+    })
+    card.pop("note", None)
+    return {"success": True, "data": card, "logiccard": None}
 
 
 async def _propose_ipo_application(a, kt, db, uid):

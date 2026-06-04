@@ -33,10 +33,6 @@ logger = logging.getLogger(__name__)
 
 _RISK_FREE = 0.065
 _PAYOFF_POINTS = 61
-# Index-margin heuristic for undefined-risk short legs (P1 estimate; a
-# SPAN approximation replaces this in P2): premium + this fraction of
-# underlying notional per short lot.
-_SHORT_MARGIN_NOTIONAL_PCT = 0.15
 
 SEBI_DISCLOSURE = (
     "SEBI study: 9 out of 10 individual F&O traders lose money. "
@@ -428,23 +424,16 @@ def resolve_strategy(
                 net_greeks[k] += sign * float(v) * lot_value
     net_greeks = {k: round(v, 4) for k, v in net_greeks.items()}
 
-    # ── Margin / capital (P1 heuristic; SPAN approximation lands P2) ──
+    # ── Margin / capital — SPAN-style scenario scan (market/margin.py),
+    # clamped at max loss for defined-risk structures, floored at the
+    # net debit. P2 upgraded this from the flat P1 heuristic.
     short_legs = [l for l in legs if l["side"] == "SELL"]
-    if max_loss is not None:
-        # Defined risk: brokers block ≈ max loss for spreads; a pure
-        # debit position needs just the debit.
-        margin = max(max_loss, -min(net_premium, 0.0))
-        margin_note = "Defined-risk estimate ≈ max loss (broker SPAN may differ)."
-    else:
-        margin = sum(
-            l["mid"] * lot_value + _SHORT_MARGIN_NOTIONAL_PCT * F * lot_value
-            for l in short_legs
-        )
-        margin_note = (
-            "Naked-short estimate: premium + "
-            f"{int(_SHORT_MARGIN_NOTIONAL_PCT * 100)}% of notional per short "
-            "leg. Broker SPAN+exposure is authoritative."
-        )
+    from backend.market.margin import strategy_margin
+
+    margin, margin_note = strategy_margin(
+        legs, underlying=chain["underlying"], forward=F, t_years=T,
+        lot_value=lot_value, max_loss=max_loss, net_premium=net_premium,
+    )
     capital_required = round(float(max(margin, -min(net_premium, 0.0))), 2)
 
     # ── Validation ──

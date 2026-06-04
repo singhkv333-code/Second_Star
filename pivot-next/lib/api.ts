@@ -1405,6 +1405,11 @@ export function getPaperIpoAllocations(): Promise<ApiResult<PaperIpoAllocation[]
   return requestLegacy<PaperIpoAllocation[]>("/paper/ipo-allocations");
 }
 
+/** `GET /paper/greeks` — portfolio-level net Greeks + breakdown by underlying + expiry. */
+export function fetchPaperGreeks(): Promise<ApiResult<import("@/lib/types").PortfolioGreeksPayload>> {
+  return requestLegacy<import("@/lib/types").PortfolioGreeksPayload>("/paper/greeks");
+}
+
 // ---------------------------------------------------------------------------
 // IPO Applications — router mounted bare at /ipo-applications
 // ---------------------------------------------------------------------------
