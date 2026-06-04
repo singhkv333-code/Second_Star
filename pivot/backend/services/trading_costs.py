@@ -78,3 +78,65 @@ def round_trip_bps() -> float:
 
 def slippage_bps() -> float:
     return SLIPPAGE_PCT * 10_000.0
+
+
+# ── Options (F&O P0) ─────────────────────────────────────────────────
+#
+# Same single-source-of-truth contract as the equity block above, for
+# NSE option PREMIUM legs. All percentages apply to the premium value
+# (premium × qty), NOT the contract notional — that's how options are
+# actually billed. Rates current as of FY26:
+#   * STT 0.1% on the SELL side premium (raised from 0.0625% in Oct 2024).
+#   * NSE transaction charge ~0.03503% of premium (revised Apr 2025).
+#   * Stamp 0.003% on the BUY side premium.
+#   * Brokerage flat ₹20/order, SEBI ₹10/cr, GST 18% on
+#     (brokerage + exchange + SEBI) — same shape as equity.
+# Slippage is NOT modelled here — the paper fill model handles it
+# spread-aware (mid ± half-spread), which is more honest for options
+# than a flat % of premium. MCX rates differ; MCX is research-only in
+# v1 so its costs are display-only and use the same NSE-shaped numbers
+# with the MCX exchange rate.
+OPT_STT_SELL_PCT = 0.001            # 0.1% of premium, sell side only
+OPT_EXCHANGE_PCT = 0.0003503        # NSE premium transaction charge
+OPT_EXCHANGE_PCT_MCX = 0.000418     # MCX options premium txn charge
+OPT_STAMP_BUY_PCT = 0.00003         # 0.003% of premium, buy side only
+
+
+def _option_charges(premium_value: float, side: str, segment: str = "NFO-OPT") -> float:
+    """Total charges (₹) for one option leg at ``premium_value`` =
+    premium × qty (qty in units, i.e. lots × lot_size)."""
+    premium_value = abs(float(premium_value))
+    brokerage = BROKERAGE_PER_ORDER
+    exchange_pct = (
+        OPT_EXCHANGE_PCT_MCX if segment.startswith("MCX") else OPT_EXCHANGE_PCT
+    )
+    exchange = premium_value * exchange_pct
+    sebi = premium_value * SEBI_PCT
+    stt = premium_value * OPT_STT_SELL_PCT if side == "sell" else 0.0
+    stamp = premium_value * OPT_STAMP_BUY_PCT if side == "buy" else 0.0
+    gst = (brokerage + exchange + sebi) * GST_PCT
+    return brokerage + exchange + sebi + stt + stamp + gst
+
+
+def option_buy_cost(
+    premium: float, qty: float, *, segment: str = "NFO-OPT",
+) -> tuple[float, float]:
+    """(net_debit, total_charges) for BUYing ``qty`` units at ``premium``."""
+    value = float(premium) * float(qty)
+    charges = _option_charges(value, "buy", segment)
+    return value + charges, charges
+
+
+def option_sell_cost(
+    premium: float, qty: float, *, segment: str = "NFO-OPT",
+) -> tuple[float, float]:
+    """(net_credit, total_charges) for SELLing ``qty`` units at ``premium``."""
+    value = float(premium) * float(qty)
+    charges = _option_charges(value, "sell", segment)
+    return value - charges, charges
+
+
+def option_leg_bps(side: str, *, segment: str = "NFO-OPT") -> float:
+    """Per-leg option cost as a FRACTION of premium value at a reference
+    premium notional — for multiplier-style engines (mirrors leg_bps)."""
+    return _option_charges(_REF_NOTIONAL, side, segment) / _REF_NOTIONAL

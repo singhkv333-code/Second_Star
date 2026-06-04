@@ -57,6 +57,7 @@ from backend.routers.quotes_ws import router as quotes_ws_router
 from backend.routers.kite_ticker_admin import router as kite_ticker_admin_router
 from backend.routers.admin_simulate import router as admin_simulate_router
 from backend.routers.backtest_dsl import router as backtest_dsl_router
+from backend.routers.options_admin import router as options_admin_router
 
 app = FastAPI(
     title="Pivot API",
@@ -122,6 +123,8 @@ app.include_router(admin_simulate_router)
 # DSL-tree backtester (Phase B). Sits alongside the legacy
 # /backtest/* paths under a separate /api/backtest/dsl/* namespace.
 app.include_router(backtest_dsl_router)
+# F&O P0 admin surface — chain/universe inspection + manual refresh.
+app.include_router(options_admin_router)
 
 # ── News & Event Trigger subsystem (flag-gated) ──────────────────────
 # Entire subsystem is opt-in via `settings.news_events_enabled`. With

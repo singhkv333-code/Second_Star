@@ -3,6 +3,7 @@ import uuid as _uuid
 from datetime import datetime as _datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -1224,4 +1225,102 @@ class PaperIpoAllocation(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(),
         onupdate=func.now(), nullable=False,
+    )
+
+
+# ─── F&O instrument master + dynamic universe (F&O P0) ───────────────
+#
+# THE single source of truth for every tradable derivative contract —
+# strikes, expiries, LOT SIZES (which changed Dec'25/Jan'26: NIFTY
+# 75→65, BANKNIFTY 35→30 — hardcoding a lot size anywhere is a bug),
+# tick sizes and segments. Repopulated daily (~08:35 IST) from the Kite
+# instruments dump (https://api.kite.trade/instruments — regenerated
+# once a day); rows present yesterday but absent today are marked
+# expired via ``last_seen`` rather than deleted, so backtests and audit
+# trails can still resolve a contract that no longer trades.
+#
+# The dump is a CACHE of the exchange contract master, not a ledger —
+# a full refresh may upsert every row. ``first_seen``/``last_seen``
+# drive zero-code-change discovery: a brand-new weekly expiry, strike
+# ladder extension, or newly-listed F&O underlying appears as rows with
+# first_seen == today. NO symbol list is hardcoded anywhere.
+#
+# MCX-OPT rows are first-class here (research/screening), but execution
+# for the MCX segment is hard-blocked at the strategy-registration gate
+# — see OptionUniverse.research_only.
+class InstrumentMaster(Base):
+    """One row per tradable contract from the daily Kite instruments dump."""
+    __tablename__ = "instrument_master"
+    __table_args__ = (
+        Index(
+            "ix_instrument_master_chain",
+            "underlying", "expiry", "instrument_type", "strike",
+        ),
+        Index("ix_instrument_master_segment_expiry", "segment", "expiry"),
+    )
+
+    # Kite's instrument_token — also the WebSocket subscription key.
+    instrument_token = Column(BigInteger, primary_key=True, autoincrement=False)
+    exchange_token = Column(BigInteger, nullable=True)
+    tradingsymbol = Column(String(64), nullable=False, index=True)
+    # Kite's ``name`` column — the underlying root (NIFTY, CRUDEOIL,
+    # RELIANCE…). More robust than parsing tradingsymbol formats, which
+    # differ across NSE/BSE/MCX and changed in 2025.
+    name = Column(String(64), nullable=True)
+    underlying = Column(String(40), nullable=False, index=True)
+    exchange = Column(String(8), nullable=False)       # NSE / BSE / NFO / BFO / MCX
+    segment = Column(String(16), nullable=False)       # NFO-OPT / BFO-OPT / MCX-OPT / NFO-FUT / …
+    instrument_type = Column(String(4), nullable=False)  # CE / PE / FUT / EQ
+    strike = Column(Numeric(14, 4), nullable=True)
+    expiry = Column(Date, nullable=True, index=True)
+    # weekly | monthly — DERIVED from expiry-date spacing per underlying,
+    # never from symbol parsing or hardcoded weekday rules (NSE moved
+    # weeklies to Tuesday-and-NIFTY-only in Sep 2025; BSE differs).
+    expiry_kind = Column(String(12), nullable=True)
+    lot_size = Column(Integer, nullable=True)
+    tick_size = Column(Float, nullable=True)
+    # Stale snapshot price from the dump — NEVER a live quote. Kept only
+    # for ATM-centering before the first real quote of the day.
+    last_price = Column(Float, nullable=True)
+
+    first_seen = Column(Date, nullable=False)
+    last_seen = Column(Date, nullable=False, index=True)
+    refreshed_on = Column(Date, nullable=False, index=True)
+
+
+# Dynamic, liquidity-selected F&O universe — replaces every "list of
+# underlyings" constant. One row per (underlying, as_of) with the
+# liquidity evidence that drove the selection; percentile thresholds
+# (not absolute constants) so the universe self-adjusts as markets grow.
+class OptionUniverse(Base):
+    __tablename__ = "option_universe"
+    __table_args__ = (
+        UniqueConstraint(
+            "underlying", "as_of", name="uq_option_universe_underlying_asof",
+        ),
+        Index("ix_option_universe_asof_selected", "as_of", "selected"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    underlying = Column(String(40), nullable=False, index=True)
+    as_of = Column(Date, nullable=False)
+    segment = Column(String(16), nullable=False)
+    exchange = Column(String(8), nullable=False)
+
+    # Liquidity evidence (front-expiry ATM±N sample at selection time).
+    avg_oi = Column(Float, nullable=True)
+    avg_volume = Column(Float, nullable=True)
+    spread_pct_atm = Column(Float, nullable=True)
+    liquidity_score = Column(Float, nullable=True)
+
+    # selected      → surfaced in chat suggestions / screeners.
+    # research_only → quotable + screenable but EXECUTION-BLOCKED
+    #                 (all MCX-OPT rows in v1 — commodities are research
+    #                 only by product decision).
+    selected = Column(Boolean, nullable=False, default=False)
+    research_only = Column(Boolean, nullable=False, default=False)
+    reason = Column(String(120), nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

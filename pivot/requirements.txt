@@ -38,6 +38,14 @@ scipy>=1.10.0
 # pandas_ta is unmaintained on PyPI for Python 3.11/3.12; use the maintained fork
 pandas_ta_classic>=0.4
 
+# F&O Greeks/IV (P0). py_vollib_vectorized = Jäckel rational IV solver
+# (vectorized, numba-JIT) for chain screening; py_vollib (scalar) is the
+# unit-test oracle for the owned Black-76 module. Both are OPTIONAL at
+# runtime — backend/market/greeks/iv.py falls back to an owned
+# Newton-Raphson+Brent solver when the numba toolchain isn't available.
+py_vollib>=1.0.1
+py_vollib_vectorized>=0.1.1
+
 # Scheduler (SIP + strategy cron jobs)
 apscheduler==3.10.4
 

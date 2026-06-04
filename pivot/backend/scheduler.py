@@ -129,6 +129,29 @@ def _register_jobs():
         replace_existing=True,
     )
 
+    # F&O P0: instrument-master refresh + dynamic universe selection.
+    # 08:35 IST — after Kite regenerates the daily instruments dump
+    # (~08:30) and before market open, so lot-size revisions and new
+    # weekly expiries land before any chain is quoted. Lazy import keeps
+    # scheduler boot resilient if the F&O module has an issue.
+    async def _refresh_instrument_master():
+        from backend.market.instrument_master import (
+            refresh_instrument_master_job,
+        )
+        await refresh_instrument_master_job()
+
+    scheduler.add_job(
+        _refresh_instrument_master,
+        trigger=CronTrigger(
+            hour=8, minute=35, second=0,
+            day_of_week="mon-fri",
+            timezone=IST,
+        ),
+        id="fno_instrument_master_refresh",
+        name="F&O: instrument master + universe refresh at 08:35 IST",
+        replace_existing=True,
+    )
+
     # Paper-trading jobs (only when the feature is on): fill resting orders
     # on a market-hours interval, and snapshot each paper account's NAV at
     # EOD (the equity curve). NAV mark-to-market is otherwise lazy-on-read.
