@@ -154,6 +154,7 @@ def implied_vol(
 
     solvable = ~dead & ~no_arb & (T > 0.0) & (mid > intrinsic + 1e-9)
     if solvable.any():
+        global _VECTORIZED_IV
         sm, sF, sK, sT, sfl = (a[solvable] for a in (mid, F, K, T, flag))
         solved = None
         if _VECTORIZED_IV is not None:
@@ -166,7 +167,16 @@ def implied_vol(
                     dtype=float,
                 )
             except Exception as exc:  # pragma: no cover - vendor quirk path
-                logger.warning("py_vollib_vectorized failed (%s); using fallback", exc)
+                # Known failure mode: py_vollib_vectorized's stale numba
+                # @jit decorations don't type-infer on newer numba. It
+                # fails deterministically per process — switch it off
+                # for good rather than re-paying the failed JIT (and the
+                # log spam) on every chain.
+                logger.warning(
+                    "py_vollib_vectorized disabled for this process (%s); "
+                    "using owned NR+Brent solver", str(exc)[:160],
+                )
+                _VECTORIZED_IV = None
                 solved = None
         if solved is None:
             solved = _newton_brent_iv(sm, sF, sK, sT, r, sfl)

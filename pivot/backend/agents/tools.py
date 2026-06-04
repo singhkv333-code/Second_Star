@@ -15,7 +15,8 @@ TOOL_SUBSETS = {
     "ORDER_CONDITIONAL": ["create_gtt_order", "create_sl_order", "create_oco_order", "create_dip_buy", "get_live_price"],
     "ORDER_RECURRING":   ["create_sip", "list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
     "ORDER_BASKET":      ["place_basket_order", "get_live_price"],
-    "ORDER_FNO":         ["place_futures_order", "place_options_order", "place_multileg_options", "roll_futures_position", "get_option_chain", "get_option_greeks", "get_margin_required"],
+    "ORDER_FNO":         ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "get_portfolio_greeks"],
+    "OPTIONS_QUERY":     ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "get_portfolio_greeks"],
     "ORDER_MANAGE":      ["cancel_order", "modify_order", "list_pending_orders", "list_gtt_orders", "cancel_gtt", "squareoff_all_intraday", "squareoff_symbol"],
     "PORTFOLIO_QUERY":   ["get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_holding_detail", "get_tax_summary", "get_active_products"],
     "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain", "fetch_fundamentals", "get_symbol_news", "list_upcoming_ipos"],
@@ -323,23 +324,110 @@ tool("roll_futures_position",
      ["underlying", "lots"])
 
 tool("get_option_chain",
-     "Returns full option chain with bid/ask, OI, IV for all strikes. "
-     "Use when user asks about option premiums or wants to pick a strike.",
+     "Returns the ATM-centered option chain slice — bid/ask, OI, volume, IV "
+     "and Greeks per strike — for an index, stock or commodity with listed "
+     "options. Renders an interactive chain card. Use when the user asks "
+     "about option premiums, the chain, OI, IV, strikes or expiries. "
+     "For strategy SUGGESTIONS use suggest_option_strategy instead.",
      {
-         "underlying": {"type": "string"},
-         "expiry":     {"type": "string", "default": "current_week"},
+         "underlying": {"type": "string", "description":
+                        "Underlying root, e.g. NIFTY, BANKNIFTY, RELIANCE, "
+                        "SENSEX, CRUDEOIL (MCX commodities are research-only)."},
+         "expiry":     {"type": "string", "description":
+                        "ISO date (YYYY-MM-DD), 'nearest' (default) or 'next'. "
+                        "The card lists the valid expiries."},
+         "width":      {"type": "integer", "minimum": 1, "maximum": 20,
+                        "default": 8, "description":
+                        "Strikes each side of ATM (default 8)."},
      },
      ["underlying"])
 
-tool("get_option_greeks",
-     "Returns Greeks (Delta, Theta, Vega, Gamma, IV) for an option.",
+tool("suggest_option_strategy",
+     "THE options suggest-flow: give it the underlying and the user's view "
+     "(bullish / bearish / neutral / volatile) and it returns 2-3 risk-"
+     "tagged strategy candidates with live strikes, payoff, max loss/profit, "
+     "probability of profit and a pre-trade critique — rendered as an "
+     "editable strategy card. Use for 'I'm bullish on NIFTY', 'income "
+     "strategy on BANKNIFTY', 'play the RBI event with options'. Do NOT ask "
+     "the user for strikes/expiry first — the tool proposes liquid defaults "
+     "and states its assumptions.",
      {
-         "underlying":  {"type": "string"},
-         "option_type": {"type": "string", "enum": ["CE", "PE"]},
-         "strike":      {"type": "number"},
-         "expiry":      {"type": "string"},
+         "underlying": {"type": "string", "description":
+                        "e.g. NIFTY, BANKNIFTY, RELIANCE, SENSEX."},
+         "view":       {"type": "string",
+                        "enum": ["bullish", "bearish", "neutral", "volatile"],
+                        "description":
+                        "User's market view. 'expecting a big move' → "
+                        "volatile; 'sideways/range/income' → neutral."},
+         "expiry":     {"type": "string", "description":
+                        "ISO date, 'nearest' (default) or 'next'."},
+         "risk":       {"type": "string",
+                        "enum": ["conservative", "moderate", "aggressive"],
+                        "description":
+                        "Risk appetite if the user stated one. Default "
+                        "conservative — the card shows the other tiers too."},
+         "qty_lots":   {"type": "integer", "minimum": 1, "default": 1},
      },
-     ["underlying", "option_type", "strike"])
+     ["underlying", "view"])
+
+tool("build_option_strategy",
+     "Builds ONE specific named option strategy with live strikes and an "
+     "editable card (payoff, max loss/profit, POP, margin, critique). Use "
+     "when the user names the structure: 'bull call spread on NIFTY', "
+     "'iron condor', 'sell a 23000 put', 'covered call on RELIANCE'. "
+     "Templates: long_call, long_put, bull_call_spread, bear_put_spread, "
+     "bull_put_spread, bear_call_spread, cash_secured_put, covered_call, "
+     "protective_put, long_straddle, short_straddle, long_strangle, "
+     "short_strangle, iron_condor, iron_butterfly. For 'which strategy "
+     "should I use' use suggest_option_strategy instead.",
+     {
+         "underlying": {"type": "string"},
+         "template":   {"type": "string", "description":
+                        "One of the named templates (snake_case)."},
+         "expiry":     {"type": "string", "description":
+                        "ISO date, 'nearest' (default) or 'next'."},
+         "strikes":    {"type": "array", "items": {"type": "number"},
+                        "description":
+                        "Optional explicit strikes in leg order. Omit to "
+                        "let the engine pick liquid delta-based strikes."},
+         "qty_lots":   {"type": "integer", "minimum": 1, "default": 1},
+     },
+     ["underlying", "template"])
+
+tool("critique_option_strategy",
+     "Pre-trade critique (the Options Copilot): takes explicit legs the "
+     "user already has in mind and returns the strategy card with verdict "
+     "+ flags — liquidity, IV regime vs realized vol, max-loss vs account "
+     "size, expiry-day gamma, undefined-risk warnings. Use for 'should I "
+     "sell the 24000 call?', 'critique this trade', 'is this straddle ok?'.",
+     {
+         "underlying": {"type": "string"},
+         "expiry":     {"type": "string", "description":
+                        "ISO date, 'nearest' (default) or 'next'."},
+         "legs":       {"type": "array", "minItems": 1, "maxItems": 6,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "option_type": {"type": "string",
+                                                "enum": ["CE", "PE"]},
+                                "side": {"type": "string",
+                                         "enum": ["BUY", "SELL"]},
+                                "strike": {"type": "number"},
+                            },
+                            "required": ["option_type", "side", "strike"],
+                        },
+                        "description": "The legs to critique."},
+         "qty_lots":   {"type": "integer", "minimum": 1, "default": 1},
+     },
+     ["underlying", "legs"])
+
+tool("get_portfolio_greeks",
+     "Aggregate net option Greeks (delta/gamma/theta/vega) across the "
+     "user's registered option strategies, with per-underlying breakdown. "
+     "Use for 'what's my delta', 'portfolio greeks', 'how exposed am I to "
+     "theta/vega'.",
+     {},
+     [])
 
 tool("get_margin_required",
      "Calculates margin required for an F&O position before placing it.",

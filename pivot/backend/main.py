@@ -58,6 +58,7 @@ from backend.routers.kite_ticker_admin import router as kite_ticker_admin_router
 from backend.routers.admin_simulate import router as admin_simulate_router
 from backend.routers.backtest_dsl import router as backtest_dsl_router
 from backend.routers.options_admin import router as options_admin_router
+from backend.routers.option_strategies import router as option_strategies_router
 
 app = FastAPI(
     title="Pivot API",
@@ -125,6 +126,8 @@ app.include_router(admin_simulate_router)
 app.include_router(backtest_dsl_router)
 # F&O P0 admin surface — chain/universe inspection + manual refresh.
 app.include_router(options_admin_router)
+# F&O P1: option-strategy registration (bare-mounted like /ipo-applications).
+app.include_router(option_strategies_router)
 
 # ── News & Event Trigger subsystem (flag-gated) ──────────────────────
 # Entire subsystem is opt-in via `settings.news_events_enabled`. With

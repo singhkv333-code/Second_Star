@@ -150,49 +150,14 @@ def _strip_reasoning_leakage(text: str) -> str:
             continue
         kept.append(para)
     return "\n\n".join(kept).strip()
-# Explicit F&O / option-strategy verbs. Pivot v1 doesn't execute
-# options or futures, and some of these phrases ("naked call/put")
-# also trip Azure's content filter and surface as a hard provider
-# error. Detecting them pre-LLM keeps the decline deterministic and
-# avoids the generic "AI backend temporarily unavailable" banner.
-_FO_STRATEGY_RE = re.compile(
-    r"\b("
-    r"naked\s+(?:call|put)"
-    r"|covered\s+call"
-    r"|protective\s+put"
-    r"|cash[- ]?secured\s+put"
-    r"|iron\s+condor"
-    r"|iron\s+butterfly"
-    r"|bull\s+(?:call|put)\s+spread"
-    r"|bear\s+(?:call|put)\s+spread"
-    r"|short\s+strangle"
-    r"|long\s+strangle"
-    r"|short\s+straddle"
-    r"|long\s+straddle"
-    r"|calendar\s+spread"
-    r"|diagonal\s+spread"
-    r"|sell\s+a?\s*(?:call|put)\s+option"
-    r"|buy\s+a?\s*(?:call|put)\s+option"
-    r"|write\s+a?\s*(?:call|put)"
-    r")\b",
-    re.IGNORECASE,
-)
-_FO_DECLINE = (
-    "F&O — options and futures — isn't wired in Pivot v1; only "
-    "cash-equity orders execute. Want me to draft this on the "
-    "underlying, or hold this until F&O lands?"
-)
-
-
-def _fo_strategy_decline(message: str) -> str | None:
-    """Detect explicit option/F&O strategy verbs and emit a canonical
-    decline. Returns None if the message isn't an F&O strategy ask.
-    """
-    if not message:
-        return None
-    if _FO_STRATEGY_RE.search(message):
-        return _FO_DECLINE
-    return None
+# F&O is WIRED as of P1 (chain / suggest / build / critique tools +
+# the option_strategy_card). The pre-LLM decline that used to live here
+# (_FO_STRATEGY_RE / _fo_strategy_decline) is gone — strategy verbs now
+# route TO the options tools via tool_router + the _mentions_fno gate
+# below. NOTE the old decline also shielded Azure's content filter from
+# phrases like "naked put"; the options tools answer those turns with
+# structured cards before free prose, and the regression tests in
+# tests/test_chat_fno_routing.py pin each former decline phrase.
 
 
 _GENERIC_FALLBACK = "Sorry, I had trouble with that — could you rephrase?"
@@ -559,13 +524,14 @@ _FILLER_REPLY_RE = re.compile(
 )
 
 
-# F&O / options / futures detection. WHY: Pivot v1 only routes cash-
-# equity orders. When the user mentions options, calls, puts, futures,
-# strikes, expiry, premium, or F&O explicitly, the model used to
-# either say "I can do that" (lie — there are no F&O tools wired) or
-# silently draft a workflow that would fail at execution. Pre-LLM
-# detection strips order/macro tools and forces the model to name
-# the gap honestly.
+# F&O / options / futures detection. WHY (P1 rewrite): options are now
+# WIRED — when the user mentions options/strikes/expiry/F&O the gate
+# (a) ADDS the options tool surface (chain / suggest / build / critique
+# / portfolio greeks) so the model can actually serve the ask, and
+# (b) still STRIPS the cash-equity order tools so it can't hallucinate
+# a place_market_order on an options ticker. Futures execution remains
+# unwired — the options tools answer the research side of futures asks
+# and say so for execution.
 _FNO_RE = re.compile(
     r"\bf\s*&?\s*o\b"  # f&o, fno, F&O
     r"|\boptions?\b|\bcalls?\b|\bputs?\b|\bfutures?\b"
@@ -581,6 +547,16 @@ _FNO_RE = re.compile(
 
 def _mentions_fno(message: str) -> bool:
     return bool(_FNO_RE.search(message or ""))
+
+
+# The options tool surface the _mentions_fno gate ADDS (mirrors
+# TOOL_SUBSETS["OPTIONS_QUERY"] — kept literal here so the gate has no
+# import-order dependency on agents.tools).
+_OPTIONS_TOOLS: frozenset[str] = frozenset({
+    "get_option_chain", "suggest_option_strategy",
+    "build_option_strategy", "critique_option_strategy",
+    "get_portfolio_greeks",
+})
 
 
 # Contradiction detector — "buy AND sell same symbol same time".
@@ -758,7 +734,42 @@ _MACRO_AMENDMENT_TOOLS: frozenset[str] = frozenset({
     # See _STASH_DRAFT_TOOLS comment — backtest amendments must re-emit
     # backtest_workflow, not propose_workflow or get_multiple_indicators.
     "backtest_workflow",
+    # F&O P1: option strategy cards amend by re-emitting
+    # build_option_strategy (suggest/critique results stash AS
+    # build_option_strategy with a compact spec — see
+    # _option_draft_spec). "use the 23400 strike", "make it 2 lots",
+    # "switch to next expiry" are amendments, not new intents.
+    "build_option_strategy",
 })
+
+# Card-producing option tools whose results stash a COMPACT re-emit
+# spec (the full card payload blows the 1800-char draft-JSON budget in
+# the amendment hint — a 61-point payoff array alone is ~2KB).
+_OPTION_CARD_TOOLS: frozenset[str] = frozenset({
+    "suggest_option_strategy", "build_option_strategy",
+    "critique_option_strategy",
+})
+
+
+def _option_draft_spec(data: dict) -> dict:
+    """Compact build_option_strategy arg-shape from a strategy card
+    payload — what the amendment hint feeds back to the LLM."""
+    editable = (data or {}).get("editable") or {}
+    locked = (data or {}).get("locked") or {}
+    return {
+        "underlying": locked.get("underlying"),
+        "template": editable.get("template"),
+        "expiry": locked.get("expiry"),
+        "qty_lots": editable.get("qty_lots", 1),
+        "strikes": [
+            l.get("strike") for l in (editable.get("legs") or [])
+        ],
+        "legs": [
+            {"option_type": l.get("option_type"), "side": l.get("side"),
+             "strike": l.get("strike")}
+            for l in (editable.get("legs") or [])
+        ],
+    }
 
 # Tools that return structured data the FE can render as a card
 # directly. For these the model's prose can be a short ack because
@@ -933,6 +944,10 @@ def _looks_like_unstructured_clarification(
             "workflow_draft_card", "logic_card",
             "indicator_backtest_chart", "multistep_card",
             "financial_backtest_chart",
+            # Card-bearing turns are captions, not clarifications —
+            # IPO + options cards included (F&O P1).
+            "ipo_application_card", "ipo_list_card", "ipo_listed_card",
+            "option_chain_card", "option_strategy_card",
         }:
             return False
     # Length-based skip: explainers and long analytical replies
@@ -2325,28 +2340,9 @@ class ChatService:
                 latency_breakdown=breakdown,
             )
 
-        # ── F&O / option-strategy pre-LLM decline ──────────────────
-        # Phrases like "naked call" trip Azure's content filter and
-        # surface as a hard provider error → generic
-        # "AI backend temporarily unavailable" banner. Pivot v1
-        # doesn't execute options/futures anyway; emit the canonical
-        # decline directly. Keeps behaviour consistent with how the
-        # LLM declines "iron condor" / "short sell" prompts.
-        fo_response = _fo_strategy_decline(message)
-        if fo_response is not None:
-            trace.event("fo_strategy.declined")
-            self.store.append(conv_id, message, fo_response)
-            total = int((time.monotonic() - turn_started) * 1000)
-            breakdown["fo_strategy"] = total
-            breakdown["total"] = total
-            _log_timing("fo_strategy", message, total, breakdown, tools=[])
-            trace.event("turn.end", total_ms=total, tools_called=[])
-            trace.end()
-            return ChatTurn(
-                response=fo_response,
-                latency_ms=total,
-                latency_breakdown=breakdown,
-            )
+        # (F&O pre-LLM decline removed in P1 — options strategy verbs
+        # now route to the suggest/build/critique tools via the router
+        # and the _mentions_fno tool gate further down.)
 
         # ── Workflow skeleton fast-path ────────────────────────────
         # Canonical agent shapes (scheduled SIP, RSI threshold, price
@@ -2841,10 +2837,10 @@ class ChatService:
         is_filler_after_q = (
             _is_filler_reply(message) and _prev_assistant_was_question(history)
         )
-        # F&O gating: strip ALL order/macro tools when the message
-        # mentions options/futures/strikes/expiry. Forces the model
-        # to fall through to ASK_USER or prose explaining F&O isn't
-        # wired in v1.
+        # F&O gating (P1): when the message mentions options/strikes/
+        # expiry, ADD the options tool surface and strip the cash-equity
+        # order tools so the model serves the ask with the real options
+        # tools instead of hallucinating an equity order.
         mentions_fno = _mentions_fno(message)
         # Contradiction gating: "buy AND sell same time" — strip
         # macros so the model can't draft both, force ASK_USER.
@@ -2859,8 +2855,8 @@ class ChatService:
                     "propose_holding_action",
                 })
                 if mentions_fno:
-                    # Also strip immediate-order tools so the model can't
-                    # hallucinate a place_market_order on an options ticker.
+                    # Strip immediate-order tools so the model can't
+                    # hallucinate a place_market_order on an options ticker…
                     _UNDERSPEC_STRIP = _UNDERSPEC_STRIP | frozenset({
                         "place_market_order", "place_limit_order",
                         "create_gtt_order", "create_sl_order",
@@ -2868,6 +2864,10 @@ class ChatService:
                         "place_basket_order", "create_sip",
                     })
                 selected_names = selected_names - _UNDERSPEC_STRIP
+                if mentions_fno:
+                    # …and make sure the options surface is present even
+                    # when the regex router missed (e.g. slangy phrasing).
+                    selected_names = selected_names | _OPTIONS_TOOLS
                 # selected_names was already converted to tooldefs above
                 # before this strip. Rebuild the tooldefs to reflect the
                 # narrower set actually sent to the LLM on the first hop.
@@ -2961,6 +2961,16 @@ class ChatService:
                 "mutating the field(s) the user addressed. If the user is "
                 "clearly proposing a wholly different agent, supersede."
                 if tool_label == "propose_workflow" else
+                # F&O P1: the options amendment needs the strongest verb —
+                # the live eval showed the generic one still produced
+                # "Should I re-emit it now?" ASK_USER confirmations.
+                "Call build_option_strategy IMMEDIATELY with the draft's "
+                "underlying/template/expiry, applying the user's change to "
+                "`strikes` (array, leg order), `qty_lots` or `expiry`. "
+                "NEVER ask to confirm an amendment — apply it; the card "
+                "re-renders with fresh numbers and the user registers from "
+                "the card."
+                if tool_label == "build_option_strategy" else
                 f"Re-emit `{tool_label}` with ALL parameters from the draft, "
                 "only updating the field(s) the user changed. Do NOT switch to "
                 "a different tool (e.g. do NOT call propose_workflow instead)."
@@ -3470,6 +3480,14 @@ class ChatService:
                         self._stash_workflow_draft(
                             conv_id, guarded.data, tool_name=guarded.name,
                         )
+                    # F&O P1: option strategy cards stash a COMPACT spec
+                    # as build_option_strategy (full card payload blows
+                    # the amendment hint's 1800-char draft budget).
+                    elif guarded.name in _OPTION_CARD_TOOLS and guarded.data:
+                        self._stash_workflow_draft(
+                            conv_id, _option_draft_spec(guarded.data),
+                            tool_name="build_option_strategy",
+                        )
                     # Compact-mode tracker: any macro draft tool that
                     # succeeded means the FE will render the card; the
                     # NEXT hop's prose can be one short line.
@@ -3478,6 +3496,7 @@ class ChatService:
                     # renders directly; restating them in 400 tokens
                     # of prose is pure waste.
                     if (guarded.name in _STASH_DRAFT_TOOLS
+                            or guarded.name in _OPTION_CARD_TOOLS
                             or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
                     # find_tool lazy-load: union the candidate tool
@@ -4159,6 +4178,9 @@ class ChatService:
                         "place_basket_order", "create_sip",
                     })
                 selected_names = selected_names - _UNDERSPEC_STRIP
+                if mentions_fno:
+                    # P1: surface the options tools (mirror of handle()).
+                    selected_names = selected_names | _OPTIONS_TOOLS
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
         # Stream path matches the non-stream `handle()` decision —
@@ -4213,6 +4235,14 @@ class ChatService:
                 "mutating the field(s) the user addressed. If the user is "
                 "clearly proposing a wholly different agent, supersede."
                 if tool_label == "propose_workflow" else
+                # F&O P1 options amendment — strongest verb (see handle()).
+                "Call build_option_strategy IMMEDIATELY with the draft's "
+                "underlying/template/expiry, applying the user's change to "
+                "`strikes` (array, leg order), `qty_lots` or `expiry`. "
+                "NEVER ask to confirm an amendment — apply it; the card "
+                "re-renders with fresh numbers and the user registers from "
+                "the card."
+                if tool_label == "build_option_strategy" else
                 f"Re-emit `{tool_label}` with ALL parameters from the draft, "
                 "only updating the field(s) the user changed. Do NOT switch to "
                 "a different tool (e.g. do NOT call propose_workflow instead)."
@@ -4679,7 +4709,15 @@ class ChatService:
                         self._stash_workflow_draft(
                             conv_id, guarded.data, tool_name=guarded.name,
                         )
+                    # F&O P1 mirror: option cards stash a compact spec
+                    # as build_option_strategy (see handle()).
+                    elif guarded.name in _OPTION_CARD_TOOLS and guarded.data:
+                        self._stash_workflow_draft(
+                            conv_id, _option_draft_spec(guarded.data),
+                            tool_name="build_option_strategy",
+                        )
                     if (guarded.name in _STASH_DRAFT_TOOLS
+                            or guarded.name in _OPTION_CARD_TOOLS
                             or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
                     # Mirror of handle(): lazy-load find_tool matches
@@ -5207,9 +5245,13 @@ def _conversational_unsupported_reply(user_message_lower: str) -> str:
         "straddle", "strangle", "call ", "put ",
     )):
         return (
-            "F&O — options and futures — isn't wired into v1; only "
-            "cash equity orders go through Pivot today. Want me to "
-            "draft this on the underlying instead, or skip for now?"
+            "I can work options directly now — ask for the chain "
+            "(*\"NIFTY option chain\"*), a suggestion (*\"I'm bullish on "
+            "NIFTY, suggest an options strategy\"*), or a specific "
+            "structure (*\"build an iron condor on BANKNIFTY\"*) and "
+            "you'll get an editable strategy card with payoff, max loss "
+            "and probability of profit. Futures execution isn't wired "
+            "yet — options register to paper or as live intents only."
         )
 
     if any(p in msg for p in (

@@ -592,6 +592,34 @@ _RULES: list[_Rule] = [
         "get_market_status",
     ),
 
+    # ── F&O / options (P1) ────────────────────────────────────────
+    # Chain exploration, strategy suggestion/building, pre-trade
+    # critique, portfolio greeks. The suggest tool carries the
+    # minimal-ask flow, so vague options intents ("play NIFTY with
+    # options", "income strategy") surface it without demanding
+    # strikes upfront. Strategy names route to build; explicit-leg
+    # second-person asks ("should I sell the 24000 call?") route to
+    # critique. All four ride together — the model picks.
+    _r(
+        r"\boption\s+chain\b|\boi\s+data\b|\bopen\s+interest\b"
+        r"|\boptions?\b|\bf\s*&?\s*o\b|\bfno\b"
+        r"|\b(?:call|put)\s+(?:option|premium|writing|buying|selling)\b"
+        r"|\bstraddles?\b|\bstrangles?\b|\biron\s+(?:condor|butterfly)\b"
+        r"|\b(?:bull|bear)\s+(?:call|put)\s+spread\b"
+        r"|\bcovered\s+call\b|\bprotective\s+put\b|\bcash[- ]?secured\s+put\b"
+        r"|\bnaked\s+(?:call|put)\b|\bcredit\s+spread\b|\bdebit\s+spread\b"
+        r"|\b(?:calendar|diagonal|ratio|vertical|options?)\s+spread\b"
+        r"|\bwrite\s+a?\s*(?:call|put)s?\b"
+        r"|\b(?:sell|buy|short|long)\s+a?\s*(?:call|put)s?\b"
+        r"|\bstrike\s+price\b|\bexpiry\b|\bweekly\s+(?:call|put|option)\b"
+        r"|\bimplied\s+vol(?:atility)?\b|\biv\s+(?:rank|percentile|chart)\b"
+        r"|\b(?:portfolio|net|my)\s+(?:delta|theta|vega|gamma|greeks)\b"
+        r"|\bgreeks\b|\bmax\s+pain\b|\bpcr\b|\bput[- ]call\s+ratio\b",
+        "get_option_chain", "suggest_option_strategy",
+        "build_option_strategy", "critique_option_strategy",
+        "get_portfolio_greeks",
+    ),
+
     # ── Polymarket: BROWSE / discover open prediction-market contracts.
     # Surfaced for "what's on polymarket", "show me crypto markets on
     # poly", "browse politics markets". Pairs naturally with

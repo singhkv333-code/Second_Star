@@ -1324,3 +1324,126 @@ class OptionUniverse(Base):
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
+
+
+# ─── Option strategies (F&O P1: register-not-execute, paper-first) ───
+#
+# Mirrors IPOApplication's posture: a row per user-registered multi-leg
+# option strategy INTENT. ``book`` picks the destination:
+#   paper → P2's paper broker auto-executes the legs (simulated fills).
+#   live  → REGISTER-NOT-EXECUTE, forever: Pivot never places a live
+#           F&O order; the user executes in their broker app. Status
+#           stays 'registered' until withdrawn/closed by the user.
+# Legs are CHILD ROWS (not JSONB): each leg is an independent per-symbol
+# position once filled — a short straddle holds a CE and a PE position
+# marked/squared separately, so the legs must be addressable rows that
+# paper fills can reference (P2). Decision documented in the F&O plan.
+#
+# Soft refs for conversation_id / workflow_id — same cross-domain
+# pattern as IPOApplication / PaperIpoAllocation.
+OPTION_STRATEGY_STATUSES: frozenset[str] = frozenset({
+    "registered", "withdrawn",
+    # Reserved for P2/P3 lifecycle — never written by P1 code.
+    "intent_armed", "active", "closed", "rejected", "blocked",
+})
+
+OPTION_STRATEGY_BOOKS: frozenset[str] = frozenset({"paper", "live"})
+
+
+class OptionStrategy(Base):
+    """One row per registered multi-leg option strategy intent."""
+    __tablename__ = "option_strategies"
+    __table_args__ = (
+        CheckConstraint(
+            "book IN ('paper', 'live')",
+            name="ck_option_strategies_book",
+        ),
+        CheckConstraint(
+            "status IN ('registered', 'withdrawn', 'intent_armed', "
+            "'active', 'closed', 'rejected', 'blocked')",
+            name="ck_option_strategies_status",
+        ),
+        Index("ix_option_strategies_user_status", "user_id", "status"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    underlying = Column(String(40), nullable=False, index=True)
+    segment = Column(String(16), nullable=False)
+    exchange = Column(String(8), nullable=False)
+    template = Column(String(40), nullable=False)   # bull_call_spread / custom / …
+    expiry = Column(Date, nullable=False)
+    book = Column(String(8), nullable=False, default="paper")
+    status = Column(String(16), nullable=False, default="registered")
+    qty_lots = Column(Integer, nullable=False, default=1)
+    lot_size = Column(Integer, nullable=False)      # snapshot from master at register
+
+    # Decision-quad snapshot at registration (server-recomputed, never
+    # client-supplied). max_loss/max_profit NULL = unlimited.
+    net_premium = Column(Numeric(18, 4), nullable=True)
+    max_loss = Column(Numeric(18, 4), nullable=True)
+    max_profit = Column(Numeric(18, 4), nullable=True)
+    pop = Column(Float, nullable=True)
+    capital_required = Column(Numeric(18, 4), nullable=True)
+    margin_estimate = Column(Numeric(18, 4), nullable=True)
+    net_greeks_json = Column(JSON, nullable=True)
+    critique_verdict = Column(String(12), nullable=True)  # ok|caution|risky
+
+    # SOFT references — cross-domain, no FK (see header).
+    conversation_id = Column(String(64), nullable=True)
+    workflow_id = Column(String(36), nullable=True)
+
+    source = Column(String(50), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    legs = relationship(
+        "OptionLeg", back_populates="strategy",
+        cascade="all, delete-orphan", order_by="OptionLeg.strike",
+    )
+
+
+class OptionLeg(Base):
+    """One leg of an OptionStrategy — addressable so P2 paper fills can
+    reference it (client_request_id "optstrat:{strategy_id}:leg{n}")."""
+    __tablename__ = "option_legs"
+    __table_args__ = (
+        CheckConstraint(
+            "option_type IN ('CE', 'PE')", name="ck_option_legs_type",
+        ),
+        CheckConstraint(
+            "side IN ('BUY', 'SELL')", name="ck_option_legs_side",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    strategy_id = Column(
+        String(36),
+        ForeignKey("option_strategies.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    leg_index = Column(Integer, nullable=False, default=0)
+    instrument_token = Column(BigInteger, nullable=True)
+    tradingsymbol = Column(String(64), nullable=True)
+    option_type = Column(String(2), nullable=False)
+    side = Column(String(4), nullable=False)
+    strike = Column(Numeric(14, 4), nullable=False)
+    qty_lots = Column(Integer, nullable=False, default=1)
+    lot_size = Column(Integer, nullable=False)
+    # Entry snapshot at registration — feeds P&L attribution later.
+    entry_mid = Column(Float, nullable=True)
+    entry_iv = Column(Float, nullable=True)
+    entry_delta = Column(Float, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    strategy = relationship("OptionStrategy", back_populates="legs")

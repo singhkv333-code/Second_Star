@@ -56,7 +56,9 @@ import AssistantMessage from "@/components/chat/AssistantMessage";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
 import { IpoListCard } from "@/components/chat/IpoListCard";
 import { IpoListedCard } from "@/components/chat/IpoListedCard";
-import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload } from "@/lib/types";
+import { OptionChainCard } from "@/components/chat/OptionChainCard";
+import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
+import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -639,6 +641,8 @@ type Message =
   | { kind: "ipo_application"; payload: IpoApplicationPayload; intro: string }
   | { kind: "ipo_list"; payload: IpoListPayload; intro: string }
   | { kind: "ipo_listed"; payload: IpoListedPayload; intro: string }
+  | { kind: "option_chain"; payload: OptionChainPayload; intro: string }
+  | { kind: "option_strategy"; payload: OptionStrategyPayload; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
@@ -930,6 +934,18 @@ export function ChatDemo({
       finalMessage = {
         kind: "ipo_listed",
         payload: rawData as unknown as IpoListedPayload,
+        intro: data.response ?? "",
+      };
+    } else if (hint === "option_chain_card" && rawData) {
+      finalMessage = {
+        kind: "option_chain",
+        payload: rawData as unknown as OptionChainPayload,
+        intro: data.response ?? "",
+      };
+    } else if (hint === "option_strategy_card" && rawData) {
+      finalMessage = {
+        kind: "option_strategy",
+        payload: rawData as unknown as OptionStrategyPayload,
         intro: data.response ?? "",
       };
     } else {
@@ -1503,6 +1519,42 @@ export function ChatDemo({
                   )}
                   <div className="flex justify-start">
                     <IpoListedCard payload={msg.payload} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "option_chain") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <OptionChainCard payload={msg.payload} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "option_strategy") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <OptionStrategyCard payload={msg.payload} />
                   </div>
                 </div>
               );

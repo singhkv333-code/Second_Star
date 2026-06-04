@@ -29,6 +29,8 @@ import type {
   IpoRegisterResponse,
   IpoSubscriptionResponse,
   IpoWithdrawResponse,
+  OptionStrategyRegisterRequest,
+  OptionStrategyRegisterResponse,
   Paginated,
   PaperIpoAllocation,
   Run,
@@ -1466,5 +1468,38 @@ export function getIpoSubscription(
 ): Promise<ApiResult<IpoSubscriptionResponse>> {
   return requestLegacy<IpoSubscriptionResponse>(
     `/ipo-subscription/${encodeURIComponent(symbol)}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Option Strategies — bare-mounted at /option-strategies
+// ---------------------------------------------------------------------------
+
+/** `POST /option-strategies` — register an option strategy intent. */
+export function registerOptionStrategy(
+  body: OptionStrategyRegisterRequest,
+): Promise<ApiResult<OptionStrategyRegisterResponse>> {
+  return requestLegacy<OptionStrategyRegisterResponse>("/option-strategies", {
+    method: "POST",
+    body,
+  });
+}
+
+/** `POST /option-strategies/{id}/withdraw` — withdraw a registered strategy. */
+export function withdrawOptionStrategy(
+  id: string,
+): Promise<ApiResult<{ success: boolean }>> {
+  return requestLegacy<{ success: boolean }>(
+    `/option-strategies/${encodeURIComponent(id)}/withdraw`,
+    { method: "POST" },
+  );
+}
+
+/** `GET /users/option-strategies` — list this user's option strategies. */
+export function listOptionStrategies(): Promise<
+  ApiResult<{ items: OptionStrategyRegisterResponse["strategy"][] }>
+> {
+  return requestLegacy<{ items: OptionStrategyRegisterResponse["strategy"][] }>(
+    "/users/option-strategies",
   );
 }

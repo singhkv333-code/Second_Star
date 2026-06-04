@@ -36,8 +36,14 @@ async def execute_tool(tool_name: str, arguments: dict,
         "place_options_order":        _generic_confirm,
         "place_multileg_options":     _generic_confirm,
         "roll_futures_position":      _generic_confirm,
-        "get_option_chain":           _generic_confirm,
-        "get_option_greeks":          _generic_confirm,
+        # F&O P1 — real options surface (chain / suggest / build /
+        # critique / portfolio greeks). Strategy REGISTRATION happens on
+        # the card's POST /option-strategies, never through a chat tool.
+        "get_option_chain":           _get_option_chain,
+        "suggest_option_strategy":    _suggest_option_strategy,
+        "build_option_strategy":      _build_option_strategy,
+        "critique_option_strategy":   _critique_option_strategy,
+        "get_portfolio_greeks":       _get_portfolio_greeks,
         "get_margin_required":        _generic_confirm,
         "create_sip":                 _create_sip,
         "list_sips":                  _list_sips,
@@ -1533,6 +1539,271 @@ async def _get_ipo_listing(a, kt, db, uid):
         "note": note,
     }
     return {"success": True, "data": payload, "logiccard": None}
+
+
+# ── F&O P1 tool handlers ─────────────────────────────────────────────
+#
+# All four card-producing handlers are honest-on-failure (note + matches,
+# never fabricated chains/strikes) and registration-free: the strategy
+# card's Register button POSTs to /option-strategies — chat never places
+# or registers an option order by itself.
+
+
+def _normalize_expiry_arg(raw) -> tuple[str | None, bool]:
+    """LLMs pass 'nearest'/'current'/'current_week'/'next' as expiry.
+    Returns (iso_or_none, want_next): None = nearest; want_next picks the
+    second listed expiry."""
+    val = str(raw or "").strip().lower()
+    if not val or val in ("nearest", "current", "current_week", "this_week", "weekly"):
+        return None, False
+    if val in ("next", "next_week", "next_expiry", "monthly", "next_month"):
+        return None, True
+    return str(raw)[:10], False
+
+
+def _resolve_expiry_for_tool(db, underlying: str, raw) -> str | None:
+    from backend.market.instrument_master import list_expiries
+
+    iso, want_next = _normalize_expiry_arg(raw)
+    if iso:
+        return iso
+    if want_next:
+        expiries = list_expiries(db, underlying)
+        if len(expiries) > 1:
+            return expiries[1]["expiry"]
+    return None  # nearest
+
+
+async def _get_option_chain(a, kt, db, uid):
+    """ATM-centered chain slice → ``option_chain_card``."""
+    from backend.market.option_chain import get_chain
+    from backend.services.option_strategies import SEBI_DISCLOSURE
+
+    underlying = str(a.get("underlying", "")).strip().upper()
+    if not underlying:
+        return {
+            "success": False,
+            "data": {"note": "Provide an underlying — e.g. NIFTY, BANKNIFTY, RELIANCE."},
+            "logiccard": None,
+        }
+    expiry = _resolve_expiry_for_tool(db, underlying, a.get("expiry"))
+    width = max(1, min(int(a.get("width") or 8), 20))
+    chain = get_chain(db, underlying, expiry, width=width)
+    if chain is None:
+        return {
+            "success": False,
+            "data": {
+                "note": (
+                    f"No option chain found for '{underlying}'"
+                    + (f" expiry {expiry}" if expiry else "")
+                    + " — it may not be in the F&O segment, or the "
+                    "requested expiry isn't listed."
+                ),
+            },
+            "logiccard": None,
+        }
+    payload = {
+        "_render_hint": "option_chain_card",
+        **chain,
+        "disclosure": SEBI_DISCLOSURE,
+    }
+    return {"success": True, "data": payload, "logiccard": None}
+
+
+def _strategy_card_payload(payload: dict) -> dict:
+    """Shape a resolved strategy into the card dict. ``summary`` leads
+    the dict so the (6000-char-truncated) LLM view keeps the decision
+    quad even when the payoff array gets cut."""
+    computed = payload["computed"]
+    quad = {
+        "max_loss": computed["max_loss"],
+        "max_profit": computed["max_profit"],
+        "pop": computed["pop"],
+        "capital_required": computed["capital_required"],
+        "net_premium": computed["net_premium"],
+        "breakevens": computed["breakevens"],
+    }
+    return {
+        "_render_hint": "option_strategy_card",
+        "summary": {
+            "template": payload["editable"]["template"],
+            "underlying": payload["locked"]["underlying"],
+            "expiry": payload["locked"]["expiry"],
+            "legs": [
+                {"option_type": l["option_type"], "side": l["side"],
+                 "strike": l["strike"], "mid": l["mid"]}
+                for l in payload["editable"]["legs"]
+            ],
+            **quad,
+            "critique_verdict": payload["critique"]["verdict"],
+            "critique_summary": payload["critique"]["summary"],
+        },
+        "locked": payload["locked"],
+        "editable": payload["editable"],
+        "validation": payload["validation"],
+        "critique": payload["critique"],
+        "candidates": payload.get("candidates", []),
+        "computed": computed,
+    }
+
+
+async def _suggest_option_strategy(a, kt, db, uid):
+    """View → 2-3 risk-tagged candidates → editable strategy card."""
+    from backend.services.option_strategies import (
+        StrategyResolutionError,
+        suggest_strategies,
+    )
+
+    underlying = str(a.get("underlying", "")).strip().upper()
+    view = str(a.get("view", "")).strip().lower()
+    if not underlying or not view:
+        return {
+            "success": False,
+            "data": {"note": "Need the underlying and a view (bullish/bearish/neutral/volatile)."},
+            "logiccard": None,
+        }
+    try:
+        payload = suggest_strategies(
+            db, underlying, view,
+            expiry=_resolve_expiry_for_tool(db, underlying, a.get("expiry")),
+            risk=a.get("risk"),
+            qty_lots=int(a.get("qty_lots") or 1),
+        )
+    except StrategyResolutionError as exc:
+        return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
+    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+
+
+async def _build_option_strategy(a, kt, db, uid):
+    """One named template → editable strategy card."""
+    from backend.services.option_strategies import (
+        TEMPLATES,
+        StrategyResolutionError,
+        resolve_strategy,
+    )
+
+    underlying = str(a.get("underlying", "")).strip().upper()
+    template = str(a.get("template", "")).strip().lower()
+    if not underlying or not template:
+        return {
+            "success": False,
+            "data": {"note": "Need the underlying and a strategy template name."},
+            "logiccard": None,
+        }
+    explicit_legs = None
+    strikes = a.get("strikes")
+    if strikes and template in TEMPLATES:
+        spec_legs = TEMPLATES[template].legs
+        if len(strikes) == len(spec_legs):
+            explicit_legs = [
+                {"option_type": s.option_type, "side": s.side,
+                 "strike": float(k)}
+                for s, k in zip(spec_legs, strikes)
+            ]
+    try:
+        payload = resolve_strategy(
+            db, underlying, template,
+            expiry=_resolve_expiry_for_tool(db, underlying, a.get("expiry")),
+            qty_lots=int(a.get("qty_lots") or 1),
+            explicit_legs=explicit_legs,
+        )
+    except StrategyResolutionError as exc:
+        return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
+    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+
+
+async def _critique_option_strategy(a, kt, db, uid):
+    """Copilot pre-trade critique of explicit legs → strategy card
+    (read-only intent, but the card lets the user register if happy)."""
+    from backend.services.option_strategies import (
+        StrategyResolutionError,
+        resolve_strategy,
+    )
+
+    underlying = str(a.get("underlying", "")).strip().upper()
+    legs = a.get("legs") or []
+    if not underlying or not legs:
+        return {
+            "success": False,
+            "data": {"note": "Need the underlying and at least one leg to critique."},
+            "logiccard": None,
+        }
+    try:
+        explicit = [
+            {
+                "option_type": str(l.get("option_type", "")).upper(),
+                "side": str(l.get("side", "")).upper(),
+                "strike": float(l.get("strike") or 0.0),
+            }
+            for l in legs
+        ]
+        payload = resolve_strategy(
+            db, underlying, "custom",
+            expiry=_resolve_expiry_for_tool(db, underlying, a.get("expiry")),
+            qty_lots=int(a.get("qty_lots") or 1),
+            explicit_legs=explicit,
+        )
+    except (StrategyResolutionError, ValueError) as exc:
+        return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
+    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+
+
+async def _get_portfolio_greeks(a, kt, db, uid):
+    """Net Greeks across the user's open option strategies (P1: the
+    registration-time snapshot; P2 re-marks against the live chain)."""
+    from backend.models import OptionStrategy
+
+    rows = (
+        db.query(OptionStrategy)
+        .filter(
+            OptionStrategy.user_id == uid,
+            OptionStrategy.status.in_(("registered", "intent_armed", "active")),
+        )
+        .all()
+    )
+    if not rows:
+        return {
+            "success": True,
+            "data": {
+                "note": (
+                    "No open option strategies — register one and the "
+                    "portfolio Greeks build up from there."
+                ),
+                "net_greeks": {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0},
+                "strategy_count": 0,
+            },
+            "logiccard": None,
+        }
+    net = {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
+    by_underlying: dict[str, dict] = {}
+    for s in rows:
+        greeks = s.net_greeks_json or {}
+        bucket = by_underlying.setdefault(
+            s.underlying,
+            {"delta": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0, "strategies": 0},
+        )
+        bucket["strategies"] += 1
+        for k in net:
+            v = float(greeks.get(k) or 0.0)
+            net[k] += v
+            bucket[k] += v
+    return {
+        "success": True,
+        "data": {
+            "net_greeks": {k: round(v, 4) for k, v in net.items()},
+            "by_underlying": {
+                u: {k: (round(v, 4) if isinstance(v, float) else v)
+                    for k, v in b.items()}
+                for u, b in by_underlying.items()
+            },
+            "strategy_count": len(rows),
+            "basis": (
+                "Registration-time Greeks snapshot per strategy "
+                "(live re-marking lands with paper execution)."
+            ),
+        },
+        "logiccard": None,
+    }
 
 
 async def _propose_ipo_application(a, kt, db, uid):

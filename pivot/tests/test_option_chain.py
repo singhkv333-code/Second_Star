@@ -17,12 +17,18 @@ def master(db):
 @pytest.fixture(autouse=True)
 def _fresh_chain_cache():
     """The chain cache is keyed per (underlying, expiry, width) with a 5s
-    TTL — flush between tests so each test sees its own fetch."""
+    TTL — flush between tests so each test sees its own fetch. Handles
+    BOTH MockRedis and a real local Redis: a dev server running against
+    the same Redis (redis://localhost/0) shares the optchain:* keyspace
+    and was polluting test chains (order-dependent flakes)."""
     from backend.cache import redis_client
 
     if hasattr(redis_client, "_store"):  # MockRedis
         redis_client._store.clear()
         redis_client._expires_at.clear()
+    elif hasattr(redis_client, "scan_iter"):  # real Redis
+        for key in list(redis_client.scan_iter("optchain:*")):
+            redis_client.delete(key)
     yield
 
 

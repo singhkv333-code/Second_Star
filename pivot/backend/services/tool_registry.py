@@ -52,6 +52,11 @@ _REAL_TOOLS: set[str] = {
     # Market data
     "get_live_price", "get_index_level", "get_ohlc", "get_market_status",
     "get_52wk_range", "get_price_history", "get_top_movers",
+    # F&O P1: chain + strategy suggest/build/critique + portfolio greeks.
+    # Registration happens on the card's POST /option-strategies — there
+    # is deliberately NO place-options-order chat tool.
+    "get_option_chain", "suggest_option_strategy", "build_option_strategy",
+    "critique_option_strategy", "get_portfolio_greeks",
     # Retail capability tools (2026-05-29): fundamental screen,
     # single-stock fundamentals, company news, IPO feed. These MUST be
     # here (not just in agents/tools.py ALL_TOOLS) — get_tool_schema()
@@ -150,10 +155,12 @@ _REAL_TOOLS: set[str] = {
 
 # Tools intentionally excluded because their implementation is a stub:
 #   modify_order, place_futures_order, place_options_order,
-#   place_multileg_options, roll_futures_position,
-#   get_option_chain, get_option_greeks, get_margin_required,
+#   place_multileg_options, roll_futures_position, get_margin_required,
 #   create_cash_sweep, create_rebalancing_rule, create_drawdown_protection,
 #   get_upcoming_events
+# (get_option_chain went REAL in F&O P1 along with the suggest/build/
+# critique/portfolio-greeks surface; get_option_greeks was folded into
+# the chain card and its schema removed.)
 # When their handlers stop returning placeholder text they get added here.
 
 

@@ -529,3 +529,185 @@ export type IpoListedPayload = {
   source: string;
   note: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// F&O — Option Chain (chat render hint "option_chain_card")
+// ---------------------------------------------------------------------------
+
+export type IvStatus =
+  | "ok"
+  | "no_arb"
+  | "no_solution"
+  | "wide_spread"
+  | "illiquid"
+  | "stale";
+
+export type OptionSideQuote = {
+  ltp: number;
+  bid: number;
+  ask: number;
+  mid: number;
+  oi: number;
+  volume: number;
+  iv: number | null;
+  iv_status: IvStatus;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  tradingsymbol: string;
+  instrument_token: number;
+};
+
+export type OptionChainRow = {
+  strike: number;
+  ce: OptionSideQuote | null;
+  pe: OptionSideQuote | null;
+};
+
+export type ExpectedMove = {
+  low: number;
+  high: number;
+  abs: number;
+  pct: number;
+} | null;
+
+export type OptionChainPayload = {
+  _render_hint: "option_chain_card";
+  underlying: string;
+  segment: string;
+  exchange: string;
+  expiry: string;
+  expiries: { expiry: string; kind: "weekly" | "monthly" }[];
+  spot: number | null;
+  forward: number;
+  forward_source: "future" | "synthetic" | "spot" | "strike_median";
+  lot_size: number | null;
+  atm_strike: number;
+  expected_move: ExpectedMove;
+  t_years: number;
+  rows: OptionChainRow[];
+  research_only: boolean;
+  source: "kite" | "mock";
+  asof: string;
+  disclosure: string;
+  conversation_id?: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// F&O — Option Strategy (chat render hint "option_strategy_card")
+// ---------------------------------------------------------------------------
+
+export type StrategyLeg = {
+  option_type: "CE" | "PE";
+  side: "BUY" | "SELL";
+  strike: number;
+  tradingsymbol?: string;
+  mid?: number;
+  iv?: number | null;
+  delta?: number | null;
+  iv_status?: IvStatus;
+};
+
+export type CritiqueFlag = {
+  severity: "info" | "warn" | "risk";
+  text: string;
+};
+
+export type StrategyCandidate = {
+  template: string;
+  label: string;
+  risk_tag: "conservative" | "moderate" | "aggressive";
+  pop: number | null;
+  max_loss: number | null;
+  max_profit: number | null;
+  net_premium: number;
+  one_liner: string;
+  legs: { option_type: "CE" | "PE"; side: "BUY" | "SELL"; strike: number }[];
+};
+
+export type OptionStrategyPayload = {
+  _render_hint: "option_strategy_card";
+  locked: {
+    underlying: string;
+    segment: string;
+    exchange: string;
+    spot: number | null;
+    forward: number;
+    expiry: string;
+    expiry_kind: "weekly" | "monthly";
+    lot_size: number;
+    research_only: boolean;
+    disclosure: string;
+  };
+  editable: {
+    template: string;
+    book: "paper" | "live";
+    qty_lots: number;
+    legs: StrategyLeg[];
+  };
+  computed: {
+    net_premium: number;
+    payoff: { s: number; pnl: number }[];
+    breakevens: number[];
+    max_loss: number | null;
+    max_profit: number | null;
+    pop: number | null;
+    net_greeks: { delta: number; gamma: number; theta: number; vega: number };
+    capital_required: number;
+    margin_estimate: number;
+    margin_note: string;
+  };
+  validation: {
+    lot_multiple_ok: boolean;
+    min_lots: number;
+    max_lots: number;
+    liquidity_ok: boolean;
+    liquidity_flags: string[];
+    expiry_gamma_warn: boolean;
+    mcx_execution_blocked: boolean;
+    requires_disclosure: boolean;
+  };
+  critique: {
+    verdict: "ok" | "caution" | "risky";
+    flags: CritiqueFlag[];
+    summary: string;
+  };
+  candidates: StrategyCandidate[];
+  conversation_id?: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// F&O — Option Strategy register/withdraw request/response
+// ---------------------------------------------------------------------------
+
+export type OptionStrategyRegisterRequest = {
+  underlying: string;
+  expiry: string;
+  template: string;
+  book: "paper" | "live";
+  qty_lots: number;
+  legs: { option_type: "CE" | "PE"; side: "BUY" | "SELL"; strike: number }[];
+  acknowledge_disclosure: boolean;
+  conversation_id?: string | null;
+};
+
+export type OptionStrategyRegisterResponse = {
+  success: boolean;
+  strategy: {
+    id: string;
+    underlying: string;
+    template: string;
+    expiry: string;
+    book: "paper" | "live";
+    status: string;
+    qty_lots: number;
+    max_loss: number | null;
+    max_profit: number | null;
+    pop: number | null;
+    capital_required: number;
+    margin_estimate: number;
+    created_at: string;
+  } | null;
+  error?: string | null;
+};
