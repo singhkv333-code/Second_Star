@@ -559,6 +559,10 @@ async def _poll_watch_triggers() -> None:
                             # RBI-autofire: news-event triggers fetch the
                             # RBI RSS feed and keyword-match per tick.
                             "trigger.event",
+                            # F&O P3: expiry-day trigger — DTE from
+                            # the instrument master, per-expiry
+                            # fire-once latch.
+                            "trigger.expiry_day",
                         ],
                     ),
                 )
@@ -610,11 +614,80 @@ async def _poll_watch_triggers() -> None:
                 await _evaluate_exit_compound_trigger(wf_id, step_idx, cfg, fired_at)
             elif step_type == "trigger.event":
                 await _evaluate_event_trigger(wf_id, step_idx, cfg, fired_at)
+            elif step_type == "trigger.expiry_day":
+                await _evaluate_expiry_day_trigger(wf_id, step_idx, cfg, fired_at)
         except Exception:
             logger.exception(
                 "[watcher] failed to evaluate %s for workflow %s step %d",
                 step_type, wf_id, step_idx,
             )
+
+
+async def _evaluate_expiry_day_trigger(
+    workflow_id: str,
+    step_index: int,
+    cfg: dict[str, object],
+    fired_at: datetime,
+) -> None:
+    """F&O P3: fire once on the morning of the underlying's option
+    expiry day. DTE comes from the instrument master via the chain
+    service (never a hardcoded weekday — exchanges reshuffled expiry
+    days in 2025). Fire-once latch: ``_expiry_day_fired_for`` persists
+    the expiry ISO the trigger last fired for, so it re-arms
+    automatically for the NEXT expiry."""
+    underlying = str(cfg.get("underlying", "")).strip().upper()
+    if not underlying:
+        return
+    expiry_rule = str(cfg.get("expiry_rule", "nearest"))
+
+    def _check_sync() -> tuple[bool, str]:
+        from backend.database import SessionLocal
+        from backend.market.instrument_master import list_expiries
+        from backend.market.option_metrics import compute_dte
+
+        db = SessionLocal()
+        try:
+            expiries = list_expiries(db, underlying)
+            if not expiries:
+                return False, ""
+            if expiry_rule == "monthly":
+                target = next(
+                    (e["expiry"] for e in expiries if e["kind"] == "monthly"),
+                    expiries[-1]["expiry"],
+                )
+            else:
+                target = expiries[0]["expiry"]
+            dte = compute_dte(db, underlying, expiry_rule=expiry_rule)
+            # Expiry-day morning: DTE counts to the session close, so
+            # the whole expiry day reads 0 < dte <= 1 (and the trigger
+            # window opens at the 09:15 watcher tick).
+            return (dte is not None and dte <= 1.0), target
+        finally:
+            db.close()
+
+    try:
+        is_expiry_day, target_expiry = await asyncio.to_thread(_check_sync)
+    except Exception:
+        logger.exception(
+            "[watcher.expiry_day] check failed for %s", underlying,
+        )
+        return
+    if not is_expiry_day or not target_expiry:
+        return
+    if str(cfg.get("_expiry_day_fired_for") or "") == target_expiry:
+        return  # already fired for this expiry
+
+    # Latch BEFORE firing (crash safety — same order the IPO-open
+    # watcher uses) so a crash after the run insert can't double-fire.
+    await asyncio.to_thread(
+        _persist_last_value,
+        workflow_id, step_index, "_expiry_day_fired_for", target_expiry,
+    )
+    logger.info(
+        "[watcher.expiry_day] %s expiry %s — firing workflow %s",
+        underlying, target_expiry, workflow_id,
+    )
+    await _fire_watch_run(workflow_id, step_index, "event_alert", fired_at)
 
 
 def _batch_fetch_prices(instruments: list[str]) -> dict[str, float]:

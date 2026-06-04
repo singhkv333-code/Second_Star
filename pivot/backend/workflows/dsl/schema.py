@@ -1,6 +1,6 @@
 """Recursive Pydantic schema for the v1 condition tree.
 
-Fourteen node types behind a single discriminator field ``type``:
+Seventeen node types behind a single discriminator field ``type``:
 
   - ``indicator``    — RSI / SMA / EMA / MACD / ATR / ... value
   - ``price``        — bar open/high/low/close for a symbol
@@ -18,6 +18,10 @@ Fourteen node types behind a single discriminator field ``type``:
   - ``aggregate``    — lookback aggregator (highest/lowest/percentrank/...)
   - ``comparison``   — two operand sub-trees + a binary operator
   - ``logic``        — and / or / not joining operand sub-trees
+  - ``option_metric``— chain-level option metric (iv_atm / pcr / max
+                      pain / skew / term slope / vrp …) (F&O P3)
+  - ``option_greek`` — one contract's delta/gamma/theta/vega (F&O P3)
+  - ``dte``          — calendar days to option expiry (F&O P3)
 
 Why a discriminated union rather than separate top-level types: it
 keeps the JSON shape uniform (every node has a ``type`` field), which
@@ -436,6 +440,73 @@ class LogicNode(_Strict):
         return self
 
 
+# ── F&O leaf nodes (P3) ──────────────────────────────────────────────
+#
+# Three numeric leaves that widen what trigger.compound /
+# trigger.exit_compound trees can reference — consumed by the existing
+# comparison/logic/math combinators, NO new grammar. The LIVE accessor
+# reads them through the 5s-cached option chain; accessors without the
+# option methods (the backtest accessor, until historical IV data
+# lands) resolve them to None → Kleene UNKNOWN → the condition simply
+# doesn't fire. Absence is honest; fabricated IV is a bug.
+
+
+class OptionMetricNode(_Strict):
+    """A chain-level option metric for an underlying.
+
+    Metrics (backend/market/option_metrics.py): iv_atm, straddle_price,
+    expected_move_pct, pcr_oi, pcr_volume, max_pain, rr_25d, fly_25d,
+    term_slope, vrp. IV rank/percentile need an IV-history store and are
+    deliberately NOT offered yet. ``iv_atm``/``rr_25d``/``fly_25d``/
+    ``term_slope``/``vrp`` are vol FRACTIONS (0.14 = 14%); compare
+    against constants in the same unit."""
+
+    type: Literal["option_metric"] = "option_metric"
+    underlying: str = Field(..., min_length=1, max_length=40)
+    metric: Literal[
+        "iv_atm", "straddle_price", "expected_move_pct", "pcr_oi",
+        "pcr_volume", "max_pain", "rr_25d", "fly_25d", "term_slope", "vrp",
+    ]
+    expiry_rule: Literal["nearest", "next", "monthly"] = "nearest"
+
+    @field_validator("underlying")
+    @classmethod
+    def _strip_upper(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class OptionGreekNode(_Strict):
+    """A single option contract's greek (per UNIT, unscaled by lots).
+    ``strike`` None → the ATM strike at evaluation time."""
+
+    type: Literal["option_greek"] = "option_greek"
+    underlying: str = Field(..., min_length=1, max_length=40)
+    greek: Literal["delta", "gamma", "theta", "vega"]
+    option_type: Literal["CE", "PE"] = "CE"
+    strike: Optional[float] = Field(default=None, gt=0)
+    expiry_rule: Literal["nearest", "next", "monthly"] = "nearest"
+
+    @field_validator("underlying")
+    @classmethod
+    def _strip_upper(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class DteNode(_Strict):
+    """Calendar days to the underlying's option expiry (fractional,
+    intraday clock). Powers expiry-day gates ("dte <= 1") and entry
+    windows ("dte >= 5")."""
+
+    type: Literal["dte"] = "dte"
+    underlying: str = Field(..., min_length=1, max_length=40)
+    expiry_rule: Literal["nearest", "next", "monthly"] = "nearest"
+
+    @field_validator("underlying")
+    @classmethod
+    def _strip_upper(cls, v: str) -> str:
+        return v.strip().upper()
+
+
 # ── Discriminated union ──────────────────────────────────────────────
 
 
@@ -455,6 +526,9 @@ Tree = Annotated[
         AggregateNode,
         ComparisonNode,
         LogicNode,
+        OptionMetricNode,
+        OptionGreekNode,
+        DteNode,
     ],
     Field(discriminator="type"),
 ]

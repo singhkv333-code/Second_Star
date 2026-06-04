@@ -322,6 +322,82 @@ class LiveDataAccessor:
             now = datetime.now()
         return _WEEKDAY_LOOKUP[now.weekday()]
 
+    # ── F&O P3: option leaves (OPTIONAL Protocol methods) ──
+    #
+    # Read through the 5s-cached chain service — never Kite directly.
+    # Own short-lived session per call (the accessor has no db); the
+    # per-walk cache keeps a tree with several option nodes at one
+    # fetch per (underlying, metric). The BACKTEST accessor does not
+    # implement these — the evaluator resolves them to None → UNKNOWN
+    # until historical option data lands (F&O P4 vendor decision).
+
+    def _with_db(self, fn):
+        from backend.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            return fn(db)
+        except Exception:  # noqa: BLE001 — watcher must never crash
+            return None
+        finally:
+            db.close()
+
+    def get_option_metric(
+        self, *, underlying: str, metric: str, expiry_rule: str = "nearest",
+    ) -> Optional[float]:
+        cache_key = ("opt_metric", underlying.upper(), metric, expiry_rule)
+        if cache_key in self._call_cache:
+            return self._call_cache[cache_key]
+        from backend.market.option_metrics import compute_option_metric
+
+        result = self._with_db(
+            lambda db: compute_option_metric(
+                db, underlying, metric, expiry_rule=expiry_rule,
+            )
+        )
+        self._call_cache[cache_key] = result
+        return result
+
+    def get_option_greek(
+        self,
+        *,
+        underlying: str,
+        greek: str,
+        option_type: str = "CE",
+        strike: Optional[float] = None,
+        expiry_rule: str = "nearest",
+    ) -> Optional[float]:
+        cache_key = (
+            "opt_greek", underlying.upper(), greek, option_type,
+            strike, expiry_rule,
+        )
+        if cache_key in self._call_cache:
+            return self._call_cache[cache_key]
+        from backend.market.option_metrics import compute_option_greek
+
+        result = self._with_db(
+            lambda db: compute_option_greek(
+                db, underlying, greek, option_type=option_type,
+                strike=strike, expiry_rule=expiry_rule,
+            )
+        )
+        self._call_cache[cache_key] = result
+        return result
+
+    def get_dte(
+        self, *, underlying: str, expiry_rule: str = "nearest",
+    ) -> Optional[float]:
+        cache_key = ("opt_dte", underlying.upper(), expiry_rule)
+        if cache_key in self._call_cache:
+            return self._call_cache[cache_key]
+        from backend.market.option_metrics import compute_dte
+
+        result = self._with_db(
+            lambda db: compute_dte(db, underlying, expiry_rule=expiry_rule)
+        )
+        self._call_cache[cache_key] = result
+        return result
+
     # ── volume ──
 
     def get_volume(

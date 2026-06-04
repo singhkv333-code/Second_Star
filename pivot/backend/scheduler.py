@@ -132,16 +132,13 @@ def _register_jobs():
     # F&O P0: instrument-master refresh + dynamic universe selection.
     # 08:35 IST — after Kite regenerates the daily instruments dump
     # (~08:30) and before market open, so lot-size revisions and new
-    # weekly expiries land before any chain is quoted. Lazy import keeps
-    # scheduler boot resilient if the F&O module has an issue.
-    async def _refresh_instrument_master():
-        from backend.market.instrument_master import (
-            refresh_instrument_master_job,
-        )
-        await refresh_instrument_master_job()
-
+    # weekly expiries land before any chain is quoted.
+    # NOTE: MUST be a module-level function (refresh_fno_instruments
+    # below) — the SQLAlchemy jobstore serializes callables by textual
+    # reference, and a closure here silently killed scheduler.start()
+    # for EVERY job ("This Job cannot be serialized").
     scheduler.add_job(
-        _refresh_instrument_master,
+        refresh_fno_instruments,
         trigger=CronTrigger(
             hour=8, minute=35, second=0,
             day_of_week="mon-fri",
@@ -183,28 +180,9 @@ def _register_jobs():
 
         # F&O P2: portfolio-Greeks snapshot — 15:39, after the NAV
         # snapshot so both EOD rows reflect the same closing marks.
-        async def _snapshot_paper_greeks():
-            import asyncio
-
-            def _run() -> None:
-                from backend.database import SessionLocal
-                from backend.services.portfolio_greeks import (
-                    snapshot_portfolio_greeks,
-                )
-
-                db = SessionLocal()
-                try:
-                    snapshot_portfolio_greeks(db)
-                finally:
-                    db.close()
-
-            try:
-                await asyncio.to_thread(_run)
-            except Exception:
-                logger.exception("[greeks-snapshot] EOD snapshot failed")
-
+        # Module-level callable (same serialization constraint as above).
         scheduler.add_job(
-            _snapshot_paper_greeks,
+            snapshot_paper_greeks_eod,
             trigger=CronTrigger(
                 hour=15, minute=39, second=0,
                 day_of_week="mon-fri", timezone=IST,
@@ -218,6 +196,37 @@ def _register_jobs():
         f"[{format_ist_short(now_ist())}] Registered "
         f"{len(scheduler.get_jobs())} scheduler jobs. All times in IST."
     )
+
+
+# ── F&O jobs (module-level — the SQLAlchemy jobstore serializes
+# callables by textual reference; closures break scheduler.start()) ──
+
+
+async def refresh_fno_instruments():
+    """F&O P0: daily instrument-master refresh + universe selection."""
+    from backend.market.instrument_master import refresh_instrument_master_job
+
+    await refresh_instrument_master_job()
+
+
+async def snapshot_paper_greeks_eod():
+    """F&O P2: EOD portfolio-Greeks snapshot per paper account."""
+    import asyncio
+
+    def _run() -> None:
+        from backend.database import SessionLocal
+        from backend.services.portfolio_greeks import snapshot_portfolio_greeks
+
+        db = SessionLocal()
+        try:
+            snapshot_portfolio_greeks(db)
+        finally:
+            db.close()
+
+    try:
+        await asyncio.to_thread(_run)
+    except Exception:
+        logger.exception("[greeks-snapshot] EOD snapshot failed")
 
 
 # ── Paper-trading jobs ───────────────────────────────────────────────────────

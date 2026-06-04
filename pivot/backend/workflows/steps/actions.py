@@ -38,6 +38,7 @@ from backend.workflows.schemas import (
     ActionAllocateNotionalConfig,
     ActionArmIpoIntentConfig,
     ActionCancelOrdersConfig,
+    ActionPlaceOptionStrategyConfig,
     ActionPlaceOrderConfig,
     ActionAllocateBasketConfig,
     ActionSetStoplossConfig,
@@ -1464,6 +1465,229 @@ async def execute_action_arm_ipo_intent(
         "applied": False,  # Pivot has NOT applied — load-bearing flag.
         "stale": stale,
         "paper_allocation_id": paper_allocation_id,
+    }
+
+
+@register_step(
+    step_type="action.place_option_strategy",
+    category="action",
+    label="Place option strategy",
+    description=(
+        "Place a multi-leg option strategy (paper-first). Paper book: "
+        "the legs fill in the simulated book. Live book: REGISTERS the "
+        "intent only — you execute in your broker app; Pivot never "
+        "places a live F&O order. MCX commodities are research-only "
+        "and rejected."
+    ),
+    icon="layers",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionPlaceOptionStrategyConfig,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "strategy_id": {"type": "string"},
+            "underlying": {"type": "string"},
+            "template": {"type": "string"},
+            "expiry": {"type": "string"},
+            "book": {"type": "string"},
+            "status": {"type": "string"},
+            "qty_lots": {"type": "integer"},
+            "max_loss": {"type": ["number", "null"]},
+            "pop": {"type": ["number", "null"]},
+            "margin_estimate": {"type": ["number", "null"]},
+            "legs": {"type": "array"},
+            "fills": {"type": "array"},
+            "executed": {"type": "boolean"},
+        },
+        "required": ["strategy_id", "status", "book", "executed"],
+    },
+)
+async def execute_action_place_option_strategy(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """F&O P3: resolve the template against the LIVE chain at fire
+    time (same engine as the chat cards — delta/liquidity strike rules,
+    payoff, SPAN margin, critique), run the SAME fail-closed pre-trade
+    gate as the REST registration path (safety.run_option_pretrade_gate
+    — MCX block, expiry-gamma naked-short block, lot caps, kill
+    switch), persist the OptionStrategy row, then:
+
+      book='paper' → execute the legs in the paper book NOW
+                     (mid±half-spread, margin reserve for shorts).
+      book='live'  → status stays 'registered' — REGISTER-NOT-EXECUTE,
+                     forever. The companion notify step tells the user
+                     to act in their broker app.
+
+    Approval: requires_approval=true pauses the run via the standard
+    WorkflowApproval flow BEFORE anything persists.
+
+    Idempotency: one strategy per run-step — re-entry (engine retry)
+    finds the existing row via the (workflow_run_id-scoped) duplicate
+    check and re-drives only the unfilled paper legs (per-leg
+    client_request_ids dedup fills).
+    """
+    cfg = ctx.config
+    requires_approval = bool(cfg.get("requires_approval", False))
+
+    if requires_approval:
+        existing = _has_pending_approval(ctx)
+        if existing is None or existing.decision is None:
+            from backend.workflows.engine import _utcnow
+
+            summary = (
+                f"{cfg['template'].replace('_', ' ')} on "
+                f"{cfg['underlying'].upper()} ×{cfg.get('qty_lots', 1)} "
+                f"lot(s), {cfg.get('book', 'paper')} book"
+            )
+            approval = WorkflowApproval(
+                run_id=ctx.run.id,
+                step_index=ctx.step.step_index,
+                expires_at=_utcnow() + timedelta(minutes=15),
+                summary=summary,
+            )
+            ctx.db.add(approval)
+            ctx.db.commit()
+            ctx.db.refresh(approval)
+            raise _AwaitingApproval(approval.id)
+        if existing.decision == "rejected":
+            raise RuntimeError(
+                f"approval rejected at step {ctx.step.step_index}"
+            )
+
+    from backend.safety import run_option_pretrade_gate
+    from backend.services.option_strategies import (
+        TEMPLATES,
+        StrategyResolutionError,
+        resolve_strategy,
+    )
+    from backend.services.option_strategy_service import (
+        persist_option_strategy,
+    )
+
+    db = ctx.db
+    user_id = int(ctx.workflow.user_id)
+    underlying = str(cfg["underlying"]).strip().upper()
+    template = str(cfg["template"]).strip().lower()
+    book = str(cfg.get("book", "paper"))
+    qty_lots = int(cfg.get("qty_lots", 1))
+
+    # Idempotent re-entry: a strategy already created by THIS run.
+    from backend.models import OptionStrategy
+
+    run_id = str(ctx.run.id)
+    strategy = (
+        db.query(OptionStrategy)
+        .filter(
+            OptionStrategy.user_id == user_id,
+            OptionStrategy.workflow_id == run_id,
+        )
+        .first()
+    )
+
+    if strategy is None:
+        # Resolve expiry rule → ISO date for the engine.
+        from backend.market.instrument_master import list_expiries
+
+        expiry_rule = str(cfg.get("expiry_rule", "nearest"))
+        expiries = list_expiries(db, underlying)
+        if not expiries:
+            raise ValueError(
+                f"no listed option expiries for {underlying} — "
+                "is it an F&O underlying?"
+            )
+        if expiry_rule == "next" and len(expiries) > 1:
+            expiry = expiries[1]["expiry"]
+        elif expiry_rule == "monthly":
+            expiry = next(
+                (e["expiry"] for e in expiries if e["kind"] == "monthly"),
+                expiries[-1]["expiry"],
+            )
+        else:
+            expiry = expiries[0]["expiry"]
+
+        explicit_legs = None
+        strikes = cfg.get("strikes")
+        if strikes and template in TEMPLATES:
+            spec_legs = TEMPLATES[template].legs
+            if len(strikes) == len(spec_legs):
+                explicit_legs = [
+                    {"option_type": s.option_type, "side": s.side,
+                     "strike": float(k)}
+                    for s, k in zip(spec_legs, strikes)
+                ]
+
+        try:
+            payload = resolve_strategy(
+                db, underlying, template,
+                expiry=expiry, qty_lots=qty_lots,
+                explicit_legs=explicit_legs,
+            )
+        except StrategyResolutionError as exc:
+            raise ValueError(f"option strategy resolution failed: {exc}")
+        payload["editable"]["book"] = book
+
+        # The SAME fail-closed gate as the REST path. Workflow path is
+        # autonomous → the user's activation of the workflow IS the
+        # disclosure acknowledgement (the draft card carries it).
+        ok, reason = run_option_pretrade_gate(payload, acknowledged=True)
+        if not ok:
+            raise ValueError(f"pre-trade gate blocked: {reason}")
+
+        strategy = persist_option_strategy(
+            db,
+            user_id=user_id,
+            payload=payload,
+            book=book,
+            qty_lots=qty_lots,
+            workflow_id=run_id,
+            source="workflow",
+        )
+
+    fills: list[dict] = []
+    executed = False
+    if book == "paper" and strategy.status in ("registered", "active"):
+        from backend.config import settings as _settings
+
+        if getattr(_settings, "paper_trading_enabled", True):
+            from backend.paper.options_routing import (
+                OptionFillError,
+                submit_option_strategy,
+            )
+
+            try:
+                result = submit_option_strategy(db, user_id, strategy)
+            except OptionFillError as exc:
+                raise ValueError(f"paper execution failed: {exc}")
+            if not result["success"]:
+                raise ValueError(
+                    f"paper execution failed: {result['error']}"
+                )
+            fills = result["fills"]
+            executed = True
+            db.commit()
+
+    return {
+        "strategy_id": str(strategy.id),
+        "underlying": strategy.underlying,
+        "template": strategy.template,
+        "expiry": strategy.expiry.isoformat(),
+        "book": strategy.book,
+        "status": strategy.status,
+        "qty_lots": strategy.qty_lots,
+        "max_loss": float(strategy.max_loss) if strategy.max_loss is not None else None,
+        "pop": strategy.pop,
+        "margin_estimate": (
+            float(strategy.margin_estimate)
+            if strategy.margin_estimate is not None else None
+        ),
+        "legs": [
+            {"option_type": l.option_type, "side": l.side,
+             "strike": float(l.strike), "tradingsymbol": l.tradingsymbol}
+            for l in strategy.legs
+        ],
+        "fills": fills,
+        "executed": executed,
     }
 
 

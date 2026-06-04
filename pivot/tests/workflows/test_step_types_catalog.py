@@ -36,6 +36,8 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "trigger.exit_compound": "trigger",
     # P2 — IPO open-day reminder watcher (upcoming -> open edge)
     "trigger.ipo_open": "trigger",
+    # F&O P3 — option expiry-day trigger (DTE from the contract master)
+    "trigger.expiry_day": "trigger",
     # ── Data fetches (11) ──
     "fetch.quote": "fetch",
     "fetch.indicator": "fetch",
@@ -72,6 +74,8 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "action.squareoff_all_intraday": "action",
     # P2 — IPO arm-intent (register-not-execute, no broker call)
     "action.arm_ipo_intent": "action",
+    # F&O P3 — multi-leg option strategy (paper executes; live registers)
+    "action.place_option_strategy": "action",
     # ── Communication (3) ──
     "notify.message": "notify",
     "notify.log": "notify",

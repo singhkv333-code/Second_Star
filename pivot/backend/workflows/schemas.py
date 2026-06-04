@@ -376,6 +376,31 @@ class TriggerManualConfig(_Strict):
     pass
 
 
+class TriggerExpiryDayConfig(_Strict):
+    """Fire ONCE on the morning of an underlying's option expiry day —
+    F&O P3. Powers roll/square-off nudges ("on expiry day, square off my
+    short strangle and notify me") and expiry-day strategies.
+
+    The watcher computes days-to-expiry from the instrument master
+    (never a hardcoded weekday — exchanges reshuffled expiry days in
+    2025) and fires when DTE rolls below 1 on a trading day, with a
+    fire-once latch per expiry persisted on the step config (under
+    ``_expiry_day_fired_for``) so the workflow re-arms automatically
+    for the NEXT expiry after firing.
+    """
+    underlying: str = Field(
+        ..., min_length=1, max_length=40,
+        description="Underlying root with listed options (NIFTY, BANKNIFTY, RELIANCE…).",
+    )
+    expiry_rule: Literal["nearest", "monthly"] = Field(
+        default="nearest",
+        description=(
+            "Which expiry to track: 'nearest' fires every expiry "
+            "(weeklies included), 'monthly' only on monthly expiry days."
+        ),
+    )
+
+
 class TriggerIpoOpenConfig(_Strict):
     """Fire when an IPO's subscription window opens (upcoming -> open edge).
 
@@ -1025,6 +1050,47 @@ class ActionPlaceOrderConfig(_Strict):
         if not has_qty and not has_notional:
             raise ValueError("must specify quantity or notional_inr")
         return self
+
+
+class ActionPlaceOptionStrategyConfig(_Strict):
+    """Place a multi-leg option strategy — F&O P3, paper-first.
+
+    ``book='paper'`` (default) → the paper broker executes the legs at
+    mid±half-spread (margin reserve for shorts) and the strategy goes
+    ACTIVE in the paper book. ``book='live'`` → REGISTER-NOT-EXECUTE:
+    the strategy row is persisted as a registered live intent and the
+    notify step tells the user to execute in their broker app — Pivot
+    NEVER places a live F&O order. MCX underlyings are hard-rejected
+    (research-only product decision).
+
+    Strikes resolve AT FIRE TIME against the live chain via the named
+    template's delta/ATM rules (same engine as the chat cards), so a
+    workflow armed on Monday picks sane strikes on Thursday. Explicit
+    ``strikes`` pin them instead (leg order of the template).
+    """
+    underlying: str = Field(..., min_length=1, max_length=40)
+    template: str = Field(
+        ..., min_length=1, max_length=40,
+        description=(
+            "Strategy template: long_call, long_put, bull_call_spread, "
+            "bear_put_spread, bull_put_spread, bear_call_spread, "
+            "cash_secured_put, covered_call, protective_put, "
+            "long_straddle, short_straddle, long_strangle, "
+            "short_strangle, iron_condor, iron_butterfly."
+        ),
+    )
+    expiry_rule: Literal["nearest", "next", "monthly"] = "nearest"
+    qty_lots: int = Field(default=1, ge=1, le=100)
+    strikes: Optional[list[float]] = Field(
+        default=None,
+        description=(
+            "Optional explicit strikes in the template's leg order; "
+            "omit to let the engine pick liquid delta-based strikes at "
+            "fire time."
+        ),
+    )
+    book: Literal["paper", "live"] = "paper"
+    requires_approval: bool = False
 
 
 class ActionArmIpoIntentConfig(_Strict):

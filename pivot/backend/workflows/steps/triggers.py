@@ -22,6 +22,7 @@ from backend.workflows.schemas import (
     TriggerEventConfig,
     TriggerExitCompoundConfig,
     TriggerIndicatorConfig,
+    TriggerExpiryDayConfig,
     TriggerIpoOpenConfig,
     TriggerManualConfig,
     TriggerMarketRelativeTimeConfig,
@@ -88,13 +89,38 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
 
 
 @register_step(
+    step_type="trigger.expiry_day",
+    category="trigger",
+    label="On option expiry day",
+    description=(
+        "Fire once on the morning of an underlying's option expiry day "
+        "(derived from the live contract master — never a hardcoded "
+        "weekday). Use for roll / square-off nudges and expiry-day "
+        "strategies."
+    ),
+    icon="calendar-clock",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerExpiryDayConfig,
+    output_schema=None,
+)
+async def execute_trigger_expiry_day(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the option watcher in scheduler.py fires this trigger
+    (triggered_by='event_alert') with a per-expiry fire-once latch
+    persisted on the step config. The executor just acknowledges so
+    step 1 runs."""
+    return None
+
+
+@register_step(
     step_type="trigger.compound",
     category="trigger",
     label="On compound condition",
     description=(
-        "Fire when a tree of indicator / price / volume conditions "
-        "(joined with AND / OR / NOT) evaluates to True. The DSL "
-        "behind it lets one step type express any combination of "
+        "Fire when a tree of indicator / price / volume / OPTION "
+        "conditions (IV, PCR, max pain, expected move, greeks, days-to-"
+        "expiry — joined with AND / OR / NOT) evaluates to True. The "
+        "DSL behind it lets one step type express any combination of "
         "conditions without needing a new step type per shape."
     ),
     icon="git-merge",

@@ -47,10 +47,13 @@ from backend.workflows.dsl.schema import (
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
+    DteNode,
     GapNode,
     IndicatorNode,
     LogicNode,
     MathNode,
+    OptionGreekNode,
+    OptionMetricNode,
     PctChangeNode,
     PositionNode,
     PriceNode,
@@ -149,6 +152,32 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
         return accessor.get_position_field(
             field=node.field, basis=node.basis,
         )
+    # ── F&O P3 leaves — OPTIONAL accessor methods. Accessors without
+    # them (the backtest accessor, until historical option data lands)
+    # resolve to None → Kleene UNKNOWN → the condition doesn't fire.
+    # Honest absence over fabricated values, per the F&O plan.
+    if isinstance(node, OptionMetricNode):
+        fn = getattr(accessor, "get_option_metric", None)
+        if fn is None:
+            return None
+        return fn(
+            underlying=node.underlying, metric=node.metric,
+            expiry_rule=node.expiry_rule,
+        )
+    if isinstance(node, OptionGreekNode):
+        fn = getattr(accessor, "get_option_greek", None)
+        if fn is None:
+            return None
+        return fn(
+            underlying=node.underlying, greek=node.greek,
+            option_type=node.option_type, strike=node.strike,
+            expiry_rule=node.expiry_rule,
+        )
+    if isinstance(node, DteNode):
+        fn = getattr(accessor, "get_dte", None)
+        if fn is None:
+            return None
+        return fn(underlying=node.underlying, expiry_rule=node.expiry_rule)
     if isinstance(node, SessionDayNode):
         day = accessor.get_session_day()
         if day is None:
