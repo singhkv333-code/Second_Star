@@ -1,0 +1,82 @@
+{
+ "ts": "20260607_124036",
+ "elapsed_s": 18.5,
+ "base": "http://localhost:8000",
+ "user_id": 314,
+ "sessions_file": "/Users/karanveersingh/Downloads/Second_Star/pivot/tests/eval_results/automation_50/sessions_undefined.json",
+ "only": null,
+ "n_sessions": 1,
+ "n_turns": 2,
+ "sessions": [
+  {
+   "category": "price_trigger",
+   "name": "hcltech_drop_alert_upgrade_gtt",
+   "why": "Threshold-notify then user upgrades to threshold-act: judge weighs whether the bot retains symbol+level (HCLTECH @ 1380) across turns and offers a clean register-not-execute GTT, NOT a fresh interrogation that loses the 1380 anchor",
+   "conv": "s_725829e360",
+   "turns": [
+    {
+     "i": 0,
+     "say": "ping me if HCLTECH drops to 1380",
+     "response": "Sure \u2014 I can set that alert for HCLTECH at 1380. How many shares should I buy each time it fires, or what rupee amount should I use per alert?",
+     "tools_called": [
+      "propose_threshold_order"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 8008,
+     "latency_server_ms": 7948,
+     "input_tokens": 34053,
+     "output_tokens": 88,
+     "cost_usd": 0.008689,
+     "llm_calls": 2
+    },
+    {
+     "i": 1,
+     "say": "actually convert that to a buy order at the same price, 20 shares",
+     "response": "Drafted: buy 20 HCLTECH if it drops below \u20b91,380. Click Activate when ready.",
+     "tools_called": [
+      "propose_threshold_order"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "description",
+      "live_warnings",
+      "name",
+      "propose_threshold_order",
+      "rationale",
+      "steps",
+      "warnings"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.price",
+        "params": "{\"symbol\": \"HCLTECH\", \"operator\": \"<\", \"value\": 1380.0, \"exchange\": \"NSE\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"HCLTECH\", \"side\": \"buy\", \"order_type\": \"market\", \"requires_approval\": false, \"quantity\": 20}"
+       }
+      ],
+      "compact": "{\"propose_threshold_order\": {\"name\": \"HCLTECH price < \\u20b91380 \\u2192 buy 20 shares\", \"description\": \"Buy 20 shares of HCLTECH when price < \\u20b91380.\", \"steps\": [{\"step_type\": \"trigger.price\", \"label\": \"Price < \\u20b91380\", \"config\": {\"symbol\": \"HCLTECH\", \"operator\": \"<\", \"value\": 1380.0, \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 20 shares HCLTECH\", \"config\": {\"symbol\": \"HCLTECH\", \"side\": \"buy\", \"order_type\": \"market\", \"requires_approval\": false, \"quantity\": 20}}], \"rationale\": \"Trigger fires when price < \\u20b91380; market buy for 20 shares of HCLTECH.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}, \"name\": \"HCLTECH price < \\u20b91380 \\u2192 buy 20 shares\", \"description\": \"Buy 20 shares of HCLTECH when price < \\u20b91380.\", \"steps\": [{\"step_type\": \"trigger.price\", \"label\": \"Price < \\u20b91380\", \"config\": {\"symbol\": \"HCLTECH\", \"operator\": \"<\", \"value\": 1380.0, \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 20 shares HCLTECH\", \"config\": {\"symbol\": \"HCLTECH\", \"side\": \"buy\", \"order_type\": \"market\", \"requires_approval\": false, \"quantity\": 20}}], \"rationale\": \"Trigger fires when price < \\u20b91380; market buy for 20 shares of HCLTECH.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}"
+     },
+     "latency_wall_ms": 9402,
+     "latency_server_ms": 9378,
+     "input_tokens": 67459,
+     "output_tokens": 71,
+     "cost_usd": 0.012847,
+     "llm_calls": 2
+    }
+   ]
+  }
+ ]
+}

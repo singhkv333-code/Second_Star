@@ -542,17 +542,20 @@ def hydrate_holding_action(
     schedule_cron: Optional[str] = None,
     sl_offset_pct: Optional[float] = None,
     sl_trigger_price: Optional[float] = None,
+    trailing: bool = False,
     requires_approval: bool = False,
 ) -> dict[str, Any]:
-    """'sell my INFY when RSI > 70' / 'set 2% SL on my RELIANCE'.
+    """'sell my INFY when RSI > 70' / 'set 2% SL on my RELIANCE' /
+    'trail my TITAN stoploss 8% below the running high'.
 
     Two action shapes:
       action_kind='sell'         → fetch.portfolio + place_order with
                                     quantity ref to the holding
       action_kind='set_stoploss' → action.set_stoploss with absolute
-                                    price OR offset pct
+                                    price OR offset pct. When trailing=True,
+                                    the stop tracks the high-water mark.
 
-    Three trigger shapes: indicator, price, schedule.
+    Four trigger shapes: indicator, price, schedule, manual.
     """
     sym = str(symbol).strip().upper()
 
@@ -662,6 +665,11 @@ def hydrate_holding_action(
                 "holding_action: specify ONE of sl_offset_pct or "
                 "sl_trigger_price, not both"
             )
+        if trailing and sl_trigger_price is not None:
+            raise ValueError(
+                "holding_action: trailing=True requires sl_offset_pct, "
+                "not an absolute sl_trigger_price"
+            )
         sl_cfg: dict[str, Any] = {"symbol": sym}
         if sl_offset_pct is not None:
             if not (0 < float(sl_offset_pct) <= 50):
@@ -669,19 +677,27 @@ def hydrate_holding_action(
                     f"sl_offset_pct must be in (0, 50]; got {sl_offset_pct}"
                 )
             sl_cfg["trigger_offset_pct"] = float(sl_offset_pct)
-            action_desc = (
-                f"set a {sl_offset_pct:g}% stop-loss on the {sym} holding"
-            )
+            if trailing:
+                sl_cfg["trailing"] = True
+                action_desc = (
+                    f"set a trailing {sl_offset_pct:g}% stop-loss on the "
+                    f"{sym} holding (tracks peak)"
+                )
+            else:
+                action_desc = (
+                    f"set a {sl_offset_pct:g}% stop-loss on the {sym} holding"
+                )
         else:
             sl_cfg["trigger_price"] = float(sl_trigger_price)  # type: ignore[arg-type]
             action_desc = (
                 f"set a stop-loss at ₹{float(sl_trigger_price):g} on the "  # type: ignore[arg-type]
                 f"{sym} holding"
             )
+        trail_suffix = " trailing" if trailing else ""
         steps.append({
             "step_type": "action.set_stoploss",
             "label": (
-                f"Stop-loss on {sym}"
+                f"{trail_suffix.strip().title() + ' s' if trailing else 'S'}top-loss on {sym}"
                 + (f" ({sl_offset_pct:g}%)" if sl_offset_pct else "")
             ),
             "config": sl_cfg,

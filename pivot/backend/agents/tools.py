@@ -1747,13 +1747,18 @@ tool("propose_basket_allocation",
 
 tool("propose_holding_action",
      "Build a workflow that acts on the user's EXISTING holding — sells "
-     "ENTIRELY or sets a stop-loss. PREFER over propose_workflow for "
-     "prompts like 'sell my INFY when RSI > 70', 'set 2% SL on my "
-     "RELIANCE'. Two action shapes ('sell' entire holding / 'set_stoploss'). "
-     "Three trigger shapes (indicator|price|schedule|manual). STRICTLY "
+     "ENTIRELY or sets a stop-loss (fixed or TRAILING). PREFER over "
+     "propose_workflow for prompts like 'sell my INFY when RSI > 70', "
+     "'set 2% SL on my RELIANCE', 'trail my stoploss 8% below the running "
+     "high'. Two action shapes ('sell' entire holding / 'set_stoploss'). "
+     "Four trigger shapes (indicator|price|schedule|manual). STRICTLY "
      "ENTIRE HOLDING — fractional sells ('sell half my INFY') go to "
      "propose_workflow. Avg-relative triggers ('+X% from buy price') also "
-     "go to propose_workflow (no slot here).",
+     "go to propose_workflow (no slot here).\n\n"
+     "TRAILING STOP: when the user says 'trailing stop', 'trail N%', "
+     "'N% below the running high', 'trail from peak' — set `trailing=true` "
+     "with `sl_offset_pct=N`. The engine will track the high-water mark "
+     "and trigger at N% below peak, NOT below entry.",
      {
          "symbol": {"type": "string"},
          "action_kind": {
@@ -1786,12 +1791,22 @@ tool("propose_holding_action",
          "sl_offset_pct": {
              "type": "number", "minimum": 0.1, "maximum": 50,
              "description": "For action_kind='set_stoploss'. % below current "
-                            "price. XOR with sl_trigger_price.",
+                            "price (fixed SL) or % below running high "
+                            "(trailing SL when trailing=true). XOR with "
+                            "sl_trigger_price.",
          },
          "sl_trigger_price": {
              "type": "number",
              "description": "For action_kind='set_stoploss'. Absolute price. "
-                            "XOR with sl_offset_pct.",
+                            "XOR with sl_offset_pct. Cannot be used with "
+                            "trailing=true.",
+         },
+         "trailing": {
+             "type": "boolean",
+             "description": "For action_kind='set_stoploss'. When true, the "
+                            "stop tracks the high-water mark and triggers "
+                            "at sl_offset_pct below peak. Use for 'trailing "
+                            "stop', 'trail N%', 'N% below running high'.",
          },
          "requires_approval": {"type": "boolean"},
          "valid_until": {
