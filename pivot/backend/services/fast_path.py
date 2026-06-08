@@ -643,8 +643,19 @@ def _try_definition(normalized: str) -> Optional[str]:
 
 
 def try_fast_path(message: str) -> Optional[str]:
-    """Return a canned response if the message is purely conversational
-    or a definition-shape question for a known term.
+    """Return a canned response ONLY for contentless social pleasantries
+    (greetings + thanks). Everything else — including "what can you do",
+    "what else", and definition-shape questions — returns None so the LLM
+    answers it dynamically.
+
+    WHY narrowed (2026-06-08): the canned menu replies ("check a price,
+    build an agent, look at your portfolio, or run a backtest") were
+    firing for capability/continuation asks like "what else can you do",
+    producing a stiff, repetitive, low-value answer. The user wants those
+    handled by the LLM, which can give a real, contextual response. We
+    keep ONLY greetings/thanks on the fast path — there the LLM adds
+    nothing but latency and token cost. The help/continuation/definition
+    tables below are retained for reference but no longer short-circuit.
 
     None means "send to the LLM". Latency is microseconds; the function
     is safe to call on every chat turn.
@@ -657,12 +668,5 @@ def try_fast_path(message: str) -> Optional[str]:
         return _GREETING_REPLY
     if _matches_phrase(n, _THANKS):
         return _THANKS_REPLY
-    if _matches_phrase(n, _HELP_QUERIES):
-        return _HELP_REPLY
-    if _matches_phrase(n, _CONTINUATION_QUERIES):
-        return _CONTINUATION_REPLY
-    edu = _try_definition(n)
-    if edu is not None:
-        return edu
 
     return None

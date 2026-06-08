@@ -343,6 +343,48 @@ _HAS_SCHEDULE_OR_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+_RECURRING_SCHEDULE_RE = re.compile(
+    r"\b(?:every|each)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
+    r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|"
+    r"weekday|day|week|month|morning|fortnight)\b"
+    r"|\b(?:weekly|daily|monthly|fortnightly|every\s+week)\b",
+    re.IGNORECASE,
+)
+_ROUTE_HINT_RE = re.compile(
+    r"use\s+(propose_workflow|propose_dsl_workflow|"
+    r"propose_threshold_order|propose_scheduled_order|"
+    r"propose_holding_action|propose_basket_allocation)\b",
+    re.IGNORECASE,
+)
+
+
+def _redirect_target_for_failure(
+    tool_name: str, error: str, user_message: str,
+) -> Optional[str]:
+    """Pick the tool to redirect to after ``tool_name`` failed, or None.
+
+    Primary signal: an explicit "use <tool>" hint in the error string
+    (tools emit these to steer the LLM to the right shape).
+
+    Backstop: a ``propose_dsl_workflow`` failure on a RECURRING-SCHEDULE
+    ask ("buy INFY every Friday and sell at 10% profit") → route to
+    ``propose_workflow`` even when the error carries no hint. The DSL tool
+    only builds price/indicator CONDITION triggers; a recurring schedule
+    is an ENTRY it can't express. Its refusal error DOES name
+    propose_workflow, but when the LLM crams the schedule into the
+    condition slot the tool instead fails mid-translation (position-leaf-
+    in-entry, self-comparison tautology) with a hint-less error — so the
+    redirect must also fire on the schedule SHAPE of the user's message.
+    """
+    m = _ROUTE_HINT_RE.search(error or "")
+    if m:
+        return m.group(1)
+    if (tool_name == "propose_dsl_workflow"
+            and _RECURRING_SCHEDULE_RE.search(user_message or "")):
+        return "propose_workflow"
+    return None
+
+
 _AUTOMATION_INTENT_RE = re.compile(
     # Imperative buy/sell with quantity (no condition keywords here)
     r"\b(?:buy|sell)\s+\d+\s+[A-Z][A-Z0-9\-_]{1,15}\b"
@@ -3545,15 +3587,10 @@ class ChatService:
                 # bridges the DSL early-bail → propose_holding_action
                 # gap that the L08_21 / L10_01 trailing-SL probes
                 # surfaced.
-                _route_match = re.search(
-                    r"use\s+(propose_workflow|propose_dsl_workflow|"
-                    r"propose_threshold_order|propose_scheduled_order|"
-                    r"propose_holding_action|propose_basket_allocation)\b",
-                    guarded.error or "",
-                    re.IGNORECASE,
+                target_tool = _redirect_target_for_failure(
+                    guarded.name, guarded.error or "", message,
                 )
-                if _route_match and not last_was_macro_draft:
-                    target_tool = _route_match.group(1)
+                if target_tool and not last_was_macro_draft:
                     trace.event(
                         f"{guarded.name}.route_redirect",
                         target=target_tool,
@@ -4747,16 +4784,12 @@ class ChatService:
 
                 last_tool_error = f"{guarded.name}: {guarded.error}"
                 # L12 (streaming mirror): route-redirect on
-                # "use <other_tool> instead" errors.
-                _route_match = re.search(
-                    r"use\s+(propose_workflow|propose_dsl_workflow|"
-                    r"propose_threshold_order|propose_scheduled_order|"
-                    r"propose_holding_action|propose_basket_allocation)\b",
-                    guarded.error or "",
-                    re.IGNORECASE,
+                # "use <other_tool> instead" errors, plus the schedule-
+                # shape backstop (see _redirect_target_for_failure).
+                target_tool = _redirect_target_for_failure(
+                    guarded.name, guarded.error or "", message,
                 )
-                if _route_match and not last_was_macro_draft:
-                    target_tool = _route_match.group(1)
+                if target_tool and not last_was_macro_draft:
                     trace.event(
                         f"{guarded.name}.route_redirect",
                         target=target_tool,
@@ -5447,22 +5480,32 @@ async def _llm_clarification(
 
     system_prompt = (
         "You are Pivot's chat assistant. A user request just failed to "
-        "execute. Write a SHORT reply (1–3 sentences, max 70 words).\n\n"
+        "build — NOTHING was created, saved, scheduled, or run. Write a "
+        "SHORT reply (1–3 sentences, max 70 words).\n\n"
         "You are seeing the FULL conversation. Use it. The user has "
         "been progressively narrowing their ask across turns — your "
         "reply must reflect what they have ALREADY said, not restart "
         "from zero.\n\n"
+        "CRITICAL HONESTY RULE: this is a FAILURE path. You did NOT "
+        "produce anything. NEVER imply success or that it will run. Do "
+        "NOT say 'I'll run it', 'running it now', 'I'll set it up', "
+        "'I'll create that', 'run it as-is', 'done', 'it's live / "
+        "scheduled / active', or 'consider it set'. There is no card "
+        "and nothing will fire. Claiming otherwise is the single worst "
+        "thing you can do here.\n\n"
         "RULES:\n"
         "  • Reuse specifics the user already gave (ticker, window, "
         "strategy, side). NEVER substitute a different ticker (no "
         "AAPL if they said TCS) or a different window (no '2020-01-01 "
         "to 2022-12-31' if they said 'last 252 trading days').\n"
-        "  • If the conversation already names everything needed, say "
-        "so plainly and offer to run it as-is with one named default "
-        "filled in — do NOT ask another question.\n"
-        "  • If something genuinely IS ambiguous, name ONE specific "
-        "thing in plain English and propose a single concrete "
+        "  • If something is ambiguous, name ONE specific thing in "
+        "plain English and ask the user to confirm a single concrete "
         "interpretation using THEIR specifics.\n"
+        "  • If the request names everything yet still couldn't be "
+        "built as one automation, say so honestly in plain words and "
+        "offer the nearest thing that WOULD work (e.g. splitting it "
+        "into two simpler rules) — framed as an offer to try, never as "
+        "something already done.\n"
         "  • No code-flavoured words: 'tool', 'function', 'parameter', "
         "'field', 'required', 'missing argument', 'JSON', 'schema', "
         "'config', 'workflow draft'.\n"
@@ -5472,11 +5515,12 @@ async def _llm_clarification(
         + (
             "\nIMPORTANT: you have already asked the user "
             f"{consecutive_clarifications} clarification(s) in a row. "
-            "Do NOT ask another one. Instead, write a reply that "
-            "commits to a specific interpretation using their stated "
-            "specifics, fills any genuinely missing detail with a "
-            "reasonable default, and offers to run it. Phrase it as "
-            "'Going to run X with Y — sound right?'.\n"
+            "Do NOT ask another open-ended question. Instead, state the "
+            "single most reasonable interpretation using their stated "
+            "specifics (fill any genuinely missing detail with a "
+            "reasonable default) and ask them to confirm so you can try "
+            "to build it — e.g. 'Want me to set it up as X with Y?'. "
+            "This is still a question, NOT a claim that it is running.\n"
             if consecutive_clarifications >= 2
             else ""
         )

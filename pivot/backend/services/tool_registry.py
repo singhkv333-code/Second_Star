@@ -210,7 +210,16 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
             data = await _V2_HANDLERS[name](merged)
         except Exception as e:
             logger.exception("v2 tool %s failed: %s", name, e)
-            return ToolResult(name=name, args=merged, success=False, data={}, error=str(e)[:200])
+            # Cap is generous (600, not 200) because several tools append a
+            # ROUTE HINT at the END of long explanatory errors ("...Use
+            # propose_workflow with one branch per time-anchored leg"). The
+            # chat loop's route-redirect regex scans this string for
+            # `use <tool>`; a 200-char cap severed the hint on the longer
+            # DSL refusals, so the redirect never fired and the turn fell
+            # through to a fake-success clarifier with no card. The error is
+            # internal only (LLM tool-result + redirect regex + trace), never
+            # user-facing, so 600 is safe.
+            return ToolResult(name=name, args=merged, success=False, data={}, error=str(e)[:600])
         return ToolResult(name=name, args=merged, success=True, data=data)
 
     if name not in _REAL_TOOLS:

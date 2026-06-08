@@ -89,6 +89,12 @@ def _classify_ref(inner: str, by_idx: dict[int, str]) -> str | None:
             "is not present in the draft"
         )
 
+    # `{{context.<idx>.quantity}}` where step idx is an order — resolves to
+    # the entry order's filled position size (see _resolve_ref). This is the
+    # canonical "sell the quantity I bought" exit pattern.
+    if field == "quantity" and src_type == "action.place_order":
+        return None
+
     if field == "value" and src_type in _FETCH_VALUE_TYPES:
         return None
     if field in _QUOTE_FIELDS and src_type == "fetch.quote":

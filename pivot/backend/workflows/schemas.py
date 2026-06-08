@@ -483,13 +483,15 @@ class TriggerCompoundConfig(_Strict):
         # "step N config invalid" error envelope every other step
         # uses. Lazy-import to avoid the circular dependency.
         from pydantic import TypeAdapter
-        from backend.workflows.dsl.schema import Tree
+        from backend.workflows.dsl.schema import Tree, normalize_tree_aliases
         from backend.workflows.dsl.validators import (
             DSLValidationError,
             semantic_validate,
         )
         try:
-            parsed = TypeAdapter(Tree).validate_python(self.entry)
+            parsed = TypeAdapter(Tree).validate_python(
+                normalize_tree_aliases(self.entry)
+            )
         except Exception as exc:
             raise ValueError(f"compound trigger 'entry' tree invalid: {exc}") from exc
         try:
@@ -550,13 +552,15 @@ class TriggerExitCompoundConfig(_Strict):
     @model_validator(mode="after")
     def _validate_tree(self) -> "TriggerExitCompoundConfig":
         from pydantic import TypeAdapter
-        from backend.workflows.dsl.schema import Tree
+        from backend.workflows.dsl.schema import Tree, normalize_tree_aliases
         from backend.workflows.dsl.validators import (
             DSLValidationError,
             semantic_validate,
         )
         try:
-            parsed = TypeAdapter(Tree).validate_python(self.entry)
+            parsed = TypeAdapter(Tree).validate_python(
+                normalize_tree_aliases(self.entry)
+            )
         except Exception as exc:
             raise ValueError(
                 f"exit_compound trigger 'entry' tree invalid: {exc}"

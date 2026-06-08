@@ -415,6 +415,12 @@ class SimState:
     # position fully closes. Used by trigger.exit_compound to resolve
     # PositionNode.bars_held / peak_unrealised_pct / drawdown_from_peak_pct.
     entry_ts: dict[str, pd.Timestamp] = field(default_factory=dict)
+    # {step_index: symbol} for every action.place_order across ALL
+    # branches. Lets _resolve_ref resolve `{{context.<idx>.quantity}}`
+    # (an exit step that sells "the quantity the entry order bought") to
+    # the live held position of that order's symbol — the entry fill size
+    # in this sim. Populated once before the loop in run_workflow_backtest.
+    place_order_symbols: dict[int, str] = field(default_factory=dict)
 
 
 def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
@@ -691,6 +697,20 @@ def _resolve_ref(
     ):
         sym = parts[3].upper()
         return float(state.holdings.get(sym, 0))
+    # `{{context.<idx>.quantity}}` — an exit step selling "the quantity the
+    # entry order bought". In this sim the entry fill IS the open position,
+    # so resolve to the held quantity of that place_order's symbol. The
+    # sell path clamps to held anyway, so this is exact for full exits and
+    # safe for partials. The idx→symbol map is built before the loop.
+    if len(parts) >= 3 and parts[2] == "quantity":
+        try:
+            ref_idx = int(parts[1])
+        except ValueError:
+            return s
+        sym = state.place_order_symbols.get(ref_idx)
+        if sym:
+            return float(state.holdings.get(sym.upper(), 0))
+        return s
     if len(parts) >= 3 and parts[2] in {
         "value", "ltp", "open", "high", "low", "close", "volume",
         "day_open", "prior_close", "prior_high", "prior_low",
@@ -2043,6 +2063,15 @@ def backtest_workflow(
             events_by_ts.setdefault(ts, []).append(i)
 
     state = SimState()
+    # Map every action.place_order's step_index → its symbol, across all
+    # branches, so _resolve_ref can turn `{{context.<idx>.quantity}}` into
+    # the held position of that order's symbol (the entry fill size).
+    state.place_order_symbols = {
+        int(s.get("step_index", pos)): str(s.get("config", {}).get("symbol") or "").upper()
+        for pos, s in enumerate(steps)
+        if isinstance(s, dict) and s.get("step_type") == "action.place_order"
+        and (s.get("config") or {}).get("symbol")
+    }
     signals: list[dict] = []
     trades: list[dict] = []
     for ts in union_index:

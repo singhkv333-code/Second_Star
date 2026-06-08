@@ -67,6 +67,70 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 
+# ── Bare-scalar operand coercion ─────────────────────────────────────
+#
+# The Tree grammar requires every operand to be a tagged-union node, so
+# a literal threshold must be written ``{"type": "constant", "value":
+# 10}``. LLMs building trees directly (propose_workflow's main model)
+# frequently emit the bare scalar instead — ``"right": 10`` or
+# ``"right": "10%"`` — which fails union validation with a cryptic
+# 14-member tagged-union error and (before this) sank the whole draft to
+# a no-card clarifier. Coerce bare numbers / numeric strings into a
+# ConstantNode at the `before` stage on every node that holds Tree-typed
+# operands, so the common mistake just works. Non-numeric values pass
+# through untouched and fail validation as before.
+def _coerce_scalar_operand(v: object) -> object:
+    if isinstance(v, bool):
+        return v  # bools are not numeric thresholds
+    if isinstance(v, (int, float)):
+        return {"type": "constant", "value": float(v)}
+    if isinstance(v, str):
+        s = v.strip().rstrip("%").strip()
+        try:
+            return {"type": "constant", "value": float(s)}
+        except ValueError:
+            return v
+    return v
+
+
+# Common LLM near-misses on node discriminators / key names. The model
+# reliably picks the RIGHT concept (a position's unrealised %) but spells
+# the node shape slightly wrong — `position_field` for the `position`
+# type, `require`/`metric`/`property` for the `field` key. Without this
+# the tagged-union dispatch fails with a cryptic 14-member error and the
+# whole draft sinks to a no-card clarifier. Normalize the known aliases
+# before union validation; anything unrecognised passes through and fails
+# as before.
+_NODE_TYPE_ALIASES = {
+    "position_field": "position",
+    "position_metric": "position",
+    "indicator_node": "indicator",
+    "price_node": "price",
+}
+_POSITION_FIELD_KEY_ALIASES = ("require", "metric", "property", "attribute")
+
+
+def normalize_tree_aliases(node: object) -> object:
+    """Recursively rewrite well-known LLM node-shape aliases in a raw
+    (pre-validation) DSL tree. Pure / non-mutating-in-place safe: returns
+    a normalized copy of dicts and lists, leaves scalars untouched."""
+    if isinstance(node, list):
+        return [normalize_tree_aliases(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    out = {k: normalize_tree_aliases(v) for k, v in node.items()}
+    t = out.get("type")
+    if isinstance(t, str) and t in _NODE_TYPE_ALIASES:
+        out["type"] = _NODE_TYPE_ALIASES[t]
+        t = out["type"]
+    if t == "position" and "field" not in out:
+        for alias in _POSITION_FIELD_KEY_ALIASES:
+            if alias in out:
+                out["field"] = out.pop(alias)
+                break
+    return out
+
+
 # ── Leaf nodes ───────────────────────────────────────────────────────
 
 
@@ -267,6 +331,15 @@ class ComparisonNode(_Strict):
     left: "Tree"
     right: "Tree"
 
+    @model_validator(mode="before")
+    @classmethod
+    def _wrap_scalar_operands(cls, data: object) -> object:
+        if isinstance(data, dict):
+            for k in ("left", "right"):
+                if k in data:
+                    data[k] = _coerce_scalar_operand(data[k])
+        return data
+
 
 class SessionDayNode(_Strict):
     """Boolean leaf: True when the as-of bar's date lands on one of
@@ -344,6 +417,15 @@ class MathNode(_Strict):
     ]
     operands: list["Tree"] = Field(..., min_length=1, max_length=8)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _wrap_scalar_operands(cls, data: object) -> object:
+        if isinstance(data, dict) and isinstance(data.get("operands"), list):
+            data["operands"] = [
+                _coerce_scalar_operand(o) for o in data["operands"]
+            ]
+        return data
+
 
 class ConditionalNode(_Strict):
     """Pine Script's ``?:`` ternary — pick one of two values based on
@@ -368,6 +450,16 @@ class ConditionalNode(_Strict):
     if_: "Tree" = Field(..., alias="if")
     then: "Tree"
     else_: "Tree" = Field(..., alias="else")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _wrap_scalar_operands(cls, data: object) -> object:
+        # `then` / `else` are commonly numeric values; `if` stays a tree.
+        if isinstance(data, dict):
+            for k in ("then", "else", "else_"):
+                if k in data:
+                    data[k] = _coerce_scalar_operand(data[k])
+        return data
 
 
 class AggregateNode(_Strict):
@@ -407,6 +499,15 @@ class AggregateNode(_Strict):
     ]
     source: "Tree"
     bars: int = Field(..., ge=1, le=2000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _wrap_scalar_operands(cls, data: object) -> object:
+        if isinstance(data, dict):
+            for k in ("source", "second"):
+                if data.get(k) is not None:
+                    data[k] = _coerce_scalar_operand(data[k])
+        return data
     # ``second`` is only meaningful for binary ops (correlation,
     # valuewhen). Validator rejects it for the unary ops to catch
     # planner bugs early.
