@@ -707,8 +707,12 @@ _USER_QTY_PATTERNS = re.compile(
     # qty ASK ("How many shares?" → "10"). Anchored ^…$ so it never
     # matches a number embedded in a longer phrase ("buy when 20 dma…").
     r"^\s*\d{1,7}\s*$"
-    # Explicit share/lot/unit/quantity counts
+    # Explicit share/lot/unit/quantity counts — number FIRST ("10 shares")
     r"|\b\d+\s*(?:shares?|share|qty|quantity|lots?|units?|unit)\b"
+    # …and unit FIRST ("qty 10", "quantity: 10", "size 5", "lot 2"). The
+    # number-first pattern above missed "qty 10" trailing a longer prompt
+    # ("…with a 2% stop loss, qty 10"), so the guard wrongly re-asked size.
+    r"|\b(?:qty|quantity|size|lots?|units?)\s*[:=]?\s*\d+\b"
     # "buy 10 INFY", "sell 5 TCS" — numeric immediately after action verb
     r"|\b(?:buy|buys|buying|sell|sells|selling|short|exit|place)\s+"
     r"(?:a\s+)?\d+\b"
@@ -763,8 +767,13 @@ def _draft_has_suspicious_qty_default(
 
 
 def _qty_clarification_question(payload: dict) -> str:
-    """Render a focused qty-clarification question naming the
-    first symbol mentioned in the draft."""
+    """Render a focused qty-clarification question that ALSO echoes the
+    understood trigger, so the user can validate the (hard) trigger logic
+    in the same round-trip instead of re-confirming it after answering a
+    trivial quantity. We deliberately do NOT ship the draft card with a
+    placeholder qty=1 — an editable card reading "buy 1 share" is one
+    mis-click from activating a wrong-sized order; echoing the trigger in
+    prose gives the same validation without that footgun."""
     sym = ""
     for s in (payload.get("steps") or []):
         if not isinstance(s, dict):
@@ -772,14 +781,29 @@ def _qty_clarification_question(payload: dict) -> str:
         if s.get("step_type") == "action.place_order":
             sym = (s.get("config") or {}).get("symbol", "")
             break
+    # The draft's one-line description already reads back trigger + action
+    # ("When RSI(14) < 30, buy ...") — echo it so the user sees what we
+    # understood before they commit to a size. Strip the placeholder
+    # quantity ("buy 1 shares of INFY" → "buy INFY") so the echo doesn't
+    # contradict the very question we're about to ask.
+    readback = str(payload.get("description") or "").strip().rstrip(".")
+    readback = re.sub(
+        r"\b(buy|sell)\s+\d+\s+(?:shares?|units?|lots?)\s+of\s+",
+        r"\1 ", readback, flags=re.IGNORECASE,
+    )
+    readback = re.sub(
+        r"\b(buy|sell)\s+\d+\s+([A-Z][A-Z0-9&\-]{1,14})\b",
+        r"\1 \2", readback, flags=re.IGNORECASE,
+    )
+    lead = f"Got the setup — {readback}. " if readback else ""
     if sym:
         return (
-            f"How many shares of {sym} should the agent buy per fire? "
+            f"{lead}How many shares of {sym} should the agent buy per fire? "
             "(I won't default to 1 — set the real size or give me a "
             "rupee budget like ₹10,000.)"
         )
     return (
-        "How many shares should the agent buy per fire? "
+        f"{lead}How many shares should the agent buy per fire? "
         "(I won't default to 1 — set the real size or give me a "
         "rupee budget like ₹10,000.)"
     )

@@ -722,12 +722,27 @@ def hydrate_holding_action(
             f"Trigger fires when {trigger_label}; the workflow then "
             f"{action_desc}."
         )
+    # Deterministic disclosure for trailing stops. The trailing ratchet is
+    # fully modeled in BACKTESTS, but the live executor places the initial
+    # stop at N% below the current price and does NOT yet re-ratchet on new
+    # highs (see workflows/schemas.py ActionSetStoplossConfig.trailing). We
+    # surface this on the CARD's warnings so it shows regardless of whether
+    # the chat-prose summarizer remembers to mention it — without this the
+    # draft reads as if live peak-tracking already works (capability theater).
+    warnings: list[str] = []
+    if action_kind == "set_stoploss" and trailing:
+        warnings.append(
+            f"Trailing stop: the {sl_offset_pct:g}% ratchet is fully modeled "
+            "in backtests. Live, this registers the initial stop "
+            f"{sl_offset_pct:g}% below the current price — live re-ratcheting "
+            "on new highs isn't wired yet."
+        )
     return {
         "name": name[:60],
         "description": description,
         "steps": steps,
         "rationale": rationale,
-        "warnings": [],
+        "warnings": warnings,
         "_render_hint": "workflow_draft_card",
     }
 
