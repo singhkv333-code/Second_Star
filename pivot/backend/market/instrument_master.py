@@ -252,9 +252,38 @@ def refresh_instrument_master(db: Session, *, today: Optional[date] = None) -> d
             existing_tokens.add(token)
             inserted += 1
     db.commit()
+    # Purge stale rows after a HEALTHY real dump — instruments not present
+    # in today's Kite dump (delisted contracts, and crucially the old
+    # synthetic mock dump that otherwise lingers and contaminates the
+    # option chain with garbage synthetic strikes/IVs). Guarded on a
+    # substantial real dump so a thin/partial pull never wipes the master.
+    purged = 0
+    if source == "kite" and (inserted + updated) > 1000:
+        # (a) Delisted contracts: not in today's real dump.
+        purged = (
+            db.query(InstrumentMaster)
+            .filter(InstrumentMaster.last_seen < today)
+            .delete(synchronize_session=False)
+        )
+        # (b) The synthetic mock dump: it uses a deterministic token band
+        # starting at 10_000_000 (see _mock_instrument_rows) — real Kite
+        # NFO/BFO/MCX tokens never fall in that narrow window. A mock
+        # refresh (e.g. before the daily session is armed) re-stamps these
+        # with last_seen=today, so (a) won't catch them; they then duplicate
+        # every real contract on (strike, expiry) and the chain picks the
+        # synthetic leg → garbage IV. Drop the whole synthetic band.
+        purged += (
+            db.query(InstrumentMaster)
+            .filter(
+                InstrumentMaster.instrument_token >= 10_000_000,
+                InstrumentMaster.instrument_token < 10_002_000,
+            )
+            .delete(synchronize_session=False)
+        )
+        db.commit()
     counts = {
         "source": source, "inserted": inserted, "updated": updated,
-        "total_rows": len(raw_rows),
+        "purged": purged, "total_rows": len(raw_rows),
     }
     logger.info("[instrument-master] refresh %s", counts)
     return counts
