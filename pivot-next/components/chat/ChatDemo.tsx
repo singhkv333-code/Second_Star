@@ -274,6 +274,13 @@ function extractTicker(text: string): string | null {
   // Strip a trailing "?" so "Reliance?" still snapshots.
   const noQ = trimmed.replace(/\?+$/, "").trim();
 
+  // Never short-circuit an options / F&O / chain intent into a local stock
+  // snapshot — those must reach the backend (e.g. "show me the NIFTY option
+  // chain" was matching "show" then capturing "me" → bogus ME.NSE snapshot).
+  if (/\b(option|options|chain|future|futures|straddle|strangle|condor|butterfly|expiry|greeks?|call\s+option|put\s+option)\b/i.test(noQ)) {
+    return null;
+  }
+
   // Bare ticker. Two acceptance branches so we don't snapshot common
   // English words ("something", "anything") just because they look
   // like tickers:
@@ -312,7 +319,7 @@ function extractTicker(text: string): string | null {
 
   const lower = noQ.toLowerCase();
   const phrasePatterns = [
-    /^(?:show|show me|what about|how(?:'s| is| about)|tell me (?:more )?about|price of|quote for|snapshot of|chart for)\s+([a-z]{2,15})\b/,
+    /^(?:show me|show us|show|what about|how(?:'s| is| about)|tell me (?:more )?about|price of|quote for|snapshot of|chart for)\s+(?:the\s+)?([a-z]{2,15})\b/,
     /^([a-z]{2,15})\s+(?:snapshot|quote|price|chart)\s*\??\s*$/,
   ];
   for (const re of phrasePatterns) {
@@ -336,6 +343,10 @@ const STOPWORDS = new Set([
   // Greetings / acknowledgements
   "HI", "HELLO", "HEY", "OK", "OKAY", "YES", "NO", "PLEASE", "THANKS", "BYE",
   "SURE", "MAYBE", "FINE",
+  // Pronouns / fillers that get captured after a verb ("show ME …",
+  // "tell US …") — these are never tickers.
+  "ME", "MY", "US", "WE", "IT", "ITS", "OUR", "YOU", "YOUR", "THEM", "THIS",
+  "THAT", "THESE", "THOSE",
   // Question words
   "WHAT", "WHEN", "WHY", "WHO", "HOW", "WHICH", "WHERE",
   // Conjunctions / prepositions (caught when message slips past length gate)
