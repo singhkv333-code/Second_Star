@@ -1,0 +1,234 @@
+[
+ {
+  "category": "execution-stress",
+  "name": "bhartiartl_call_chain_stopword",
+  "why": "CORRECTNESS: 'call' is option-chain intent here, not a verb or a price ask — must route to option_chain_card for BHARTIARTL NFO calls, NOT a stock snapshot of the underlying. Stopword/intent trap. QUALITY: ATM-band strikes/OI/IV readable with a one-line read, expiry stated, not a raw dump.",
+  "turns": [
+   "pull up the BHARTIARTL call option chain for the nearest expiry, I want to see where OI is sitting"
+  ]
+ },
+ {
+  "category": "execution-stress",
+  "name": "axisbank_alert_not_order",
+  "why": "CORRECTNESS: 'alert me, don't buy' = notify_only — must NOT become a buy order and must NOT ask quantity. Any-level-is-an-order mis-route fails. QUALITY: confirms the watched level/condition cleanly, states channel honestly, no fabricated 'order placed'.",
+  "turns": [
+   "just alert me when AXISBANK crosses 1300, don't buy anything"
+  ]
+ },
+ {
+  "category": "execution-stress",
+  "name": "basket_three_symbol_split",
+  "why": "CORRECTNESS: 60000 split equally across THREE names on a NIFTY -1% intraday move — no leg silently dropped, total preserved, trigger on the index. QUALITY: card lists per-name notional and the single trigger, not a vague 'I'll allocate'.",
+  "turns": [
+   "if nifty falls 1% intraday, split 60000 equally across SUNPHARMA GRASIM and JSWSTEEL and buy"
+  ]
+ },
+ {
+  "category": "execution-stress",
+  "name": "titan_trailing_stop_disclosure",
+  "why": "CORRECTNESS: trailing stop on a holding = propose_holding_action trailing=true AND must disclose live re-ratcheting limitation in the visible reply, not silently swallow it (capability theatre = fail). QUALITY: disclosure phrased helpfully, not a dead-end.",
+  "turns": [
+   "trail a 7% stop below the running high on my TITAN position"
+  ]
+ },
+ {
+  "category": "execution-stress",
+  "name": "bajajauto_buy_open_sell_3pct",
+  "why": "CORRECTNESS: canonical 'buy at open, sell +3%' shape that has regressed before — schedule/open entry + compound profit exit at +3% in one workflow_draft_card, must NOT loop/refuse/claim entry can't tie to exit; qty given so no re-ask. QUALITY: both legs visibly present, no theatre.",
+  "turns": [
+   "set up an agent that buys BAJAJ-AUTO at the open and books out when it rises 3%, 5 shares"
+  ]
+ },
+ {
+  "category": "execution-stress",
+  "name": "hcltech_gtt_price_level",
+  "why": "CORRECTNESS: 'if it falls to 920' is a price-level (GTT-style) threshold order, NOT a time schedule — disambiguation trap; qty=30 honoured. QUALITY: card states trigger price and side clearly, no fabricated current price.",
+  "turns": [
+   "place a buy for 30 HCLTECH if it falls to 920"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "analyse_hdfcbank_full",
+  "why": "QUALITY is the bar: structured single-name read — price level, 1w/1m/3m/6m/1y returns, SMA20/50/200 stack with a trend label, RSI-14, 52w distance, PE/ROE/PB layer, and a synthesis with a defended stance. CORRECTNESS: real fresh Kite close (2026), correct trend label, no fabricated targets, no advisor-boilerplate dodge.",
+  "turns": [
+   "give me a proper analysis of HDFCBANK - chart, valuation and where it stands right now"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "infy_vs_tcs_which_better",
+  "why": "QUALITY: head-to-head must render a markdown TABLE (returns, PE, ROE, margin, momentum side by side) then PICK a winner with reasons, not 'both are great'. CORRECTNESS: fresh per-name numbers, no swap/conflation. The defended winner separates A from B-quality.",
+  "turns": [
+   "INFY vs TCS for a 1 year hold - which is better? give me the real comparison, not a both-are-good answer"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "is_reliance_expensive",
+  "why": "QUALITY: 'is X expensive' demands valuation framing — PE/PB vs own history and sector, plus price vs SMA200 — ending expensive/fair/cheap with the math shown. CORRECTNESS: real multiples, no invented fair value, honest stance not 'depends on your view'.",
+  "turns": [
+   "is RELIANCE expensive at these levels or is there still value, walk me through the valuation"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "screen_cheap_high_roe_banks",
+  "why": "QUALITY: a sector screen that MUST render as a ranked TABLE — banks by PB (banks judged on book, not industrial PE) and ROE, flagging cheap-with-quality. CORRECTNESS: real per-name PB/ROE, no generic 'banks are cyclical' essay.",
+  "turns": [
+   "screen me the cheap high-ROE banks - rank ICICIBANK, KOTAKBANK, SBIN and AXISBANK"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "is_nifty_uptrend",
+  "why": "QUALITY + CORRECTNESS: index trend read — real fresh NIFTY close, SMA20/50/200 ordering, distance to the 50 and 200, RSI, then a clear up/range/down call with the math. Failure modes: stale level, hand-wavy 'looks bullish', or refusing to call it.",
+  "turns": [
+   "is NIFTY genuinely in an uptrend right now, walk me through what the moving averages are saying"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "itc_dividend_story",
+  "why": "QUALITY: income-angle read combining real dividend yield + payout + price trend, acknowledging the hotels demerger without overclaiming. CORRECTNESS: a real yield figure, not 'around 4%' vibes, and no invented payout policy.",
+  "turns": [
+   "is ITC still a solid dividend play after the demerger, what's the yield actually doing"
+  ]
+ },
+ {
+  "category": "F&O",
+  "name": "nifty_chain_max_pain_pcr",
+  "why": "CORRECTNESS: option-chain + metrics ask — render option_chain_card for NIFTY current expiry with max-pain and PCR, NOT price NIFTY as an equity. QUALITY: states max-pain strike, PCR value, expected-move, each with a one-line interpretation, all grounded in real chain data not invented figures.",
+  "turns": [
+   "show me the NIFTY option chain for this week with max pain, PCR and the expected move, and tell me what each is hinting"
+  ]
+ },
+ {
+  "category": "F&O",
+  "name": "banknifty_suggest_bullish",
+  "why": "QUALITY: a bullish suggestion should propose a real defined-risk structure (e.g. bull call spread) with strikes/cost/max-profit/breakeven from the live chain, structured. CORRECTNESS: option_strategy_card via the suggest path, register-not-execute, no fabricated premiums.",
+  "turns": [
+   "I'm bullish on BANKNIFTY for this expiry, suggest me a sensible defined-risk options play, retail size"
+  ]
+ },
+ {
+  "category": "F&O",
+  "name": "nifty_build_iron_condor",
+  "why": "CORRECTNESS: explicit 'build an iron condor' -> option_strategy_card with four real legs at sensible strikes for the chosen expiry, register-not-execute; should scope width/expiry not silently invent strikes. QUALITY: shows credit, max profit/loss, breakevens in a clean leg table.",
+  "turns": [
+   "build me an iron condor on NIFTY around current levels for this expiry, keep the wings reasonable"
+  ]
+ },
+ {
+  "category": "F&O",
+  "name": "critique_naked_put_reliance",
+  "why": "CORRECTNESS: 'critique' a naked short put -> use the critique path and assess THIS structure (assignment risk, margin, undefined downside), not refuse, not rubber-stamp. QUALITY: a defended risk verdict with real margin/greeks framing plus a safer alternative (put spread).",
+  "turns": [
+   "I want to sell a naked put on RELIANCE for the monthly expiry - tear my idea apart and tell me what's wrong with it"
+  ]
+ },
+ {
+  "category": "regression",
+  "name": "plain_price_kotakbank",
+  "why": "REGRESSION (correctness): plain live-price ask -> fresh real Kite-sourced number with a 2026 timestamp, currency, under ~5 lines, no upsell. Stale 2024 date or fabricated value = fail. QUALITY: concise, not padded.",
+  "turns": [
+   "what's KOTAKBANK trading at right now"
+  ]
+ },
+ {
+  "category": "regression",
+  "name": "plain_rsi_agent_grasim",
+  "why": "REGRESSION (correctness): vanilla RSI(14)<30 buy agent on a fresh symbol -> workflow_draft_card with trigger.indicator + buy qty=10, no qty re-ask, backtestable. The bread-and-butter buildable that must never loop/refuse. QUALITY: card clean, reply brief and confident.",
+  "turns": [
+   "make an agent that buys 10 GRASIM when its RSI drops below 30"
+  ]
+ },
+ {
+  "category": "edge-honesty",
+  "name": "us_adr_recurring_buy",
+  "why": "CORRECTNESS: US equities/ADRs are outside the NSE/BSE universe -> honest boundary, not a fabricated price or a built order. QUALITY: states the limit plainly and offers the nearest real thing (NSE-listed alternative or 'no proxy'), no refusal essay.",
+  "turns": [
+   "can you set up a recurring monthly buy of NVIDIA stock for me"
+  ]
+ },
+ {
+  "category": "edge-honesty",
+  "name": "news_sentiment_autosell",
+  "why": "CORRECTNESS: a sentiment-NLP auto-sell trigger isn't supported -> must say so and offer the nearest real thing (keyword/event or price alert), never fake a sentiment engine. QUALITY: boundary + concrete alternative, not a generic refusal.",
+  "turns": [
+   "automatically sell my ADANIENT if the news sentiment turns negative"
+  ]
+ },
+ {
+  "category": "ambiguous",
+  "name": "the_tata_one_entity",
+  "why": "CORRECTNESS (deliberately ambiguous): 'the Tata one' spans many Tata names -> must ASK_USER which symbol, not silently guess TATAMOTORS/TCS. QUALITY: one crisp clarifying question listing the likely candidates, not a wall.",
+  "turns": [
+   "set up a buy on the Tata one that's been running lately, 10 shares"
+  ]
+ },
+ {
+  "category": "ambiguous",
+  "name": "hundred_of_eichermot_units",
+  "why": "CORRECTNESS (deliberately ambiguous): '100 of EICHERMOT' is unit-ambiguous (shares vs rupees) -> must clarify, not assume. QUALITY: one tight question resolving shares-vs-amount before building anything.",
+  "turns": [
+   "buy me 100 of EICHERMOT when it dips a bit"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "amend_qty_then_confirm_register",
+  "why": "CORRECTNESS (P0 re-test): confirm-after-amend must REGISTER the same mutated draft, not re-emit a fresh draft card. Turn 2 amends qty with no field loss; turn 3 confirm triggers register/activate, no loop. QUALITY: each reply acknowledges the change concisely and states it's armed under register-not-execute.",
+  "turns": [
+   "build an agent that buys NESTLEIND when RSI drops under 30",
+   "make it 8 shares",
+   "looks good, go ahead and register it"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "swap_symbol_then_add_stop",
+  "why": "CORRECTNESS: turn 2 swaps the symbol keeping the 4%-dip trigger and qty (same draft mutates to AXISBANK); turn 3 adds a stop-loss leg to the SAME draft without losing the entry. Failure = rebuild from scratch or field loss. QUALITY: bot states exactly what changed each turn.",
+  "turns": [
+   "buy 9 DABUR when it drops 4% from the previous close",
+   "switch it to AXISBANK, everything else the same",
+   "and add a 5% stop loss to it"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "i_dont_understand_then_clarify",
+  "why": "CORRECTNESS: vague 'cheap on indicators' -> bot picks a concrete indicator and is transparent; on confusion it re-explains in plainer terms WITHOUT re-dumping the same JSON, picking one ambiguity to walk through. QUALITY: patient, context retained, same symbol.",
+  "turns": [
+   "buy COALINDIA when it's looking cheap on the indicators",
+   "wait, I don't understand what you just set up - which indicator did you use and why that one"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "hinglish_then_resize_notional",
+  "why": "CORRECTNESS: Hinglish first turn parses into the draft (buy 15 on 5% drop, sell at +7%); turn 2 swaps fixed qty to a rupee notional, mutating the SAME draft with no leg loss. QUALITY: clean readback after the resize, both legs intact.",
+  "turns": [
+   "TATAMOTORS 5% gir jaye to 15 share kharid lo aur 7% upar bech do",
+   "actually 15 share nahi, 12000 ka kharido"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "analysis_then_build_followup",
+  "why": "CORRECTNESS: turn 2 must reuse turn-1 context (same symbol, no re-fetch) and turn the read into a faithful agent (qty=8, 3%-from-high dip preserved). QUALITY: turn-1 is a real structured read; the built card aligns with the stated trend.",
+  "turns": [
+   "quick but real read on JSWSTEEL - is it trending up or not",
+   "ok build me an agent that buys 8 shares whenever it dips 3% from the day's high"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "screen_then_dont_understand",
+  "why": "QUALITY (multi-turn): turn 1 a valuation compare that must come back as a numbers table; turn 2 the user is confused and the bot must patiently re-explain the metric (PB for banks) in plain language, NOT re-dump the table. CORRECTNESS: context retained, same symbols, no re-fetch noise.",
+  "turns": [
+   "compare the valuations of SBIN, PNB and BANKBARODA for me",
+   "wait I don't get it, why are you using PB and not PE for these - explain like I'm new"
+  ]
+ }
+]

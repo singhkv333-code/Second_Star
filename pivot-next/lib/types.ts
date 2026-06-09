@@ -585,6 +585,12 @@ export type OptionChainPayload = {
   lot_size: number | null;
   atm_strike: number;
   expected_move: ExpectedMove;
+  /** Chain-level aggregates computed server-side over the ATM slice. */
+  max_pain?: number | null;
+  pcr_oi?: number | null;
+  pcr_volume?: number | null;
+  total_call_oi?: number | null;
+  total_put_oi?: number | null;
   t_years: number;
   rows: OptionChainRow[];
   research_only: boolean;

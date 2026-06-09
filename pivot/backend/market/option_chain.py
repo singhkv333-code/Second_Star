@@ -153,6 +153,46 @@ def _exchange_prefix(segment: str) -> str:
     return segment.split("-", 1)[0]
 
 
+def _chain_aggregates(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """max_pain / pcr_oi / pcr_volume over the ATM-centred slice.
+
+    Honest absence: a field is omitted (left None) when the inputs aren't
+    present, never fabricated. These are trivially derivable from the
+    per-strike OI/volume already on ``rows`` and must ship on the payload
+    so the chat layer quotes real numbers instead of hand-waving prose."""
+    put_oi = sum(float((r.get("pe") or {}).get("oi") or 0) for r in rows)
+    call_oi = sum(float((r.get("ce") or {}).get("oi") or 0) for r in rows)
+    put_vol = sum(float((r.get("pe") or {}).get("volume") or 0) for r in rows)
+    call_vol = sum(float((r.get("ce") or {}).get("volume") or 0) for r in rows)
+
+    pcr_oi = round(put_oi / call_oi, 2) if call_oi > 0 else None
+    pcr_volume = round(put_vol / call_vol, 2) if call_vol > 0 else None
+
+    # max pain = strike minimising total writer payout (intrinsic·OI) over
+    # both sides, scanned across every strike in the slice.
+    max_pain = None
+    if any((r.get("ce") or {}).get("oi") or (r.get("pe") or {}).get("oi") for r in rows):
+        best_pain = None
+        for r_test in rows:
+            s = r_test["strike"]
+            pain = 0.0
+            for r in rows:
+                k = r["strike"]
+                ce_oi = float((r.get("ce") or {}).get("oi") or 0)
+                pe_oi = float((r.get("pe") or {}).get("oi") or 0)
+                pain += max(0.0, s - k) * ce_oi + max(0.0, k - s) * pe_oi
+            if best_pain is None or pain < best_pain:
+                best_pain, max_pain = pain, s
+
+    return {
+        "max_pain": max_pain,
+        "pcr_oi": pcr_oi,
+        "pcr_volume": pcr_volume,
+        "total_call_oi": int(call_oi) if call_oi else None,
+        "total_put_oi": int(put_oi) if put_oi else None,
+    }
+
+
 # ── Public API ───────────────────────────────────────────────────────
 
 
@@ -304,6 +344,8 @@ def get_chain(
                 "pct": round(em / forward * 100.0, 2),
             }
 
+    aggregates = _chain_aggregates(rows)
+
     payload = {
         "underlying": underlying,
         "segment": segment,
@@ -316,6 +358,11 @@ def get_chain(
         "forward_source": forward_source,
         "atm_strike": atm_strike,
         "expected_move": expected_move,
+        "max_pain": aggregates["max_pain"],
+        "pcr_oi": aggregates["pcr_oi"],
+        "pcr_volume": aggregates["pcr_volume"],
+        "total_call_oi": aggregates["total_call_oi"],
+        "total_put_oi": aggregates["total_put_oi"],
         "t_years": round(T, 6),
         "rows": rows,
         "research_only": segment == "MCX-OPT",

@@ -1734,7 +1734,16 @@ async def _build_option_strategy(a, kt, db, uid):
 
 async def _critique_option_strategy(a, kt, db, uid):
     """Copilot pre-trade critique of explicit legs → strategy card
-    (read-only intent, but the card lets the user register if happy)."""
+    (read-only intent, but the card lets the user register if happy).
+
+    Silent-default: when a leg names only option_type + side and no
+    strike (e.g. "is a naked put on RELIANCE smart?"), synthesize a
+    sensible default strike from the live chain — ATM for a long leg,
+    ~ the nearest liquid OTM strike for a short premium-selling leg —
+    so the critique (and its screaming-risk warning) renders instead of
+    collapsing to an ask_user for inputs the user shouldn't have to
+    supply. The card stays editable; the user can move the strike."""
+    from backend.market.option_chain import get_chain
     from backend.services.option_strategies import (
         StrategyResolutionError,
         resolve_strategy,
@@ -1748,20 +1757,51 @@ async def _critique_option_strategy(a, kt, db, uid):
             "data": {"note": "Need the underlying and at least one leg to critique."},
             "logiccard": None,
         }
+    expiry = _resolve_expiry_for_tool(db, underlying, a.get("expiry"))
+
+    # Pre-fetch the chain once so we can both default missing strikes and
+    # pass it through to resolve_strategy (avoids a second fetch).
+    chain = get_chain(db, underlying, expiry, width=15)
+
+    def _default_strike(option_type: str, side: str) -> Optional[float]:
+        if not chain:
+            return None
+        rows = chain.get("rows") or []
+        atm = float(chain.get("atm_strike") or 0.0)
+        if not rows or atm <= 0:
+            return None
+        ot = option_type.upper()
+        sd = side.upper()
+        # Short premium legs default ~1 step OTM (call above / put below
+        # ATM); long legs default ATM. Walk to the nearest quotable row.
+        strikes = sorted(r["strike"] for r in rows)
+        if sd == "SELL":
+            cands = [s for s in strikes if (s > atm if ot == "CE" else s < atm)]
+            if cands:
+                return cands[0] if ot == "PE" else cands[0]
+        return min(strikes, key=lambda s: abs(s - atm))
+
     try:
-        explicit = [
-            {
-                "option_type": str(l.get("option_type", "")).upper(),
-                "side": str(l.get("side", "")).upper(),
-                "strike": float(l.get("strike") or 0.0),
-            }
-            for l in legs
-        ]
+        explicit = []
+        for l in legs:
+            ot = str(l.get("option_type", "")).upper()
+            sd = str(l.get("side", "")).upper()
+            strike = float(l.get("strike") or 0.0)
+            if strike <= 0.0:
+                defaulted = _default_strike(ot, sd)
+                if defaulted is None:
+                    raise StrategyResolutionError(
+                        f"The {underlying} chain is too thin to default a "
+                        f"{ot} strike — try a more liquid expiry or name a strike."
+                    )
+                strike = defaulted
+            explicit.append({"option_type": ot, "side": sd, "strike": strike})
         payload = resolve_strategy(
             db, underlying, "custom",
-            expiry=_resolve_expiry_for_tool(db, underlying, a.get("expiry")),
+            expiry=expiry,
             qty_lots=int(a.get("qty_lots") or 1),
             explicit_legs=explicit,
+            chain=chain,
         )
     except (StrategyResolutionError, ValueError) as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}

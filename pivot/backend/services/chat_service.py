@@ -1347,7 +1347,17 @@ _INDEPENDENT_INTENT_RE = re.compile(
 # latency for zero behavioural change. Treat pure affirmatives as a
 # no-op → return a one-line acknowledgement, skip the LLM.
 _PURE_AFFIRMATIVE_RE = re.compile(
-    r"^\s*(?:"
+    r"^\s*"
+    # Optional LEADING ACKNOWLEDGEMENT CLAUSE + separator before the
+    # action verb. "looks good, go ahead and register it" / "perfect —
+    # activate it" / "sounds good, lock it in" used to fall through
+    # because each ack phrase was anchored as a COMPLETE alternative;
+    # a stacked compound (ack + comma + action) matched neither. This
+    # prefix consumes the ack clause so the compound resolves to the
+    # action-confirm branch.
+    r"(?:(?:looks\s+good|sounds\s+good|got\s+it|perfect|great|cool|nice|"
+    r"ok(?:ay)?|yes|yeah|yep|yup|sure|fine|alright)\s*[,;:.\-—]?\s+)?"
+    r"(?:"
     # Bare affirmatives
     r"yes|y|yeah|yep|yup|"
     r"ok(?:ay)?|sure|fine|alright|"
@@ -5651,6 +5661,51 @@ async def _llm_clarification(
     )
 
 
+# Hinglish + English filler words that must NEVER be mistaken for a
+# ticker by the not-found symbol-extraction fallback. The prior blind
+# regex surfaced "ACTUALLY" / "NAHI" as fake symbols.
+_SYMBOL_STOPWORDS: frozenset[str] = frozenset({
+    "ACTUALLY", "NAHI", "NAH", "KA", "KI", "KO", "KE", "TO", "AUR",
+    "KHARIDO", "KHARID", "KHARIDLE", "BECH", "BECHO", "BECHDE", "GIR",
+    "JAYE", "JAAYE", "UPAR", "NEECHE", "NICHE", "SHARE", "SHARES",
+    "BUY", "SELL", "WHEN", "IF", "ONCE", "AT", "THE", "AND", "OR",
+    "FOR", "WITH", "ALERT", "PING", "NOTIFY", "PRICE", "QUOTE", "LTP",
+    "HAAN", "HAN", "YES", "NO", "OK", "OKAY", "CONFIRM", "KAR", "DE",
+    "DO", "ME", "MY", "WORTH", "RUPEES", "RS", "INR", "LAKH", "CRORE",
+})
+
+
+def _extract_user_symbol(user_message: str) -> Optional[str]:
+    """Best-effort: pull the NSE ticker the user actually referenced.
+
+    Prefers a token that resolves against the curated symbol universe;
+    falls back to the first non-stopword uppercase-able token of
+    plausible ticker shape. Returns None when nothing credible is found
+    so the caller can avoid naming a filler word as a fake symbol.
+    """
+    if not user_message:
+        return None
+    try:
+        from backend.services.sector_universe import symbol_sector_map
+        known = set(symbol_sector_map().keys())
+    except Exception:
+        known = set()
+    # Candidate tokens: 2–15 char alnum runs from the raw message.
+    raw_tokens = re.findall(r"[A-Za-z][A-Za-z0-9&\-_]{1,14}", user_message)
+    upper_tokens = [t.upper() for t in raw_tokens]
+    # 1) A token that resolves against the curated universe wins.
+    for t in upper_tokens:
+        if t in known:
+            return t
+    # 2) Otherwise, the first token that is BOTH all-uppercase in the
+    #    original message (user typed it like a ticker) AND not a
+    #    stopword — this respects "TATAMOTORS" while rejecting "actually".
+    for raw, up in zip(raw_tokens, upper_tokens):
+        if raw.isupper() and up not in _SYMBOL_STOPWORDS and len(up) >= 2:
+            return up
+    return None
+
+
 def _format_recoverable_failure_question(
     *, tool_name: str, error: str, user_message: str = "",
 ) -> str:
@@ -5800,13 +5855,21 @@ def _format_recoverable_failure_question(
     # symbol gives the user something to act on.
     if tool_name in {"get_live_price", "get_ohlc", "get_52wk_range",
                      "get_index_level"}:
-        # Try to extract the symbol the user mentioned for a more
-        # specific message.
-        sym_match = re.search(
-            r"\b([A-Z][A-Z0-9&\-_]{1,14})\b",
-            (user_message or "").upper(),
-        )
-        sym = sym_match.group(1) if sym_match else "that symbol"
+        # Extract the symbol the user mentioned for a specific message.
+        # WHY this is careful: the prior blind first-uppercased-token
+        # grab surfaced Hinglish filler ("ACTUALLY", "NAHI") as a
+        # fake ticker and even reported a VALID, liquid NSE name (e.g.
+        # TATAMOTORS) as "not found". We now (1) strip Hinglish/English
+        # stopwords, (2) prefer a token that resolves against the
+        # curated universe, and (3) only name a token the user actually
+        # typed — never a filler word.
+        sym = _extract_user_symbol(user_message)
+        if sym is None:
+            return (
+                "I couldn't pull a live quote just now. Tell me the NSE "
+                "ticker (e.g. TATAMOTORS, INFY) and I'll try again — "
+                "Pivot covers NSE-listed equities and indices."
+            )
         return (
             f"I couldn't find price data for `{sym}` on NSE. Double-"
             f"check the ticker spelling — Pivot covers NSE-listed "

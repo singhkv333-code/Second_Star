@@ -317,7 +317,7 @@ export function OptionChainCard({
           )}
         </div>
 
-        {/* Info row: lot size + expected move */}
+        {/* Info row: lot size + expected move + max pain + PCR */}
         <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
           {payload.lot_size !== null && (
             <span>Lot {payload.lot_size}</span>
@@ -327,6 +327,16 @@ export function OptionChainCard({
               <Info className="h-3 w-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
               Expected move ±{payload.expected_move.abs.toLocaleString("en-IN")}
               {" "}({payload.expected_move.pct.toFixed(1)}%)
+            </span>
+          )}
+          {payload.max_pain != null && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-2 py-0.5">
+              Max pain {payload.max_pain.toLocaleString("en-IN")}
+            </span>
+          )}
+          {payload.pcr_oi != null && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-2 py-0.5">
+              PCR(OI) {payload.pcr_oi.toFixed(2)}
             </span>
           )}
         </div>

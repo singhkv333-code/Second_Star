@@ -124,8 +124,21 @@ _RULES: list[_Rule] = [
         # the metric (surfaces fetch_fundamentals on hop 1, no wasted find_tool).
         r"|\b\w+'?s?\s+(?:pe|p\/?e|roe|roce|eps|book\s+value|margins?|d\/e)\b"
         r"|\b(?:pe|p\/?e|roe|roce)\b\s*(?:and|&|,)\s*(?:pe|p\/?e|roe|roce)\b"
-        r"|\bhow\s+(?:financially\s+)?(?:strong|healthy|sound)\s+is\b",
+        r"|\bhow\s+(?:financially\s+)?(?:strong|healthy|sound)\s+is\b"
+        # ── Single-stock DIVIDEND intent (A8) ───────────────────────
+        # "is ITC a (solid) dividend play", "<NAME> dividend yield",
+        # "<NAME>'s dividend", "what's the yield on RELIANCE",
+        # "how's <NAME>'s payout". These are EQUITY fundamentals asks,
+        # NOT cash-park yield asks — surface fetch_fundamentals so the
+        # answer carries the stock's real yield/payout/DPS. The
+        # cash-park rule below is gated to NOT fire when these match.
+        r"|\bis\s+\w+\s+(?:still\s+)?a\s+(?:solid\s+|good\s+|reliable\s+)?dividend\s+(?:play|stock|name)\b"
+        r"|\b\w+'?s?\s+(?:dividend|payout|yield)\b"
+        r"|\b(?:dividend|payout)\s+(?:of|for|on)\s+\w+"
+        r"|\byield\s+(?:of|for|on)\s+\w+"
+        r"|\bdividend\s+(?:play|story|history|track\s+record)\b",
         "fetch_fundamentals", "get_live_price", "get_symbol_news",
+        "get_price_history",
     ),
 
     # ── Company-specific news ────────────────────────────────────────
@@ -577,12 +590,28 @@ _RULES: list[_Rule] = [
     # of the prior patterns — yield tools weren't surfaced and the model
     # answered with prose that had no data. Bond and SGB are first-class
     # retail-investor terms that share the recommendation surface.
+    #
+    # A8 GATING: the bare word "yield" used to hijack single-stock
+    # dividend asks ("is ITC a dividend play, what's the yield doing")
+    # into compare_yields/get_yield_recommendation (FD/G-Sec table, zero
+    # stock numbers). These tools are CASH-PARK ONLY. The "yield" token
+    # now ONLY routes here in an explicit cash-park context
+    # (park/idle/cash/where-to-park/after-tax), never on a bare ticker
+    # dividend phrasing — those are caught by the single-stock rule above.
     _r(
-        r"\byield(?:s|ed)?\b|fixed\s+deposit|fixed[- ]income|\bfd\b|liquid\s+fund"
-        r"|overnight\s+fund|park\s+(my|the)?\s*(cash|money|idle)"
-        r"|savings\s+account|after[- ]tax|\bsgb\b|sovereign\s+gold"
+        r"fixed\s+deposit|fixed[- ]income|\bfd\b|liquid\s+fund"
+        r"|overnight\s+fund|park\s+(?:my|the)?\s*(?:cash|money|idle|surplus|funds?)"
+        r"|where\s+(?:should|to|can)\s+i\s+park"
+        r"|idle\s+(?:cash|money|funds?)"
+        r"|savings\s+account|after[- ]tax\s+(?:yield|return)|\bsgb\b|sovereign\s+gold"
         r"|government\s+bond|\bg-?sec\b|treasury\s+bill|\bt-?bill\b"
-        r"|recommend\s+(?:the\s+)?(?:best\s+)?(?:fixed|bond|debt|safe)",
+        r"|recommend\s+(?:the\s+)?(?:best\s+)?(?:fixed|bond|debt|safe)"
+        # "yield" only in a cash-park / fixed-income context, never bare.
+        r"|\byield\b[^.?]{0,30}\b(?:fd|deposit|debt|bond|liquid|overnight|"
+        r"cash|park|gsec|g-sec|sgb|safe|fixed)\b"
+        r"|\b(?:fd|deposit|debt|bond|liquid|overnight|cash|park|gsec|g-sec|"
+        r"sgb|safe|fixed)\b[^.?]{0,30}\byield\b"
+        r"|best\s+yield(?:s)?\s+(?:for|on)\s+(?:idle|cash|park|short)",
         "compare_yields", "get_yield_recommendation",
     ),
 
