@@ -646,21 +646,42 @@ If the user says "for N days" without a clear start, count from today.
   evaluate in order; if any returns false the branch halts.
 - **Indicator threshold** — "Buy X when RSI<30" → `trigger.indicator` directly,
   OR `trigger.schedule` + `fetch.indicator` + `condition.numeric`.
-- **Indicator crossovers** — "MACD line crosses above signal" →
-  `fetch.indicator(macd)` returns the histogram; `condition.numeric` with
-  histogram > 0 means line above signal. "Golden cross" (50-EMA above 200-EMA)
-  uses TWO `fetch.indicator` steps with different periods + `condition.numeric`
-  comparing them. Do NOT try to fetch `macd_line` / `macd_signal` separately —
-  only `macd` is valid (returns histogram).
-- **Crossover entry + trailing / drawdown exit** — "buy NIFTYBEES on
-  the 50/200 SMA golden cross, exit when drawdown from peak ≥ 5%" is
-  ONE workflow with TWO branches: entry on the crossover, exit on a
-  position-state trigger. Route to `propose_dsl_workflow` — the entry
-  is naturally a `crosses_above` tree over two SMA periods; the exit
-  is a position-aware tree (`drawdown_from_peak_pct ≥ 5%`, or
-  `unrealised_pct ≤ -X%`, or `bars_held ≥ N`). NEVER respond in
-  prose with no tool call — compound entry + compound exit always
-  produces a draft on the first turn.
+- **Indicator crossovers — use the `crosses_above` / `crosses_below`
+  operator, NEVER `>` / `<`.** A *crossover* is the TRANSITION bar, not a
+  standing level. `macd > 0` fires on every bar the histogram is positive
+  (the bullish *state*); a bullish *crossover* is the single bar it turns
+  positive. Canonical encodings (the `macd` indicator returns the
+  histogram, where 0 = the line/signal crossover point):
+  - **"bullish MACD crossover" / "MACD turns positive"** →
+    `comparison(op: "crosses_above", left: indicator(macd), right: 0)`.
+  - **"bearish MACD crossover"** → `crosses_below` 0.
+  - **"50 EMA crosses above 200 EMA" (golden cross)** →
+    `comparison(op: "crosses_above", left: indicator(ema, period 50),
+    right: indicator(ema, period 200))`.
+  Do NOT fetch `macd_line` / `macd_signal` separately — only `macd` is
+  valid (it returns the histogram). Route these to `propose_dsl_workflow`
+  (the compound tree supports `crosses_above`); if you build via
+  `propose_workflow`, the `trigger.compound` entry must still use the
+  `crosses_above` operator, not `>`.
+- **ANY entry + a position-relative exit** — whenever the exit is
+  expressed relative to the OPEN POSITION ("sell when up X%", "exit if it
+  falls X% from its peak / from the high", "exit when down X%", "exit
+  after N bars / N days", "trail X% from peak", "stop at entry − 2×ATR"),
+  this is ONE `propose_dsl_workflow` call: pass the entry as `condition`
+  and the exit verbatim as `exit_condition`. The translator turns the exit
+  into a position-aware tree (`unrealised_pct`, `drawdown_from_peak_pct`,
+  `peak_unrealised_pct`, `bars_held`, `entry_price`). This works even when
+  the ENTRY is a plain single-leg condition like "RSI below 35" — the
+  position-relative EXIT alone is enough to require `propose_dsl_workflow`.
+  Example: "buy 5 BAJFINANCE on RSI below 35 and exit if it falls 5% from
+  its peak after entry" → `propose_dsl_workflow(condition="RSI(14) below
+  35", primary_symbol="BAJFINANCE", action_kind="buy_market", quantity=5,
+  exit_condition="falls 5% from its peak after entry")`.
+  **NEVER refuse this shape or say "the exit depends on the entry's peak
+  so I can't tie them together" — `exit_condition` is built for exactly
+  this and resolves the peak against the live position. NEVER respond in
+  prose with no tool call.** (Golden-cross entry + drawdown exit is the
+  same pattern: `crosses_above` entry tree + position-aware exit tree.)
 - **Schedule + portfolio guard** — trigger.schedule + fetch.portfolio +
   condition.numeric + action.place_order.
 - **Sector basket** — `propose_basket_allocation` (top N in sector,

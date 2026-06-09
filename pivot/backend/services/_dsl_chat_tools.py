@@ -62,6 +62,23 @@ _DSL_NON_TICKER_TOKENS: frozenset[str] = frozenset({
     "PRICE", "QUANTITY", "SHARES", "STOCK", "STOCKS",
     "ENTIRE", "FULL", "WHOLE", "ALL", "COMPLETE", "TOTAL", "EVERY",
     "HOLDING", "HOLDINGS", "POSITION", "POSITIONS",
+    # Signal / pattern words that get uppercased mid-condition and were
+    # being mis-read as ACTION tickers (e.g. "bullish MACD crossover" →
+    # phantom tickers BULLISH/CROSSOVER → false multi-symbol reroute).
+    "BULLISH", "BEARISH", "NEUTRAL", "CROSS", "CROSSOVER", "CROSSES",
+    "GOLDEN", "DEATH", "SIGNAL", "LINE", "HISTOGRAM", "HIST",
+    "BAND", "BANDS", "UPPER", "LOWER", "MIDDLE",
+    "OVERSOLD", "OVERBOUGHT", "BREAKOUT", "BREAKDOWN", "FLIP",
+    "PEAK", "TROUGH", "TREND", "MOMENTUM", "DIP", "DAILY", "WEEKLY",
+    "MONTHLY", "PROFIT", "GAIN", "LOSS", "TARGET", "TRAILING",
+    # Comparison / condition verbs that appear inside an entry/exit clause
+    # and were being mis-collected as ACTION tickers ("RSI below 35 and
+    # exits if it falls 5%" → phantom tickers BELOW/EXITS/FALLS).
+    "ABOVE", "BELOW", "UNDER", "OVER", "EXIT", "EXITS", "ENTER", "ENTERS",
+    "ENTRY", "FALL", "FALLS", "RISE", "RISES", "DROP", "DROPS", "HIT",
+    "HITS", "REACH", "REACHES", "BREACH", "BREACHES", "MOVE", "MOVES",
+    "GOES", "TURNS", "AFTER", "BEFORE", "UNTIL", "WHILE", "THAN", "WITH",
+    "RUNNING", "AVERAGE", "VOLUME", "SPIKE",
 })
 
 
