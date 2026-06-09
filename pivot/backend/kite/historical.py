@@ -59,21 +59,66 @@ class HistoricalBar:
     volume: int
 
 
-def _resolve_instrument_token(symbol: str, exchange: str = "NSE") -> Optional[int]:
+# Process-local cache of {exchange: {normalized_symbol: instrument_token}}
+# built directly from kite.instruments(). Decouples historical from the
+# streaming ticker: charts must work even when the ticker isn't running
+# (which is the common case — the ticker is opt-in). Refreshed daily since
+# the instrument dump changes at most once per day.
+_DIRECT_TOKEN_MAPS: dict[str, dict[str, int]] = {}
+_DIRECT_TOKEN_MAP_DAY: dict[str, str] = {}
+
+
+def _direct_instrument_map(exchange: str, access_token: str) -> dict[str, int]:
+    """Build (and cache for the day) a tradingsymbol→instrument_token map
+    straight from kite.instruments(exchange). Empty dict on any failure."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if (_DIRECT_TOKEN_MAP_DAY.get(exchange) == today
+            and _DIRECT_TOKEN_MAPS.get(exchange)):
+        return _DIRECT_TOKEN_MAPS[exchange]
+    try:
+        from backend.kite.ticker import normalize_symbol
+        kite = get_authenticated_kite(access_token)
+        rows = kite.instruments(exchange) or []
+        out: dict[str, int] = {}
+        for inst in rows:
+            ts = inst.get("tradingsymbol")
+            tok = inst.get("instrument_token")
+            if ts and tok:
+                out[normalize_symbol(ts)] = int(tok)
+        if out:
+            _DIRECT_TOKEN_MAPS[exchange] = out
+            _DIRECT_TOKEN_MAP_DAY[exchange] = today
+            logger.info("kite_historical: built direct instrument map for %s "
+                        "(%d symbols)", exchange, len(out))
+        return out
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("kite_historical: instruments(%s) failed: %s",
+                       exchange, str(exc)[:160])
+        return {}
+
+
+def _resolve_instrument_token(
+    symbol: str, exchange: str = "NSE", access_token: Optional[str] = None,
+) -> Optional[int]:
     """Look up the Kite instrument_token for a tradingsymbol.
 
-    Uses the ticker manager's in-memory instrument map when it's
-    populated (fast path). Otherwise returns None — caller will need
-    to fall back.
+    Fast path: the streaming ticker's in-memory map (populated on start).
+    Fallback: a day-cached map built directly from kite.instruments() —
+    so historical works whether or not the ticker is running. The direct
+    fallback needs an ``access_token``; without one it returns None.
     """
+    from backend.kite.ticker import normalize_symbol
+    norm = normalize_symbol(symbol)
     mgr = get_ticker_manager()
     state = getattr(mgr, "_state", None)
     token_map = getattr(state, "instrument_tokens", None) if state else None
-    if not token_map:
-        return None
-    # Ticker stores tokens under the normalised key (upper + underscores).
-    from backend.kite.ticker import normalize_symbol
-    return token_map.get(normalize_symbol(symbol))
+    if token_map:
+        hit = token_map.get(norm)
+        if hit:
+            return hit
+    if access_token:
+        return _direct_instrument_map(exchange, access_token).get(norm)
+    return None
 
 
 def get_kite_historical(
@@ -123,13 +168,20 @@ def get_kite_historical(
     except Exception as exc:
         logger.debug("kite_historical cache read failed: %s", exc)
 
-    # Pull the active session
+    # Pull the active session. MUST filter is_active — an old inactive row
+    # can hold a stale/junk token, and ordering by updated_at NULLS LAST
+    # pushed the freshly-connected session (updated_at NULL on insert) to
+    # the bottom, so we were picking the dead token and Kite 401'd. Order
+    # by id DESC (newest row) which is robust to NULL timestamps.
     db = SessionLocal()
     try:
         session = (
             db.query(KiteSession)
-            .filter(KiteSession.access_token.isnot(None))
-            .order_by(KiteSession.updated_at.desc().nullslast())
+            .filter(
+                KiteSession.is_active.is_(True),
+                KiteSession.access_token.isnot(None),
+            )
+            .order_by(KiteSession.id.desc())
             .first()
         )
     finally:
@@ -139,13 +191,16 @@ def get_kite_historical(
         return None
 
     access_token = read_kite_access_token(session)
-    if not access_token:
+    # Skip the dev placeholder / obviously-not-a-real token so we fall back
+    # to yfinance cleanly instead of 401-ing against Kite.
+    if not access_token or access_token.startswith("mock_") or len(access_token) < 20:
         return None
 
-    instrument_token = _resolve_instrument_token(symbol, exchange)
+    instrument_token = _resolve_instrument_token(symbol, exchange, access_token)
     if instrument_token is None:
         logger.info(
-            "kite_historical: instrument_token unknown for %s (ticker map empty?)",
+            "kite_historical: instrument_token unknown for %s (not in ticker "
+            "map or instruments dump)",
             symbol,
         )
         return None

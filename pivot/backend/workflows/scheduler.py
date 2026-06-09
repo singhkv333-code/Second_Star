@@ -713,10 +713,15 @@ def _resolve_market_token() -> str:
             row = (
                 db.query(KiteSession)
                 .filter(KiteSession.is_active.is_(True))
-                .order_by(KiteSession.updated_at.desc().nullslast())
+                # id DESC, not updated_at — a freshly-connected session has
+                # updated_at=NULL on insert and NULLS LAST would skip it.
+                .order_by(KiteSession.id.desc())
                 .first()
             )
-            return read_kite_access_token(row) or "mock_token"
+            tok = read_kite_access_token(row)
+            if tok and not tok.startswith("mock_") and len(tok) >= 20:
+                return tok
+            return "mock_token"
         finally:
             db.close()
     except Exception:  # noqa: BLE001 — never let token lookup crash a job
