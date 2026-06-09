@@ -1,0 +1,1375 @@
+{
+ "ts": "20260609_191718",
+ "elapsed_s": 305.2,
+ "base": "http://localhost:8000",
+ "user_id": 493,
+ "sessions_file": "tests/eval_results/gan_2026-06-09/sessions.json",
+ "only": null,
+ "n_sessions": 28,
+ "n_turns": 36,
+ "sessions": [
+  {
+   "category": "execution-stress",
+   "name": "bhartiartl_call_chain_stopword",
+   "why": "CORRECTNESS: 'call' is option-chain intent here, not a verb or a price ask \u2014 must route to option_chain_card for BHARTIARTL NFO calls, NOT a stock snapshot of the underlying. Stopword/intent trap. QUALITY: ATM-band strikes/OI/IV readable with a one-line read, expiry stated, not a raw dump.",
+   "conv": "s_608d01636c",
+   "turns": [
+    {
+     "i": 0,
+     "say": "pull up the BHARTIARTL call option chain for the nearest expiry, I want to see where OI is sitting",
+     "response": "The nearest expiry is **30 Jun 2026**. On the call side, OI is clustering hardest around **\u20b91,820 CE** and **\u20b91,800 CE**; the biggest call OI in the slice shown is **\u20b91,820 CE** at **15.37 lakh**, followed by **\u20b91,800 CE** at **11.22 lakh**.\n\nThe ATM is around **\u20b91,800**, and the chain\u2019s expected move is roughly **\u20b91,726 to \u20b91,891**. Max pain sits at **\u20b91,820**. If you want, I can also summarize the full ATM band with the heaviest call strikes.",
+     "tools_called": [
+      "get_option_chain"
+     ],
+     "render_hint": "option_chain_card",
+     "raw_keys": [
+      "_render_hint",
+      "asof",
+      "atm_strike",
+      "disclosure",
+      "exchange",
+      "expected_move",
+      "expiries",
+      "expiry",
+      "forward",
+      "forward_source",
+      "get_option_chain",
+      "lot_size",
+      "max_pain",
+      "pcr_oi",
+      "pcr_volume",
+      "research_only",
+      "rows",
+      "segment",
+      "source",
+      "spot"
+     ],
+     "card_digest": {
+      "underlying": "BHARTIARTL",
+      "expiry": "2026-06-30",
+      "rows": 17,
+      "atm": 1800.0,
+      "forward": 1808.6,
+      "expected_move": {
+       "low": 1725.79,
+       "high": 1891.41,
+       "abs": 82.81,
+       "pct": 4.58
+      },
+      "research_only": false
+     },
+     "latency_wall_ms": 7637,
+     "latency_server_ms": 7621,
+     "input_tokens": 70994,
+     "output_tokens": 176,
+     "cost_usd": 0.009717,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "execution-stress",
+   "name": "axisbank_alert_not_order",
+   "why": "CORRECTNESS: 'alert me, don't buy' = notify_only \u2014 must NOT become a buy order and must NOT ask quantity. Any-level-is-an-order mis-route fails. QUALITY: confirms the watched level/condition cleanly, states channel honestly, no fabricated 'order placed'.",
+   "conv": "s_832e1d11e2",
+   "turns": [
+    {
+     "i": 0,
+     "say": "just alert me when AXISBANK crosses 1300, don't buy anything",
+     "response": "Do you mean an in-app alert only for `AXISBANK` crossing above \u20b91,300, with no order placed?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 11146,
+     "latency_server_ms": 11122,
+     "input_tokens": 119313,
+     "output_tokens": 154,
+     "cost_usd": 0.020281,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "execution-stress",
+   "name": "basket_three_symbol_split",
+   "why": "CORRECTNESS: 60000 split equally across THREE names on a NIFTY -1% intraday move \u2014 no leg silently dropped, total preserved, trigger on the index. QUALITY: card lists per-name notional and the single trigger, not a vague 'I'll allocate'.",
+   "conv": "s_2f5ea553a6",
+   "turns": [
+    {
+     "i": 0,
+     "say": "if nifty falls 1% intraday, split 60000 equally across SUNPHARMA GRASIM and JSWSTEEL and buy",
+     "response": "Drafted \u2014 if NIFTY falls 1% intraday, it will buy `SUNPHARMA`, `GRASIM`, and `JSWSTEEL` with \u20b920,000 each. Registers as a workflow; you activate it.",
+     "tools_called": [
+      "propose_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "description",
+      "live_warnings",
+      "name",
+      "propose_workflow",
+      "rationale",
+      "steps",
+      "valid_until",
+      "warnings"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"pct_change\", \"symbol\": \"NIFTY\", \"bars\": 1}, \"right\": {\"type\": \"constant\", \"value\": -0.01}}}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"SUNPHARMA\", \"side\": \"buy\", \"notional_inr\": 20000, \"order_type\": \"market\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"GRASIM\", \"side\": \"buy\", \"notional_inr\": 20000, \"order_type\": \"market\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"JSWSTEEL\", \"side\": \"buy\", \"notional_inr\": 20000, \"order_type\": \"market\"}"
+       }
+      ],
+      "compact": "{\"propose_workflow\": {\"name\": \"Buy 3-stock basket if NIFTY falls 1% intraday\", \"description\": \"If NIFTY falls 1% intraday, split \\u20b960,000 equally across SUNPHARMA, GRASIM, and JSWSTEEL and buy.\", \"steps\": [{\"step_type\": \"trigger.compound\", \"label\": null, \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"pct_change\", \"symbol\": \"NIFTY\", \"bars\": 1}, \"right\": {\"type\": \"constant\", \"value\": -0.01}}}}, {\"step_type\": \"action.place_order\", \"label\": null, \"config\": {\"symbol\": \"SUNPHARMA\", \"side\": \"buy\", \"notional_inr\": 20000, \"order_type\": \"market\"}}, {\"step_type\": \"action.place_order\", \"label\": null, \"config\": {\"symbol\": \"GRASIM\", \"side\": \"buy\", \"notional_inr\": 20000, \"order_type\": \"market\"}}, {\"step_type\": \"action.place_order\", \"label\": null, \"config\": {\"symbol\": \"JSWSTEEL\", \"side\": \"buy\", \"notional_inr\": 20000, \"order_type\": \"market\"}}], \"rationale\": \"This drafts a single workflow with an index percentage trigger on NIFTY and three equal notional buy legs, one for each named stock.\", \"warnings\": [], \"valid_until\": null, \"_render_hint\": \"workflow_draft_card\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}, \"name\": \"Buy 3-stock basket if NIFTY falls 1% intraday\", \"description\": \"If NIFTY falls 1% intraday, split \\u20b960,000 equally across SUNPHARMA, GRASIM, and JSWSTEEL and buy.\", \"steps\": [{\"step_type\": \"trigger.compound\", \"label\": null, \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"pct_change\", \"symbol\": \"NI\u2026"
+     },
+     "latency_wall_ms": 8104,
+     "latency_server_ms": 8088,
+     "input_tokens": 77490,
+     "output_tokens": 314,
+     "cost_usd": 0.015265,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "execution-stress",
+   "name": "titan_trailing_stop_disclosure",
+   "why": "CORRECTNESS: trailing stop on a holding = propose_holding_action trailing=true AND must disclose live re-ratcheting limitation in the visible reply, not silently swallow it (capability theatre = fail). QUALITY: disclosure phrased helpfully, not a dead-end.",
+   "conv": "s_983f95e149",
+   "turns": [
+    {
+     "i": 0,
+     "say": "trail a 7% stop below the running high on my TITAN position",
+     "response": "Drafted: set a trailing 7% stop-loss on your `TITAN` holding. It will track the running high in the draft; live registration currently places the initial stop 7% below current price, with full peak-ratcheting modeled in backtests.",
+     "tools_called": [
+      "propose_holding_action"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "description",
+      "live_warnings",
+      "name",
+      "propose_holding_action",
+      "rationale",
+      "steps",
+      "warnings"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.manual",
+        "params": "{}"
+       },
+       {
+        "type": "action.set_stoploss",
+        "params": "{\"symbol\": \"TITAN\", \"trigger_offset_pct\": 7.0, \"trailing\": true}"
+       }
+      ],
+      "compact": "{\"propose_holding_action\": {\"name\": \"TITAN: set stoploss (manual)\", \"description\": \"Manually-triggered: set a trailing 7% stop-loss on the TITAN holding (tracks peak). Fires only when you click Run now.\", \"steps\": [{\"step_type\": \"trigger.manual\", \"label\": \"Run now\", \"config\": {}}, {\"step_type\": \"action.set_stoploss\", \"label\": \"Trailing stop-loss on TITAN (7%)\", \"config\": {\"symbol\": \"TITAN\", \"trigger_offset_pct\": 7.0, \"trailing\": true}}], \"rationale\": \"No automatic trigger requested; the workflow is set up to run on demand and set a trailing 7% stop-loss on the TITAN holding (tracks peak).\", \"warnings\": [\"Trailing stop: the 7% ratchet is fully modeled in backtests. Live, this registers the initial stop 7% below the current price \\u2014 live re-ratcheting on new highs isn't wired yet.\"], \"_render_hint\": \"workflow_draft_card\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}, \"name\": \"TITAN: set stoploss (manual)\", \"description\": \"Manually-triggered: set a trailing 7% stop-loss on the TITAN holding (tracks peak). Fires only when you click Run now.\", \"steps\": [{\"step_type\": \"trigger.manual\", \"label\": \"Run now\", \"config\": {}}, {\"step_type\": \"action.set_stoploss\", \"label\": \"Trailing stop-loss on TITAN (7%)\", \"config\": {\"symbol\": \"TITAN\", \"trigger_offset_pct\": 7.0, \"trailing\": true}}], \"rationale\": \"No automatic trigger requested; the workflow is set up to run on demand and set a trailing 7% stop-loss on the TITAN holding (tracks peak).\", \"warnings\": [\"Trailing st\u2026"
+     },
+     "latency_wall_ms": 8074,
+     "latency_server_ms": 8059,
+     "input_tokens": 80808,
+     "output_tokens": 105,
+     "cost_usd": 0.01542,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "execution-stress",
+   "name": "bajajauto_buy_open_sell_3pct",
+   "why": "CORRECTNESS: canonical 'buy at open, sell +3%' shape that has regressed before \u2014 schedule/open entry + compound profit exit at +3% in one workflow_draft_card, must NOT loop/refuse/claim entry can't tie to exit; qty given so no re-ask. QUALITY: both legs visibly present, no theatre.",
+   "conv": "s_5f4da20446",
+   "turns": [
+    {
+     "i": 0,
+     "say": "set up an agent that buys BAJAJ-AUTO at the open and books out when it rises 3%, 5 shares",
+     "response": "Pivot's triggers fire on absolute prices or fixed indicator levels \u2014 they can't anchor to *yesterday's close* or *today's open* directly. The closest supported shape is a daily checkpoint: every morning at 09:30 I check the price and act if it's X% off the open. Want me to draft that, or switch to a fixed price level instead?",
+     "tools_called": [
+      "propose_workflow"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 15606,
+     "latency_server_ms": 15587,
+     "input_tokens": 124713,
+     "output_tokens": 558,
+     "cost_usd": 0.01727,
+     "llm_calls": 4
+    }
+   ]
+  },
+  {
+   "category": "execution-stress",
+   "name": "hcltech_gtt_price_level",
+   "why": "CORRECTNESS: 'if it falls to 920' is a price-level (GTT-style) threshold order, NOT a time schedule \u2014 disambiguation trap; qty=30 honoured. QUALITY: card states trigger price and side clearly, no fabricated current price.",
+   "conv": "s_f42965306a",
+   "turns": [
+    {
+     "i": 0,
+     "say": "place a buy for 30 HCLTECH if it falls to 920",
+     "response": "Drafted: buy 30 `HCLTECH` via GTT if it falls to \u20b9920, with a \u20b9922 limit. Current price is \u20b91,146.30, so this is about a 19.7% dip trigger.",
+     "tools_called": [
+      "create_gtt_order"
+     ],
+     "render_hint": "logic_card",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "logic_card",
+      "compact": "{\"_render_hint\": \"logic_card\"}"
+     },
+     "latency_wall_ms": 9459,
+     "latency_server_ms": 9424,
+     "input_tokens": 79487,
+     "output_tokens": 100,
+     "cost_usd": 0.010216,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "quality-stress",
+   "name": "analyse_hdfcbank_full",
+   "why": "QUALITY is the bar: structured single-name read \u2014 price level, 1w/1m/3m/6m/1y returns, SMA20/50/200 stack with a trend label, RSI-14, 52w distance, PE/ROE/PB layer, and a synthesis with a defended stance. CORRECTNESS: real fresh Kite close (2026), correct trend label, no fabricated targets, no advisor-boilerplate dodge.",
+   "conv": "s_b5bfb1cb86",
+   "turns": [
+    {
+     "i": 0,
+     "say": "give me a proper analysis of HDFCBANK - chart, valuation and where it stands right now",
+     "response": "HDFCBANK looks **cheap-to-fair on valuation, but technically weak** right now: P/E is 16.53, P/B 1.95, ROE 13.82%, dividend yield 1.76%.\n\nPrice is \u20b9739.70, down 25.24% over 1 year and sitting below the 20-, 50- and 200-day averages, with RSI-14 at 39. That is a bearish stack, but not washed out. It is only about 1.8% above the 52-week low and 27.5% below the high.\n\nRecent headlines include a Q1-related weakness note and some scrutiny around a payment story, so the tape is not being helped by news. What matters now is whether it can reclaim the 20-day and then the 50-day averages; until then, the trend remains fragile.\n\nThis is analysis, not financial advice.",
+     "tools_called": [
+      "get_price_history",
+      "fetch_fundamentals",
+      "get_symbol_news"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals",
+      "get_price_history",
+      "get_symbol_news"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 8783,
+     "latency_server_ms": 8745,
+     "input_tokens": 79070,
+     "output_tokens": 278,
+     "cost_usd": 0.010723,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "quality-stress",
+   "name": "infy_vs_tcs_which_better",
+   "why": "QUALITY: head-to-head must render a markdown TABLE (returns, PE, ROE, margin, momentum side by side) then PICK a winner with reasons, not 'both are great'. CORRECTNESS: fresh per-name numbers, no swap/conflation. The defended winner separates A from B-quality.",
+   "conv": "s_b4aa13e29c",
+   "turns": [
+    {
+     "i": 0,
+     "say": "INFY vs TCS for a 1 year hold - which is better? give me the real comparison, not a both-are-good answer",
+     "response": "## Snapshot\n\nFor a 1-year hold, **INFY is the better risk-adjusted pick**; it beat TCS on return, had a better Sharpe, and held up slightly better in drawdown.\n\n| Metric | INFY | TCS | Edge |\n|---|---:|---:|---|\n| Total return | -24.96% | -37.14% | INFY |\n| Volatility | 26.70% | 24.35% | TCS |\n| Sharpe | -1.18 | -2.05 | INFY |\n| Max drawdown | 35.20% | 38.81% | INFY |\n\n## Technicals\n\nNeither name was strong over the last year, but **INFY was less bad**: smaller loss, better risk-adjusted profile, and a shallower drawdown. TCS was a bit less volatile, but that did not translate into better outcomes. On a 1-year hold, the main question is not \u201cwhich is perfect\u201d but \u201cwhich had the cleaner tape.\u201d That answer is INFY.\n\n## Fundamentals\n\n| Metric | INFY | TCS | Read |\n|---|---:|---:|---|\n| P/E | 15.41 | 15.82 | Roughly similar valuation |\n| P/B | 5.08 | 6.86 | INFY cheaper on book |\n| ROE | 31.44% | 48.40% | TCS stronger quality |\n| D/E | 0.10 | 0.10 | Both very low leverage |\n| Net margin | 16.43% | 18.43% | TCS better margin |\n| Dividend yield | 4.21% | 5.76% | TCS stronger yield |\n\nThis is the real trade-off: **TCS is the higher-quality business on profitability and dividend yield, but it also asks for a richer price-to-book.** INFY is a bit cheaper and has delivered the better 1-year market result.\n\n## News\n\nI did not pull news for this comparison, so I am not using any headline catalyst here.\n\n## What to watch\n\n- If you want a **quality-first** hold, TCS stays the cleaner franchise.\n- If you want the **better 1-year market setup from here**, INFY already has the edge from this comparison.\n- The tie-breaker would be whether TCS re-rates cheaper enough to overcome its weaker 1-year price action.\n\n## View\n\n**Winner: INFY.** Not because it is the best business \u2014 TCS still looks stronger on ROE, margins, and dividend yield \u2014 but because for a **1-year hold**, the combination of **better return, better Sharpe, and lower drawdown** matters more. If your goal is to hold one name for the next year and you want the cleaner risk-adjusted setup, INFY is the better choice from this dataset. If your priority is business quality over 1-year tape, TCS remains the higher-quality franchise.\n\nThis is analysis, not financial advice.",
+     "tools_called": [
+      "compare_performance",
+      "fetch_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "compare_performance",
+      "fetch_fundamentals"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 15154,
+     "latency_server_ms": 15129,
+     "input_tokens": 116243,
+     "output_tokens": 734,
+     "cost_usd": 0.020993,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "quality-stress",
+   "name": "is_reliance_expensive",
+   "why": "QUALITY: 'is X expensive' demands valuation framing \u2014 PE/PB vs own history and sector, plus price vs SMA200 \u2014 ending expensive/fair/cheap with the math shown. CORRECTNESS: real multiples, no invented fair value, honest stance not 'depends on your view'.",
+   "conv": "s_142557a275",
+   "turns": [
+    {
+     "i": 0,
+     "say": "is RELIANCE expensive at these levels or is there still value, walk me through the valuation",
+     "response": "## Snapshot\n\nRELIANCE is **not cheap on today\u2019s numbers**, but it is also not trading like a euphoric momentum name. The current P/E is **25.0**, with price around **\u20b91,272.50** on the latest close.\n\n## Technicals\n\n| Window | Return |\n|---|---:|\n| 1w | -3.2% |\n| 1m | -11.34% |\n| 3m | -5.39% |\n| 6m | -17.71% |\n| 1y | -12.17% |\n\nThe tape is weak: price is **below SMA20 \u20b91,330.83, SMA50 \u20b91,356.86, and SMA200 \u20b91,425.31**, which is a bearish stack. RSI-14 is **35.9**, so momentum is soft but not deeply oversold. It is also **21.05% below the 1-year high** and only **1.19% above the 1-year low**, which tells you the market has already de-rated it meaningfully.\n\n## Fundamentals\n\n| Metric | Value | Read |\n|---|---:|---|\n| P/E | 25.0 | Mid-to-high for a cyclical/index heavyweight; not a bargain by itself |\n| ROE | 8.93% | Modest; does not support a premium multiple |\n| ROCE | 9.17% | Also modest; capital efficiency is not screaming quality |\n| Debt/Equity | 0.41 | Balance sheet is reasonably controlled |\n| Net margin | 9.04% | Decent, but not enough to justify a rich multiple on its own |\n| EPS | 60.0 | Useful for scale, but the multiple is the valuation lens here |\n| Book value | 668.07 | Price is at roughly 1.9x book |\n| Dividend payout | 0.0% | No dividend support for the valuation case |\n\nMy read: **P/E 25 looks fair-to-slightly-rich relative to the current profitability profile**. If ROE were nearer the mid-teens, 25x would look easier to defend. With ROE under 9% and ROCE just above 9%, the market is paying for optionality, size, and strategic earnings power rather than current return quality.\n\n## News\n\nRecent headlines are mixed: a Reuters item noted relief from India\u2019s top court in an older securities case, while there are also valuation-reset pieces from market commentary. No clear near-term operating catalyst jumped out from the feed.\n\n## What to watch\n\n- Whether price can reclaim **SMA20 / SMA50**; that would tell you the de-rating is stabilising.\n- Whether ROE/ROCE improve in coming quarters; that is what would make a 25x multiple easier to justify.\n- Whether the stock holds the **\u20b91,257\u2013\u20b91,272** area; losing that would make the valuation case less attractive technically.\n\n## View\n\nOn valuation alone, RELIANCE looks **more fairly priced than cheap**. The bull case is that the market is pricing in future growth and strategic optionality, and the balance sheet is not stressed. The bear case is that current return metrics are not strong enough to justify a premium multiple, especially with the stock below all major moving averages. My stance: **there is some value, but not an obvious deep-value gap** \u2014 you are paying for the franchise, not for bargain fundamentals. I would become more constructive if the business starts converting capital into higher ROE/ROCE and the stock reclaims the medium-term moving averages.\n\nThis is analysis, not financial advice.",
+     "tools_called": [
+      "fetch_fundamentals",
+      "get_live_price",
+      "get_price_history",
+      "get_symbol_news"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals",
+      "get_live_price",
+      "get_price_history",
+      "get_symbol_news"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 13325,
+     "latency_server_ms": 13289,
+     "input_tokens": 79306,
+     "output_tokens": 865,
+     "cost_usd": 0.011957,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "quality-stress",
+   "name": "screen_cheap_high_roe_banks",
+   "why": "QUALITY: a sector screen that MUST render as a ranked TABLE \u2014 banks by PB (banks judged on book, not industrial PE) and ROE, flagging cheap-with-quality. CORRECTNESS: real per-name PB/ROE, no generic 'banks are cyclical' essay.",
+   "conv": "s_ea99d72650",
+   "turns": [
+    {
+     "i": 0,
+     "say": "screen me the cheap high-ROE banks - rank ICICIBANK, KOTAKBANK, SBIN and AXISBANK",
+     "response": "Here\u2019s the rank on your two filters, using the names you listed:\n\n| Rank | Bank | P/E | ROE | P/B |\n|---|---|---:|---:|---:|\n| 1 | SBIN | 10.99 | 15.48% | 1.56 |\n| 2 | ICICIBANK | 17.06 | 16.36% | 2.52 |\n| 3 | AXISBANK | 14.29 | 12.27% | 1.87 |\n| 4 | KOTAKBANK | 19.70 | 11.39% | 2.10 |\n\n**Cheapest:** `SBIN` on P/E and P/B. **Best ROE:** `ICICIBANK`.  \nIf you want a stricter \u201ccheap and high-ROE\u201d cut, `SBIN` and `ICICIBANK` screen best on this set.",
+     "tools_called": [
+      "fetch_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 11134,
+     "latency_server_ms": 11116,
+     "input_tokens": 80201,
+     "output_tokens": 301,
+     "cost_usd": 0.015725,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "quality-stress",
+   "name": "is_nifty_uptrend",
+   "why": "QUALITY + CORRECTNESS: index trend read \u2014 real fresh NIFTY close, SMA20/50/200 ordering, distance to the 50 and 200, RSI, then a clear up/range/down call with the math. Failure modes: stale level, hand-wavy 'looks bullish', or refusing to call it.",
+   "conv": "s_994dee02c8",
+   "turns": [
+    {
+     "i": 0,
+     "say": "is NIFTY genuinely in an uptrend right now, walk me through what the moving averages are saying",
+     "response": "Not a clean uptrend right now. NIFTY is **below the 20-day, 50-day, and 200-day SMAs**, which is a bearish stack: the shorter averages are under the longer one and price is trading beneath all of them.\n\nThe slopes also matter: 20-day is about \u20b923,562, 50-day about \u20b923,700, and 200-day about \u20b924,941, while spot is \u20b923,242. That means price is still under the near-term and long-term trend lines, so the tape has not reclaimed momentum. RSI-14 is **38.8**, which is weak but not oversold; that fits a corrective phase rather than a strong trend reversal.\n\nSo the read is: **downtrend / weak range, not an uptrend**. A genuine bullish turn would usually need price back above the 50-day first, then the 200-day, with RSI improving.",
+     "tools_called": [
+      "get_price_history"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "get_price_history"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 10193,
+     "latency_server_ms": 10179,
+     "input_tokens": 78738,
+     "output_tokens": 221,
+     "cost_usd": 0.015326,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "quality-stress",
+   "name": "itc_dividend_story",
+   "why": "QUALITY: income-angle read combining real dividend yield + payout + price trend, acknowledging the hotels demerger without overclaiming. CORRECTNESS: a real yield figure, not 'around 4%' vibes, and no invented payout policy.",
+   "conv": "s_5563d7c3a8",
+   "turns": [
+    {
+     "i": 0,
+     "say": "is ITC still a solid dividend play after the demerger, what's the yield actually doing",
+     "response": "## Snapshot\n\nITC\u2019s dividend yield is **5.73%**, with a **payout ratio of 86.92%** and **ROE of 29.34%**. At the current price of **\u20b9280.00**, the stock is still throwing off a high cash yield, but the price action has weakened materially.\n\n## Technicals\n\n| Window | Return |\n|---|---:|\n| 1W | -1.15% |\n| 1M | -6.45% |\n| 3M | -7.80% |\n| 6M | -26.76% |\n| 1Y | -30.58% |\n\nPrice is **\u20b9280.00**, below **SMA20 \u20b9290.76 (-3.7%)**, **SMA50 \u20b9293.25 (-4.5%)**, and **SMA200 \u20b9342.11 (-18.2%)**. That is a clear bearish stack, and the **RSI-14 at 24.4** says the stock is oversold rather than strong. In other words, the yield looks rich partly because the price has fallen.\n\n## Fundamentals\n\n| Metric | Value | Read |\n|---|---:|---|\n| P/E | 16.95 | Not stretched for a consumer-defensive name |\n| ROE | 29.34% | Strong profitability |\n| ROCE | Unavailable | Not populated in the feed |\n| D/E | 0.03 | Very low leverage |\n| Net margin | 26.23% | Healthy margin profile |\n| EPS | 28.0 | Solid earnings base |\n| Book value | 57.87 | Supports the valuation context |\n| Dividend payout | 86.92% | High payout, leaves less reinvestment room |\n| Dividend yield | 5.73% | Still attractive on yield alone |\n\nThe post-demerger question is less \u201ccan ITC pay?\u201d and more \u201chow durable is the payout versus growth?\u201d The answer looks mixed: balance sheet strength and margins are excellent, but the payout is high, so the dividend remains attractive but not especially flexible.\n\n## News\n\nRecent headline flow is thin in the feed I have. One Reuters item notes **BAT plans to offload stake in ITC Hotels**, which is more about structure and sentiment than ITC\u2019s core dividend engine.\n\n## What to watch\n\n- Whether the share price stabilises back above **\u20b9290\u2013\u20b9293**, which would improve the yield-quality mix.\n- Whether payout stays near the high-80% range or starts moderating as the business/capital allocation changes after the demerger.\n\n## View\n\n**Still a solid dividend play, but not a clean \u201cbuy for yield\u201d story at the current tape.** The bull case is simple: high yield, low debt, strong ROE, and resilient cash generation. The bear case is that the yield is elevated because the stock has de-rated sharply, and the high payout ratio limits reinvestment flexibility.\n\nMy read: **income quality is still good, but the yield is being flattered by price weakness**. I would call it a defensible dividend holding, not a low-risk \u201cset and forget\u201d income name until the price trend improves.\n\nThis is analysis, not financial advice.",
+     "tools_called": [
+      "fetch_fundamentals",
+      "get_live_price",
+      "get_price_history",
+      "get_symbol_news"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals",
+      "get_live_price",
+      "get_price_history",
+      "get_symbol_news"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 12908,
+     "latency_server_ms": 12886,
+     "input_tokens": 77972,
+     "output_tokens": 776,
+     "cost_usd": 0.021045,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "F&O",
+   "name": "nifty_chain_max_pain_pcr",
+   "why": "CORRECTNESS: option-chain + metrics ask \u2014 render option_chain_card for NIFTY current expiry with max-pain and PCR, NOT price NIFTY as an equity. QUALITY: states max-pain strike, PCR value, expected-move, each with a one-line interpretation, all grounded in real chain data not invented figures.",
+   "conv": "s_cd87637bb1",
+   "turns": [
+    {
+     "i": 0,
+     "say": "show me the NIFTY option chain for this week with max pain, PCR and the expected move, and tell me what each is hinting",
+     "response": "Here\u2019s the read for this week\u2019s NIFTY chain: **max pain is 23,250**, **PCR OI is 0.76**, and the **expected move is 23,260.88 to 23,433.12** \u2014 about **\u00b186 points / 0.37%**.\n\nWhat they hint at:\n- **Max pain 23,250**: the expiry magnet is slightly below the current forward, so the chain is leaning toward pinning near that zone if open interest stays unchanged.\n- **PCR 0.76**: slightly call-heavy, which is mildly bearish to range-bound rather than strongly bullish.\n- **Expected move \u00b186 points**: the market is pricing a fairly tight weekly range, so the setup looks more like consolidation than a large trend week.",
+     "tools_called": [
+      "get_option_chain"
+     ],
+     "render_hint": "option_chain_card",
+     "raw_keys": [
+      "_render_hint",
+      "asof",
+      "atm_strike",
+      "disclosure",
+      "exchange",
+      "expected_move",
+      "expiries",
+      "expiry",
+      "forward",
+      "forward_source",
+      "get_option_chain",
+      "lot_size",
+      "max_pain",
+      "pcr_oi",
+      "pcr_volume",
+      "research_only",
+      "rows",
+      "segment",
+      "source",
+      "spot"
+     ],
+     "card_digest": {
+      "underlying": "NIFTY",
+      "expiry": "2026-06-09",
+      "rows": 17,
+      "atm": 23350.0,
+      "forward": 23347.0,
+      "expected_move": {
+       "low": 23260.88,
+       "high": 23433.12,
+       "abs": 86.12,
+       "pct": 0.37
+      },
+      "research_only": false
+     },
+     "latency_wall_ms": 7757,
+     "latency_server_ms": 7731,
+     "input_tokens": 71099,
+     "output_tokens": 199,
+     "cost_usd": 0.013949,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "F&O",
+   "name": "banknifty_suggest_bullish",
+   "why": "QUALITY: a bullish suggestion should propose a real defined-risk structure (e.g. bull call spread) with strikes/cost/max-profit/breakeven from the live chain, structured. CORRECTNESS: option_strategy_card via the suggest path, register-not-execute, no fabricated premiums.",
+   "conv": "s_c12fee4426",
+   "turns": [
+    {
+     "i": 0,
+     "say": "I'm bullish on BANKNIFTY for this expiry, suggest me a sensible defined-risk options play, retail size",
+     "response": "For retail size, the sensible defined-risk play is the **BANKNIFTY bull put spread** the engine defaulted to: sell `54200 PE`, buy `53900 PE`, `1` lot.\n\n**Max loss:** `\u20b96,705`  \n**Max profit:** `\u20b92,295`  \n**Breakeven:** `54,272.61`  \n**POP:** `67.5%`  \n**Capital required:** `\u20b96,705`\n\nIt is a clean bullish structure because risk is capped and the strikes are liquid. The main trade-off is limited upside versus the cash required. If you want a more aggressive bullish bet, the alternate card was a bull call spread, but for retail-size defined risk, this one is more balanced.\n\nThis is automation of your instructions, not financial advice.",
+     "tools_called": [
+      "suggest_option_strategy"
+     ],
+     "render_hint": "option_strategy_card",
+     "raw_keys": [
+      "_render_hint",
+      "candidates",
+      "computed",
+      "critique",
+      "editable",
+      "locked",
+      "suggest_option_strategy",
+      "summary",
+      "validation"
+     ],
+     "card_digest": {
+      "template": "bull_put_spread",
+      "legs": [
+       {
+        "t": "PE",
+        "s": "SELL",
+        "k": 54200.0,
+        "mid": 519.275
+       },
+       {
+        "t": "PE",
+        "s": "BUY",
+        "k": 53900.0,
+        "mid": 442.775
+       }
+      ],
+      "qty_lots": 1,
+      "max_loss": 6705.0,
+      "max_profit": 2295.0,
+      "pop": 0.6754,
+      "breakevens": [
+       54272.61
+      ],
+      "capital": 6705.0,
+      "margin": 6705.0,
+      "verdict": "ok",
+      "flags": [
+       "info"
+      ],
+      "candidates": [
+       "bull_call_spread",
+       "long_call"
+      ],
+      "mcx_blocked": false
+     },
+     "latency_wall_ms": 10640,
+     "latency_server_ms": 10620,
+     "input_tokens": 70806,
+     "output_tokens": 216,
+     "cost_usd": 0.009686,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "F&O",
+   "name": "nifty_build_iron_condor",
+   "why": "CORRECTNESS: explicit 'build an iron condor' -> option_strategy_card with four real legs at sensible strikes for the chosen expiry, register-not-execute; should scope width/expiry not silently invent strikes. QUALITY: shows credit, max profit/loss, breakevens in a clean leg table.",
+   "conv": "s_ef3a2d0c46",
+   "turns": [
+    {
+     "i": 0,
+     "say": "build me an iron condor on NIFTY around current levels for this expiry, keep the wings reasonable",
+     "response": "I can help with an iron condor on NIFTY for this expiry, but \u201ccurrent levels\u201d and \u201creasonable wings\u201d are still a bit open-ended. If you want, tell me the exact NIFTY spot/strike area you want centered and how wide you want the wings, like 50, 100, or 150 points.",
+     "tools_called": [
+      "build_option_strategy"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 5805,
+     "latency_server_ms": 5781,
+     "input_tokens": 34748,
+     "output_tokens": 113,
+     "cost_usd": 0.00469,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "F&O",
+   "name": "critique_naked_put_reliance",
+   "why": "CORRECTNESS: 'critique' a naked short put -> use the critique path and assess THIS structure (assignment risk, margin, undefined downside), not refuse, not rubber-stamp. QUALITY: a defended risk verdict with real margin/greeks framing plus a safer alternative (put spread).",
+   "conv": "s_24a2d675a0",
+   "turns": [
+    {
+     "i": 0,
+     "say": "I want to sell a naked put on RELIANCE for the monthly expiry - tear my idea apart and tell me what's wrong with it",
+     "response": "The core problem is the risk is asymmetric: the upside is capped at about \u20b9550, but the downside is open-ended if RELIANCE sells off hard. That is a lot of tail risk for a trade that only needs a modest move against you to turn ugly.\n\nTwo other red flags: the quote shows a **wide bid-ask spread** on the short put, so execution quality may be poor, and the notional requirement is about **\u20b930,377** for just one lot. The breakeven is around **\u20b91,119.91**, only slightly below the strike, so you are not getting much room for error.\n\nThe positive case is theta is working for you, but the hedge is weak. If you want the same view with defined risk, a bull put spread is structurally safer. This is automation of your instructions, not financial advice.",
+     "tools_called": [
+      "critique_option_strategy"
+     ],
+     "render_hint": "option_strategy_card",
+     "raw_keys": [
+      "_render_hint",
+      "candidates",
+      "computed",
+      "critique",
+      "critique_option_strategy",
+      "editable",
+      "locked",
+      "summary",
+      "validation"
+     ],
+     "card_digest": {
+      "template": "custom",
+      "legs": [
+       {
+        "t": "PE",
+        "s": "SELL",
+        "k": 1120.0,
+        "mid": 1.1
+       }
+      ],
+      "qty_lots": 1,
+      "max_loss": null,
+      "max_profit": 550.0,
+      "pop": 0.9851,
+      "breakevens": [
+       1119.91
+      ],
+      "capital": 30376.91,
+      "margin": 30376.91,
+      "verdict": "risky",
+      "flags": [
+       "risk",
+       "warn",
+       "info"
+      ],
+      "candidates": [],
+      "mcx_blocked": false
+     },
+     "latency_wall_ms": 10665,
+     "latency_server_ms": 10646,
+     "input_tokens": 71589,
+     "output_tokens": 231,
+     "cost_usd": 0.014072,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "regression",
+   "name": "plain_price_kotakbank",
+   "why": "REGRESSION (correctness): plain live-price ask -> fresh real Kite-sourced number with a 2026 timestamp, currency, under ~5 lines, no upsell. Stale 2024 date or fabricated value = fail. QUALITY: concise, not padded.",
+   "conv": "s_4278737d50",
+   "turns": [
+    {
+     "i": 0,
+     "say": "what's KOTAKBANK trading at right now",
+     "response": "KOTAKBANK is at \u20b9381.70, up 1.22% (yfinance, EOD).",
+     "tools_called": [
+      "get_live_price"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "get_live_price"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 8341,
+     "latency_server_ms": 8329,
+     "input_tokens": 75965,
+     "output_tokens": 50,
+     "cost_usd": 0.014356,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "regression",
+   "name": "plain_rsi_agent_grasim",
+   "why": "REGRESSION (correctness): vanilla RSI(14)<30 buy agent on a fresh symbol -> workflow_draft_card with trigger.indicator + buy qty=10, no qty re-ask, backtestable. The bread-and-butter buildable that must never loop/refuse. QUALITY: card clean, reply brief and confident.",
+   "conv": "s_d60beb8276",
+   "turns": [
+    {
+     "i": 0,
+     "say": "make an agent that buys 10 GRASIM when its RSI drops below 30",
+     "response": "Here's a draft for **GRASIM RSI(14) below 30** \u2014 it buys 10 GRASIM at market when RSI(14) drops below 30.0. Review the steps below and click Activate when you're happy with it.",
+     "tools_called": [
+      "propose_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "description",
+      "name",
+      "propose_workflow",
+      "rationale",
+      "steps",
+      "warnings"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.indicator",
+        "params": "{\"symbol\": \"GRASIM\", \"indicator\": \"rsi\", \"period\": 14, \"operator\": \"<\", \"value\": 30.0}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"GRASIM\", \"side\": \"buy\", \"quantity\": 10, \"order_type\": \"market\", \"requires_approval\": false}"
+       }
+      ],
+      "compact": "{\"propose_workflow\": {\"name\": \"GRASIM RSI(14) below 30\", \"description\": \"Buy 10 GRASIM when 14-period RSI is below 30.\", \"steps\": [{\"step_type\": \"trigger.indicator\", \"label\": \"RSI(14) < 30\", \"config\": {\"symbol\": \"GRASIM\", \"indicator\": \"rsi\", \"period\": 14, \"operator\": \"<\", \"value\": 30.0}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 10 GRASIM\", \"config\": {\"symbol\": \"GRASIM\", \"side\": \"buy\", \"quantity\": 10, \"order_type\": \"market\", \"requires_approval\": false}}], \"rationale\": \"RSI indicator trigger then a market buy. Period 14 is the conventional default.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\"}, \"name\": \"GRASIM RSI(14) below 30\", \"description\": \"Buy 10 GRASIM when 14-period RSI is below 30.\", \"steps\": [{\"step_type\": \"trigger.indicator\", \"label\": \"RSI(14) < 30\", \"config\": {\"symbol\": \"GRASIM\", \"indicator\": \"rsi\", \"period\": 14, \"operator\": \"<\", \"value\": 30.0}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 10 GRASIM\", \"config\": {\"symbol\": \"GRASIM\", \"side\": \"buy\", \"quantity\": 10, \"order_type\": \"market\", \"requires_approval\": false}}], \"rationale\": \"RSI indicator trigger then a market buy. Period 14 is the conventional default.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\"}"
+     },
+     "latency_wall_ms": 15,
+     "latency_server_ms": 5,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "edge-honesty",
+   "name": "us_adr_recurring_buy",
+   "why": "CORRECTNESS: US equities/ADRs are outside the NSE/BSE universe -> honest boundary, not a fabricated price or a built order. QUALITY: states the limit plainly and offers the nearest real thing (NSE-listed alternative or 'no proxy'), no refusal essay.",
+   "conv": "s_f74bd9246c",
+   "turns": [
+    {
+     "i": 0,
+     "say": "can you set up a recurring monthly buy of NVIDIA stock for me",
+     "response": "Pivot covers NSE/BSE-listed instruments, so U.S.-listed NVIDIA itself isn\u2019t tradable here. The closest Indian proxy is MON100 (Motilal Oswal NASDAQ-100 ETF), which holds NVIDIA alongside Apple and Microsoft. Do you want a monthly SIP into MON100, and if so what amount in \u20b9 per month?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 9534,
+     "latency_server_ms": 9523,
+     "input_tokens": 79966,
+     "output_tokens": 169,
+     "cost_usd": 0.015402,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "edge-honesty",
+   "name": "news_sentiment_autosell",
+   "why": "CORRECTNESS: a sentiment-NLP auto-sell trigger isn't supported -> must say so and offer the nearest real thing (keyword/event or price alert), never fake a sentiment engine. QUALITY: boundary + concrete alternative, not a generic refusal.",
+   "conv": "s_670a63058f",
+   "turns": [
+    {
+     "i": 0,
+     "say": "automatically sell my ADANIENT if the news sentiment turns negative",
+     "response": "How many ADANIENT shares should I sell when the news turns negative?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 7873,
+     "latency_server_ms": 7864,
+     "input_tokens": 76834,
+     "output_tokens": 202,
+     "cost_usd": 0.014877,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "ambiguous",
+   "name": "the_tata_one_entity",
+   "why": "CORRECTNESS (deliberately ambiguous): 'the Tata one' spans many Tata names -> must ASK_USER which symbol, not silently guess TATAMOTORS/TCS. QUALITY: one crisp clarifying question listing the likely candidates, not a wall.",
+   "conv": "s_c604baedfc",
+   "turns": [
+    {
+     "i": 0,
+     "say": "set up a buy on the Tata one that's been running lately, 10 shares",
+     "response": "Tata is ambiguous here \u2014 did you mean TCS, TATASTEEL, TATAMOTORS, TATAPOWER, or TATACONSUM?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 4068,
+     "latency_server_ms": 4055,
+     "input_tokens": 39596,
+     "output_tokens": 69,
+     "cost_usd": 0.005109,
+     "llm_calls": 1
+    }
+   ]
+  },
+  {
+   "category": "ambiguous",
+   "name": "hundred_of_eichermot_units",
+   "why": "CORRECTNESS (deliberately ambiguous): '100 of EICHERMOT' is unit-ambiguous (shares vs rupees) -> must clarify, not assume. QUALITY: one tight question resolving shares-vs-amount before building anything.",
+   "conv": "s_d6709db2d4",
+   "turns": [
+    {
+     "i": 0,
+     "say": "buy me 100 of EICHERMOT when it dips a bit",
+     "response": "EICHERMOT is around \u20b97,100, so 100 shares is roughly \u20b97.1 lakh. Confirm 100 shares (not \u20b9100 worth), and tell me the dip rule: a specific \u20b9 level, or 2% below the current price?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 7002,
+     "latency_server_ms": 6992,
+     "input_tokens": 39594,
+     "output_tokens": 92,
+     "cost_usd": 0.005155,
+     "llm_calls": 1
+    }
+   ]
+  },
+  {
+   "category": "multi-turn",
+   "name": "amend_qty_then_confirm_register",
+   "why": "CORRECTNESS (P0 re-test): confirm-after-amend must REGISTER the same mutated draft, not re-emit a fresh draft card. Turn 2 amends qty with no field loss; turn 3 confirm triggers register/activate, no loop. QUALITY: each reply acknowledges the change concisely and states it's armed under register-not-execute.",
+   "conv": "s_11947baa03",
+   "turns": [
+    {
+     "i": 0,
+     "say": "build an agent that buys NESTLEIND when RSI drops under 30",
+     "response": "Got the setup \u2014 Buy NESTLEIND when RSI(14) < 30. How many shares of NESTLEIND should the agent buy per fire? (I won't default to 1 \u2014 set the real size or give me a rupee budget like \u20b910,000.)",
+     "tools_called": [
+      "propose_threshold_order"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 3862,
+     "latency_server_ms": 3849,
+     "input_tokens": 38708,
+     "output_tokens": 60,
+     "cost_usd": 0.009797,
+     "llm_calls": 1
+    },
+    {
+     "i": 1,
+     "say": "make it 8 shares",
+     "response": "Drafted \u2014 buy 8 `NESTLEIND` shares when `RSI(14) < 30`. It registers as a market buy; you can review and activate the card.",
+     "tools_called": [
+      "propose_threshold_order"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "description",
+      "live_warnings",
+      "name",
+      "propose_threshold_order",
+      "rationale",
+      "steps",
+      "warnings"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.indicator",
+        "params": "{\"symbol\": \"NESTLEIND\", \"indicator\": \"rsi\", \"period\": 14, \"operator\": \"<\", \"value\": 30.0}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"NESTLEIND\", \"side\": \"buy\", \"order_type\": \"market\", \"requires_approval\": false, \"quantity\": 8}"
+       }
+      ],
+      "compact": "{\"propose_threshold_order\": {\"name\": \"NESTLEIND RSI(14) < 30 \\u2192 buy 8 shares\", \"description\": \"Buy 8 shares of NESTLEIND when RSI(14) < 30.\", \"steps\": [{\"step_type\": \"trigger.indicator\", \"label\": \"RSI(14) < 30\", \"config\": {\"symbol\": \"NESTLEIND\", \"indicator\": \"rsi\", \"period\": 14, \"operator\": \"<\", \"value\": 30.0}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 8 shares NESTLEIND\", \"config\": {\"symbol\": \"NESTLEIND\", \"side\": \"buy\", \"order_type\": \"market\", \"requires_approval\": false, \"quantity\": 8}}], \"rationale\": \"Trigger fires when RSI(14) < 30; market buy for 8 shares of NESTLEIND.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}, \"name\": \"NESTLEIND RSI(14) < 30 \\u2192 buy 8 shares\", \"description\": \"Buy 8 shares of NESTLEIND when RSI(14) < 30.\", \"steps\": [{\"step_type\": \"trigger.indicator\", \"label\": \"RSI(14) < 30\", \"config\": {\"symbol\": \"NESTLEIND\", \"indicator\": \"rsi\", \"period\": 14, \"operator\": \"<\", \"value\": 30.0}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 8 shares NESTLEIND\", \"config\": {\"symbol\": \"NESTLEIND\", \"side\": \"buy\", \"order_type\": \"market\", \"requires_approval\": false, \"quantity\": 8}}], \"rationale\": \"Trigger fires when RSI(14) < 30; market buy for 8 shares of NESTLEIND.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}"
+     },
+     "latency_wall_ms": 7300,
+     "latency_server_ms": 7286,
+     "input_tokens": 79411,
+     "output_tokens": 97,
+     "cost_usd": 0.015119,
+     "llm_calls": 2
+    },
+    {
+     "i": 2,
+     "say": "looks good, go ahead and register it",
+     "response": "Got it \u2014 the draft above is what you'll activate. Click **Save & activate** in the card when you're ready.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "latency_wall_ms": 13,
+     "latency_server_ms": 1,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "multi-turn",
+   "name": "swap_symbol_then_add_stop",
+   "why": "CORRECTNESS: turn 2 swaps the symbol keeping the 4%-dip trigger and qty (same draft mutates to AXISBANK); turn 3 adds a stop-loss leg to the SAME draft without losing the entry. Failure = rebuild from scratch or field loss. QUALITY: bot states exactly what changed each turn.",
+   "conv": "s_9cc5fe4623",
+   "turns": [
+    {
+     "i": 0,
+     "say": "buy 9 DABUR when it drops 4% from the previous close",
+     "response": "Here's a draft for **DABUR price below \u20b94** \u2014 it buys 9 DABUR at market when DABUR drops below \u20b94. Review the steps below and click Activate when you're happy with it.",
+     "tools_called": [
+      "propose_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "description",
+      "name",
+      "propose_workflow",
+      "rationale",
+      "steps",
+      "warnings"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.price",
+        "params": "{\"symbol\": \"DABUR\", \"operator\": \"<\", \"value\": 4.0, \"exchange\": \"NSE\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"DABUR\", \"side\": \"buy\", \"quantity\": 9, \"order_type\": \"market\", \"requires_approval\": false}"
+       }
+      ],
+      "compact": "{\"propose_workflow\": {\"name\": \"DABUR price below \\u20b94\", \"description\": \"Buy 9 DABUR when its price is below \\u20b94.\", \"steps\": [{\"step_type\": \"trigger.price\", \"label\": \"Price < \\u20b94\", \"config\": {\"symbol\": \"DABUR\", \"operator\": \"<\", \"value\": 4.0, \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 9 DABUR\", \"config\": {\"symbol\": \"DABUR\", \"side\": \"buy\", \"quantity\": 9, \"order_type\": \"market\", \"requires_approval\": false}}], \"rationale\": \"Price trigger (< \\u20b94) then a market buy.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\"}, \"name\": \"DABUR price below \\u20b94\", \"description\": \"Buy 9 DABUR when its price is below \\u20b94.\", \"steps\": [{\"step_type\": \"trigger.price\", \"label\": \"Price < \\u20b94\", \"config\": {\"symbol\": \"DABUR\", \"operator\": \"<\", \"value\": 4.0, \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 9 DABUR\", \"config\": {\"symbol\": \"DABUR\", \"side\": \"buy\", \"quantity\": 9, \"order_type\": \"market\", \"requires_approval\": false}}], \"rationale\": \"Price trigger (< \\u20b94) then a market buy.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\"}"
+     },
+     "latency_wall_ms": 9,
+     "latency_server_ms": 2,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    },
+    {
+     "i": 1,
+     "say": "switch it to AXISBANK, everything else the same",
+     "response": "Done \u2014 switched the draft to `AXISBANK` with the same 9-share buy on a 4% drop from the previous close. Registers as a workflow draft; you can activate it when ready.",
+     "tools_called": [
+      "propose_dsl_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "created_at",
+      "description",
+      "draft_id",
+      "exit_readback",
+      "exit_translation_meta",
+      "live_warnings",
+      "name",
+      "propose_dsl_workflow",
+      "readback",
+      "steps",
+      "translation_meta"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.96}]}}, \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"AXISBANK\", \"side\": \"buy\", \"quantity\": 9, \"order_type\": \"market\", \"product\": \"CNC\"}"
+       }
+      ],
+      "compact": "{\"propose_dsl_workflow\": {\"_render_hint\": \"workflow_draft_card\", \"draft_id\": \"988e2389-d897-4267-a916-05c2f3a97293\", \"name\": \"AXISBANK price below \\u20b94\", \"description\": \"Entry: price of AXISBANK \\u2264 (price of AXISBANK (1 bar ago) \\u00d7 0.96)\", \"steps\": [{\"step_type\": \"trigger.compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.96}]}}, \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"AXISBANK\", \"side\": \"buy\", \"quantity\": 9, \"order_type\": \"market\", \"product\": \"CNC\"}}], \"readback\": \"price of AXISBANK \\u2264 (price of AXISBANK (1 bar ago) \\u00d7 0.96)\", \"exit_readback\": null, \"translation_meta\": {\"input_tokens\": 3369, \"output_tokens\": 90, \"latency_ms\": 2120.0}, \"exit_translation_meta\": null, \"created_at\": \"2026-06-09T13:50:59.652578Z\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}, \"_render_hint\": \"workflow_draft_card\", \"draft_id\": \"988e2389-d897-4267-a916-05c2f3a97293\", \"name\": \"AXISBANK price below \\u20b94\", \"description\": \"Entry: price of AXISBANK \\u2264 (price of AXISBANK (1 bar ago) \\u00d7 0.96)\", \"steps\": [{\"step_type\": \"trigger.compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"pr\u2026"
+     },
+     "latency_wall_ms": 9855,
+     "latency_server_ms": 9842,
+     "input_tokens": 85294,
+     "output_tokens": 198,
+     "cost_usd": 0.011335,
+     "llm_calls": 3
+    },
+    {
+     "i": 2,
+     "say": "and add a 5% stop loss to it",
+     "response": "Drafted \u2014 `AXISBANK` buy 9 shares if it drops 4% from the previous close, with a 5% stop loss from entry. Registers as a workflow draft; you can activate it when ready.",
+     "tools_called": [
+      "propose_dsl_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "created_at",
+      "description",
+      "draft_id",
+      "exit_readback",
+      "exit_translation_meta",
+      "live_warnings",
+      "name",
+      "propose_dsl_workflow",
+      "readback",
+      "steps",
+      "translation_meta"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.96}]}}, \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"AXISBANK\", \"side\": \"buy\", \"quantity\": 9, \"order_type\": \"market\", \"product\": \"CNC\"}"
+       },
+       {
+        "type": "trigger.exit_compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"AXISBANK\", \"basis\": \"close\"}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"position\", \"field\": \"entry_price\"}, {\"type\": \"constant\", \"value\": 0.95}]}}, \"target_symbol\": \"AXISBANK\"}"
+       },
+       {
+        "type": "fetch.portfolio",
+        "params": "{}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"AXISBANK\", \"side\": \"sell\", \"quantity\": \"{{ context.3.holdings.AXISBANK.quantity }}\", \"order_type\": \"market\", \"product\": \"CNC\"}"
+       }
+      ],
+      "compact": "{\"propose_dsl_workflow\": {\"_render_hint\": \"workflow_draft_card\", \"draft_id\": \"63261308-2a7c-4efb-83ed-682de42911cc\", \"name\": \"AXISBANK price below 4% from previous close with 5% stop loss\", \"description\": \"Entry: price of AXISBANK \\u2264 (price of AXISBANK (1 bar ago) \\u00d7 0.96) \\u00b7 Exit: price of AXISBANK \\u2264 (entry price \\u00d7 0.95)\", \"steps\": [{\"step_type\": \"trigger.compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.96}]}}, \"symbol\": \"AXISBANK\", \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"AXISBANK\", \"side\": \"buy\", \"quantity\": 9, \"order_type\": \"market\", \"product\": \"CNC\"}}, {\"step_type\": \"trigger.exit_compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"AXISBANK\", \"basis\": \"close\"}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"position\", \"field\": \"entry_price\"}, {\"type\": \"constant\", \"value\": 0.95}]}}, \"target_symbol\": \"AXISBANK\"}}, {\"step_type\": \"fetch.portfolio\", \"config\": {}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"AXISBANK\", \"side\": \"sell\", \"quantity\": \"{{ context.3.holdings.AXISBANK.quantity }}\", \"order_type\": \"market\", \"product\": \"CNC\"}}], \"readback\": \"price of A\u2026"
+     },
+     "latency_wall_ms": 12140,
+     "latency_server_ms": 12126,
+     "input_tokens": 79942,
+     "output_tokens": 290,
+     "cost_usd": 0.015734,
+     "llm_calls": 4
+    }
+   ]
+  },
+  {
+   "category": "multi-turn",
+   "name": "i_dont_understand_then_clarify",
+   "why": "CORRECTNESS: vague 'cheap on indicators' -> bot picks a concrete indicator and is transparent; on confusion it re-explains in plainer terms WITHOUT re-dumping the same JSON, picking one ambiguity to walk through. QUALITY: patient, context retained, same symbol.",
+   "conv": "s_b50e997742",
+   "turns": [
+    {
+     "i": 0,
+     "say": "buy COALINDIA when it's looking cheap on the indicators",
+     "response": "Which simple indicator rule do you want for COALINDIA: RSI(14) below 30, price below 50-day EMA, or price below 200-day EMA?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 7748,
+     "latency_server_ms": 7731,
+     "input_tokens": 79350,
+     "output_tokens": 167,
+     "cost_usd": 0.010316,
+     "llm_calls": 2
+    },
+    {
+     "i": 1,
+     "say": "wait, I don't understand what you just set up - which indicator did you use and why that one",
+     "response": "To keep it simple for COALINDIA, should I use RSI(14) below 30, price below the 50-day EMA, or price below the 200-day EMA?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "latency_wall_ms": 4191,
+     "latency_server_ms": 4179,
+     "input_tokens": 40907,
+     "output_tokens": 95,
+     "cost_usd": 0.005441,
+     "llm_calls": 1
+    }
+   ]
+  },
+  {
+   "category": "multi-turn",
+   "name": "hinglish_then_resize_notional",
+   "why": "CORRECTNESS: Hinglish first turn parses into the draft (buy 15 on 5% drop, sell at +7%); turn 2 swaps fixed qty to a rupee notional, mutating the SAME draft with no leg loss. QUALITY: clean readback after the resize, both legs intact.",
+   "conv": "s_618a4cbaaa",
+   "turns": [
+    {
+     "i": 0,
+     "say": "TATAMOTORS 5% gir jaye to 15 share kharid lo aur 7% upar bech do",
+     "response": "Drafted: buy 15 `TATAMOTORS` shares if it drops 5% from the previous close, and sell when the position is up 7%. It registers as a workflow card \u2014 you activate it yourself, no live order is placed.",
+     "tools_called": [
+      "propose_dsl_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "created_at",
+      "description",
+      "draft_id",
+      "exit_readback",
+      "exit_translation_meta",
+      "live_warnings",
+      "name",
+      "propose_dsl_workflow",
+      "readback",
+      "steps",
+      "translation_meta"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.95}]}}, \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"TATAMOTORS\", \"side\": \"buy\", \"quantity\": 15, \"order_type\": \"market\", \"product\": \"CNC\"}"
+       },
+       {
+        "type": "trigger.exit_compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \">=\", \"left\": {\"type\": \"position\", \"field\": \"unrealised_pct\"}, \"right\": {\"type\": \"constant\", \"value\": 0.07}}, \"target_symbol\": \"TATAMOTORS\"}"
+       },
+       {
+        "type": "fetch.portfolio",
+        "params": "{}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"TATAMOTORS\", \"side\": \"sell\", \"quantity\": \"{{ context.3.holdings.TATAMOTORS.quantity }}\", \"order_type\": \"market\", \"product\": \"CNC\"}"
+       }
+      ],
+      "compact": "{\"propose_dsl_workflow\": {\"_render_hint\": \"workflow_draft_card\", \"draft_id\": \"47f2d8b9-b5b9-40d6-ba53-5e37f6aa5729\", \"name\": \"TATAMOTORS dip-buy with profit exit\", \"description\": \"Entry: price of TATAMOTORS \\u2264 (price of TATAMOTORS (1 bar ago) \\u00d7 0.95) \\u00b7 Exit: unrealised P&L \\u2265 0.07\", \"steps\": [{\"step_type\": \"trigger.compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.95}]}}, \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"TATAMOTORS\", \"side\": \"buy\", \"quantity\": 15, \"order_type\": \"market\", \"product\": \"CNC\"}}, {\"step_type\": \"trigger.exit_compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \">=\", \"left\": {\"type\": \"position\", \"field\": \"unrealised_pct\"}, \"right\": {\"type\": \"constant\", \"value\": 0.07}}, \"target_symbol\": \"TATAMOTORS\"}}, {\"step_type\": \"fetch.portfolio\", \"config\": {}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"TATAMOTORS\", \"side\": \"sell\", \"quantity\": \"{{ context.3.holdings.TATAMOTORS.quantity }}\", \"order_type\": \"market\", \"product\": \"CNC\"}}], \"readback\": \"price of TATAMOTORS \\u2264 (price of TATAMOTORS (1 bar ago) \\u00d7 0.95)\", \"exit_readback\": \"unrealised P&L \\u2265 0.07\", \"translation_meta\"\u2026"
+     },
+     "latency_wall_ms": 10110,
+     "latency_server_ms": 10101,
+     "input_tokens": 84599,
+     "output_tokens": 223,
+     "cost_usd": 0.01126,
+     "llm_calls": 3
+    },
+    {
+     "i": 1,
+     "say": "actually 15 share nahi, 12000 ka kharido",
+     "response": "Updated draft is on the card. It still shows 15 shares; the amount-to-shares conversion needs to be edited on the workflow card itself, and the exit stays at +7%.",
+     "tools_called": [
+      "propose_dsl_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "created_at",
+      "description",
+      "draft_id",
+      "exit_readback",
+      "exit_translation_meta",
+      "live_warnings",
+      "name",
+      "propose_dsl_workflow",
+      "readback",
+      "steps",
+      "translation_meta"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.95}]}}, \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"TATAMOTORS\", \"side\": \"buy\", \"quantity\": 15, \"order_type\": \"market\", \"product\": \"CNC\"}"
+       },
+       {
+        "type": "trigger.exit_compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \">=\", \"left\": {\"type\": \"position\", \"field\": \"unrealised_pct\"}, \"right\": {\"type\": \"constant\", \"value\": 0.07}}, \"target_symbol\": \"TATAMOTORS\"}"
+       },
+       {
+        "type": "fetch.portfolio",
+        "params": "{}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"TATAMOTORS\", \"side\": \"sell\", \"quantity\": \"{{ context.3.holdings.TATAMOTORS.quantity }}\", \"order_type\": \"market\", \"product\": \"CNC\"}"
+       }
+      ],
+      "compact": "{\"propose_dsl_workflow\": {\"_render_hint\": \"workflow_draft_card\", \"draft_id\": \"ae598e44-64f2-4d9e-be48-d68b7134cefc\", \"name\": \"TATAMOTORS dip-buy with profit exit\", \"description\": \"Entry: price of TATAMOTORS \\u2264 (price of TATAMOTORS (1 bar ago) \\u00d7 0.95) \\u00b7 Exit: unrealised P&L \\u2265 0.07\", \"steps\": [{\"step_type\": \"trigger.compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 1}, {\"type\": \"constant\", \"value\": 0.95}]}}, \"symbol\": \"TATAMOTORS\", \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"TATAMOTORS\", \"side\": \"buy\", \"quantity\": 15, \"order_type\": \"market\", \"product\": \"CNC\"}}, {\"step_type\": \"trigger.exit_compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \">=\", \"left\": {\"type\": \"position\", \"field\": \"unrealised_pct\"}, \"right\": {\"type\": \"constant\", \"value\": 0.07}}, \"target_symbol\": \"TATAMOTORS\"}}, {\"step_type\": \"fetch.portfolio\", \"config\": {}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"TATAMOTORS\", \"side\": \"sell\", \"quantity\": \"{{ context.3.holdings.TATAMOTORS.quantity }}\", \"order_type\": \"market\", \"product\": \"CNC\"}}], \"readback\": \"price of TATAMOTORS \\u2264 (price of TATAMOTORS (1 bar ago) \\u00d7 0.95)\", \"exit_readback\": \"unrealised P&L \\u2265 0.07\", \"translation_meta\"\u2026"
+     },
+     "latency_wall_ms": 7150,
+     "latency_server_ms": 7137,
+     "input_tokens": 80785,
+     "output_tokens": 182,
+     "cost_usd": 0.010705,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "multi-turn",
+   "name": "analysis_then_build_followup",
+   "why": "CORRECTNESS: turn 2 must reuse turn-1 context (same symbol, no re-fetch) and turn the read into a faithful agent (qty=8, 3%-from-high dip preserved). QUALITY: turn-1 is a real structured read; the built card aligns with the stated trend.",
+   "conv": "s_cdf6b9e324",
+   "turns": [
+    {
+     "i": 0,
+     "say": "quick but real read on JSWSTEEL - is it trending up or not",
+     "response": "Yes, but not strongly. JSWSTEEL is still in an uptrend on the bigger frame: price is above the 50-day and 200-day averages, and the 1-year return is +24.9%. But the near-term tape has weakened: it is below the 20-day average, 1-week and 1-month returns are negative, and RSI 41.4 says momentum is fading rather than forceful. So the read is **uptrend intact, short-term pullback**.",
+     "tools_called": [
+      "get_price_history",
+      "get_live_price"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "get_live_price",
+      "get_price_history"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 8004,
+     "latency_server_ms": 7986,
+     "input_tokens": 81522,
+     "output_tokens": 169,
+     "cost_usd": 0.010735,
+     "llm_calls": 2
+    },
+    {
+     "i": 1,
+     "say": "ok build me an agent that buys 8 shares whenever it dips 3% from the day's high",
+     "response": "Drafted \u2014 buy 8 `JSWSTEEL` when it drops 3% from the day\u2019s high. Registers only; you activate the workflow card.",
+     "tools_called": [
+      "propose_dsl_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_blockers",
+      "backtestable",
+      "created_at",
+      "description",
+      "draft_id",
+      "exit_readback",
+      "exit_translation_meta",
+      "live_warnings",
+      "name",
+      "propose_dsl_workflow",
+      "readback",
+      "steps",
+      "translation_meta"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.compound",
+        "params": "{\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"JSWSTEEL\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"JSWSTEEL\", \"exchange\": \"NSE\", \"basis\": \"high\", \"offset\": 0}, {\"type\": \"constant\", \"value\": 0.97}]}}, \"symbol\": \"JSWSTEEL\", \"exchange\": \"NSE\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"JSWSTEEL\", \"side\": \"buy\", \"quantity\": 8, \"order_type\": \"market\", \"product\": \"CNC\"}"
+       }
+      ],
+      "compact": "{\"propose_dsl_workflow\": {\"_render_hint\": \"workflow_draft_card\", \"draft_id\": \"16dca807-3591-4183-bc36-9d60a7d32087\", \"name\": \"JSWSTEEL 3% dip-buy\", \"description\": \"Entry: price of JSWSTEEL \\u2264 (high of JSWSTEEL \\u00d7 0.97)\", \"steps\": [{\"step_type\": \"trigger.compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"JSWSTEEL\", \"exchange\": \"NSE\", \"basis\": \"close\", \"offset\": 0}, \"right\": {\"type\": \"math\", \"op\": \"*\", \"operands\": [{\"type\": \"price\", \"symbol\": \"JSWSTEEL\", \"exchange\": \"NSE\", \"basis\": \"high\", \"offset\": 0}, {\"type\": \"constant\", \"value\": 0.97}]}}, \"symbol\": \"JSWSTEEL\", \"exchange\": \"NSE\"}}, {\"step_type\": \"action.place_order\", \"config\": {\"symbol\": \"JSWSTEEL\", \"side\": \"buy\", \"quantity\": 8, \"order_type\": \"market\", \"product\": \"CNC\"}}], \"readback\": \"price of JSWSTEEL \\u2264 (high of JSWSTEEL \\u00d7 0.97)\", \"exit_readback\": null, \"translation_meta\": {\"input_tokens\": 3370, \"output_tokens\": 92, \"latency_ms\": 2152.0}, \"exit_translation_meta\": null, \"created_at\": \"2026-06-09T13:51:59.683215Z\", \"backtestable\": true, \"backtest_blockers\": [], \"live_warnings\": []}, \"_render_hint\": \"workflow_draft_card\", \"draft_id\": \"16dca807-3591-4183-bc36-9d60a7d32087\", \"name\": \"JSWSTEEL 3% dip-buy\", \"description\": \"Entry: price of JSWSTEEL \\u2264 (high of JSWSTEEL \\u00d7 0.97)\", \"steps\": [{\"step_type\": \"trigger.compound\", \"config\": {\"entry\": {\"type\": \"comparison\", \"op\": \"<=\", \"left\": {\"type\": \"price\", \"symbol\": \"JSWSTEEL\", \"exchange\": \"NSE\", \"basis\": \"c\u2026"
+     },
+     "latency_wall_ms": 10433,
+     "latency_server_ms": 10411,
+     "input_tokens": 84530,
+     "output_tokens": 189,
+     "cost_usd": 0.011191,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "multi-turn",
+   "name": "screen_then_dont_understand",
+   "why": "QUALITY (multi-turn): turn 1 a valuation compare that must come back as a numbers table; turn 2 the user is confused and the bot must patiently re-explain the metric (PB for banks) in plain language, NOT re-dump the table. CORRECTNESS: context retained, same symbols, no re-fetch noise.",
+   "conv": "s_a49f8d5110",
+   "turns": [
+    {
+     "i": 0,
+     "say": "compare the valuations of SBIN, PNB and BANKBARODA for me",
+     "response": "## Valuation comparison\n\n| Bank | P/E | P/B | ROE | Dividend Yield | Dividend Payout | Read |\n|---|---:|---:|---:|---:|---:|---|\n| `SBIN` | 10.99 | 1.56 | 15.48% | 1.77% | 17.44% | Highest ROE, but also the richest valuation on both P/E and P/B |\n| `PNB` | 6.85 | 0.84 | 12.98% | 2.84% | 18.13% | Cheapest on both P/E and P/B |\n| `BANKBARODA` | 7.13 | 0.85 | 12.74% | 3.28% | 21.76% | Near-PNB valuation, with the highest dividend yield here |\n\n**Cheapest on valuation:** `PNB`  \n**Best profitability:** `SBIN` on ROE  \n**Highest dividend yield:** `BANKBARODA`\n\n## Takeaway\n\nOn a pure valuation basis, `PNB` and `BANKBARODA` look materially cheaper than `SBIN`. `PNB` is the lowest on both earnings and book multiples, while `BANKBARODA` is almost identical on P/B and slightly richer on P/E, but offers the best dividend yield of the three.\n\n`SBIN` trades at a premium, which is consistent with its stronger ROE and larger franchise quality. So the spread here is not just \u201ccheap vs expensive\u201d \u2014 it is more like **higher-quality bank at a premium** versus **cheaper PSU banks with lower ROE**.\n\n## What the numbers suggest\n\n- If you are comparing **valuation alone**, `PNB` is the lowest multiple name.\n- If you care about **yield**, `BANKBARODA` stands out.\n- If you care about **return on equity / franchise strength**, `SBIN` leads.\n\nOne caveat: `ROCE` and `debt/equity` were unavailable for all three, so this is a **P/E, P/B, ROE, and yield-based comparison**, not a full quality screen.\n\nThis is analysis, not financial advice.",
+     "tools_called": [
+      "fetch_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals"
+     ],
+     "card_digest": null,
+     "latency_wall_ms": 12817,
+     "latency_server_ms": 12793,
+     "input_tokens": 78673,
+     "output_tokens": 544,
+     "cost_usd": 0.015892,
+     "llm_calls": 2
+    },
+    {
+     "i": 1,
+     "say": "wait I don't get it, why are you using PB and not PE for these - explain like I'm new",
+     "response": "For banks, **P/B is usually more useful than P/E** because a bank\u2019s balance sheet is its core business: deposits, loans, and capital. A lot of what drives a bank\u2019s value sits in its **book value and equity base**, so comparing how much the market pays for each rupee of net assets is often more meaningful than comparing earnings alone.\n\n`P/E` can still be helpful, but for banks it can be a bit noisy because earnings swing with loan growth, provisions, and credit cycles. `P/B` tells you whether the market is paying a premium or discount to the bank\u2019s net worth, while `ROE` tells you how efficiently that equity is being turned into profit. In simple terms: **P/B asks \u201cwhat is the bank worth?\u201d and ROE asks \u201chow well does it use its capital?\u201d**\n\nSo when I compared `SBIN`, `PNB`, and `BANKBARODA`, I used:\n- **P/B** to compare valuation on book value\n- **ROE** to compare profitability\n- **P/E** as a supporting check, not the main anchor\n\nA beginner-friendly shortcut:\n- **Lower P/B** = cheaper relative to net assets\n- **Higher ROE** = better at generating profit from capital\n- **P/E** = useful, but less central for banks than for manufacturing or tech companies\n\nIf you want, I can also rank these three just by **cheapest on P/B**, **best on ROE**, and **best dividend yield** in a very simple table.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "latency_wall_ms": 7055,
+     "latency_server_ms": 7039,
+     "input_tokens": 38738,
+     "output_tokens": 323,
+     "cost_usd": 0.005595,
+     "llm_calls": 1
+    }
+   ]
+  }
+ ]
+}

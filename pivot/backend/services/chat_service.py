@@ -212,6 +212,44 @@ def _strip_internal_tool_leaks(text: str) -> str:
         out_parts.append(" ".join(kept))
     return "".join(out_parts).strip()
 
+
+# GAN R2 R15: empty / apologetic "## News" section leak. The model
+# sometimes prints a `## News` (or `## Recent news`) header whose body is
+# the banned "I didn't pull any news" phrasing — a stub that fails the
+# quality bar. Strip the whole section (header through to the next `##`
+# header or end of text) when its body matches the no-news tell.
+_EMPTY_NEWS_BODY_TELL = re.compile(
+    r"did(?:n'?t|\s+not)\s+(?:pull|fetch|retrieve|have|get)\b"
+    r"|not\s+using\s+any\s+(?:headline|news)"
+    r"|no\s+(?:recent\s+)?(?:news|headlines?)\s+(?:were\s+)?"
+    r"(?:pulled|fetched|available|retrieved)"
+    r"|news\s+(?:was\s+)?not\s+(?:pulled|fetched|available)"
+    r"|i\s+(?:do\s+not|don'?t)\s+have\s+(?:recent\s+)?news",
+    re.IGNORECASE,
+)
+_NEWS_SECTION_RE = re.compile(
+    r"(?:^|\n)#{1,4}\s*(?:recent\s+)?news\b[^\n]*\n"  # the ## News header
+    r"(?P<body>.*?)"                                    # its body (lazy)
+    r"(?=\n#{1,4}\s|\Z)",                              # up to next header/EOF
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _strip_empty_news_section(text: str) -> str:
+    """Remove a `## News` section whose body says no news was fetched."""
+    if not text or "news" not in text.lower():
+        return text
+
+    def _repl(m: re.Match) -> str:
+        body = m.group("body") or ""
+        if _EMPTY_NEWS_BODY_TELL.search(body):
+            # Drop the whole section; keep a leading newline so adjacent
+            # sections don't fuse.
+            return "\n"
+        return m.group(0)
+
+    return _NEWS_SECTION_RE.sub(_repl, text)
+
 # Circuit breaker — caps how many tool round-trips one user turn can
 # trigger. The agentic loop is allowed to call several tools in a
 # row but not run away.
@@ -629,6 +667,222 @@ _OPTIONS_TOOLS: frozenset[str] = frozenset({
     "build_option_strategy", "critique_option_strategy",
     "get_portfolio_greeks",
 })
+
+
+# ── R4: named-option-template BUILD detector ───────────────────────────
+# GAN R2 regression: "build me an iron condor on NIFTY" bounced to
+# ASK_USER even though the system prompt mandates a delta-defaulted build
+# and `_build_option_strategy` supports a zero-strike build. Prose alone
+# does not suppress the always-appended ASK_USER escape hatch. When the
+# message names a known multi-leg TEMPLATE *with* an underlying, we
+# deterministically narrow scope to build_option_strategy + force the
+# tool so the model cannot escape to ASK_USER.
+_OPTION_TEMPLATE_RE = re.compile(
+    r"\b(?:"
+    r"iron[\s_-]?condor|iron[\s_-]?butterfly|"
+    r"straddle|strangle|"
+    r"(?:bull|bear)\s+(?:call|put)\s+spread|"
+    r"call\s+spread|put\s+spread|credit\s+spread|debit\s+spread|"
+    r"vertical\s+spread|calendar\s+spread|diagonal\s+spread|"
+    r"covered\s+call|protective\s+put|collar|"
+    r"\bcondor\b|\bbutterfly\b|\bratio\s+spread\b"
+    r")\b",
+    re.IGNORECASE,
+)
+# Underlying must be named for a deterministic build (an index or a
+# 3-15 char ticker). We accept the common F&O indices explicitly plus a
+# generic uppercase-ish ticker token preceded by on/for/of/in.
+_OPTION_UNDERLYING_RE = re.compile(
+    r"\b(?:nifty|banknifty|bank\s*nifty|finnifty|midcpnifty|sensex|bankex)\b"
+    r"|\b(?:on|for|of|in)\s+([A-Z][A-Z0-9&\-]{1,14})\b",
+    re.IGNORECASE,
+)
+# Verbs that indicate an explicit BUILD (vs suggest/critique/chain read).
+_OPTION_BUILD_VERB_RE = re.compile(
+    r"\b(?:build|make|create|set\s*up|construct|give\s+me|"
+    r"open|put\s+on|do)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_named_option_build(message: str) -> bool:
+    """True when the user explicitly asks to BUILD a named multi-leg
+    option template with an underlying — a documented canonical
+    buildable that must NEVER bounce to ASK_USER."""
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    if not _OPTION_TEMPLATE_RE.search(msg):
+        return False
+    if not _OPTION_UNDERLYING_RE.search(msg):
+        return False
+    # Default to True when a template + underlying are present; a build
+    # verb strengthens it but "an iron condor on NIFTY this week" with no
+    # verb is still unambiguously a build request.
+    return True
+
+
+# ── R5: unsupported-rail boundary detector ─────────────────────────────
+# Sentiment / mood / tone polarity triggers are NOT a real rail (the only
+# news rail is keyword/event). The model obeyed the imperative US-equity
+# row but dropped the terse sentiment row, asking quantity and thereby
+# AFFIRMING a fabricated capability on an auto-execute path. Detect the
+# unsupported rail so we can force the boundary-first reply.
+_UNSUPPORTED_RAIL_RE = re.compile(
+    r"\b(?:"
+    # Sentiment / mood / tone polarity on news or social
+    r"sentiment|(?:news|headline|social|twitter|tweet)\s+(?:turns?|goes?|"
+    r"gets?|becomes?)\s+(?:negative|positive|bearish|bullish|bad|sour)|"
+    r"(?:turns?|goes?|gets?)\s+(?:negative|positive|bearish|bullish)\b|"
+    r"mood\s+(?:turns?|sours?|shifts?)|bad\s+news|negative\s+news|"
+    r"news\s+sentiment|"
+    # IV rank / IV percentile (needs IV history — not wired)
+    r"iv\s+rank|iv\s+percentile|"
+    # UPI / macro-feed style triggers users sometimes ask for
+    r"upi\s+(?:data|volume|transactions?)|gdp\s+(?:print|data)|"
+    r"inflation\s+(?:print|data)\s+(?:above|below)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _names_unsupported_rail(message: str) -> Optional[str]:
+    """Return a short rail label when the message asks for an
+    unsupported automation trigger rail (sentiment NLP, IV-rank,
+    macro feed), else None. Used to force a boundary-first reply that
+    names the nearest real alternative BEFORE any value question."""
+    msg = (message or "")
+    if not _UNSUPPORTED_RAIL_RE.search(msg):
+        return None
+    low = msg.lower()
+    if "iv rank" in low or "iv percentile" in low:
+        return "iv_rank"
+    if "upi" in low or "gdp" in low or "inflation" in low:
+        return "macro_feed"
+    return "sentiment"
+
+
+# ── R3: notify-only alert detector ─────────────────────────────────────
+# "just alert me when AXISBANK crosses 1300, don't buy anything" fires
+# two stacked hard gates yet the model still emitted a spurious
+# "in-app only?" ASK_USER though in-app is the ONLY channel. Detect a
+# fully-specified notify-only alert so we can force the notify_only DSL
+# workflow and suppress the escape hatch.
+_ALERT_VERB_RE = re.compile(
+    r"\b(?:alert|notify|ping|let\s+me\s+know|tell\s+me|remind\s+me|"
+    r"watch|flag|warn)\b",
+    re.IGNORECASE,
+)
+_NO_TRADE_MARKER_RE = re.compile(
+    r"\b(?:don'?t|do\s+not|no|without)\s+(?:buy|sell|trade|order|place|"
+    r"executing?|placing)\b"
+    r"|\b(?:just|only)\s+(?:alert|notify|ping|let\s+me\s+know|tell\s+me|"
+    r"watch|warn)\b"
+    r"|\bno\s+(?:order|trade|buy|sell)\b",
+    re.IGNORECASE,
+)
+_PRICE_LEVEL_RE = re.compile(
+    r"\b(?:cross(?:es|ed|ing)?|hits?|reach(?:es|ed)?|touch(?:es|ed)?|"
+    r"break(?:s|ing)?|above|below|over|under|drops?\s+to|rises?\s+to|"
+    r"goes?\s+(?:above|below|over|under))\b"
+    r".{0,20}[₹$]?\s*\d[\d,]*(?:\.\d+)?"
+    r"|[₹$]\s*\d[\d,]*",
+    re.IGNORECASE,
+)
+
+
+def _is_notify_only_alert(message: str) -> bool:
+    """True when the message is a fully-specified notify-only price
+    alert (alert verb + a price level + a no-trade marker). Such a
+    prompt must register a notify_only DSL workflow, never bounce to
+    ASK_USER about a channel that doesn't vary."""
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    if not _ALERT_VERB_RE.search(msg):
+        return False
+    if not _PRICE_LEVEL_RE.search(msg):
+        return False
+    return bool(_NO_TRADE_MARKER_RE.search(msg))
+
+
+# ── R2: buy/sell-at-open|close detector ────────────────────────────────
+# "buy 5 BAJAJ-AUTO at open, book +3% profit" must build a two-branch
+# market_relative_time card — never a 09:30 cron downgrade and never
+# ask_user. Detect an open/close anchor so we can pin propose_workflow
+# / propose_dsl_workflow and forbid the 09:30 fallback.
+_AT_OPEN_CLOSE_RE = re.compile(
+    r"\b(?:at|on|in|after|before)\s+(?:the\s+)?(?:market\s+)?"
+    r"(?:open|close|opening|closing)\b"
+    r"|\bat\s+open\b|\bat\s+close\b|\bbuy\s+at\s+open\b|"
+    r"\bsell\s+at\s+close\b|\bpre[- ]?open\b|\bopening\s+bell\b|"
+    r"\bclosing\s+bell\b|\bmarket\s+open\b|\bmarket\s+close\b",
+    re.IGNORECASE,
+)
+
+
+def _is_at_open_close_build(message: str) -> bool:
+    """True when the message references an at-open/at-close anchor in a
+    build/order context. Forces market_relative_time and bans the 09:30
+    downgrade."""
+    msg = (message or "").strip()
+    if not msg:
+        return False
+    if not _AT_OPEN_CLOSE_RE.search(msg):
+        return False
+    # Must look like an order / agent build, not a conceptual question.
+    return bool(re.search(
+        r"\b(?:buy|sell|short|exit|book|enter|build|make|create|"
+        r"set\s*up|agent|workflow|automation|place|order|sip)\b",
+        msg, re.IGNORECASE,
+    ))
+
+
+# ── R6: confusion-after-menu detector ──────────────────────────────────
+# When the prior assistant turn was an ASK_USER MENU and the user now
+# says "I don't understand / which did you use / why that", the model
+# re-dumps the identical menu. Force a TEACH reply instead.
+_CONFUSION_META_RE = re.compile(
+    r"\bi\s+don'?t\s+(?:understand|get\s+it|follow)\b"
+    r"|\bwhat\s+do\s+you\s+mean\b|\bnot\s+sure\s+what\s+you\s+mean\b"
+    r"|\bwhich\s+(?:one\s+)?(?:did\s+you|do\s+you)\s+(?:use|mean|pick)\b"
+    r"|\bwhy\s+(?:that|those|this|these|did\s+you)\b"
+    r"|\bcan\s+you\s+explain\b|\bhuh\??\s*$|\bconfused\b|\bnot\s+clear\b"
+    r"|\bwhat'?s\s+the\s+difference\b",
+    re.IGNORECASE,
+)
+
+
+def _prev_assistant_was_menu(history: list) -> bool:
+    """True when the most recent assistant turn offered a multi-option
+    menu (numbered list, 'A or B', or two '?'-bearing options). Used to
+    distinguish the menu-confusion path from the answer-confusion path
+    (the latter already teaches correctly)."""
+    for h in reversed(history or []):
+        if (h or {}).get("role") != "assistant":
+            continue
+        content = ((h or {}).get("content") or "").lower()
+        if not content:
+            return False
+        has_q = "?" in content
+        # Numbered/lettered options, or " or " between choices, or
+        # multiple bullet markers — the classic 3-option menu shape.
+        menu_shape = bool(
+            re.search(r"(?:^|\n)\s*(?:[1-3][\.\)]|[a-c][\.\)]|[-*•])\s", content)
+            or re.search(r"\b(?:option\s+[1-3a-c]|"
+                         r"\(a\)|\(b\)|\(c\))\b", content)
+            or (" or " in content and content.count("?") >= 1)
+        )
+        return has_q and menu_shape
+    return False
+
+
+def _is_confusion_after_menu(message: str, history: list) -> bool:
+    """True when the user expresses confusion / asks a meta question
+    immediately after we showed an ASK_USER menu."""
+    if not _CONFUSION_META_RE.search(message or ""):
+        return False
+    return _prev_assistant_was_menu(history)
 
 
 # Contradiction detector — "buy AND sell same symbol same time".
@@ -1085,8 +1339,11 @@ _EXPLAINER_INTENT_RE = re.compile(
 # "analyse HDFCBANK" (apply-the-data-and-reason) is analysis.
 _ANALYSIS_INTENT_RE = re.compile(
     r"\b(?:"
-    # Direct analysis verbs
-    r"analy[sz]e|deep\s+dive|"
+    # Direct analysis verbs AND the analysis NOUN. GAN R2 R1: the verb
+    # ("analyse") matched but "give me a proper analysis of HDFCBANK"
+    # (noun) fell to analytical_short and got the thinnest reply of all.
+    r"analy[sz]e|analy[sz](?:is|es)|deep\s+dive|breakdown\s+of|"
+    r"full\s+(?:report|picture|rundown)\s+(?:on|of)|rundown\s+(?:on|of)|"
     # "what do you think of X" / "your view on X" / "your take on X"
     r"what\s+do\s+you\s+think\s+(?:of|about)|"
     r"your\s+(?:view|take|read|thoughts?|opinion)\s+(?:on|about)|"
@@ -1100,8 +1357,52 @@ _ANALYSIS_INTENT_RE = re.compile(
     # Dividend play / income angle: "good dividend play" / "dividend stock"
     r"dividend\s+(?:play|stock|pick|yield)|"
     # "which one is better" / "which has better" pattern
-    r"which\s+(?:one\s+)?(?:is|has)\s+(?:the\s+)?better"
+    r"which\s+(?:one\s+)?(?:is|has)\s+(?:the\s+)?better|"
+    # GAN R2 R1: INDEX-TREND reads ("is NIFTY in an uptrend", "moving
+    # averages on BANKNIFTY", "trend on SENSEX") need the SMA %-distance
+    # stack + structured budget, not a terse blurb.
+    r"(?:up|down)trend|moving\s+averages?|"
+    r"(?:is|are)\s+\w+\s+(?:trending|in\s+an?\s+(?:up|down)\s*trend)|"
+    r"trend\b[^.]{0,30}\b(?:nifty|banknifty|bank\s*nifty|finnifty|sensex|"
+    r"market)\b|"
+    r"\b(?:nifty|banknifty|bank\s*nifty|finnifty|sensex)\b[^.]{0,20}"
+    r"\b(?:trend|trending|uptrend|downtrend)\b|"
+    # GAN R2 R1/R8: SCREEN / RANK asks ("screen me cheap high-ROE banks",
+    # "rank these stocks by P/B", "cheapest on PE") inherit the ranked
+    # markdown table budget.
+    r"screen\s+(?:me\s+)?(?:for\s+)?|"
+    r"rank\s+(?:these|the|them|by|me)|"
+    r"(?:cheapest|cheap|best|top|highest|lowest)\s+\w*\s*"
+    r"(?:on|by|with|in)\s+(?:pe|p/e|pb|p/b|roe|roce|valuation|"
+    r"dividend|yield)|"
+    r"cheap\s+high[- ]?roe|high[- ]?roe\s+(?:and\s+)?cheap|"
+    r"(?:list|show)\s+(?:me\s+)?(?:the\s+)?(?:cheapest|best|top)\s+"
+    r"\w+\s+(?:banks?|stocks?|companies)"
     r")\b",
+    re.IGNORECASE,
+)
+
+# GAN R2 R1/R8: distinguishes SCREEN/RANK asks from single-name analysis
+# so the analysis budget can append a screen-specific ranked-table hint.
+_SCREEN_INTENT_RE = re.compile(
+    r"\bscreen\s+(?:me\s+)?(?:for\s+)?\b"
+    r"|\brank\s+(?:these|the|them|by|me)\b"
+    r"|\b(?:cheapest|cheap|best|top|highest|lowest)\s+\w*\s*"
+    r"(?:on|by|with|in)\s+(?:pe|p/e|pb|p/b|roe|roce|valuation|dividend|yield)\b"
+    r"|\bcheap\s+high[- ]?roe\b|\bhigh[- ]?roe\s+(?:and\s+)?cheap\b"
+    r"|\b(?:list|show)\s+(?:me\s+)?(?:the\s+)?(?:cheapest|best|top)\s+"
+    r"\w+\s+(?:banks?|stocks?|companies)\b",
+    re.IGNORECASE,
+)
+
+# GAN R2 R1: index-TREND reads route to analysis with an SMA %-distance hint.
+_TREND_INTENT_RE = re.compile(
+    r"\b(?:up|down)trend\b|\bmoving\s+averages?\b"
+    r"|\b(?:is|are)\s+\w+\s+(?:trending|in\s+an?\s+(?:up|down)\s*trend)\b"
+    r"|\btrend(?:ing)?\b[^.]{0,30}\b(?:nifty|banknifty|bank\s*nifty|"
+    r"finnifty|sensex|market)\b"
+    r"|\b(?:nifty|banknifty|bank\s*nifty|finnifty|sensex)\b[^.]{0,20}"
+    r"\b(?:trend|trending|uptrend|downtrend)\b",
     re.IGNORECASE,
 )
 
@@ -1453,9 +1754,39 @@ _DEPENDENT_INTENT_RE = re.compile(
     r"|\bgood\s+(?:for|till|until)\s+\d"
     r"|\b(?:until|till)\s+(?:end\s+of|next|this)\b"
     r"|\bat\s+[₹$]?\s*\d[\d,]*(?:\.\d+)?\s*[.!?]?\s*$"
-    r"|^\s*₹\s*\d[\d,]*(?:\.\d+)?\s*[.!?]?\s*$",
+    r"|^\s*₹\s*\d[\d,]*(?:\.\d+)?\s*[.!?]?\s*$"
+    # GAN R2 R7: Hinglish amendment / resize cues. "nahi 12000 ka
+    # kharido" / "12000 ka buy karo" / "bech do" were not caught, so the
+    # rupee-notional resize never forced an amendment and the card stayed
+    # at the old quantity. The "<NNNN> ka/ki/ke" cue is the canonical
+    # rupee-notional resize ("12000 ka kharido" = "buy ₹12,000 worth").
+    r"|\bnahi\b|\bnhi\b"
+    r"|\bkharid(?:o|lo|na|ke)?\b|\bbech(?:\s*do|na|o)?\b"
+    r"|\b\d[\d,]*\s*(?:ka|ki|ke)\b"
+    r"|\b(?:karo|kardo|kar\s+do)\b",
     re.IGNORECASE,
 )
+
+
+# GAN R2 R7: rupee-notional resize detector. "12000 ka kharido" /
+# "make it ₹12,000 worth" / "buy 12000 rupees of it" — the model must
+# compute shares = round(amount / live_price) and re-emit the draft,
+# never narrate "Updated" while leaving the quantity unchanged.
+_RUPEE_NOTIONAL_RE = re.compile(
+    r"\b\d[\d,]*\s*(?:ka|ki|ke)\b"                       # "12000 ka"
+    r"|[₹$]\s*\d[\d,]*\s*(?:worth|of|ka)?"               # "₹12,000 worth"
+    r"|\b\d[\d,]*\s*(?:rupees?|rs\.?|inr)\s*(?:worth|of)" # "12000 rupees of"
+    r"|\bworth\s+[₹$]?\s*\d[\d,]*"                        # "worth 12000"
+    r"|\bmake\s+it\s+[₹$]?\s*\d[\d,]*\s*(?:worth|rupees?|rs|inr)",
+    re.IGNORECASE,
+)
+
+
+def _is_rupee_notional_resize(message: str) -> bool:
+    """True when the message resizes a draft by a RUPEE notional (Hinglish
+    or English) rather than a share count — requires a notional→shares
+    conversion the model must compute, not punt."""
+    return bool(_RUPEE_NOTIONAL_RE.search(message or ""))
 
 
 def _is_independent_prompt(message: str) -> bool:
@@ -1493,6 +1824,156 @@ def _is_independent_prompt(message: str) -> bool:
     if re.fullmatch(r"\$?[A-Za-z][A-Za-z0-9\-_]{1,15}\??", msg):
         return True
     return False
+
+
+def _analysis_subhint(message: str) -> str:
+    """GAN R2 R1/R8: extra structure directive appended to the ANALYSIS
+    reply-class hint based on the SHAPE of the analytical ask (screen /
+    rank vs index-trend vs single-name). Returns "" when no extra
+    shaping is needed (plain single-name analysis already covered)."""
+    if _SCREEN_INTENT_RE.search(message):
+        return (
+            " THIS IS A SCREEN / RANK ask — output is INVALID without a "
+            "markdown TABLE. Render `Rank | Name | <primary> | <secondary> "
+            "| <tertiary> | Flag` with one row per name. STATE the sort key "
+            "in the lead sentence. For a BANK screen, RANK and column-order "
+            "on P/B then ROE (render `Rank | Name | P/B | ROE | P/E | Flag`), "
+            "never lead with P/E. Add a 'Cheap+Quality' flag column (✓ when "
+            "the name is both below the group-median valuation AND above "
+            "group-median ROE) and close with ONE defended single pick and "
+            "why."
+        )
+    if _TREND_INTENT_RE.search(message):
+        return (
+            " THIS IS an INDEX / TREND read. Do NOT print raw SMA levels "
+            "alone — for EACH moving average show the %-DISTANCE of price "
+            "from it (e.g. 'price 2.1% above the 50-DMA') and read the SMA "
+            "STACK (20>50>200 = uptrend). State the trend verdict in the "
+            "first sentence with a number, then back it with the stack, "
+            "RSI/momentum, and recent range. Use a small `Period | Level | "
+            "Price vs MA` table for the 20/50/200-DMA."
+        )
+    return ""
+
+
+def _build_deterministic_guards(message: str, history: list) -> list[str]:
+    """GAN R2 R2–R6: deterministic directive blocks that suppress the
+    over-eager ASK_USER escape hatch / 09:30 downgrade and force the
+    documented canonical behaviour. Prose in system.md alone proved
+    insufficient — these fire as additional hard system messages and the
+    caller pairs them with scope-narrowing / tool_choice in the routing
+    layer. Returns a list of directive strings (possibly empty)."""
+    guards: list[str] = []
+
+    # R6 — confusion AFTER an ASK_USER menu → TEACH, never re-dump.
+    if _is_confusion_after_menu(message, history):
+        guards.append(
+            "## Confusion after a clarification menu — TEACH, do NOT "
+            "re-ask\n"
+            "The user is confused by the MENU you just offered. You MUST "
+            "NOT re-emit the same ASK_USER menu and you MUST NOT call "
+            "ASK_USER at all this turn. Reply in PLAIN PROSE that: (1) "
+            "states honestly that NOTHING is set up yet (no agent/order "
+            "exists — you only offered options), (2) explains ONE sensible "
+            "option in one or two sentences with a concrete example (e.g. "
+            "'RSI(14)<30 means the stock has fallen hard and may be "
+            "oversold'), and (3) ends with ONE simple yes/no the user can "
+            "answer ('Want to start with that?'). Never imply you already "
+            "picked or built something."
+        )
+
+    # R5 — unsupported automation rail: boundary FIRST, then alternative.
+    rail = _names_unsupported_rail(message)
+    if rail is not None:
+        if rail == "iv_rank":
+            guards.append(
+                "## Unsupported rail: IV rank / IV percentile\n"
+                "Pivot does NOT yet have IV-rank / IV-percentile (needs "
+                "option-chain IV history). Do NOT ask for any field that "
+                "presupposes it (quantity, strike, threshold). FIRST state "
+                "that boundary in one sentence, THEN offer the nearest real "
+                "thing — an alert on ABSOLUTE IV level or on PCR — and ask "
+                "which the user wants. Never affirm an IV-rank trigger as if "
+                "buildable."
+            )
+        elif rail == "macro_feed":
+            guards.append(
+                "## Unsupported rail: macro / UPI / GDP feed trigger\n"
+                "Pivot does NOT ingest UPI / GDP / inflation feeds as a "
+                "trigger rail. Do NOT ask for any field that presupposes it. "
+                "FIRST state that boundary plainly, THEN offer the nearest "
+                "real trigger (a price/indicator level, a scheduled time, or "
+                "a keyword-headline event) and ask which to use. Never affirm "
+                "a macro-feed trigger as buildable."
+            )
+        else:  # sentiment
+            guards.append(
+                "## Unsupported rail: news / social SENTIMENT polarity\n"
+                "Pivot does NOT run sentiment NLP — there is no 'when "
+                "sentiment turns negative/positive' trigger. This is an "
+                "auto-execute-shaped ask, so honesty is critical: do NOT ask "
+                "'how many shares' or any field that AFFIRMS the fabricated "
+                "capability. Your reply MUST, IN THIS ORDER: (1) state the "
+                "boundary ('Pivot doesn't run news-sentiment analysis'); (2) "
+                "name the nearest REAL thing — a keyword-HEADLINE trigger: 'I "
+                "can watch <SYMBOL> headlines for terms you choose (SEBI, "
+                "probe, downgrade, fraud…) and register a sell you confirm'; "
+                "(3) only THEN ask the concrete fields (which keywords, how "
+                "many shares). Never order quantity before stating the "
+                "boundary and the alternative."
+            )
+
+    # R4 — named multi-leg option TEMPLATE build → build, never clarify.
+    if _is_named_option_build(message):
+        guards.append(
+            "## Named option strategy build — BUILD, do NOT ASK_USER\n"
+            "The user named a known multi-leg option template (iron condor / "
+            "straddle / strangle / spread / butterfly / collar) WITH an "
+            "underlying. This is a CANONICAL buildable. Call "
+            "`build_option_strategy(underlying=<the index/ticker>, "
+            "template=<the named template>, expiry=<nearest monthly unless "
+            "the user named weekly/an expiry>)` IMMEDIATELY. Vague modifiers "
+            "('around current levels', 'reasonable width', 'this week') are "
+            "NOT missing inputs — the engine fills delta/ATM defaults "
+            "(0.20Δ shorts, 0.10Δ wings, 1 lot). You MUST NOT call ASK_USER "
+            "for a center strike, wing width, or quantity. After the card, "
+            "say one line: the legs picked + 'say widen / next expiry to "
+            "change' + credit/max-profit/max-loss/breakevens from the card."
+        )
+
+    # R3 — fully-specified notify-only alert → notify_only DSL, no ASK_USER.
+    if _is_notify_only_alert(message):
+        guards.append(
+            "## Notify-only alert — register it, do NOT ASK_USER\n"
+            "The user wants a price ALERT with an explicit 'no order' / "
+            "'just alert' marker and a price level. Call "
+            "`propose_dsl_workflow(action_kind='notify_only', "
+            "primary_symbol=<symbol>, condition='price crosses "
+            "above/below <level>')` IMMEDIATELY. Do NOT ask quantity. Do "
+            "NOT ask whether the alert is in-app — IN-APP IS THE ONLY "
+            "CHANNEL, so there is nothing to clarify; just disclose it in "
+            "the read-back. NEVER call ASK_USER for this turn. Read-back: "
+            "'Watching <SYMBOL> — I'll alert you the moment it crosses "
+            "<above/below> ₹<level>. No order is placed (in-app alert).'"
+        )
+
+    # R2 — buy/sell at open|close → market_relative_time, never 09:30.
+    if _is_at_open_close_build(message):
+        guards.append(
+            "## At-open / at-close order — two-branch card, NEVER 09:30\n"
+            "The user wants an action at the market OPEN or CLOSE. This is "
+            "fully supported via `trigger.market_relative_time(anchor='open'"
+            "|'close', offset_minutes=0)`. Call `propose_dsl_workflow` (or "
+            "`propose_workflow`) and build the card. It is a HARD ERROR to: "
+            "(a) offer a '09:30 cron' / 'every morning at 09:30 I check the "
+            "price' downgrade — that is capability theatre and is BANNED; "
+            "(b) call ASK_USER — all required params are present. For 'buy N "
+            "at open, book +X% profit' build TWO branches: ENTRY "
+            "market_relative_time(anchor='open') → buy N; EXIT "
+            "unrealised_pct>=X/100 → sell. Preserve the exact quantity given."
+        )
+
+    return guards
 
 
 @dataclass
@@ -3012,6 +3493,72 @@ class ChatService:
                 # narrower set actually sent to the LLM on the first hop.
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
+
+        # ── GAN R2 deterministic guards (R2–R6) ────────────────────────
+        # Prose in system.md alone did not suppress the over-eager
+        # ASK_USER / 09:30 downgrade. Pin scope + tool_choice here, then
+        # pair with directive system messages built below.
+        _deterministic_guards = _build_deterministic_guards(message, history)
+        _named_option_build = _is_named_option_build(message)
+        _notify_only = _is_notify_only_alert(message)
+        _at_open_close = _is_at_open_close_build(message)
+        _confusion_menu = _is_confusion_after_menu(message, history)
+        _unsupported_rail = _names_unsupported_rail(message)
+        # R4: named option template build → force build_option_strategy,
+        # remove ASK_USER from scope so the model cannot escape to it.
+        if _named_option_build and selected_names is not None:
+            selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
+                "place_market_order", "place_limit_order",
+                "create_gtt_order", "suggest_option_strategy",
+                "critique_option_strategy",
+            })
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            agent_tool_choice = "required"
+        # R3: fully-specified notify-only alert → force propose_dsl_workflow,
+        # drop ASK_USER so it can't ask about the single channel.
+        elif _notify_only and selected_names is not None:
+            selected_names = (selected_names | frozenset({
+                "propose_dsl_workflow",
+            })) - frozenset({
+                "place_market_order", "place_limit_order",
+                "create_gtt_order", "create_sl_order",
+            })
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            agent_tool_choice = "required"
+        # R2: at-open/at-close build → ensure the DSL/workflow tools are in
+        # scope and force a tool so it can't downgrade to 09:30 / ASK_USER.
+        elif _at_open_close and selected_names is not None:
+            selected_names = selected_names | frozenset({
+                "propose_dsl_workflow", "propose_workflow",
+            })
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            agent_tool_choice = "required"
+        # R5/R6: unsupported rail or confusion-after-menu → the reply is a
+        # boundary/teach in PROSE; drop tool_choice to auto so the model is
+        # free to answer without forcing a tool, and (R6) drop ASK_USER so
+        # it cannot re-dump the menu.
+        if _confusion_menu:
+            agent_tool_choice = "auto"
+            if selected_names is not None:
+                tooldefs = [
+                    t for t in _registry_tools_as_tooldefs(selected_names)
+                    if t.name != ASK_USER_TOOL_NAME
+                ]
+        elif _unsupported_rail is not None:
+            agent_tool_choice = "auto"
+
         # Reasoning-effort: "minimal" on every turn. The A/B against
         # "low" on Azure gpt-5.4-mini showed `minimal` (mapped to
         # `none` on the wire by LLMAzureOpenAI._translate_reasoning_effort)
@@ -3033,6 +3580,13 @@ class ChatService:
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
+        # GAN R2 R1/R8: append a screen/trend sub-hint to the analysis
+        # directive so screens render ranked tables and index-trend reads
+        # render SMA %-distance, not raw levels.
+        if reply_class == "analysis":
+            _sub = _analysis_subhint(message)
+            if _sub:
+                reply_class_hint_text = reply_class_hint_text + _sub
         max_output = _budget_tokens
         # Scoped retry budget for propose_workflow only — see the
         # documented escape hatch at the bottom of the Change-1 plan.
@@ -3114,10 +3668,26 @@ class ChatService:
                 "only updating the field(s) the user changed. Do NOT switch to "
                 "a different tool (e.g. do NOT call propose_workflow instead)."
             )
+            # GAN R2 R7: rupee-notional resize ("12000 ka kharido", "make
+            # it ₹12,000 worth"). The model must CONVERT notional→shares
+            # using the live price, not punt to manual editing, and must
+            # never narrate "Updated" if the quantity didn't change.
+            _resize_clause = ""
+            if _is_rupee_notional_resize(message):
+                _resize_clause = (
+                    " RUPEE-NOTIONAL RESIZE: the user gave a ₹ amount, not a "
+                    "share count. FIRST call `get_live_price` for the draft's "
+                    "symbol, compute quantity = round(amount / live_price), "
+                    "then re-emit the draft with the NEW quantity. Do NOT ask "
+                    "the user to edit the card manually. Do NOT say 'Updated' "
+                    "unless the quantity actually changed. Lead your reply "
+                    "with the arithmetic: '₹<amount> ÷ ~₹<price> = <qty> "
+                    "shares.'"
+                )
             workflow_hint = (
                 f" ACTIVE {tool_label.upper().replace('_', ' ')} DRAFT from "
                 f"a prior turn. Treat the user's reply as an AMENDMENT — "
-                + hint_verb +
+                + hint_verb + _resize_clause +
                 " Do NOT switch tools. Do NOT write prose. Do NOT call "
                 "ASK_USER for non-essential fields (approval, defaults, "
                 "stop-loss style) — the user can edit those on the card. "
@@ -3131,13 +3701,31 @@ class ChatService:
         # prose ("I've updated the draft") with no actual tool call — the draft
         # card on the FE never changed. tool_choice="required" on hop 1
         # prevents that prose-only response.
+        # GAN R2 R7: a Hinglish / rupee-notional resize is also an amendment
+        # — force the tool even when the English amend-verb regex misses it.
         if (not is_agent_intent
                 and active is not None
                 and workflow_hint
-                and _DEPENDENT_INTENT_RE.search(message)):
+                and (_DEPENDENT_INTENT_RE.search(message)
+                     or _is_rupee_notional_resize(message))):
             agent_tool_choice = "required"
+            # Resize needs the live price in scope to compute shares.
+            if (_is_rupee_notional_resize(message)
+                    and selected_names is not None
+                    and "get_live_price" not in selected_names):
+                selected_names = selected_names | {"get_live_price"}
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                cache_key = cache_key_for(selected_names)
 
-        if history and _looks_like_clarification_followup(history):
+        # GAN R2 R6: a confusion-after-menu turn is NOT a clarification
+        # answer — the user is asking us to explain, not picking an option.
+        # Suppress the tool-forcing followup hint and pin tool_choice=auto
+        # so the TEACH guard governs (no re-dumped menu, no forced emit).
+        if _confusion_menu:
+            agent_tool_choice = "auto"
+
+        if (history and _looks_like_clarification_followup(history)
+                and not _confusion_menu):
             # CLARIFICATION-FOLLOWUP path — the user is answering a
             # question we asked. Carry the original intent forward.
             last_assistant = next(
@@ -3254,6 +3842,10 @@ class ChatService:
             base_messages.append(
                 LLMMessage(role="system", content=reply_class_hint_text)
             )
+        # GAN R2 R2–R6: deterministic guard directives (named-option build,
+        # notify-only alert, at-open/close, unsupported rail, confusion).
+        for _g in _deterministic_guards:
+            base_messages.append(LLMMessage(role="system", content=_g))
         # R1: affirmation with no draft + no pending resolution. Prevents
         # the model from fabricating "the draft above is what you'll
         # activate" when there is no draft on screen (screenshot 10).
@@ -3463,8 +4055,13 @@ class ChatService:
                 # text is question-shaped, ASK_USER was NOT called, and
                 # no draft/order card was emitted, push a "USE ASK_USER"
                 # directive and re-emit. Once-only retry.
+                # GAN R2 R6: on a confusion-after-menu turn the reply is
+                # INTENTIONALLY teaching prose ending in one yes/no — do
+                # NOT coerce it back into an ASK_USER menu (that re-creates
+                # the very menu the user was confused by).
                 if (
                     not ask_user_retry_used
+                    and not _confusion_menu
                     and _looks_like_unstructured_clarification(
                         text, tools_called, raw_data,
                     )
@@ -4317,6 +4914,59 @@ class ChatService:
                     selected_names = selected_names | _OPTIONS_TOOLS
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
+
+        # ── GAN R2 deterministic guards (R2–R6) — mirror of handle() ────
+        _deterministic_guards = _build_deterministic_guards(message, history)
+        _named_option_build = _is_named_option_build(message)
+        _notify_only = _is_notify_only_alert(message)
+        _at_open_close = _is_at_open_close_build(message)
+        _confusion_menu = _is_confusion_after_menu(message, history)
+        _unsupported_rail = _names_unsupported_rail(message)
+        if _named_option_build and selected_names is not None:
+            selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
+                "place_market_order", "place_limit_order",
+                "create_gtt_order", "suggest_option_strategy",
+                "critique_option_strategy",
+            })
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            agent_tool_choice = "required"
+        elif _notify_only and selected_names is not None:
+            selected_names = (selected_names | frozenset({
+                "propose_dsl_workflow",
+            })) - frozenset({
+                "place_market_order", "place_limit_order",
+                "create_gtt_order", "create_sl_order",
+            })
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            agent_tool_choice = "required"
+        elif _at_open_close and selected_names is not None:
+            selected_names = selected_names | frozenset({
+                "propose_dsl_workflow", "propose_workflow",
+            })
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            agent_tool_choice = "required"
+        if _confusion_menu:
+            agent_tool_choice = "auto"
+            if selected_names is not None:
+                tooldefs = [
+                    t for t in _registry_tools_as_tooldefs(selected_names)
+                    if t.name != ASK_USER_TOOL_NAME
+                ]
+        elif _unsupported_rail is not None:
+            agent_tool_choice = "auto"
+
         # Stream path matches the non-stream `handle()` decision —
         # "minimal" on every turn (see commentary there).
         effort: ReasoningEffort = "minimal"
@@ -4326,6 +4976,11 @@ class ChatService:
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
+        # GAN R2 R1/R8: screen/trend sub-hint on the analysis class.
+        if reply_class == "analysis":
+            _sub = _analysis_subhint(message)
+            if _sub:
+                reply_class_hint_text = reply_class_hint_text + _sub
         max_output = _budget_tokens
         # Same scoped retry budget as the non-streaming path.
         propose_workflow_attempts = 0
@@ -4381,10 +5036,23 @@ class ChatService:
                 "only updating the field(s) the user changed. Do NOT switch to "
                 "a different tool (e.g. do NOT call propose_workflow instead)."
             )
+            # GAN R2 R7 (streaming mirror): rupee-notional resize.
+            _resize_clause = ""
+            if _is_rupee_notional_resize(message):
+                _resize_clause = (
+                    " RUPEE-NOTIONAL RESIZE: the user gave a ₹ amount, not a "
+                    "share count. FIRST call `get_live_price` for the draft's "
+                    "symbol, compute quantity = round(amount / live_price), "
+                    "then re-emit the draft with the NEW quantity. Do NOT ask "
+                    "the user to edit the card manually. Do NOT say 'Updated' "
+                    "unless the quantity actually changed. Lead your reply "
+                    "with the arithmetic: '₹<amount> ÷ ~₹<price> = <qty> "
+                    "shares.'"
+                )
             workflow_hint = (
                 f" ACTIVE {tool_label.upper().replace('_', ' ')} DRAFT from "
                 f"a prior turn. Treat the user's reply as an AMENDMENT — "
-                + hint_verb +
+                + hint_verb + _resize_clause +
                 " Do NOT switch tools. Do NOT write prose. Do NOT call "
                 "ASK_USER for non-essential fields (approval, defaults, "
                 "stop-loss style) — the user can edit those on the card. "
@@ -4393,13 +5061,27 @@ class ChatService:
             )
 
         # Force tool_choice="required" on amendment turns — see handle().
+        # GAN R2 R7: a Hinglish / rupee-notional resize is also an amendment.
         if (not is_agent_intent
                 and active is not None
                 and workflow_hint
-                and _DEPENDENT_INTENT_RE.search(message)):
+                and (_DEPENDENT_INTENT_RE.search(message)
+                     or _is_rupee_notional_resize(message))):
             agent_tool_choice = "required"
+            if (_is_rupee_notional_resize(message)
+                    and selected_names is not None
+                    and "get_live_price" not in selected_names):
+                selected_names = selected_names | {"get_live_price"}
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                cache_key = cache_key_for(selected_names)
 
-        if history and _looks_like_clarification_followup(history):
+        # GAN R2 R6 (streaming mirror): confusion-after-menu → TEACH, not
+        # a forced clarification answer.
+        if _confusion_menu:
+            agent_tool_choice = "auto"
+
+        if (history and _looks_like_clarification_followup(history)
+                and not _confusion_menu):
             last_assistant = next(
                 (h for h in reversed(history)
                  if isinstance(h, dict) and h.get("role") == "assistant"),
@@ -4478,6 +5160,9 @@ class ChatService:
             base_msgs.append(
                 LLMMessage(role="system", content=reply_class_hint_text)
             )
+        # GAN R2 R2–R6: deterministic guard directives (streaming mirror).
+        for _g in _deterministic_guards:
+            base_msgs.append(LLMMessage(role="system", content=_g))
         # R1: affirmation-no-state hint (streaming mirror).
         if _affirm_no_state:
             base_msgs.append(LLMMessage(
@@ -6062,6 +6747,8 @@ def _post_process(text: str) -> tuple[str, bool]:
     # the canned fallback templates from history. Once these go, _ensure_
     # widget_caption will synthesise a user-facing caption.
     text = _strip_internal_tool_leaks(text)
+    # GAN R2 R15: drop an empty / apologetic "## News" section stub.
+    text = _strip_empty_news_section(text)
     # WHY this strip runs BEFORE the latent-greeting check: a leaked
     # reasoning paragraph can include greeting-shaped phrases ("Hi,
     # the user now says...") that would trip the latent-greeting

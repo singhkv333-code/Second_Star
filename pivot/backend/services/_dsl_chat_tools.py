@@ -384,6 +384,14 @@ def _patch_dsl_draft(prior: dict, fields: dict):
                 pass
         if fields.get("name"):
             draft["name"] = str(fields["name"])
+        else:
+            # GAN R2 R10: regenerate the title from the draft's readback so a
+            # stale/mis-rendered legacy name doesn't survive the mutation.
+            _rb = (draft.get("readback") or "").strip()
+            _erb = (draft.get("exit_readback") or "").strip()
+            if _rb:
+                _title = f"{_rb} → {_erb}" if _erb else _rb
+                draft["name"] = _title[:90]
         if fields.get("channel"):
             for s in steps:
                 if isinstance(s, dict) and s.get("step_type") == "notify.message":
@@ -1147,6 +1155,19 @@ async def propose_dsl_workflow(args: dict) -> dict:
     description = f"Entry: {readback}"
     if exit_readback:
         description += f" · Exit: {exit_readback}"
+
+    # GAN R2 R10: regenerate the card title from the CURRENT DSL readback
+    # rather than trusting the LLM-supplied `name`. A stale/mis-rendered
+    # free-text name (the "4%" → "AXISBANK price below ₹4" freeze) was
+    # surviving DSL mutations because the title was never re-derived from
+    # the tree. The readback is the single source of truth for the title.
+    _readback_title = readback.strip()
+    if exit_readback:
+        _readback_title = f"{_readback_title} → {exit_readback.strip()}"
+    # Keep it a short label: prefix the symbol if not already present.
+    if primary and primary.upper() not in _readback_title.upper():
+        _readback_title = f"{primary}: {_readback_title}"
+    label = _readback_title[:90] or label
 
     valid_until_raw = (args.get("valid_until") or "").strip() or None
     draft = {
