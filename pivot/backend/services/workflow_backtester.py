@@ -433,17 +433,46 @@ def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
     return resolve_symbol(symbol)
 
 
+def _kite_bars_df(symbol: str, period: str) -> Optional[pd.DataFrame]:
+    """Daily OHLCV from Kite as a yfinance-shaped DataFrame, or None when
+    Kite can't serve it (mock mode, index symbol, unresolved, error)."""
+    if symbol.startswith("^"):
+        return None  # indices: Kite tokens differ — let yfinance handle
+    try:
+        from backend.kite.auth import KITE_MOCK_MODE
+        if KITE_MOCK_MODE:
+            return None
+        from backend.kite.historical import get_kite_historical
+        rows = get_kite_historical(symbol, period=period)
+        if not rows:
+            return None
+        df = pd.DataFrame(rows)
+        df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
+        df = df.set_index("date").rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        return df[["Open", "High", "Low", "Close", "Volume"]]
+    except Exception as exc:  # noqa: BLE001
+        logger.info("backtest kite bars fallback for %s: %s", symbol, str(exc)[:120])
+        return None
+
+
 def _load_bars(symbol: str, period: str) -> pd.DataFrame:
-    """Daily OHLCV from yfinance, cleaned. Raises ValueError on
-    insufficient data so the caller surfaces a clean error."""
-    yf_sym = _yf_symbol(symbol)
-    hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
-    if hist.empty or len(hist) < 30:
-        raise ValueError(
-            f"insufficient data for {symbol} over {period} (got {len(hist)} bars)"
-        )
-    # yfinance returns tz-aware; drop tz so we can do plain date math.
-    hist.index = pd.to_datetime(hist.index).tz_localize(None).normalize()
+    """Daily OHLCV, Kite Connect FIRST (live, broker-grade, correctly
+    dated) then yfinance. Raises ValueError on insufficient data so the
+    caller surfaces a clean error."""
+    hist = _kite_bars_df(symbol, period)
+    if hist is None or hist.empty or len(hist) < 30:
+        yf_sym = _yf_symbol(symbol)
+        hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
+        if hist.empty or len(hist) < 30:
+            raise ValueError(
+                f"insufficient data for {symbol} over {period} "
+                f"(got {len(hist)} bars)"
+            )
+        # yfinance returns tz-aware; drop tz so we can do plain date math.
+        hist.index = pd.to_datetime(hist.index).tz_localize(None).normalize()
     return hist[["Open", "High", "Low", "Close", "Volume"]]
 
 

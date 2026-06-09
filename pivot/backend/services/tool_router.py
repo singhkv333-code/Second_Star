@@ -373,6 +373,28 @@ _RULES: list[_Rule] = [
         "place_market_order", "place_limit_order",  # for "buy top gainer..."
     ),
 
+    # ── Generic single-stock ANALYSIS intent ───────────────────────
+    # WHY: "analyse HDFC Bank", "what do you think about RELIANCE", "your
+    # view on INFY", "tell me about TCS", "deep dive on …", "is X a buy"
+    # carry NO indicator/risk keyword, so they fell through to a toolset
+    # with only get_live_price — the model then apologised that it "has no
+    # price-history / fundamentals tool" (it does). Surface the full
+    # read-only analysis suite so the model fetches data and interprets it
+    # instead of declining.
+    _r(
+        r"\b(analyse|analyze|analysis|deep[- ]dive|break\s*down|evaluate|"
+        r"assess|overview|outlook|fundamentals?|valuation)\b"
+        r"|\bwhat\s+do\s+you\s+think\s+(?:about|of)\b"
+        r"|\byour\s+(?:view|take|opinion|read|thoughts?)\s+on\b"
+        r"|\bthoughts?\s+on\b"
+        r"|\btell\s+me\s+about\b"
+        r"|\b(?:is|should\s+i\s+(?:buy|consider|look\s+at))\s+\w+\s+a?\s*"
+        r"(?:buy|good|worth|investment)\b",
+        "get_price_history", "get_52wk_range", "get_indicator",
+        "get_multiple_indicators", "get_performance_metrics",
+        "fetch_fundamentals", "get_symbol_news", "get_live_price",
+    ),
+
     # ── 52-week range, price history, charts ───────────────────────
     _r(
         r"\b(52\s*-?\s*week|52w|all[- ]time\s+(high|low)|chart|history|past\s+\d+\s*(year|month|week))"

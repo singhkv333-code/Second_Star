@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 
@@ -30,7 +30,40 @@ _PERIOD_DAYS = {
 }
 
 
+def _sma(closes: list[float], n: int) -> Optional[float]:
+    if len(closes) < n:
+        return None
+    return round(sum(closes[-n:]) / n, 2)
+
+
+def _rsi(closes: list[float], n: int = 14) -> Optional[float]:
+    """Wilder's RSI over the last n periods."""
+    if len(closes) < n + 1:
+        return None
+    gains, losses = [], []
+    for i in range(-n, 0):
+        d = closes[i] - closes[i - 1]
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+    avg_gain = sum(gains) / n
+    avg_loss = sum(losses) / n
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - 100 / (1 + rs), 1)
+
+
+def _ret_pct(closes: list[float], bars: int) -> Optional[float]:
+    if len(closes) <= bars or closes[-bars - 1] == 0:
+        return None
+    return round((closes[-1] / closes[-bars - 1] - 1) * 100, 2)
+
+
 async def get_price_history(args: dict) -> dict:
+    """Rich, interpretable price history + technicals for a symbol, sourced
+    from Kite (live, correctly-dated) with a yfinance fallback. Returns
+    derived metrics AND a recent OHLCV tail so the LLM can read the chart
+    itself and form its own technical view — it is NOT a fixed verdict."""
     symbol = (args.get("symbol") or "").strip().upper()
     period = (args.get("period") or "1y").lower()
     if not symbol:
@@ -45,27 +78,58 @@ async def get_price_history(args: dict) -> dict:
         raise RuntimeError(f"could not fetch price history for {symbol}: {e}") from None
 
     if not ohlcv:
-        return {"symbol": symbol, "period": period, "n": 0,
-                "summary": "no data available"}
+        return {"symbol": symbol, "period": period, "n_candles": 0,
+                "summary": "no price history available"}
 
-    first = ohlcv[0]
-    last = ohlcv[-1]
-    high = max(row.get("high", 0) for row in ohlcv)
-    low = min(row.get("low", 1e9) for row in ohlcv if row.get("low") is not None)
-    pct = ((last.get("close") or 0) / first.get("close") - 1) * 100 if first.get("close") else 0
+    closes = [float(r["close"]) for r in ohlcv if r.get("close") is not None]
+    first, last = ohlcv[0], ohlcv[-1]
+    last_close = closes[-1]
+    high = round(max(r.get("high", 0) for r in ohlcv), 2)
+    low = round(min(r.get("low", 1e9) for r in ohlcv if r.get("low") is not None), 2)
+    pct = round((last_close / closes[0] - 1) * 100, 2) if closes[0] else 0.0
+
+    sma20, sma50, sma200 = _sma(closes, 20), _sma(closes, 50), _sma(closes, 200)
+    rsi14 = _rsi(closes, 14)
+
+    # Position vs moving averages (plain facts; LLM interprets the meaning).
+    above = [f"SMA{n}" for n, v in (("20", sma20), ("50", sma50), ("200", sma200))
+             if v is not None and last_close > v]
+    below = [f"SMA{n}" for n, v in (("20", sma20), ("50", sma50), ("200", sma200))
+             if v is not None and last_close < v]
 
     return {
         "symbol": symbol,
         "period": period,
+        "source": "kite/yfinance",
         "n_candles": len(ohlcv),
-        "first": {"date": first.get("date"), "close": first.get("close")},
-        "last": {"date": last.get("date"), "close": last.get("close")},
-        "high": high,
-        "low": low,
-        "period_return_pct": round(pct, 2),
+        "last_close": round(last_close, 2),
+        "as_of": last.get("date"),
+        "first": {"date": first.get("date"), "close": round(closes[0], 2)},
+        "period_high": high,
+        "period_low": low,
+        "period_return_pct": pct,
+        "returns_pct": {
+            "1w": _ret_pct(closes, 5), "1m": _ret_pct(closes, 21),
+            "3m": _ret_pct(closes, 63), "6m": _ret_pct(closes, 126),
+            "1y": _ret_pct(closes, 252),
+        },
+        "sma": {"20": sma20, "50": sma50, "200": sma200},
+        "rsi14": rsi14,
+        "vs_moving_avgs": {"above": above, "below": below},
+        "pct_from_period_high": round((last_close - high) / high * 100, 2) if high else None,
+        "pct_from_period_low": round((last_close - low) / low * 100, 2) if low else None,
+        # Recent tail so the model can eyeball the actual trajectory.
+        "recent": [
+            {"date": r.get("date"), "close": r.get("close"), "volume": r.get("volume")}
+            for r in ohlcv[-20:]
+        ],
         "summary":
-            f"{symbol} traded between ₹{low:,.2f} and ₹{high:,.2f} over the past "
-            f"{period}; {pct:+.2f}% net.",
+            f"{symbol} ₹{last_close:,.2f} as of {last.get('date')}; "
+            f"{pct:+.2f}% over {period} (range ₹{low:,.2f}–₹{high:,.2f}); "
+            f"RSI14 {rsi14}; "
+            + (f"above {', '.join(above)}" if above else "")
+            + (f"; below {', '.join(below)}" if below else "")
+            + ". Interpret these numbers yourself — not a fixed signal.",
     }
 
 

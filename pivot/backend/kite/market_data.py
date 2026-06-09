@@ -24,17 +24,53 @@ def get_live_quote(access_token: str, instruments: list) -> dict:
     return kite.quote(instruments)
 
 
+def _kite_ohlcv_list(symbol: str, period: str) -> Optional[list]:
+    """Kite historical as the same list-of-dicts shape get_historical_ohlcv
+    returns. None when Kite is unavailable / can't resolve the symbol, so
+    the caller falls back to yfinance. Indices (^-prefixed) are left to
+    yfinance — Kite indexes them under different instrument tokens."""
+    if KITE_MOCK_MODE or symbol.startswith("^"):
+        return None
+    try:
+        from backend.kite.historical import get_kite_historical
+        rows = get_kite_historical(symbol, period=period)
+        if not rows:
+            return None
+        out = []
+        for r in rows:
+            d = r.get("date")
+            # Kite returns "YYYY-MM-DD HH:MM:SS" (+tz); normalise to date.
+            d = str(d)[:10] if d is not None else None
+            out.append({
+                "date": d,
+                "open": round(float(r["open"]), 2),
+                "high": round(float(r["high"]), 2),
+                "low": round(float(r["low"]), 2),
+                "close": round(float(r["close"]), 2),
+                "volume": int(r.get("volume") or 0),
+            })
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.info("kite historical fallback for %s: %s", symbol, str(e)[:120])
+        return None
+
+
 def get_historical_ohlcv(
     symbol: str,
     period: str = "1y",
     interval: str = "1d",
 ) -> list:
     """
-    Fetch historical OHLCV using yfinance.
-    Works without any API key — public data.
-    symbol: NSE symbol like "INFY" → yfinance uses "INFY.NS"
-    Returns list of {date, open, high, low, close, volume}
+    Fetch historical OHLCV — Kite Connect FIRST (live, broker-grade, and
+    correctly dated), yfinance as the no-auth fallback. Daily bars only on
+    the Kite path; non-daily intervals go straight to yfinance.
+    symbol: NSE symbol like "INFY"; returns list of
+    {date, open, high, low, close, volume}.
     """
+    if interval in ("1d", "day", "", None):
+        kite_rows = _kite_ohlcv_list(symbol, period)
+        if kite_rows:
+            return kite_rows
     try:
         ticker_symbol = f"{symbol}.NS" if not symbol.endswith(".NS") else symbol
         ticker = yf.Ticker(ticker_symbol)

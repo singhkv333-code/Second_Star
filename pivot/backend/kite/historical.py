@@ -40,6 +40,7 @@ _PERIOD_MAP: dict[str, tuple[timedelta, str]] = {
     "6mo": (timedelta(days=180),  "day"),
     "1y":  (timedelta(days=365),  "day"),
     "2y":  (timedelta(days=730),  "day"),
+    "3y":  (timedelta(days=1095), "day"),
     "5y":  (timedelta(days=1825), "day"),
 }
 
