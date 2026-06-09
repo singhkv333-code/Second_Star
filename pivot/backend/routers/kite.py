@@ -14,6 +14,7 @@ Flow:
   4. Frontend polls GET /kite/status to render the connection state and
      can call DELETE /kite/session to disconnect.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -42,6 +43,8 @@ from backend.kite.auth import (
 from backend.models import KiteSession, User
 from backend.security.encryption import get_cipher
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/kite", tags=["Kite"])
 
 # Compatibility alias for Kite developer apps whose configured Redirect URL is
@@ -50,7 +53,11 @@ callback_alias_router = APIRouter(tags=["Kite"])
 
 
 KITE_STATE_PURPOSE = "kite_oauth_state"
-KITE_STATE_TTL_SECONDS = 600  # 10 minutes
+# 30 min: the prior 10-minute TTL expired during slow logins (Zerodha
+# login + 2FA + the user reading the modal) → callback rejected with
+# `invalid_state` AFTER Zerodha had already issued a request_token, so the
+# token was discarded and the user saw no token and no connection.
+KITE_STATE_TTL_SECONDS = 1800
 
 
 def _require_user(authorization: str | None, db: Session) -> User:
@@ -264,6 +271,15 @@ def _handle_kite_callback(
 
     user_id = _read_state_token(state) if state else None
     if user_id is None:
+        # The CSRF state was missing/expired, so we won't auto-exchange.
+        # Log the (single-use, minutes-valid) request_token so it can still
+        # be redeemed manually via scripts/kite_connect.py instead of being
+        # silently lost — this is exactly the case the user hit.
+        logger.warning(
+            "kite callback rejected: invalid_state. Recover manually within "
+            "~2 min: .venv/bin/python scripts/kite_connect.py %s",
+            request_token,
+        )
         return _frontend_redirect({"kite": "error", "reason": "invalid_state"})
 
     user = db.query(User).filter(User.id == user_id).first()
