@@ -179,6 +179,32 @@ def _is_quotable(q: Optional[dict]) -> bool:
     return bool(q) and q.get("iv_status") in ("ok", "wide_spread") and q.get("mid", 0) > 0
 
 
+def _walk_to_distinct_strike(
+    rows: list[dict], chosen: dict, option_type: str, used: set,
+) -> dict:
+    """Move a colliding leg to the next quotable strike that isn't already
+    used by a same-type leg, walking FURTHER OTM first (calls up, puts
+    down) so a short and its protective wing get distinct strikes. Falls
+    back to walking inward, then to the original row if nothing is free."""
+    quotable = sorted(
+        (r for r in rows if _is_quotable(_side_quote(r, option_type))),
+        key=lambda r: r["strike"],
+    )
+    try:
+        i = next(k for k, r in enumerate(quotable)
+                 if abs(r["strike"] - chosen["strike"]) < 1e-9)
+    except StopIteration:
+        return chosen
+    direction = 1 if option_type == "CE" else -1  # further OTM
+    for step in range(1, len(quotable)):
+        for d in (direction, -direction):
+            j = i + d * step
+            if 0 <= j < len(quotable):
+                if (option_type, float(quotable[j]["strike"])) not in used:
+                    return quotable[j]
+    return chosen
+
+
 def _resolve_leg_strike(
     rows: list[dict], atm_strike: float, spec: LegSpec,
 ) -> Optional[dict]:
@@ -352,14 +378,24 @@ def resolve_strategy(
                 "instrument_token": q.get("instrument_token"),
             })
     else:
+        # Track placed (type, strike) so a thin delta/offset slice that would
+        # land two legs of the same option on ONE strike (zero-width spread /
+        # cancelled wing) re-walks to the next distinct strike instead. Only
+        # if no distinct strike exists does the guard below reject.
+        used_strikes: set[tuple] = set()
         for spec in template.legs:
             row = _resolve_leg_strike(rows, atm, spec)
+            if row is not None and (spec.option_type, float(row["strike"])) in used_strikes:
+                row = _walk_to_distinct_strike(
+                    rows, row, spec.option_type, used_strikes,
+                )
             q = _side_quote(row, spec.option_type) if row else None
             if not _is_quotable(q):
                 raise StrategyResolutionError(
                     f"Couldn't find a liquid {spec.option_type} strike for "
                     f"{template.label} on {underlying.upper()} {chain['expiry']}."
                 )
+            used_strikes.add((spec.option_type, float(row["strike"])))
             legs.append({
                 "option_type": spec.option_type, "side": spec.side,
                 "strike": float(row["strike"]), "mid": float(q["mid"]),
@@ -374,6 +410,23 @@ def resolve_strategy(
         raise StrategyResolutionError(
             "Resolved duplicate legs (chain too narrow for distinct "
             "strikes) — widen the view or pick strikes explicitly."
+        )
+    # Opposite-side legs at the SAME (type, strike) fully cancel — a long
+    # AND short call at one strike is zero width, no protection, zero
+    # economics. The (type, side, strike) key above treats SELL vs BUY as
+    # "distinct", so a thin-chain wing collapse (the short and its
+    # protective wing landing on the same strike) slipped through and
+    # rendered as a tradeable iron condor with max_loss/max_profit = 0.
+    by_type_strike: dict[tuple, set] = {}
+    for l in legs:
+        by_type_strike.setdefault(
+            (l["option_type"], l["strike"]), set()
+        ).add(l["side"])
+    if any(len(sides) > 1 for sides in by_type_strike.values()):
+        raise StrategyResolutionError(
+            "Resolved a long and short of the same option at the same "
+            "strike — they cancel out (the chain was too thin to place the "
+            "protective wings). Widen the strikes or pick them explicitly."
         )
     for l in legs:
         if l["iv_status"] == "wide_spread":
@@ -401,6 +454,17 @@ def resolve_strategy(
         max_profit = None
     if hi_slope < -1e-9 or lo_slope > 1e-9:   # falls toward an open edge
         max_loss = None
+
+    # Defense in depth: a defined-risk structure whose max profit AND max
+    # loss are both ~zero has fully-cancelled legs — not tradeable. Never
+    # render it as a card; surface the resolution failure honestly.
+    if (max_profit is not None and max_loss is not None
+            and abs(max_profit) < 1e-6 and abs(max_loss) < 1e-6):
+        raise StrategyResolutionError(
+            "Resolved structure has no economics — the legs cancel out "
+            "(chain too thin to build distinct strikes). Pick the strikes "
+            "explicitly or widen the structure."
+        )
 
     atm_row = next((r for r in rows if r["strike"] == atm), None)
     atm_ivs = [

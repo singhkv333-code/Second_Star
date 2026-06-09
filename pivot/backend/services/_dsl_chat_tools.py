@@ -119,6 +119,84 @@ _ACTION_TERMINATORS_RE = re.compile(
 )
 
 
+# Deterministic parser for the COMMON position-relative exit phrasings, so
+# we don't pay a slow (sometimes 100s+, untimed) LLM translate call — and
+# never refuse a SUPPORTED exit shape. Matches the LLM translator's unit
+# convention: percentages are FRACTIONS (6% → 0.06). Returns a DSL
+# comparison tree over a position leaf, or None when nothing matches.
+_EXIT_PEAK_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*%[^.]{0,30}?\b(?:from|below|off|under)\b[^.]{0,20}?"
+    r"\b(?:peak|high|top|highest)\b"
+    r"|\bdrawdown[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|\btrail[^.]{0,20}?(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE,
+)
+_EXIT_PROFIT_RE = re.compile(
+    r"\b(?:up|gains?|rises?|profit|gain\s+of|\+)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:profit|gain|up)\b",
+    re.IGNORECASE,
+)
+_EXIT_LOSS_RE = re.compile(
+    r"\b(?:down|loses?|lose|falls?|drops?|loss\s+of)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:loss|down|drop)\b",
+    re.IGNORECASE,
+)
+_EXIT_BARS_RE = re.compile(
+    r"\b(?:held|holding|after)\b[^.]{0,20}?(\d+)\s*(?:bars?|days?|sessions?)",
+    re.IGNORECASE,
+)
+
+
+def _first_group(m: "re.Match") -> Optional[float]:
+    for g in m.groups():
+        if g is not None:
+            try:
+                return float(g)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[dict]:
+    """Build a position-leaf exit tree for the common phrasings without an
+    LLM hop. ``force=True`` is the failure-fallback: when the LLM translate
+    errored/timed out but the text clearly names a position exit, still
+    produce the right leaf rather than refusing a supported shape."""
+    t = (text or "").strip().lower()
+    if not t:
+        return None
+
+    def _cmp(field: str, op: str, value: float) -> dict:
+        return {"type": "comparison", "op": op,
+                "left": {"type": "position", "field": field},
+                "right": {"type": "constant", "value": value}}
+
+    # Order matters: "from peak" is more specific than a bare "drops X%".
+    m = _EXIT_PEAK_RE.search(t)
+    if m and (v := _first_group(m)) is not None:
+        return _cmp("drawdown_from_peak_pct", ">=", round(v / 100.0, 6))
+    m = _EXIT_PROFIT_RE.search(t)
+    if m and (v := _first_group(m)) is not None:
+        return _cmp("unrealised_pct", ">=", round(v / 100.0, 6))
+    m = _EXIT_LOSS_RE.search(t)
+    if m and (v := _first_group(m)) is not None:
+        return _cmp("unrealised_pct", "<=", round(-v / 100.0, 6))
+    m = _EXIT_BARS_RE.search(t)
+    if m and (v := _first_group(m)) is not None:
+        return _cmp("bars_held", ">=", int(v))
+    if force:
+        # Last resort: any % near a peak/profit/loss word.
+        mm = re.search(r"(\d+(?:\.\d+)?)\s*%", t)
+        if mm:
+            v = float(mm.group(1)) / 100.0
+            if "peak" in t or "high" in t or "trail" in t:
+                return _cmp("drawdown_from_peak_pct", ">=", round(v, 6))
+            if any(w in t for w in ("loss", "down", "drop", "fall", "stop")):
+                return _cmp("unrealised_pct", "<=", round(-v, 6))
+            return _cmp("unrealised_pct", ">=", round(v, 6))
+    return None
+
+
 _INDICATOR_OR_PRICE_RE = re.compile(
     r"\b(?:rsi|sma|ema|wma|macd|adx|atr|cci|mfi|stoch|bollinger|bb|"
     r"donchian|keltner|supertrend|aroon|williams|obv|vwap|roc|trix|"
@@ -908,24 +986,52 @@ async def propose_dsl_workflow(args: dict) -> dict:
     exit_tx_meta = None
     exit_readback = None
     if exit_condition_text:
-        try:
-            exit_tree, exit_tx_meta = await translate_condition_to_tree(
-                exit_condition_text,
-                allow_position=True,
-                primary_symbol=primary,
-                cache_key="dsl.chat.propose.exit.v1",
-            )
-        except TranslationError as exc:
-            raise ValueError(
-                f"could not translate exit_condition into a DSL tree: {exc}"
-            ) from None
+        # Fast path: parse the common position-exit phrasings deterministically
+        # (no LLM hop). Falls through to the LLM translator only for shapes the
+        # parser doesn't recognise, and that call is TIME-CAPPED so a hung
+        # provider can't stall the turn ~2 minutes. On any failure we fall back
+        # to the deterministic leaf rather than refusing a supported exit shape.
+        exit_tree = _deterministic_position_exit(exit_condition_text)
+        if exit_tree is None:
+            try:
+                exit_tree, exit_tx_meta = await asyncio.wait_for(
+                    translate_condition_to_tree(
+                        exit_condition_text,
+                        allow_position=True,
+                        primary_symbol=primary,
+                        cache_key="dsl.chat.propose.exit.v1",
+                    ),
+                    timeout=25,
+                )
+            except (TranslationError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+                exit_tree = _deterministic_position_exit(
+                    exit_condition_text, force=True,
+                )
+                if exit_tree is None:
+                    raise ValueError(
+                        f"could not translate exit_condition into a DSL tree: {exc}"
+                    ) from None
+                logger.info(
+                    "exit translate failed (%s); used deterministic leaf for %r",
+                    type(exc).__name__, exit_condition_text[:60],
+                )
         try:
             parsed_exit = TypeAdapter(Tree).validate_python(exit_tree)
             semantic_validate(parsed_exit, allow_position=True)
         except (DSLValidationError, ValidationError) as exc:
-            raise ValueError(
-                f"translated exit tree is invalid: {exc}"
-            ) from None
+            # Last-ditch deterministic leaf before refusing.
+            fb = _deterministic_position_exit(exit_condition_text, force=True)
+            if fb is not None and fb is not exit_tree:
+                try:
+                    parsed_exit = TypeAdapter(Tree).validate_python(fb)
+                    semantic_validate(parsed_exit, allow_position=True)
+                    exit_tree = fb
+                except (DSLValidationError, ValidationError):
+                    raise ValueError(f"translated exit tree is invalid: {exc}") from None
+            else:
+                raise ValueError(
+                    f"translated exit tree is invalid: {exc}"
+                ) from None
         exit_readback = tree_to_english(parsed_exit)
 
     # Build the entry action step. For v1 we only support three:

@@ -1363,13 +1363,23 @@ _PURE_AFFIRMATIVE_RE = re.compile(
     r"(?:yes\s+|ok\s+|okay\s+|sure\s+|alright\s+|fine\s+|now\s+)?"
     r"(?:do|go(?:\s+ahead)?|proceed|let'?s\s+go|"
     r"activate|confirm|run|launch|fire|"
+    # "register it" / "set it up" / "lock it in" / "schedule it" /
+    # "enable it" — these acknowledge an existing draft just like
+    # "activate it"; chat can't flip it live, so the handler points the
+    # user at the card's Save & activate button instead of re-building
+    # (the prior bug: "register it" / "set it up exactly like that"
+    # re-invoked propose_* and errored to nothing).
+    r"register(?:\s+it|\s+that|\s+this)?|"
+    r"set\s+(?:it\s+|this\s+|that\s+)?up|lock\s+(?:it\s+|this\s+)?in|"
+    r"enable|schedule\s+it|turn\s+it\s+on|"
     r"make\s+it\s+so|go\s+for\s+it|save)"
     # Optional connector + verb (handles "save and activate",
     # "go ahead and proceed") and/or pronoun fillers.
     r"(?:\s+(?:and|then)\s+"
-    r"(?:do|go|proceed|activate|confirm|run|launch|save))?"
+    r"(?:do|go|proceed|activate|confirm|run|launch|save|register))?"
     r"(?:\s+(?:with|on)\s+(?:it|that|this))?"
-    r"(?:\s+(?:it|that|this|now|please|ahead))*"
+    # Trailing fillers incl. "exactly like that" / "just like this".
+    r"(?:\s+(?:exactly|just|simply|like|it|that|this|now|please|ahead))*"
     r")\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
