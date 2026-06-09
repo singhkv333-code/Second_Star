@@ -81,6 +81,73 @@ _LABELS: dict[str, str] = {
 }
 _PCT_FIELDS = {"roe", "roce", "npm", "dividend_payout"}
 
+_YF_FUND_CACHE_PREFIX = "fund_yf:"
+_YF_FUND_CACHE_TTL_S = 60 * 60 * 12  # 12h — fundamentals move at most quarterly
+
+
+def _yfinance_fundamentals(symbol: str) -> dict[str, Any]:
+    """Fallback fundamentals from yfinance `.info` for the (many) large/
+    mid caps the Moneycontrol DB leaves sparse. Returns values already
+    converted to this module's unit conventions (roe/npm/payout as %, de
+    as a ratio); {} on any error. Cached 12h (the `.info` call is slow).
+    ROCE is not exposed by yfinance — left to the DB.
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return {}
+    ckey = _YF_FUND_CACHE_PREFIX + sym
+    try:
+        raw = redis_client.get(ckey)
+        if raw:
+            return json.loads(raw)
+    except Exception:  # noqa: BLE001
+        pass
+    out: dict[str, Any] = {}
+    try:
+        import yfinance as yf
+        from backend.market.yfinance_service import resolve_symbol
+        yf_sym = resolve_symbol(sym)
+        if not yf_sym.endswith(".NS") and not yf_sym.startswith("^"):
+            yf_sym = f"{sym}.NS"
+        info = yf.Ticker(yf_sym).info or {}
+
+        def _f(v):
+            try:
+                return round(float(v), 2) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        pe = _f(info.get("trailingPE"))
+        roe = info.get("returnOnEquity")
+        npm = info.get("profitMargins")
+        payout = info.get("payoutRatio")
+        de = info.get("debtToEquity")
+        out = {
+            "pe": pe,
+            "roe": round(roe * 100, 2) if isinstance(roe, (int, float)) else None,
+            "npm": round(npm * 100, 2) if isinstance(npm, (int, float)) else None,
+            "dividend_payout": round(payout * 100, 2) if isinstance(payout, (int, float)) else None,
+            # yfinance reports debtToEquity as a percentage (e.g. 36.65) →
+            # our `de` is a ratio (0.37).
+            "de": round(de / 100.0, 2) if isinstance(de, (int, float)) else None,
+            "eps": _f(info.get("trailingEps")),
+            "book_value": _f(info.get("bookValue")),
+            # Bonus context the LLM can use; not in _METRICS.
+            "roa": round(info.get("returnOnAssets") * 100, 2)
+                   if isinstance(info.get("returnOnAssets"), (int, float)) else None,
+            "dividend_yield": _f(info.get("dividendYield")),
+            "pb": _f(info.get("priceToBook")),
+        }
+        out = {k: v for k, v in out.items() if v is not None}
+    except Exception as e:  # noqa: BLE001
+        logger.info("yfinance fundamentals fallback failed for %s: %s", sym, str(e)[:120])
+        return {}
+    try:
+        redis_client.set(ckey, json.dumps(out), ex=_YF_FUND_CACHE_TTL_S)
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
 
 _NEWS_CACHE_PREFIX = "symbol_news:"
 _NEWS_CACHE_TTL_S = 60 * 60  # 1 hour
@@ -135,9 +202,24 @@ def fetch_fundamentals(symbol: str, *, basis: str = "consolidated") -> dict:
     try:
         company = fdb.get_company(sym, session=session)
         if company is None:
+            # Not in the Moneycontrol DB — still try yfinance before giving up.
+            yf_fund = _yfinance_fundamentals(sym)
+            if yf_fund:
+                for key, _ in _METRICS:
+                    if yf_fund.get(key) is not None:
+                        out[key] = yf_fund[key]
+                for bonus in ("roa", "dividend_yield", "pb"):
+                    if yf_fund.get(bonus) is not None:
+                        out[bonus] = yf_fund[bonus]
+                out["available"] = sum(1 for k, _ in _METRICS if out.get(k) is not None)
+                out["source"] = "yfinance"
+                out["summary"] = _summarise(out)
+                out["note"] = (
+                    "Not in the fundamentals DB; metrics sourced from yfinance."
+                )
+                return out
             out["summary"] = (
-                f"{sym}: not found in the fundamentals database "
-                f"(no sc_id mapping)."
+                f"{sym}: not found in the fundamentals database or yfinance."
             )
             out["note"] = "symbol did not resolve to an sc_id"
             return out
@@ -162,16 +244,41 @@ def fetch_fundamentals(symbol: str, *, basis: str = "consolidated") -> dict:
             out[key] = val
         out["available"] = available
 
+        # ── yfinance fallback ──────────────────────────────────────────
+        # The Moneycontrol DB is sparse for many large/mid caps (HDFCBANK
+        # came back with only EPS). Fill any still-missing metric from
+        # yfinance `.info` so the chat analysis isn't hamstrung by
+        # "PE/ROE unavailable". DB values win (point-in-time correct);
+        # yfinance only fills the gaps.
+        filled_from_yf = 0
+        if available < len(_METRICS):
+            yf_fund = _yfinance_fundamentals(sym)
+            for key, _ in _METRICS:
+                if out.get(key) is None and yf_fund.get(key) is not None:
+                    out[key] = yf_fund[key]
+                    filled_from_yf += 1
+            # Bonus context fields (not in _METRICS) when available.
+            for bonus in ("roa", "dividend_yield", "pb"):
+                if yf_fund.get(bonus) is not None:
+                    out[bonus] = yf_fund[bonus]
+            available = sum(1 for k, _ in _METRICS if out.get(k) is not None)
+            out["available"] = available
+
+        out["source"] = (
+            "moneycontrol+yfinance" if filled_from_yf else "moneycontrol"
+        )
         out["summary"] = _summarise(out)
         if available == 0:
             out["note"] = (
-                "Symbol resolved but no fundamental metrics are populated "
-                "for it in the Moneycontrol DB (sparse coverage)."
+                "No fundamental metrics available for this symbol from "
+                "either the Moneycontrol DB or yfinance."
             )
         elif available < len(_METRICS):
+            missing = [k for k, _ in _METRICS if out.get(k) is None]
             out["note"] = (
                 f"Partial data: {available}/{len(_METRICS)} metrics "
-                f"available; the rest are not populated for this symbol."
+                f"available ({'incl. yfinance fallback' if filled_from_yf else 'DB only'}); "
+                f"unavailable: {', '.join(missing)}."
             )
         return out
     finally:
