@@ -1715,11 +1715,17 @@ async def _build_option_strategy(a, kt, db, uid):
     if strikes and template in TEMPLATES:
         spec_legs = TEMPLATES[template].legs
         if len(strikes) == len(spec_legs):
-            explicit_legs = [
-                {"option_type": s.option_type, "side": s.side,
-                 "strike": float(k)}
-                for s, k in zip(spec_legs, strikes)
-            ]
+            # Models sometimes pass strikes=[null] when they have no
+            # level in mind. A None/garbage strike must NOT kill the
+            # build — fall back to the template's delta/ATM defaults.
+            try:
+                explicit_legs = [
+                    {"option_type": s.option_type, "side": s.side,
+                     "strike": float(k)}
+                    for s, k in zip(spec_legs, strikes)
+                ]
+            except (TypeError, ValueError):
+                explicit_legs = None
     try:
         payload = resolve_strategy(
             db, underlying, template,

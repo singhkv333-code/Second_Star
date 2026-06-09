@@ -668,6 +668,22 @@ _OPTIONS_TOOLS: frozenset[str] = frozenset({
     "get_portfolio_greeks",
 })
 
+# H1: tools stripped on a hedge-construction turn. The screenshot bug
+# was a schedule-BUY of the very symbols being hedged — structurally
+# possible only because the order macros were in scope. On the hedge
+# turn the model must explain + build the offsetting leg (options
+# surface stays in scope); a follow-up turn that picks a cash-equity
+# route ("ok, monthly GOLDBEES instead") no longer matches the hedge
+# detector, so the macros return for the actual build.
+_HEDGE_STRIP_TOOLS: frozenset[str] = frozenset({
+    "propose_workflow", "propose_scheduled_order",
+    "propose_threshold_order", "propose_basket_allocation",
+    "propose_holding_action", "propose_dsl_workflow",
+    "place_market_order", "place_limit_order",
+    "create_gtt_order", "create_sl_order", "create_oco_order",
+    "create_dip_buy", "place_basket_order", "create_sip",
+})
+
 
 # ── R4: named-option-template BUILD detector ───────────────────────────
 # GAN R2 regression: "build me an iron condor on NIFTY" bounced to
@@ -909,6 +925,101 @@ _CONTRADICTION_RE = re.compile(
 
 def _is_buy_sell_contradiction(message: str) -> bool:
     return bool(_CONTRADICTION_RE.search(message or ""))
+
+
+# Hedge-construction detector — "make me a strategy to hedge my HDFC
+# position". Screenshot regression: the model parsed "hedge against
+# HDFCBANK + ICICIBANK" into a schedule-BUY of those very symbols —
+# the literal opposite of a hedge. The directive built in
+# _build_deterministic_guards explains what a hedge must do; the
+# routing layer pairs it with scope narrowing (strip the order macros,
+# add the options surface) so the broken draft is structurally
+# impossible on the hedge turn. Excludes "sell/exit/close my hedge"
+# (managing an EXISTING hedge, e.g. the event-resolution flow).
+_HEDGE_REQUEST_RE = re.compile(
+    r"\bhedg(?:e|ing|ed)\b", re.IGNORECASE,
+)
+_HEDGE_MANAGE_RE = re.compile(
+    r"\b(?:sell|exit|close|unwind|remove|book)\b[^.?!]{0,30}\bhedge\b",
+    re.IGNORECASE,
+)
+
+
+def _is_hedge_request(message: str) -> bool:
+    """True when the user asks to CONSTRUCT a hedge (vs manage an
+    existing one). Kept broad on purpose — the guard only shapes HOW
+    a hedge is built, so a false positive costs one explanatory
+    sentence, while a miss re-ships the buy-the-same-stock bug."""
+    msg = message or ""
+    if not _HEDGE_REQUEST_RE.search(msg):
+        return False
+    return not _HEDGE_MANAGE_RE.search(msg)
+
+
+# Acceptance of the "say the word and I'll build the same for <other>"
+# offer the H1 directive scripts. Without this, the follow-up ("yes add
+# the same for the other one") carries no hedge word, the guard doesn't
+# fire, and the generic draft machinery routes it to propose_workflow —
+# a workflow card where the user expects the second option-strategy
+# card (observed live).
+_HEDGE_FOLLOWUP_MSG_RE = re.compile(
+    r"\b(?:same|other|both|second)\b", re.IGNORECASE,
+)
+_HEDGE_OFFER_RE = re.compile(
+    r"(?:say\s+the\s+word|build\s+the\s+same|same\s+(?:hedge\s+)?for)",
+    re.IGNORECASE,
+)
+
+
+def _is_hedge_followup(message: str, history: list) -> bool:
+    """True when a SHORT reply accepts the prior assistant turn's offer
+    to build the same hedge for the other name."""
+    msg = (message or "").strip()
+    if not msg or len(msg.split()) > 14:
+        return False
+    if not _HEDGE_FOLLOWUP_MSG_RE.search(msg):
+        return False
+    for h in reversed(history or []):
+        if h.get("role") != "assistant":
+            continue
+        prev = (h.get("content") or "").lower()
+        return (
+            ("hedge" in prev or "protective put" in prev)
+            and bool(_HEDGE_OFFER_RE.search(prev))
+        )
+    return False
+
+
+# Strategy-framed build detector — the user asked for a "strategy"
+# (diversify / rebalance / hedge / allocate), not a mechanical order.
+# Screenshot regression: "build me a strategy to diversify" → card
+# shipped with a one-line "Drafted: …" handoff and zero explanation
+# of the strategy. The POST-DRAFT FLOOR's 2-sentence cap is the wrong
+# shape for these turns; the guard lifts it. Checks RECENT USER turns
+# too because the draft usually lands on an affirmative follow-up
+# ("yes make a concrete strategy") that carries none of the framing.
+_STRATEGY_FRAMED_RE = re.compile(
+    r"\b(?:strateg(?:y|ies)|diversif\w*|re-?balanc\w*|hedg(?:e|ing)|"
+    r"allocat\w*|asset\s+mix)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_strategy_framed(message: str, history: list) -> bool:
+    """True when this turn — or one of the last 3 user turns — frames
+    the ask as a STRATEGY rather than a single mechanical order."""
+    if _STRATEGY_FRAMED_RE.search(message or ""):
+        return True
+    seen = 0
+    for h in reversed(history or []):
+        if h.get("role") != "user":
+            continue
+        if _STRATEGY_FRAMED_RE.search(h.get("content") or ""):
+            return True
+        seen += 1
+        if seen >= 3:
+            break
+    return False
 
 
 def _is_filler_reply(message: str) -> bool:
@@ -1955,6 +2066,74 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
             "the read-back. NEVER call ASK_USER for this turn. Read-back: "
             "'Watching <SYMBOL> — I'll alert you the moment it crosses "
             "<above/below> ₹<level>. No order is placed (in-app alert).'"
+        )
+
+    # H1 — hedge construction: a hedge OFFSETS exposure, never adds it.
+    if _is_hedge_request(message):
+        guards.append(
+            "## Hedge request — a hedge must OFFSET the exposure\n"
+            "The user asked to HEDGE an existing position/portfolio. It is "
+            "a HARD ERROR to draft anything that BUYS MORE of the symbols "
+            "being hedged — that doubles the exposure, the opposite of a "
+            "hedge. Do NOT ask 'how many shares should the agent buy'. "
+            "Your reply MUST, in this order: (1) EXPLAIN the hedge in 2-4 "
+            "sentences — which instrument moves OPPOSITE the position and "
+            "why (e.g. a put gains as the stock falls, capping downside "
+            "for the premium paid); (2) build the concrete hedge: for a "
+            "long single-stock position the canonical hedge is a "
+            "PROTECTIVE PUT — call build_option_strategy(underlying="
+            "<symbol>, template='protective_put'). Build ONE card per "
+            "turn: for two names, build the first/larger one only and "
+            "end with 'say the word and I'll build the same for "
+            "<other>' — calling build_option_strategy twice in one turn "
+            "is a HARD ERROR (only one card renders; the second build "
+            "silently overwrites the first). For a broad bank/index-"
+            "correlated book, index puts (BANKNIFTY/NIFTY) work too. "
+            "If the user wants a cash-equity-"
+            "only hedge, offer LOW/NEGATIVE-correlation diversifiers "
+            "(e.g. GOLDBEES) or a reduce-exposure rule — and say plainly "
+            "that this is only a PARTIAL hedge, not true protection; "
+            "(3) disclose sizing honestly: puts trade in fixed LOTS — if "
+            "the user's share count is far below one lot, one lot "
+            "over-hedges (say so and size to the nearest sensible lot). "
+            "Never schedule-buy the hedged symbols."
+        )
+
+    # H1b — acceptance of the "build the same for <other>" offer.
+    if _is_hedge_followup(message, history):
+        guards.append(
+            "## Hedge follow-up — build the SECOND option card NOW\n"
+            "The user just accepted your offer to build the same hedge "
+            "for the OTHER name. Call build_option_strategy(underlying="
+            "<the other symbol from your last message>, "
+            "template='protective_put') IMMEDIATELY — same expiry logic "
+            "as the first card. Do NOT propose a workflow, do NOT "
+            "re-ask position size, do NOT claim both cards are "
+            "registered together (each card registers separately). "
+            "After the card: one line with the new leg's strike, max "
+            "loss and breakeven, + 'registers — you activate'."
+        )
+
+    # H2 — strategy-framed draft: explain the strategy WITH the card.
+    # Suppressed on named option-template builds: R4 above mandates the
+    # tight legs+economics readback there and the two shapes conflict.
+    if _is_strategy_framed(message, history) and not _is_named_option_build(message):
+        guards.append(
+            "## Strategy-framed draft — EXPLAIN the strategy, then hand "
+            "off\n"
+            "The user asked for a STRATEGY (diversify / rebalance / hedge "
+            "/ allocation), not a mechanical order. If this turn produces "
+            "a draft card, the 2-sentence post-draft cap does NOT apply. "
+            "Your text MUST: (1) open with WHAT the strategy does and WHY "
+            "it fits the user's stated goal, quoting the REAL numbers you "
+            "fetched (e.g. 'Banking is 42% of your book, so each quarter "
+            "this trims it toward 25%') — 3-5 sentences; (2) show the "
+            "allocation/leg TABLE (Symbol | Target | Action) when there "
+            "are 2+ instruments; (3) close with the handoff: what the "
+            "card automates, what stays manual, and 'registers — you "
+            "activate'. A bare 'Drafted: … Registers — you activate.' "
+            "with no explanation of the strategy is a FAILURE for this "
+            "turn. Target 80-150 words, not 50."
         )
 
     # R2 — buy/sell at open|close → market_relative_time, never 09:30.
@@ -3504,6 +3683,8 @@ class ChatService:
         _at_open_close = _is_at_open_close_build(message)
         _confusion_menu = _is_confusion_after_menu(message, history)
         _unsupported_rail = _names_unsupported_rail(message)
+        _hedge_followup = _is_hedge_followup(message, history)
+        _hedge_request = _is_hedge_request(message) or _hedge_followup
         # R4: named option template build → force build_option_strategy,
         # remove ASK_USER from scope so the model cannot escape to it.
         if _named_option_build and selected_names is not None:
@@ -3518,6 +3699,27 @@ class ChatService:
             ]
             cache_key = cache_key_for(selected_names)
             agent_tool_choice = "required"
+        # H1: hedge construction → options surface in, order macros OUT so
+        # a buy-the-hedged-symbols draft is structurally impossible this
+        # turn. tool_choice stays auto: the directive wants prose-first
+        # (explain the hedge) and the model may need to ask position size.
+        elif _hedge_request and selected_names is not None:
+            selected_names = (
+                selected_names | _OPTIONS_TOOLS
+            ) - _HEDGE_STRIP_TOOLS
+            if _hedge_followup:
+                # Acceptance of the offered second card: force the build,
+                # drop ASK_USER so it cannot re-ask position size.
+                tooldefs = [
+                    t for t in _registry_tools_as_tooldefs(selected_names)
+                    if t.name != ASK_USER_TOOL_NAME
+                ]
+                agent_tool_choice = "required"
+            else:
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                agent_tool_choice = "auto"
+            cache_key = cache_key_for(selected_names)
+            trace.event("hedge_guard.scope_forced", followup=_hedge_followup)
         # R3: fully-specified notify-only alert → force propose_dsl_workflow,
         # drop ASK_USER so it can't ask about the single channel.
         elif _notify_only and selected_names is not None:
@@ -4131,6 +4333,30 @@ class ChatService:
             for tc in response.tool_calls or []:
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
+                # H1: only ONE strategy card renders per turn — a second
+                # build_option_strategy would silently overwrite the first
+                # card (observed live on two-name hedge asks). Reject it
+                # as a tool error so the model offers the second build as
+                # a follow-up instead of shipping an incoherent turn.
+                if (
+                    tc.get("name") == "build_option_strategy"
+                    and "build_option_strategy" in tools_called
+                ):
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name="build_option_strategy",
+                        content=(
+                            "REJECTED: only one strategy card renders per "
+                            "turn and the first build is already on "
+                            "screen. Describe the card that was built and "
+                            "OFFER to build this one next turn ('say the "
+                            "word and I'll build the same for <name>')."
+                        ),
+                    ))
+                    trace.event("tool.rejected_duplicate",
+                                tool="build_option_strategy")
+                    continue
                 guarded = await execute_with_completeness(
                     tc["name"],
                     tc.get("arguments") or {},
@@ -4922,6 +5148,8 @@ class ChatService:
         _at_open_close = _is_at_open_close_build(message)
         _confusion_menu = _is_confusion_after_menu(message, history)
         _unsupported_rail = _names_unsupported_rail(message)
+        _hedge_followup = _is_hedge_followup(message, history)
+        _hedge_request = _is_hedge_request(message) or _hedge_followup
         if _named_option_build and selected_names is not None:
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
                 "place_market_order", "place_limit_order",
@@ -4934,6 +5162,25 @@ class ChatService:
             ]
             cache_key = cache_key_for(selected_names)
             agent_tool_choice = "required"
+        # H1 (stream mirror): hedge construction → options surface in,
+        # order macros OUT; tool_choice auto for the explain-first reply.
+        elif _hedge_request and selected_names is not None:
+            selected_names = (
+                selected_names | _OPTIONS_TOOLS
+            ) - _HEDGE_STRIP_TOOLS
+            if _hedge_followup:
+                # Acceptance of the offered second card: force the build,
+                # drop ASK_USER so it cannot re-ask position size.
+                tooldefs = [
+                    t for t in _registry_tools_as_tooldefs(selected_names)
+                    if t.name != ASK_USER_TOOL_NAME
+                ]
+                agent_tool_choice = "required"
+            else:
+                tooldefs = _registry_tools_as_tooldefs(selected_names)
+                agent_tool_choice = "auto"
+            cache_key = cache_key_for(selected_names)
+            trace.event("hedge_guard.scope_forced", followup=_hedge_followup)
         elif _notify_only and selected_names is not None:
             selected_names = (selected_names | frozenset({
                 "propose_dsl_workflow",
@@ -5445,6 +5692,28 @@ class ChatService:
                 yield {"type": "tool_start", "name": tc.get("name", "")}
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
+                # H1 (stream mirror): one strategy card per turn — reject
+                # a duplicate build_option_strategy so it can't overwrite
+                # the card already built this turn.
+                if (
+                    tc.get("name") == "build_option_strategy"
+                    and "build_option_strategy" in tools_called
+                ):
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name="build_option_strategy",
+                        content=(
+                            "REJECTED: only one strategy card renders per "
+                            "turn and the first build is already on "
+                            "screen. Describe the card that was built and "
+                            "OFFER to build this one next turn ('say the "
+                            "word and I'll build the same for <name>')."
+                        ),
+                    ))
+                    trace.event("tool.rejected_duplicate",
+                                tool="build_option_strategy")
+                    continue
                 guarded = await execute_with_completeness(
                     tc["name"],
                     tc.get("arguments") or {},
