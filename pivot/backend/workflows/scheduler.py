@@ -690,13 +690,53 @@ async def _evaluate_expiry_day_trigger(
     await _fire_watch_run(workflow_id, step_index, "event_alert", fired_at)
 
 
+def _resolve_market_token() -> str:
+    """Return a usable Kite access token for market quotes, or the
+    ``"mock_token"`` shim.
+
+    The scheduler is system-wide and market quotes are not user-specific,
+    so ANY active KiteSession token works. Previously this passed a
+    hardcoded ``"mock_token"`` — fine in mock mode, but once real Kite
+    credentials + a live session exist (mock mode OFF), Kite rejected it
+    with ``TokenException`` and every price/indicator trigger silently
+    errored. Resolve the most-recently-updated active session instead;
+    fall back to ``"mock_token"`` (which get_live_quote serves from the
+    mock store when KITE_MOCK_MODE is on)."""
+    from backend.kite.auth import KITE_MOCK_MODE, read_kite_access_token
+    if KITE_MOCK_MODE:
+        return "mock_token"
+    try:
+        from backend.database import SessionLocal
+        from backend.models import KiteSession
+        db = SessionLocal()
+        try:
+            row = (
+                db.query(KiteSession)
+                .filter(KiteSession.is_active.is_(True))
+                .order_by(KiteSession.updated_at.desc().nullslast())
+                .first()
+            )
+            return read_kite_access_token(row) or "mock_token"
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — never let token lookup crash a job
+        return "mock_token"
+
+
 def _batch_fetch_prices(instruments: list[str]) -> dict[str, float]:
-    """Fetch live quotes for a batch of instruments. Uses Kite-mock-mode
-    when no key is configured. Returns {instrument: ltp} for every
-    instrument that has a price."""
+    """Fetch live quotes for a batch of instruments. Resolves a live
+    Kite session token (or the mock shim). Returns {instrument: ltp} for
+    every instrument that has a price; returns {} on any fetch error so a
+    dead/expired token (e.g. after the 6 AM IST daily expiry) degrades
+    gracefully instead of throwing inside the scheduler job."""
     from backend.kite.market_data import get_live_quote
 
-    raw = get_live_quote("mock_token", instruments) or {}
+    try:
+        raw = get_live_quote(_resolve_market_token(), instruments) or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("batch price fetch failed (%s): %s",
+                       type(exc).__name__, str(exc)[:160])
+        return {}
     out: dict[str, float] = {}
     for inst, payload in raw.items():
         if not isinstance(payload, dict):
