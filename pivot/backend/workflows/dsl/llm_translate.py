@@ -89,6 +89,11 @@ Prefer the SHORTCUT LEAVES whenever they fit:
 DIP / DROP WINDOW: a bare percentage DIP / DROP / FALL / PULLBACK / CORRECTION with NO explicit time window means a decline over the PAST WEEK — use bars=5, NOT bars=1. A single-day move of 5%+ essentially never happens for large-caps, so bars=1 makes a "buy the dip" strategy that NEVER fires. Only use bars=1 when the user explicitly says "in a day" / "intraday" / "single session".
   "buy HDFCBANK on a 10% dip"                  → { "type":"comparison", "op":"<=", "left":{"type":"pct_change","symbol":"HDFCBANK","bars":5}, "right":{"type":"constant","value":-0.10} }
   "RELIANCE drops 5% in a week"                → { "type":"comparison", "op":"<=", "left":{"type":"pct_change","symbol":"RELIANCE","bars":5}, "right":{"type":"constant","value":-0.05} }
+PERCENT FROM A REFERENCE LEVEL (open / day-high / day-low / prior close): "X% from <reference>" is a MULTIPLIER on that reference price — NOT an absolute rupee value, and NOT the bare reference (that fires almost always). Build it with a `math` (*) node:
+  "falls 4% from the open"        → { "type":"comparison", "op":"<=", "left":{"type":"price","symbol":"<SYM>","basis":"close"}, "right":{"type":"math","op":"*","operands":[{"type":"price","symbol":"<SYM>","basis":"open"},{"type":"constant","value":0.96}]} }
+  "dips 3% from the day's high"   → { "type":"comparison", "op":"<=", "left":{"type":"price","symbol":"<SYM>","basis":"close"}, "right":{"type":"math","op":"*","operands":[{"type":"price","symbol":"<SYM>","basis":"high"},{"type":"constant","value":0.97}]} }
+  "5% above the prior close"      → { "type":"comparison", "op":">=", "left":{"type":"price","symbol":"<SYM>","basis":"close"}, "right":{"type":"math","op":"*","operands":[{"type":"price","symbol":"<SYM>","basis":"close","offset":1},{"type":"constant","value":1.05}]} }
+NEVER encode "4% from open" as `price < 4` (absolute rupees) or `price < open` (no multiplier).
 Use the general `math` node ONLY when the shortcuts don't fit (e.g. "TCS close minus its 20-day SMA, divided by ATR").
 
 Examples:

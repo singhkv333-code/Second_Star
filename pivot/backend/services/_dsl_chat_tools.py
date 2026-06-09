@@ -23,6 +23,7 @@ to extract the user's intent — it doesn't need to know the DSL grammar.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -1162,6 +1163,18 @@ async def propose_dsl_workflow(args: dict) -> dict:
     }
     if valid_until_raw:
         draft["valid_until"] = valid_until_raw
+    # P1.10: a peak/trailing exit leaf (drawdown_from_peak_pct /
+    # peak_unrealised_pct) implies a ratchet the LIVE executor doesn't yet
+    # do — it places the initial stop and re-ratcheting is backtest-only.
+    # Force the disclosure onto the card's warnings so it can't be swallowed
+    # by the prose summariser (which kept reducing it to "Drafted.").
+    _exit_blob = json.dumps(exit_tree or {})
+    if "drawdown_from_peak_pct" in _exit_blob or "peak_unrealised_pct" in _exit_blob:
+        draft.setdefault("warnings", []).append(
+            "Trailing/peak exit: the ratchet is fully modeled in backtests. "
+            "Live, this registers the initial stop — live re-ratcheting on "
+            "new highs is coming, not wired yet."
+        )
     # R4a: pre-flight backtest resolvability so the FE knows whether
     # to surface the Backtest button — and so the runtime float-cast
     # error never fires for an unresolvable Mustache ref.

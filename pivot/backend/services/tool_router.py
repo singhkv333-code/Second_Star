@@ -347,6 +347,10 @@ _RULES: list[_Rule] = [
         # Return queries
         r"|\bytd\b|\b(?:total|cumulative|annualised|annualized)\s+return\b"
         r"|\bhow\s+has\s+\w+\s+(?:done|performed)\b"
+        # Trend / structure asks — need the SMA stack + RSI + returns, NOT
+        # a single-day index level. (P1.3)
+        r"|\b(?:up[- ]?trend|down[- ]?trend|\btrend\b|topping|bottoming|"
+        r"sideways|consolidat\w*|breakout|breakdown|momentum|structure)\b"
         # Multi-stock comparison / correlation
         r"|\b(?:rank|compare|correlat\w*|covariance|diversif\w*)\b"
         r"|\bmost\s+(?:correlated|uncorrelated)\b",
@@ -354,6 +358,20 @@ _RULES: list[_Rule] = [
         "get_performance_metrics", "compare_performance",
         "get_correlation_matrix", "get_returns",
         "get_live_price", "get_price_history",
+    ),
+
+    # ── Cross-sectional "cheapest / best of N on a metric" → screen ──
+    # WHY: "which of HDFCBANK, ICICIBANK, SBIN is cheapest on PE" / "rank
+    # these by ROE" should be ONE ranked screen_fundamentals, not N x
+    # fetch_fundamentals (sparse + N hops). (P1.5)
+    _r(
+        r"\b(?:cheapest|most\s+expensive|priciest|best|worst|rank|top|"
+        r"which\s+(?:of\s+)?(?:these|them|the)?)\b[^.?]{0,40}"
+        r"\b(?:p/?e|pe\b|roe|roce|p/?b|valuation|debt|d/?e|payout|"
+        r"dividend|margin|cheap|expensive)\b"
+        r"|\b(?:p/?e|roe|roce|p/?b|valuation|payout|dividend\s+yield)\b"
+        r"[^.?]{0,30}\b(?:cheapest|highest|lowest|best|rank)\b",
+        "screen_fundamentals", "fetch_fundamentals", "compare_performance",
     ),
 
     # ── Top gainers / losers ──────────────────────────────────────

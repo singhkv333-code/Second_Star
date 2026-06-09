@@ -1095,8 +1095,8 @@ _ANALYSIS_INTENT_RE = re.compile(
     r"fairly\s*valued|a\s+buy|a\s+sell|worth\s+buying)|"
     # Risk / quality asks: "how risky is X" / "is X risky"
     r"how\s+risky\s+(?:is|are)|(?:is|are)\s+\w+\s+(?:risky|safe|quality)|"
-    # "X vs Y" comparison with 'vs' (not explicit 'compare')
-    r"\bvs\.?\b|"
+    # "X vs Y" comparison with 'vs' / 'versus' / explicit "comparison"
+    r"\bvs\.?\b|\bversus\b|\bcomparison\b|"
     # Dividend play / income angle: "good dividend play" / "dividend stock"
     r"dividend\s+(?:play|stock|pick|yield)|"
     # "which one is better" / "which has better" pattern

@@ -72,7 +72,17 @@ def get_historical_ohlcv(
         if kite_rows:
             return kite_rows
     try:
-        ticker_symbol = f"{symbol}.NS" if not symbol.endswith(".NS") else symbol
+        # Resolve through the shared symbol mapper so index aliases work
+        # (NIFTY→^NSEI, SENSEX→^BSESN, BANKNIFTY→^NSEBANK, RIL→RELIANCE.NS) —
+        # the old f"{symbol}.NS" turned NIFTY into the dead ticker NIFTY.NS,
+        # so index trend/price-history asks came back empty.
+        try:
+            from backend.market.yfinance_service import resolve_symbol
+            ticker_symbol = resolve_symbol(symbol)
+        except Exception:  # noqa: BLE001
+            ticker_symbol = symbol
+        if not ticker_symbol.startswith("^") and not ticker_symbol.endswith(".NS"):
+            ticker_symbol = f"{ticker_symbol}.NS"
         ticker = yf.Ticker(ticker_symbol)
         df = ticker.history(period=period, interval=interval)
         if df.empty:
