@@ -1182,7 +1182,27 @@ async def _get_live_price(a, kt, db, uid):
     "no price available" even though the data is publicly fetchable.
     """
     from backend.agents.context_injector import _cached_price
-    sym = a["symbol"].upper()
+    sym = (a.get("symbol") or "").upper().strip()
+    # Reject obvious non-tickers — "show ME the option chain" was extracting
+    # ME as a symbol and rendering a bogus "no quote for ME.NSE" snapshot
+    # card. Fail with a clean nudge so the model re-routes (e.g. to the
+    # option chain) instead of pricing an English stopword.
+    _NOT_A_TICKER = {
+        "ME", "SHOW", "THE", "MY", "A", "AN", "IT", "US", "TO", "OF", "IN",
+        "ON", "FOR", "AND", "OR", "IS", "AT", "BE", "DO", "GO", "SO", "UP",
+        "WE", "YOU", "PLS", "PLEASE", "HEY", "HI", "OK", "OPTION", "OPTIONS",
+        "CHAIN", "PUT", "CALL", "STOCK", "PRICE", "QUOTE", "CHART",
+    }
+    if not sym or len(sym) < 2 or sym in _NOT_A_TICKER:
+        return {
+            "success": False,
+            "data": {"error": (
+                f"'{a.get('symbol')}' isn't a stock symbol I can price. "
+                "Name a specific ticker (e.g. RELIANCE, NIFTY) — or if you "
+                "want the option chain, ask for that."
+            )},
+            "logiccard": None,
+        }
     pd = _cached_price(sym)
     if pd and pd.get("ltp"):
         return {"success": True,

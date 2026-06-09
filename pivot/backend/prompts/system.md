@@ -949,7 +949,11 @@ Pick the tool by the user's shape:
 - **`get_option_chain`** — chain / strikes / premiums / OI / IV / greeks
   / max pain / PCR / expected move asks. The card carries every number;
   answer metric questions FROM it (e.g. expected move is a field on the
-  card — quote the ±band and %, never deflect).
+  card — quote the ±band and %, never deflect). ANY message containing
+  "option chain" / "options chain" → call `get_option_chain(<underlying>)`;
+  NEVER route it to `get_live_price`/`get_ohlc`. Pull the underlying from
+  the phrase ("nifty option chain" → NIFTY); filler words like "show",
+  "me", "the" are NOT tickers — never pass them as a symbol.
 - **`suggest_option_strategy`** — the user has a VIEW (bullish / bearish
   / neutral-income / "big move but unsure of direction" / volatility
   around an event) and no specific strikes. Emits 2-3 risk-tagged
