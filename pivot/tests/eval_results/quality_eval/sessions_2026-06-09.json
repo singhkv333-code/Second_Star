@@ -1,0 +1,273 @@
+[
+ {
+  "category": "analysis",
+  "name": "reliance_deep_dive",
+  "why": "Demands a STRUCTURED single-name read: price level, 1w/1m/3m/6m/1y returns, SMA20/50/200 stack, RSI-14, 52w distance, plus a fundamental layer (PE, growth, margin) and a final this-is-what-it-says synthesis. Judge weighs: real Kite-sourced last close (not stale), correct trend label vs SMA stack, no hand-waving, no fabricated price targets, and an honest stance (not 'consult your advisor' boilerplate).",
+  "turns": [
+   "do a deep dive on RELIANCE for me - what's the chart saying right now and is the business still worth it at this level"
+  ]
+ },
+ {
+  "category": "analysis",
+  "name": "hdfcbank_is_a_buy",
+  "why": "The classic 'is X a buy' shape. The bot must NOT give a yes/no recommendation but MUST take a real stance built on price action + valuation + sector context (private bank). Judge: structured bull-case / bear-case / what-would-change-my-mind; cites real RSI / SMA200 distance / PE; doesn't dodge with a flat 'I can't give advice'.",
+  "turns": [
+   "honestly is HDFCBANK a buy at current prices or should I wait for a bigger correction"
+  ]
+ },
+ {
+  "category": "analysis",
+  "name": "tatamotors_what_do_you_think",
+  "why": "Open-ended 'what do you think' on a cyclical. Tests whether the bot reaches for the real toolkit (price history + fundamentals + news) instead of generic textbook talk. Judge: did it actually call get_price_history and get_symbol_news? Are the cited numbers fresh? Does it acknowledge the JLR cycle / EV capex without inventing figures?",
+  "turns": [
+   "what do you think of TATAMOTORS these days"
+  ]
+ },
+ {
+  "category": "analysis",
+  "name": "sbin_expensive_or_cheap",
+  "why": "Valuation-anchored analysis. Forces fetch_fundamentals (PE / PB / book value for a bank) and framing against sector medians. Judge: doesn't conflate bank PB with industrial PE; doesn't fabricate a 'fair value'; gives an honest expensive/cheap/fair verdict with the math.",
+  "turns": [
+   "is SBIN looking expensive right now or is there still value here at these levels"
+  ]
+ },
+ {
+  "category": "analysis",
+  "name": "infy_vs_tcs_compare",
+  "why": "Head-to-head compare. Must use compare_performance / get_returns and put real return numbers + valuation + momentum side-by-side, then call a winner with reasons. Judge: an actual table or clean side-by-side; not 'both are great companies'; picks one and defends it.",
+  "turns": [
+   "INFY vs TCS - which one is the better hold for the next 12 months, give me a real comparison not a both-are-good answer"
+  ]
+ },
+ {
+  "category": "analysis",
+  "name": "adanient_risk_read",
+  "why": "Risk-anchored analysis on a volatile name. Tests willingness to discuss drawdown / leverage perception / news flow without going preachy. Judge: cites real recent return + volatility, mentions group-level risk honestly, doesn't refuse and doesn't pump.",
+  "turns": [
+   "how risky is ADANIENT right now compared to a normal largecap like RELIANCE"
+  ]
+ },
+ {
+  "category": "analysis",
+  "name": "itc_dividend_play",
+  "why": "Income-angle analysis. Bot must pull dividend yield from fundamentals + price trend together. Judge: a real yield number (not 'around 4%' vibes); acknowledges hotels-demerger context without overclaiming.",
+  "turns": [
+   "is ITC still a good dividend play or has the demerger killed the income story"
+  ]
+ },
+ {
+  "category": "comparison_screen",
+  "name": "top_it_momentum_screen",
+  "why": "Screening surface - not single name. Forces screen_fundamentals or repeated compare across IT majors. Judge: a real ranked list with numbers (1m or 3m returns + RSI), not just 'INFY, TCS, WIPRO are the top IT stocks'.",
+  "turns": [
+   "which large IT stock has the strongest momentum right now - rank INFY TCS WIPRO HCLTECH LTIMINDTREE by 3 month return and RSI"
+  ]
+ },
+ {
+  "category": "comparison_screen",
+  "name": "bank_pe_screen",
+  "why": "Fundamental screening across a sector. Judge: real PE numbers per name; flags cheapest on book value (banks should use PB); doesn't dump a generic 'banks are cyclical' essay.",
+  "turns": [
+   "which bank stock is the cheapest on PE right now - HDFCBANK ICICIBANK SBIN KOTAKBANK AXISBANK"
+  ]
+ },
+ {
+  "category": "data_interp",
+  "name": "nifty_trend_read",
+  "why": "Index-level trend interpretation. Judge: real NIFTY close, SMA stack ordering, distance to 50/200, calls trend (up/range/down) with the math behind it.",
+  "turns": [
+   "what's NIFTY actually doing right now - uptrend, sideways or topping"
+  ]
+ },
+ {
+  "category": "data_interp",
+  "name": "infosys_overbought_check",
+  "why": "Specific overbought question. Judge: real RSI-14 number, distance to 52w high, calls it overbought/neutral with the number cited.",
+  "turns": [
+   "is INFY overbought right now or is there still room"
+  ]
+ },
+ {
+  "category": "data_interp",
+  "name": "tcs_returns_breakdown",
+  "why": "Pure data ask - return decomposition. Judge: 1w/1m/3m/6m/1y returns numbers verbatim, doesn't round to 'about 10%', doesn't refuse.",
+  "turns": [
+   "just give me TCS returns - 1 week, 1 month, 3 month, 6 month, 1 year"
+  ]
+ },
+ {
+  "category": "data_interp",
+  "name": "kotakbank_news_check",
+  "why": "News tool probe. Judge: calls get_symbol_news, lists real recent headlines (not 2024), summarises tone honestly without inventing a sentiment score.",
+  "turns": [
+   "any important KOTAKBANK news in the last few days that I should know about"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "reliance_open_buy_3pct_sell",
+  "why": "THE failing canonical shape from prior runs. Must build a card with schedule entry at open (or open-bar trigger) + exit_compound on unrealised_pct >= 0.03 - NOT loop, NOT refuse, NOT ask qty when the shape doesn't require it. Judge: workflow_draft_card emitted, both legs present, no capability-theatre, no false 'I can't tie entry to exit'.",
+  "turns": [
+   "build me an agent that buys reliance at open and sells when it rises 3%"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "tcs_buy_close_sell_next_open",
+  "why": "Simple swing automation - buy at close, sell next morning's open. Buildable as schedule entry + schedule exit. Judge: two scheduled actions, correct crons (~15:25 buy / ~09:20 next-day sell), no loop.",
+  "turns": [
+   "create a strategy that buys 5 TCS at close every day and sells them at next day's open"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "hdfcbank_weekly_buy_5pct_profit",
+  "why": "Weekly scheduled accumulation + profit-target exit (a known-working compound shape from prior run). Judge: weekly cron + exit_compound unrealised_pct>=0.05; both legs present.",
+  "turns": [
+   "every monday buy 10 HDFCBANK and exit each lot whenever it hits 5% profit"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "icicibank_rsi_buy_trailing",
+  "why": "Indicator entry + trailing exit. Tests propose_dsl_workflow + propose_holding_action chained. MUST disclose live-trailing limitation (P0 fix target from prior judge). Judge: card built, trailing=true, AND disclosure of 'live re-ratcheting is coming' appears in the user-visible reply, not silently swallowed.",
+  "turns": [
+   "buy 20 ICICIBANK whenever RSI goes below 32 and trail a 6% stop loss below the high after that"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "axisbank_ema_cross_buildable",
+  "why": "EMA 20/50 cross - cleanly buildable. Judge: trigger.indicator with crosses_above operator across two EMA leaves, not 'ema > 0'; if crosses_above unsupported, honest boundary not silent fallback.",
+  "turns": [
+   "set up AXISBANK to buy 15 shares when 20 EMA crosses above 50 EMA"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "maruti_dip_buy_with_stop",
+  "why": "Dip-buy + fixed stop. Common retail shape - 3% dip entry, 5% stop. Judge: workflow_draft_card with pct_change trigger + set_stoploss; qty=20 honored not re-asked.",
+  "turns": [
+   "buy 20 MARUTI on a 3% intraday dip and put a hard 5% stop loss on it"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "basket_largecap_nifty_drop",
+  "why": "Basket allocation on index event. Judge: propose_basket_allocation OR allocate_notional with 4 symbols + total_inr=40000; no legs dropped; trigger on NIFTY <-1.5%.",
+  "turns": [
+   "if NIFTY drops more than 1.5% in a day, split 40000 equally across RELIANCE INFY HDFCBANK ITC and buy"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "sunpharma_drawdown_exit_buildable",
+  "why": "Re-tests the P1 false-refusal from prior judge: drawdown_from_peak_pct as exit IS supported. Judge: must build, not refuse; uses position_field.drawdown_from_peak_pct >= 0.06.",
+  "turns": [
+   "build a workflow that buys 10 SUNPHARMA on RSI under 35 and exits if it drops 6% from its peak after I entered"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "macd_signal_crossover_jswsteel",
+  "why": "Targets P1-4 from prior judge: 'bullish MACD crossover' should be macd_line crosses_above macd_signal, NOT macd > 0. Judge: either uses the proper two-leaf crossover OR honestly says 'modelled as MACD>0; true line-vs-signal crossover isn't wired yet' - no silent semantic shortcut.",
+  "turns": [
+   "JSWSTEEL - buy 30 shares when MACD line crosses above the signal line"
+  ]
+ },
+ {
+  "category": "strategy_build",
+  "name": "goldbees_weekly_sip_500",
+  "why": "Regression on the known-working SIP path. Judge: propose_scheduled_order with notional_inr=500, weekly Monday cron, no qty ask.",
+  "turns": [
+   "put 500 into GOLDBEES every monday morning"
+  ]
+ },
+ {
+  "category": "multi_turn",
+  "name": "amend_then_confirm_register",
+  "why": "DIRECT re-test of P0-2 from prior judge: confirm-after-amend must REGISTER the draft, not re-emit another draft card. Judge: turn 0 builds with qty ask OR placeholder; turn 1 amends qty cleanly (same draft mutated, no field loss); turn 2 'looks good register it' triggers actual register/activate - NOT another draft.",
+  "turns": [
+   "build an agent that buys NESTLEIND when RSI drops under 30",
+   "make it 8 shares",
+   "looks good go ahead and register it"
+  ]
+ },
+ {
+  "category": "multi_turn",
+  "name": "i_dont_understand_followup",
+  "why": "User confusion mid-flow. Judge: bot patiently re-explains the proposed card in plainer language, doesn't dump the same JSON twice, picks one ambiguity and walks through it.",
+  "turns": [
+   "buy COALINDIA when it's looking cheap on indicators",
+   "wait i dont understand what you just proposed - which indicator did you pick and why"
+  ]
+ },
+ {
+  "category": "multi_turn",
+  "name": "amend_symbol_swap",
+  "why": "Amendment swaps the symbol entirely. Judge: same draft mutated to NEW symbol, trigger logic preserved, no full re-build from scratch, no field loss.",
+  "turns": [
+   "buy 12 TITAN when it falls 4% from open",
+   "actually do the same for EICHERMOT instead, keep everything else identical"
+  ]
+ },
+ {
+  "category": "multi_turn",
+  "name": "clarify_then_build_basket",
+  "why": "User starts vague, clarifies in turn 2 into a buildable basket. Judge: turn 0 asks the right ONE clarifying question (which stocks? what total?); turn 1 then builds the basket cleanly.",
+  "turns": [
+   "I want to spread 50000 across some good largecaps when the market dips",
+   "go with HDFCBANK INFY RELIANCE and ASIANPAINT, equal weight, trigger when NIFTY falls 1%"
+  ]
+ },
+ {
+  "category": "multi_turn",
+  "name": "analysis_then_build",
+  "why": "Analyse-then-act flow. Turn 0 is a real analysis; turn 1 turns the read into a concrete agent. Judge: turn 1 reuses turn-0 context (no re-fetch, same symbol), drafts a card aligned with the read.",
+  "turns": [
+   "quick read on BHARTIARTL - is it in an uptrend or not",
+   "ok make me an agent that buys 8 shares whenever it dips 3% from the day high"
+  ]
+ },
+ {
+  "category": "multi_turn",
+  "name": "hinglish_then_clarify_size",
+  "why": "Hinglish first turn + size clarification in turn 2. Judge: Hinglish parsed correctly into the draft, turn 2 swaps qty to a rupee notional cleanly, no field loss.",
+  "turns": [
+   "TATAMOTORS 4% gir jaye to 15 share kharid lo aur 7% upar bech do",
+   "actually 15 share nahi, 10000 ka kharido"
+  ]
+ },
+ {
+  "category": "edge_honesty",
+  "name": "fno_strategy_iron_condor",
+  "why": "F&O is wired but a retail-style 'set up an iron condor' is at the boundary - judge wants honest scoping (which expiry? which strikes? wide/narrow?) NOT silent fabrication of strikes, AND no flat 'options not supported' since options ARE wired.",
+  "turns": [
+   "set up an iron condor on NIFTY for this expiry, around current levels, retail size"
+  ]
+ },
+ {
+  "category": "edge_honesty",
+  "name": "nps_tax_advice",
+  "why": "Genuinely out of scope - NPS / tax planning isn't an investing-automation surface. Judge: honest 'this isn't what Pivot covers' + redirect, not a fake answer, not a generic refusal essay.",
+  "turns": [
+   "should I shift my NPS allocation from equity to govt bonds this year for tax purposes"
+  ]
+ },
+ {
+  "category": "regression",
+  "name": "live_price_reliance",
+  "why": "Bread-and-butter regression: a plain price ask must return a real fresh Kite-sourced number with a 2026 timestamp and no fluff. Judge: number present, currency, no stale 2024 prices, under 5 lines.",
+  "turns": [
+   "what's RELIANCE trading at right now"
+  ]
+ },
+ {
+  "category": "regression",
+  "name": "rsi_workflow_kotak",
+  "why": "Plain RSI workflow regression on a NEW symbol. Judge: trigger.indicator(rsi,14,<,30) + buy with explicit qty=10, no qty ask, backtestable=true.",
+  "turns": [
+   "create an agent that buys 10 KOTAKBANK when RSI drops below 30"
+  ]
+ }
+]

@@ -350,6 +350,21 @@ _RECURRING_SCHEDULE_RE = re.compile(
     r"|\b(?:weekly|daily|monthly|fortnightly|every\s+week)\b",
     re.IGNORECASE,
 )
+
+# SESSION-ANCHOR detector — "at open"/"at close"/"at the open"/"market open"
+# patterns that the DSL grammar can't express as conditions (they collapse to
+# open==open tautologies). When a propose_dsl_workflow fails AND this matches
+# the user message, redirect to propose_workflow with trigger.market_relative_time.
+# WHY separate from _RECURRING_SCHEDULE_RE: recurring patterns ("every Friday")
+# already work in _redirect_target_for_failure; session anchors ("at open")
+# need the same redirect but were missing.
+_SESSION_ANCHOR_RE = re.compile(
+    r"\bat\s+(?:the\s+)?(?:open|close)\b"
+    r"|\b(?:market\s+)?(?:open|close)\s+(?:today|tomorrow|every)?\b"
+    r"|\bon\s+(?:the\s+)?(?:open|close)\b"
+    r"|\b(?:buy|sell)\s+(?:at|on)\s+(?:the\s+)?(?:open|close)\b",
+    re.IGNORECASE,
+)
 _ROUTE_HINT_RE = re.compile(
     r"use\s+(propose_workflow|propose_dsl_workflow|"
     r"propose_threshold_order|propose_scheduled_order|"
@@ -375,13 +390,28 @@ def _redirect_target_for_failure(
     condition slot the tool instead fails mid-translation (position-leaf-
     in-entry, self-comparison tautology) with a hint-less error — so the
     redirect must also fire on the schedule SHAPE of the user's message.
+
+    Session-anchor backstop: "at open"/"at close" patterns also can't be
+    expressed as DSL conditions (they collapse to open==open tautologies).
+    When the error mentions "self-comparison" or "tautology" AND the user
+    message contains a session-anchor phrase, redirect to propose_workflow
+    which supports trigger.market_relative_time(anchor='open'/'close').
     """
     m = _ROUTE_HINT_RE.search(error or "")
     if m:
         return m.group(1)
-    if (tool_name == "propose_dsl_workflow"
-            and _RECURRING_SCHEDULE_RE.search(user_message or "")):
-        return "propose_workflow"
+    if tool_name == "propose_dsl_workflow":
+        # Recurring schedule backstop
+        if _RECURRING_SCHEDULE_RE.search(user_message or ""):
+            return "propose_workflow"
+        # Session-anchor backstop — "at open"/"at close" patterns
+        if _SESSION_ANCHOR_RE.search(user_message or ""):
+            return "propose_workflow"
+        # Tautology / self-comparison error with any schedule-like shape
+        err_lower = (error or "").lower()
+        if ("self-comparison" in err_lower or "tautology" in err_lower
+                or "same thing" in err_lower):
+            return "propose_workflow"
     return None
 
 
@@ -1047,6 +1077,34 @@ _EXPLAINER_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ANALYSIS-class detector — single-stock / comparative analysis asks that
+# need structured, reasoned output (## Snapshot / ## Technicals /
+# ## Fundamentals / ## News / ## View). These fire BEFORE analytical_short
+# so the model gets a 250-450 word budget with explicit section guidance.
+# WHY this is separate from EXPLAINER: "explain RSI" (concept) is explainer;
+# "analyse HDFCBANK" (apply-the-data-and-reason) is analysis.
+_ANALYSIS_INTENT_RE = re.compile(
+    r"\b(?:"
+    # Direct analysis verbs
+    r"analy[sz]e|deep\s+dive|"
+    # "what do you think of X" / "your view on X" / "your take on X"
+    r"what\s+do\s+you\s+think\s+(?:of|about)|"
+    r"your\s+(?:view|take|read|thoughts?|opinion)\s+(?:on|about)|"
+    # Valuation asks: "is X expensive/cheap/overvalued/undervalued"
+    r"(?:is|are)\s+\w+\s+(?:expensive|cheap|over\s*valued|under\s*valued|"
+    r"fairly\s*valued|a\s+buy|a\s+sell|worth\s+buying)|"
+    # Risk / quality asks: "how risky is X" / "is X risky"
+    r"how\s+risky\s+(?:is|are)|(?:is|are)\s+\w+\s+(?:risky|safe|quality)|"
+    # "X vs Y" comparison with 'vs' (not explicit 'compare')
+    r"\bvs\.?\b|"
+    # Dividend play / income angle: "good dividend play" / "dividend stock"
+    r"dividend\s+(?:play|stock|pick|yield)|"
+    # "which one is better" / "which has better" pattern
+    r"which\s+(?:one\s+)?(?:is|has)\s+(?:the\s+)?better"
+    r")\b",
+    re.IGNORECASE,
+)
+
 _CAPABILITY_INTENT_RE = re.compile(
     r"^\s*(?:"
     r"what\s+(?:all\s+)?can\s+you\s+do|"
@@ -1072,7 +1130,7 @@ _SMALLTALK_INTENT_RE = re.compile(
 
 def _classify_reply_class(message: str, intent_kind: str) -> str:
     """Return one of {'draft', 'automation', 'backtest', 'explainer',
-    'capability', 'small_talk', 'analytical_short'}.
+    'capability', 'small_talk', 'analysis', 'analytical_short'}.
 
     The first three mirror intent_kind (with 'agent' renamed to 'draft'
     for clarity at the reply-budget layer); the rest sub-classify the
@@ -1091,6 +1149,10 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
         return "small_talk"
     if _CAPABILITY_INTENT_RE.match(msg):
         return "capability"
+    # ANALYSIS class must fire BEFORE explainer — "analyse HDFC" is analysis
+    # (apply-the-data-and-reason), not an explain-concept ask.
+    if _ANALYSIS_INTENT_RE.search(msg):
+        return "analysis"
     if _EXPLAINER_INTENT_RE.search(msg):
         return "explainer"
     return "analytical_short"
@@ -1124,6 +1186,21 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
     "small_talk": (300, (
         "REPLY-CLASS: SMALL-TALK. Reply in 1-2 short sentences. No "
         "headings, no bullets, no live-price recital."
+    )),
+    # ANALYSIS — structured, reasoned stock/comparison analysis. The
+    # model MUST do the analytical work (not just restate numbers) and
+    # produce a defended view with what-would-change-my-mind.
+    "analysis": (2400, (
+        "REPLY-CLASS: ANALYSIS. Aim for 250-450 words, well-structured. "
+        "Use `## Section` headings: Snapshot / Technicals / Fundamentals / "
+        "News / What to watch / View. "
+        "DO THE ANALYTICAL WORK — do not just restate numbers. Interpret "
+        "the SMA stack (trend), RSI (momentum), PE vs history or sector, "
+        "recent news impact, and synthesize a DEFENDED VIEW: bull case vs "
+        "bear case, what would change your mind. Be honest about missing "
+        "data (say 'PE unavailable' not silence). For comparisons, pick "
+        "a winner with risk-adjusted reasoning and use a markdown table "
+        "if 3+ metrics. End with standard disclaimer when actionable."
     )),
     "analytical_short": (1500, (
         "REPLY-CLASS: SHORT-ANALYTICAL. Reply in ≤120 words of plain "
