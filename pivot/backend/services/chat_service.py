@@ -754,9 +754,19 @@ _UNSUPPORTED_RAIL_RE = re.compile(
     r"news\s+sentiment|"
     # IV rank / IV percentile (needs IV history — not wired)
     r"iv\s+rank|iv\s+percentile|"
-    # UPI / macro-feed style triggers users sometimes ask for
-    r"upi\s+(?:data|volume|transactions?)|gdp\s+(?:print|data)|"
-    r"inflation\s+(?:print|data)\s+(?:above|below)"
+    # UPI round-ups / spare change / %-of-spend (no UPI rail)
+    r"upi\s+(?:data|volume|transactions?|spend|round[\s-]?ups?)|"
+    r"round[\s-]?ups?|spare\s+change|%\s*of\s+(?:my\s+)?(?:upi\s+)?spend|"
+    r"percentage\s+of\s+(?:my\s+)?(?:upi\s+)?spend|"
+    # Macro feed
+    r"gdp\s+(?:print|data)|inflation\s+(?:print|data)\s+(?:above|below)|"
+    # Broker auto-execute / fire-and-forget (register-not-execute boundary)
+    r"auto[\s-]?execute|fire[\s-]?and[\s-]?forget|"
+    r"(?:execute|place|buy|sell|trade)\s+(?:it\s+)?(?:directly|automatically|"
+    r"auto)\s+(?:in|on|via|through)?\s*(?:zerodha|kite|dhan|upstox|groww|"
+    r"my\s+broker)|"
+    r"without\s+(?:my\s+)?confirmation|no\s+confirmation\s+needed|"
+    r"don'?t\s+(?:ask|wait\s+for)\s+(?:me\s+)?(?:to\s+)?confirm"
     r")\b",
     re.IGNORECASE,
 )
@@ -765,15 +775,28 @@ _UNSUPPORTED_RAIL_RE = re.compile(
 def _names_unsupported_rail(message: str) -> Optional[str]:
     """Return a short rail label when the message asks for an
     unsupported automation trigger rail (sentiment NLP, IV-rank,
-    macro feed), else None. Used to force a boundary-first reply that
-    names the nearest real alternative BEFORE any value question."""
+    macro feed, UPI round-ups, broker auto-execute), else None. Used to
+    force a boundary-first reply that names the nearest real alternative
+    BEFORE any value question — never affirms a fabricated capability."""
     msg = (message or "")
     if not _UNSUPPORTED_RAIL_RE.search(msg):
         return None
     low = msg.lower()
+    if (
+        "auto-execute" in low or "auto execute" in low
+        or "fire and forget" in low or "fire-and-forget" in low
+        or "without confirmation" in low or "without my confirmation" in low
+        or "no confirmation" in low
+        or re.search(r"(?:execute|place|buy|sell|trade)\s+(?:it\s+)?"
+                     r"(?:directly|automatically|auto)", low)
+    ):
+        return "auto_execute"
     if "iv rank" in low or "iv percentile" in low:
         return "iv_rank"
-    if "upi" in low or "gdp" in low or "inflation" in low:
+    if ("upi" in low or "round up" in low or "round-up" in low
+            or "spare change" in low or "of spend" in low):
+        return "upi_roundup"
+    if "gdp" in low or "inflation" in low:
         return "macro_feed"
     return "sentiment"
 
@@ -807,11 +830,37 @@ _PRICE_LEVEL_RE = re.compile(
 )
 
 
+# A trade verb anywhere flips an "alert" into an order intent ("buy 5 X
+# when it crosses 420", "sell when it drops to 1380"). Used to keep the
+# relaxed alert gate from swallowing genuine order builds.
+_TRADE_VERB_RE = re.compile(
+    r"\b(?:buy|sell|purchase|short|long|enter|exit|book|square|"
+    r"accumulate|add|trade|place\s+(?:an?\s+)?order|go\s+long|go\s+short)\b",
+    re.IGNORECASE,
+)
+# A leading alert verb in the first ~4 words = the PRIMARY intent is to be
+# notified. "alert me when COALINDIA crosses 420", "ping me if HCLTECH
+# drops to 1380", "let me know when EICHERMOT hits 4500".
+_LEADING_ALERT_RE = re.compile(
+    r"^\W*(?:alert|ping|notify|tell|let|remind|heads?\s*up|just\s+watch|"
+    r"watch|flag|warn)\b",
+    re.IGNORECASE,
+)
+
+
 def _is_notify_only_alert(message: str) -> bool:
-    """True when the message is a fully-specified notify-only price
-    alert (alert verb + a price level + a no-trade marker). Such a
-    prompt must register a notify_only DSL workflow, never bounce to
-    ASK_USER about a channel that doesn't vary."""
+    """True when the message is a notify-only price alert that must
+    register a notify_only DSL workflow rather than an order.
+
+    Two ways to qualify:
+      1. Explicit: an alert verb + a price level + a no-trade marker
+         ("just alert me when X crosses 420, don't buy").
+      2. Leading-intent: the message OPENS with an alert verb and carries
+         a price level, with NO trade verb anywhere ("alert me when
+         COALINDIA crosses 420", "ping me if HCLTECH drops to 1380").
+         Alerts never trade, so a quantity question is wrong — these were
+         misrouting to propose_threshold_order.
+    """
     msg = (message or "").strip()
     if not msg:
         return False
@@ -819,7 +868,12 @@ def _is_notify_only_alert(message: str) -> bool:
         return False
     if not _PRICE_LEVEL_RE.search(msg):
         return False
-    return bool(_NO_TRADE_MARKER_RE.search(msg))
+    if _NO_TRADE_MARKER_RE.search(msg):
+        return True
+    # Relaxed leading-intent gate: opens with an alert verb, no trade verb.
+    if _LEADING_ALERT_RE.search(msg) and not _TRADE_VERB_RE.search(msg):
+        return True
+    return False
 
 
 # ── R2: buy/sell-at-open|close detector ────────────────────────────────
@@ -1178,6 +1232,286 @@ _MACRO_AMENDMENT_TOOLS: frozenset[str] = frozenset({
     # "switch to next expiry" are amendments, not new intents.
     "build_option_strategy",
 })
+
+# ── Track C #2: addressable multi-draft helpers ──────────────────────
+
+
+def _draft_primary_symbol(draft: dict) -> str:
+    """Best-effort primary symbol for a draft payload — the addressing
+    key in the per-conversation draft map. Checks the top-level symbol
+    / underlying first, then the first step config that names one."""
+    if not isinstance(draft, dict):
+        return ""
+    for key in ("symbol", "underlying"):
+        v = draft.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip().upper()
+    for step in draft.get("steps") or []:
+        cfg = (step or {}).get("config") if isinstance(step, dict) else None
+        if isinstance(cfg, dict):
+            for key in ("symbol", "underlying"):
+                v = cfg.get(key)
+                if isinstance(v, str) and v.strip():
+                    return v.strip().upper()
+    return ""
+
+
+# Named back-reference cues around a symbol token: "the INFY one",
+# "INFY wala", "change the INFY draft", "for INFY". Resolution itself
+# just checks whether a parked draft's symbol appears as a word in the
+# message — these cues are documentation of the shapes we cover.
+def _symbol_mentioned(message: str, symbol: str) -> bool:
+    if not symbol:
+        return False
+    return bool(re.search(
+        rf"\b{re.escape(symbol)}\b", message, re.IGNORECASE,
+    ))
+
+
+# ── Track C #1: register / status intent cues ────────────────────────
+
+# Deterministic ARM command on an active draft. Whole-message match —
+# short imperative only, so longer prompts still go to the LLM.
+_REGISTER_DRAFT_RE = re.compile(
+    r"^(?:ok(?:ay)?[,!\s]+|yes[,!\s]+|please\s+|haan[,!\s]+)*"
+    r"(?:go\s+ahead(?:\s+and\s+(?:register|activate|arm|save)\s*(?:it|this|that)?)?"
+    r"|register\s*(?:it|this|that|karo|kar\s*do|the\s+(?:agent|workflow|automation|draft|rule))?"
+    r"|activate\s*(?:it|this|that|the\s+(?:agent|workflow|automation|draft|rule))?"
+    r"|arm\s+(?:it|this|that)"
+    r"|make\s+(?:it|this)\s+live"
+    r"|set\s+(?:it|this)\s+live"
+    r"|turn\s+(?:it|this)\s+on"
+    r"|save\s*(?:&|and)\s*activate(?:\s+it)?"
+    r")\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+
+# Armed-state introspection: "is it actually live?", "when do you
+# check?", "how often is it evaluated?", "status of my agent".
+_WF_STATUS_RE = re.compile(
+    r"\bis\s+(?:it|that|this|the\s+(?:agent|workflow|automation|rule)|"
+    r"my\s+(?:agent|workflow|automation|rule))\s+"
+    r"(?:actually\s+|really\s+)?(?:live|running|armed|active|on|working)\b"
+    r"|\bwhen\s+do(?:es)?\s+(?:you|it|pivot)\s+(?:check|evaluate|poll|scan|look)\b"
+    r"|\bhow\s+often\b[^?.]{0,60}\b(?:check|checked|evaluate|evaluated|"
+    r"poll|polled|run|scan)"
+    r"|\b(?:status|state)\s+of\s+(?:my|the|that)\s+"
+    r"(?:agent|workflow|automation|rule|trigger)\b",
+    re.IGNORECASE,
+)
+
+
+# ── Track C #5: staged scale-out exit parse ──────────────────────────
+
+# Gate: message mentions selling in ≥2 percentage tranches plus an
+# all-out / rest stop. Only then do we attempt the full parse.
+_STAGED_GATE_RE = re.compile(
+    r"\bsell\b[\s\S]{0,200}?\d+(?:\.\d+)?\s*%[\s\S]{0,160}?\d+(?:\.\d+)?\s*%",
+    re.IGNORECASE,
+)
+
+_STAGED_ENTRY_RE = re.compile(
+    r"\bbuy\s+(?P<qty>\d+)\s+(?:shares?\s+(?:of\s+)?)?(?P<sym>[A-Z][A-Z0-9&-]{1,14})\b",
+    re.IGNORECASE,
+)
+
+# One profit tranche: "sell 5 when up 3%", "5 more at 6%",
+# "another 5 at +6%", "sell 5 at 3% profit".
+_STAGED_TARGET_RE = re.compile(
+    r"(?:\bsell\s+)?(?:\banother\s+)?\b(?P<qty>\d{1,6})\b(?:\s+more)?"
+    r"(?:\s+shares?)?[^%;.,]{0,40}?"
+    r"(?:up(?:\s+by)?|profits?(?:\s+of)?|gains?(?:\s+of)?|\+|at|@|hits?|"
+    r"reaches?|crosses?)\s*"
+    r"(?P<pct>\d{1,2}(?:\.\d+)?)\s*%",
+    re.IGNORECASE,
+)
+
+# The stop branch: "all out if it drops 2%", "sell everything if it
+# falls 2%", "exit the rest at -2%".
+_STAGED_STOP_RE = re.compile(
+    r"\b(?:all\s+out|everything(?:\s+out)?|exit\s+(?:all|everything|the\s+rest)|"
+    r"sell\s+(?:the\s+)?(?:rest|remaining|everything|all)|"
+    r"(?:the\s+)?(?:rest|remainder|remaining)(?:\s+(?:out|goes|sold))?|"
+    r"full\s+exit|square\s*-?\s*off\s+everything)\b"
+    r"[^%]{0,80}?\b(?:drops?|falls?|down(?:\s+by)?|declines?|loss(?:es)?\s+of|-)\s*"
+    r"(?:by\s+)?(?P<pct>\d{1,2}(?:\.\d+)?)\s*%",
+    re.IGNORECASE,
+)
+
+
+def _parse_staged_exit(message: str) -> Optional[dict]:
+    """Parse 'buy N SYM …; sell n1 at +x1%, n2 more at +x2%, all out if
+    it drops z%' into {symbol, entry_qty, targets:[(qty,pct)...],
+    stop_pct}. Returns None when the shape doesn't parse cleanly —
+    the caller then falls back to the honest nearest-real-thing offer
+    (never a fabricated cron)."""
+    if not _STAGED_GATE_RE.search(message):
+        return None
+    stop_m = _STAGED_STOP_RE.search(message)
+    if not stop_m:
+        return None
+    entry_m = _STAGED_ENTRY_RE.search(message)
+
+    stop_start = stop_m.start()
+    targets: list[tuple[int, float]] = []
+    entry_span = entry_m.span() if entry_m else (-1, -1)
+    for m in _STAGED_TARGET_RE.finditer(message):
+        if m.start() >= stop_start:
+            continue
+        # Skip the entry "buy 10 X" clause itself.
+        if entry_m and not (
+            m.end() <= entry_span[0] or m.start() >= entry_span[1]
+        ):
+            continue
+        try:
+            qty = int(m.group("qty"))
+            pct = float(m.group("pct"))
+        except (TypeError, ValueError):
+            continue
+        if qty > 0 and 0 < pct < 50:
+            targets.append((qty, pct))
+    # Need ≥2 distinct profit tranches with ascending thresholds.
+    if len(targets) < 2:
+        return None
+    pcts = [p for _, p in targets]
+    if sorted(pcts) != pcts or len(set(pcts)) != len(pcts):
+        return None
+    try:
+        stop_pct = float(stop_m.group("pct"))
+    except (TypeError, ValueError):
+        return None
+    if not (0 < stop_pct < 50):
+        return None
+    return {
+        "symbol": entry_m.group("sym").upper() if entry_m else "",
+        "entry_qty": int(entry_m.group("qty")) if entry_m else 0,
+        "targets": targets,
+        "stop_pct": stop_pct,
+    }
+
+
+def _build_staged_exit_draft(parsed: dict) -> Optional[dict]:
+    """Deterministic multi-branch draft for a parsed staged scale-out:
+    entry (next market open) + one one-shot exit_compound branch per
+    profit tranche + a one-shot stop branch for the remainder. Returns
+    None when the parse lacks an entry (no fabricated entries)."""
+    symbol = parsed.get("symbol") or ""
+    entry_qty = int(parsed.get("entry_qty") or 0)
+    targets = parsed.get("targets") or []
+    stop_pct = float(parsed.get("stop_pct") or 0)
+    if not symbol or entry_qty <= 0 or not targets or stop_pct <= 0:
+        return None
+    staged_total = sum(q for q, _ in targets)
+    if staged_total > entry_qty:
+        return None  # tranches oversell the entry — not a clean parse
+
+    def _exit_tree(op: str, pct_frac: float, basis: str) -> dict:
+        return {
+            "type": "comparison",
+            "op": op,
+            "left": {
+                "type": "position",
+                "field": "unrealised_pct",
+                "basis": basis,
+            },
+            "right": {"type": "constant", "value": pct_frac},
+        }
+
+    steps: list[dict] = [
+        {
+            "step_type": "trigger.market_relative_time",
+            "label": "Next market open",
+            "config": {
+                "anchor": "open", "offset_minutes": 0,
+                "days": ["weekday"], "timezone": "Asia/Kolkata",
+            },
+        },
+        {
+            "step_type": "action.place_order",
+            "label": f"Buy {entry_qty} {symbol}",
+            "config": {
+                "symbol": symbol, "side": "buy", "quantity": entry_qty,
+                "order_type": "market", "requires_approval": False,
+            },
+        },
+    ]
+    for qty, pct in targets:
+        steps.append({
+            "step_type": "trigger.exit_compound",
+            "label": f"Up {pct:g}% (one-shot)",
+            "config": {
+                "entry": _exit_tree(">=", round(pct / 100.0, 6), "high"),
+                "target_symbol": symbol,
+                "one_shot": True,
+            },
+        })
+        steps.append({
+            "step_type": "action.place_order",
+            "label": f"Sell {qty} {symbol}",
+            "config": {
+                "symbol": symbol, "side": "sell", "quantity": qty,
+                "order_type": "market", "requires_approval": False,
+            },
+        })
+    steps.append({
+        "step_type": "trigger.exit_compound",
+        "label": f"Down {stop_pct:g}% — stop (one-shot)",
+        "config": {
+            "entry": _exit_tree("<=", round(-stop_pct / 100.0, 6), "low"),
+            "target_symbol": symbol,
+            "one_shot": True,
+        },
+    })
+    steps.append({
+        "step_type": "action.place_order",
+        "label": f"Sell remaining {symbol} (up to {entry_qty})",
+        "config": {
+            "symbol": symbol, "side": "sell", "quantity": entry_qty,
+            "order_type": "market", "requires_approval": False,
+        },
+    })
+
+    tranche_lines = "; ".join(
+        f"sell {q} at +{p:g}%" for q, p in targets
+    )
+    return {
+        "name": f"{symbol} staged scale-out"[:60],
+        "description": (
+            f"Buy {entry_qty} {symbol} at the next market open, then "
+            f"{tranche_lines}; stop: sell the remaining position if it "
+            f"drops {stop_pct:g}% from entry. Each exit branch fires "
+            "once (one-shot)."
+        ),
+        "steps": steps,
+        "rationale": (
+            "Multi-branch exits: each profit tranche is its own one-shot "
+            "exit_compound branch on unrealised_pct (bar HIGH basis for "
+            "targets, LOW for the stop), so a tranche can't re-fire "
+            "every tick. Orders are REGISTERED for your confirmation — "
+            "never auto-executed."
+        ),
+        "warnings": [
+            (
+                "The stop branch registers a sell for the FULL entry "
+                f"quantity ({entry_qty}); if earlier tranches already "
+                "trimmed the position, confirm the reduced size when you "
+                "register the order in your broker app."
+            ),
+        ],
+        "_render_hint": "workflow_draft_card",
+    }
+
+
+_STAGED_EXIT_HONEST_OFFER = (
+    "Staged scale-out exits need an entry leg I can anchor the position "
+    "to, and I couldn't parse one cleanly here. Closest real things I "
+    "can set up right now: (1) separate threshold sell rules for each "
+    "tranche (e.g. sell 5 at your +3% price, 5 at +6%) plus a stop-loss "
+    "sell for the remainder, or (2) paper-trade the staged plan to "
+    "forward-test it. Tell me the entry (e.g. 'buy 10 INFY at open') "
+    "and I'll draft the full 3-branch agent."
+)
+
 
 # Card-producing option tools whose results stash a COMPACT re-emit
 # spec (the full card payload blows the 1800-char draft-JSON budget in
@@ -2007,15 +2341,46 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
                 "which the user wants. Never affirm an IV-rank trigger as if "
                 "buildable."
             )
+        elif rail == "auto_execute":
+            guards.append(
+                "## Unsupported rail: broker AUTO-EXECUTE / fire-and-forget\n"
+                "The user asked Pivot to place/execute orders AUTOMATICALLY "
+                "in their broker (Zerodha/Kite/Dhan/etc.) without "
+                "confirmation. Pivot is REGISTER-NOT-EXECUTE under the SEBI "
+                "Feb 2025 retail-algo framework — it NEVER auto-executes in a "
+                "broker. This is capability theatre if affirmed. Do NOT draft "
+                "an order with requires_approval=false; do NOT imply it will "
+                "fire by itself. Your reply MUST, IN THIS ORDER: (1) state the "
+                "boundary plainly ('Pivot can't auto-execute in your broker — "
+                "it registers the order and you tap-to-confirm in the broker "
+                "app; that's the SEBI register-not-execute posture'); (2) "
+                "offer the nearest real thing — register the trigger/order so "
+                "it's one tap away when the condition fires; (3) only then "
+                "ask any concrete field. Never narrate auto-execution."
+            )
+        elif rail == "upi_roundup":
+            guards.append(
+                "## Unsupported rail: UPI round-ups / spare change / %-of-spend\n"
+                "Pivot CANNOT see UPI transactions, bank balances, or spend — "
+                "true round-ups and percentage-of-spend triggers do NOT "
+                "exist. Do NOT offer 'fixed amount OR percentage of UPI spend' "
+                "— the second option is fabricated. Your reply MUST, IN THIS "
+                "ORDER: (1) state the boundary ('Pivot can't observe your UPI "
+                "spend, so true round-ups aren't supported'); (2) offer the "
+                "nearest real thing — a fixed recurring buy into a listed ETF "
+                "('a fixed ₹X weekly buy into NIFTYBEES on a day you pick'); "
+                "(3) only then ask the amount and day. NEVER present a "
+                "capability that doesn't exist as a choice."
+            )
         elif rail == "macro_feed":
             guards.append(
-                "## Unsupported rail: macro / UPI / GDP feed trigger\n"
-                "Pivot does NOT ingest UPI / GDP / inflation feeds as a "
-                "trigger rail. Do NOT ask for any field that presupposes it. "
-                "FIRST state that boundary plainly, THEN offer the nearest "
-                "real trigger (a price/indicator level, a scheduled time, or "
-                "a keyword-headline event) and ask which to use. Never affirm "
-                "a macro-feed trigger as buildable."
+                "## Unsupported rail: macro / GDP / inflation feed trigger\n"
+                "Pivot does NOT ingest GDP / inflation feeds as a trigger "
+                "rail. Do NOT ask for any field that presupposes it. FIRST "
+                "state that boundary plainly, THEN offer the nearest real "
+                "trigger (a price/indicator level, a scheduled time, or a "
+                "keyword-headline event) and ask which to use. Never affirm a "
+                "macro-feed trigger as buildable."
             )
         else:  # sentiment
             guards.append(
@@ -2847,12 +3212,80 @@ class ChatService:
         """
         if not draft:
             return
-        self.store.set_active_draft(conv_id, ActiveDraft(
+        evicted = self.store.set_active_draft(conv_id, ActiveDraft(
             tool_name=tool_name,
             draft=draft,
             last_caption=caption[:400],
             created_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            symbol=_draft_primary_symbol(draft),
         ))
+        if evicted:
+            logger.info(
+                "[draft_map] LRU-evicted oldest draft (%s) conv=%s",
+                evicted, conv_id,
+            )
+
+    def _select_active_draft(
+        self, conv_id: str, message: str, trace: Optional[TurnTrace] = None,
+    ) -> Optional[ActiveDraft]:
+        """Track C #2: resolve which parked draft an amendment addresses.
+
+        Default = the most-recent draft (single slot, legacy behaviour).
+        When the message names the SYMBOL of a different parked draft
+        ("change the INFY one to 8 shares", "INFY wala 8 kar do"), that
+        draft is promoted to the active slot and returned — the other
+        drafts stay parked and untouched."""
+        active = self.store.get_active_draft(conv_id)
+        try:
+            parked = self.store.list_active_drafts(conv_id)
+        except Exception:  # noqa: BLE001 — stub stores in tests
+            parked = []
+        if not parked:
+            return active
+        named = [
+            d for d in parked
+            if d.symbol and _symbol_mentioned(message, d.symbol)
+        ]
+        if len(named) == 1:
+            target = named[0]
+            current_sym = (active.symbol if active else "") or ""
+            if (active is None
+                    or current_sym.upper() != target.symbol.upper()):
+                # Promote the named draft into the slot so the
+                # amendment hint (and the re-stash after the LLM
+                # re-emits) operate on THAT draft.
+                self.store.set_active_draft(conv_id, target)
+                if trace is not None:
+                    trace.event(
+                        "active_draft.named_backref",
+                        symbol=target.symbol, tool=target.tool_name,
+                    )
+                return target
+        return active
+
+    def _parked_draft_clause(
+        self, conv_id: str, active: Optional[ActiveDraft],
+    ) -> str:
+        """One amendment-hint sentence naming the OTHER parked drafts so
+        the model can't claim it changed them."""
+        try:
+            parked = self.store.list_active_drafts(conv_id)
+        except Exception:  # noqa: BLE001
+            return ""
+        active_sym = ((active.symbol if active else "") or "").upper()
+        others = [
+            d.symbol for d in parked
+            if d.symbol and d.symbol.upper() != active_sym
+        ]
+        if not others:
+            return ""
+        return (
+            " OTHER PARKED DRAFTS in this conversation: "
+            + ", ".join(others) +
+            " — they are UNTOUCHED by this amendment. Do NOT modify "
+            "them, do NOT claim they changed; if asked, say they're "
+            "unchanged."
+        )
 
     def _maybe_set_pending(self, conv_id: str, guarded: GuardedToolResult) -> None:
         """Persist a PendingToolCall when a clarification fired with a
@@ -2962,6 +3395,284 @@ class ChatService:
             raw_data={"_render_hint": "logic_card"},
             latency_breakdown=breakdown,
             latency_ms=total,
+        )
+
+    async def _try_register_active_draft(
+        self,
+        *,
+        message: str,
+        conv_id: str,
+        ctx: "UserContext",
+        trace: TurnTrace,
+        turn_started: float,
+        breakdown: dict[str, int],
+    ) -> Optional["ChatTurn"]:
+        """Track C #1: deterministic ARM of the active workflow draft.
+
+        Fires when the user types a clean register command ("register
+        it", "go ahead", "activate it", "arm it") and a workflow-shaped
+        draft is cached. Drives the SAME persist+activate path the FE
+        'Save & activate' button hits (via the register_workflow tool),
+        then answers with a grounded armed-state readback. Zero LLM
+        hops. Register-not-execute throughout."""
+        if len(message) > 80 or not _REGISTER_DRAFT_RE.match(message.strip()):
+            return None
+        active = self.store.get_active_draft(conv_id)
+        if active is None:
+            return None
+        # Only workflow-shaped drafts can be armed here; option/backtest
+        # cards register through their own card endpoints.
+        if active.tool_name not in {
+            "propose_workflow", "propose_dsl_workflow",
+        }:
+            return None
+        draft = active.draft if isinstance(active.draft, dict) else {}
+        if not isinstance(draft.get("steps"), list) or not draft["steps"]:
+            return None
+
+        from backend.services.tool_registry import execute as _registry_execute
+        result = await _registry_execute(
+            "register_workflow",
+            {
+                "name": draft.get("name"),
+                "description": draft.get("description"),
+                "steps": draft.get("steps"),
+                "expires_at": draft.get("expires_at") or draft.get("valid_until"),
+            },
+            kite_token=ctx.kite_token, db=ctx.db, user_id=ctx.user_id,
+        )
+        if not result.success:
+            reply = (
+                "I couldn't register that draft: "
+                f"{(result.error or 'unknown error')[:200]} — fix the "
+                "draft (or rebuild it) and tell me to register again."
+            )
+            self.store.append(conv_id, message, reply)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["total"] = total
+            trace.event("register_draft.failed",
+                        error=(result.error or "")[:120])
+            trace.event("turn.end", total_ms=total,
+                        tools_called=["register_workflow"],
+                        reason="register_draft_failed")
+            trace.end()
+            return ChatTurn(
+                response=reply,
+                tools_called=["register_workflow"],
+                latency_ms=total,
+                latency_breakdown=breakdown,
+            )
+
+        data = result.data or {}
+        wf_id = str(data.get("workflow_id") or "")
+        if wf_id:
+            try:
+                self.store.set_registered_workflow_id(conv_id, wf_id)
+            except Exception:  # noqa: BLE001 — stub stores in tests
+                pass
+        # The draft is no longer a draft — drop it (keep other parked
+        # symbols' drafts intact via the named clear).
+        try:
+            if active.symbol:
+                self.store.clear_active_draft(conv_id, symbol=active.symbol)
+            else:
+                self.store.clear_active_draft(conv_id)
+        except TypeError:  # stub store without the symbol kwarg
+            self.store.clear_active_draft(conv_id)
+
+        trig_lines = "; ".join(
+            t.get("summary", "") for t in data.get("triggers") or [] if t
+        ) or "trigger armed"
+        reply = (
+            f"Registered and ARMED — \"{data.get('name', 'agent')}\" is "
+            f"live (workflow {wf_id[:8]}…). {trig_lines}. "
+            f"{data.get('on_fire', '')} "
+            "This is automation of your instructions, not financial advice."
+        ).strip()
+        self.store.append(conv_id, message, reply)
+        total = int((time.monotonic() - turn_started) * 1000)
+        breakdown["total"] = total
+        _log_timing("register_draft", message, total, breakdown,
+                    tools=["register_workflow"], note="deterministic-register")
+        trace.event("register_draft.armed", workflow_id=wf_id)
+        trace.event("turn.end", total_ms=total,
+                    tools_called=["register_workflow"],
+                    reason="register_draft")
+        trace.end()
+        return ChatTurn(
+            response=reply,
+            tools_called=["register_workflow"],
+            raw_data={"register_workflow": data, **data},
+            latency_ms=total,
+            latency_breakdown=breakdown,
+        )
+
+    async def _try_workflow_status(
+        self,
+        *,
+        message: str,
+        conv_id: str,
+        ctx: "UserContext",
+        trace: TurnTrace,
+        turn_started: float,
+        breakdown: dict[str, int],
+    ) -> Optional["ChatTurn"]:
+        """Track C #1: grounded armed-state readback ("is it actually
+        live? when do you check?") via the get_workflow_status tool —
+        persisted status + real watcher cadence + current indicator
+        value. Zero LLM hops on a clean match."""
+        if len(message) > 160 or not _WF_STATUS_RE.search(message):
+            return None
+
+        wf_id = None
+        try:
+            wf_id = self.store.get_registered_workflow_id(conv_id)
+        except Exception:  # noqa: BLE001 — stub stores in tests
+            wf_id = None
+        # Without a conversation-registered workflow, only proceed when
+        # the user actually has workflows — otherwise let the LLM
+        # answer (it may be about a SIP / strategy instead).
+        from backend.services.tool_registry import execute as _registry_execute
+        result = await _registry_execute(
+            "get_workflow_status",
+            ({"workflow_id": wf_id} if wf_id else {}),
+            kite_token=ctx.kite_token, db=ctx.db, user_id=ctx.user_id,
+        )
+        if not result.success:
+            return None
+        data = result.data or {}
+        if not data.get("workflow_id") and not wf_id:
+            # No workflow at all — keep the honest "nothing armed" reply
+            # only if the user seems to be asking about an agent; the
+            # regex gate already established that.
+            if not data.get("note"):
+                return None
+
+        if data.get("workflow_id"):
+            parts = [data.get("armed_line", "")]
+            for t in data.get("triggers") or []:
+                line = t.get("summary", "")
+                cur = t.get("current_value")
+                if cur is not None:
+                    met = t.get("condition_met_now")
+                    line += (
+                        f"; current value {cur:g} — "
+                        + ("condition MET this tick" if met else "waiting")
+                    )
+                parts.append(line)
+            if data.get("next_run_at"):
+                parts.append(f"Next scheduled fire: {data['next_run_at']}.")
+            parts.append(data.get("on_fire", ""))
+            reply = " ".join(p for p in parts if p).strip()
+        else:
+            reply = str(data.get("note", "Nothing is armed yet."))
+
+        self.store.append(conv_id, message, reply)
+        total = int((time.monotonic() - turn_started) * 1000)
+        breakdown["total"] = total
+        _log_timing("workflow_status", message, total, breakdown,
+                    tools=["get_workflow_status"], note="deterministic-status")
+        trace.event("workflow_status.readback",
+                    workflow_id=str(data.get("workflow_id") or ""))
+        trace.event("turn.end", total_ms=total,
+                    tools_called=["get_workflow_status"],
+                    reason="workflow_status")
+        trace.end()
+        return ChatTurn(
+            response=reply,
+            tools_called=["get_workflow_status"],
+            raw_data={"get_workflow_status": data},
+            latency_ms=total,
+            latency_breakdown=breakdown,
+        )
+
+    def _try_staged_exit(
+        self,
+        *,
+        message: str,
+        conv_id: str,
+        trace: TurnTrace,
+        turn_started: float,
+        breakdown: dict[str, int],
+    ) -> Optional["ChatTurn"]:
+        """Track C #5: deterministic staged scale-out exits.
+
+        Parses 'buy N SYM …, sell n1 at +x1%, n2 more at +x2%, all out
+        if it drops z%' into a multi-branch draft (one one-shot
+        exit_compound branch per tranche + a stop branch). When the
+        staged shape is detected but can't be built cleanly, returns
+        the honest nearest-real-thing offer instead of letting the LLM
+        fabricate a cron. Returns None when no staged cues at all."""
+        parsed = _parse_staged_exit(message)
+        if parsed is None:
+            return None
+
+        draft = _build_staged_exit_draft(parsed) if parsed.get("symbol") else None
+        if draft is not None:
+            try:
+                from backend.workflows.propose import (
+                    ProposalValidationError, validate_draft_against_registry,
+                )
+                validate_draft_against_registry(draft)
+            except ProposalValidationError as e:
+                trace.event("staged_exit.draft_invalid", error=str(e)[:120])
+                draft = None
+            except Exception:  # noqa: BLE001 — never crash the turn
+                draft = None
+
+        if draft is None:
+            reply = _STAGED_EXIT_HONEST_OFFER
+            self.store.append(conv_id, message, reply)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["total"] = total
+            trace.event("staged_exit.honest_offer")
+            trace.event("turn.end", total_ms=total, tools_called=[],
+                        reason="staged_exit_offer")
+            trace.end()
+            return ChatTurn(
+                response=reply,
+                tools_called=[],
+                latency_ms=total,
+                latency_breakdown=breakdown,
+            )
+
+        # Per-branch readback table (qty | condition | action).
+        rows = ["qty | condition | action"]
+        for q, p in parsed["targets"]:
+            rows.append(f"{q} | up {p:g}% from entry (one-shot) | sell {q} market")
+        rows.append(
+            f"rest | down {parsed['stop_pct']:g}% from entry (one-shot) | "
+            f"sell remaining (up to {parsed['entry_qty']})"
+        )
+        reply = (
+            f"Drafted the staged scale-out for {parsed['symbol']}: "
+            f"buy {parsed['entry_qty']} at the next market open, then "
+            + "; ".join(f"sell {q} at +{p:g}%" for q, p in parsed["targets"])
+            + f"; everything remaining out at −{parsed['stop_pct']:g}%. "
+            + "\n" + "\n".join(rows) + "\n"
+            "Each exit branch fires once. Orders are REGISTERED for your "
+            "confirmation — nothing auto-executes. Review the card and "
+            "Save & activate (or say 'register it')."
+        )
+        self.store.append(conv_id, message, reply)
+        self._stash_workflow_draft(conv_id, draft, reply)
+        total = int((time.monotonic() - turn_started) * 1000)
+        breakdown["staged_exit"] = total
+        breakdown["total"] = total
+        _log_timing("staged_exit", message, total, breakdown,
+                    tools=["propose_workflow"], note="deterministic-staged-exit")
+        trace.event("staged_exit.draft",
+                    symbol=parsed["symbol"],
+                    branches=len(parsed["targets"]) + 1)
+        trace.event("turn.end", total_ms=total,
+                    tools_called=["propose_workflow"], reason="staged_exit")
+        trace.end()
+        return ChatTurn(
+            response=reply,
+            tools_called=["propose_workflow"],
+            raw_data={"propose_workflow": draft},
+            latency_ms=total,
+            latency_breakdown=breakdown,
         )
 
     async def _try_fast_resume(
@@ -3215,6 +3926,34 @@ class ChatService:
         )
         if cancelled is not None:
             return cancelled
+
+        # ── Track C #1: deterministic register / status guards ─────
+        # "register it / go ahead" on an active workflow draft actually
+        # ARMS it (same persist+activate path as Save & activate);
+        # "is it actually live? when do you check?" gets a grounded
+        # readback from the persisted workflow + scheduler facts.
+        registered = await self._try_register_active_draft(
+            message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if registered is not None:
+            return registered
+        status_turn = await self._try_workflow_status(
+            message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if status_turn is not None:
+            return status_turn
+
+        # ── Track C #5: staged scale-out exits ─────────────────────
+        # Deterministic 3-branch draft (or the honest nearest-real-
+        # thing offer) — never a fabricated 09:30-cron approximation.
+        staged = self._try_staged_exit(
+            message=message, conv_id=conv_id, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if staged is not None:
+            return staged
 
         # ── Pure-affirmative fast-path ────────────────────────────
         # When the user types "ok" / "yes" / "sure" / "got it":
@@ -3833,7 +4572,10 @@ class ChatService:
         # independent of whether the prior turn was a clarification.
         # Without this, "pros and cons of Reliance" three turns after
         # building an HDFCBANK agent inherits the stale draft.
-        active = self.store.get_active_draft(conv_id)
+        # Track C #2: a NAMED back-reference ("change the INFY one")
+        # promotes the matching parked draft instead of defaulting to
+        # whatever was most recent.
+        active = self._select_active_draft(conv_id, message, trace)
         if active is not None and _is_independent_prompt(message):
             self.store.clear_active_draft(conv_id)
             trace.event("active_draft.evicted",
@@ -3895,6 +4637,7 @@ class ChatService:
                 "stop-loss style) — the user can edit those on the card. "
                 "The card is the confirmation surface. "
                 f"DRAFT JSON: {draft_json}."
+                + self._parked_draft_clause(conv_id, active)
             )
 
         # For amendment turns with an active macro draft, force tool_choice
@@ -4848,6 +5591,52 @@ class ChatService:
             }
             return
 
+        # ── Track C guards (streaming mirror of handle()) ───────────
+        # register-it / is-it-live / staged scale-out — deterministic
+        # turns converted to the SSE event sequence the FE expects.
+        _guard_turn: Optional[ChatTurn] = await self._try_register_active_draft(
+            message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if _guard_turn is None:
+            _guard_turn = await self._try_workflow_status(
+                message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+                turn_started=turn_started, breakdown=breakdown,
+            )
+        if _guard_turn is None:
+            _guard_turn = self._try_staged_exit(
+                message=message, conv_id=conv_id, trace=trace,
+                turn_started=turn_started, breakdown=breakdown,
+            )
+        if _guard_turn is not None:
+            yield {"type": "start"}
+            for tname in _guard_turn.tools_called:
+                yield {"type": "tool_start", "name": tname}
+                yield {"type": "tool_done", "name": tname, "ok": True}
+            if _guard_turn.response:
+                yield {"type": "delta", "text": _guard_turn.response}
+            # Streaming path ships raw_data verbatim — hoist draft /
+            # status fields top-level the same way the skeleton path does.
+            _stream_raw = None
+            if _guard_turn.raw_data:
+                _stream_raw = dict(_guard_turn.raw_data)
+                inner = _stream_raw.get("propose_workflow")
+                if isinstance(inner, dict):
+                    _stream_raw = {
+                        **inner, **_stream_raw,
+                        "_render_hint": "workflow_draft_card",
+                    }
+            yield {
+                "type": "done",
+                "response": _guard_turn.response,
+                "tools_called": _guard_turn.tools_called,
+                "logiccard": _guard_turn.logiccard,
+                "raw_data": _stream_raw,
+                "latency_ms": _guard_turn.latency_ms,
+                "latency_breakdown": _guard_turn.latency_breakdown,
+            }
+            return
+
         # ── Pure-affirmative fast-path (mirror of non-stream) ───────
         _affirm_no_state = False
         if _is_pure_affirmative(message):
@@ -5251,8 +6040,9 @@ class ChatService:
         followup_hint_msg: Optional[LLMMessage] = None
 
         # Same eviction + amend-vs-clarify split as the non-streaming
-        # path — see handle() for full rationale.
-        active = self.store.get_active_draft(conv_id)
+        # path — see handle() for full rationale. Track C #2: named
+        # back-references promote the matching parked draft.
+        active = self._select_active_draft(conv_id, message, trace)
         if active is not None and _is_independent_prompt(message):
             self.store.clear_active_draft(conv_id)
             trace.event("active_draft.evicted",
@@ -5305,6 +6095,7 @@ class ChatService:
                 "stop-loss style) — the user can edit those on the card. "
                 "The card is the confirmation surface. "
                 f"DRAFT JSON: {draft_json}."
+                + self._parked_draft_clause(conv_id, active)
             )
 
         # Force tool_choice="required" on amendment turns — see handle().
@@ -6937,6 +7728,163 @@ _WIDGET_RENDER_HINTS = frozenset({
 })
 
 
+def _fmt_inr(v) -> str:
+    """₹ in Indian grouping; '—' on None."""
+    if v is None:
+        return "—"
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    neg = n < 0
+    s = f"{abs(n):,.0f}"
+    # Convert thousands grouping to the Indian lakh/crore grouping.
+    if "," in s:
+        whole = s.replace(",", "")
+        if len(whole) > 3:
+            head, tail = whole[:-3], whole[-3:]
+            import re as _re
+            head = _re.sub(r"(?<=\d)(?=(\d\d)+$)", ",", head)
+            s = f"{head},{tail}"
+    return ("-₹" if neg else "₹") + s
+
+
+def _find_option_payload(raw_data: dict, hint: str) -> dict | None:
+    """Pull the option chain / strategy payload out of raw_data regardless
+    of nesting (chat keys by tool name; the router hoists later)."""
+    rd = raw_data or {}
+    if rd.get("_render_hint") == hint:
+        return rd
+    for v in rd.values():
+        if isinstance(v, dict):
+            if v.get("_render_hint") == hint:
+                return v
+            inner = v.get("data") if isinstance(v.get("data"), dict) else None
+            if inner and inner.get("_render_hint") == hint:
+                return inner
+    return None
+
+
+def _fno_mandated_tables(raw_data: dict) -> str:
+    """Engine-anchored markdown tables that MUST accompany every F&O card.
+
+    Prompt pressure alone repeatedly failed to make the model render these,
+    so we synthesise them deterministically from the digest the engine
+    already produced — the numbers are quoted verbatim, never re-derived.
+
+      * chain   → metrics table + OI-walls table (≥4 named strikes) + source
+      * suggest → ≥2-row candidate comparison table
+      * build/critique → per-leg type/side/strike/premium table; critique
+        also gets the 2-row current-vs-alternative table + POP.
+    """
+    chunks: list[str] = []
+
+    # ── Option chain ──────────────────────────────────────────────────
+    chain = _find_option_payload(raw_data, "option_chain_card")
+    if chain:
+        und = chain.get("underlying", "")
+        spot = chain.get("spot") or chain.get("forward")
+        em = chain.get("expected_move") or {}
+        rows = [
+            ("Underlying", str(und)),
+            ("Spot/forward", _fmt_inr(spot)),
+            ("ATM strike", _fmt_inr(chain.get("atm_strike"))),
+            ("Max pain", _fmt_inr(chain.get("max_pain"))),
+            ("PCR (OI)", str(chain.get("pcr_oi") if chain.get("pcr_oi") is not None else "—")),
+            ("PCR (volume)", str(chain.get("pcr_volume") if chain.get("pcr_volume") is not None else "—")),
+        ]
+        if em.get("low") is not None and em.get("high") is not None:
+            # Quote the band VERBATIM from the digest — never re-derive.
+            rows.append((
+                "Expected move (1σ)",
+                f"{_fmt_inr(em['low'])} – {_fmt_inr(em['high'])} (±{em.get('pct', '')}%)",
+            ))
+        tbl = ["| Metric | Value |", "| --- | --- |"]
+        tbl += [f"| {k} | {v} |" for k, v in rows]
+        chunks.append("\n".join(tbl))
+
+        # OI walls — name ≥4 real strikes (top-3 call + top-3 put).
+        tcall = chain.get("top_call_oi") or []
+        tput = chain.get("top_put_oi") or []
+        if tcall or tput:
+            walls = ["| Side | Strike | Open interest |",
+                     "| --- | --- | --- |"]
+            for w in tcall:
+                walls.append(f"| Call (resistance) | {_fmt_inr(w.get('strike'))} | {int(w.get('oi') or 0):,} |")
+            for w in tput:
+                walls.append(f"| Put (support) | {_fmt_inr(w.get('strike'))} | {int(w.get('oi') or 0):,} |")
+            chunks.append("\n".join(walls))
+
+        src = chain.get("source") or "—"
+        asof = chain.get("asof") or ""
+        chunks.append(f"Source: {src}; as of {asof}.")
+        return "\n\n".join(chunks)
+
+    # ── Strategy card (suggest / build / critique) ────────────────────
+    strat = _find_option_payload(raw_data, "option_strategy_card")
+    if strat:
+        summ = strat.get("summary") or {}
+        computed = strat.get("computed") or {}
+        crit = strat.get("critique") or {}
+        candidates = strat.get("candidates") or []
+
+        # Suggest flow → candidate comparison table (≥2 rows).
+        if candidates:
+            primary = {
+                "label": summ.get("template", "primary"),
+                "pop": computed.get("pop"),
+                "max_loss": computed.get("max_loss"),
+                "max_profit": computed.get("max_profit"),
+                "net_premium": computed.get("net_premium"),
+            }
+            rows_in = [primary] + candidates
+            cmp_tbl = ["| Strategy | Max loss | Max profit | POP | Net premium |",
+                       "| --- | --- | --- | --- | --- |"]
+            for c in rows_in:
+                ml = c.get("max_loss")
+                mp = c.get("max_profit")
+                pop = c.get("pop")
+                cmp_tbl.append(
+                    f"| {c.get('label') or c.get('template', '')} "
+                    f"| {'uncapped' if ml is None else _fmt_inr(ml)} "
+                    f"| {'uncapped' if mp is None else _fmt_inr(mp)} "
+                    f"| {f'{pop:.0%}' if pop is not None else '—'} "
+                    f"| {_fmt_inr(c.get('net_premium'))} |"
+                )
+            chunks.append("\n".join(cmp_tbl))
+
+        # Per-leg table (named build / critique).
+        legs = (strat.get("editable") or {}).get("legs") or summ.get("legs") or []
+        if legs:
+            leg_tbl = ["| Leg | Type | Side | Strike | Premium |",
+                       "| --- | --- | --- | --- | --- |"]
+            for i, l in enumerate(legs, 1):
+                leg_tbl.append(
+                    f"| {i} | {l.get('option_type', '')} | {l.get('side', '')} "
+                    f"| {_fmt_inr(l.get('strike'))} | {_fmt_inr(l.get('mid'))} |"
+                )
+            chunks.append("\n".join(leg_tbl))
+
+        # Critique: 2-row current-vs-alternative + POP.
+        comparison = crit.get("comparison") or []
+        if comparison:
+            ctbl = ["| Structure | Max loss | Max profit | POP |",
+                    "| --- | --- | --- | --- |"]
+            for c in comparison:
+                ctbl.append(
+                    f"| {c.get('structure', '')} | {c.get('max_loss', '')} "
+                    f"| {c.get('max_profit', '')} | {c.get('pop', '')} |"
+                )
+            chunks.append("\n".join(ctbl))
+
+        pop = computed.get("pop")
+        if pop is not None:
+            chunks.append(f"Probability of profit (market-implied): {pop:.1%}.")
+        return "\n\n".join(chunks)
+
+    return ""
+
+
 def _ensure_widget_caption(
     text: str,
     *,
@@ -6965,6 +7913,21 @@ def _ensure_widget_caption(
             if isinstance(v, dict) and v.get("_render_hint"):
                 render_hint = v["_render_hint"]
                 break
+
+    # ── F&O mandated tables ───────────────────────────────────────────
+    # Option chain / strategy cards MUST ship engine-anchored markdown
+    # tables (metrics + OI walls / candidate comparison / per-leg / the
+    # critique current-vs-alternative). Prompt pressure failed twice, so
+    # synthesise them from the digest and append when absent. Fires in
+    # BOTH handle() and handle_stream() (both call this helper).
+    if render_hint in {"option_chain_card", "option_strategy_card"}:
+        cleaned = (text or "").strip()
+        tables = _fno_mandated_tables(rd)
+        if tables and "| --- |" not in cleaned:
+            base = cleaned or _tool_summary_line(tool_name or "", None)
+            return f"{base}\n\n{tables}"
+        return cleaned or _tool_summary_line(tool_name or "", None)
+
     if render_hint not in _WIDGET_RENDER_HINTS and not logiccard:
         return text
 

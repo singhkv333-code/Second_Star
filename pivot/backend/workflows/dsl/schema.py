@@ -158,6 +158,16 @@ class IndicatorNode(_Strict):
     symbol: str = Field(..., min_length=1, max_length=32)
     period: int = Field(..., ge=1, le=5000)
     exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    timeframe: Literal["daily", "weekly"] = Field(
+        default="daily",
+        description=(
+            "Bar timeframe the indicator is computed on. 'weekly' "
+            "resamples daily bars to W-FRI weekly closes (period counts "
+            "WEEKLY bars — RSI(14, weekly) needs ≥14 weeks of history). "
+            "Accessors that cannot serve weekly bars resolve the leaf "
+            "to UNKNOWN rather than silently downgrading to daily."
+        ),
+    )
     component: Optional[str] = Field(
         default=None,
         min_length=1,

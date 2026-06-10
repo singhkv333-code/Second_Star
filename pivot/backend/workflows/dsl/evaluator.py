@@ -133,7 +133,7 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
             offset=node.offset + _additional_offset(),
         )
     if isinstance(node, IndicatorNode):
-        return accessor.get_indicator(
+        _ind_kw = dict(
             symbol=node.symbol,
             indicator=node.indicator,
             period=node.period,
@@ -141,6 +141,16 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
             component=node.component,
             offset=node.offset + _additional_offset(),
         )
+        tf = (getattr(node, "timeframe", None) or "daily").lower()
+        if tf != "daily":
+            # Honest-boundary rule: an accessor that doesn't support the
+            # timeframe kwarg CANNOT serve weekly bars — resolve to
+            # UNKNOWN (None) instead of silently downgrading to daily.
+            try:
+                return accessor.get_indicator(timeframe=tf, **_ind_kw)
+            except TypeError:
+                return None
+        return accessor.get_indicator(**_ind_kw)
     if isinstance(node, VolumeNode):
         return accessor.get_volume(
             symbol=node.symbol,

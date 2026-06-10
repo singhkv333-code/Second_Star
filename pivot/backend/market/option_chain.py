@@ -184,12 +184,34 @@ def _chain_aggregates(rows: list[dict[str, Any]]) -> dict[str, Any]:
             if best_pain is None or pain < best_pain:
                 best_pain, max_pain = pain, s
 
+    # OI walls — the top-3 call-OI strikes (resistance) and top-3 put-OI
+    # strikes (support). These are the real, named levels the chain digest
+    # must hand the chat layer so prose quotes concrete strikes instead of
+    # hand-waving "heavy OI near the money".
+    def _top_oi(side: str) -> list[dict[str, Any]]:
+        ranked = sorted(
+            (
+                {
+                    "strike": r["strike"],
+                    "oi": int(float((r.get(side) or {}).get("oi") or 0)),
+                    "iv": (r.get(side) or {}).get("iv"),
+                }
+                for r in rows
+                if (r.get(side) or {}).get("oi")
+            ),
+            key=lambda x: x["oi"],
+            reverse=True,
+        )
+        return ranked[:3]
+
     return {
         "max_pain": max_pain,
         "pcr_oi": pcr_oi,
         "pcr_volume": pcr_volume,
         "total_call_oi": int(call_oi) if call_oi else None,
         "total_put_oi": int(put_oi) if put_oi else None,
+        "top_call_oi": _top_oi("ce"),
+        "top_put_oi": _top_oi("pe"),
     }
 
 
@@ -363,6 +385,8 @@ def get_chain(
         "pcr_volume": aggregates["pcr_volume"],
         "total_call_oi": aggregates["total_call_oi"],
         "total_put_oi": aggregates["total_put_oi"],
+        "top_call_oi": aggregates["top_call_oi"],
+        "top_put_oi": aggregates["top_put_oi"],
         "t_years": round(T, 6),
         "rows": rows,
         "research_only": segment == "MCX-OPT",

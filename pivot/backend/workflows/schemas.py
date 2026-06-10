@@ -199,6 +199,12 @@ class TriggerIndicatorConfig(_Strict):
     period: int = Field(..., ge=1, le=500)
     operator: Literal[">", "<", "crosses_above", "crosses_below"]
     value: float
+    # Track C #4: honored by the live watcher (scheduler.
+    # _evaluate_indicator_trigger → _compute_indicator_sync). 'weekly'
+    # evaluates the indicator on W-FRI weekly closes — the field is
+    # REAL, not decorative; the engine resamples and sizes the lookback
+    # ×5 so RSI(14, weekly) has ≥14 weekly bars.
+    timeframe: Literal["daily", "weekly"] = "daily"
 
 
 class TriggerEventConfig(_Strict):

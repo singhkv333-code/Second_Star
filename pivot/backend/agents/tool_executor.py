@@ -43,7 +43,13 @@ async def execute_tool(tool_name: str, arguments: dict,
         "suggest_option_strategy":    _suggest_option_strategy,
         "build_option_strategy":      _build_option_strategy,
         "critique_option_strategy":   _critique_option_strategy,
+        # Track C #3: roll/adjust an existing option leg (close + reopen
+        # on a later expiry / different strike) — register-not-execute.
+        "roll_option_position":       _roll_option_position,
         "get_portfolio_greeks":       _get_portfolio_greeks,
+        # Track C #1: chat-side workflow arming + armed-state readback.
+        "register_workflow":          _register_workflow,
+        "get_workflow_status":        _get_workflow_status,
         "get_margin_required":        _generic_confirm,
         "create_sip":                 _create_sip,
         "list_sips":                  _list_sips,
@@ -389,6 +395,50 @@ async def _cancel_gtt(a, kt, db, uid):
 
 # ── SIP ──────────────────────────────────────────────────────────────────────
 
+import re as _re_sip
+
+# Off-exchange mutual-fund phrasing. Direct-plan MFs are bought via the
+# AMC/RTA, NOT the exchange — Pivot can only SIP NSE/BSE-listed
+# instruments (ETFs, equities). Detect these so _create_sip fails CLOSED
+# instead of persisting a fabricated ticker like "PARAGPAREKHFLEXICAP".
+_MF_PHRASE_RE = _re_sip.compile(
+    r"\b(?:flexi[\s-]?cap|flexicap|direct[\s-]?(?:plan|growth)|"
+    r"regular[\s-]?(?:plan|growth)|mutual[\s-]?fund|"
+    r"\bMF\b|index[\s-]?fund|elss|liquid[\s-]?fund|debt[\s-]?fund|"
+    r"parag[\s-]?parikh|parag[\s-]?parekh|mirae|axis[\s-]?(?:blue|small|mid)|"
+    r"hdfc[\s-]?(?:flexi|index|top)|sbi[\s-]?(?:bluechip|small|magnum)|"
+    r"icici[\s-]?(?:pru|prudential)|nippon[\s-]?india[\s-]?(?:small|growth)|"
+    r"kotak[\s-]?(?:flexi|emerging)|quant[\s-]?(?:small|active)|"
+    r"uti[\s-]?(?:flexi|nifty[\s-]?index))\b",
+    _re_sip.IGNORECASE,
+)
+# Recognized listed ETF/index proxies — used as a positive whitelist so
+# a long-but-real ETF ticker isn't mistaken for a fabricated MF name.
+_LISTED_ETF_PROXIES = {
+    "NIFTYBEES", "GOLDBEES", "SILVERBEES", "BANKBEES", "JUNIORBEES",
+    "MON100", "MAFANG", "MASPTOP50", "ITBEES", "LIQUIDBEES",
+    "SETFNIF50", "SETFNN50", "ICICIB22", "CPSEETF", "MOM100",
+    "HDFCSML250", "MOM30IETF", "MOM50",
+}
+
+
+def _looks_like_offexchange_mf(symbol: str, raw: str) -> bool:
+    """True when the SIP target is an off-exchange mutual fund (direct-plan
+    AMC fund) or a fabricated MF-shaped ticker that isn't a listed ETF."""
+    s = (symbol or "").strip().upper()
+    if s in _LISTED_ETF_PROXIES:
+        return False
+    if _MF_PHRASE_RE.search(raw or "") or _MF_PHRASE_RE.search(symbol or ""):
+        return True
+    # Fabricated-ticker heuristic: an unrecognized, overlong all-caps blob
+    # (the LLM concatenating a fund name) that's not a known ETF and ends
+    # in a fund-name fragment.
+    if (len(s) > 12 and s.isalpha() and s not in _LISTED_ETF_PROXIES
+            and _re_sip.search(r"(FLEXI|CAP|FUND|GROWTH|DIRECT|BLUECHIP|SMALLCAP|MIDCAP)$", s)):
+        return True
+    return False
+
+
 async def _create_sip(a, kt, db, uid):
     from backend.routers.sip import compute_next_execution
     from backend.utils.time_utils import format_ist
@@ -396,7 +446,43 @@ async def _create_sip(a, kt, db, uid):
     # Canonicalize so bare "gold"/"silver"/"nifty" map to the tradeable
     # ETF (GOLDBEES / SILVERBEES / NIFTYBEES) instead of persisting a
     # dead symbol — create_sip is the right home for recurring ETF buys.
+    raw_symbol = str(a.get("symbol") or "")
     sym = canonical_symbol(a["symbol"])
+
+    # ── Fail-closed: off-exchange mutual fund → do NOT create. ────────
+    # Direct-plan MFs are bought via the AMC/RTA, not the exchange. Return
+    # the honest boundary and pre-fill the nearest listed broad-market /
+    # flexicap ETF as a draft so the user has a real next step — NEVER
+    # persist a fabricated ticker or narrate "SIP is set".
+    if _looks_like_offexchange_mf(sym, raw_symbol):
+        proxy = "NIFTYBEES"  # nearest listed broad-market / flexicap proxy
+        amt = a.get("amount_inr") or 5000
+        freq = a.get("frequency") or "monthly"
+        nxt = compute_next_execution(freq, a.get("day_of_month"), a.get("day_of_week"))
+        nxt_str = format_ist(nxt, include_seconds=False)
+        lc = _lc("sip_create", "CREATE SIP", proxy,
+                 [{"label": "Amount", "value": f"₹{amt:,.0f}"},
+                  {"label": "Frequency", "value": str(freq).title()},
+                  {"label": "First Run", "value": nxt_str},
+                  {"label": "Executes at", "value": "09:15 IST"}],
+                 f"Draft SIP into {proxy} (nearest listed proxy) — confirm on "
+                 f"the card to register.")
+        return {
+            "success": True,
+            "data": {
+                "boundary": (
+                    "Direct-plan mutual funds are bought via the AMC/RTA, "
+                    "not the exchange — Pivot can only SIP NSE/BSE-listed "
+                    "instruments (ETFs and equities). I can't register that "
+                    f"fund. Nearest listed proxy: {proxy} (broad-market ETF). "
+                    "I've drafted a SIP into it — confirm on the card to "
+                    "register, or name another listed ETF."
+                ),
+                "_render_hint": "logic_card",
+            },
+            "logiccard": lc,
+        }
+
     amt, freq = a["amount_inr"], a["frequency"]
     nxt = compute_next_execution(freq, a.get("day_of_month"), a.get("day_of_week"))
     nxt_str = format_ist(nxt, include_seconds=False)
@@ -405,7 +491,8 @@ async def _create_sip(a, kt, db, uid):
               {"label": "Frequency", "value": freq.title()},
               {"label": "First Run", "value": nxt_str},
               {"label": "Executes at", "value": "09:15 IST"}],
-             f"{freq.title()} SIP of ₹{amt:,.0f} in {sym}. First run: {nxt_str}. "
+             f"{freq.title()} SIP of ₹{amt:,.0f} in {sym} — drafted; confirm on "
+             f"the card to register. First run: {nxt_str}. "
              f"Quantity calculated from live price at execution.")
     return {"success": True, "data": {}, "logiccard": lc}
 
@@ -1657,6 +1744,12 @@ def _strategy_card_payload(payload: dict) -> dict:
             **quad,
             "critique_verdict": payload["critique"]["verdict"],
             "critique_summary": payload["critique"]["summary"],
+            # Engine-anchored numbers the chat layer MUST quote verbatim so
+            # prose can't drift (e.g. calling a bounded short put
+            # "unlimited loss"). digest carries the risk-shape + POP +
+            # breakevens; comparison is the 2-row current-vs-alternative.
+            "critique_digest": payload["critique"].get("digest"),
+            "critique_comparison": payload["critique"].get("comparison", []),
         },
         "locked": payload["locked"],
         "editable": payload["editable"],
@@ -1812,6 +1905,355 @@ async def _critique_option_strategy(a, kt, db, uid):
     except (StrategyResolutionError, ValueError) as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
     return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+
+
+async def _roll_option_position(a, kt, db, uid):
+    """Track C #3: price a roll of an existing option leg → 2-leg
+    option_strategy_card (close old + open new) with roll net
+    credit/debit and the go-forward position's econ quad."""
+    from backend.services.option_strategies import (
+        StrategyResolutionError,
+        roll_option_position,
+    )
+
+    underlying = str(a.get("underlying", "")).strip().upper()
+    try:
+        strike = float(a.get("strike") or 0.0)
+    except (TypeError, ValueError):
+        strike = 0.0
+    option_type = str(a.get("option_type", "")).strip().upper()
+    if not underlying or strike <= 0 or option_type not in ("CE", "PE"):
+        return {
+            "success": False,
+            "data": {"note": (
+                "To roll I need the existing leg: underlying, strike and "
+                "CE/PE (e.g. 'roll my short 24000 NIFTY call to next expiry')."
+            )},
+            "logiccard": None,
+        }
+    try:
+        offset_raw = a.get("strike_offset")
+        payload = roll_option_position(
+            db, underlying,
+            strike=strike,
+            option_type=option_type,
+            side=str(a.get("side") or "SELL").upper(),
+            from_expiry=a.get("from_expiry"),
+            to_expiry=a.get("to_expiry") or "next",
+            new_strike=(
+                float(a["new_strike"])
+                if a.get("new_strike") not in (None, "", 0) else None
+            ),
+            strike_offset=int(offset_raw or 0),
+            qty_lots=int(a.get("qty_lots") or 1),
+        )
+    except StrategyResolutionError as exc:
+        return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
+    except (TypeError, ValueError) as exc:
+        return {"success": False, "data": {"note": f"Bad roll parameters: {exc}"},
+                "logiccard": None}
+    card = _strategy_card_payload(payload)
+    # Surface the roll block at top level so the chat layer leads with
+    # the switch economics (net credit/debit of the roll itself).
+    card["roll"] = payload.get("roll")
+    card["summary"]["roll"] = payload.get("roll")
+    return {"success": True, "data": card, "logiccard": None}
+
+
+# ── Track C #1: chat-side workflow registration + status ────────────────
+
+
+def _watcher_cadence_line() -> str:
+    from backend.workflows.scheduler import _WATCHER_INTERVAL_SECONDS
+    return (
+        f"checked ~every {_WATCHER_INTERVAL_SECONDS}s during NSE market "
+        "hours (09:15–15:30 IST, trading days)"
+    )
+
+
+def _trigger_summary_for_step(step_type: str, cfg: dict) -> str:
+    """One human line per trigger step — grounded in the step's real
+    config + the watcher's real cadence."""
+    cfg = cfg or {}
+    if step_type == "trigger.indicator":
+        tf = str(cfg.get("timeframe") or "daily").lower()
+        tf_label = ", weekly closes" if tf == "weekly" else ""
+        return (
+            f"{str(cfg.get('indicator', '')).upper()}"
+            f"({cfg.get('period')}{tf_label}) on {cfg.get('symbol')} "
+            f"{cfg.get('operator')} {cfg.get('value')} — "
+            + _watcher_cadence_line()
+        )
+    if step_type == "trigger.price":
+        return (
+            f"price of {cfg.get('symbol')} {cfg.get('operator')} "
+            f"₹{cfg.get('value')} — " + _watcher_cadence_line()
+        )
+    if step_type in ("trigger.compound", "trigger.exit_compound"):
+        return (
+            f"condition tree ({step_type.split('.')[1]}) — "
+            + _watcher_cadence_line()
+        )
+    if step_type == "trigger.schedule":
+        return (
+            f"cron '{cfg.get('cron')}' ({cfg.get('timezone', 'UTC')}) — "
+            "fires at the cron time (poller resolution ~30s)"
+        )
+    if step_type == "trigger.market_relative_time":
+        return (
+            f"{cfg.get('anchor')} {cfg.get('offset_minutes', 0):+d}min — "
+            "fires at the resolved time (poller resolution ~30s)"
+        )
+    return f"{step_type} — evaluated by the workflow engine"
+
+
+_ON_FIRE_LINE = (
+    "On a fire it REGISTERS the order for your confirmation in your "
+    "broker app — Pivot never auto-executes (register-not-execute)."
+)
+
+
+async def _register_workflow(a, kt, db, uid):
+    """Persist a workflow draft and flip it ACTIVE — the same service
+    path the FE 'Save & activate' button drives. Never executes
+    anything; arming only."""
+    from backend.models import Workflow, WorkflowStatus
+    from backend.routers.workflows import (
+        _register_armed_idea,
+        _replace_steps,
+        _validate_steps,
+    )
+    from backend.workflows.scheduler import (
+        InvalidCronError,
+        upsert_workflow_schedule,
+    )
+
+    a = a or {}
+    wf = None
+    workflow_id = str(a.get("workflow_id") or "").strip()
+    if workflow_id:
+        wf = (
+            db.query(Workflow)
+            .filter(Workflow.id == workflow_id, Workflow.user_id == uid)
+            .first()
+        )
+        if wf is None:
+            return {"success": False,
+                    "error": f"workflow {workflow_id} not found",
+                    "data": {}, "logiccard": None}
+        if wf.status == WorkflowStatus.archived:
+            return {"success": False,
+                    "error": "cannot activate an archived workflow",
+                    "data": {}, "logiccard": None}
+        if wf.status == WorkflowStatus.active:
+            return {
+                "success": True,
+                "data": {
+                    "workflow_id": str(wf.id),
+                    "status": "active",
+                    "name": str(wf.name),
+                    "note": "Already live — nothing to re-register.",
+                },
+                "logiccard": None,
+            }
+    else:
+        steps_in = a.get("steps")
+        if not isinstance(steps_in, list) or not steps_in:
+            return {
+                "success": False,
+                "error": (
+                    "register_workflow needs the draft's steps[] (or a "
+                    "workflow_id). Re-send the active draft verbatim."
+                ),
+                "data": {}, "logiccard": None,
+            }
+        steps_in = [
+            {
+                "step_type": s.get("step_type"),
+                "config": s.get("config") or {},
+                "label": s.get("label"),
+            }
+            for s in steps_in if isinstance(s, dict)
+        ]
+        try:
+            _validate_steps(steps_in)
+        except Exception as exc:  # HTTPException from validation_error
+            detail = getattr(exc, "detail", None)
+            msg = (
+                detail.get("error", {}).get("message")
+                if isinstance(detail, dict) and isinstance(detail.get("error"), dict)
+                else str(detail or exc)
+            )
+            return {"success": False,
+                    "error": f"draft failed validation: {str(msg)[:240]}",
+                    "data": {}, "logiccard": None}
+        expires_at = None
+        raw_exp = a.get("expires_at") or a.get("valid_until")
+        if isinstance(raw_exp, str) and raw_exp:
+            from datetime import datetime as _dt
+            try:
+                expires_at = _dt.fromisoformat(raw_exp.replace("Z", "+00:00"))
+            except ValueError:
+                expires_at = None
+        wf = Workflow(
+            user_id=uid,
+            name=str(a.get("name") or "Chat-registered agent")[:120],
+            description=str(a.get("description") or "")[:500] or None,
+            single_instance=True,
+            status=WorkflowStatus.draft,
+            expires_at=expires_at,
+        )
+        db.add(wf)
+        db.flush()
+        _replace_steps(db, wf, steps_in)
+
+    # Activate — identical sequence to POST /workflows/{id}/activate.
+    from datetime import datetime, timezone
+    wf.status = WorkflowStatus.active
+    wf.activated_at = datetime.now(timezone.utc)
+    try:
+        upsert_workflow_schedule(db, wf)
+    except InvalidCronError as exc:
+        db.rollback()
+        return {"success": False,
+                "error": f"invalid schedule on the draft: {exc}",
+                "data": {}, "logiccard": None}
+    db.commit()
+    db.refresh(wf)
+    try:
+        _register_armed_idea(db, uid, wf)
+    except Exception:  # noqa: BLE001 — never block arming on paper-idea
+        logger.exception("[register_workflow] armed-idea registration failed")
+
+    triggers = [
+        {
+            "step_index": int(s.step_index),
+            "step_type": str(s.step_type),
+            "summary": _trigger_summary_for_step(
+                str(s.step_type), dict(s.config or {}),
+            ),
+        }
+        for s in sorted(wf.steps, key=lambda s: int(s.step_index))
+        if str(s.step_type).startswith("trigger.")
+    ]
+    data = {
+        "_render_hint": "workflow_draft_card",
+        "workflow_id": str(wf.id),
+        "status": "active",
+        "name": str(wf.name),
+        "description": wf.description,
+        "steps": [
+            {
+                "step_type": str(s.step_type),
+                "config": dict(s.config or {}),
+                "label": s.label,
+            }
+            for s in sorted(wf.steps, key=lambda s: int(s.step_index))
+        ],
+        "triggers": triggers,
+        "next_run_at": (
+            wf.next_run_at.isoformat() if wf.next_run_at else None
+        ),
+        "on_fire": _ON_FIRE_LINE,
+        "registered": True,
+    }
+    return {"success": True, "data": data, "logiccard": None}
+
+
+async def _get_workflow_status(a, kt, db, uid):
+    """Grounded armed-state readback: persisted status + the watcher's
+    real cadence + (best-effort) current indicator values."""
+    import asyncio
+
+    from backend.models import Workflow, WorkflowStatus
+
+    a = a or {}
+    workflow_id = str(a.get("workflow_id") or "").strip()
+    q = db.query(Workflow).filter(Workflow.user_id == uid)
+    if workflow_id:
+        wf = q.filter(Workflow.id == workflow_id).first()
+    else:
+        wf = (
+            q.filter(Workflow.status != WorkflowStatus.archived)
+            .order_by(
+                Workflow.activated_at.desc().nullslast(),
+                Workflow.created_at.desc(),
+            )
+            .first()
+        )
+    if wf is None:
+        return {
+            "success": True,
+            "data": {
+                "note": (
+                    "No workflow found — nothing is armed yet. A draft on "
+                    "screen is NOT live until it's registered/activated."
+                ),
+                "armed": False,
+            },
+            "logiccard": None,
+        }
+
+    status = wf.status.value if hasattr(wf.status, "value") else str(wf.status)
+    armed = status == "active"
+    triggers = []
+    for s in sorted(wf.steps, key=lambda s: int(s.step_index)):
+        st = str(s.step_type)
+        if not st.startswith("trigger."):
+            continue
+        cfg = dict(s.config or {})
+        entry = {
+            "step_index": int(s.step_index),
+            "step_type": st,
+            "summary": _trigger_summary_for_step(st, cfg),
+        }
+        if st == "trigger.indicator":
+            # Best-effort live value so "current RSI 47.2 — waiting"
+            # is grounded, never guessed.
+            try:
+                from backend.workflows.scheduler import _compute_indicator_sync
+                value = await asyncio.to_thread(
+                    _compute_indicator_sync,
+                    str(cfg.get("symbol", "")).upper(),
+                    str(cfg.get("indicator", "")).lower(),
+                    int(cfg.get("period", 14)),
+                    str(cfg.get("timeframe") or "daily"),
+                )
+            except Exception:  # noqa: BLE001
+                value = None
+            entry["current_value"] = (
+                round(float(value), 2) if value is not None else None
+            )
+            if value is not None:
+                try:
+                    op = str(cfg.get("operator"))
+                    thr = float(cfg.get("value", 0.0))
+                    cur = float(value)
+                    met = (cur > thr) if op in (">", "crosses_above") else (cur < thr)
+                    entry["condition_met_now"] = bool(met)
+                except (TypeError, ValueError):
+                    pass
+        triggers.append(entry)
+
+    data = {
+        "workflow_id": str(wf.id),
+        "name": str(wf.name),
+        "status": status,
+        "armed": armed,
+        "armed_line": (
+            "Live." if armed else
+            f"NOT live — status is '{status}'. Register/activate it to arm."
+        ),
+        "triggers": triggers,
+        "last_run_at": wf.last_run_at.isoformat() if wf.last_run_at else None,
+        "next_run_at": wf.next_run_at.isoformat() if wf.next_run_at else None,
+        "expires_at": (
+            wf.expires_at.isoformat()
+            if getattr(wf, "expires_at", None) else None
+        ),
+        "on_fire": _ON_FIRE_LINE,
+    }
+    return {"success": True, "data": data, "logiccard": None}
 
 
 async def _get_portfolio_greeks(a, kt, db, uid):

@@ -145,8 +145,17 @@ async def test_critique_tool_flags_naked_short(db):
         kite_token="mock", db=db, user_id=1,
     )
     assert res.success, res.error
+    # A naked short put is still a high-risk, undefended short — the
+    # critique must flag it "risky". But its loss is FINITE (the strike
+    # falling to zero), so max_loss is a real number, NEVER None/"unlimited".
     assert res.data["critique"]["verdict"] == "risky"
-    assert res.data["computed"]["max_loss"] is None
+    ml = res.data["computed"]["max_loss"]
+    assert ml is not None and ml > 0
+    # The critique digest must lead with the bounded risk shape, never the
+    # word "unlimited" for a put.
+    digest = (res.data["critique"].get("digest") or "").lower()
+    assert "unlimited" not in digest
+    assert res.data["critique"].get("comparison")  # 2-row current-vs-alt
 
 
 @pytest.mark.asyncio

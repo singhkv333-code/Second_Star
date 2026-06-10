@@ -661,6 +661,46 @@ _RULES: list[_Rule] = [
         "get_market_status",
     ),
 
+    # ── Option roll / adjustment (Track C #3) ─────────────────────
+    # "roll the 24000 call to next expiry", "shift the strike up 200",
+    # "becha tha, loss me hai — next expiry me roll kar do", "adjust my
+    # short call". Rolling is the #1 retail F&O follow-up; surface the
+    # dedicated tool (plus the chain + build fallbacks) whenever a roll
+    # cue appears in an options context.
+    _r(
+        r"\broll(?:ing|ed)?\b[^.]{0,60}\b(?:call|put|option|strike|expiry|"
+        r"position|short|leg|ce|pe)\b"
+        r"|\b(?:call|put|option|strike|short|leg|ce|pe)\b[^.]{0,60}\broll\b"
+        r"|\bshift\s+(?:the\s+)?strike\b"
+        r"|\bmove\s+(?:the\s+|my\s+)?(?:strike|short\s+(?:call|put))\b"
+        r"|\broll\s*(?:kar|karo|krdo|kar\s*do)\b"
+        r"|\b(?:becha|bechi)\b[^.]{0,80}\b(?:next\s+expiry|roll)\b"
+        r"|\badjust\b[^.]{0,40}\b(?:short\s+)?(?:call|put|strangle|straddle|leg)\b",
+        "roll_option_position", "get_option_chain", "build_option_strategy",
+        "critique_option_strategy", "get_live_price",
+    ),
+
+    # ── Workflow arming + armed-state introspection (Track C #1) ──
+    # "register it", "activate the agent", "arm it", "make it live",
+    # "is it actually live?", "when do you check?", "how often does it
+    # evaluate?", "what's the status of my automation?".
+    _r(
+        r"\b(?:register|activate|arm|enable|turn\s+on|switch\s+on|"
+        r"go\s+live\s+with|make)\s+(?:it|that|this|the\s+(?:agent|workflow|"
+        r"automation|rule|draft|strategy)|my\s+(?:agent|workflow|"
+        r"automation|rule))\b(?:\s+(?:live|active|now))?"
+        r"|\bis\s+(?:it|that|this|the\s+(?:agent|workflow|automation|rule)|"
+        r"my\s+(?:agent|workflow|automation|rule))\s+"
+        r"(?:actually\s+|really\s+)?(?:live|running|armed|active|on|working)\b"
+        r"|\bwhen\s+do(?:es)?\s+(?:you|it|pivot)\s+(?:check|evaluate|poll|"
+        r"look|scan)\b"
+        r"|\bhow\s+often\b[^.]{0,40}\b(?:check|checked|evaluate|evaluated|"
+        r"poll|polled|run|scan)"
+        r"|\b(?:status|state)\s+of\s+(?:my|the)\s+(?:agent|workflow|"
+        r"automation|rule|trigger)\b",
+        "register_workflow", "get_workflow_status",
+    ),
+
     # ── F&O / options (P1) ────────────────────────────────────────
     # Chain exploration, strategy suggestion/building, pre-trade
     # critique, portfolio greeks. The suggest tool carries the
@@ -686,7 +726,7 @@ _RULES: list[_Rule] = [
         r"|\bgreeks\b|\bmax\s+pain\b|\bpcr\b|\bput[- ]call\s+ratio\b",
         "get_option_chain", "suggest_option_strategy",
         "build_option_strategy", "critique_option_strategy",
-        "get_portfolio_greeks",
+        "get_portfolio_greeks", "roll_option_position",
     ),
 
     # ── Polymarket: BROWSE / discover open prediction-market contracts.

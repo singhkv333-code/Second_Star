@@ -1,0 +1,129 @@
+[
+ {
+  "category": "F&O",
+  "name": "probe_iv-rank-premium-timing",
+  "why": "IV-history is a known pending gap (F&O P4); chain payload has point-in-time IV only. Best-in-class answers with IV rank/percentile or honestly degrades to ATM-IV + VIX-proxy with a concrete number; Pivot will likely fabricate a high/low judgement with no baseline or dodge.",
+  "turns": [
+   "is NIFTY option premium rich or cheap right now compared to the last few months? should I be a buyer or seller of premium this week?",
+   "ok then just tell me today's ATM IV and what regime that usually means"
+  ]
+ },
+ {
+  "category": "F&O",
+  "name": "probe_roll-losing-short-call",
+  "why": "No roll/adjustment path exists — strategies are built fresh, never repaired. Rolling (close old leg + open higher strike/next expiry, net the premiums) is the most common retail F&O follow-up; expect a fresh build that ignores the existing position or a generic workflow mis-route.",
+  "turns": [
+   "maine NIFTY ka 23400 CE becha tha pichhle week, market upar bhaag raha hai aur main loss mein hoon — isko roll kar do next expiry mein thoda upar",
+   "and set an alert if the new short strike gets within 100 points of spot"
+  ]
+ },
+ {
+  "category": "ambiguous",
+  "name": "probe_fuzzy-descriptor-resolution",
+  "why": "Snapshot only proves the ASK_USER menu turn; the resolution path (fuzzy descriptor 'the motors one' -> TATAMOTORS, qty=10 retained across the round-trip, NEW 3% dip condition fused into one card) is untested and the hinglish-resize residual shows recovery paths read only the current message, so qty/draft drop is the suspected failure.",
+  "turns": [
+   "set up a buy on the Tata one that's been running lately, 10 shares",
+   "haan the motors one — but only if it dips 3% first"
+  ]
+ },
+ {
+  "category": "ambiguous",
+  "name": "probe_unlisted-entity-honesty",
+  "why": "The Tata candidate list is a baked-in set of listed names; Air India is unlisted. Suspected failure: maps to a wrong listed ticker (INDIGO/SPICEJET) or re-emits the generic Tata menu instead of honestly stating no tradable ticker exists and building nothing.",
+  "turns": [
+   "set up a buy on Tata's airline stock, 10 shares"
+  ]
+ },
+ {
+  "category": "edge-honesty",
+  "name": "probe_mcx-gold-monthly-lot",
+  "why": "Double boundary (MCX research-only + futures execution not wired) hidden inside a recurring-buy phrasing that routes hard toward the SIP/schedule builder — suspect Pivot drafts an unexecutable MCX futures card (capability theatre) or refuses generically without offering GOLDBEES/SGB-on-NSE as the nearest real thing; turn 2 tests whether paper-sim honestly covers or declines MCX futures fills.",
+  "turns": [
+   "set up an auto-buy of one lot of GOLD mini futures on MCX every month on salary day, say the 1st",
+   "theek hai, toh paper trade me hi laga do same thing"
+  ]
+ },
+ {
+  "category": "edge-honesty",
+  "name": "probe_mf-sip-direct-plan",
+  "why": "Direct-plan mutual funds are off-exchange (AMC/RTA route), but 'SIP <name> monthly' matches the recurring-buy pattern so strongly that Pivot may prefill a bogus/near-miss ticker or build a card it can't honour; turn 2 (Hinglish) checks whether it then prefills the nearest listed-ETF proxy card instead of re-asking.",
+  "turns": [
+   "start a 10k monthly SIP in Parag Parikh Flexi Cap direct growth",
+   "koi NSE pe listed option hai toh wahi laga do, same 10k monthly"
+  ]
+ },
+ {
+  "category": "execution-stress",
+  "name": "probe_weighted-basket-sector-trigger",
+  "why": "Equal-split basket already regressed to ask_user (R3 worst regression: bare 60000 not read as budget by _USER_QTY_PATTERNS); a weighted split has no allocate_notional strategy=equal escape hatch, and NIFTY IT likely doesn't resolve as a trigger underlying — expect either qty re-ask, silent equal-split, or silent NIFTY swap instead of an honest fallback.",
+  "turns": [
+   "if the NIFTY IT index drops 2% intraday, put 50000 across TCS, INFY and HCLTECH — half in TCS, 30% in INFY and the rest in HCLTECH",
+   "make the HCLTECH leg 25% and shave TCS to 45%, same total"
+  ]
+ },
+ {
+  "category": "execution-stress",
+  "name": "probe_scale-out-staged-exit",
+  "why": "R3's exit machinery shows exactly one trigger.exit_compound branch selling the whole {{context.1.quantity}}; partial-qty staged exits (5 at +3%, 5 at +6%) plus an all-out -2% stop needs three exit branches with split quantities the DSL has never demonstrated — expect silent collapse to a single exit or a refusal loop rather than a faithful 3-branch card or an honest nearest-real-thing offer.",
+  "turns": [
+   "buy 10 BAJAJ-AUTO at the open, sell 5 of them when it's up 3% and the rest when it's up 6%, and if it drops 2% from my buy price dump everything",
+   "actually make that 2% stop a trailing one"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "probe_register-then-status",
+  "why": "R3 amend_qty_then_confirm_register T2 ran tools_called=[] and punted to 'Click Save & activate'; chat-side register_workflow is a still-open P0 in the automation work order. Turn 3 stresses armed-state introspection (evaluation cadence, current RSI, pending-order state) which Pivot likely cannot answer truthfully today.",
+  "turns": [
+   "make an agent that buys 10 TATAPOWER when RSI(14) goes under 30",
+   "register it for me right now",
+   "is it actually live? when exactly do you check the RSI and what happens the moment it fires?"
+  ]
+ },
+ {
+  "category": "multi-turn",
+  "name": "probe_two-drafts-edit-first",
+  "why": "Per-session state holds one active draft (independent prompts evict it), so the WIPRO build likely evicts the INFY draft; turn 3's reference to 'the INFY one' should mis-target the WIPRO draft, re-ask for context, or rebuild with dropped params. Gold = two addressable drafts + correctly targeted Changed:/Kept: amend.",
+  "turns": [
+   "buy 5 INFY when it dips 3% from the previous close",
+   "nice, make the same thing for WIPRO also",
+   "change the INFY one to 8 shares, WIPRO wala same rehne do"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "probe_pe_vs_own_history",
+  "why": "Best-in-class Indian retail tools (Tijori/Trendlyne) frame 'expensive?' vs the stock's own 5y average multiple; Pivot's fetch_fundamentals is a current snapshot only and the R3 is_reliance_expensive answer never references own-history. Suspected failure: fabricated/eyeballed historical-average P/E, or silently answering a different question instead of the honest bound + price-vs-SMA200 proxy.",
+  "turns": [
+   "is TCS trading above or below its own 5-year average P/E right now? how big is the gap",
+   "fine, then use whatever history you DO have to tell me if it's cheaper than usual"
+  ]
+ },
+ {
+  "category": "quality-stress",
+  "name": "probe_itc_yield_then_vs_now",
+  "why": "Directly probes the open itc_dividend_story residual (trajectory ask answered with a static snapshot), with the then-vs-now demand explicit and in Hinglish plus a forward-risk follow-up. Suspected failure: turn 1 re-renders the point-in-time table without computing then-yield from the 1y price series; turn 2 re-quotes payout 86.92% without the EPS-sensitivity argument.",
+  "turns": [
+   "ITC ka dividend yield ek saal pehle ke comparison mein improve hua hai ya nahi? then vs now table bana ke dikhao",
+   "ok and agle saal yield drop hone ka realistic risk kya hai - kis number pe nazar rakhun?"
+  ]
+ },
+ {
+  "category": "regression",
+  "name": "probe_hinglish-price-fastpath",
+  "why": "Repo history of stopword/ticker misparse (ME-snapshot bug, BHARTIARTL stopword) plus R3 hinglish_then_resize_notional FAIL losing symbol context; pure-Hinglish price ask with a follow-up ellipsis ('aur sbi ka?') checks Hindi function words aren't priced as tickers and that SBIN context-carries without a re-ask.",
+  "turns": [
+   "kotak bank ka bhav kya chal raha hai abhi?",
+   "aur sbi ka?"
+  ]
+ },
+ {
+  "category": "regression",
+  "name": "probe_weekly-rsi-timeframe",
+  "why": "The vanilla GRASIM build is served by a deterministic fast path pinned to daily RSI(14) (0 LLM calls in R3 snapshot); a one-word 'weekly' qualifier risks the pin firing anyway and silently dropping the condition — card digest shows no timeframe param, so PASS requires either a real weekly param or an honest daily-only boundary before arming.",
+  "turns": [
+   "make an agent that buys 10 GRASIM when its weekly RSI drops below 30",
+   "is that checking the weekly chart or daily?"
+  ]
+ }
+]

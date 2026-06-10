@@ -63,6 +63,17 @@ PENDING_RESOLUTION_PREFIX = "chat:resolution:"
 # activate flows without bleeding across topic shifts.
 ACTIVE_DRAFT_TTL_SECONDS = 60 * 10
 ACTIVE_DRAFT_PREFIX = "chat:active_draft:"
+# Addressable multi-draft map (Track C): per-symbol drafts in one
+# conversation. The single active_draft slot stays the "most recent"
+# pointer (back-compat with every existing call site); the map lets a
+# named back-reference ("change the INFY one") resolve to the right
+# draft instead of mutating whatever happened to be in the slot.
+DRAFT_MAP_PREFIX = "chat:draft_map:"
+DRAFT_MAP_MAX_DRAFTS = 4
+# Track C #1: the workflow the conversation last registered via chat —
+# powers "is it actually live?" status readbacks without a DB scan.
+REGISTERED_WF_PREFIX = "chat:registered_wf:"
+REGISTERED_WF_TTL_SECONDS = 60 * 60 * 24
 
 
 @dataclass
@@ -86,6 +97,11 @@ class ActiveDraft:
     draft: dict              # the full JSON the LLM emitted as args
     last_caption: str = ""   # human-readable text rendered alongside it
     created_at_iso: str = ""
+    # Track C: primary symbol this draft acts on (uppercase) — the
+    # addressing key in the per-conversation draft map. Empty string
+    # when no symbol could be derived (the draft is still usable via
+    # the single most-recent slot).
+    symbol: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), default=str)
@@ -93,7 +109,10 @@ class ActiveDraft:
     @classmethod
     def from_json(cls, raw: str | bytes) -> "ActiveDraft":
         data = json.loads(raw if isinstance(raw, str) else raw.decode())
-        return cls(**data)
+        known = {
+            "tool_name", "draft", "last_caption", "created_at_iso", "symbol",
+        }
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
@@ -252,15 +271,71 @@ class ConversationStore:
             logger.warning("pending clear failed: %s", e)
 
     # ── Active workflow draft (multi-turn amendment) ────────────────
+    #
+    # Two layers of state:
+    #   chat:active_draft:{conv}  → the MOST RECENT draft (single slot,
+    #                               read by every legacy call site)
+    #   chat:draft_map:{conv}     → ordered JSON list of drafts keyed by
+    #                               primary symbol — lets "change the
+    #                               INFY one" address a parked draft
+    #                               without evicting the others.
 
     def _draft_key(self, conv_id: str) -> str:
         return f"{ACTIVE_DRAFT_PREFIX}{conv_id}"
 
-    def set_active_draft(self, conv_id: str, draft: ActiveDraft) -> None:
-        """Stash the current workflow draft so the next turn's
-        followup hint can inject the actual JSON. 1-hour TTL."""
+    def _draft_map_key(self, conv_id: str) -> str:
+        return f"{DRAFT_MAP_PREFIX}{conv_id}"
+
+    def _read_draft_map(self, conv_id: str) -> list[ActiveDraft]:
+        """Ordered list of parked drafts, oldest first. Best-effort."""
         if not conv_id:
-            return
+            return []
+        try:
+            raw = redis_client.get(self._draft_map_key(conv_id))
+        except Exception as e:
+            logger.warning("draft_map get failed: %s", e)
+            return []
+        if raw is None:
+            return []
+        try:
+            items = json.loads(raw if isinstance(raw, str) else raw.decode())
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        out: list[ActiveDraft] = []
+        if isinstance(items, list):
+            for item in items:
+                try:
+                    out.append(ActiveDraft.from_json(json.dumps(item)))
+                except (TypeError, ValueError):
+                    continue
+        return out
+
+    def _write_draft_map(self, conv_id: str, drafts: list[ActiveDraft]) -> None:
+        try:
+            redis_client.set(
+                self._draft_map_key(conv_id),
+                json.dumps([asdict(d) for d in drafts], default=str),
+                ex=ACTIVE_DRAFT_TTL_SECONDS,
+            )
+        except Exception as e:
+            logger.warning("draft_map set failed: %s", e)
+
+    def set_active_draft(self, conv_id: str, draft: ActiveDraft) -> Optional[str]:
+        """Stash the current workflow draft so the next turn's
+        followup hint can inject the actual JSON.
+
+        Also upserts into the per-symbol draft map: a draft for a NEW
+        symbol is appended (the prior symbol's draft stays parked, no
+        eviction); a draft for an EXISTING symbol replaces that entry
+        in place. Capped at DRAFT_MAP_MAX_DRAFTS with LRU eviction.
+
+        Returns the symbol of an LRU-evicted draft (so the caller can
+        surface an honest "I dropped the oldest draft (X)" note), or
+        None when nothing was evicted.
+        """
+        if not conv_id:
+            return None
+        evicted: Optional[str] = None
         try:
             redis_client.set(
                 self._draft_key(conv_id),
@@ -269,9 +344,38 @@ class ConversationStore:
             )
         except Exception as e:
             logger.warning("active_draft set failed: %s", e)
+        # Upsert the per-symbol map. Key on (symbol or tool_name) so two
+        # symbol-less drafts of the same tool replace each other rather
+        # than piling up.
+        try:
+            key = draft.symbol or f"_{draft.tool_name}"
+            drafts = self._read_draft_map(conv_id)
+            drafts = [
+                d for d in drafts
+                if (d.symbol or f"_{d.tool_name}") != key
+            ]
+            drafts.append(draft)
+            if len(drafts) > DRAFT_MAP_MAX_DRAFTS:
+                dropped = drafts.pop(0)
+                evicted = dropped.symbol or dropped.tool_name
+            self._write_draft_map(conv_id, drafts)
+        except Exception as e:  # noqa: BLE001 — map is best-effort
+            logger.warning("draft_map upsert failed: %s", e)
+        return evicted
 
-    def get_active_draft(self, conv_id: str) -> Optional[ActiveDraft]:
+    def get_active_draft(
+        self, conv_id: str, symbol: Optional[str] = None,
+    ) -> Optional[ActiveDraft]:
+        """Return the active draft. ``symbol=None`` keeps the legacy
+        behaviour (most-recent draft, single slot); a named symbol
+        resolves against the per-symbol map."""
         if not conv_id:
+            return None
+        if symbol:
+            want = symbol.strip().upper()
+            for d in reversed(self._read_draft_map(conv_id)):
+                if (d.symbol or "").upper() == want:
+                    return d
             return None
         try:
             raw = redis_client.get(self._draft_key(conv_id))
@@ -286,13 +390,77 @@ class ConversationStore:
             logger.warning("active_draft decode failed: %s", e)
             return None
 
-    def clear_active_draft(self, conv_id: str) -> None:
+    def list_active_drafts(self, conv_id: str) -> list[ActiveDraft]:
+        """All parked drafts for this conversation, oldest first."""
+        return self._read_draft_map(conv_id)
+
+    def clear_active_draft(
+        self, conv_id: str, symbol: Optional[str] = None,
+    ) -> None:
+        """``symbol=None`` clears EVERYTHING (slot + map — topic shift /
+        session reset semantics). A named symbol removes only that map
+        entry; the single slot is repointed to the most recent
+        remaining draft (or cleared if none remain)."""
         if not conv_id:
+            return
+        if symbol:
+            want = symbol.strip().upper()
+            try:
+                drafts = [
+                    d for d in self._read_draft_map(conv_id)
+                    if (d.symbol or "").upper() != want
+                ]
+                if drafts:
+                    self._write_draft_map(conv_id, drafts)
+                    current = self.get_active_draft(conv_id)
+                    if current is not None and (
+                        (current.symbol or "").upper() == want
+                    ):
+                        redis_client.set(
+                            self._draft_key(conv_id),
+                            drafts[-1].to_json(),
+                            ex=ACTIVE_DRAFT_TTL_SECONDS,
+                        )
+                else:
+                    redis_client.delete(self._draft_map_key(conv_id))
+                    redis_client.delete(self._draft_key(conv_id))
+            except Exception as e:
+                logger.warning("active_draft named clear failed: %s", e)
             return
         try:
             redis_client.delete(self._draft_key(conv_id))
+            redis_client.delete(self._draft_map_key(conv_id))
         except Exception as e:
             logger.warning("active_draft clear failed: %s", e)
+
+    # ── Last chat-registered workflow (Track C #1) ───────────────────
+
+    def _registered_wf_key(self, conv_id: str) -> str:
+        return f"{REGISTERED_WF_PREFIX}{conv_id}"
+
+    def set_registered_workflow_id(self, conv_id: str, workflow_id: str) -> None:
+        if not conv_id or not workflow_id:
+            return
+        try:
+            redis_client.set(
+                self._registered_wf_key(conv_id),
+                str(workflow_id),
+                ex=REGISTERED_WF_TTL_SECONDS,
+            )
+        except Exception as e:
+            logger.warning("registered_wf set failed: %s", e)
+
+    def get_registered_workflow_id(self, conv_id: str) -> Optional[str]:
+        if not conv_id:
+            return None
+        try:
+            raw = redis_client.get(self._registered_wf_key(conv_id))
+        except Exception as e:
+            logger.warning("registered_wf get failed: %s", e)
+            return None
+        if raw is None:
+            return None
+        return raw if isinstance(raw, str) else raw.decode()
 
     # ── Pending resolution (R2 — deterministic "yes" / "no") ─────────
 

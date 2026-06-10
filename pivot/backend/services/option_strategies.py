@@ -441,18 +441,33 @@ def resolve_strategy(
     ) * lot_value, 2)
 
     span = max(0.25 * F, 4.0 * (chain.get("expected_move") or {}).get("abs", 0.05 * F))
+    # The DISPLAY grid is centred on the forward for a readable payoff
+    # curve. The down-side P&L of any put-bearing position bottoms out at
+    # price = 0 (price can never go negative), so the true max-loss/profit
+    # bound on the LOWER edge is finite and must be evaluated AT zero — not
+    # at F - span. We therefore compute the economics on an EXTENDED grid
+    # that always reaches 0 and 2F+span, while still returning the
+    # display-centred payoff for the card.
     grid = np.linspace(max(F - span, 0.0), F + span, _PAYOFF_POINTS)
     pnl = np.zeros_like(grid)
     for l in legs:
         pnl += _leg_expiry_pnl(grid, l, lot_value)
 
-    lo_slope = float(pnl[1] - pnl[0])
-    hi_slope = float(pnl[-1] - pnl[-2])
-    max_profit: Optional[float] = round(float(pnl.max()), 2)
-    max_loss: Optional[float] = round(float(-pnl.min()), 2)
-    if hi_slope > 1e-9 or lo_slope < -1e-9:   # rises toward an open edge
+    econ_grid = np.linspace(0.0, F + span, _PAYOFF_POINTS)
+    econ_pnl = np.zeros_like(econ_grid)
+    for l in legs:
+        econ_pnl += _leg_expiry_pnl(econ_grid, l, lot_value)
+
+    # Only the UPPER edge (price → ∞) can be genuinely open: a naked short
+    # CALL has uncapped loss above, a long call uncapped profit above. The
+    # LOWER edge is anchored at price = 0 and is ALWAYS finite — a short
+    # PUT's worst case is (strike − premium) × lot at price 0, never None.
+    hi_slope = float(econ_pnl[-1] - econ_pnl[-2])
+    max_profit: Optional[float] = round(float(econ_pnl.max()), 2)
+    max_loss: Optional[float] = round(float(-econ_pnl.min()), 2)
+    if hi_slope > 1e-9:   # profit still rising as price → ∞ (e.g. long call)
         max_profit = None
-    if hi_slope < -1e-9 or lo_slope > 1e-9:   # falls toward an open edge
+    if hi_slope < -1e-9:  # loss still deepening as price → ∞ (naked short call)
         max_loss = None
 
     # Defense in depth: a defined-risk structure whose max profit AND max
@@ -558,6 +573,223 @@ def resolve_strategy(
     return payload
 
 
+# ── Roll / adjustment engine (Track C #3) ────────────────────────────
+
+
+def _quote_for_strike(
+    chain: dict, strike: float, option_type: str,
+) -> Optional[dict]:
+    """Find the quotable side-quote for an exact strike in a chain
+    slice, or None."""
+    for r in chain.get("rows") or []:
+        if abs(float(r["strike"]) - float(strike)) < 1e-9:
+            q = _side_quote(r, option_type)
+            return q if _is_quotable(q) else None
+    return None
+
+
+def _resolve_roll_expiry(chain: dict, directive_expiry: object) -> Optional[str]:
+    """Map 'next' / ISO date → a listed expiry ISO. None = unresolvable."""
+    expiries = [e["expiry"] for e in chain.get("expiries") or []]
+    current = chain.get("expiry")
+    want = str(directive_expiry or "next").strip().lower()
+    if want in ("next", "next_expiry", "next_week", "roll"):
+        if current in expiries:
+            i = expiries.index(current)
+            if i + 1 < len(expiries):
+                return expiries[i + 1]
+        return expiries[1] if len(expiries) > 1 else None
+    if want in ("monthly", "next_month"):
+        for e in chain.get("expiries") or []:
+            if e.get("kind") == "monthly" and e["expiry"] != current:
+                return e["expiry"]
+        return None
+    iso = str(directive_expiry)[:10]
+    return iso if iso in expiries else (iso if len(iso) == 10 else None)
+
+
+def roll_option_position(
+    db: Session,
+    underlying: str,
+    *,
+    strike: float,
+    option_type: str,
+    side: str = "SELL",
+    from_expiry: Optional[str] = None,
+    to_expiry: object = "next",
+    new_strike: Optional[float] = None,
+    strike_offset: int = 0,
+    qty_lots: int = 1,
+) -> dict[str, Any]:
+    """Price a roll: close an existing option leg, open the same-side
+    leg at a (usually further) strike on a later expiry.
+
+    Economics:
+      * close cost     — mid of the EXISTING leg on its own expiry's
+        live chain (BUY-to-close for a short, SELL-to-close for a long).
+      * open premium   — mid of the NEW leg on the target expiry chain.
+      * roll net       — open premium − close cost for a short roll
+        (positive = net credit), sign-flipped for a long roll.
+      * max_loss / POP / breakevens — computed for the GO-FORWARD
+        position (the new leg alone) via the existing strategy-econ
+        engine; the roll block carries the cash-flow of the switch.
+
+    Returns the full option_strategy_card payload (same shape as
+    ``resolve_strategy``) with ``editable.legs`` replaced by the 2-leg
+    roll (close + open, each stamped with its own ``expiry`` and
+    ``action``) plus a ``roll`` summary block. Register-not-execute:
+    nothing is sent to a broker.
+    """
+    from backend.market.option_chain import get_chain
+
+    underlying = underlying.strip().upper()
+    option_type = option_type.strip().upper()
+    side = (side or "SELL").strip().upper()
+    if option_type not in ("CE", "PE"):
+        raise StrategyResolutionError("option_type must be CE or PE.")
+    if side not in ("BUY", "SELL"):
+        raise StrategyResolutionError("side must be BUY or SELL.")
+
+    chain_now = get_chain(
+        db, underlying, (str(from_expiry)[:10] if from_expiry else None),
+        width=20,
+    )
+    if chain_now is None:
+        raise StrategyResolutionError(
+            f"No option chain for '{underlying}' — unknown underlying or "
+            "instrument master not refreshed."
+        )
+
+    target_expiry = _resolve_roll_expiry(chain_now, to_expiry)
+    if not target_expiry or target_expiry == chain_now.get("expiry"):
+        raise StrategyResolutionError(
+            f"Couldn't resolve a LATER expiry to roll into for "
+            f"{underlying} (current {chain_now.get('expiry')}). "
+            "Name the target expiry explicitly."
+        )
+    chain_next = get_chain(db, underlying, target_expiry, width=20)
+    if chain_next is None:
+        raise StrategyResolutionError(
+            f"No chain slice for {underlying} {target_expiry}."
+        )
+
+    # ── Price the close of the existing leg ──
+    close_q = _quote_for_strike(chain_now, strike, option_type)
+    if close_q is None:
+        raise StrategyResolutionError(
+            f"The {strike:g} {option_type} on {chain_now.get('expiry')} "
+            "isn't quotable right now (illiquid or outside the slice) — "
+            "I can't price the close honestly."
+        )
+    close_mid = float(close_q["mid"])
+
+    # ── Pick the new strike ──
+    rows_next = chain_next.get("rows") or []
+    atm_next = float(chain_next.get("atm_strike") or 0.0)
+    quotable_strikes = sorted(
+        float(r["strike"]) for r in rows_next
+        if _is_quotable(_side_quote(r, option_type))
+    )
+    if not quotable_strikes:
+        raise StrategyResolutionError(
+            f"No quotable {option_type} strikes on {underlying} "
+            f"{target_expiry} — chain too thin to roll into."
+        )
+    otm_dir = 1 if option_type == "CE" else -1
+    if new_strike is not None and float(new_strike) > 0:
+        resolved_new = min(
+            quotable_strikes, key=lambda s: abs(s - float(new_strike)),
+        )
+    elif strike_offset:
+        # N strikes further OTM from the OLD strike, on the new chain.
+        anchor = min(quotable_strikes, key=lambda s: abs(s - float(strike)))
+        i = quotable_strikes.index(anchor)
+        j = max(0, min(len(quotable_strikes) - 1,
+                       i + otm_dir * int(strike_offset)))
+        resolved_new = quotable_strikes[j]
+    else:
+        # Default: nearest liquid strike just OTM of ATM (above for
+        # calls, below for puts).
+        otm = [
+            s for s in quotable_strikes
+            if (s > atm_next if option_type == "CE" else s < atm_next)
+        ]
+        resolved_new = (
+            (min(otm) if option_type == "CE" else max(otm))
+            if otm else
+            min(quotable_strikes, key=lambda s: abs(s - atm_next))
+        )
+
+    # ── Go-forward economics via the existing engine ──
+    payload = resolve_strategy(
+        db, underlying, "custom",
+        expiry=target_expiry,
+        qty_lots=max(1, int(qty_lots)),
+        explicit_legs=[{
+            "option_type": option_type, "side": side, "strike": resolved_new,
+        }],
+        chain=chain_next,
+    )
+    new_leg = payload["editable"]["legs"][0]
+    open_mid = float(new_leg["mid"])
+    lot_size = int(payload["locked"]["lot_size"])
+    lot_value = lot_size * max(1, int(qty_lots))
+
+    # Roll cash-flow. For a SHORT roll: BUY back old (pay close_mid),
+    # SELL new (receive open_mid) → net = open − close. Long roll is
+    # the mirror image.
+    if side == "SELL":
+        roll_net = round((open_mid - close_mid) * lot_value, 2)
+        close_side = "BUY"
+    else:
+        roll_net = round((close_mid - open_mid) * lot_value, 2)
+        close_side = "SELL"
+
+    close_leg = {
+        "option_type": option_type,
+        "side": close_side,
+        "strike": float(strike),
+        "mid": close_mid,
+        "iv": close_q.get("iv"),
+        "delta": close_q.get("delta"),
+        "iv_status": close_q.get("iv_status"),
+        "tradingsymbol": close_q.get("tradingsymbol"),
+        "instrument_token": close_q.get("instrument_token"),
+        "expiry": chain_now.get("expiry"),
+        "action": "close",
+    }
+    open_leg = {**new_leg, "expiry": target_expiry, "action": "open"}
+
+    payload["editable"]["template"] = "roll"
+    payload["editable"]["legs"] = [close_leg, open_leg]
+    payload["roll"] = {
+        "underlying": underlying,
+        "from_expiry": chain_now.get("expiry"),
+        "to_expiry": target_expiry,
+        "closes": {
+            "strike": float(strike), "option_type": option_type,
+            "side": close_side, "mid": close_mid,
+        },
+        "opens": {
+            "strike": float(resolved_new), "option_type": option_type,
+            "side": side, "mid": open_mid,
+        },
+        "net_premium": roll_net,
+        "net_kind": "credit" if roll_net >= 0 else "debit",
+        "note": (
+            "max_loss / POP / breakevens describe the NEW position "
+            f"({side} {resolved_new:g} {option_type} {target_expiry}) "
+            "after the roll; roll.net_premium is the cash-flow of the "
+            "switch itself. Registers an intent only — you confirm in "
+            "your broker app."
+        ),
+    }
+    # Lead the computed block with the roll cash-flow so the card and
+    # the LLM quote the switch economics, not just the new leg's.
+    payload["computed"]["roll_net_premium"] = roll_net
+    return payload
+
+
 # ── Suggest-flow ─────────────────────────────────────────────────────
 
 
@@ -618,6 +850,7 @@ def suggest_strategies(
             "max_loss": payload["computed"]["max_loss"],
             "max_profit": payload["computed"]["max_profit"],
             "net_premium": payload["computed"]["net_premium"],
+            "breakeven": payload["computed"]["breakevens"],
             "one_liner": t.one_liner,
             "legs": [
                 {"option_type": l["option_type"], "side": l["side"],
@@ -679,14 +912,32 @@ def critique_strategy(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     locked = payload["locked"]
     legs = payload["editable"]["legs"]
     short_legs = [l for l in legs if l["side"] == "SELL"]
+    long_legs = [l for l in legs if l["side"] == "BUY"]
+    has_protective_wing = bool(long_legs)
 
     # Undefined risk is THE account-killer — always the loudest flag.
+    # This is reserved for GENUINELY uncapped structures (a naked short
+    # CALL whose loss grows without bound as price → ∞).
     if computed["max_loss"] is None:
         flags.append({
             "severity": "risk",
             "text": (
-                "Unlimited loss potential — naked short leg(s). A defined-"
-                "risk spread (add a protective wing) caps the downside."
+                "Unlimited loss potential — a naked short call has no upside "
+                "bound. Add a protective long call to cap the downside."
+            ),
+        })
+    # A naked short PUT has a FINITE but large tail (the strike falling to
+    # zero). It is NOT unlimited, but it is still a high-risk, undefended
+    # short — flag it on its own merits without the false "unlimited" word.
+    elif short_legs and not has_protective_wing:
+        ml = computed["max_loss"]
+        ml_txt = f"₹{ml:,.0f}" if ml else "the strike value"
+        flags.append({
+            "severity": "risk",
+            "text": (
+                f"Naked short option — large defined tail (max loss ≈{ml_txt}). "
+                "Adding a protective long wing turns this into a defined-risk "
+                "spread that caps the loss."
             ),
         })
 
@@ -801,4 +1052,65 @@ def critique_strategy(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         summary = "Workable, but mind the flagged items before registering."
     else:
         summary = "High-risk structure — fix the red flags (or downsize) before going ahead."
-    return {"verdict": verdict, "flags": flags, "summary": summary}
+
+    # ── Pre-baked digest the chat layer quotes verbatim — keeps the
+    # POP/bound/comparison numbers anchored to the engine so prose can't
+    # drift (e.g. calling a bounded short put "unlimited loss"). ────────
+    template = payload["editable"].get("template", "custom")
+    ml = computed.get("max_loss")
+    mp = computed.get("max_profit")
+    pop = computed.get("pop")
+    # Risk-shape line: only TRUE None (naked short call) is "unlimited".
+    if ml is None:
+        risk_shape = "uncapped (unlimited) loss — a naked short call has no upside bound"
+    elif mp is None:
+        risk_shape = (f"defined loss (max ₹{ml:,.0f}), uncapped profit")
+    else:
+        risk_shape = (f"defined risk: max loss ≈₹{ml:,.0f}, max profit ≈₹{mp:,.0f}")
+    digest_lines = [f"Risk profile: {risk_shape}."]
+    if pop is not None:
+        digest_lines.append(f"Probability of profit (market-implied): {pop:.1%}.")
+    if computed.get("breakevens"):
+        bes = ", ".join(f"₹{b:,.0f}" for b in computed["breakevens"])
+        digest_lines.append(f"Breakeven(s): {bes}.")
+
+    # 2-row current-vs-alternative comparison the critique must surface.
+    # For a naked short put the obvious safer alternative is the bull-put
+    # CREDIT SPREAD (adds a protective long wing → caps the down-side).
+    comparison: list[dict] = []
+    is_short_put = (
+        len(legs) == 1 and legs[0]["option_type"] == "PE"
+        and legs[0]["side"] == "SELL"
+    )
+    if is_short_put:
+        comparison = [
+            {
+                "structure": "Current — naked short put (cash-secured)",
+                "max_loss": (f"₹{ml:,.0f}" if ml is not None else "uncapped"),
+                "max_profit": (f"₹{mp:,.0f}" if mp is not None else "uncapped"),
+                "pop": (f"{pop:.0%}" if pop is not None else "n/a"),
+            },
+            {
+                "structure": "Alternative — bull put credit spread (add a long put wing)",
+                "max_loss": "capped to the strike gap minus credit",
+                "max_profit": "the net credit (smaller, but defined)",
+                "pop": "similar, with a hard floor on the loss",
+            },
+        ]
+        digest_lines.append(
+            "This is a premium-income (cash-secured-put) structure: you collect "
+            "the credit now and either keep it or buy the underlying at a "
+            "discount. To cap the tail risk, add a lower long put to turn it "
+            "into a bull put spread."
+        )
+
+    return {
+        "verdict": verdict,
+        "flags": flags,
+        "summary": summary,
+        "digest": " ".join(digest_lines),
+        "comparison": comparison,
+        "pop": pop,
+        "max_loss": ml,
+        "max_profit": mp,
+    }

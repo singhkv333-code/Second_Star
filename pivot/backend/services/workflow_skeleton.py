@@ -281,8 +281,23 @@ _IND_RE = re.compile(
 )
 
 
+# Weekly-timeframe cue ADJACENT to a parseable indicator ("weekly RSI",
+# "RSI on the weekly", "weekly chart/bars/timeframe"). Track C #4: this
+# is a REAL engine capability now — the watcher resamples to W-FRI
+# closes when trigger.indicator config carries timeframe='weekly'.
+_WEEKLY_IND_RE = re.compile(
+    r"\bweekly\s+(?:rsi|sma|ema)\b"
+    r"|\b(?:rsi|sma|ema)\b[^.]{0,30}?\bon\s+(?:the\s+)?weekly\b"
+    r"|\bon\s+(?:the\s+)?weekly\s+(?:chart|bars?|candles?|timeframe|closes?)\b"
+    r"|\bweekly\s+timeframe\b|\bweekly\s+closes?\b",
+    re.IGNORECASE,
+)
+
+
 def _try_indicator(message: str) -> Optional[dict[str, Any]]:
-    """Match RSI/SMA/EMA threshold-based buy/sell."""
+    """Match RSI/SMA/EMA threshold-based buy/sell. Honors a weekly
+    timeframe cue ('weekly RSI') with a REAL config.timeframe field the
+    watcher evaluates on weekly closes."""
     m = _IND_RE.search(message)
     if not m:
         return None
@@ -314,23 +329,38 @@ def _try_indicator(message: str) -> Optional[dict[str, Any]]:
         "crosses_below": "crossing below",
     }[operator]
 
+    weekly = bool(_WEEKLY_IND_RE.search(message))
+    timeframe = "weekly" if weekly else "daily"
+    tf_label = ", weekly" if weekly else ""
+    tf_prose = " on WEEKLY closes (W-FRI bars)" if weekly else ""
+
+    trigger_config: dict[str, Any] = {
+        "symbol": symbol,
+        "indicator": indicator,
+        "period": period,
+        "operator": operator,
+        "value": val,
+    }
+    if weekly:
+        trigger_config["timeframe"] = timeframe
+
     return {
-        "name": f"{symbol} {indicator.upper()}({period}) {dir_label} {val:g}"[:60],
+        "name": (
+            f"{symbol} {indicator.upper()}({period}{tf_label}) "
+            f"{dir_label} {val:g}"
+        )[:60],
         "description": (
             f"{side.capitalize()} {qty} {symbol} when {period}-period "
-            f"{indicator.upper()} is {dir_label} {val:g}."
+            f"{indicator.upper()}{tf_prose} is {dir_label} {val:g}."
         ),
         "steps": [
             {
                 "step_type": "trigger.indicator",
-                "label": f"{indicator.upper()}({period}) {operator} {val:g}",
-                "config": {
-                    "symbol": symbol,
-                    "indicator": indicator,
-                    "period": period,
-                    "operator": operator,
-                    "value": val,
-                },
+                "label": (
+                    f"{indicator.upper()}({period}{tf_label}) "
+                    f"{operator} {val:g}"
+                ),
+                "config": trigger_config,
             },
             {
                 "step_type": "action.place_order",
@@ -347,6 +377,13 @@ def _try_indicator(message: str) -> Optional[dict[str, Any]]:
         "rationale": (
             f"{indicator.upper()} indicator trigger then a market {side}. "
             f"Period {period} is the conventional default."
+            + (
+                " Evaluated on weekly closes — the watcher resamples the "
+                "daily series to W-FRI bars (checked ~every 60s during "
+                "market hours; the weekly value only changes as the "
+                "current week's bar evolves)."
+                if weekly else ""
+            )
         ),
         "warnings": [],
         "_render_hint": "workflow_draft_card",
@@ -805,7 +842,27 @@ _COMPLEXITY_RE = re.compile(
     r"supertrend|aroon|cci|mfi|williams|price|volume|close|open|high|low|above|below|>|<)\b"
     # ── Session-day filter mid-condition ("only on Tuesdays", "Mon-Wed only").
     r"|\bonly\s+on\s+(?:mon|tue|wed|thu|fri)"
-    r"|\b(?:mon|tue|wed|thu|fri)[a-z]*(?:\s+and\s+(?:mon|tue|wed|thu|fri)[a-z]*)+\s+only\b",
+    r"|\b(?:mon|tue|wed|thu|fri)[a-z]*(?:\s+and\s+(?:mon|tue|wed|thu|fri)[a-z]*)+\s+only\b"
+    # ── Non-daily INDICATOR timeframe. The skeleton + watcher evaluate
+    # indicators on DAILY bars by default; WEEKLY is now a real,
+    # engine-honored timeframe (Track C #4 — the watcher resamples to
+    # W-FRI closes when config.timeframe='weekly'), so 'weekly RSI' no
+    # longer bails. Monthly / hourly / minute / intraday timeframes are
+    # still NOT evaluable — those must bail to the LLM so it can emit
+    # the honest boundary instead of silently dropping the timeframe
+    # onto a daily skeleton (a fabricated capability). SIP schedule
+    # words ("every Monday", "monthly SIP") are NOT caught — only
+    # timeframe-on-indicator.
+    r"|\b(?:monthly|hourly|\d+[- ]?(?:hour|hr|min(?:ute)?)|intraday)\s+"
+    r"(?:rsi|sma|ema|macd|adx|atr|bollinger|stoch|supertrend|aroon|cci|mfi)\b"
+    r"|\b(?:rsi|sma|ema|macd|adx|atr|bollinger|stoch|supertrend|aroon|cci|mfi)\b"
+    r"[^.]{0,30}?\bon\s+(?:the\s+)?(?:monthly|hourly|\d+[- ]?(?:hour|hr|"
+    r"min(?:ute)?)|intraday)\b"
+    r"|\bon\s+(?:the\s+)?(?:monthly|hourly)\s+(?:chart|bars?|candles?|timeframe)\b"
+    r"|\b(?:monthly|hourly|intraday)\s+timeframe\b"
+    # Weekly + an indicator the skeleton CANNOT parse (macd/adx/...)
+    # still bails — _try_indicator only handles rsi/sma/ema.
+    r"|\bweekly\s+(?:macd|adx|atr|bollinger|stoch|supertrend|aroon|cci|mfi)\b",
     re.IGNORECASE,
 )
 

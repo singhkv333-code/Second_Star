@@ -813,10 +813,14 @@ async def _evaluate_indicator_trigger(
     period = int(cfg.get("period", 14))  # type: ignore[call-overload]
     operator = str(cfg.get("operator", ""))
     threshold = float(cfg.get("value", 0.0))  # type: ignore[arg-type]
+    # Track C #4: honored timeframe. 'weekly' evaluates the indicator on
+    # W-FRI weekly closes (daily series resampled, lookback sized ×5) —
+    # the card's timeframe field is REAL, never a silent daily downgrade.
+    timeframe = str(cfg.get("timeframe") or "daily").lower()
 
     try:
         value = await asyncio.to_thread(
-            _compute_indicator_sync, sym, indicator, period,
+            _compute_indicator_sync, sym, indicator, period, timeframe,
         )
     except Exception:
         # Indicator data temporarily unavailable — try again next tick.
@@ -1132,10 +1136,20 @@ async def _evaluate_exit_compound_trigger(
     With a position, walk the DSL tree under a
     ``_PositionAwareAccessor`` so ``PositionNode`` leaves resolve to
     real numbers. Same _last_values plumbing as the entry-compound
-    path so crosses_above / crosses_below work across ticks."""
+    path so crosses_above / crosses_below work across ticks.
+
+    Track C #5 (staged scale-out exits): a branch with ``one_shot:
+    true`` fires AT MOST ONCE — the ``_exit_branch_fired`` latch is
+    persisted on the step config before the run is created, so a
+    partial-exit branch ("sell 5 at +3%") can't re-register the same
+    sell every tick while the condition stays true. Each staged branch
+    carries its own latch; the remaining branches keep evaluating
+    against the (now smaller) net position."""
     entry_raw = cfg.get("entry")
     if not isinstance(entry_raw, dict):
         return
+    if bool(cfg.get("one_shot")) and str(cfg.get(_EXIT_FIRED_KEY) or ""):
+        return  # this staged branch already fired — stay quiet
 
     target_symbol_raw = cfg.get("target_symbol")
     target_symbol = (
@@ -1193,13 +1207,51 @@ async def _evaluate_exit_compound_trigger(
         )
 
     if matched:
+        if bool(cfg.get("one_shot")):
+            # Latch BEFORE firing (crash-safe at-most-once, same order
+            # the IPO-open watcher uses).
+            await asyncio.to_thread(
+                _persist_config_str,
+                workflow_id, step_index, _EXIT_FIRED_KEY,
+                fired_at.isoformat(),
+            )
         await _fire_watch_run(
             workflow_id, step_index, "indicator_alert", fired_at,
         )
 
 
+# Track C #5: per-branch fire-once latch for staged scale-out exits.
+_EXIT_FIRED_KEY = "_exit_branch_fired"
+
+
+def _persist_config_str(
+    workflow_id: str, step_index: int, key: str, value: str,
+) -> None:
+    """Persist an arbitrary string key on a step's config (copy-and-
+    reassign so SQLA tracks the JSON change). Generic sibling of
+    ``_persist_event_guid`` for fire-once latches."""
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == step_index,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        cfg = dict(step.config or {})
+        cfg[key] = str(value)
+        step.config = cfg  # type: ignore[assignment]
+        db.commit()
+    finally:
+        db.close()
+
+
 def _compute_indicator_sync(
-    symbol: str, indicator: str, period: int,
+    symbol: str, indicator: str, period: int, timeframe: str = "daily",
 ) -> Optional[float]:
     """Sync version of the fetch.indicator computation, suitable for
     the watcher (which runs DB / network in worker threads). Returns
@@ -1208,18 +1260,35 @@ def _compute_indicator_sync(
     Delegates to ``backend.services.backtest_indicators`` so the live
     watcher and the backtest engine compute the same scalar for the
     same (indicator, period) pair — adding an indicator anywhere makes
-    it instantly fire-able here."""
+    it instantly fire-able here.
+
+    Track C #4: ``timeframe='weekly'`` evaluates on W-FRI weekly closes
+    (daily series resampled via the shared helper in
+    ``dsl.data_accessor``), with the lookback window sized ×5 so a
+    period-N weekly indicator has ≥N weekly bars. Insufficient WEEKLY
+    history returns None — never a silently-daily value."""
     import pandas as pd  # type: ignore[import-untyped]
 
     from backend.kite.market_data import get_historical_ohlcv, period_for_indicator
     from backend.services.backtest_indicators import latest_value
 
+    tf = (timeframe or "daily").lower()
     # P0 parity: size the window to the indicator period (was hardcoded "6mo",
     # which silently starved any period > ~120, e.g. a 200-EMA, → returned None
-    # and the agent never fired live despite backtesting fine).
+    # and the agent never fired live despite backtesting fine). Weekly needs
+    # ×5 the daily bars for the same indicator period.
+    eff_period = int(period or 0) * (5 if tf == "weekly" else 1)
     bars = get_historical_ohlcv(
-        symbol, period=period_for_indicator(int(period or 0)), interval="1d",
+        symbol, period=period_for_indicator(eff_period), interval="1d",
     ) or []
+    if tf == "weekly":
+        from backend.workflows.dsl.data_accessor import (
+            resample_daily_bars_to_weekly,
+        )
+        df = resample_daily_bars_to_weekly(bars)
+        if df is None or len(df) < max(int(period or 0) + 5, 20):
+            return None
+        return latest_value(df, indicator, period)
     if len(bars) < max(int(period or 0) + 5, 20):
         return None
     df = pd.DataFrame(bars)

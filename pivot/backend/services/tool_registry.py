@@ -57,6 +57,15 @@ _REAL_TOOLS: set[str] = {
     # is deliberately NO place-options-order chat tool.
     "get_option_chain", "suggest_option_strategy", "build_option_strategy",
     "critique_option_strategy", "get_portfolio_greeks",
+    # Track C #3: roll/adjust an existing option leg — close + reopen on
+    # a later expiry / different strike, priced off the live chain.
+    "roll_option_position",
+    # Track C #1: chat-side workflow arming + grounded status readback.
+    # register_workflow drives the same persist+activate path as the
+    # card's Save & activate; get_workflow_status reads the REAL
+    # scheduler facts (60s watcher cadence, next_run_at, current
+    # indicator value). Register-not-execute throughout.
+    "register_workflow", "get_workflow_status",
     # Retail capability tools (2026-05-29): fundamental screen,
     # single-stock fundamentals, company news, IPO feed. These MUST be
     # here (not just in agents/tools.py ALL_TOOLS) — get_tool_schema()

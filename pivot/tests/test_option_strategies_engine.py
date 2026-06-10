@@ -47,14 +47,18 @@ def test_every_template_resolves_on_mock_nifty(master):
         assert computed["payoff"] and len(computed["payoff"]) == 61, name
         assert computed["capital_required"] > 0, name
         assert payload["critique"]["verdict"] in ("ok", "caution", "risky"), name
-        # Defined-risk templates must produce a finite max loss;
-        # naked-short templates must produce None (unlimited).
-        if name in ("short_strangle", "short_straddle", "cash_secured_put",
-                    "covered_call"):
+        # Only GENUINELY uncapped structures — those carrying a naked short
+        # CALL leg whose loss grows without bound as price → ∞ — report
+        # max_loss=None. A short PUT's down-side bottoms out at price 0, so
+        # its loss is finite ((strike − premium) × lot) and must be a real
+        # number — NEVER "unlimited". (covered_call is modelled as the bare
+        # short-call leg here, so it stays uncapped.)
+        if name in ("short_strangle", "short_straddle", "covered_call"):
             assert computed["max_loss"] is None, name
-        if name in ("bull_call_spread", "bear_put_spread", "iron_condor",
-                    "iron_butterfly", "long_call", "long_put",
-                    "long_straddle", "long_strangle"):
+        if name in ("cash_secured_put", "bull_call_spread",
+                    "bear_put_spread", "iron_condor", "iron_butterfly",
+                    "long_call", "long_put", "long_straddle",
+                    "long_strangle"):
             assert computed["max_loss"] is not None, name
 
 

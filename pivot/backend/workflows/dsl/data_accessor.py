@@ -39,6 +39,46 @@ _WEEKDAY_LOOKUP: tuple[str, ...] = (
 )
 
 
+def resample_daily_bars_to_weekly(bars: list):
+    """Resample a list of daily OHLCV dicts ({date, open, high, low,
+    close, volume}) to W-FRI weekly bars. Returns a DataFrame with the
+    same lowercase columns plus a ``date`` column (week-ending Friday),
+    or None when the input can't be resampled.
+
+    Shared by the live accessor and the watcher's
+    ``_compute_indicator_sync`` so 'weekly RSI' means the same series
+    everywhere. The trailing (in-progress) week is included — same
+    convention as the daily path, whose last bar is the latest session.
+    """
+    try:
+        import pandas as pd  # type: ignore[import-untyped]
+    except ImportError:  # pragma: no cover
+        return None
+    if not bars:
+        return None
+    try:
+        df = pd.DataFrame(bars)
+        if "date" not in df.columns or "close" not in df.columns:
+            return None
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date").sort_index()
+        agg: dict = {"close": df["close"].resample("W-FRI").last()}
+        if "open" in df.columns:
+            agg["open"] = df["open"].resample("W-FRI").first()
+        if "high" in df.columns:
+            agg["high"] = df["high"].resample("W-FRI").max()
+        if "low" in df.columns:
+            agg["low"] = df["low"].resample("W-FRI").min()
+        if "volume" in df.columns:
+            agg["volume"] = df["volume"].resample("W-FRI").sum()
+        wk = pd.DataFrame(agg).dropna(subset=["close"]).reset_index()
+        wk["date"] = wk["date"].dt.strftime("%Y-%m-%d")
+        return wk
+    except Exception:  # noqa: BLE001 — honest None over a crash
+        logger.info("[dsl.data_accessor] weekly resample failed", exc_info=True)
+        return None
+
+
 @runtime_checkable
 class DataAccessor(Protocol):
     """Surface every DSL leaf-node ultimately resolves through.
@@ -227,11 +267,13 @@ class LiveDataAccessor:
         exchange: str = "NSE",
         component: Optional[str] = None,
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
         comp_key = component.lower() if component else None
+        tf = (timeframe or "daily").lower()
         cache_key = (
             "indicator", symbol.upper(), indicator.lower(),
-            int(period), exchange.upper(), comp_key, int(offset),
+            int(period), exchange.upper(), comp_key, int(offset), tf,
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
@@ -249,12 +291,15 @@ class LiveDataAccessor:
             self._call_cache[cache_key] = None
             return None
 
+        # Weekly bars need ×5 the daily lookback so a period-N weekly
+        # indicator clears the same min-history guard in WEEKLY bars.
+        eff_period = int(period or 0) * (5 if tf == "weekly" else 1)
         try:
             # P0 parity: window sized to the indicator period + offset (was a
             # hardcoded "6mo" that silently starved any period > ~120 live).
             bars = get_historical_ohlcv(
                 symbol,
-                period=period_for_indicator(int(period or 0), offset=int(offset)),
+                period=period_for_indicator(eff_period, offset=int(offset)),
                 interval="1d",
             ) or []
         except Exception as exc:  # noqa: BLE001
@@ -265,15 +310,22 @@ class LiveDataAccessor:
             self._call_cache[cache_key] = None
             return None
 
-        # Same minimum-history guard the watcher's
-        # _compute_indicator_sync uses. Below this floor the indicator
-        # would either be NaN (some series) or misleading (volatile
-        # rolling-window numbers).
-        if len(bars) < max(int(period or 0) + 5, 20) + int(offset):
-            self._call_cache[cache_key] = None
-            return None
-
-        df = pd.DataFrame(bars)
+        if tf == "weekly":
+            df = resample_daily_bars_to_weekly(bars)
+            if df is None or len(df) < max(int(period or 0) + 5, 20) + int(offset):
+                # Honest UNKNOWN — not enough WEEKLY bars; never serve a
+                # daily value under a weekly label.
+                self._call_cache[cache_key] = None
+                return None
+        else:
+            # Same minimum-history guard the watcher's
+            # _compute_indicator_sync uses. Below this floor the indicator
+            # would either be NaN (some series) or misleading (volatile
+            # rolling-window numbers).
+            if len(bars) < max(int(period or 0) + 5, 20) + int(offset):
+                self._call_cache[cache_key] = None
+                return None
+            df = pd.DataFrame(bars)
         try:
             series = compute_series_component(
                 df, indicator, period, component=comp_key,

@@ -15,8 +15,8 @@ TOOL_SUBSETS = {
     "ORDER_CONDITIONAL": ["create_gtt_order", "create_sl_order", "create_oco_order", "create_dip_buy", "get_live_price"],
     "ORDER_RECURRING":   ["create_sip", "list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
     "ORDER_BASKET":      ["place_basket_order", "get_live_price"],
-    "ORDER_FNO":         ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "get_portfolio_greeks"],
-    "OPTIONS_QUERY":     ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "get_portfolio_greeks"],
+    "ORDER_FNO":         ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "roll_option_position", "get_portfolio_greeks"],
+    "OPTIONS_QUERY":     ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "roll_option_position", "get_portfolio_greeks"],
     "ORDER_MANAGE":      ["cancel_order", "modify_order", "list_pending_orders", "list_gtt_orders", "cancel_gtt", "squareoff_all_intraday", "squareoff_symbol"],
     "PORTFOLIO_QUERY":   ["get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_holding_detail", "get_tax_summary", "get_active_products"],
     "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain", "fetch_fundamentals", "get_symbol_news", "list_upcoming_ipos"],
@@ -2237,6 +2237,94 @@ tool(
         },
     },
     ["query"],
+)
+
+
+# ── Track C: chat-side workflow registration + armed-state introspection ──
+
+tool(
+    "register_workflow",
+    "ARMS a workflow: persists the draft and flips it ACTIVE — the same "
+    "thing the card's 'Save & activate' button does, but from chat. Call "
+    "when the user says 'register it', 'activate it', 'arm it', 'make it "
+    "live', 'go ahead and set it up' about a workflow draft on screen. "
+    "Pass the draft's name/description/steps verbatim (do NOT invent "
+    "steps), OR a workflow_id to activate an existing saved workflow. "
+    "On a trigger fire the workflow REGISTERS an order the user confirms "
+    "in their broker app — Pivot never auto-executes (register-not-execute).",
+    {
+        "name":        {"type": "string", "description": "Workflow name from the draft."},
+        "description": {"type": "string", "description": "Draft description."},
+        "steps":       {"type": "array", "items": {"type": "object"},
+                        "description": "The draft's steps[] verbatim "
+                                       "({step_type, config, label})."},
+        "workflow_id": {"type": "string", "description":
+                        "Existing workflow id to activate instead of "
+                        "creating from a draft."},
+        "expires_at":  {"type": "string", "description":
+                        "Optional ISO expiry timestamp from the draft."},
+    },
+    [],
+)
+
+tool(
+    "get_workflow_status",
+    "Grounded armed-state readback for a workflow: is it actually live, "
+    "what the trigger is, the REAL evaluation cadence (price/indicator "
+    "triggers are polled ~every 60s during NSE market hours; cron "
+    "schedules fire at their cron time), the current indicator value "
+    "when computable, and what happens on a fire (an order is REGISTERED "
+    "for user confirmation — never auto-executed). Call when the user "
+    "asks 'is it live?', 'is it actually running?', 'when do you check?', "
+    "'how often does it evaluate?', 'what's the status of my agent?'. "
+    "workflow_id optional — defaults to the most recently activated "
+    "workflow.",
+    {
+        "workflow_id": {"type": "string", "description":
+                        "Workflow id. Omit for the most recent one."},
+    },
+    [],
+)
+
+
+# ── Track C: option roll / adjustment ─────────────────────────────────
+
+tool(
+    "roll_option_position",
+    "ROLL an existing option leg to a new strike and/or later expiry — "
+    "the standard adjustment when a short option goes against you "
+    "('roll the 24000 call to next expiry', 'shift the strike up 200', "
+    "'becha tha, loss me hai, next expiry me roll karo'). Prices BOTH "
+    "sides off the live chain: the close of the existing leg (BUY-to-"
+    "close a short) and the open of the new leg on the target expiry, "
+    "then returns a 2-leg strategy card with the roll's net "
+    "credit/debit plus the NEW position's max loss, breakeven and POP. "
+    "Defaults: to_expiry='next'; new strike = nearest liquid strike "
+    "just OTM of ATM when unspecified. Registers an intent only — the "
+    "user confirms the actual close+open in their broker app.",
+    {
+        "underlying":   {"type": "string", "description":
+                         "Underlying, e.g. NIFTY, BANKNIFTY, RELIANCE."},
+        "strike":       {"type": "number", "description":
+                         "Strike of the EXISTING leg being rolled."},
+        "option_type":  {"type": "string", "enum": ["CE", "PE"]},
+        "side":         {"type": "string", "enum": ["BUY", "SELL"],
+                         "description": "Side of the EXISTING leg. A "
+                         "sold/written option = SELL (default)."},
+        "from_expiry":  {"type": "string", "description":
+                         "Existing leg's expiry (YYYY-MM-DD). Omit for "
+                         "the nearest expiry."},
+        "to_expiry":    {"type": "string", "description":
+                         "'next' (default), 'monthly', or YYYY-MM-DD."},
+        "new_strike":   {"type": "number", "description":
+                         "Absolute new strike. Omit to default."},
+        "strike_offset": {"type": "integer", "description":
+                          "Move N strikes further OTM from the old "
+                          "strike ('up 2' on a call → +2 strikes)."},
+        "qty_lots":     {"type": "integer", "minimum": 1, "default": 1},
+    },
+    ["underlying", "strike", "option_type"],
+    defaults={"side": "SELL", "to_expiry": "next", "qty_lots": 1},
 )
 
 
