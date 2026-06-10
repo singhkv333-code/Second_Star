@@ -3,7 +3,7 @@
  "elapsed_s": 250.1,
  "base": "http://localhost:8000",
  "user_id": 518,
- "sessions_file": "tests/eval_results/gan_r3_unknown-date/sessions_probes.json",
+ "sessions_file": "tests/eval_results/gan_r3_2026-06-10/sessions_probes.json",
  "only": null,
  "n_sessions": 14,
  "n_turns": 29,

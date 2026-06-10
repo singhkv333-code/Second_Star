@@ -1,4 +1,4 @@
-# Adversarial re-check — `probe_weekly-rsi-timeframe` (gan_r3_unknown-date / regression)
+# Adversarial re-check — `probe_weekly-rsi-timeframe` (gan_r3_2026-06-10 / regression)
 
 ## Verdict: FAIL — UPHELD (score 4, class capability-gap)
 
