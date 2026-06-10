@@ -415,6 +415,16 @@ def _try_price(message: str) -> Optional[dict[str, Any]]:
     if not m:
         return None
 
+    # R4/DABUR fast-path bug: "buy 9 DABUR when it drops 4%" must NOT
+    # parse to trigger.price(value=4) ("price below ₹4" — a dead trigger
+    # on a ~₹500 stock). A percentage MOVE is not an absolute price
+    # level: if the captured number is immediately followed by '%', this
+    # is a relative-change ask the skeleton cannot express — bail to the
+    # LLM/DSL so it can build a pct_change / relative-threshold trigger.
+    tail = message[m.end("val"):m.end("val") + 2].lstrip()
+    if tail.startswith("%"):
+        return None
+
     side = _normalize_side(m.group("side"))
     qty = int(m.group("qty"))
     symbol = m.group("symbol").upper()

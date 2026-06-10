@@ -1233,6 +1233,16 @@ _MACRO_AMENDMENT_TOOLS: frozenset[str] = frozenset({
     "build_option_strategy",
 })
 
+# R4/F15: workflow-shaped macro drafts the deterministic register path
+# can arm with register_workflow. These all emit a workflow_draft_card
+# carrying `steps`. Option/backtest drafts are EXCLUDED — they register
+# through their own card endpoints, not register_workflow.
+_REGISTERABLE_DRAFT_TOOLS: frozenset[str] = frozenset({
+    "propose_workflow", "propose_dsl_workflow", "propose_threshold_order",
+    "propose_scheduled_order", "propose_basket_allocation",
+    "propose_holding_action",
+})
+
 # ── Track C #2: addressable multi-draft helpers ──────────────────────
 
 
@@ -1268,12 +1278,101 @@ def _symbol_mentioned(message: str, symbol: str) -> bool:
     ))
 
 
+# R4/C2: change-verb vs keep-marker tokens, used to disambiguate WHICH of
+# several named drafts an amendment targets. "change the INFY one to 8
+# shares, WIPRO wala same rehne do" mentions BOTH symbols — the prior
+# resolver bailed (len(named)==2) and amended the most-recent draft
+# (WIPRO), then the prose lied ("WIPRO unchanged"). The fix binds the
+# CHANGE verb to the symbol nearest it and treats a KEEP marker near
+# the other symbol as an explicit "leave it alone".
+_AMEND_CHANGE_TOKENS = (
+    "change", "make", "set", "update", "edit", "tweak", "adjust", "raise",
+    "lower", "increase", "decrease", "reduce", "bump", "switch", "kar do",
+    "kardo", "karo", "badal",
+)
+_AMEND_KEEP_TOKENS = (
+    "same rehne", "rehne do", "rakho", "untouched", "leave", "keep",
+    "as is", "as-is", "stays the same", "stay the same", "don't change",
+    "dont change", "unchanged", "wahi rehne", "same rakhna", "wala same",
+    "same", "rehne",
+)
+
+
+def _resolve_amend_target_symbol(
+    message: str, symbols: list[str],
+) -> Optional[str]:
+    """Given an amendment that names ≥2 parked-draft symbols, return the
+    ONE symbol the change actually targets, or None if it can't be
+    resolved cleanly.
+
+    Heuristic: for each named symbol, find the nearest preceding/following
+    change token and the nearest keep token; the symbol whose closest cue
+    is a CHANGE (and not overridden by a closer KEEP) wins, provided
+    exactly one symbol resolves that way. A symbol explicitly marked KEEP
+    is never the target.
+    """
+    low = (message or "").lower()
+    syms = [s for s in symbols if s]
+    if len(syms) < 2:
+        return None
+
+    def _nearest(tokens: tuple[str, ...], sym_pos: int) -> int:
+        best = 10**9
+        for tok in tokens:
+            start = 0
+            while True:
+                idx = low.find(tok, start)
+                if idx == -1:
+                    break
+                best = min(best, abs(idx - sym_pos))
+                start = idx + 1
+        return best
+
+    change_bound: list[str] = []
+    keep_bound: set[str] = set()
+    for sym in syms:
+        m = re.search(rf"\b{re.escape(sym)}\b", low, re.IGNORECASE)
+        if not m:
+            continue
+        pos = m.start()
+        d_change = _nearest(_AMEND_CHANGE_TOKENS, pos)
+        d_keep = _nearest(_AMEND_KEEP_TOKENS, pos)
+        if d_keep <= d_change and d_keep < 10**9:
+            keep_bound.add(sym.upper())
+        elif d_change < d_keep:
+            change_bound.append(sym)
+
+    # Exactly one change-bound symbol that isn't also keep-marked → target.
+    candidates = [s for s in change_bound if s.upper() not in keep_bound]
+    if len(candidates) == 1:
+        return candidates[0]
+    # Fallback: exactly one symbol NOT keep-marked → it's the implied target.
+    not_kept = [s for s in syms if s.upper() not in keep_bound]
+    if keep_bound and len(not_kept) == 1:
+        return not_kept[0]
+    return None
+
+
 # ── Track C #1: register / status intent cues ────────────────────────
 
 # Deterministic ARM command on an active draft. Whole-message match —
 # short imperative only, so longer prompts still go to the LLM.
+# R4/F15: the leading-ack prefix used to allow only ok|yes|please|haan,
+# so "looks good, go ahead and register it" / "perfect, activate it"
+# (the canonical confirm phrasing) FAILED this match and fell through to
+# the 0-token canned "click Save & activate" line instead of actually
+# arming the draft. Widen the ack clause to the same vocabulary
+# _PURE_AFFIRMATIVE_RE recognises (looks good / sounds good / perfect /
+# great / cool / nice / sure / fine / alright) plus a comma|dash|colon
+# separator, so the affirm-and-register compound reaches the
+# deterministic register path.
+_REGISTER_ACK_PREFIX = (
+    r"(?:(?:ok(?:ay)?|yes|yeah|yep|yup|sure|fine|alright|please|haan|"
+    r"looks?\s+good|sounds?\s+good|perfect|great|cool|nice|got\s+it|"
+    r"awesome|sweet)\s*[,!;:.\-—]?\s+)*"
+)
 _REGISTER_DRAFT_RE = re.compile(
-    r"^(?:ok(?:ay)?[,!\s]+|yes[,!\s]+|please\s+|haan[,!\s]+)*"
+    r"^" + _REGISTER_ACK_PREFIX +
     r"(?:go\s+ahead(?:\s+and\s+(?:register|activate|arm|save)\s*(?:it|this|that)?)?"
     r"|register\s*(?:it|this|that|karo|kar\s*do|the\s+(?:agent|workflow|automation|draft|rule))?"
     r"|activate\s*(?:it|this|that|the\s+(?:agent|workflow|automation|draft|rule))?"
@@ -3246,8 +3345,23 @@ class ChatService:
             d for d in parked
             if d.symbol and _symbol_mentioned(message, d.symbol)
         ]
+        target: Optional[ActiveDraft] = None
         if len(named) == 1:
             target = named[0]
+        elif len(named) >= 2:
+            # R4/C2: the amendment names several parked drafts ("change
+            # the INFY one to 8, WIPRO wala same rehne do"). Bind the
+            # change verb to its symbol so we don't mutate the wrong
+            # (most-recent) draft and then lie about it in the prose.
+            resolved = _resolve_amend_target_symbol(
+                message, [d.symbol for d in named if d.symbol],
+            )
+            if resolved:
+                for d in named:
+                    if d.symbol and d.symbol.upper() == resolved.upper():
+                        target = d
+                        break
+        if target is not None:
             current_sym = (active.symbol if active else "") or ""
             if (active is None
                     or current_sym.upper() != target.symbol.upper()):
@@ -3260,7 +3374,7 @@ class ChatService:
                         "active_draft.named_backref",
                         symbol=target.symbol, tool=target.tool_name,
                     )
-                return target
+            return target
         return active
 
     def _parked_draft_clause(
@@ -3422,9 +3536,16 @@ class ChatService:
             return None
         # Only workflow-shaped drafts can be armed here; option/backtest
         # cards register through their own card endpoints.
-        if active.tool_name not in {
-            "propose_workflow", "propose_dsl_workflow",
-        }:
+        # R4/F15: the macro draft tools (propose_threshold_order,
+        # propose_scheduled_order, propose_basket_allocation,
+        # propose_holding_action) ALL emit a workflow_draft_card with
+        # `steps` that register_workflow can persist+arm — but the prior
+        # allowlist named only the two generic tools, so "register it" on
+        # a NESTLEIND RSI threshold draft (the canonical confirm turn)
+        # fell through to the 0-token "click Save & activate" line instead
+        # of actually arming. Accept any workflow-shaped macro draft; the
+        # `steps` presence check below is the real precondition.
+        if active.tool_name not in _REGISTERABLE_DRAFT_TOOLS:
             return None
         draft = active.draft if isinstance(active.draft, dict) else {}
         if not isinstance(draft.get("steps"), list) or not draft["steps"]:
@@ -7065,6 +7186,27 @@ def _conversational_unsupported_reply(user_message_lower: str) -> str:
             "I notify you with the basket's P&L so you can sell "
             "manually.\n\n"
             "Which one should I draft?"
+        )
+
+    # ── R4/F7: at-OPEN / at-CLOSE order ("buy at the open, book +3%").
+    # This is FULLY supported via trigger.market_relative_time(anchor=
+    # 'open'|'close'). The runtime_relative cue below contains "the open",
+    # so an at-open BUILD that hit a validation failure (the LLM emitted a
+    # malformed trigger config) used to fall into the BANNED 09:30-cron
+    # downgrade text — capability theatre that contradicts the at-open
+    # path the engine actually runs. Catch the at-open/close build FIRST
+    # and offer the real rebuild, never the 09:30 downgrade.
+    if _is_at_open_close_build(msg):
+        anchor = "close" if re.search(r"\b(?:at|on|the)\s+close|closing", msg) else "open"
+        return (
+            f"I can do that — an at-{anchor} order is a real trigger "
+            f"(market_relative_time, anchor='{anchor}'), not a 09:30 "
+            "approximation. My last attempt produced an invalid step "
+            "config, so the card didn't render. Say *'try again'* (or "
+            f"restate it, e.g. *'buy 5 BAJAJ-AUTO at the {anchor} and sell "
+            "at +3%'*) and I'll build the two-branch agent: entry at the "
+            f"{anchor}, exit on the profit target. Registers for your "
+            "confirmation — never auto-executed."
         )
 
     # ── Cue: portfolio-relative or runtime-relative thresholds
