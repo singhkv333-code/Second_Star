@@ -142,8 +142,13 @@ export function BacktestEquityChart({
               );
             }
 
-            // Buy/sell markers from the trade log.
-            if (signals && signals.length) {
+            // Buy/sell markers from the trade log — but ONLY when sparse.
+            // Markers are a price-action device; on an equity curve they read
+            // as accents, and past ~40 trades they pack into solid bands that
+            // smother the line (a 2,466-trade SCHEDULE backtest looked awful).
+            // Above the cap we drop them and let the legend carry the count.
+            const MARKER_CAP = 40;
+            if (signals && signals.length && signals.length <= MARKER_CAP) {
               const markers: SeriesMarker<Time>[] = signals
                 .map((s) => ({
                   time: toTime(s.t),

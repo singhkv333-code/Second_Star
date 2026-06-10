@@ -530,6 +530,7 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
             <BacktestEquityChart
               equity={equity_curve}
               baseline={metrics.starting_capital}
+              benchmark={price_curve.length ? price_curve : null}
               signals={signals}
               height={220}
             />
