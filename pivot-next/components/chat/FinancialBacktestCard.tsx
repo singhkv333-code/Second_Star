@@ -8,18 +8,9 @@
  */
 
 import { useMemo } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BacktestEquityChart, type CurvePoint } from "@/components/chart/BacktestEquityChart";
 
 // ---------------------------------------------------------------------------
 // Types — must match backend/routers/chat.py::_run_expr_backtest::raw_data
@@ -81,25 +72,18 @@ export function FinancialBacktestCard({
     warnings,
   } = payload;
 
-  const chartData = useMemo(() => {
-    const map = new Map<string, { date: string; strategy?: number; benchmark?: number }>();
-    for (const p of equity_curve) {
-      map.set(p.date, { date: p.date, strategy: p.value });
-    }
-    for (const p of benchmark_curve) {
-      const existing = map.get(p.date);
-      if (existing) {
-        existing.benchmark = p.value;
-      } else {
-        map.set(p.date, { date: p.date, benchmark: p.value });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }, [equity_curve, benchmark_curve]);
+  const equityPts = useMemo<CurvePoint[]>(
+    () => equity_curve.map((p) => ({ t: p.date, v: p.value })),
+    [equity_curve],
+  );
+  const benchPts = useMemo<CurvePoint[]>(
+    () => benchmark_curve.map((p) => ({ t: p.date, v: p.value })),
+    [benchmark_curve],
+  );
+  const baseValue = equity_curve.length ? equity_curve[0]!.value : 0;
 
-  const positive = metrics.total_return_pct >= 0;
-  const stratColor = positive ? "#10b981" : "#ef4444";
-  const benchColor = "#9ca3af";
+  const stratColor = "#16a34a";
+  const benchColor = "#94a3b8";
 
   return (
     <div
@@ -167,59 +151,13 @@ export function FinancialBacktestCard({
             <LegendDot color={benchColor} label="Benchmark" />
           </span>
         </div>
-        <div className="h-[200px]" data-testid="financial-equity-chart">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={chartData}
-              margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="2 4" opacity={0.18} vertical={false} />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10, fill: "rgb(107 114 128)" }}
-                axisLine={false}
-                tickLine={false}
-                minTickGap={50}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "rgb(107 114 128)" }}
-                axisLine={false}
-                tickLine={false}
-                width={60}
-              />
-              <Tooltip
-                contentStyle={{
-                  fontSize: "11px",
-                  borderRadius: "8px",
-                  padding: "6px 10px",
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  fontFamily: SANS_FONT,
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="strategy"
-                stroke={stratColor}
-                fill={stratColor}
-                fillOpacity={0.1}
-                strokeWidth={1.75}
-                isAnimationActive={false}
-                connectNulls
-                name="Strategy"
-              />
-              <Line
-                type="monotone"
-                dataKey="benchmark"
-                stroke={benchColor}
-                strokeWidth={1}
-                strokeDasharray="3 3"
-                dot={false}
-                isAnimationActive={false}
-                connectNulls
-                name="Benchmark"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+        <div data-testid="financial-equity-chart">
+          <BacktestEquityChart
+            equity={equityPts}
+            baseline={baseValue}
+            benchmark={benchPts.length ? benchPts : null}
+            height={208}
+          />
         </div>
       </div>
 

@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { getStockQuote, type StockQuote } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { BacktestEquityChart } from "@/components/chart/BacktestEquityChart";
 
 // Detail surface — kept in sync with the concise card's design language:
 // rounded-3xl, generous padding, soft shadow, no dense dividers, large
@@ -431,16 +432,6 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
       ? quoteState.quote.name
       : toCapitalized(symbol);
 
-  const signalPositions = React.useMemo(() => {
-    if (equity_curve.length < 2) return [] as Array<{ x: number; side: "buy" | "sell" }>;
-    const t0 = new Date(equity_curve[0]!.t).getTime();
-    const tN = new Date(equity_curve[equity_curve.length - 1]!.t).getTime();
-    const span = tN - t0 || 1;
-    return signals.map((s) => ({
-      x: Math.min(1, Math.max(0, (new Date(s.t).getTime() - t0) / span)),
-      side: s.side,
-    }));
-  }, [equity_curve, signals]);
 
   const benchSign = benchEqual ? "±" : benchDelta > 0 ? "+" : "";
   const benchTone = benchEqual
@@ -535,9 +526,13 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
       <div className="grid grid-cols-[1.35fr_1fr] gap-x-12 border-t border-border/50 px-10 py-8">
         {/* Left: equity curve */}
         <div className="min-w-0">
-          <div className="relative h-[220px]" data-testid="equity-chart">
-            <SparkAreaChart points={equity_curve} positive={positive} mode="step" />
-            <SignalDotStrip signals={signalPositions} />
+          <div data-testid="equity-chart">
+            <BacktestEquityChart
+              equity={equity_curve}
+              baseline={metrics.starting_capital}
+              signals={signals}
+              height={220}
+            />
           </div>
           <div className="mt-4 flex items-center justify-between gap-2 text-[11.5px] text-muted-foreground">
             <span className="inline-flex items-center gap-1.5 tabular-nums">
@@ -966,43 +961,6 @@ function SparkAreaChart({
         strokeLinecap="round"
       />
     </svg>
-  );
-}
-
-function SignalDotStrip({
-  signals,
-}: {
-  signals: Array<{ x: number; side: "buy" | "sell" }>;
-}): React.ReactElement | null {
-  if (signals.length === 0) return null;
-  // Buys ride a strip near the top of the chart, sells near the bottom.
-  // Stacking opposite sides on opposite edges removes the overlap problem
-  // where same-day buy/sell pairs collapsed into a single red dot.
-  const buys = signals.filter((s) => s.side === "buy");
-  const sells = signals.filter((s) => s.side === "sell");
-  return (
-    <>
-      <div className="pointer-events-none absolute inset-x-0 top-1 h-1.5">
-        {buys.map((s, i) => (
-          <span
-            key={`b-${i}`}
-            className="absolute top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-emerald-500 ring-1 ring-card"
-            style={{ left: `${s.x * 100}%` }}
-            aria-hidden="true"
-          />
-        ))}
-      </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-1 h-1.5">
-        {sells.map((s, i) => (
-          <span
-            key={`s-${i}`}
-            className="absolute top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-rose-500 ring-1 ring-card"
-            style={{ left: `${s.x * 100}%` }}
-            aria-hidden="true"
-          />
-        ))}
-      </div>
-    </>
   );
 }
 

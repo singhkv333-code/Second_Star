@@ -733,6 +733,37 @@ export function getSparkline(
   );
 }
 
+// OHLCV bars for the TradingView candlestick chart. Kite-primary, yfinance
+// fallback — `source` tells the UI which fed the bars (honest tagging).
+export type OhlcBar = {
+  t: string; // ISO timestamp
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+};
+
+export type OhlcResponse = {
+  symbol: string;
+  range: string;
+  interval: string;
+  source: "kite" | "yfinance";
+  bars: OhlcBar[];
+};
+
+/** `GET /api/markets/ohlc/{symbol}?range=...&exchange=NSE|BSE` — OHLCV bars for candlesticks. */
+export function getOhlc(
+  symbol: string,
+  range: SparklineRange = "6M",
+  exchange?: "NSE" | "BSE",
+): Promise<ApiResult<OhlcResponse>> {
+  return request<OhlcResponse>(
+    `/markets/ohlc/${encodeURIComponent(symbol)}`,
+    { query: exchange ? { range, exchange } : { range } },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Kite credentials — runtime API key/secret injection.
 // Backed by /kite/credentials (GET masked status, POST set, DELETE clear).

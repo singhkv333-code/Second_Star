@@ -105,6 +105,23 @@ class SparklineResponse(BaseModel):
     points: list[SparklinePoint]
 
 
+class OhlcBar(BaseModel):
+    t: datetime    # bar timestamp
+    o: float       # open
+    h: float       # high
+    l: float       # low
+    c: float       # close
+    v: int = 0     # volume
+
+
+class OhlcResponse(BaseModel):
+    symbol: str
+    range: str
+    interval: str
+    source: str    # "kite" | "yfinance"
+    bars: list[OhlcBar]
+
+
 # ── Indices endpoint (dashboard) ─────────────────────────────────────
 
 
@@ -474,6 +491,103 @@ def get_sparkline(
     ]
     return SparklineResponse(
         symbol=sym, range=range, interval=interval, points=points,
+    )
+
+
+@router.get(
+    "/ohlc/{symbol}",
+    response_model=OhlcResponse,
+    summary="Get a historical OHLCV bar series for candlestick charting",
+)
+def get_ohlc(
+    symbol: str,
+    range: _RangeLiteral = Query("6M"),
+    exchange: str = Query("NSE", pattern="^(NSE|BSE)$"),
+    _user_id: int = Depends(require_user),
+) -> OhlcResponse:
+    """OHLCV bars for a TradingView candlestick chart. Kite-primary
+    (real OHLCV when an authenticated session has mapped the symbol),
+    yfinance fallback otherwise — mirrors get_sparkline's source order
+    so the candlestick chart never goes blank when Kite is unavailable."""
+    sym = symbol.upper().strip()
+    period, interval = _RANGE_MAP[range]
+
+    # Kite-primary: full OHLCV when a live session knows this instrument.
+    if not sym.startswith("^"):
+        try:
+            from backend.kite.historical import get_kite_historical
+            kite_period = {
+                "1D": "1d", "1W": "5d", "1M": "1mo",
+                "6M": "6mo", "1Y": "1y", "5Y": "5y",
+            }[range]
+            kite_rows = get_kite_historical(
+                sym, period=kite_period, exchange=exchange,
+            )
+            if kite_rows:
+                bars = [
+                    OhlcBar(
+                        t=datetime.fromisoformat(r["date"].replace(" ", "T"))
+                          if isinstance(r["date"], str) else r["date"],
+                        o=float(r["open"]), h=float(r["high"]),
+                        l=float(r["low"]), c=float(r["close"]),
+                        v=int(r.get("volume", 0) or 0),
+                    )
+                    for r in kite_rows
+                    if r.get("close") is not None and r.get("open") is not None
+                ]
+                if bars:
+                    return OhlcResponse(
+                        symbol=sym, range=range, interval=interval,
+                        source="kite", bars=bars,
+                    )
+        except Exception:  # noqa: BLE001 — fall through to yfinance
+            pass
+
+    # yfinance fallback — same symbol resolution as the sparkline path.
+    from backend.market.yfinance_service import (
+        resolve_symbol, INDEX_TICKERS, NAME_TO_TICKER,
+    )
+    if sym.endswith((".NS", ".BO")) or sym.startswith("^"):
+        yf_symbol = sym
+    elif (exchange == "BSE"
+          and sym.upper() not in INDEX_TICKERS
+          and sym.lower() not in NAME_TO_TICKER):
+        yf_symbol = f"{sym}.BO"
+    else:
+        yf_symbol = resolve_symbol(sym)
+
+    try:
+        hist = yf.Ticker(yf_symbol).history(period=period, interval=interval)
+    except Exception as e:  # noqa: BLE001
+        raise http_error(
+            503, "not_yet_available",
+            f"yfinance lookup failed for {sym}: {str(e)[:160]}",
+        )
+    if hist.empty:
+        raise http_error(
+            404, "not_found",
+            f"no historical data for {sym}.{exchange} (range={range})",
+        )
+
+    bars = []
+    for ts, row in hist.iterrows():
+        o = _safe_float(row.get("Open")); h = _safe_float(row.get("High"))
+        lo = _safe_float(row.get("Low")); c = _safe_float(row.get("Close"))
+        if None in (o, h, lo, c):
+            continue
+        vol = _safe_float(row.get("Volume")) or 0.0
+        bars.append(OhlcBar(
+            t=ts.to_pydatetime(), o=round(o, 2), h=round(h, 2),
+            l=round(lo, 2), c=round(c, 2), v=int(vol),
+        ))
+    if not bars:
+        raise http_error(
+            404, "not_found",
+            f"no usable OHLC bars for {sym}.{exchange} (range={range})",
+        )
+    return OhlcResponse(
+        symbol=sym, range=range, interval=interval,
+        source="yfinance", bars=bars,
     )
 
 

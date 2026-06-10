@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getSparkline, getStockQuote, type SparklineRange, type StockQuote } from "@/lib/api";
+import { CandlestickChart } from "@/components/chart/CandlestickChart";
 import { isError } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 
@@ -89,6 +90,7 @@ export function StockSnapshotCard({
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [sparkState, setSparkState] = useState<SparklineState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("1Y");
+  const [chartMode, setChartMode] = useState<"line" | "candles">("line");
 
   // Phase 2: WS live price overlay. Called unconditionally (Rules of Hooks).
   const liveData = useLiveQuote(symbol);
@@ -251,44 +253,79 @@ export function StockSnapshotCard({
         </div>
       </div>
 
-      {/* Sparkline — full bleed */}
+      {/* Price chart — area sparkline or full candlesticks */}
       <div className="px-5">
-        <div className="h-[88px]">
-          {sparkState.kind === "loading" && (
-            <div className="flex h-full items-center justify-center">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" aria-hidden={true} />
-            </div>
-          )}
-          {sparkState.kind === "ok" && sparkState.points.length > 0 && (
-            <SparkAreaChart points={sparkState.points} positive={periodPositive} />
-          )}
-          {(sparkState.kind === "hidden" || (sparkState.kind === "ok" && sparkState.points.length === 0)) && (
-            <div className="flex h-full items-center justify-center">
-              <Minus className="h-4 w-4 text-muted-foreground/30" aria-hidden={true} />
-            </div>
-          )}
+        <div className="mb-1 flex items-center justify-end">
+          <div className="inline-flex overflow-hidden rounded-md border border-border/60">
+            {(["line", "candles"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setChartMode(m)}
+                className={cn(
+                  "px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide transition-colors",
+                  chartMode === m
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-pressed={chartMode === m}
+                data-testid={`chartmode-${m}`}
+              >
+                {m === "line" ? "Line" : "Candles"}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Range chips — flat, segmented */}
-        <div className="mt-2 flex items-center justify-between gap-1 pb-3">
-          {RANGES.map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRange(r)}
-              className={cn(
-                "flex-1 rounded-md py-1 text-[10.5px] font-medium tracking-wide transition-colors",
-                r === range
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:text-foreground",
+        {chartMode === "candles" ? (
+          <div className="pb-3">
+            <CandlestickChart
+              symbol={symbol}
+              exchange={quote.exchange === "BSE" ? "BSE" : "NSE"}
+              initialRange={range === "1D" || range === "1W" ? "1M" : range}
+              height={220}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="h-[88px]">
+              {sparkState.kind === "loading" && (
+                <div className="flex h-full items-center justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" aria-hidden={true} />
+                </div>
               )}
-              aria-pressed={r === range}
-              data-testid={`range-${r}`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
+              {sparkState.kind === "ok" && sparkState.points.length > 0 && (
+                <SparkAreaChart points={sparkState.points} positive={periodPositive} />
+              )}
+              {(sparkState.kind === "hidden" || (sparkState.kind === "ok" && sparkState.points.length === 0)) && (
+                <div className="flex h-full items-center justify-center">
+                  <Minus className="h-4 w-4 text-muted-foreground/30" aria-hidden={true} />
+                </div>
+              )}
+            </div>
+
+            {/* Range chips — flat, segmented */}
+            <div className="mt-2 flex items-center justify-between gap-1 pb-3">
+              {RANGES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRange(r)}
+                  className={cn(
+                    "flex-1 rounded-md py-1 text-[10.5px] font-medium tracking-wide transition-colors",
+                    r === range
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  aria-pressed={r === range}
+                  data-testid={`range-${r}`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Stat grid — hairline dividers, no fills */}

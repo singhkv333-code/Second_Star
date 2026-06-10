@@ -47,6 +47,28 @@ if (typeof Element !== "undefined") {
   }
 }
 
+// jsdom does not implement HTMLCanvasElement.getContext, which TradingView
+// lightweight-charts calls on mount + teardown. Stub a chainable no-op 2D
+// context so chart components render (and dispose) silently in component tests.
+if (typeof HTMLCanvasElement !== "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jsdom polyfill
+  const proto = HTMLCanvasElement.prototype as any;
+  if (typeof proto.getContext !== "function" || !proto.__lwcStub) {
+    proto.getContext = () =>
+      new Proxy(
+        {
+          canvas: { width: 0, height: 0 },
+          measureText: () => ({ width: 0 }),
+          getImageData: () => ({ data: [] }),
+          createLinearGradient: () => ({ addColorStop: () => {} }),
+          setLineDash: () => {},
+        },
+        { get: (t, p) => (p in t ? (t as any)[p] : () => {}) },
+      );
+    proto.__lwcStub = true;
+  }
+}
+
 afterEach(() => {
   cleanup();
 });
