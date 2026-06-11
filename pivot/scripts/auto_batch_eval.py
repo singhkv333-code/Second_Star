@@ -143,6 +143,27 @@ def _card_digest(raw: object) -> dict | None:
     return {"hint": hint, "compact": _compact(raw)}
 
 
+def _logiccard_digest(card: object) -> dict | None:
+    """GAN R4 F13: judge-readable digest of the top-level `logiccard`
+    field (SIP/order/GTT/dip-buy cards live here, NOT in raw_data).
+    Keeps the action/symbol/amount/schedule the discriminators score on
+    so SIP-class cards are visible and don't read as 'empty card'."""
+    if not isinstance(card, dict):
+        return None
+    keep = (
+        "kind", "type", "card_type", "action", "side", "symbol",
+        "quantity", "qty", "notional_inr", "amount", "frequency",
+        "day_of_week", "day_of_month", "schedule", "time_ist", "cron",
+        "dip_pct", "order_type", "price", "trigger", "status",
+        "register_not_execute", "requires_approval",
+    )
+    out = {k: card[k] for k in keep if k in card}
+    # Carry a compact JSON of the whole card too (truncated) so nothing
+    # load-bearing is silently dropped.
+    out["_full"] = json.dumps(card, default=str)[:600]
+    return out or None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sessions", required=True, help="sessions JSON path")
@@ -199,6 +220,12 @@ def main() -> None:
                 usage = _llm_usage_since(prev_max)
                 response = body.get("response") or ""
                 raw = body.get("raw_data") or {}
+                # GAN R4 F13: SIP-class cards ship in the top-level
+                # `logiccard` field (chat.py:441-452), NOT raw_data — the
+                # prior harness snapshotted only raw_data and produced a
+                # false "empty card" verdict on cheaper_one. Snapshot
+                # logiccard too, and let the digest fall back to it.
+                logiccard = body.get("logiccard") if isinstance(body, dict) else None
                 turn = {
                     "i": i,
                     "say": say,
@@ -207,6 +234,7 @@ def main() -> None:
                     "render_hint": raw.get("_render_hint"),
                     "raw_keys": sorted(raw.keys())[:20] if isinstance(raw, dict) else None,
                     "card_digest": _card_digest(raw),
+                    "logiccard": _logiccard_digest(logiccard),
                     "latency_wall_ms": wall_ms,
                     "latency_server_ms": body.get("latency_ms"),
                     **usage,

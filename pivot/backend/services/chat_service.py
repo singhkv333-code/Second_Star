@@ -47,6 +47,7 @@ post-processor that strips placeholders and tool-call leakage.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -73,6 +74,16 @@ from backend.services.tool_router import (
     cache_key_for,
     filter_registry_tools,
     select_tool_names,
+)
+from backend.services.thematic_map import (
+    ThematicScenario,
+    basket_weights,
+    detect_thematic_scenario,
+    extract_capital_inr,
+    is_scared_idle_cash,
+    is_unrealistic_return,
+    is_vague_onboarding,
+    winners_losers_block,
 )
 from backend.services.validation_handler import (
     ASK_USER_TOOL_NAME,
@@ -167,6 +178,27 @@ _LLM_UNAVAILABLE = (
     "• Screen the universe: `/screen roe > 18`\n"
     "• Type a stock ticker (e.g. `RELIANCE`) for a snapshot."
 )
+
+
+def _unavailable_text(message: str = "") -> str:
+    """GAN R4 F11: a degraded reply that ECHOES the user's intent so a
+    transient backend failure doesn't make them re-type. When we can
+    parse a clear ask from the last message, lead with 'I caught your
+    request: <X> — the AI backend hiccuped, say "retry" and I'll run it.'
+    so the referent/capital isn't lost. Falls back to the generic menu
+    when nothing parses."""
+    msg = (message or "").strip()
+    if not msg:
+        return _LLM_UNAVAILABLE
+    cap = extract_capital_inr(msg)
+    cap_bit = f" (₹{cap:,})" if cap else ""
+    # Surface a recognised ticker if one is named explicitly.
+    return (
+        f"I caught your request — \"{msg[:110]}\"{cap_bit} — but the AI "
+        "backend hiccuped for a moment. Say \"retry\" and I'll run it "
+        "without you re-typing. (If it keeps failing you can also type a "
+        "stock ticker for a snapshot, or `/screen roe > 18`.)"
+    )
 _LATENT_GREETING_RE = re.compile(
     r"execute\s+orders\s+on\s+zerodha\.\s+build\s+capital\s+protection",
     re.IGNORECASE,
@@ -2106,8 +2138,16 @@ _INDEPENDENT_INTENT_RE = re.compile(
     # Square-off / exit at the top level (not amendment-style)
     r"|\bexit\s+(?:all\s+)?(?:my\s+)?positions?\b"
     r"|\bsquare\s*off\b"
-    # Backtest top-level
+    # Backtest top-level. WHY the second branch (GAN R4 F3): the user
+    # often says "backtest that / this / it / the strategy" referring to
+    # the active draft — the engine must RUN, not re-draft. The original
+    # regex only matched "(run|do|start) backtest", so "backtest that"
+    # fell through to the amendment path (propose_dsl_workflow re-draft,
+    # zero engine calls). This verb-first branch evicts the draft and
+    # forces the backtest surface so the simulation actually runs.
     r"|\b(?:run|do|start)\s+(?:a\s+)?backtest\b"
+    r"|\bbacktest(?:\s+(?:that|this|it|the\s+(?:strategy|draft|rule|idea)))?\b"
+    r"|\bsimulate\s+(?:that|this|it|the\s+(?:strategy|draft|rule))\b"
     # SIP top-level — accept "start a 2000 monthly sip" with the
     # amount inline. Earlier rule required no number between "a" and
     # the cadence word and missed the most-typed shape.
@@ -2616,7 +2656,285 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
             "unrealised_pct>=X/100 → sell. Preserve the exact quantity given."
         )
 
+    # ── GAN R4 keystone: thematic-scenario positioning ───────────────
+    # The single highest-leverage directive. Decode-and-propose, never a
+    # bare ask_user; refusal calibrated for lawful scenario positioning.
+    _scenario = detect_thematic_scenario(message)
+    if _scenario is not None:
+        guards.append(_thematic_guard_text(message, _scenario))
+
+    # ── GAN R4 F5/C4: unrealistic-return decode ──────────────────────
+    # Checked before vague-onboarding so "make me 1% a day" gets the
+    # math-refutation path, not the generic SIP onboarding.
+    if is_unrealistic_return(message):
+        guards.append(
+            "## Unrealistic return target — refute the math, then a REAL "
+            "artifact\n"
+            "The user asked for an impossible/guaranteed return (e.g. 1% a "
+            "day, double in a month, guaranteed N%). You MUST NOT treat this "
+            "as a buildable spec and you MUST NOT call ASK_USER with a "
+            "buy/dip/sell/alert menu. Reply in this order: (1) refute the "
+            "compounding math WITHOUT mockery — 1%/day compounds to >3,600% "
+            "a year; nothing legitimate does that and anyone guaranteeing it "
+            "is a scam; (2) state the honest realistic band (Indian equity "
+            "long-run ~12-13% CAGR, with 30%+ drawdown years); (3) convert "
+            "the ambition into something TESTABLE — call `backtest_workflow` "
+            "for an aggressive-but-real RSI mean-reversion rule (e.g. buy "
+            "when RSI(14)<30, exit at +8% or -4%) on a liquid large-cap like "
+            "RELIANCE or HDFCBANK so the user sees REAL return/drawdown "
+            "numbers instead of fantasy; (4) close with the SIP fallback — "
+            "offer a ₹5,000/month NIFTYBEES SIP as the boring path that "
+            "actually compounds. End with 'analysis, not financial advice.'"
+        )
+
+    # ── GAN R4 F4: scared idle cash → scope honesty + phased SIP ──────
+    # Checked before vague-onboarding (it is a more specific shape).
+    elif is_scared_idle_cash(message):
+        _cap = extract_capital_inr(message)
+        _cap_line = (
+            f"The user stated ₹{_cap:,} — USE it for the split, never re-ask "
+            f"the amount. "
+            if _cap else ""
+        )
+        guards.append(
+            "## Scared idle cash — scope honesty + phased SIP, NOT FD/yield "
+            "products\n"
+            f"{_cap_line}"
+            "Pivot does NOT handle FDs, debt funds, liquid funds, G-Secs or "
+            "savings products — they are OUT OF SCOPE (register-not-execute "
+            "covers listed equities/ETFs only). You MUST NOT recommend or "
+            "offer to compare FD/liquid/overnight/arbitrage/G-Sec yields. "
+            "Reply in this order: (1) name the real trade-off honestly — "
+            "market instruments carry drawdown risk, FDs/debt are safer but "
+            "out of Pivot's reach (say so plainly); (2) draft a PHASED "
+            "NIFTYBEES monthly SIP card via `propose_scheduled_order` for "
+            "only the slice the user can afford to see fall (e.g. ₹5,000/mo), "
+            "register-not-execute, editable; (3) mention a GOLDBEES leg as a "
+            "lower-correlation diversifier (text is fine if multi-leg cards "
+            "aren't supported); (4) offer PAPER MODE so they watch it with "
+            "zero money at risk first; (5) ONE question — what fraction "
+            "could they stomach down 20% without panic. End with 'analysis, "
+            "not financial advice.'"
+        )
+
+    # ── GAN R4 F2/C2: vague onboarding → value-first prefilled SIP ────
+    elif is_vague_onboarding(message):
+        _cap = extract_capital_inr(message)
+        _cap_line = (
+            f"The user stated ₹{_cap:,} — USE it to size the split, NEVER "
+            f"re-ask the amount. "
+            if _cap else ""
+        )
+        guards.append(
+            "## Vague onboarding ask — VALUE FIRST, draft a card, no "
+            "interrogation\n"
+            f"{_cap_line}"
+            "This is an open-ended 'where do I start / make money / what "
+            "should I buy' ask. A pure-text reply, a finance lecture, or a "
+            "bare ASK_USER is a FAILURE. You MUST: (1) open with an honest "
+            "no-guarantees reframe (1-2 sentences, no moralising); (2) give "
+            "a 3-PATH markdown table with REAL instruments + REAL numbers — "
+            "Index SIP (₹5,000/mo NIFTYBEES), Rules-based entries (buy 10 "
+            "INFY when RSI(14)<30, exit +8%/-4%), Quality/dividend screen "
+            "(ROE>15%, low debt → 4-6 names); (3) DRAFT THE CARD NOW — call "
+            "`propose_scheduled_order` for a ₹5,000/month NIFTYBEES SIP "
+            "(monthly, register-not-execute, editable) so a tappable widget "
+            "renders on THIS turn; do NOT only OFFER to build it; (4) offer "
+            "paper mode + 'edit the amount/instrument'; (5) close with "
+            "exactly ONE compound question covering horizon + risk + monthly "
+            "capacity. Frame CAGR as historical range, never a promise. "
+            "Never name tickers from memory as 'picks' — if the user wants "
+            "specific names, RUN `screen_fundamentals`. End with 'analysis, "
+            "not financial advice.'"
+        )
+
     return guards
+
+
+def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
+    """Build the keystone thematic-strategy directive for a recognised
+    macro scenario — the full decode → winners/losers → turn-1 basket →
+    confirm/invalidate → caveat contract, seeded with REAL NSE names so
+    the model cannot punt or invent a generic staples basket."""
+    cap = extract_capital_inr(message)
+    notional = cap if cap else 100_000
+    weights = basket_weights(s)
+    split = ", ".join(f"{tk} {w}%" for tk, w in weights)
+    cap_line = (
+        f"The user stated about ₹{cap:,} — size the basket to it. "
+        if cap else "Use a ₹1,00,000 basket unless the user named an amount. "
+    )
+    return (
+        "## Thematic scenario positioning — DECODE AND PROPOSE on turn 1\n"
+        f"The user is asking to position for / profit from / hedge "
+        f"{s.label}. This is a LAWFUL macro/event positioning ask — it is a "
+        "standard portfolio decision, NOT something to refuse, moralise "
+        "about, or punt with a bare ASK_USER. Refusing or asking 'buy, sell, "
+        "hedge or alert? which symbol?' as the whole turn is a HARD FAILURE. "
+        "Decode the thesis and BUILD a concrete basket card on THIS turn.\n"
+        "Do NOT gate the turn on a live-quote success — if a quote fails, "
+        "still ship the thesis + table + basket card (qty computes at fill).\n"
+        f"{cap_line}\n"
+        "Your reply MUST follow this exact shape:\n"
+        f"1. THESIS DECODE (1-2 lines): {s.thesis}\n"
+        "2. WINNERS & LOSERS markdown table — columns Side | Stock (NSE) | "
+        "Why — with the seed names below (>=2 per side), each row a causal "
+        "one-line reason. Losers are an AVOID list (shorting is not wired — "
+        "name them, don't draft sells).\n"
+        f"{winners_losers_block(s)}\n"
+        "3. TURN-1 BASKET CARD: call `propose_workflow` with one "
+        "`action.place_order` step per WINNER ticker (side=buy, market), "
+        "or `action.allocate_notional` — render a `workflow_draft_card`. "
+        f"Default split: {split} of the notional. Register-not-execute, "
+        "editable. State the ₹-split in text.\n"
+        f"4. CONFIRMATION + INVALIDATION (checkable data): confirms = "
+        f"{s.confirm}; kills it = {s.invalidate}. Offer to ARM it as an "
+        "event-triggered agent where Pivot can (price/%-move/India-VIX "
+        "triggers on the basket names). Be honest about unwired triggers "
+        "(no USDINR/rainfall feed) — offer the nearest REAL trigger, never "
+        "fake one.\n"
+        "5. CAVEAT: 'This is thesis-driven, the direction is reasoned but "
+        "timing is uncertain — analysis, not financial advice.'\n"
+        "6. At most ONE sharpening question, AFTER the proposal (e.g. buy "
+        "now vs arm-and-wait). This shape applies EVEN IF an option tool "
+        "also fires — lead with the equity basket + table, add any "
+        "NIFTY-put overlay as an explicit OPTIONAL 5-10% leg, never let the "
+        "option card short-circuit the decode."
+    )
+
+
+# Tools the thematic / vague paths force into scope so the model has a
+# guaranteed path to a basket/SIP card and can never escape to a bare
+# ASK_USER. propose_workflow expresses an explicit-ticker basket (one
+# action.place_order per winner); propose_scheduled_order builds the SIP.
+_THEMATIC_BASKET_TOOLS: frozenset[str] = frozenset({
+    "propose_workflow", "propose_dsl_workflow",
+    "propose_basket_allocation", "get_live_price",
+})
+_VAGUE_SIP_TOOLS: frozenset[str] = frozenset({
+    "propose_scheduled_order", "create_sip", "screen_fundamentals",
+    "get_live_price",
+})
+
+
+@dataclass
+class _ScenarioRouting:
+    """Result of the deterministic scenario scope decision, applied
+    IDENTICALLY in handle() and handle_stream() (the known drift trap).
+
+    `selected_names` / `tooldefs` / `cache_key` are the (possibly
+    unchanged) routing state; `tool_choice` is "required"/"auto"/None
+    (None = leave caller's value); `matched` flags whether any scenario
+    branch fired (so the caller can skip later, conflicting branches)."""
+
+    selected_names: Optional[frozenset]
+    tooldefs: list
+    cache_key: str
+    tool_choice: Optional[str]
+    matched: bool
+    drop_ask_user: bool
+
+
+def _apply_scenario_routing(
+    message: str,
+    selected_names: Optional[frozenset],
+    tooldefs: list,
+    cache_key: str,
+) -> _ScenarioRouting:
+    """Force scope + tool_choice for the GAN R4 scenario classes
+    (thematic positioning, unrealistic-return, scared idle cash, vague
+    onboarding). MUST be called from BOTH handle() and handle_stream() so
+    the two paths never drift.
+
+    Precedence mirrors `_build_deterministic_guards`:
+    thematic > unrealistic > scared-idle > vague. Each forces the basket
+    / SIP / backtest toolset and drops the bare ASK_USER escape so the
+    model produces a concrete card, not a punt."""
+    no_change = _ScenarioRouting(
+        selected_names=selected_names,
+        tooldefs=tooldefs,
+        cache_key=cache_key,
+        tool_choice=None,
+        matched=False,
+        drop_ask_user=False,
+    )
+    if selected_names is None:
+        # Whitelist mode (full registry) — leave it; the guards still
+        # steer the model and the full toolset already has every path.
+        return no_change
+
+    _scenario = detect_thematic_scenario(message)
+    if _scenario is not None:
+        # Force the basket toolset; drop the immediate-order + ASK_USER
+        # paths so the model builds a workflow_draft_card, not a punt or
+        # a single market order. tool_choice=required guarantees a tool.
+        names = (frozenset(selected_names) | _THEMATIC_BASKET_TOOLS | _OPTIONS_TOOLS) - frozenset({
+            "compare_yields", "get_yield_recommendation",
+        })
+        defs = [
+            t for t in _registry_tools_as_tooldefs(names)
+            if t.name != ASK_USER_TOOL_NAME
+        ]
+        return _ScenarioRouting(
+            selected_names=names, tooldefs=defs,
+            cache_key=cache_key_for(names), tool_choice="required",
+            matched=True, drop_ask_user=True,
+        )
+
+    if is_unrealistic_return(message):
+        # Refute + backtest artifact. Force the backtest tools in;
+        # tool_choice stays AUTO so the model can lead with the prose
+        # refutation then call backtest_workflow (required would force a
+        # tool before the math refutation lands).
+        names = (frozenset(selected_names) | frozenset({
+            "backtest_workflow", "backtest_dsl_tree",
+            "propose_scheduled_order",
+        })) - frozenset({"compare_yields", "get_yield_recommendation"})
+        defs = [
+            t for t in _registry_tools_as_tooldefs(names)
+            if t.name != ASK_USER_TOOL_NAME
+        ]
+        return _ScenarioRouting(
+            selected_names=names, tooldefs=defs,
+            cache_key=cache_key_for(names), tool_choice="auto",
+            matched=True, drop_ask_user=True,
+        )
+
+    if is_scared_idle_cash(message):
+        # Scope-honesty + phased SIP. Strip the yield-product tools
+        # (FD/G-Sec are out of scope), force the SIP tools in, drop
+        # ASK_USER. tool_choice auto: prose-first scope honesty + card.
+        names = (frozenset(selected_names) | _VAGUE_SIP_TOOLS) - frozenset({
+            "compare_yields", "get_yield_recommendation",
+        })
+        defs = [
+            t for t in _registry_tools_as_tooldefs(names)
+            if t.name != ASK_USER_TOOL_NAME
+        ]
+        return _ScenarioRouting(
+            selected_names=names, tooldefs=defs,
+            cache_key=cache_key_for(names), tool_choice="auto",
+            matched=True, drop_ask_user=True,
+        )
+
+    if is_vague_onboarding(message):
+        # Value-first prefilled SIP. Force the SIP/screen tools in, drop
+        # ASK_USER so a tappable card renders this turn. tool_choice
+        # auto: the model writes the 3-path table then draws the card.
+        names = (frozenset(selected_names) | _VAGUE_SIP_TOOLS) - frozenset({
+            "compare_yields", "get_yield_recommendation",
+        })
+        defs = [
+            t for t in _registry_tools_as_tooldefs(names)
+            if t.name != ASK_USER_TOOL_NAME
+        ]
+        return _ScenarioRouting(
+            selected_names=names, tooldefs=defs,
+            cache_key=cache_key_for(names), tool_choice="auto",
+            matched=True, drop_ask_user=True,
+        )
+
+    return no_change
 
 
 @dataclass
@@ -4621,6 +4939,30 @@ class ChatService:
         elif _unsupported_rail is not None:
             agent_tool_choice = "auto"
 
+        # ── GAN R4 scenario routing (thematic / vague / idle / unreal) ──
+        # MIRROR of handle_stream(); keep both in sync. Only fires when no
+        # higher-priority specific guard already claimed the turn so it
+        # never overrides a hedge / named-option / notify build.
+        _scenario_routed = False
+        if not (_named_option_build or _hedge_request or _notify_only
+                or _at_open_close or _confusion_menu
+                or _unsupported_rail is not None):
+            _scn = _apply_scenario_routing(
+                message, selected_names, tooldefs, cache_key
+            )
+            if _scn.matched:
+                selected_names = _scn.selected_names
+                tooldefs = _scn.tooldefs
+                cache_key = _scn.cache_key
+                _scenario_routed = True
+                if _scn.tool_choice is not None:
+                    agent_tool_choice = _scn.tool_choice
+                trace.event(
+                    "scenario_routing.applied",
+                    thematic=detect_thematic_scenario(message) is not None,
+                    tool_choice=agent_tool_choice,
+                )
+
         # Reasoning-effort: "minimal" on every turn. The A/B against
         # "low" on Azure gpt-5.4-mini showed `minimal` (mapped to
         # `none` on the wire by LLMAzureOpenAI._translate_reasoning_effort)
@@ -4639,6 +4981,16 @@ class ChatService:
         # tighter caps. The class also drives a system hint injected
         # below so the model knows the target shape, not just the size.
         reply_class = _classify_reply_class(message, intent_kind)
+        # GAN R4: thematic / vague / idle / unrealistic need the full
+        # structured-reply budget (table + thesis + card readback ≈
+        # 300-500 words). Force the analysis class so they don't get the
+        # 120-word analytical_short cap that produced the 22-89-word
+        # baseline blurbs.
+        if (detect_thematic_scenario(message) is not None
+                or is_vague_onboarding(message)
+                or is_scared_idle_cash(message)
+                or is_unrealistic_return(message)):
+            reply_class = "analysis"
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
@@ -4961,7 +5313,7 @@ class ChatService:
         # editable fields, and no commitment surface. This hard
         # directive tells the model: in this state, ASK_USER is the
         # ONLY correct action.
-        if is_underspec_agent or is_filler_after_q:
+        if (is_underspec_agent or is_filler_after_q) and not _scenario_routed:
             base_messages.append(LLMMessage(
                 role="system",
                 content=(
@@ -5084,13 +5436,44 @@ class ChatService:
                     prompt_cache_key=cache_key,
                 )
             except Exception as e:
-                logger.warning(
-                    "%s call failed at hop %d (%s); falling back",
-                    client.provider_name, hop_index, type(e).__name__,
-                )
-                trace.event("llm.exception", hop=hop_index,
-                            type=type(e).__name__)
-                break
+                # GAN R4 F11: ONE short-backoff retry on a transient
+                # first-hop failure before degrading — a single 50s
+                # timeout was wiping context turns. Only retry the FIRST
+                # hop (later hops carry tool state that's costly to redo).
+                if hop_index == 1:
+                    logger.warning(
+                        "%s call failed at hop %d (%s); retrying once",
+                        client.provider_name, hop_index, type(e).__name__,
+                    )
+                    trace.event("llm.retry", hop=hop_index,
+                                type=type(e).__name__)
+                    try:
+                        await asyncio.sleep(0.5)
+                        response = await client.complete(
+                            messages=messages,
+                            tools=tooldefs,
+                            tool_choice=hop_tool_choice,
+                            max_output_tokens=hop_max_output,
+                            reasoning_effort=effort,
+                            temperature=0.2,
+                            prompt_cache_key=cache_key,
+                        )
+                    except Exception as e2:  # noqa: BLE001
+                        logger.warning(
+                            "%s retry failed at hop %d (%s); falling back",
+                            client.provider_name, hop_index, type(e2).__name__,
+                        )
+                        trace.event("llm.exception", hop=hop_index,
+                                    type=type(e2).__name__)
+                        break
+                else:
+                    logger.warning(
+                        "%s call failed at hop %d (%s); falling back",
+                        client.provider_name, hop_index, type(e).__name__,
+                    )
+                    trace.event("llm.exception", hop=hop_index,
+                                type=type(e).__name__)
+                    break
             breakdown[f"llm_hop_{hop_index}"] = response.latency_ms
             # Stash cache-hit token count alongside the hop latency so
             # _log_timing surfaces it without changing the log shape.
@@ -5109,7 +5492,7 @@ class ChatService:
                                hop_index, response.content)
                 trace.event("turn.end", reason="llm_error")
                 trace.end()
-                return self._unavailable(turn_started, breakdown)
+                return self._unavailable(turn_started, breakdown, message)
 
             if response.finish_reason != "tool_calls":
                 # Final text — return it.
@@ -6124,12 +6507,42 @@ class ChatService:
         elif _unsupported_rail is not None:
             agent_tool_choice = "auto"
 
+        # ── GAN R4 scenario routing (thematic / vague / idle / unreal) ──
+        # MIRROR of handle(); keep both in sync. Only fires when no
+        # higher-priority specific guard already claimed the turn.
+        _scenario_routed = False
+        if not (_named_option_build or _hedge_request or _notify_only
+                or _at_open_close or _confusion_menu
+                or _unsupported_rail is not None):
+            _scn = _apply_scenario_routing(
+                message, selected_names, tooldefs, cache_key
+            )
+            if _scn.matched:
+                selected_names = _scn.selected_names
+                tooldefs = _scn.tooldefs
+                cache_key = _scn.cache_key
+                _scenario_routed = True
+                if _scn.tool_choice is not None:
+                    agent_tool_choice = _scn.tool_choice
+                trace.event(
+                    "scenario_routing.applied",
+                    thematic=detect_thematic_scenario(message) is not None,
+                    tool_choice=agent_tool_choice,
+                )
+
         # Stream path matches the non-stream `handle()` decision —
         # "minimal" on every turn (see commentary there).
         effort: ReasoningEffort = "minimal"
         max_output: int = 1500
         # R5: mirror of non-streaming reply-class budget.
         reply_class = _classify_reply_class(message, intent_kind)
+        # GAN R4: force the structured analysis budget on the scenario
+        # classes (mirror of handle()).
+        if (detect_thematic_scenario(message) is not None
+                or is_vague_onboarding(message)
+                or is_scared_idle_cash(message)
+                or is_unrealistic_return(message)):
+            reply_class = "analysis"
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
@@ -6354,7 +6767,7 @@ class ChatService:
         if followup_hint_msg is not None:
             base_msgs.append(followup_hint_msg)
         # Mirror of non-streaming underspec/filler hint.
-        if is_underspec_agent or is_filler_after_q:
+        if (is_underspec_agent or is_filler_after_q) and not _scenario_routed:
             base_msgs.append(LLMMessage(
                 role="system",
                 content=(
@@ -6517,10 +6930,11 @@ class ChatService:
                 logger.warning("stream error at hop %d: %s", hop_index, stream_error)
                 trace.event("turn.end", reason="llm_error")
                 trace.end()
-                yield {"type": "error", "message": _LLM_UNAVAILABLE}
+                _degraded = _unavailable_text(message)
+                yield {"type": "error", "message": _degraded}
                 yield {
                     "type": "done",
-                    "response": _LLM_UNAVAILABLE,
+                    "response": _degraded,
                     "tools_called": tools_called,
                     "logiccard": logiccard,
                     "raw_data": {"_llm_unavailable": True},
@@ -6926,11 +7340,12 @@ class ChatService:
 
     def _unavailable(
         self, turn_started: float, breakdown: dict[str, int],
+        message: str = "",
     ) -> ChatTurn:
         total = int((time.monotonic() - turn_started) * 1000)
         breakdown["total"] = total
         return ChatTurn(
-            response=_LLM_UNAVAILABLE,
+            response=_unavailable_text(message),
             raw_data={"_llm_unavailable": True},
             sanitised=False,
             latency_ms=total,

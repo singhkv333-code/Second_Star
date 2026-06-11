@@ -320,6 +320,22 @@ _RULES: list[_Rule] = [
         "get_live_price",
     ),
 
+    # ── Dip-buy automation (GAN R4 F6) ─────────────────────────────
+    # "build a dip-buying strategy for it", "buy the dip on RELIANCE",
+    # "dip-buy automation", "buy ₹10k of X if it falls 5%". The order
+    # rule below also surfaces create_dip_buy on a "buy" verb, but the
+    # "build a dip-buying strategy for it" phrasing carries no order verb
+    # — only "build" + "strategy" — so create_dip_buy was never in scope
+    # and the model punted to ASK_USER. Surface it directly on any dip cue.
+    _r(
+        r"\bdip[\s-]?buy(?:ing)?\b"
+        r"|\bbuy\s+(?:the\s+|on\s+a\s+)?dip\b"
+        r"|\b(?:buy|accumulate|add)\b[^.]{0,40}\b(?:falls?|drops?|dips?)\b"
+        r"\s*\d",
+        "create_dip_buy", "calculate_dip_price", "get_live_price",
+        "propose_workflow", "propose_dsl_workflow",
+    ),
+
     # ── Live price / quote / OHLC ──────────────────────────────────
     _r(
         r"\b(price|quote|snapshot|ltp|last\s+traded|how\s+(much|is)\s+\w+\s+trading"
@@ -485,6 +501,10 @@ _RULES: list[_Rule] = [
         r"|\bevery\s+(?:month|week)\b[^.]{0,30}\b(?:invest|buy|in\s+(?:gold|silver|nifty))\b",
         "create_sip", "list_sips", "pause_sip", "resume_sip",
         "delete_sip", "pause_all_sips",
+        # GAN R4 F7: weekly/weekday SIPs route to propose_scheduled_order
+        # (registerable + amendable from chat). It is in _ALWAYS_INCLUDE
+        # but listing it here documents the SIP-lifecycle intent.
+        "propose_scheduled_order",
     ),
 
     # ── Pause / resume / delete management commands ───────────────

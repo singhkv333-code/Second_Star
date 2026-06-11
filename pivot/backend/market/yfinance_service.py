@@ -37,6 +37,13 @@ INDEX_TICKERS: dict[str, str] = {
     "NIFTYBANK": "^NSEBANK",
     "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
     "NIFTYIT": "^CNXIT",
+    # GAN R4 F9/C5: India VIX — the volatility index. Wired so VIX-gated
+    # thematic agents ("fire if India VIX > 20") and conflict-thesis
+    # confirmation triggers resolve to a REAL quote instead of a dead
+    # INDIAVIX.NS ticker. yfinance carries it as ^INDIAVIX.
+    "INDIAVIX": "^INDIAVIX",
+    "INDIA VIX": "^INDIAVIX",
+    "VIX": "^INDIAVIX",
 }
 
 NAME_TO_TICKER: dict[str, str] = {

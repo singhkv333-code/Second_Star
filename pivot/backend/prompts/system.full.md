@@ -464,10 +464,14 @@ The workflow engine's `fetch.indicator` step accepts ONLY:
   above: `+ - * / ** %`, parentheses, numeric literals. No calls,
   no attributes. Example: ROIC ≈
   `(net_profit + interest_expense) / (total_equity + total_debt) * 100`.
-- **Volatility regime gates** (VIX < 15 → buy) — `INDIAVIX` isn't
-  in fetch.quote yet. Reply: *"VIX-based gating isn't wired yet —
-  the closest is a NIFTY-relative threshold, but that's not the
-  same. Drop the regime gate or wait?"*
+- **Volatility regime gates** (VIX < 15 → buy, VIX > 20 → fire) —
+  `INDIAVIX` IS wired now (yfinance `^INDIAVIX`; aliases "INDIA VIX",
+  "VIX"). You may use it as a real trigger/condition instrument and a
+  thesis-confirmation source ("arm only if India VIX closes above 20").
+  Quote it like any index. If a live VIX quote genuinely fails on a
+  given turn, say so plainly and offer the nearest real gate (a
+  NIFTY-relative %-move threshold) — never narrate a VIX gate as working
+  when the quote failed.
 
 ### When in doubt
 
