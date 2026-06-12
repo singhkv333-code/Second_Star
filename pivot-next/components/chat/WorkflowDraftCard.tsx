@@ -210,7 +210,7 @@ export function WorkflowDraftCard({
       role="region"
       aria-label={`Agent proposal: ${draft.name}`}
       className={cn(
-        "my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card",
+        "mb-2 mt-1 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
         "transition-all duration-500 ease-out",
         isSaved && "shadow-[0_1px_2px_rgba(76,175,80,0.08),0_18px_36px_-18px_rgba(76,175,80,0.22)]",
@@ -495,8 +495,13 @@ function DraftBody({
 }
 
 // ---------------------------------------------------------------------------
-// Saved state — celebratory cross-fade. Reuses the same card chrome so the
-// transition feels like the card resolves, not replaces.
+// Saved state — celebratory cross-fade. Reuses the same vertical rhythm and
+// padding as DraftBody so the card stays the *exact same height* before and
+// after activation (no jump on save). The hero block becomes a compact
+// "Saved & activated" header (replaces the draft's title + description),
+// step rows stay single-line with a small inline checkmark on the right,
+// and the slot that held the Save & activate CTA now hosts an Open in
+// editor pill — same h-9 so the spacing matches.
 // ---------------------------------------------------------------------------
 
 function SavedState({
@@ -514,95 +519,116 @@ function SavedState({
 }): React.ReactElement {
   return (
     <div data-testid="workflow-saved" className="flex flex-col">
-      <div className="flex flex-col gap-5 px-6 pt-6 pb-5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
-          Agent
-        </span>
-        <span
-          data-testid="agent-active-pill"
-          className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium bg-transparent"
-          style={{ borderColor: "#4CAF50", color: "#4CAF50" }}
-        >
-          <span
-            aria-hidden="true"
-            className="h-1.5 w-1.5 rounded-full"
-            style={{
-              background: "#4CAF50",
-              animation: "pulse-quartr 1.6s ease-in-out infinite",
-            }}
-          />
-          Active
-        </span>
-      </div>
+      <div className="flex flex-col gap-3 px-5 pt-4 pb-4">
+        {/* HEADER — chip + Active pill, then "Saved & activated" headline
+            and the workflow name beneath, matching DraftBody's header
+            rhythm (chip + status, title h3, description p). */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center rounded-md bg-sky-100 px-2 py-0.5 text-[10.5px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+              Agent
+            </span>
+            <span
+              data-testid="agent-active-pill"
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10.5px] font-medium bg-transparent"
+              style={{ borderColor: "#4CAF50", color: "#4CAF50" }}
+            >
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: "#4CAF50",
+                  animation: "pulse-quartr 1.6s ease-in-out infinite",
+                }}
+              />
+              Active
+            </span>
+          </div>
 
-      <div className="flex items-start gap-3">
-        <Check
-          aria-hidden="true"
-          className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground"
-          strokeWidth={2.5}
-          style={{
-            animation: "savedCheck-quartr 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
-          }}
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-[15px] leading-tight font-semibold tracking-tight text-foreground">
+          <h3 className="inline-flex items-center gap-1.5 text-[15px] leading-[1.25] font-semibold tracking-tight text-foreground">
+            <Check
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              strokeWidth={2.5}
+              style={{
+                animation: "savedCheck-quartr 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
+              }}
+            />
             Saved &amp; activated
-          </p>
-          <p className="mt-1 truncate text-[12.5px] text-muted-foreground">
+          </h3>
+
+          <p
+            className="text-[12px] leading-snug text-muted-foreground"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
             {workflowName}
           </p>
         </div>
+
+        {/* STEP LIST — same compact rows as DraftBody (single-line, gap-1.5)
+            so the activated card doesn't grow taller than the draft. The
+            "Succeeded" indicator collapses into a small inline check on
+            the right of each row instead of a second sub-line. */}
+        <ol className="m-0 flex flex-col gap-1.5" data-testid="draft-step-timeline">
+          {steps.map((step, idx) => (
+            <DraftStepRow key={idx} step={step} index={idx} active />
+          ))}
+        </ol>
+
+        {/* CTA RAIL — Open in editor takes the primary slot (same h-9
+            rounded-full pill as the draft's Save & activate), Backtest
+            becomes the ghost-link secondary. Mirrors DraftBody's footer
+            block one-for-one so the heights line up. */}
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={onOpenEditor}
+            data-testid="open-in-editor-button"
+            className={cn(
+              "inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full bg-primary text-[12.5px] font-medium tracking-tight text-primary-foreground transition-all",
+              "hover:bg-primary/90 active:scale-[0.98]",
+            )}
+          >
+            <span>Open in editor</span>
+            <ArrowUpRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+          </button>
+
+          <div className="flex items-center justify-center gap-1 text-[11.5px]">
+            <button
+              type="button"
+              onClick={onBacktest}
+              disabled={backtestState.kind === "running"}
+              data-testid="backtest-draft-button"
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-60"
+            >
+              {backtestState.kind === "running" ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              ) : (
+                <History className="h-3 w-3" aria-hidden="true" />
+              )}
+              {backtestState.kind === "running"
+                ? "Running…"
+                : backtestState.kind === "ready"
+                  ? "Re-run backtest"
+                  : "Backtest"}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Compact step list — same shape, but every row reads as ready
-          since the agent is live. */}
-      <ol className="m-0 flex flex-col gap-2" data-testid="draft-step-timeline">
-        {steps.map((step, idx) => (
-          <DraftStepRow key={idx} step={step} index={idx} active />
-        ))}
-      </ol>
-
-      {/* Secondary actions — stay available after activation so the user
-          can still backtest or jump into the editor. */}
-      <div className="flex items-center justify-center gap-1 text-[11.5px]">
-        <button
-          type="button"
-          onClick={onBacktest}
-          disabled={backtestState.kind === "running"}
-          data-testid="backtest-draft-button"
-          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-60"
-        >
-          {backtestState.kind === "running" ? (
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-          ) : (
-            <History className="h-3 w-3" aria-hidden="true" />
-          )}
-          {backtestState.kind === "running"
-            ? "Running…"
-            : backtestState.kind === "ready"
-              ? "Re-run backtest"
-              : "Backtest"}
-        </button>
-        <span className="text-muted-foreground/40">·</span>
-        <button
-          type="button"
-          onClick={onOpenEditor}
-          data-testid="open-in-editor-button"
-          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-        >
-          Open in editor
-        </button>
-      </div>
-      </div>
-
-      {/* DISCLAIMER — same as draft surface, kept consistent across states. */}
-      <div className="flex items-center gap-1.5 border-t border-border/40 bg-amber-50/40 px-6 py-2.5 dark:bg-amber-500/[0.04]">
+      {/* DISCLAIMER — same padding/tone as the draft surface so the footer
+          strip matches across states (no height jump). */}
+      <div className="flex items-center gap-1.5 border-t border-border/40 bg-amber-50/40 px-5 py-1.5 dark:bg-amber-500/[0.04]">
         <ShieldAlert
           className="h-3 w-3 shrink-0 text-amber-600/80 dark:text-amber-400/80"
           aria-hidden="true"
         />
-        <p className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+        <p className="text-[10.5px] leading-snug text-amber-700/90 dark:text-amber-300/90">
           This is automation of your instructions, not financial advice.
         </p>
       </div>
@@ -684,17 +710,17 @@ function DraftStepRow({
   return (
     <li
       className={cn(
-        "flex items-center gap-2.5 rounded-xl border px-2.5 py-1.5 transition-colors",
-        !active && "border-border/50 bg-card hover:border-border",
+        "flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 transition-colors",
+        // Borders only on the pre-activation rows. After activation each
+        // step reads as a soft green-tinted tile with no outline so the
+        // four steps blend into a single calm column.
+        !active && "border border-border/50 bg-card hover:border-border",
       )}
       style={{
         animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
         animationDelay: `${index * 50}ms`,
         ...(active
-          ? {
-              borderColor: `${BRAND_GREEN}66`, // ~40% alpha
-              backgroundColor: `${BRAND_GREEN}14`, // ~8% alpha tint
-            }
+          ? { backgroundColor: `${BRAND_GREEN}14` } // ~8% alpha tint, no border
           : {}),
       }}
     >
@@ -717,25 +743,24 @@ function DraftStepRow({
         <StepIcon name={iconName} className="h-3.5 w-3.5" />
       </span>
 
-      {/* Step label + (after activation) succeeded sub-line. */}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      {/* Step label — single-line in both draft and active states so the
+          card's height stays constant across save. The activated "ready"
+          signal moves into a small right-aligned check icon below instead
+          of a second sub-line that would push each row's height up. */}
+      <div className="flex min-w-0 flex-1 items-center">
         <span className="truncate text-[12.5px] font-medium tracking-tight text-foreground">
           {label}
         </span>
-        {active && (
-          <span
-            className="inline-flex items-center gap-1 text-[11px]"
-            style={{ color: BRAND_GREEN }}
-          >
-            <CheckCircle2
-              className="h-3 w-3 shrink-0"
-              strokeWidth={2.25}
-              aria-hidden="true"
-            />
-            Succeeded · 0 seconds
-          </span>
-        )}
       </div>
+      {active && (
+        <CheckCircle2
+          className="h-3.5 w-3.5 shrink-0"
+          strokeWidth={2.25}
+          style={{ color: BRAND_GREEN }}
+          aria-label="Step ready"
+          data-testid="step-ready-check"
+        />
+      )}
     </li>
   );
 }

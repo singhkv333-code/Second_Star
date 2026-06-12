@@ -374,6 +374,10 @@ function getToken(): string | null {
 const PLACEHOLDER_TEXT =
   "Ask Pivot anything about your portfolio, markets, or strategies…";
 
+// Phone-width fallback. The full placeholder gets truncated mid-word on
+// narrow screens, so swap to a single short clause that fits one line.
+const PLACEHOLDER_TEXT_MOBILE = "Ask Pivot anything…";
+
 /** Maximum visual height of the chat textarea in pixels. Past this it
  * gains a vertical scrollbar; under it the textarea autosizes silently
  * (no scrollbar) — ChatGPT's pattern. */
@@ -1210,12 +1214,14 @@ export function ChatDemo({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="chat-demo">
+    <div className="relative flex h-full min-h-0 flex-col" data-testid="chat-demo">
       {/* Scrollable message region — fills available space, composer
-          stays pinned at the bottom (ChatGPT/Claude-style). */}
+          stays pinned at the bottom (ChatGPT/Claude-style). Extra bottom
+          padding lets the last message scroll up clear of the composer
+          so nothing stays permanently hidden behind the fade overlay. */}
       <div
         ref={scrollRef}
-        className="quartr-no-scrollbar flex-1 min-h-0 overflow-y-auto pt-6 pb-4"
+        className="quartr-no-scrollbar flex-1 min-h-0 overflow-y-auto pt-6 pb-6"
         data-testid="chat-scroll"
       >
       {/* Intro (only shown before any messages). Callers can pass a
@@ -1662,8 +1668,12 @@ export function ChatDemo({
       </div>
 
       {/* Pinned composer — sits below the scrolling thread, never moves
-          while messages stream in. */}
-      <div className="shrink-0 pb-5 pt-3">
+          while messages stream in. Pulled up to overlap the scroll area
+          with a transparent→background gradient so the thread fades out
+          behind the pill (ChatGPT-style) instead of hard-stopping against
+          a flat white band. Tighter bottom padding on phones so the pill
+          doesn't dominate the landing surface. */}
+      <div className="relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent pb-3 pt-6 sm:pb-5 sm:pt-7">
         <ChatComposer
           textareaRef={textareaRef}
           value={intent}
@@ -1745,7 +1755,36 @@ function UserBubble({
   onRetry: () => void;
 }): React.ReactElement {
   const [hovered, setHovered] = useState(false);
+  const [tappedOpen, setTappedOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  // <sm = Tailwind's phone breakpoint. We use the same boundary the rest
+  // of the chat surface uses so the click-to-reveal behaviour kicks in
+  // exactly where hover stops being a reliable input modality.
+  const [isPhone, setIsPhone] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = (): void => setIsPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // Phone only: dismiss the tap-revealed actions when the next pointer
+  // event lands outside this bubble, so the row doesn't linger after the
+  // user moves on to another message or the composer.
+  useEffect(() => {
+    if (!isPhone || !tappedOpen) return;
+    const handler = (e: PointerEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setTappedOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [isPhone, tappedOpen]);
 
   const handleCopy = async (): Promise<void> => {
     const ok = await copyToClipboard(text);
@@ -1755,14 +1794,25 @@ function UserBubble({
     }
   };
 
+  // Phone uses tap-to-toggle (hover doesn't fire reliably on touch);
+  // laptop keeps the original hover behaviour untouched.
+  const showActions = (!isPhone && hovered) || (isPhone && tappedOpen) || copied;
+
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      ref={wrapRef}
+      onMouseEnter={isPhone ? undefined : () => setHovered(true)}
+      onMouseLeave={isPhone ? undefined : () => setHovered(false)}
+      // Flush-right at every breakpoint. The phone-only pr-12 used to
+      // exist so user bubbles wouldn't slide under the floating "New
+      // chat" button pinned at the chat surface's top-right; that
+      // button has since moved into the sidebar, so the extra phone
+      // padding was just creating dead space on the right edge.
       className="flex flex-col items-end"
       style={{ marginBottom: 4 }}
     >
       <div
+        onClick={isPhone ? () => setTappedOpen((v) => !v) : undefined}
         className="whitespace-pre-wrap"
         style={{
           maxWidth: "78%",
@@ -1775,22 +1825,24 @@ function UserBubble({
           lineHeight: 1.5,
           fontFamily: "var(--font-ui)",
           wordBreak: "break-word",
+          cursor: isPhone ? "pointer" : undefined,
         }}
       >
         {text}
       </div>
 
-      {/* Hover-only action row — also stays visible briefly after a
-          successful copy so the "Copied" toast has a chance to read. */}
+      {/* Action row — laptop reveals on hover, phone reveals on tap.
+          Stays visible briefly after a successful copy so the "Copied"
+          confirmation has a chance to read. */}
       <div
         className="flex items-center"
         style={{
           marginTop: 6,
           gap: 6,
           color: "var(--text-tertiary)",
-          opacity: hovered || copied ? 1 : 0,
+          opacity: showActions ? 1 : 0,
           transition: "opacity 0.18s var(--ease-quartr)",
-          pointerEvents: hovered || copied ? "auto" : "none",
+          pointerEvents: showActions ? "auto" : "none",
         }}
       >
         {timestamp && (
@@ -1806,32 +1858,17 @@ function UserBubble({
           onClick={() => void handleCopy()}
         >
           {copied ? (
-            <Check
-              size={14}
-              strokeWidth={2.5}
-              aria-hidden={true}
-            />
+            <span className="copy-tick-pop" key="copied">
+              <Check
+                size={14}
+                strokeWidth={2.5}
+                aria-hidden={true}
+              />
+            </span>
           ) : (
             <Copy size={14} strokeWidth={2} aria-hidden={true} />
           )}
         </ActionIconButton>
-        {/* Inline confirmation badge — shown for ~1.5s after a
-            successful copy so the click registers visually even when
-            the cursor leaves the hover row immediately. */}
-        {copied && (
-          <span
-            className="copy-toast"
-            style={{
-              fontSize: 11.5,
-              fontWeight: 500,
-              color: "var(--text-tertiary)",
-              fontFamily: "var(--font-ui)",
-              letterSpacing: "0.01em",
-            }}
-          >
-            Copied
-          </span>
-        )}
       </div>
     </div>
   );
@@ -1934,11 +1971,13 @@ function AssistantBubble({
             onClick={() => void handleCopy()}
           >
             {copied ? (
-              <Check
-                size={14}
-                strokeWidth={2.5}
-                aria-hidden={true}
-              />
+              <span className="copy-tick-pop" key="copied">
+                <Check
+                  size={14}
+                  strokeWidth={2.5}
+                  aria-hidden={true}
+                />
+              </span>
             ) : (
               <Copy size={14} strokeWidth={2} aria-hidden={true} />
             )}
@@ -1947,20 +1986,6 @@ function AssistantBubble({
             <ActionIconButton label="Retry" onClick={onRetry}>
               <RotateCw size={14} strokeWidth={2} aria-hidden={true} />
             </ActionIconButton>
-          )}
-          {copied && (
-            <span
-              className="copy-toast"
-              style={{
-                fontSize: 11.5,
-                fontWeight: 500,
-                color: "var(--text-tertiary)",
-                fontFamily: "var(--font-ui)",
-                letterSpacing: "0.01em",
-              }}
-            >
-              Copied
-            </span>
           )}
         </div>
       )}
@@ -2038,24 +2063,62 @@ function ChatComposer({
   //   • loading  — response in flight, button shows Square (stop)
   const canSend = !!value.trim() && !loading;
   const showStop = loading;
-  const [focused, setFocused] = useState(false);
+
+  // Phone vs. desktop placeholder text. `isMobile` defaults to false on
+  // SSR/first paint and snaps to true via useEffect on phone — so for a
+  // single frame phones may show the longer desktop placeholder. That's
+  // cosmetically OK because the pill's *layout* is now CSS-driven via
+  // the `sm:` Tailwind variants below, so the long string just truncates
+  // horizontally inside the rows=1 textarea instead of stretching the
+  // composer (the actual bug in the user-reported flash).
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = (): void => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  const placeholder =
+    mode === "automation"
+      ? isMobile
+        ? "What order should I place?"
+        : "What order should I place? — e.g. 'buy 10 RELIANCE at market'"
+      : mode === "agent"
+        ? isMobile
+          ? "Describe an automation…"
+          : "Describe an automation — e.g. 'every weekday 15:25 buy 5 NIFTYBEES'"
+        : mode === "backtest"
+          ? isMobile
+            ? "Describe a strategy…"
+            : "Describe a strategy to backtest — e.g. 'RELIANCE when RSI < 30'"
+          : isMobile
+            ? PLACEHOLDER_TEXT_MOBILE
+            : PLACEHOLDER_TEXT;
 
   return (
-    <div className="space-y-3" data-testid="chat-composer">
-      {/* Quartr-style composer pill — single rounded shell, leading
-          textarea + trailing controls cluster (paperclip · Cmd+Enter
-          hint · circular send). Mirrors frontend-quartr's ChatLanding
-          composer with theme-aware tokens. */}
+    <div className="space-y-1.5 sm:space-y-3" data-testid="chat-composer">
+      {/* ChatGPT-style single-line composer pill. The textarea sits at
+          exactly one line of content height and grows via the autosize
+          effect when the user types past one line; outer padding gives
+          breathing room. No min-h-44 dead space below the placeholder. */}
+      {/* borderRadius is --radius-xl (24px), NOT --radius-pill (9999px):
+          CSS clamps any radius to half the box height, so a single-line
+          composer still renders as a full stadium pill, while the tall
+          multiline state stays a clean 24px rounded rectangle instead of
+          ballooning into oversized side arcs that curve inward and clip
+          the text.
+
+          Stays items-center for the tuned single-line placeholder/button
+          centering; the send button itself is self-end (see below) so it
+          drops to the bottom only once the textarea grows multiline. */}
       <div
-        className="flex items-center"
+        className="flex items-center gap-1.5 p-1 pl-[14px] sm:gap-2 sm:p-1.5 sm:pl-[18px]"
         style={{
-          gap: 10,
           background: "var(--bg-primary)",
-          // Quartr composer is a true pill with padding 4/4/4/20.
-          borderRadius: "var(--radius-pill)",
-          border: `1px solid ${focused ? "var(--glass-border-focus)" : "var(--glass-border)"}`,
-          padding: "4px 4px 4px 20px",
-          transition: "border-color 0.2s var(--ease-quartr)",
+          borderRadius: "var(--radius-xl)",
+          border: `1px solid var(--glass-border)`,
         }}
       >
 
@@ -2064,32 +2127,21 @@ function ChatComposer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={
-            mode === "automation"
-              ? "What order should I place? — e.g. 'buy 10 RELIANCE at market'"
-              : mode === "agent"
-                ? "Describe an automation — e.g. 'every weekday 15:25 buy 5 NIFTYBEES'"
-                : mode === "backtest"
-                  ? "Describe a strategy to backtest — e.g. 'RELIANCE when RSI < 30'"
-                  : mode === "trigger"
-                    ? "Describe a market event — e.g. 'When RBI cuts rates, buy PSU bank ETF'"
-                    : PLACEHOLDER_TEXT
-          }
+          placeholder={placeholder}
           rows={1}
           className={cn(
             "flex-1 resize-none border-0 bg-transparent shadow-none",
-            "!min-h-[44px]",
+            // Single-line height: 24px box matches the lineHeight below
+            // so the placeholder sits centered against the send button
+            // with no empty bottom strip inside the textarea.
+            "!min-h-[24px] px-0 py-0 text-[13px] sm:text-sm",
             "focus-visible:ring-0 focus-visible:ring-offset-0",
-            "px-2 py-3",
           )}
           style={{
             background: "transparent",
             color: "var(--text-primary)",
             fontFamily: "var(--font-ui)",
-            fontSize: 14,
-            lineHeight: "20px",
+            lineHeight: "24px",
             overflowY: "hidden",
             maxHeight: MAX_TEXTAREA_PX,
           }}
@@ -2109,10 +2161,11 @@ function ChatComposer({
           disabled={!showStop && !canSend}
           data-testid={showStop ? "chat-stop-btn" : "chat-submit-btn"}
           aria-label={showStop ? "Stop response" : "Send"}
-          className="flex shrink-0 items-center justify-center"
+          // self-end: stays centered against a single-line textarea (the
+          // button is then the taller child), drops to the bottom once the
+          // textarea grows multiline.
+          className="flex h-7 w-7 shrink-0 items-center justify-center self-end sm:h-8 sm:w-8"
           style={{
-            width: 40,
-            height: 40,
             background: showStop || canSend ? "var(--text-primary)" : "var(--bg-elevated)",
             color: showStop || canSend ? "var(--bg-primary)" : "var(--text-disabled)",
             border: "none",
@@ -2125,14 +2178,21 @@ function ChatComposer({
           {showStop ? (
             // 12×12 filled square — the ChatGPT stop glyph.
             <Square
-              size={14}
+              size={12}
               strokeWidth={0}
               fill="currentColor"
               aria-hidden={true}
               style={{ borderRadius: 2 }}
             />
           ) : (
-            <ArrowUp size={18} strokeWidth={2} aria-hidden={true} />
+            // CSS-driven responsive size so the first paint on phone is
+            // correct without a JS check (Tailwind size classes win over
+            // the lucide width/height attributes).
+            <ArrowUp
+              className="h-3.5 w-3.5 sm:h-4 sm:w-4"
+              strokeWidth={2.25}
+              aria-hidden={true}
+            />
           )}
         </button>
       </div>

@@ -410,7 +410,7 @@ function SparkAreaChart({
     `${xs[xs.length - 1]},${H}`,
   ].join(" ");
 
-  const color = positive ? "#10b981" : "#f43f5e";
+  const color = positive ? "#10b981" : "#ef4444";
 
   return (
     <svg

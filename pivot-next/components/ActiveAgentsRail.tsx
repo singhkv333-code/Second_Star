@@ -79,9 +79,9 @@ function categoryLabel(cat: string): string {
     RESEARCH: "Research",
     RISK: "Risk",
     INCOME: "Income",
-    AGENT: "Strategy",
+    AGENT: "Agent",
   };
-  return MAP[cat] ?? "Strategy";
+  return MAP[cat] ?? "Agent";
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +323,11 @@ function categoryChipClass(category: string): string {
     case "INCOME":
       return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
     default:
-      return "bg-muted text-muted-foreground";
+      // Light: cobalt text on cobalt-tinted background.
+      // Dark: lighten the text to #60b3e8 (same hue family, ~70% lightness)
+      // so it stays readable — the deep cobalt #1b7cc7 washes out against
+      // the dark surface otherwise.
+      return "bg-[#1b7cc7]/10 text-[#1b7cc7] dark:bg-[#1b7cc7]/20 dark:text-[#60b3e8]";
   }
 }
 

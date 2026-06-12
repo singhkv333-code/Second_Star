@@ -21,7 +21,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <AppBootstrap>{children}</AppBootstrap>
-        <Toaster richColors position="top-right" />
+        <Toaster position="top-right" />
       </body>
     </html>
   );

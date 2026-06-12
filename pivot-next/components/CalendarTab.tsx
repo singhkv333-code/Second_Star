@@ -33,7 +33,6 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  getCalendarEvents,
   getScheduledRuns,
   getWorkflow,
   listWorkflows,
@@ -68,17 +67,36 @@ type FetchState =
   | { kind: "ok"; items: ScheduledRun[] };
 
 // ---------------------------------------------------------------------------
-// Event type styling — matches frontend-quartr's EVENT_TYPES palette.
-// Workflow runs fire `trigger.schedule`; events from getCalendarEvents come
-// through as `trigger.event`. We only have those two types in the data.
+// Event type styling — label only. Per-event color comes from
+// `workflowColor()` so each agent's runs read with their own accent.
 // ---------------------------------------------------------------------------
 
 const EVENT_TYPES = {
-  "trigger.schedule": { label: "Agent run", color: "#6366f1" },
-  "trigger.event":    { label: "Market event", color: "#f97316" },
+  "trigger.schedule": { label: "Agent run" },
 } as const;
 
 type TypeKey = keyof typeof EVENT_TYPES;
+
+// Accent palette — same six accents used in the donut/compare chart.
+// Each workflow gets a deterministic slot via a djb2-style hash, so a
+// given agent always picks up the same accent across navigations.
+const AGENT_PALETTE = [
+  "#1b7cc7", // cobalt blue
+  "#fb8500", // vivid orange
+  "#219ebc", // cyan teal
+  "#ffb703", // golden yellow
+  "#2c666e", // dark teal
+  "#d00000", // red
+];
+
+function workflowColor(workflowId: string | null | undefined): string {
+  if (!workflowId) return "var(--text-tertiary)";
+  let hash = 0;
+  for (let i = 0; i < workflowId.length; i++) {
+    hash = ((hash << 5) - hash + workflowId.charCodeAt(i)) | 0;
+  }
+  return AGENT_PALETTE[Math.abs(hash) % AGENT_PALETTE.length]!;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers — date math + agenda grouping
@@ -153,8 +171,8 @@ function indexEventsByDate(items: ScheduledRun[]): Map<string, ScheduledRun[]> {
   return map;
 }
 
-function eventTypeKey(item: ScheduledRun): TypeKey {
-  return item.trigger_type === "trigger.event" ? "trigger.event" : "trigger.schedule";
+function eventTypeKey(_item: ScheduledRun): TypeKey {
+  return "trigger.schedule";
 }
 
 function eventTime(item: ScheduledRun): string {
@@ -314,9 +332,6 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
     month: today.getMonth(),
   });
   const [view, setView] = useState<View>("month");
-  const [activeTypes, setActiveTypes] = useState<Set<TypeKey>>(
-    new Set(Object.keys(EVENT_TYPES) as TypeKey[]),
-  );
   const [selectedDate, setSelectedDate] = useState<string>(ymd(today));
   const [state, setState] = useState<FetchState>({ kind: "loading" });
 
@@ -333,26 +348,17 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
     const from = fromDate.toISOString();
     const to = toDate.toISOString();
 
-    Promise.all([
-      getScheduledRuns({ from, to }),
-      getCalendarEvents({ from, to }).catch(() => null),
-    ])
-      .then(async ([runsResult, eventsResult]) => {
+    getScheduledRuns({ from, to })
+      .then(async (runsResult) => {
         if (isError(runsResult)) {
           setState({ kind: "error", message: runsResult.error.message });
           return;
         }
-        let runs = runsResult.data.items;
-        const eventRuns: ScheduledRun[] =
-          eventsResult && !isError(eventsResult)
-            ? eventsResult.data.items.map((ev) => ({
-                workflow_id: ev.workflow_id ?? "",
-                workflow_name: ev.title,
-                fire_time: ev.fire_time,
-                fire_time_local: ev.fire_time,
-                trigger_type: "trigger.event" as const,
-              }))
-            : [];
+        // Market events are no longer surfaced — drop any items the
+        // backend tags as `trigger.event` before they reach the grid.
+        let runs = runsResult.data.items.filter(
+          (it) => it.trigger_type !== "trigger.event",
+        );
 
         // Fallback: backend returned no scheduled runs for this month —
         // derive from active workflows' schedule triggers so the
@@ -362,7 +368,7 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
           runs = await deriveRunsFromActiveWorkflows(fromDate, toDate);
         }
 
-        const combined = [...runs, ...eventRuns].sort(
+        const combined = runs.slice().sort(
           (a, b) => new Date(a.fire_time).getTime() - new Date(b.fire_time).getTime(),
         );
         setState({ kind: "ok", items: combined });
@@ -378,11 +384,8 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
   }, [cursor]);
 
   const filteredItems = useMemo(
-    () =>
-      state.kind === "ok"
-        ? state.items.filter((it) => activeTypes.has(eventTypeKey(it)))
-        : [],
-    [state, activeTypes],
+    () => (state.kind === "ok" ? state.items : []),
+    [state],
   );
   const eventsByDate = useMemo(() => indexEventsByDate(filteredItems), [filteredItems]);
   const cells = useMemo(() => buildMonthGrid(cursor.year, cursor.month), [cursor]);
@@ -403,39 +406,33 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
     setSelectedDate(ymd(t));
   };
 
-  const toggleType = (key: TypeKey): void => {
-    setActiveTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
   return (
     <div
       className="flex flex-col"
       style={{ background: "var(--bg-base)", height: "100%", minHeight: 0 }}
       data-testid="calendar-tab"
     >
-      {/* Top bar — title, nav, view toggle */}
+      {/* Top bar — title, nav, view toggle. On phone the title takes its
+          own row and the controls (nav + view toggle) drop to row 2,
+          handled by .calendar-toolbar in globals.css. */}
       <div
-        className="flex shrink-0 items-center"
+        className="calendar-toolbar flex shrink-0 items-center"
         style={{ gap: 16, padding: "0 0 16px" }}
       >
         <h1
-          className="q-serif"
+          className="q-serif calendar-toolbar-title"
           style={{
             fontSize: 22,
             letterSpacing: "-0.025em",
             color: "var(--text-primary)",
             margin: 0,
+            whiteSpace: "nowrap",
           }}
         >
           {MONTH_NAMES[cursor.month]} {cursor.year}
         </h1>
 
-        <div style={{ flex: 1 }} />
+        <div className="calendar-toolbar-spacer" style={{ flex: 1 }} />
 
         <div className="inline-flex items-center" style={{ gap: 4 }}>
           <NavArrow direction="prev" onClick={goPrev} />
@@ -449,10 +446,10 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
           className="inline-flex"
           style={{
             gap: 2,
-            padding: 2,
-            background: "var(--bg-primary)",
+            padding: 3,
+            background: "var(--bg-base)",
             border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-sm)",
+            borderRadius: "var(--radius-pill)",
           }}
         >
           {(["month", "agenda"] as const).map((v) => {
@@ -465,17 +462,17 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
                 aria-pressed={active}
                 data-testid={`view-${v}`}
                 style={{
-                  padding: "5px 12px",
+                  padding: "6px 14px",
                   border: "none",
                   cursor: "pointer",
-                  borderRadius: "var(--radius-xs)",
+                  borderRadius: "var(--radius-pill)",
                   fontSize: 12,
                   fontFamily: "var(--font-ui)",
                   fontWeight: 500,
                   background: active ? "var(--text-primary)" : "transparent",
                   color: active ? "var(--bg-primary)" : "var(--text-secondary)",
                   transition:
-                    "color 0.25s var(--ease-quartr), background-color 0.25s var(--ease-quartr)",
+                    "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
                 }}
               >
                 {v === "month" ? "Month" : "Agenda"}
@@ -483,52 +480,6 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
             );
           })}
         </div>
-      </div>
-
-      {/* Filter chips */}
-      <div
-        className="flex flex-wrap shrink-0"
-        style={{ gap: 6, padding: "0 0 14px" }}
-      >
-        {(Object.entries(EVENT_TYPES) as Array<[TypeKey, { label: string; color: string }]>).map(
-          ([key, t]) => {
-            const active = activeTypes.has(key);
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => toggleType(key)}
-                aria-pressed={active}
-                className="inline-flex items-center"
-                style={{
-                  gap: 7,
-                  padding: "4px 11px",
-                  background: "transparent",
-                  border: "none",
-                  borderRadius: "var(--radius-pill)",
-                  color: active ? "var(--text-primary)" : "var(--text-tertiary)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  opacity: active ? 1 : 0.6,
-                  transition:
-                    "opacity 0.2s var(--ease-quartr), color 0.2s var(--ease-quartr)",
-                }}
-              >
-                <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: "50%",
-                    background: t.color,
-                  }}
-                />
-                {t.label}
-              </button>
-            );
-          },
-        )}
       </div>
 
       {/* Body */}
@@ -580,7 +531,7 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
       )}
 
       {state.kind === "ok" && (
-        <div className="flex" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <div className="calendar-body flex" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
           {view === "month" ? (
             <>
               <MonthView
@@ -622,7 +573,7 @@ function MonthView({
   const rowCount = Math.ceil(cells.length / 7);
   return (
     <div
-      className="flex flex-col"
+      className="calendar-month-view flex flex-col"
       style={{ flex: 1, minWidth: 0, minHeight: 0, padding: "0 24px 24px 0" }}
     >
       {/* DOW header */}
@@ -713,7 +664,7 @@ function MonthView({
                 </span>
               </div>
               <div
-                className="flex flex-col"
+                className="calendar-cell-events flex flex-col"
                 style={{ gap: 1, minWidth: 0, overflow: "hidden" }}
               >
                 {events.slice(0, 3).map((ev, idx) => (
@@ -721,6 +672,7 @@ function MonthView({
                 ))}
                 {events.length > 3 && (
                   <span
+                    className="calendar-cell-overflow"
                     style={{
                       fontSize: 10.5,
                       color: "var(--text-tertiary)",
@@ -746,13 +698,12 @@ function EventRow({
   event: ScheduledRun;
   muted: boolean;
 }): React.ReactElement {
-  const tk = eventTypeKey(event);
-  const t = EVENT_TYPES[tk];
   const label = event.workflow_name;
+  const color = workflowColor(event.workflow_id);
   return (
     <div
       title={label}
-      className="flex items-center"
+      className="calendar-cell-event flex items-center"
       style={{
         gap: 6,
         padding: "1px 4px",
@@ -765,15 +716,17 @@ function EventRow({
       }}
     >
       <span
+        className="calendar-cell-event-dot"
         style={{
           width: 5,
           height: 5,
           borderRadius: "50%",
-          background: t.color,
+          background: color,
           flexShrink: 0,
         }}
       />
       <span
+        className="calendar-cell-event-label"
         style={{
           color: "var(--text-primary)",
           whiteSpace: "nowrap",
@@ -813,7 +766,7 @@ function DayPanel({
 
   return (
     <aside
-      className="flex flex-col"
+      className="calendar-day-panel flex flex-col"
       style={{
         width: 320,
         flexShrink: 0,
@@ -872,6 +825,7 @@ function DayPanelEvent({
   const t = EVENT_TYPES[tk];
   const isWorkflow = tk === "trigger.schedule" && event.workflow_id;
   const time = eventTime(event);
+  const color = workflowColor(event.workflow_id);
 
   return (
     <button
@@ -893,14 +847,14 @@ function DayPanelEvent({
             width: 6,
             height: 6,
             borderRadius: "50%",
-            background: t.color,
+            background: color,
             flexShrink: 0,
           }}
         />
         <span
           style={{
             fontSize: 10,
-            color: t.color,
+            color: "var(--text-secondary)",
             fontWeight: 500,
             textTransform: "uppercase",
             letterSpacing: "0.06em",
@@ -997,6 +951,7 @@ function AgendaView({
           return (
             <div
               key={date}
+              className="calendar-agenda-row"
               style={{
                 display: "grid",
                 gridTemplateColumns: "88px minmax(0, 1fr)",
@@ -1037,9 +992,9 @@ function AgendaLine({
   onOpenWorkflow: (workflowId: string) => void;
 }): React.ReactElement {
   const tk = eventTypeKey(event);
-  const t = EVENT_TYPES[tk];
   const isWorkflow = tk === "trigger.schedule" && event.workflow_id;
   const time = eventTime(event);
+  const color = workflowColor(event.workflow_id);
   return (
     <button
       type="button"
@@ -1060,7 +1015,7 @@ function AgendaLine({
           width: 6,
           height: 6,
           borderRadius: "50%",
-          background: t.color,
+          background: color,
           flexShrink: 0,
         }}
       />

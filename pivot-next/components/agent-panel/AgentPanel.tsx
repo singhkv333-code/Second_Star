@@ -12,7 +12,7 @@ import {
 import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
 import type { Workflow } from "@/lib/types";
 
-export const AGENT_PANEL_MIN_WIDTH = 380;
+export const AGENT_PANEL_MIN_WIDTH = 340;
 export const AGENT_PANEL_MAX_WIDTH = 920;
 export const AGENT_PANEL_DEFAULT_WIDTH = 460;
 
@@ -127,8 +127,11 @@ export function AgentPanel({
       aria-modal="false"
       style={{ width }}
       className={cn(
-        "fixed inset-y-0 right-0 z-40 flex border-l bg-background shadow-xl",
-        "min-w-[380px] max-w-[920px]",
+        "agent-panel-shell fixed inset-y-0 right-0 z-40 flex border-l bg-background shadow-xl",
+        // Desktop sizing constraints; mobile override lives in globals.css
+        // (forces 100vw and ignores the inline width so the panel becomes
+        // a full-screen sheet at <lg).
+        "lg:min-w-[340px] lg:max-w-[920px]",
       )}
       data-testid="agent-panel"
     >
@@ -161,6 +164,7 @@ export function AgentPanel({
             size="icon"
             aria-label="Close agent panel"
             onClick={() => onOpenChange(false)}
+            className="rounded-full"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </Button>
@@ -202,9 +206,14 @@ function AgentPanelBody({
     );
   }
 
+  const resolved = initialWorkflow ?? DEMO_WORKFLOW;
+  // Key on the workflow id so switching agents while the panel is open
+  // remounts the editor — WorkflowEditorMock seeds its internal state from
+  // `initialWorkflow` only on first mount, so a prop change alone is silent.
   return (
     <WorkflowEditorMock
-      initialWorkflow={initialWorkflow ?? DEMO_WORKFLOW}
+      key={resolved.id}
+      initialWorkflow={resolved}
       catalog={state.catalog}
     />
   );
