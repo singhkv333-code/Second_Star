@@ -13,25 +13,35 @@
 
 import {
   AgentCard,
+  BacktestWidget,
+  BlueprintTile,
+  CandlePulse,
+  ChainFlow,
   ChatBubble,
   ChatInputBar,
   CTABand,
   Delta,
   Display,
+  DotDrift,
   Eyebrow,
   Figure,
   Hairline,
+  MacWindow,
   MetricStat,
   MiniTable,
   MonoTag,
   Panel,
+  PayoffWidget,
   PillButton,
   PromptChip,
   Prose,
+  ScanTile,
   SectionShell,
   SparkLine,
   StatusPill,
+  StockSnapshotWidget,
   ThinkingTicker,
+  TickerTape,
   Title,
   WorkflowStep,
 } from "@/components/ds";
@@ -41,6 +51,32 @@ const NIFTY = [0.42, 0.45, 0.44, 0.5, 0.48, 0.55, 0.53, 0.6, 0.66, 0.62, 0.7, 0.
 const DRAWDOWN = [0.8, 0.78, 0.72, 0.74, 0.66, 0.6, 0.63, 0.55, 0.5, 0.52, 0.47, 0.44];
 const EQUITY_UP = [100, 101.2, 100.6, 102.8, 104.1, 103.2, 105.9, 107.4, 106.8, 109.3];
 const EQUITY_DN = [100, 99.1, 99.6, 97.8, 98.2, 96.9, 97.3, 95.8, 96.4, 95.1];
+
+const RELIANCE_SERIES = [
+  2731, 2748, 2722, 2769, 2784, 2761, 2810, 2837, 2818, 2862, 2841, 2889,
+  2904, 2876, 2921, 2898, 2937, 2912, 2949, 2968,
+];
+/* Contains a real −14.3% drawdown (133 → 114) so the widget's computed
+   drawdown strip and the quoted Max DD metric agree. */
+const BT_EQUITY = [
+  100, 102, 105, 109, 113, 118, 124, 129, 133, 127, 120, 114, 118, 124, 130,
+  127, 135, 141, 138, 146, 151, 148, 156, 162,
+];
+const BT_BENCH = [
+  100, 101, 103, 102, 106, 104, 108, 110, 107, 112, 109, 114, 117, 113, 119,
+  116, 122, 125, 121, 127, 124, 130, 134, 131,
+];
+
+const TICKER_ITEMS = [
+  { symbol: "NIFTY 50", price: "24,612.40", changePct: -0.82 },
+  { symbol: "BANKNIFTY", price: "52,184.65", changePct: 0.34 },
+  { symbol: "RELIANCE", price: "₹2,968.45", changePct: 1.18 },
+  { symbol: "HDFCBANK", price: "₹1,617.30", changePct: -0.61 },
+  { symbol: "TCS", price: "₹4,182.90", changePct: 0.92 },
+  { symbol: "INFY", price: "₹1,734.55", changePct: 1.47 },
+  { symbol: "GOLDBEES", price: "₹86.42", changePct: 0.28 },
+  { symbol: "ITC", price: "₹472.15", changePct: -0.19 },
+];
 
 function SectionHeader({
   index,
@@ -122,7 +158,8 @@ export default function DesignShowcase() {
                 <Delta value={-2.08} />
               </div>
               <Prose size={13}>
-                Tabular numerals everywhere a number lives.
+                Numerals set in the machine face — JetBrains Mono, everywhere
+                a number lives.
               </Prose>
             </div>
           </div>
@@ -350,10 +387,168 @@ export default function DesignShowcase() {
         </div>
       </section>
 
-      {/* ── 06 Dark mirror ────────────────────────────────────────── */}
+      {/* ── 06 Motion & patterns ──────────────────────────────────── */}
+      <section className="pb-20">
+        <div className="mx-auto max-w-5xl px-8">
+          <SectionHeader
+            index="06"
+            title="Motion & patterns"
+            note="CSS-only atmosphere: the tape, the chain, the candles, the marks. Color still belongs to P&L."
+          />
+        </div>
+
+        {/* Ticker tape — full width */}
+        <TickerTape items={TICKER_ITEMS} />
+
+        <div className="mx-auto max-w-5xl px-8">
+          {/* Chain flow */}
+          <Panel pad={28} className="mt-10">
+            <div className="mb-6 flex items-center justify-between">
+              <Title size={15}>An agent, armed</Title>
+              <StatusPill state="armed" />
+            </div>
+            <ChainFlow
+              nodes={[
+                { label: "Trigger", detail: "RSI(14) < 30" },
+                { label: "Condition", detail: "Market open" },
+                { label: "Action", detail: "Buy 10 × INFY" },
+                { label: "Notify", detail: "Push alert" },
+              ]}
+            />
+          </Panel>
+
+          {/* Pattern tiles */}
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <BlueprintTile style={{ border: "1px solid var(--glass-border)" }}>
+              <div className="flex h-44 flex-col items-center justify-center gap-3">
+                <Eyebrow>Blueprint</Eyebrow>
+                <Prose size={13}>Grid + registration marks</Prose>
+              </div>
+            </BlueprintTile>
+            <DotDrift style={{ border: "1px solid var(--glass-border)" }}>
+              <div className="flex h-44 flex-col items-center justify-center gap-3">
+                <Eyebrow>Drift</Eyebrow>
+                <Prose size={13}>Dot grid, crawling</Prose>
+              </div>
+            </DotDrift>
+            <ScanTile style={{ border: "1px solid var(--glass-border)" }}>
+              <div className="flex h-44 flex-col items-center justify-center gap-3">
+                <CandlePulse scale={0.8} />
+                <Eyebrow>The tape, breathing</Eyebrow>
+              </div>
+            </ScanTile>
+          </div>
+        </div>
+      </section>
+
+      {/* ── 07 Mac mockup ─────────────────────────────────────────── */}
       <section className="mx-auto max-w-5xl px-8 pb-20">
         <SectionHeader
-          index="06"
+          index="07"
+          title="Product shot — Mac window"
+          note="The Linear-style hero frame: drop any composition inside; tone follows the section."
+        />
+        <SectionShell
+          tone="ink"
+          grid
+          glow
+          style={{ borderRadius: "var(--radius-xl)" }}
+        >
+          <div className="px-6 pt-12 pb-0 sm:px-14">
+            <MacWindow
+              url="pivotnow.in/chat"
+              style={{
+                borderBottomLeftRadius: 0,
+                borderBottomRightRadius: 0,
+                borderBottom: "none",
+              }}
+            >
+              <div className="grid grid-cols-1 gap-0 lg:grid-cols-5">
+                <div
+                  className="flex flex-col justify-between gap-5 p-6 lg:col-span-2"
+                  style={{ borderRight: "1px solid var(--glass-border)" }}
+                >
+                  <div className="flex flex-col gap-4">
+                    <ChatBubble role="user">
+                      Analyse RELIANCE — is the trend intact?
+                    </ChatBubble>
+                    <ChatBubble role="assistant">
+                      Price ₹2,968.45 sits above all three SMAs with RSI at
+                      61 — uptrend intact, not yet overbought. Snapshot on
+                      the right.
+                    </ChatBubble>
+                    <ThinkingTicker phrase="Watching the 50-day…" />
+                  </div>
+                  <ChatInputBar />
+                </div>
+                <div className="p-6 lg:col-span-3">
+                  <StockSnapshotWidget
+                    symbol="RELIANCE"
+                    name="Reliance Industries"
+                    price="₹2,968.45"
+                    changePct={1.18}
+                    series={RELIANCE_SERIES}
+                    returns={[
+                      { label: "1W", pct: 1.2 },
+                      { label: "1M", pct: 3.4 },
+                      { label: "3M", pct: -2.1 },
+                      { label: "6M", pct: 8.9 },
+                      { label: "1Y", pct: 14.2 },
+                    ]}
+                    week52={{ low: 2221, high: 3024, last: 2968 }}
+                  />
+                </div>
+              </div>
+            </MacWindow>
+          </div>
+        </SectionShell>
+      </section>
+
+      {/* ── 08 Chat widgets ───────────────────────────────────────── */}
+      <section className="mx-auto max-w-5xl px-8 pb-20">
+        <SectionHeader
+          index="08"
+          title="Chat widgets"
+          note="More information per square inch: shaded P/L zones, breakevens, drawdown strips, 52-week bands."
+        />
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          <PayoffWidget
+            spec={{
+              strategy: "Bull Call Spread",
+              underlying: "NIFTY · 24500/25000 CE · 26 Jun · 1 lot (65)",
+              vertices: [
+                [23800, -11700],
+                [24500, -11700],
+                [25000, 20800],
+                [25700, 20800],
+              ],
+              breakevens: [24680],
+              strikes: [24500, 25000],
+              maxProfit: "+₹20,800",
+              maxLoss: "−₹11,700",
+              pop: "58%",
+            }}
+          />
+          <BacktestWidget
+            title="SMA 50/200 crossover"
+            period="RELIANCE · 2019–2026 · daily bars · costs incl."
+            equity={BT_EQUITY}
+            benchmark={BT_BENCH}
+            verdict="Beats B&H"
+            metrics={[
+              { label: "CAGR", value: "11.8%" },
+              { label: "Sharpe", value: "1.21" },
+              { label: "Max DD", value: "", signedPct: -14.3 },
+              { label: "Win rate", value: "54%" },
+            ]}
+          />
+        </div>
+      </section>
+
+      {/* ── 09 Dark mirror ────────────────────────────────────────── */}
+      <section className="mx-auto max-w-5xl px-8 pb-20">
+        <SectionHeader
+          index="09"
           title="Dark mirror"
           note="The same components inside a .dark subtree — zero prop changes."
         />
@@ -400,11 +595,11 @@ export default function DesignShowcase() {
         </SectionShell>
       </section>
 
-      {/* ── 07 Landing voice ──────────────────────────────────────── */}
+      {/* ── 10 Landing voice ──────────────────────────────────────── */}
       <section className="pb-24">
         <div className="mx-auto max-w-5xl px-8">
           <SectionHeader
-            index="07"
+            index="10"
             title="Landing voice"
             note="The closing move: serif conviction on ink, one pill."
           />

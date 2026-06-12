@@ -243,7 +243,9 @@ export function MiniTable({
                       : "1px solid var(--glass-border)",
                   textAlign: ci === 0 ? "left" : "right",
                   color: ci === 0 ? "var(--text-primary)" : "var(--text-secondary)",
-                  fontVariantNumeric: "tabular-nums",
+                  fontFamily: ci === 0 ? "var(--font-ui)" : "var(--font-numeric)",
+                  fontSize: ci === 0 ? 13 : 12.5,
+                  letterSpacing: ci === 0 ? undefined : "-0.02em",
                   fontWeight: ci === 0 ? 500 : 400,
                 }}
               >

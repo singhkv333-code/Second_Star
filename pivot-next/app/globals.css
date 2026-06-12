@@ -110,6 +110,9 @@
     --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, monospace;
     --font-ui:      'Inter', system-ui, sans-serif;
     --font-serif:   'Newsreader', 'Times New Roman', Georgia, serif;
+    /* Numerals — prices, NAVs, P&L, levels all set in the machine face.
+       One token so the numeric voice can be swapped product-wide. */
+    --font-numeric: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
 
     /* Experiment slot — applied ONLY to the topbar Pivot wordmark and
        the chat greeting ("Good morning, …"). Swap this single value to
@@ -409,4 +412,88 @@
 }
 .copy-toast {
   animation: copyToast 1.5s var(--ease-quartr) forwards;
+}
+
+/* ─── DS motion & patterns (components/ds) ─────────────────────────── */
+
+/* Marquee — the ticker tape. Track holds two copies of its content and
+   translates exactly half its own width, so the loop is seamless at any
+   content length. Pause on hover so figures stay readable. */
+@keyframes ds-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.ds-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: ds-marquee var(--ds-marquee-duration, 36s) linear infinite;
+}
+.ds-marquee:hover .ds-marquee-track { animation-play-state: paused; }
+
+/* Chain flow — the pulse that travels a workflow connector. */
+@keyframes ds-flow {
+  0%   { left: 0%;   opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+.ds-flow-dot {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ds-flow 2.8s var(--ease-tw) infinite;
+}
+
+/* Node arming — each chain block breathes once as the pulse arrives. */
+@keyframes ds-node-arm {
+  0%, 100% { border-color: var(--glass-border); }
+  50%      { border-color: var(--glass-border-focus); }
+}
+
+/* Candles — bodies grow from the baseline on independent periods so
+   the cluster reads as a live tape, not a synchronized wave. */
+@keyframes ds-candle {
+  0%, 100% { transform: scaleY(0.45); }
+  50%      { transform: scaleY(1); }
+}
+
+/* Scan — a soft horizontal band sweeping down a tile. */
+@keyframes ds-scan {
+  0%   { top: -12%; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 104%; opacity: 0; }
+}
+
+/* Drift — a dot-grid background slowly crawling diagonally. */
+@keyframes ds-drift {
+  from { background-position: 0 0; }
+  to   { background-position: 56px 56px; }
+}
+
+/* Cross pulse — Vercel-style "+" registration marks breathing. */
+@keyframes ds-cross {
+  0%, 100% { opacity: 0.18; transform: scale(0.9); }
+  50%      { opacity: 0.7;  transform: scale(1); }
+}
+
+/* Rise — staggered section/element reveal (pair with animation-delay). */
+@keyframes ds-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ds-rise { animation: ds-rise 640ms var(--ease-quartr) both; }
+
+/* Draw — SVG line draws itself in (set pathLength=1 on the path). */
+@keyframes ds-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+.ds-draw {
+  stroke-dasharray: 1;
+  animation: ds-draw 1.6s var(--ease-quartr) forwards;
 }

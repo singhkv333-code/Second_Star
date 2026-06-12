@@ -413,10 +413,10 @@ export function Delta({
     <span
       className={cn("inline-flex items-center gap-0.5", className)}
       style={{
-        fontFamily: "var(--font-ui)",
-        fontWeight: 550,
+        fontFamily: "var(--font-numeric)",
+        fontWeight: 500,
         fontSize: size,
-        fontVariantNumeric: "tabular-nums",
+        letterSpacing: "-0.02em",
         color: positive ? "var(--color-profit)" : "var(--color-loss)",
         lineHeight: 1,
       }}
@@ -433,10 +433,14 @@ export function Delta({
   );
 }
 
-/** Tabular-numeral figure — prices, NAVs, levels. */
+/**
+ * Numeric figure — prices, NAVs, levels. Set in the machine face
+ * (--font-numeric → JetBrains Mono): inherently tabular, and it gives
+ * every number on the surface the terminal voice.
+ */
 export function Figure({
   size = 15,
-  weight = 550,
+  weight = 500,
   muted = false,
   className,
   children,
@@ -451,11 +455,10 @@ export function Figure({
     <span
       className={className}
       style={{
-        fontFamily: "var(--font-ui)",
+        fontFamily: "var(--font-numeric)",
         fontWeight: weight,
         fontSize: size,
-        fontVariantNumeric: "tabular-nums",
-        letterSpacing: "-0.01em",
+        letterSpacing: "-0.03em",
         color: muted ? "var(--text-secondary)" : "var(--text-primary)",
       }}
     >
