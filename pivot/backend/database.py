@@ -16,8 +16,9 @@ else:
         poolclass=QueuePool,
         pool_size=10,
         max_overflow=20,
-        pool_pre_ping=True,
-        echo=settings.app_env == "development",
+        pool_pre_ping=False,
+        pool_recycle=900,
+        echo=False,
     )
 
 SessionLocal = sessionmaker(
@@ -42,7 +43,8 @@ else:
         poolclass=QueuePool,
         pool_size=5,
         max_overflow=10,
-        pool_pre_ping=True,
+        pool_pre_ping=False,
+        pool_recycle=900,
         echo=False,
     )
 
