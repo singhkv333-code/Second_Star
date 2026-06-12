@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&display=swap');
+/* Newsreader carries the `ital` axis so display italics render as true
+   italics (the landing-page "That's all" treatment), not synthetic
+   obliques. */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap');
 
 @tailwind base;
 @tailwind components;

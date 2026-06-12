@@ -20,9 +20,13 @@
  */
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 
 const TOKEN_KEY = "pivot_jwt";
+
+/** Static routes that make no API calls and skip the auth gate. */
+const UNGATED_PATHS = ["/design"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 
@@ -32,6 +36,8 @@ export function AppBootstrap({
   children: React.ReactNode;
 }): React.ReactElement {
   const [phase, setPhase] = useState<Phase>("loading");
+  const pathname = usePathname();
+  const ungated = UNGATED_PATHS.some((p) => pathname?.startsWith(p));
 
   useEffect(() => {
     // Flip to real backend + wire token provider FIRST so any code path
@@ -54,6 +60,7 @@ export function AppBootstrap({
     setPhase(stored ? "ready" : "needs-auth");
   }, []);
 
+  if (ungated) return <>{children}</>;
   if (phase === "loading") return <BootstrapSplash />;
   if (phase === "needs-auth") {
     return <SignInPrompt onToken={() => setPhase("ready")} />;
