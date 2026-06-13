@@ -210,16 +210,16 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // matching padding-right when the panel is open — keeps chat and editor
   // side-by-side instead of letting the panel overlap the chat column.
   const [panelWidth, setPanelWidth] = useState(AGENT_PANEL_DEFAULT_WIDTH);
-  // The panel's default width (460px) was tuned on a 2560px design canvas.
+  // The panel's default width (520px) was tuned on a 2560px design canvas.
   // On narrower screens that fixed width dominates the viewport (e.g. a
-  // ~15" 1920px laptop), so on mount we scale the default down to ~18vw —
-  // ≈345px at 1920, back up to the 460px design value at 2560, capped there.
+  // ~15" 1920px laptop), so on mount we scale the default down to ~25vw —
+  // ≈480px at 1920, back up to the 520px design value at 2560, capped there.
   // Runs once; a manual drag (setPanelWidth) afterwards is preserved.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const proportional = Math.min(
       AGENT_PANEL_DEFAULT_WIDTH,
-      Math.max(340, Math.round(window.innerWidth * 0.22)),
+      Math.max(340, Math.round(window.innerWidth * 0.25)),
     );
     setPanelWidth(proportional);
   }, []);
@@ -427,14 +427,18 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         />
       )}
 
-      {/* Body: sidebar + content. When the right-side AgentPanel is open we
-          reserve `paddingRight` equal to its current width so the panel sits
-          beside the chat instead of overlapping it. Animated to match the
-          panel's resize feel. */}
+      {/* Body: sidebar + content. When the AgentPanel is open we reserve
+          `paddingRight` equal to its width ONLY on the chat surface, so the
+          panel sits beside the conversation (the composer stays usable). On
+          the dashboard tabs (Agents/Portfolio/Screener/…) we let the panel
+          overlay instead, so their content keeps its full width and doesn't
+          reflow/shrink when the panel opens. Animated to match the panel's
+          resize feel. */}
       <div
         className="flex flex-1 min-h-0"
         style={{
-          paddingRight: panelOpen ? `${panelWidth}px` : 0,
+          paddingRight:
+            panelOpen && !children && active === "chat" ? `${panelWidth}px` : 0,
           transition: "padding-right 220ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       >

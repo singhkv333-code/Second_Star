@@ -328,7 +328,7 @@ export function WorkflowEditorMock({
     <div className="relative flex h-full flex-col">
       {/* Header — chat-card style: chip + status pill, then title, then
           description, then a primary CTA pill with ghost secondaries. */}
-      <header className="shrink-0 px-6 pt-6 pb-5">
+      <header className="shrink-0 px-6 pt-3 pb-4">
         <div className="flex items-center justify-between gap-2">
           <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
             Agent
@@ -370,13 +370,17 @@ export function WorkflowEditorMock({
           </p>
         )}
 
-        <div className="mt-5 flex flex-wrap items-center gap-2">
+        {/* Action bar — a primary Save + Run now pair, then the lifecycle /
+            history controls as quiet ghost buttons so the hierarchy reads at
+            a glance instead of a flat row of equal-weight buttons. */}
+        <div className="mt-4 flex flex-wrap items-center gap-1.5">
           <Button
             size="sm"
             variant="default"
             onClick={() => { void handleSave(); }}
             disabled={busy}
             data-testid="save-btn"
+            className="rounded-lg"
           >
             {actionState === "saving" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
             Save
@@ -387,6 +391,7 @@ export function WorkflowEditorMock({
             onClick={() => { void handleRunNow(); }}
             disabled={busy || workflow.status === "archived"}
             data-testid="run-now-btn"
+            className="rounded-lg"
           >
             {actionState === "running" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
             Run now
@@ -398,6 +403,7 @@ export function WorkflowEditorMock({
               onClick={() => { void handleActivateOrPause(); }}
               disabled={busy}
               data-testid="activate-btn"
+              className="rounded-lg text-muted-foreground hover:text-foreground"
             >
               {(actionState === "activating" || actionState === "pausing") && (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -412,6 +418,7 @@ export function WorkflowEditorMock({
               onClick={() => setShowRunHistory(true)}
               disabled={busy}
               data-testid="history-btn"
+              className="rounded-lg text-muted-foreground hover:text-foreground"
             >
               History
             </Button>
@@ -419,11 +426,13 @@ export function WorkflowEditorMock({
         </div>
       </header>
 
-      {/* Step list + add button. Calm vertical stack of tiles, no dividers.
-          The Add step button is pinned to the bottom of the box (outside the
-          scroll region) so it stays reachable no matter how many steps. */}
+      {/* Step flow — cards linked by vertical connectors so the sequence
+          reads as a pipeline (trigger → … → action), like Zapier/n8n. Each
+          connector reveals a "+" to insert between steps on hover, and the
+          flow terminates in a connected dashed "Add step" node so there's
+          never a disconnected button floating in empty space. */}
       <div className="flex flex-1 min-h-0 flex-col border-t border-border/40 bg-muted/20">
-        <div className="flex-1 overflow-y-auto px-5 pt-5 pb-3">
+        <div className="flex-1 overflow-y-auto px-5 py-5">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -433,29 +442,29 @@ export function WorkflowEditorMock({
               items={workflow.steps.map((s) => s.id)}
               strategy={verticalListSortingStrategy}
             >
-              <ol className="space-y-3">
-                {workflow.steps.map((step) => (
-                  <li key={step.id}>
+              <ol className="flex flex-col">
+                {workflow.steps.map((step, i) => (
+                  <li key={step.id} className="flex flex-col">
                     <SortableStepRow
                       step={step}
-                      catalogEntry={
-                        findStepType(catalog, step.step_type)
-                      }
+                      catalogEntry={findStepType(catalog, step.step_type)}
                       onConfigure={() => setEditingStepId(step.id)}
+                    />
+                    <FlowConnector
+                      onInsert={() => setPickerInsertIndex(i + 1)}
                     />
                   </li>
                 ))}
               </ol>
             </SortableContext>
           </DndContext>
-        </div>
 
-        <div className="shrink-0 px-5 pt-2 pb-5">
+          {/* Terminal node — the trailing connector above flows into this. */}
           <button
             type="button"
             onClick={() => setPickerInsertIndex(workflow.steps.length)}
             data-testid="add-step-button"
-            className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-background hover:text-foreground"
+            className="flex h-12 w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}
@@ -482,6 +491,33 @@ export function WorkflowEditorMock({
           onClose={() => setPickerInsertIndex(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** Vertical connector drawn between consecutive step cards (and into the
+ *  terminal Add node). Hovering reveals a "+" that inserts a step at this
+ *  position, so the flow reads as a real pipeline rather than loose tiles. */
+function FlowConnector({
+  onInsert,
+}: {
+  onInsert: () => void;
+}): React.ReactElement {
+  return (
+    <div className="group/conn relative flex h-7 items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/70"
+      />
+      <button
+        type="button"
+        onClick={onInsert}
+        aria-label="Insert a step here"
+        data-step-card-noclick
+        className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground opacity-0 shadow-sm transition-all hover:border-primary hover:text-foreground group-hover/conn:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Plus className="h-3 w-3" aria-hidden="true" />
+      </button>
     </div>
   );
 }

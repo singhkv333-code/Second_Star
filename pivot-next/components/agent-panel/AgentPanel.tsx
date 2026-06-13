@@ -14,7 +14,7 @@ import type { Workflow } from "@/lib/types";
 
 export const AGENT_PANEL_MIN_WIDTH = 340;
 export const AGENT_PANEL_MAX_WIDTH = 920;
-export const AGENT_PANEL_DEFAULT_WIDTH = 460;
+export const AGENT_PANEL_DEFAULT_WIDTH = 520;
 
 const MIN_WIDTH = AGENT_PANEL_MIN_WIDTH;
 const MAX_WIDTH = AGENT_PANEL_MAX_WIDTH;
@@ -125,9 +125,16 @@ export function AgentPanel({
       role="dialog"
       aria-label="Agent panel"
       aria-modal="false"
-      style={{ width }}
+      style={{
+        width,
+        top: "var(--header-h, 56px)",
+        animation:
+          "agentPanelIn-quartr 300ms cubic-bezier(0.22, 1, 0.36, 1) both",
+      }}
       className={cn(
-        "agent-panel-shell fixed inset-y-0 right-0 z-40 flex border-l bg-background shadow-xl",
+        // Anchored below the top header (top via inline style) so the panel
+        // never covers the header; spans to the bottom of the viewport.
+        "agent-panel-shell fixed bottom-0 right-0 z-40 flex border-l bg-background shadow-xl",
         // Desktop sizing constraints; mobile override lives in globals.css
         // (forces 100vw and ignores the inline width so the panel becomes
         // a full-screen sheet at <lg).
@@ -145,7 +152,7 @@ export function AgentPanel({
       />
 
       <div className="flex h-full w-full flex-col">
-        <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center">
             <span
               style={{

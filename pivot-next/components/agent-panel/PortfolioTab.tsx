@@ -117,6 +117,19 @@ function fmtPct(n: number, signed = true): string {
   const s = signed ? (n >= 0 ? "+" : "") : "";
   return `${s}${n.toFixed(2)}%`;
 }
+/** Plain grouped number (no ₹ symbol) — matches the broker-style holdings
+ *  list, e.g. "18,410.00", "+5,970.00". */
+function fmtPlain(n: number, opts: { sign?: boolean } = {}): string {
+  const { sign = false } = opts;
+  const s = sign ? (n >= 0 ? "+" : "−") : n < 0 ? "−" : "";
+  return (
+    s +
+    Math.abs(n).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
+}
 
 function holdingValue(h: Holding): number {
   return h.last_price * h.quantity;
@@ -262,6 +275,10 @@ export function PortfolioTab(): React.ReactElement {
         <>
           <PerformanceChart summary={state.summary} />
 
+          {/* Mobile-only P&L strip above the holdings (on desktop these
+              figures already live in the top bar). */}
+          <PnlStripMobile summary={state.summary} />
+
           <Section label="Holdings">
             <Card padding={0} style={{ overflow: "hidden" }}>
               {state.holdings.length === 0 ? (
@@ -283,7 +300,16 @@ export function PortfolioTab(): React.ReactElement {
                   </p>
                 </div>
               ) : (
-                <HoldingsTable holdings={state.holdings} />
+                <>
+                  {/* Desktop: sortable table. Mobile: broker-style stacked
+                      cards (Qty·Avg + return% / symbol + P&L / invested + LTP). */}
+                  <div className="hidden lg:block">
+                    <HoldingsTable holdings={state.holdings} />
+                  </div>
+                  <div className="lg:hidden">
+                    <HoldingsListMobile holdings={state.holdings} />
+                  </div>
+                </>
               )}
             </Card>
           </Section>
@@ -573,11 +599,29 @@ function PerformanceSvg({
   const chartColRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
+  // Track the chart column's real rendered width and use it as the viewBox
+  // width so the `preserveAspectRatio="none"` SVG maps 1:1 horizontally —
+  // a fixed viewBox width (e.g. 920) squished into a ~340px phone column
+  // compressed the line horizontally while height stayed fixed, which read
+  // as a distorted, over-spiky curve. Matching viewBox W to the pixel width
+  // removes the squish at every viewport.
+  const [chartW, setChartW] = useState(920);
+  useEffect(() => {
+    const el = chartColRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) setChartW(Math.round(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Static Y / X labels and grid lines removed — the hover tooltip now
   // provides the value/date at any point on the curve, so the chrome
   // was just clutter. Padding shrunk accordingly (no axis labels to
   // accommodate).
-  const W = 920, H = 240, padL = 0, padR = 4, padT = 8, padB = 8;
+  const W = chartW, H = 190, padL = 0, padR = 4, padT = 8, padB = 8;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
 
@@ -797,21 +841,21 @@ function PerformanceSvg({
         </div>
       </div>
 
-      {/* Footer comparison line — tighter gap so it stays on one row at
-          most container widths and only wraps to a clean two-row grid on
-          the narrowest phones. */}
+      {/* Footer comparison line — kept to a single row at every width via a
+          compact scale + nowrap (it's a small caption, so it reads fine even
+          on the narrowest phones). */}
       <div
-        className="flex flex-wrap items-center"
+        className="flex items-center"
         style={{
           marginTop: 10,
-          columnGap: 14,
-          rowGap: 6,
-          fontSize: 12,
+          columnGap: 9,
+          fontSize: 11,
+          whiteSpace: "nowrap",
           color: "var(--text-tertiary)",
         }}
       >
         <span>
-          vs&nbsp;&nbsp;<span style={{ color: "var(--text-secondary)" }}>NIFTY&nbsp;50</span>
+          vs&nbsp;<span style={{ color: "var(--text-secondary)" }}>NIFTY&nbsp;50</span>
         </span>
         <PerfStat label="portfolio" value={portReturnPct} />
         <PerfStat label="benchmark" value={benchReturnPct} />
@@ -831,13 +875,180 @@ function PerfStat({
   const pos = value >= 0;
   const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
-    <span className="inline-flex items-center" style={{ gap: 6, fontFamily: "var(--font-mono)" }}>
+    <span className="inline-flex items-center" style={{ gap: 4, fontFamily: "var(--font-mono)" }}>
       <span style={{ color }}>
         {pos ? "+" : ""}
         {value.toFixed(1)}%
       </span>
       <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>{label}</span>
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PnlStripMobile — two-cell Total P&L / Today's P&L summary shown above the
+// holdings on phones (on desktop these figures live in the global top bar).
+// ---------------------------------------------------------------------------
+
+function PnlStripMobile({
+  summary,
+}: {
+  summary: PortfolioSummary;
+}): React.ReactElement {
+  const totalPos = summary.total_pnl >= 0;
+  const dayPos = summary.day_pnl >= 0;
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    color: "var(--text-tertiary)",
+  };
+  // Phone-only. The hide class lives on this wrapper (which has NO inline
+  // `display`) — putting it on the grid below would lose to the inline
+  // `display: grid` and leak the strip onto tablet/laptop.
+  return (
+    <div className="sm:hidden">
+      <div
+        data-testid="portfolio-pnl-strip"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 1,
+          marginBottom: 20,
+          background: "var(--glass-border)",
+          borderRadius: "var(--radius-md)",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ background: "var(--bg-primary)", padding: "14px 16px" }}>
+          <div style={labelStyle}>Total P&amp;L</div>
+          <div
+            style={{
+              marginTop: 5,
+              display: "flex",
+              alignItems: "baseline",
+              gap: 6,
+              fontSize: 17,
+              fontWeight: 600,
+              color: totalPos ? "var(--color-profit)" : "var(--color-loss)",
+            }}
+          >
+            {fmtRupee(summary.total_pnl, { sign: true, max: 0 })}
+            <span style={{ fontSize: 12, fontWeight: 500 }}>
+              ({fmtPct(summary.total_pnl_pct)})
+            </span>
+          </div>
+        </div>
+        <div style={{ background: "var(--bg-primary)", padding: "14px 16px" }}>
+          <div style={labelStyle}>Today&apos;s P&amp;L</div>
+          <div
+            style={{
+              marginTop: 5,
+              fontSize: 17,
+              fontWeight: 600,
+              color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
+            }}
+          >
+            {fmtRupee(summary.day_pnl, { sign: true, max: 0 })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HoldingsListMobile — broker-style stacked cards (Groww layout): a row of
+// Qty·Avg + total return %, the symbol + absolute P&L, and Invested + live LTP
+// with the day move. Shown only on phones; desktop keeps the sortable table.
+// ---------------------------------------------------------------------------
+
+function HoldingsListMobile({
+  holdings,
+}: {
+  holdings: Holding[];
+}): React.ReactElement {
+  const sorted = useMemo(
+    () => [...holdings].sort((a, b) => b.pnl - a.pnl),
+    [holdings],
+  );
+  return (
+    <div data-testid="holdings-list-mobile">
+      {sorted.map((h, i) => (
+        <HoldingCardMobile
+          key={`${h.exchange}:${h.tradingsymbol}`}
+          holding={h}
+          last={i === sorted.length - 1}
+        />
+      ))}
+    </div>
+  );
+}
+
+function HoldingCardMobile({
+  holding: h,
+  last,
+}: {
+  holding: Holding;
+  last: boolean;
+}): React.ReactElement {
+  const liveQuote = useLiveQuote(h.tradingsymbol);
+  const ltp = liveQuote.ltp ?? h.last_price;
+  const invested = h.average_price * h.quantity;
+  const pnlPct = invested > 0 ? (h.pnl / invested) * 100 : 0;
+  const pnlColor = h.pnl >= 0 ? "var(--color-profit)" : "var(--color-loss)";
+  const dayColor =
+    h.day_change_percentage >= 0 ? "var(--color-profit)" : "var(--color-loss)";
+  const muted: React.CSSProperties = { fontSize: 11.5, color: "var(--text-tertiary)" };
+
+  return (
+    <Link
+      href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
+      className="block"
+      data-testid={`holding-m-${h.tradingsymbol}`}
+      style={{
+        textDecoration: "none",
+        padding: "13px 16px",
+        borderBottom: last ? "none" : "1px solid var(--glass-border)",
+      }}
+    >
+      {/* Row 1 — quantity · average cost  |  total return % */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 5 }}>
+        <span style={muted}>
+          Qty. {h.quantity} · Avg. {fmtPlain(h.average_price)}
+        </span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: pnlColor }}>
+          {fmtPct(pnlPct)}
+        </span>
+      </div>
+      {/* Row 2 — symbol  |  absolute P&L */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 5 }}>
+        <span
+          style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {h.tradingsymbol}
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: pnlColor }}>
+          {fmtPlain(h.pnl, { sign: true })}
+        </span>
+      </div>
+      {/* Row 3 — invested  |  live LTP (day move) */}
+      <div className="flex items-center justify-between">
+        <span style={muted}>Invested {fmtPlain(invested)}</span>
+        <span style={muted}>
+          LTP {fmtPlain(ltp)}{" "}
+          <span style={{ color: dayColor }}>
+            ({fmtPct(h.day_change_percentage, false)})
+          </span>
+        </span>
+      </div>
+    </Link>
   );
 }
 
@@ -1537,7 +1748,7 @@ function PortfolioLoading(): React.ReactElement {
   return (
     <div className="flex flex-col" style={{ gap: 28 }} data-testid="portfolio-loading">
       <Card padding="22px 24px">
-        <Skeleton style={{ height: 240, width: "100%" }} />
+        <Skeleton style={{ height: 190, width: "100%" }} />
       </Card>
       <Card padding={0} style={{ overflow: "hidden" }}>
         <Skeleton style={{ height: 40, width: "100%" }} />

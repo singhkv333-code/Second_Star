@@ -262,6 +262,15 @@
   }
 }
 
+/* Phone/mobile cleanup: the dashboard tabs scroll inside <main>'s panes —
+   hide their scrollbar for a cleaner edge-to-edge reading, and drop the
+   header's hairline (set inline, so it needs !important to override). */
+@media (max-width: 1023.98px) {
+  .app-shell-root main > div { scrollbar-width: none; }
+  .app-shell-root main > div::-webkit-scrollbar { width: 0; height: 0; }
+  .top-header { border-bottom: none !important; }
+}
+
 /* ─── Quartr animations ────────────────────────────────────────────── */
 @keyframes pulse-quartr {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -283,6 +292,12 @@
   0%   { opacity: 0; transform: scale(0.5); }
   60%  { opacity: 1; transform: scale(1.08); }
   100% { transform: scale(1); }
+}
+/* Agent panel slide-in — the drawer eases in from the right edge on open
+   instead of popping into place. */
+@keyframes agentPanelIn-quartr {
+  from { opacity: 0.4; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 /* ─── P&L heatmap (Active Agents header) ─────────────────────────── */
@@ -904,5 +919,29 @@
     top: 0 !important;
     left: 0 !important;
     transform: none !important;
+  }
+}
+
+/* Phone (<640px): a taller, more touch-friendly navbar. The header height
+   var also drives the agent-panel's top offset, so both stay in sync. The
+   brand is scaled as a unit (keeps the logo/wordmark + light/dark image
+   ratios intact), and the avatar + hamburger icon grow to match. Tablet and
+   desktop sizing are untouched. Placed last so it wins source order over the
+   <=1023.98px brand-slot centering rule. */
+@media (max-width: 639.98px) {
+  :root {
+    --header-h: 68px;
+  }
+  .top-header .brand-slot {
+    transform: translate(calc(-50% - 22px), -50%) scale(1.18);
+  }
+  .top-header [data-testid="account-menu-trigger"] {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 15px !important;
+  }
+  .top-header [data-testid="mobile-nav-trigger"] svg {
+    width: 26px !important;
+    height: 26px !important;
   }
 }
