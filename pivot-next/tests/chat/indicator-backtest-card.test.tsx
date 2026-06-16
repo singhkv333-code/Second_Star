@@ -67,12 +67,14 @@ describe("IndicatorBacktestCard — concise widget", () => {
     expect(screen.getByText(/Jan 2023 — Dec 2024/)).toBeInTheDocument();
   });
 
-  it("renders the 4 concise metrics: CAGR · Max DD · Trades · Hit rate", () => {
+  it("does NOT surface CAGR · Max DD · Trades · Hit rate on the concise widget", () => {
+    // These now live behind the "View" sidebar only — the concise card
+    // keeps just the chart + headline total return.
     render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
-    expect(screen.getByText("CAGR")).toBeInTheDocument();
-    expect(screen.getByText("Max DD")).toBeInTheDocument();
-    expect(screen.getByText("Trades")).toBeInTheDocument();
-    expect(screen.getByText("Hit rate")).toBeInTheDocument();
+    expect(screen.queryByText("CAGR")).not.toBeInTheDocument();
+    expect(screen.queryByText("Max DD")).not.toBeInTheDocument();
+    expect(screen.queryByText("Trades")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hit rate")).not.toBeInTheDocument();
   });
 
   it("does NOT surface the secondary stats in the concise widget", () => {
@@ -85,11 +87,6 @@ describe("IndicatorBacktestCard — concise widget", () => {
     render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
     expect(screen.getByText(/\+16\.00%/)).toBeInTheDocument();
     expect(screen.getByText(/Strategy total return/i)).toBeInTheDocument();
-  });
-
-  it("renders the trade count in the Trades stat", () => {
-    render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
-    expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("handles a losing strategy with negative total return", () => {
@@ -108,7 +105,7 @@ describe("IndicatorBacktestCard — concise widget", () => {
     expect(screen.getByText("-8.50%")).toBeInTheDocument();
   });
 
-  it("opens the detail modal when View is clicked", () => {
+  it("opens the detail sidebar when View is clicked", () => {
     render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
     // Detail is portaled; not in the DOM until the button is clicked.
     expect(screen.queryByTestId("indicator-backtest-detail")).not.toBeInTheDocument();
@@ -160,12 +157,12 @@ describe("IndicatorBacktestCard — DSL tree readback", () => {
     expect(screen.queryByText(/Price drops below COMPOUND\(0\)/)).toBeNull();
   });
 
-  it("still renders the standard stat block (CAGR, Max DD, Trades, Hit rate)", () => {
+  it("keeps the stat block off the concise widget (View sidebar only)", () => {
     render(<IndicatorBacktestCard payload={DSL_PAYLOAD} />);
-    expect(screen.getByText("CAGR")).toBeInTheDocument();
-    expect(screen.getByText("Max DD")).toBeInTheDocument();
-    expect(screen.getByText("Trades")).toBeInTheDocument();
-    expect(screen.getByText("Hit rate")).toBeInTheDocument();
+    expect(screen.queryByText("CAGR")).not.toBeInTheDocument();
+    expect(screen.queryByText("Max DD")).not.toBeInTheDocument();
+    expect(screen.queryByText("Trades")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hit rate")).not.toBeInTheDocument();
   });
 });
 

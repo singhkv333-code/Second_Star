@@ -403,7 +403,6 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
         "my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
         "transition-all duration-500 ease-out",
-        isRegistered && "shadow-[0_1px_2px_rgba(76,175,80,0.08),0_18px_36px_-18px_rgba(76,175,80,0.22)]",
       )}
       style={{
         animation: "draftCardIn-quartr 360ms cubic-bezier(0.22, 1, 0.36, 1) both",

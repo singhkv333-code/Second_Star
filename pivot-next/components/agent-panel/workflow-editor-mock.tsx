@@ -514,7 +514,7 @@ function FlowConnector({
         onClick={onInsert}
         aria-label="Insert a step here"
         data-step-card-noclick
-        className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground opacity-0 shadow-sm transition-all hover:border-primary hover:text-foreground group-hover/conn:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border/50 bg-background text-muted-foreground opacity-0 shadow-sm transition-all hover:border-border hover:text-foreground hover:shadow-[0_2px_8px_-4px_rgba(15,23,42,0.08)] group-hover/conn:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Plus className="h-3 w-3" aria-hidden="true" />
       </button>

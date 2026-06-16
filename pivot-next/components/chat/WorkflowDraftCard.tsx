@@ -213,7 +213,6 @@ export function WorkflowDraftCard({
         "mb-2 mt-1 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
         "transition-all duration-500 ease-out",
-        isSaved && "shadow-[0_1px_2px_rgba(76,175,80,0.08),0_18px_36px_-18px_rgba(76,175,80,0.22)]",
       )}
       style={{
         // Cards animate in from below on mount.
@@ -397,7 +396,7 @@ function DraftBody({
           disabled={isSaving}
           data-testid="save-activate-button"
           className={cn(
-            "inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full bg-primary text-[12.5px] font-medium tracking-tight text-primary-foreground transition-all",
+            "inline-flex h-8 w-full items-center justify-center gap-2 rounded-full bg-primary text-[12px] font-medium tracking-tight text-primary-foreground transition-all",
             "hover:bg-primary/90 active:scale-[0.98]",
             "disabled:cursor-not-allowed disabled:opacity-70",
           )}
@@ -590,7 +589,7 @@ function SavedState({
             onClick={onOpenEditor}
             data-testid="open-in-editor-button"
             className={cn(
-              "inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full bg-primary text-[12.5px] font-medium tracking-tight text-primary-foreground transition-all",
+              "inline-flex h-8 w-full items-center justify-center gap-2 rounded-full bg-primary text-[12px] font-medium tracking-tight text-primary-foreground transition-all",
               "hover:bg-primary/90 active:scale-[0.98]",
             )}
           >

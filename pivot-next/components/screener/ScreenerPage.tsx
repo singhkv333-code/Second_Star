@@ -815,15 +815,15 @@ function ResultsTable({ columns, rows, sortKey, sortDir, onSort }) {
                 >
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: 5,
-                    flexDirection: c.align === 'right' ? 'row-reverse' : 'row',
                   }}>
-                    {c.label}
-                    {/* Active column shows its current direction; inactive
-                        columns keep a faint up/down chevron pair so every
-                        header reads as sortable (mirrors the Holdings table). */}
+                    {/* Sort icon sits to the left of the label on every
+                        column. Active column shows its current direction;
+                        inactive columns keep a faint up/down chevron pair so
+                        every header reads as sortable. */}
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
+                      lineHeight: 0,
                       opacity: active ? 1 : 0.45,
                       transition: 'opacity 0.15s var(--ease-quartr)',
                     }}>
@@ -833,6 +833,7 @@ function ResultsTable({ columns, rows, sortKey, sortDir, onSort }) {
                           ? <ChevronDown size={13} strokeWidth={2.75} aria-hidden="true" />
                           : <ChevronUp size={13} strokeWidth={2.75} aria-hidden="true" />}
                     </span>
+                    {c.label}
                   </span>
                 </th>
               );

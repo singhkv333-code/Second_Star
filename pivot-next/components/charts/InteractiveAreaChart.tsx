@@ -364,7 +364,10 @@ export function InteractiveAreaChart({
       className="relative w-full select-none"
       style={{
         height,
-        cursor: enableRangeSelect ? "crosshair" : "default",
+        // Crosshair ("plus") cursor over the plot — the chart is always
+        // interactive (hover reveals the crosshair line + value/date tooltip),
+        // so the cursor reflects that whether or not range-select is enabled.
+        cursor: "crosshair",
       }}
       onMouseMove={handleMove}
       onMouseLeave={handleLeave}

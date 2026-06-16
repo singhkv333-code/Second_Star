@@ -194,7 +194,7 @@ export function StockSnapshotCard({
 
   return (
     <div
-      className="w-full max-w-md overflow-hidden rounded-[14px] border border-border/70 bg-card"
+      className="w-full max-w-[388px] overflow-hidden rounded-[14px] border border-border/70 bg-card"
       data-testid="stock-snapshot-card"
     >
       {/* Header — eyebrow chip + serif company name + price block */}

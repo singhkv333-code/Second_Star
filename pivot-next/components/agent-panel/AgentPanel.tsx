@@ -119,22 +119,32 @@ export function AgentPanel({
 
   if (!open) return null;
 
+  // Every agent editor — a chat draft, or an active/paused agent opened from
+  // the Active Agents rail or the Agents tab — renders as a modal overlay:
+  // a full-screen dark scrim + white panel, matching the Backtest sheet.
+  // Dismiss via the scrim, Esc, or the header X.
   return (
-    <aside
+    <>
+      <div
+        aria-hidden="true"
+        onClick={() => onOpenChange(false)}
+        className="fixed inset-0 z-40 bg-black/60 animate-in fade-in-0"
+        data-testid="agent-panel-backdrop"
+      />
+      <aside
       ref={panelRef}
       role="dialog"
       aria-label="Agent panel"
-      aria-modal="false"
+      aria-modal="true"
       style={{
         width,
-        top: "var(--header-h, 56px)",
+        top: 0,
         animation:
           "agentPanelIn-quartr 300ms cubic-bezier(0.22, 1, 0.36, 1) both",
       }}
       className={cn(
-        // Anchored below the top header (top via inline style) so the panel
-        // never covers the header; spans to the bottom of the viewport.
-        "agent-panel-shell fixed bottom-0 right-0 z-40 flex border-l bg-background shadow-xl",
+        // Covers full height and sits above the backdrop scrim.
+        "agent-panel-shell fixed bottom-0 right-0 z-50 flex border-l bg-background shadow-xl",
         // Desktop sizing constraints; mobile override lives in globals.css
         // (forces 100vw and ignores the inline width so the panel becomes
         // a full-screen sheet at <lg).
@@ -180,7 +190,8 @@ export function AgentPanel({
           <AgentPanelBody initialWorkflow={initialWorkflow} />
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

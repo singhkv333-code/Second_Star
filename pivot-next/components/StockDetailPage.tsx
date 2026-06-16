@@ -3014,8 +3014,8 @@ function FinancialsPanel({
           </div>
         </div>
 
-        {/* Body: chart left | table right */}
-        <div className="grid grid-cols-1 lg:grid-cols-2">
+        {/* Body: chart left | table right (table gets a bit more room) */}
+        <div className="grid grid-cols-1 lg:grid-cols-[5fr_6fr]">
 
           {/* Left — bar chart */}
           <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
@@ -3027,16 +3027,16 @@ function FinancialsPanel({
           </div>
 
           {/* Right — data table */}
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
+          <div style={{ overflow: "hidden" }}>
+            <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
               <thead>
                 <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
-                  <th style={{ padding: "12px 16px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
+                  <th style={{ width: "26%", padding: "12px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
                     Metric
                   </th>
                   {FY_YEARS.map((y, i) => (
                     <th key={y} style={{
-                      padding: "12px 14px", fontSize: 10.5, fontWeight: 600,
+                      padding: "12px 8px", fontSize: 10.5, fontWeight: 600,
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       textAlign: "right", whiteSpace: "nowrap",
                       color: i === FY_YEARS.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
@@ -3053,24 +3053,23 @@ function FinancialsPanel({
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
-                    <td style={{ padding: "11px 16px" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <td style={{ padding: "11px 12px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                         <span style={{
                           width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
                           background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
                         }} />
-                        <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
                           {r.label}
                         </span>
                       </span>
                     </td>
                     {r.values.map((v, i) => (
                       <td key={i} className="tabular-nums" style={{
-                        padding: "11px 14px", textAlign: "right",
-                        fontSize: 12.5, fontFamily: "var(--font-mono)",
+                        padding: "11px 8px", textAlign: "right",
+                        fontSize: 11.5, fontFamily: "var(--font-mono)",
                         fontWeight: i === FY_YEARS.length - 1 ? 600 : 400,
                         color: i === FY_YEARS.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
-                        whiteSpace: "nowrap",
                       }}>
                         {v ?? "—"}
                       </td>

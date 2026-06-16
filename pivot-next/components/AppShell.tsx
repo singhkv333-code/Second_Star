@@ -427,21 +427,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         />
       )}
 
-      {/* Body: sidebar + content. When the AgentPanel is open we reserve
-          `paddingRight` equal to its width ONLY on the chat surface, so the
-          panel sits beside the conversation (the composer stays usable). On
-          the dashboard tabs (Agents/Portfolio/Screener/…) we let the panel
-          overlay instead, so their content keeps its full width and doesn't
-          reflow/shrink when the panel opens. Animated to match the panel's
-          resize feel. */}
-      <div
-        className="flex flex-1 min-h-0"
-        style={{
-          paddingRight:
-            panelOpen && !children && active === "chat" ? `${panelWidth}px` : 0,
-          transition: "padding-right 220ms cubic-bezier(0.22, 1, 0.36, 1)",
-        }}
-      >
+      {/* Body: sidebar + content. The AgentPanel always opens as a modal
+          overlay (dark scrim + white panel) on top of this body, so we no
+          longer reserve side-by-side padding for it. */}
+      <div className="flex flex-1 min-h-0">
         {/* Left sidebar — inline at lg+, slide-in drawer below */}
         <Sidebar
           active={active}

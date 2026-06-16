@@ -280,7 +280,7 @@ export function PortfolioTab(): React.ReactElement {
           <PnlStripMobile summary={state.summary} />
 
           <Section label="Holdings">
-            <Card padding={0} style={{ overflow: "hidden" }}>
+            <Card padding={0} style={{ overflow: "hidden", background: "var(--bg-base)" }}>
               {state.holdings.length === 0 ? (
                 <div
                   className="flex flex-col items-center justify-center py-12 text-center"
@@ -1178,6 +1178,7 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
                     userSelect: "none",
                     whiteSpace: "nowrap",
                     textAlign: col.align,
+                    background: "var(--bg-secondary)",
                     borderBottom: "1.5px solid var(--glass-border)",
                     transition: "color 180ms",
                   }}
@@ -1191,12 +1192,16 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
                 >
                   <span
                     className="inline-flex items-center"
-                    style={{ gap: 5, flexDirection: col.align === "right" ? "row-reverse" : "row" }}
+                    style={{ gap: 5 }}
                   >
-                    {col.label}
                     {col.key && (
-                      <Icon size={12} aria-hidden="true" style={{ opacity: active ? 1 : 0.45 }} />
+                      <Icon
+                        size={12}
+                        aria-hidden="true"
+                        style={{ opacity: active ? 1 : 0.45, lineHeight: 0 }}
+                      />
                     )}
+                    {col.label}
                   </span>
                 </th>
               );
@@ -1809,6 +1814,16 @@ function generateMockTrades(): TradeRow[] {
 
 const MOCK_TRADES = generateMockTrades();
 
+// Mirrors the screener table's cell rhythm (ScreenerPage `td`): hairline
+// glass-border dividers, generous padding, 12.5px text — so the history
+// table reads with the same clean, borderless cadence.
+const HIST_TD: React.CSSProperties = {
+  padding: "14px 16px",
+  fontSize: 12.5,
+  borderBottom: "1px solid var(--glass-border)",
+  whiteSpace: "nowrap",
+};
+
 function TradeHistory(): React.ReactElement {
   const fmt = (iso: string): { date: string; time: string } => {
     const d = new Date(iso);
@@ -1820,22 +1835,26 @@ function TradeHistory(): React.ReactElement {
 
   return (
     <div className="flex flex-col" style={{ gap: 12 }}>
-      <div
-        className="overflow-hidden rounded-2xl border border-border/50 bg-card"
-        style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.04)" }}
-      >
-        <table className="w-full" style={{ borderCollapse: "collapse", fontSize: 12 }}>
+      <div className="overflow-hidden rounded-2xl bg-card">
+        <table
+          className="w-full"
+          style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}
+        >
           <thead>
-            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
+            <tr>
               {["Symbol", "Side", "Qty", "Price (₹)", "Amount (₹)", "Date", "Time", "Agent"].map((h) => (
                 <th
                   key={h}
                   style={{
-                    padding: "10px 14px",
-                    fontWeight: 500,
+                    padding: "13px 16px",
+                    fontSize: 10,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    fontWeight: "var(--weight-display)" as unknown as number,
                     color: "var(--text-tertiary)",
                     textAlign: "left",
                     whiteSpace: "nowrap",
+                    borderBottom: "1.5px solid var(--glass-border)",
                   }}
                 >
                   {h}
@@ -1844,22 +1863,27 @@ function TradeHistory(): React.ReactElement {
             </tr>
           </thead>
           <tbody>
-            {MOCK_TRADES.map((t, idx) => {
+            {MOCK_TRADES.map((t) => {
               const { date, time } = fmt(t.datetime);
               const isBuy = t.side === "BUY";
               return (
                 <tr
                   key={t.id}
                   style={{
-                    borderBottom:
-                      idx < MOCK_TRADES.length - 1 ? "1px solid var(--glass-border)" : "none",
-                    background: idx % 2 === 0 ? "transparent" : "rgba(0,0,0,0.015)",
+                    background: "transparent",
+                    transition: "background-color 0.15s var(--ease-quartr)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
                   }}
                 >
-                  <td style={{ padding: "10px 14px", fontWeight: 600, color: "var(--text-primary)" }}>
+                  <td style={{ ...HIST_TD, fontWeight: 600, color: "var(--text-primary)" }}>
                     {t.symbol}
                   </td>
-                  <td style={{ padding: "10px 14px" }}>
+                  <td style={HIST_TD}>
                     <span
                       style={{
                         padding: "2px 8px",
@@ -1873,27 +1897,22 @@ function TradeHistory(): React.ReactElement {
                       {t.side}
                     </span>
                   </td>
-                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)" }}>{t.quantity}</td>
-                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)" }}>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{t.quantity}</td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
                     {t.price.toLocaleString("en-IN")}
                   </td>
-                  <td style={{ padding: "10px 14px", fontWeight: 500, color: "var(--text-primary)" }}>
+                  <td style={{ ...HIST_TD, fontWeight: 500, color: "var(--text-primary)" }}>
                     ₹{t.amount.toLocaleString("en-IN")}
                   </td>
-                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                    {date}
-                  </td>
-                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                    {time}
-                  </td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{date}</td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{time}</td>
                   <td
                     style={{
-                      padding: "10px 14px",
+                      ...HIST_TD,
                       color: "var(--text-tertiary)",
                       maxWidth: 160,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
                     }}
                   >
                     {t.agent}
