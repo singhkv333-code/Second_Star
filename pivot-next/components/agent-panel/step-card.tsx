@@ -11,7 +11,6 @@ import {
 import { cn } from "@/lib/utils";
 import type { Step, StepTypeDef } from "@/lib/types";
 import { StepIcon } from "@/components/agent-panel/step-icon";
-import { previewStepConfig } from "@/components/agent-panel/config-preview";
 
 export type StepCardProps = {
   step: Step;
@@ -39,9 +38,6 @@ export const StepCard = forwardRef<HTMLDivElement, StepCardProps>(
   ) {
     const label =
       step.label ?? catalogEntry?.label ?? step.step_type;
-    const description = catalogEntry
-      ? previewStepConfig(step)
-      : `Unknown step type: ${step.step_type}`;
     const iconName = catalogEntry?.icon ?? "help-circle";
 
     const clickable = Boolean(onConfigure);
@@ -65,7 +61,7 @@ export const StepCard = forwardRef<HTMLDivElement, StepCardProps>(
           }
         }}
         className={cn(
-          "group flex items-center gap-3 rounded-2xl border border-border/50 bg-card px-4 py-3.5 transition-all",
+          "agent-step-card group flex items-center gap-3 rounded-2xl border border-border/50 bg-card px-4 py-3.5 transition-all",
           "shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
           clickable && "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           isDragging
@@ -87,7 +83,7 @@ export const StepCard = forwardRef<HTMLDivElement, StepCardProps>(
 
         <div
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+            "step-icon-tile flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
             categoryTint(catalogEntry?.category),
           )}
           aria-hidden="true"
@@ -96,17 +92,14 @@ export const StepCard = forwardRef<HTMLDivElement, StepCardProps>(
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-muted/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 rounded-md bg-muted/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Step {step.step_index + 1}
             </span>
-            <span className="truncate text-[13px] font-medium tracking-tight text-foreground">
+            <span className="min-w-0 truncate text-[13px] font-medium tracking-tight text-foreground">
               {label}
             </span>
           </div>
-          <p className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
-            {description}
-          </p>
         </div>
 
         <div data-step-card-noclick onClick={(e) => e.stopPropagation()}>

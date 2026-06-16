@@ -13,8 +13,9 @@
  * border. Inspired by the watch-tile reference grid.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ShieldAlert, TrendingDown, TrendingUp } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import {
   getSparkline,
@@ -174,7 +175,7 @@ export function LogicCardChip({
 
   return (
     <div
-      className="my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
+      className="mb-2 mt-1 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
       data-testid="logic-card-chip"
       role="region"
       aria-label={`${card.action} ${card.symbol}`}
@@ -470,6 +471,10 @@ function SymbolSparkline({
   className?: string;
 }): React.ReactElement {
   const [spark, setSpark] = useState<SparkState>({ kind: "loading" });
+  // Scrub-tooltip state: index of the point under the cursor, or null when
+  // not hovering. Declared before the early returns to keep hook order stable.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -529,11 +534,51 @@ function SymbolSparkline({
     `${xs[xs.length - 1]},${H}`,
   ].join(" ");
 
-  const color = positive ? "#10b981" : "#f43f5e";
+  const color = positive ? "#10b981" : "#ef4444";
   const gradId = `logic-spark-${positive ? "up" : "dn"}-${symbol.replace(/[^a-z0-9]/gi, "")}`;
 
+  // ── Scrub interaction ──────────────────────────────────────────────────
+  // Map the cursor's horizontal position to the nearest data point and show
+  // a Groww-style floating tooltip (date sub-row + bold price), plus a
+  // vertical crosshair and a dot pinned to the line. Positions are expressed
+  // as percentages of the viewBox so they track the line under the SVG's
+  // non-uniform (preserveAspectRatio="none") scaling.
+  const handleMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const el = containerRef.current;
+    if (!el || points.length < 2) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const frac = (e.clientX - rect.left) / rect.width;
+    const idx = Math.round(frac * (points.length - 1));
+    setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)));
+  };
+
+  const hx = hoverIdx !== null ? (xs[hoverIdx]! / W) * 100 : 0;
+  const hy = hoverIdx !== null ? (ys[hoverIdx]! / H) * 100 : 0;
+  const hPoint = hoverIdx !== null ? points[hoverIdx]! : null;
+  const hFrac = hoverIdx !== null ? hoverIdx / (points.length - 1) : 0;
+  const active = hPoint !== null;
+  // Keep the tooltip inside the chart's horizontal bounds: left-align near
+  // the start, right-align near the end, centre otherwise.
+  const tooltipAlign =
+    hFrac < 0.18
+      ? "translateX(0)"
+      : hFrac > 0.82
+        ? "translateX(-100%)"
+        : "translateX(-50%)";
+  // Flip the tooltip below the point when the line sits high in the chart, so
+  // it never escapes the top edge into the header above.
+  const tooltipVert =
+    hy < 50 ? "translateY(8px)" : "translateY(calc(-100% - 8px))";
+
   return (
-    <div className={className} data-testid="logic-card-sparkline">
+    <div
+      ref={containerRef}
+      className={cn("relative cursor-crosshair touch-none", className)}
+      data-testid="logic-card-sparkline"
+      onPointerMove={handleMove}
+      onPointerLeave={() => setHoverIdx(null)}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="h-full w-full"
@@ -556,8 +601,51 @@ function SymbolSparkline({
           strokeLinecap="round"
         />
       </svg>
+
+      {active && hPoint && (
+        <>
+          {/* Vertical crosshair */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-foreground/15"
+            style={{ left: `${hx}%` }}
+          />
+          {/* Dot pinned to the line */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card"
+            style={{ left: `${hx}%`, top: `${hy}%`, backgroundColor: color }}
+          />
+          {/* Floating tooltip — date + price */}
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="logic-card-sparkline-tooltip"
+            className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-border/60 bg-popover px-2 py-1 shadow-md"
+            style={{ left: `${hx}%`, top: `${hy}%`, transform: `${tooltipAlign} ${tooltipVert}` }}
+          >
+            <div className="text-[9px] leading-tight text-muted-foreground tabular-nums">
+              {fmtSparkDate(hPoint.t)}
+            </div>
+            <div className="text-[11px] font-semibold leading-tight tabular-nums text-foreground">
+              {fmtINR(hPoint.v)}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
+}
+
+// Format a sparkline point's timestamp for the scrub tooltip. Points carry an
+// ISO date string (daily granularity for the 1Y series); fall back to the raw
+// value if it doesn't parse.
+function fmtSparkDate(t: string): string {
+  try {
+    return format(parseISO(t), "d MMM yyyy");
+  } catch {
+    return t;
+  }
 }
 
 function ConfirmedSummary({

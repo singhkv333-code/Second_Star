@@ -88,8 +88,8 @@ export function NewsStepRow({ step, runOutput }: NewsStepRowProps): React.ReactE
             width: 28,
             height: 28,
             borderRadius: 6,
-            background: "rgba(14, 165, 233, 0.10)",
-            color: "var(--color-sky, #0ea5e9)",
+            background: "rgba(33, 158, 188, 0.10)",
+            color: "#219ebc",
             flexShrink: 0,
           }}
         >
@@ -112,9 +112,9 @@ export function NewsStepRow({ step, runOutput }: NewsStepRowProps): React.ReactE
             fontWeight: 500,
             padding: "2px 7px",
             borderRadius: "var(--radius-pill)",
-            background: "rgba(14, 165, 233, 0.08)",
-            color: "var(--color-sky, #0ea5e9)",
-            border: "1px solid rgba(14, 165, 233, 0.18)",
+            background: "rgba(33, 158, 188, 0.10)",
+            color: "#219ebc",
+            border: "1px solid rgba(33, 158, 188, 0.22)",
             flexShrink: 0,
           }}
         >
@@ -128,7 +128,6 @@ export function NewsStepRow({ step, runOutput }: NewsStepRowProps): React.ReactE
           style={{
             margin: 0,
             fontSize: 12,
-            fontStyle: "italic",
             color: "var(--text-secondary)",
             lineHeight: 1.45,
           }}

@@ -31,13 +31,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Area,
+  ComposedChart,
   Line,
-  LineChart,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import {
@@ -47,6 +48,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
+  Minimize2,
   Search,
   X,
 } from "lucide-react";
@@ -84,15 +86,17 @@ type SeriesEntry = {
 const RANGE_OPTIONS: SparklineRange[] = ["1D", "1W", "1M", "6M", "1Y", "5Y"];
 
 /** Distinct, color-blind-friendly palette for comparison series. The
- *  base ticker uses --color-profit (green); peers cycle through this
- *  list. Same hues used by the screener category column for continuity. */
+ *  base ticker uses --color-profit (green); peers cycle through the
+ *  app accent set so this view stays uniform with the asset-allocation
+ *  donut (PortfolioTab.PALETTE). Reds are intentionally omitted —
+ *  loss-coding is reserved for actual losses. */
 const COMPARE_PALETTE = [
   "var(--color-profit)", // primary ticker = profit-green
-  "#a78bfa", // violet
-  "#f97316", // orange
-  "#60a5fa", // blue
-  "#ec4899", // pink
-  "#facc15", // amber
+  "#1b7cc7", // cobalt blue
+  "#fb8500", // vivid orange
+  "#219ebc", // cyan teal
+  "#ffb703", // golden yellow
+  "#2c666e", // dark teal
 ];
 
 // ---------------------------------------------------------------------------
@@ -134,6 +138,98 @@ function brandGlyphHue(sector: string | null): string {
   if (s.includes("pharma") || s.includes("health")) return "var(--color-profit)";
   if (s.includes("auto")) return "#facc15";
   return "var(--text-secondary)";
+}
+
+// ---------------------------------------------------------------------------
+// GrowwTooltip — Recharts custom tooltip matching the Groww look:
+// soft floating card with the ticker value(s) tabular-numed, a faint
+// hairline border, and the date as a sub-row.
+// ---------------------------------------------------------------------------
+
+type TooltipEntry = {
+  dataKey?: string | number;
+  name?: string | number;
+  value?: number;
+  color?: string;
+};
+
+function GrowwTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: TooltipEntry[];
+  label?: string;
+}): React.ReactElement | null {
+  // Drop the synthetic "__selValue" series — it only exists to paint the
+  // drag-selection shaded Area and must not show as a tooltip row.
+  const rows = (payload ?? []).filter((e) => e.dataKey !== "__selValue");
+  if (!active || rows.length === 0) return null;
+  let dateLabel = label ?? "";
+  try {
+    dateLabel = format(parseISO(label as string), "d MMM yyyy");
+  } catch {
+    // keep raw label
+  }
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        background: "var(--bg-primary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: 8,
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+        padding: "8px 10px",
+        fontFamily: "var(--font-ui)",
+        fontSize: 11,
+        minWidth: 100,
+      }}
+    >
+      <div style={{ color: "var(--text-tertiary)", fontSize: 10, marginBottom: 4 }}>
+        {dateLabel}
+      </div>
+      {rows.map((entry, i) => {
+        const v = Number(entry.value);
+        const formatted = Number.isNaN(v) ? String(entry.value ?? "") : `₹${v.toFixed(1)}`;
+        return (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: entry.color ?? "var(--text-secondary)",
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>
+              {entry.name}
+            </span>
+            <span
+              style={{
+                marginLeft: "auto",
+                color: "var(--text-primary)",
+                fontWeight: 600,
+              }}
+            >
+              {formatted}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -321,31 +417,9 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         <KeyMetricsStrip financials={financials} />
       )}
 
-      {/* Bottom block — Financials and P&L sit side-by-side with the
-          screener's bordered-table look; News spans full width below.
-          Both tables pad to the longer of the two so they share an
-          identical rendered height. */}
+      {/* Unified Financials panel */}
       {quoteState.kind === "ok" && (
-        <>
-          <div
-            className="grid grid-cols-1 lg:grid-cols-2"
-            style={{ marginTop: 28, gap: 14 }}
-          >
-            <FinancialsTable
-              quote={quoteState.quote}
-              minRows={SHARED_TABLE_ROWS}
-              financials={financials}
-            />
-            <ProfitLossTable
-              quote={quoteState.quote}
-              minRows={SHARED_TABLE_ROWS}
-              financials={financials}
-            />
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <StockNewsColumn quote={quoteState.quote} />
-          </div>
-        </>
+        <FinancialsPanel quote={quoteState.quote} financials={financials} />
       )}
     </div>
   );
@@ -484,7 +558,7 @@ function Header({
               width: 8,
               height: 8,
               borderRadius: "50%",
-              background: isLive ? "#10b981" : "var(--text-tertiary)",
+              background: isLive ? "var(--color-profit)" : "var(--text-tertiary)",
               flexShrink: 0,
             }}
             data-testid={isLive ? "live-dot" : "delayed-dot"}
@@ -532,12 +606,16 @@ function Card({
   children,
   padding = 22,
   borderless = false,
+  transparent = false,
   className,
   style,
 }: {
   children: React.ReactNode;
   padding?: number | string;
   borderless?: boolean;
+  /** When true, the card's background fill is removed so it blends into
+   *  the page surface. Use for the two big outer panel containers only. */
+  transparent?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }): React.ReactElement {
@@ -546,8 +624,8 @@ function Card({
       className={className}
       style={{
         padding,
-        background: "var(--bg-primary)",
-        border: borderless ? "none" : "1px solid var(--glass-border)",
+        background: transparent ? "transparent" : "var(--bg-primary)",
+        border: borderless || transparent ? "none" : "1px solid var(--glass-border)",
         borderRadius: "var(--radius-md)",
         ...style,
       }}
@@ -660,7 +738,7 @@ function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElemen
 
   return (
     <Card
-      borderless
+      transparent
       padding="22px 24px"
       className="flex h-full min-h-0 flex-col overflow-y-auto"
     >
@@ -878,6 +956,93 @@ function ChartCard({
   // Min/Max date filters (ISO yyyy-mm-dd from native <input type="date">).
   const [minDate, setMinDate] = useState<string>("");
   const [maxDate, setMaxDate] = useState<string>("");
+  // Fullscreen overlay: the Maximize2 button lifts the entire card to a
+  // fixed surface that covers most of the viewport; the chart's height
+  // grows to fill the freed space. Esc dismisses.
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
+  // ── Drag-to-select range state ────────────────────────────────────────
+  // Tracks a click-and-drag selection band on the chart. `startIdx` /
+  // `endIdx` are indices into `chartData.rows`; `startLabel` / `endLabel`
+  // are the corresponding `t` values used as Recharts ReferenceArea x1/x2.
+  type DragState = {
+    isDragging: boolean;
+    startLabel: string;
+    startIdx: number;
+    endLabel: string;
+    endIdx: number;
+  };
+  const [drag, setDrag] = useState<DragState | null>(null);
+
+  // Minimal type matching what Recharts passes to onMouseDown/Move/Up.
+  type ChartMouseState = {
+    activeLabel?: string;
+    activeTooltipIndex?: number;
+  };
+
+  const handleChartMouseDown = (state: ChartMouseState): void => {
+    const label = state.activeLabel;
+    const idx = state.activeTooltipIndex;
+    if (label == null || idx == null) return;
+    setDrag({
+      isDragging: true,
+      startLabel: label,
+      startIdx: idx,
+      endLabel: label,
+      endIdx: idx,
+    });
+  };
+
+  const handleChartMouseMove = (state: ChartMouseState): void => {
+    if (!drag?.isDragging) return;
+    const label = state.activeLabel;
+    const idx = state.activeTooltipIndex;
+    if (label == null || idx == null) return;
+    setDrag((prev) =>
+      prev ? { ...prev, endLabel: label, endIdx: idx } : prev,
+    );
+  };
+
+  const handleChartMouseUp = (state: ChartMouseState): void => {
+    if (!drag) return;
+    const label = state.activeLabel;
+    const idx = state.activeTooltipIndex;
+    const endLabel = label ?? drag.endLabel;
+    const endIdx = idx ?? drag.endIdx;
+    // Plain click (no real drag): clear any existing selection.
+    if (Math.abs(endIdx - drag.startIdx) < 2) {
+      setDrag(null);
+      return;
+    }
+    setDrag((prev) =>
+      prev
+        ? { ...prev, isDragging: false, endLabel, endIdx }
+        : prev,
+    );
+  };
+
+  const handleChartMouseLeave = (): void => {
+    // Cancel an in-progress drag; preserve a finalised selection.
+    if (drag?.isDragging) setDrag(null);
+  };
+
+  // Escape clears a finalised selection.
+  useEffect(() => {
+    if (!drag) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setDrag(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drag]);
 
   // Merge all series into one Recharts dataset, normalised to 100 at the
   // first point of each ticker. This makes performance comparable across
@@ -993,11 +1158,114 @@ function ChartCard({
     return map;
   }, [series]);
 
+  // ── Derived selection metrics ─────────────────────────────────────────
+  // Normalise indices so left-to-right and right-to-left drags both work.
+  // Uses the raw primary-series prices (not normalised-to-100 chart values)
+  // so the absolute delta is in real ₹.
+  const selectionInfo = useMemo(() => {
+    if (!drag || drag.startIdx === drag.endIdx) return null;
+    const lo = Math.min(drag.startIdx, drag.endIdx);
+    const hi = Math.max(drag.startIdx, drag.endIdx);
+    const loLabel = lo === drag.startIdx ? drag.startLabel : drag.endLabel;
+    const hiLabel = hi === drag.startIdx ? drag.startLabel : drag.endLabel;
+
+    // Raw prices from the primary series.
+    const primarySeries = series[0];
+    const rawPoints =
+      primarySeries?.state.kind === "ok"
+        ? primarySeries.state.data.points
+        : null;
+
+    let deltaAbs: number | null = null;
+    let deltaPct: number | null = null;
+
+    if (rawPoints && rawPoints.length > 0) {
+      // Find the raw point whose `t` matches the row label. The rows are
+      // filtered by date window so we match by label string, then fall
+      // back to index position if no exact match is found.
+      const startT = chartData.rows[lo]?.t as string | undefined;
+      const endT = chartData.rows[hi]?.t as string | undefined;
+      const startRaw = rawPoints.find((p) => p.t === startT) ?? rawPoints[lo];
+      const endRaw = rawPoints.find((p) => p.t === endT) ?? rawPoints[hi];
+      if (startRaw && endRaw && startRaw.v !== 0) {
+        deltaAbs = endRaw.v - startRaw.v;
+        deltaPct = (deltaAbs / startRaw.v) * 100;
+      }
+    }
+
+    return { lo, hi, loLabel, hiLabel, deltaAbs, deltaPct };
+  }, [drag, series, chartData.rows]);
+
+  // Pill position: horizontally centred on the selection midpoint,
+  // capped to keep the pill inside the chart wrapper (1–94%).
+  const pillLeftPct = useMemo(() => {
+    if (!selectionInfo || chartData.rows.length === 0) return null;
+    const { lo, hi } = selectionInfo;
+    const midFrac = ((lo + hi) / 2) / (chartData.rows.length - 1);
+    return Math.max(1, Math.min(94, midFrac * 100));
+  }, [selectionInfo, chartData.rows.length]);
+
+  // Composed rows: chartData.rows with __selValue merged in.
+  // __selValue = primary ticker's normalised value within [lo, hi], else null.
+  // Merging into the same array guarantees x-axis alignment with the Line series.
+  const composedRows = useMemo(() => {
+    const primaryKey = tickers[0];
+    if (!primaryKey || chartData.rows.length === 0) return chartData.rows;
+    const lo = selectionInfo?.lo ?? -1;
+    const hi = selectionInfo?.hi ?? -1;
+    return chartData.rows.map((row, i) => ({
+      ...row,
+      __selValue:
+        selectionInfo && i >= lo && i <= hi
+          ? (row[primaryKey] as number | null) ?? null
+          : null,
+    }));
+  }, [chartData.rows, selectionInfo, tickers]);
+
   return (
+    <>
+      {expanded && (
+        <div
+          aria-hidden="true"
+          onClick={() => setExpanded(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            zIndex: 60,
+          }}
+        />
+      )}
     <Card
-      borderless
+      transparent
       padding="0"
       className="flex h-full min-h-0 flex-col"
+      style={
+        expanded
+          ? {
+              position: "fixed",
+              top: 24,
+              left: 24,
+              right: 24,
+              bottom: 24,
+              // Override Tailwind's `h-full` (height: 100%) which, combined
+              // with `top/bottom`, leaves the box over-constrained — CSS
+              // honors the height and pushes the bottom edge below the
+              // viewport, clipping the footer summary. Using `auto` lets
+              // the implicit height (= 100vh - 48px) drive the layout.
+              height: "auto",
+              zIndex: 61,
+              background: "var(--bg-primary)",
+              border: "1px solid var(--glass-border)",
+              borderRadius: "var(--radius-md)",
+              boxShadow: "0 30px 80px rgba(0,0,0,0.45)",
+              // Vertical scroll catches the case where the chart aspect
+              // forces total content past the available height (e.g. with
+              // many comparison tickers in the footer summary).
+              overflow: "hidden auto",
+            }
+          : undefined
+      }
     >
       {/* ── Row 1: full-width search pill + maximize ──────────────────── */}
       <div
@@ -1057,7 +1325,10 @@ function ChartCard({
         </form>
         <button
           type="button"
-          aria-label="Expand chart"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Collapse chart" : "Expand chart"}
+          aria-pressed={expanded}
+          data-testid="chart-expand-btn"
           className="inline-flex shrink-0 items-center justify-center"
           style={{
             width: 36,
@@ -1078,7 +1349,11 @@ function ChartCard({
             e.currentTarget.style.borderColor = "var(--glass-border)";
           }}
         >
-          <Maximize2 size={14} strokeWidth={2} aria-hidden="true" />
+          {expanded ? (
+            <Minimize2 size={14} strokeWidth={2} aria-hidden="true" />
+          ) : (
+            <Maximize2 size={14} strokeWidth={2} aria-hidden="true" />
+          )}
         </button>
       </div>
 
@@ -1143,53 +1418,114 @@ function ChartCard({
       </div>
 
       {/* ── Chart with end-label price tags ───────────────────────────── */}
-      <div style={{ position: "relative", width: "100%", height: 320, padding: "0 18px" }}>
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          // Expanded: grow to fill the remaining flex space inside the
+          // fixed overlay card so the chart consumes the freed area.
+          // Collapsed: pinned to a comfortable inline height.
+          height: expanded ? "auto" : 320,
+          flex: expanded ? 1 : undefined,
+          minHeight: expanded ? 0 : undefined,
+          padding: "0 18px",
+        }}
+      >
         {chartData.rows.length === 0 ? (
-          <Skeleton style={{ height: 320, width: "100%", borderRadius: "var(--radius-md)" }} />
+          <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={chartData.rows}
-              margin={{ top: 8, right: 56, bottom: 8, left: -8 }}
+            <ComposedChart
+              data={composedRows}
+              margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+              onMouseDown={handleChartMouseDown}
+              onMouseMove={handleChartMouseMove}
+              onMouseUp={handleChartMouseUp}
+              onMouseLeave={handleChartMouseLeave}
+              style={{ userSelect: "none" }}
             >
-              <CartesianGrid stroke="var(--glass-border)" vertical={false} />
+              {/* Axes + grid stripped — the hover tooltip carries the
+                  value/date at any point so the static chrome was just
+                  clutter. XAxis/YAxis kept (zero height/width) only
+                  because Recharts needs them to bound the chart's
+                  internal coordinate space. */}
               <XAxis
                 dataKey="t"
-                tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                tick={false}
                 axisLine={false}
                 tickLine={false}
-                minTickGap={48}
-                tickFormatter={(d: string) => {
-                  try { return format(parseISO(d), "MMM yy"); } catch { return d; }
-                }}
+                height={0}
               />
               <YAxis
                 domain={["auto", "auto"]}
-                orientation="right"
-                tick={{ fontSize: 10, fill: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}
+                tick={false}
                 axisLine={false}
                 tickLine={false}
-                width={48}
-                tickFormatter={(v: number) => `${Math.round(v)}`}
+                width={0}
               />
               <Tooltip
-                contentStyle={{
-                  background: "var(--bg-primary)",
-                  border: "1px solid var(--glass-border)",
-                  borderRadius: 8,
-                  fontSize: 11,
-                  fontFamily: "var(--font-ui)",
-                }}
-                labelStyle={{ color: "var(--text-tertiary)", fontSize: 10 }}
-                formatter={(value: number, name: string) => {
-                  const n = Number(value);
-                  if (Number.isNaN(n)) return [value, name];
-                  return [`${n.toFixed(1)} (idx)`, name];
-                }}
-                labelFormatter={(d: string) => {
-                  try { return format(parseISO(d), "d MMM yyyy"); } catch { return d; }
+                content={<GrowwTooltip />}
+                cursor={{
+                  stroke: "var(--text-tertiary)",
+                  strokeWidth: 1,
+                  strokeDasharray: "3 3",
+                  opacity: 0.5,
                 }}
               />
+              {/* Drag-selection shading — Area rendered BEFORE the Line
+                  series so the line draws on top of the fill. __selValue
+                  is merged into composedRows (null outside [lo, hi]) so
+                  the fill follows the primary curve and x-alignment is
+                  guaranteed — no separate data prop needed. */}
+              {selectionInfo && (
+                <Area
+                  dataKey="__selValue"
+                  type="monotone"
+                  fill={
+                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
+                      ? "var(--color-profit)"
+                      : "var(--color-loss)"
+                  }
+                  fillOpacity={0.18}
+                  stroke="none"
+                  connectNulls={false}
+                  isAnimationActive={false}
+                  dot={false}
+                  activeDot={false}
+                  legendType="none"
+                />
+              )}
+              {/* Thin dashed boundary lines at the selection edges */}
+              {selectionInfo && (
+                <ReferenceArea
+                  x1={selectionInfo.loLabel}
+                  x2={selectionInfo.loLabel}
+                  fill="none"
+                  stroke={
+                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
+                      ? "var(--color-profit)"
+                      : "var(--color-loss)"
+                  }
+                  strokeOpacity={0.4}
+                  strokeDasharray="3 3"
+                  ifOverflow="hidden"
+                />
+              )}
+              {selectionInfo && selectionInfo.loLabel !== selectionInfo.hiLabel && (
+                <ReferenceArea
+                  x1={selectionInfo.hiLabel}
+                  x2={selectionInfo.hiLabel}
+                  fill="none"
+                  stroke={
+                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
+                      ? "var(--color-profit)"
+                      : "var(--color-loss)"
+                  }
+                  strokeOpacity={0.4}
+                  strokeDasharray="3 3"
+                  ifOverflow="hidden"
+                />
+              )}
               {tickers.map((sym) => (
                 <Line
                   key={sym}
@@ -1199,12 +1535,83 @@ function ChartCard({
                   stroke={colorFor(sym)}
                   strokeWidth={1.75}
                   dot={false}
+                  activeDot={
+                    drag?.isDragging
+                      ? false
+                      : {
+                          r: 5,
+                          fill: colorFor(sym),
+                          stroke: "var(--bg-base)",
+                          strokeWidth: 2,
+                        }
+                  }
                   connectNulls
                   isAnimationActive={false}
                 />
               ))}
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
+        )}
+
+        {/* Range-selection floating pill — shows absolute Δ + % for the
+            dragged band. Positioned above the chart area, horizontally
+            centred on the selection midpoint, and kept within bounds.
+            Visible live during drag (Groww-style) and after finalisation.
+            Hidden only when selectionInfo is null (< 2 points, too narrow). */}
+        {selectionInfo && pillLeftPct !== null && (
+          <div
+            aria-live="polite"
+            aria-label="Selected range return"
+            style={{
+              position: "absolute",
+              top: 6,
+              left: `${pillLeftPct}%`,
+              transform: "translateX(-50%)",
+              pointerEvents: "none",
+              zIndex: 10,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+            }}
+          >
+            {/* Main pill — Δ price + Δ % */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 10px",
+                borderRadius: "var(--radius-pill)",
+                background: "var(--bg-primary)",
+                border: "1px solid var(--glass-border)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                color:
+                  selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
+                    ? "var(--color-profit)"
+                    : "var(--color-loss)",
+              }}
+            >
+              {selectionInfo.deltaAbs !== null && selectionInfo.deltaPct !== null
+                ? `${fmtDelta(selectionInfo.deltaAbs)} (${fmtPct(selectionInfo.deltaPct)})`
+                : "—"}
+            </div>
+            {/* Date range sub-label */}
+            <div
+              style={{
+                fontSize: 10,
+                fontFamily: "var(--font-ui)",
+                color: "var(--text-tertiary)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {fmtDateShort(selectionInfo.loLabel)} – {fmtDateShort(selectionInfo.hiLabel)}
+            </div>
+          </div>
         )}
 
         {/* End-label price tags — one per ticker, pinned to top-right
@@ -1346,6 +1753,7 @@ function ChartCard({
         </div>
       )}
     </Card>
+    </>
   );
 }
 
@@ -1994,7 +2402,6 @@ function CompareChip({
         gap: 4,
         padding: "3px 4px 3px 10px",
         background: `${color}26`,
-        border: `1px solid ${color}55`,
         borderRadius: "var(--radius-sm)",
         color,
         fontFamily: "var(--font-ui)",
@@ -2099,30 +2506,18 @@ function buildFinancials(quote: StockQuote): FinancialRow[] {
   const opMargin = grossMargin - (0.06 + rng() * 0.05);
   const netMargin = opMargin - (0.04 + rng() * 0.03);
 
+  const sharesOutstanding = 4e8 + rng() * 1e8;
+  const roe = 0.12 + rng() * 0.18; // 12–30%
+  const netMarginPct = netMargin * 100;
+  const grossMarginPct = grossMargin * 100;
+
   return [
-    { label: "Revenue", values: revenues.map((r) => fmtCr(r)) },
-    {
-      label: "Gross Profit",
-      values: revenues.map((r) => fmtCr(r * grossMargin)),
-    },
-    {
-      label: "Operating Income",
-      values: revenues.map((r) => fmtCr(r * opMargin)),
-    },
-    {
-      label: "Net Income",
-      values: revenues.map((r) => fmtCr(r * netMargin)),
-    },
-    {
-      label: "EPS (₹)",
-      values: revenues.map((r) =>
-        ((r * netMargin) / (4e8 + rng() * 1e8)).toFixed(2),
-      ),
-    },
-    {
-      label: "Op. Margin",
-      values: FY_YEARS.map(() => fmtPct(opMargin * 100, false)),
-    },
+    { label: "Revenue",      values: revenues.map((r) => fmtCr(r)) },
+    { label: "EBITDA",       values: revenues.map((r) => fmtCr(r * (opMargin + 0.04))) },
+    { label: "Net Income",   values: revenues.map((r) => fmtCr(r * netMargin)) },
+    { label: "EPS (₹)",      values: revenues.map((r) => ((r * netMargin) / sharesOutstanding).toFixed(2)) },
+    { label: "Gross Margin", values: FY_YEARS.map(() => fmtPct(grossMarginPct, false)) },
+    { label: "Net Margin",   values: FY_YEARS.map(() => fmtPct(netMarginPct, false)) },
   ];
 }
 
@@ -2141,36 +2536,18 @@ function buildProfitLoss(quote: StockQuote): FinancialRow[] {
   const opexPct = 0.18 + rng() * 0.05;
   const taxPct = 0.22 + rng() * 0.05;
 
+  const grossProfit = revenues.map((r) => r * (1 - cogsPct));
+  const ebit       = revenues.map((r) => r * (1 - cogsPct - opexPct));
+  const tax        = ebit.map((e) => e * taxPct);
+  const netProfit  = ebit.map((e) => e * (1 - taxPct));
+
   return [
-    { label: "Revenue", values: revenues.map((r) => fmtCr(r)) },
-    {
-      label: "Cost of Revenue",
-      values: revenues.map((r) => fmtCr(r * cogsPct)),
-    },
-    {
-      label: "Gross Profit",
-      values: revenues.map((r) => fmtCr(r * (1 - cogsPct))),
-    },
-    {
-      label: "Operating Expenses",
-      values: revenues.map((r) => fmtCr(r * opexPct)),
-    },
-    {
-      label: "Operating Income",
-      values: revenues.map((r) => fmtCr(r * (1 - cogsPct - opexPct))),
-    },
-    {
-      label: "Tax",
-      values: revenues.map((r) =>
-        fmtCr(r * (1 - cogsPct - opexPct) * taxPct),
-      ),
-    },
-    {
-      label: "Net Income",
-      values: revenues.map((r) =>
-        fmtCr(r * (1 - cogsPct - opexPct) * (1 - taxPct)),
-      ),
-    },
+    { label: "Revenue",            values: revenues.map((r) => fmtCr(r)) },
+    { label: "Cost of Goods Sold", values: revenues.map((r) => fmtCr(r * cogsPct)) },
+    { label: "Gross Profit",       values: grossProfit.map((v) => fmtCr(v)) },
+    { label: "Operating Expenses", values: revenues.map((r) => fmtCr(r * opexPct)) },
+    { label: "Tax Expense",        values: tax.map((v) => fmtCr(v)) },
+    { label: "Net Profit",         values: netProfit.map((v) => fmtCr(v)) },
   ];
 }
 
@@ -2442,149 +2819,362 @@ function KeyMetricsStrip({
   );
 }
 
-/** Screener-style table chrome: bordered card, sticky uppercase
- *  header row, hairline bottom borders on every cell except the last
- *  row, mono numerals right-aligned. Title sits above the bordered
- *  table block (matches the screener's "Results" header treatment).
- *
- *  Zebra striping: alternating rows tint with `--surface-active` so
- *  the eye can scan year columns easily. Both Financials and P&L
- *  pad to the same row count via `minRows` so the boxes always end
- *  at the same height. */
-function FinancialsLikeTable({
-  title,
-  subtitle,
-  rows,
-  minRows,
+// ---------------------------------------------------------------------------
+// FinancialsPanel — bar chart (left) + data table (right)
+// ---------------------------------------------------------------------------
+
+type FinPanelTab = "financials" | "pl";
+
+function parseFinVal(v: string | null | undefined): number | null {
+  if (!v || v === "—") return null;
+  const n = parseFloat(v.replace(/[₹,KCrL%x\s]/g, ""));
+  return isNaN(n) ? null : n;
+}
+
+function fmtShort(n: number): string {
+  if (Math.abs(n) >= 1e5) return `${(n / 1e5).toFixed(1)}L`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return n.toFixed(0);
+}
+
+function FinBarChart({
+  periods,
+  metricA,
+  metricB,
 }: {
-  title: string;
-  subtitle?: string;
-  rows: FinancialRow[];
-  minRows: number;
+  periods: string[];
+  metricA: { label: string; values: (number | null)[]; color: string };
+  metricB: { label: string; values: (number | null)[]; color: string };
 }): React.ReactElement {
-  // Pad the visible row list with empty filler rows so two tables
-  // with different metric counts still finish at the same height.
+  const [hover, setHover] = useState<number | null>(null);
+  const allVals = [...metricA.values, ...metricB.values].filter((n): n is number => n !== null);
+  const maxVal = allVals.length ? Math.max(...allVals) : 1;
+
+  return (
+    <div style={{ width: "100%" }}>
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+        {[metricA, metricB].map((m) => (
+          <span key={m.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-ui)", color: "var(--text-secondary)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
+            {m.label} (Cr)
+          </span>
+        ))}
+      </div>
+
+      {/* Hover stats */}
+      <div style={{ minHeight: 56, marginBottom: 8 }}>
+        {hover !== null ? (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+              {periods[hover]}
+            </div>
+            <div style={{ display: "flex", gap: 28 }}>
+              {[metricA, metricB].map((m) => {
+                const v = hover !== null ? (m.values[hover] ?? null) : null;
+                return (
+                  <div key={m.label}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>
+                      ₹{v !== null ? fmtShort(v) : "—"}
+                    </span>
+                    <span style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)", marginLeft: 4 }}>{m.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>
+            Hover a bar to see details
+          </div>
+        )}
+      </div>
+
+      {/* Bar chart */}
+      {/* Chart area — generous left padding keeps bars away from gridline labels */}
+      <div style={{ position: "relative", height: 180, paddingRight: 32 }}>
+        {/* Horizontal dotted gridlines + y-labels */}
+        {[0.25, 0.5, 0.75, 1].map((f) => (
+          <div key={f} style={{ position: "absolute", left: 0, right: 32, bottom: `${f * 100}%`, borderTop: "1px dotted var(--glass-border)", pointerEvents: "none" }}>
+            <span style={{ position: "absolute", right: -30, top: -8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
+              {fmtShort(maxVal * f)}
+            </span>
+          </div>
+        ))}
+
+        {/* Bars row */}
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 18, height: "100%", position: "relative" }}>
+          {periods.map((period, i) => {
+            const aVal = metricA.values[i] ?? null;
+            const bVal = metricB.values[i] ?? null;
+            const aH = aVal !== null ? (aVal / maxVal) * 100 : 0;
+            const bH = bVal !== null ? (bVal / maxVal) * 100 : 0;
+            const isHov = hover === i;
+            return (
+              <div key={period} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+                style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%", cursor: "default" }}>
+                <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 4 }}>
+                  {/* Revenue bar — thin, grey, darker on hover */}
+                  <div style={{
+                    width: 18,
+                    height: `${aH}%`,
+                    background: isHov ? "#475569" : "#cbd5e1",
+                    borderRadius: "3px 3px 0 0",
+                    transition: "background 180ms, height 300ms var(--ease-quartr)",
+                    minHeight: aVal !== null ? 2 : 0,
+                  }} />
+                  {/* Profit bar — teal, always coloured */}
+                  <div style={{
+                    width: 18,
+                    height: `${bH}%`,
+                    background: metricB.color,
+                    opacity: isHov ? 1 : 0.75,
+                    borderRadius: "3px 3px 0 0",
+                    transition: "opacity 180ms, height 300ms var(--ease-quartr)",
+                    minHeight: bVal !== null ? 2 : 0,
+                  }} />
+                </div>
+                <span style={{
+                  fontSize: 10,
+                  color: isHov ? "var(--text-primary)" : "var(--text-tertiary)",
+                  fontFamily: "var(--font-ui)",
+                  whiteSpace: "nowrap",
+                  marginTop: 6,
+                  fontWeight: isHov ? 600 : 400,
+                  transition: "color 180ms",
+                }}>
+                  {period}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FinancialsPanel({
+  quote,
+  financials,
+}: {
+  quote: StockQuote;
+  financials: FinancialsResponse | null;
+}): React.ReactElement {
+  const [tab, setTab] = useState<FinPanelTab>("financials");
+
+  const finRows = useMemo(
+    () => financials?.available ? buildFinancialsFromDB(financials) : buildFinancials(quote),
+    [quote, financials],
+  );
+  const plRows = useMemo(
+    () => financials?.available ? buildProfitLossFromDB(financials) : buildProfitLoss(quote),
+    [quote, financials],
+  );
+
+  const rows = tab === "financials" ? finRows : plRows;
+  const source = financials?.available ? "Moneycontrol" : "Estimated";
+
+  const getMetric = (label: string): (number | null)[] =>
+    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? FY_YEARS.map(() => null);
+
+  const cfg = tab === "financials"
+    ? { a: "Revenue", b: "Net Income",         colorA: "#64748b", colorB: "#10b981" }
+    : { a: "Revenue", b: "Net Profit",          colorA: "#64748b", colorB: "#1b7cc7" };
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ background: "transparent", border: "none", borderRadius: "var(--radius-lg, 16px)", overflow: "hidden" }}>
+
+        {/* Header: title row + tabs row */}
+        <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
+          {/* Title + source badge */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+              Financial Performance
+            </span>
+          </div>
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 0 }}>
+            {(["financials", "pl"] as const).map((t) => {
+              const active = tab === t;
+              return (
+                <button key={t} type="button" onClick={() => setTab(t)} style={{
+                  padding: "6px 14px", border: "none", background: "transparent",
+                  fontSize: 12.5, fontFamily: "var(--font-ui)",
+                  fontWeight: active ? 600 : 400,
+                  color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
+                  borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
+                  cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
+                }}>
+                  {t === "financials" ? "Financials" : "Profit & Loss"}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Body: chart left | table right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2">
+
+          {/* Left — bar chart */}
+          <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
+            <FinBarChart
+              periods={FY_YEARS}
+              metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
+              metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
+            />
+          </div>
+
+          {/* Right — data table */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
+              <thead>
+                <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
+                  <th style={{ padding: "12px 16px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
+                    Metric
+                  </th>
+                  {FY_YEARS.map((y, i) => (
+                    <th key={y} style={{
+                      padding: "12px 14px", fontSize: 10.5, fontWeight: 600,
+                      textTransform: "uppercase", letterSpacing: "0.06em",
+                      textAlign: "right", whiteSpace: "nowrap",
+                      color: i === FY_YEARS.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
+                    }}>
+                      {y}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => (
+                  <tr key={r.label || idx}
+                    style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none", transition: "background 120ms" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <td style={{ padding: "11px 16px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                        <span style={{
+                          width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                          background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
+                        }} />
+                        <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+                          {r.label}
+                        </span>
+                      </span>
+                    </td>
+                    {r.values.map((v, i) => (
+                      <td key={i} className="tabular-nums" style={{
+                        padding: "11px 14px", textAlign: "right",
+                        fontSize: 12.5, fontFamily: "var(--font-mono)",
+                        fontWeight: i === FY_YEARS.length - 1 ? 600 : 400,
+                        color: i === FY_YEARS.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
+                        whiteSpace: "nowrap",
+                      }}>
+                        {v ?? "—"}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/** Mini bar sparkline — one bar per FY, scaled to max value in row. */
+function RowSparkline({ values }: { values: (string | null)[] }): React.ReactElement {
+  const nums = values.map((v) => {
+    if (!v || v === "—") return null;
+    const n = parseFloat(v.replace(/[₹,KCrL%x]/g, "").trim());
+    return isNaN(n) ? null : n;
+  });
+  const valid = nums.filter((n): n is number => n !== null);
+  if (valid.length === 0) return <span style={{ width: 56 }} />;
+  const max = Math.max(...valid);
+  const min = Math.min(0, Math.min(...valid));
+  const span = max - min || 1;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "flex-end", gap: 2, height: 22, width: 56, flexShrink: 0 }}>
+      {nums.map((n, i) => {
+        const h = n === null ? 2 : Math.max(2, ((n - min) / span) * 20);
+        const isLast = i === nums.length - 1;
+        return (
+          <span key={i} style={{ flex: 1, height: h, borderRadius: 2,
+            background: isLast ? "var(--pivot-blue, #1b7cc7)" : "var(--glass-border-hover, #cbd5e1)",
+            opacity: n === null ? 0.2 : 1 }} />
+        );
+      })}
+    </span>
+  );
+}
+
+function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
+  title: string; subtitle?: string; rows: FinancialRow[]; minRows: number;
+}): React.ReactElement {
   const paddedRows: (FinancialRow | null)[] = [...rows];
   while (paddedRows.length < minRows) paddedRows.push(null);
-  const lastIdx = paddedRows.length - 1;
+  const latestIdx = FY_YEARS.length - 1;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          marginBottom: 12,
-        }}
-      >
-        <h2
-          className="m-0"
-          style={{
-            fontFamily: "var(--font-ui)",
-            fontSize: 13,
-            fontWeight: 600,
-            letterSpacing: "-0.01em",
-            color: "var(--text-primary)",
-          }}
-        >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (
-          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+          <span style={{ fontSize: 10, fontWeight: 500, color: "var(--text-tertiary)", background: "var(--bg-elevated, #f1f5f9)", padding: "2px 7px", borderRadius: 99, letterSpacing: "0.02em", textTransform: "uppercase" }}>
             {subtitle}
           </span>
         )}
       </div>
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          background: "var(--bg-primary)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-md)",
-        }}
-      >
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontFamily: "var(--font-ui)",
-          }}
-        >
-          <thead
-            style={{
-              position: "sticky",
-              top: 0,
-              background: "var(--bg-primary)",
-              zIndex: 1,
-            }}
-          >
-            <tr>
-              <th
-                style={{
-                  ...screenerTh,
-                  textAlign: "left",
-                  color: "var(--text-tertiary)",
-                }}
-              >
+      <div style={{ flex: 1, minHeight: 0, background: "var(--bg-primary)", borderRadius: "var(--radius-md)", overflow: "hidden", border: "1px solid var(--glass-border)" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
+              <th style={{ padding: "9px 14px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
                 Metric
               </th>
-              {FY_YEARS.map((y) => (
-                <th
-                  key={y}
-                  style={{
-                    ...screenerTh,
-                    textAlign: "right",
-                    color: "var(--text-tertiary)",
-                  }}
-                >
-                  {y}
-                </th>
-              ))}
+              <th style={{ padding: "9px 8px", width: 64 }} />
+              {FY_YEARS.map((y, i) => {
+                const isLatest = i === latestIdx;
+                return (
+                  <th key={y} style={{ padding: "9px 14px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right", whiteSpace: "nowrap", color: isLatest ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)" }}>
+                    {y}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {paddedRows.map((r, idx) => {
-              const isLast = idx === lastIdx;
-              const stripe =
-                idx % 2 === 1 ? "var(--surface-active)" : "transparent";
-              return (
-                <tr key={r ? r.label : `__pad_${idx}`} style={{ background: stripe }}>
-                  <td
-                    style={{
-                      ...screenerTd,
-                      borderBottom: isLast
-                        ? "none"
-                        : "1px solid var(--glass-border)",
-                      color: "var(--text-secondary)",
-                      fontFamily: "var(--font-ui)",
-                      textAlign: "left",
-                    }}
-                  >
-                    {r ? r.label : " "}
-                  </td>
-                  {FY_YEARS.map((_, i) => (
-                    <td
-                      key={i}
-                      className="tabular-nums"
-                      style={{
-                        ...screenerTd,
-                        borderBottom: isLast
-                          ? "none"
-                          : "1px solid var(--glass-border)",
-                        color: "var(--text-primary)",
-                        fontFamily: "var(--font-mono)",
-                        textAlign: "right",
-                      }}
-                    >
-                      {r ? r.values[i] ?? "—" : " "}
+            {paddedRows.map((r, idx) => (
+              <tr
+                key={r ? r.label : `__pad_${idx}`}
+                style={{ borderBottom: idx < paddedRows.length - 1 ? "1px solid var(--glass-border)" : "none", transition: "background 120ms" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary, #f8fafc)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <td style={{ padding: "10px 14px", fontSize: 12.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                  {r ? r.label : ""}
+                </td>
+                <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                  {r && <RowSparkline values={r.values} />}
+                </td>
+                {FY_YEARS.map((_, i) => {
+                  const isLatest = i === latestIdx;
+                  return (
+                    <td key={i} className="tabular-nums" style={{ padding: "10px 14px", fontSize: 12.5, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: isLatest ? 600 : 400, color: isLatest ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                      {r ? (r.values[i] ?? "—") : ""}
                     </td>
-                  ))}
-                </tr>
-              );
-            })}
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -2592,13 +3182,13 @@ function FinancialsLikeTable({
   );
 }
 
+
 const screenerTh: React.CSSProperties = {
   padding: "12px 16px",
   fontSize: 10,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
   fontWeight: 500,
-  borderBottom: "1px solid var(--glass-border)",
   whiteSpace: "nowrap",
   userSelect: "none",
   fontFamily: "var(--font-ui)",
@@ -2610,167 +3200,3 @@ const screenerTd: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-type NewsItem = {
-  id: string;
-  title: string;
-  source: string;
-  date: string; // ISO
-  /** Optional thumbnail tile. Rendered as a colored gradient block when
-   *  no image URL is supplied — keeps the shape from collapsing while
-   *  real-image wiring is pending. */
-  imageUrl?: string;
-  hue: string;
-};
-
-/** Deterministic placeholder news set. Real wiring will swap for the
- *  news service; we only need the visual rhythm here. */
-function buildNews(quote: StockQuote): NewsItem[] {
-  const rng = mulberry32(symbolSeed(quote.symbol) ^ 0xfeedbeef);
-  const sources = ["Reuters", "Bloomberg", "Mint", "Economic Times", "MoneyControl"];
-  const templates = [
-    `${quote.name} posts strong quarterly earnings, beats Street estimates`,
-    `Analysts upgrade ${quote.name} citing margin expansion`,
-    `${quote.name} announces strategic partnership in core segment`,
-    `${quote.name} board approves capex plan for next fiscal`,
-    `${quote.symbol} shares hit new 52-week high amid sector rally`,
-    `Brokerages divided on ${quote.name} valuations after recent run-up`,
-  ];
-  // Soft hues used for the thumbnail placeholder gradient. Order is
-  // shuffled per-symbol so each stock's news block looks distinct.
-  const hues = [
-    "linear-gradient(135deg,#60a5fa 0%,#a78bfa 100%)",
-    "linear-gradient(135deg,#10b981 0%,#3b82f6 100%)",
-    "linear-gradient(135deg,#f97316 0%,#ec4899 100%)",
-    "linear-gradient(135deg,#facc15 0%,#f97316 100%)",
-    "linear-gradient(135deg,#a78bfa 0%,#ec4899 100%)",
-  ];
-  const now = Date.now();
-  const day = 24 * 60 * 60 * 1000;
-  return Array.from({ length: 5 }).map((_, i) => {
-    const t = templates[Math.floor(rng() * templates.length)] ?? templates[0]!;
-    const s = sources[Math.floor(rng() * sources.length)] ?? sources[0]!;
-    const hue = hues[i % hues.length]!;
-    return {
-      id: `${quote.symbol}-${i}`,
-      title: t,
-      source: s,
-      date: new Date(now - (i * 1.7 + rng() * 0.6) * day).toISOString(),
-      hue,
-    };
-  });
-}
-
-function StockNewsColumn({ quote }: { quote: StockQuote }): React.ReactElement {
-  const items = useMemo(() => buildNews(quote), [quote]);
-  return (
-    <div className="flex flex-col">
-      {/* Title styled identically to the Financials and Profit & Loss
-          headings so the bottom block reads as one consistent set. */}
-      <h2
-        className="m-0"
-        style={{
-          fontFamily: "var(--font-ui)",
-          fontSize: 13,
-          fontWeight: 600,
-          letterSpacing: "-0.01em",
-          color: "var(--text-primary)",
-          marginBottom: 12,
-        }}
-      >
-        {quote.name} Stock News
-      </h2>
-
-      <div className="flex flex-col">
-        {items.map((it, i) => (
-          <a
-            key={it.id}
-            href="#"
-            onClick={(e) => e.preventDefault()}
-            className="flex items-center"
-            style={{
-              gap: 18,
-              padding: "16px 0",
-              borderTop:
-                i === 0 ? "none" : "1px solid var(--glass-border)",
-              textDecoration: "none",
-              color: "inherit",
-              transition: "background-color 0.2s var(--ease-quartr)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--surface-hover)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            {/* Body */}
-            <div className="flex flex-1 flex-col" style={{ minWidth: 0 }}>
-              <p
-                style={{
-                  margin: 0,
-                  fontFamily: "var(--font-ui)",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  lineHeight: 1.4,
-                  color: "var(--text-primary)",
-                  letterSpacing: "-0.005em",
-                }}
-              >
-                {it.title}
-              </p>
-              <div
-                className="flex items-center"
-                style={{
-                  gap: 8,
-                  marginTop: 6,
-                  fontFamily: "var(--font-ui)",
-                  fontSize: 12,
-                  color: "var(--text-tertiary)",
-                }}
-              >
-                <span>{it.source}</span>
-                <span aria-hidden="true">•</span>
-                <span>{fmtRelative(it.date)}</span>
-              </div>
-            </div>
-
-            {/* Thumbnail — image when available, otherwise a soft hue
-                tile so the row keeps a stable shape. */}
-            <div
-              aria-hidden="true"
-              className="shrink-0"
-              style={{
-                width: 84,
-                height: 56,
-                borderRadius: "var(--radius-sm)",
-                overflow: "hidden",
-                background: it.hue,
-                backgroundImage: it.imageUrl
-                  ? `url(${it.imageUrl})`
-                  : it.hue,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }}
-            />
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function fmtRelative(iso: string): string {
-  try {
-    const t = parseISO(iso).getTime();
-    const diff = Date.now() - t;
-    const day = 24 * 60 * 60 * 1000;
-    const hours = Math.floor(diff / (60 * 60 * 1000));
-    if (hours < 1) return "just now";
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(diff / day);
-    if (days < 7) return `${days}d ago`;
-    return format(parseISO(iso), "d MMM");
-  } catch {
-    return iso;
-  }
-}

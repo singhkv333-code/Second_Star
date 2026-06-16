@@ -4,10 +4,9 @@
  * DashboardTab — Quartr-design chat surface.
  *
  * Until the user sends their first message we render a Quartr-style
- * landing: 4 index cards on a strip, a large serif greeting, and a row
- * of pill-shaped quick-action chips. Once a message lands `ChatDemo`
- * hides the intro and the transcript fills the pane with the composer
- * pinned at the bottom.
+ * landing: a large serif greeting and a row of pill-shaped quick-action
+ * chips. Once a message lands `ChatDemo` hides the intro and the
+ * transcript fills the pane with the composer pinned at the bottom.
  *
  * Visual port from frontend-quartr/src/components/chat/ChatLanding.jsx
  * with the dark-only Quartr palette converted to a light/dark theme that
@@ -15,7 +14,6 @@
  * change.
  *
  * Data sources:
- *   - GET /api/markets/indices  — index strip
  *   - GET /auth/me              — greeting initial
  */
 
@@ -32,9 +30,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  getMarketIndices,
   getMe,
-  type IndexQuote,
   type UserProfile,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
@@ -55,11 +51,6 @@ type DashboardTabProps = {
    * AppShell uses this to hide the Active Agents rail. */
   onChatActiveChange?: (active: boolean) => void;
 };
-
-type IndicesState =
-  | { kind: "loading" }
-  | { kind: "ok"; items: IndexQuote[] }
-  | { kind: "hidden" };
 
 type MeState =
   | { kind: "loading" }
@@ -175,19 +166,6 @@ const MORE_EXAMPLE_PROMPTS: string[] = [
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fmtIndexValue(n: number): string {
-  return new Intl.NumberFormat("en-IN", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  }).format(n);
-}
-
-function fmtChange(change: number, pct: number): string {
-  const sign = change >= 0 ? "+" : "−";
-  const abs = Math.abs(change).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-  return `${sign}${abs} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)`;
-}
-
 function getHourGreeting(): string {
   const h = new Date().getHours();
   if (h < 12) return "Good Morning";
@@ -221,23 +199,12 @@ export function DashboardTab({
   onOpenCalendar,
   onChatActiveChange,
 }: DashboardTabProps): React.ReactElement {
-  const [indices, setIndices] = useState<IndicesState>({ kind: "loading" });
   const [me, setMe] = useState<MeState>({ kind: "loading" });
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
   const [showMoreExamples, setShowMoreExamples] = useState(false);
   const [demoSeed, setDemoSeed] = useState<ChatDemoSeed | undefined>(undefined);
 
   useEffect(() => {
-    getMarketIndices()
-      .then((result) => {
-        if (isError(result)) {
-          setIndices({ kind: "hidden" });
-          return;
-        }
-        setIndices({ kind: "ok", items: result.data.items });
-      })
-      .catch(() => setIndices({ kind: "hidden" }));
-
     getMe()
       .then((result) => {
         if (isError(result)) {
@@ -271,29 +238,25 @@ export function DashboardTab({
     if (chip.prompt) setPendingPrompt(chip.prompt);
   };
 
-  // ── Quartr-style empty-state intro: index strip on top, greeting +
-  //    quick-action chips centered. The dashboard intro replaces
-  //    ChatDemo's default tip card via the `intro` prop.
-  //    Index strip docks to the top via absolute positioning so the
-  //    greeting/chips can vertically centre in the remaining space.
+  // ── Quartr-style empty-state intro: greeting + quick-action chips
+  //    centered. The dashboard intro replaces ChatDemo's default tip
+  //    card via the `intro` prop.
   const intro = (
     <div
       className="relative flex w-full flex-col items-center"
       style={{ gap: 28 }}
       data-testid="dashboard-intro"
     >
-      {/* Index strip — pinned to the top of the chat area */}
-      <div className="w-full" style={{ marginBottom: 8 }}>
-        <IndexStrip state={indices} />
-      </div>
-
       {/* Greeting — serif (--font-experiment), 36–46px, weight 550, tight tracking */}
       {displayName !== null ? (
         <h1 className="q-greeting" data-testid="dashboard-greeting">
           {greeting}, {displayName}!
         </h1>
       ) : (
-        <Skeleton style={{ height: 46, width: 360 }} data-testid="greeting-loading" />
+        <Skeleton
+          style={{ height: 46, width: "min(360px, 80vw)" }}
+          data-testid="greeting-loading"
+        />
       )}
 
       {/* Quick action pills */}
@@ -342,7 +305,11 @@ export function DashboardTab({
               gap: 8,
               maxWidth: 820,
               opacity: showMoreExamples ? 1 : 0,
-              maxHeight: showMoreExamples ? 200 : 0,
+              // Generous cap so the prompts never clip — on phone they
+              // wrap to many rows. The transition still feels right
+              // because it animates from 0 toward the cap and natural
+              // content height stops it visually.
+              maxHeight: showMoreExamples ? 1200 : 0,
               overflow: "hidden",
               transition: "opacity 0.25s var(--ease-quartr), max-height 0.3s var(--ease-quartr)",
               pointerEvents: showMoreExamples ? "auto" : "none",
@@ -464,95 +431,3 @@ function ActionChip({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Index strip — Quartr cards
-// ---------------------------------------------------------------------------
-
-function IndexStrip({ state }: { state: IndicesState }): React.ReactElement | null {
-  if (state.kind === "hidden") return null;
-
-  if (state.kind === "loading") {
-    return (
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}
-        data-testid="index-strip-loading"
-        aria-label="Loading market indices"
-      >
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton
-            key={i}
-            style={{ height: 96, borderRadius: "var(--radius-md)" }}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="grid"
-      style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}
-      data-testid="index-strip"
-      role="list"
-      aria-label="Market indices"
-    >
-      {state.items.map((q) => (
-        <IndexCard key={q.symbol} quote={q} />
-      ))}
-    </div>
-  );
-}
-
-function IndexCard({ quote }: { quote: IndexQuote }): React.ReactElement {
-  const positive = quote.change >= 0;
-  return (
-    <div
-      role="listitem"
-      aria-label={`${quote.name}: ${fmtIndexValue(quote.value)}`}
-      className="flex flex-col"
-      style={{
-        gap: 8,
-        padding: "14px 16px",
-        background: "var(--bg-primary)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-md)",
-        transition: "border-color 0.35s var(--ease-quartr)",
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--glass-border-hover)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--glass-border)"; }}
-    >
-      <div
-        className="q-uppercase-label truncate"
-        style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-      >
-        {quote.name}
-      </div>
-      <div
-        className="q-display tabular-nums"
-        style={{ fontSize: 18, lineHeight: 1.1, color: "var(--text-primary)" }}
-      >
-        {fmtIndexValue(quote.value)}
-      </div>
-      <div
-        className="self-start q-mono"
-        style={{
-          padding: "3px 8px",
-          borderRadius: "var(--radius-xs)",
-          fontSize: 11.5,
-          fontWeight: "var(--weight-medium)" as unknown as number,
-          background: positive
-            ? "rgba(16, 185, 129, 0.12)"
-            : "rgba(239, 68, 68, 0.12)",
-          color: positive ? "var(--color-profit)" : "var(--color-loss)",
-          border: positive
-            ? "1px solid rgba(16, 185, 129, 0.25)"
-            : "1px solid rgba(239, 68, 68, 0.25)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {fmtChange(quote.change, quote.change_pct)}
-      </div>
-    </div>
-  );
-}

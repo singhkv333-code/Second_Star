@@ -34,7 +34,10 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg",
+        // Mobile (<sm): full-screen, edge-to-edge, no rounding, no transform.
+        // Desktop (sm+): restore the original centered floating card.
+        "fixed inset-0 z-50 grid w-full max-w-none translate-x-0 translate-y-0 gap-4 overflow-y-auto border-0 bg-background p-6 shadow-lg duration-200",
+        "sm:inset-auto sm:left-[50%] sm:top-[50%] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border sm:overflow-visible",
         className,
       )}
       {...props}

@@ -8,7 +8,7 @@
  *   [Sticky top header: logo + search + metric strip + theme toggle + avatar]
  *   [Left sidebar nav | Center content pane | Right rail (dashboard only)]
  *
- * Nav items: Chat / Portfolio / News / Agents / Calendar / Screener / Backtest
+ * Nav items: Chat / Portfolio / Agents / Calendar / Screener
  * Active item: solid left border + bg highlight
  * Below nav: YOUR CONVERSATIONS — opens the Chat tab
  *
@@ -25,6 +25,7 @@ import {
   BarChart2,
   Bug,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ExternalLink,
   FileText,
@@ -32,6 +33,7 @@ import {
   Keyboard,
   KeyRound,
   LogOut,
+  Menu,
   MessageSquare,
   Monitor,
   Moon,
@@ -208,6 +210,19 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // matching padding-right when the panel is open — keeps chat and editor
   // side-by-side instead of letting the panel overlap the chat column.
   const [panelWidth, setPanelWidth] = useState(AGENT_PANEL_DEFAULT_WIDTH);
+  // The panel's default width (520px) was tuned on a 2560px design canvas.
+  // On narrower screens that fixed width dominates the viewport (e.g. a
+  // ~15" 1920px laptop), so on mount we scale the default down to ~25vw —
+  // ≈480px at 1920, back up to the 520px design value at 2560, capped there.
+  // Runs once; a manual drag (setPanelWidth) afterwards is preserved.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const proportional = Math.min(
+      AGENT_PANEL_DEFAULT_WIDTH,
+      Math.max(340, Math.round(window.innerWidth * 0.25)),
+    );
+    setPanelWidth(proportional);
+  }, []);
   const [kitePanelOpen, setKitePanelOpen] = useState(false);
   const [kiteOauthResult, setKiteOauthResult] = useState<KiteOAuthResult | null>(
     null,
@@ -225,6 +240,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // Bumped by the "New chat" button to remount DashboardTab/ChatDemo
   // and start a fresh session (clears messages + conversation_id).
   const [chatResetKey, setChatResetKey] = useState(0);
+  // Mobile (<lg) only — controls the slide-in sidebar drawer.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Hash + theme init
@@ -345,8 +362,22 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     };
   }, [active, loadMetrics]);
 
+  const startNewChat = useCallback((): void => {
+    setChatActive(false);
+    setChatResetKey((k) => k + 1);
+    setMobileNavOpen(false);
+    setActive("chat");
+    if (typeof window === "undefined") return;
+    if (pathname === "/") {
+      window.history.replaceState(null, "", `#chat`);
+    } else {
+      router.push(`/#chat`);
+    }
+  }, [pathname, router]);
+
   const goTab = useCallback((key: TabKey): void => {
     setActive(key);
+    setMobileNavOpen(false);
     if (typeof window === "undefined") return;
     // When the user is on a sub-route (e.g. /stock/HDFCBANK), the
     // sidebar nav lands them back on the home shell (/) with the
@@ -373,7 +404,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   }, [openWorkflow]);
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="app-shell-root flex h-screen flex-col bg-background">
       {/* Sticky top header */}
       <TopHeader
         theme={theme}
@@ -381,24 +412,44 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         metrics={metrics}
         accountInitial={accountInitial}
         onOpenKite={() => setKitePanelOpen(true)}
+        onOpenMobileNav={() => setMobileNavOpen(true)}
+        onBrandClick={() => goTab("chat")}
       />
 
-      {/* Body: sidebar + content. When the right-side AgentPanel is open we
-          reserve `paddingRight` equal to its current width so the panel sits
-          beside the chat instead of overlapping it. Animated to match the
-          panel's resize feel. */}
+      {/* Mobile nav backdrop — fades in behind the drawer; tap to close. */}
+      {mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setMobileNavOpen(false)}
+          className="fixed inset-0 z-40 cursor-default lg:hidden"
+          style={{ background: "rgba(0,0,0,0.4)" }}
+        />
+      )}
+
+      {/* Body: sidebar + content. When the AgentPanel is open we reserve
+          `paddingRight` equal to its width ONLY on the chat surface, so the
+          panel sits beside the conversation (the composer stays usable). On
+          the dashboard tabs (Agents/Portfolio/Screener/…) we let the panel
+          overlay instead, so their content keeps its full width and doesn't
+          reflow/shrink when the panel opens. Animated to match the panel's
+          resize feel. */}
       <div
         className="flex flex-1 min-h-0"
         style={{
-          paddingRight: panelOpen ? `${panelWidth}px` : 0,
+          paddingRight:
+            panelOpen && !children && active === "chat" ? `${panelWidth}px` : 0,
           transition: "padding-right 220ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       >
-        {/* Left sidebar */}
+        {/* Left sidebar — inline at lg+, slide-in drawer below */}
         <Sidebar
           active={active}
           onTabChange={goTab}
+          onNewChat={startNewChat}
           conversations={conversations}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={() => setMobileNavOpen(false)}
         />
 
         {/* Center pane — flex column so the chat tab (which hosts both
@@ -419,62 +470,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 : "hidden"
             }
           >
-              {/* Floating "New chat" button — pinned to the top-right
-                  of the entire chat surface (not the thread column),
-                  so it doesn't collide with right-aligned user bubbles.
-                  Bumping `chatResetKey` remounts DashboardTab, which
-                  clears messages and starts a new session. */}
-              {chatActive && !panelOpen && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setChatActive(false);
-                    setChatResetKey((k) => k + 1);
-                  }}
-                  aria-label="Start new chat"
-                  data-testid="new-chat-btn"
-                  className="absolute z-10 inline-flex items-center"
-                  style={{
-                    top: 14,
-                    // Track the chat column's right edge so the button
-                    // always sits in the right-side gap (just outside the
-                    // column), regardless of pane width. Math:
-                    //   right = pane_right - column_right - 8px - button_width
-                    //         = 50% - col_half - 8px - ~93px
-                    // With col = 58rem (col_half = 29rem) → 50% - 29rem - 101px.
-                    // Clamps to 18px on narrow viewports where the column
-                    // hits the pane edge.
-                    right: "max(18px, calc(50% - 29rem - 101px))",
-                    gap: 6,
-                    height: 32,
-                    padding: "0 12px",
-                    background: "var(--bg-base)",
-                    border: "1px solid var(--glass-border)",
-                    borderRadius: "999px",
-                    color: "var(--text-secondary)",
-                    fontFamily: "var(--font-ui)",
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    cursor: "pointer",
-                    transition:
-                      "color 0.18s var(--ease-quartr), border-color 0.18s var(--ease-quartr), background-color 0.18s var(--ease-quartr)",
-                    boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "var(--text-primary)";
-                    e.currentTarget.style.background = "var(--bg-elevated)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = "var(--text-secondary)";
-                    e.currentTarget.style.background = "var(--bg-base)";
-                  }}
-                >
-                  <Plus size={14} strokeWidth={2} aria-hidden="true" />
-                  New chat
-                </button>
-              )}
               <div
-                className="mx-auto flex h-full w-full min-h-0 flex-col px-6"
+                className="mx-auto flex h-full w-full min-h-0 flex-col px-4 lg:px-6"
                 style={{
                   // Slightly narrower active column (58rem vs 64rem before)
                   // so the floating "New chat" button — positioned via calc
@@ -503,21 +500,24 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             </div>
           ) : active === "chat" ? null : active === "calendar" ? (
             // Calendar gets full pane height (the day panel + month grid
-            // consume vertical space; no outer scroll).
-            <div className="flex-1 min-h-0 px-8 pt-6 flex flex-col">
+            // consume vertical space; no outer scroll). Mobile tightens.
+            <div className="flex-1 min-h-0 px-4 pt-4 lg:px-8 lg:pt-6 flex flex-col overflow-hidden">
               <CalendarTab onOpenWorkflow={openWorkflowById} />
             </div>
           ) : active === "screener" ? (
             // Screener also owns its own height (filter rail + results
-            // grid take the full pane).
-            <div className="flex-1 min-h-0 flex flex-col">
+            // grid take the full pane). The results table is intentionally
+            // wider than phone viewports and scrolls inside its own
+            // `screener-results` container, so we clip horizontal here so
+            // the whole page doesn't grow with it.
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <ScreenerPage />
             </div>
           ) : active === "portfolio" ? (
             // Portfolio takes the full pane width — same padding pattern
             // as Quartr's PortfolioTab in frontend-quartr/.../Dashboard.jsx
-            // ("padding: 24px 32px"). Sections scroll inside.
-            <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
+            // ("padding: 24px 32px"). Sections scroll inside. Mobile tightens.
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
               <PortfolioTab />
             </div>
           ) : active === "paper" ? (
@@ -527,7 +527,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               <PaperDashboard />
             </div>
           ) : (
-            <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
               {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
             </div>
           )}
@@ -585,12 +585,16 @@ function TopHeader({
   metrics,
   accountInitial,
   onOpenKite,
+  onOpenMobileNav,
+  onBrandClick,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
   metrics: MetricState;
   accountInitial: string;
   onOpenKite: () => void;
+  onOpenMobileNav: () => void;
+  onBrandClick: () => void;
 }): React.ReactElement {
   // Local state drives the custom Lucide-X clear control. The native
   // browser "search" input renders its own (blue, ugly) clear button
@@ -599,26 +603,56 @@ function TopHeader({
   const [searchValue, setSearchValue] = useState("");
   return (
     <header
-      className="flex shrink-0 items-center gap-6 px-5"
+      className="top-header relative flex shrink-0 items-center gap-3 px-3 lg:gap-6 lg:px-5"
       style={{
-        height: 60,
+        height: "var(--header-h, 56px)",
         background: "var(--bg-base)",
         borderBottom: "1px solid var(--glass-border)",
       }}
     >
-      {/* Brand — serif logotype, fixed-width slot. Uses --font-experiment
-          so we can swap typefaces in one place (globals.css) while we
-          decide on the final brand serif. */}
-      <div
-        className="flex shrink-0 items-center pl-1"
+      {/* Mobile-only hamburger — opens the sidebar drawer at <lg. */}
+      <button
+        type="button"
+        onClick={onOpenMobileNav}
+        aria-label="Open navigation menu"
+        data-testid="mobile-nav-trigger"
+        className="inline-flex shrink-0 items-center justify-center lg:hidden"
         style={{
-          width: 200,
+          width: 44,
+          height: 44,
+          marginLeft: -8,
+          background: "transparent",
+          border: "none",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--text-primary)",
+          cursor: "pointer",
+        }}
+      >
+        <Menu size={20} strokeWidth={2} aria-hidden="true" />
+      </button>
+
+      {/* Brand — serif logotype, fixed-width slot at lg+. Uses --font-experiment
+          so we can swap typefaces in one place (globals.css) while we
+          decide on the final brand serif. On mobile the brand sits
+          inline next to the hamburger (no fixed width). Acts as a
+          navigation link back to the chat tab on every breakpoint. */}
+      <button
+        type="button"
+        onClick={onBrandClick}
+        aria-label="Go to Pivot chat"
+        data-testid="brand-home-link"
+        className="brand-slot flex shrink-0 items-center pl-0 lg:pl-1"
+        style={{
           gap: 0,
           fontFamily: "var(--font-experiment)",
           fontWeight: "var(--weight-display)" as unknown as number,
           fontSize: 22,
           letterSpacing: "-0.02em",
           color: "var(--text-primary)",
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
         }}
       >
         {/* Pivot brand mark — theme-aware: dark mode uses pivot-icon.png
@@ -649,11 +683,13 @@ function TopHeader({
             right padding baked into the logo PNG. Adjust the px value
             to taste — more negative = closer. */}
         <span style={{ marginLeft: -2 }}>pivot</span>
-      </div>
+      </button>
 
-      {/* Search — Quartr pill, sized + bordered, no Tailwind background. */}
+      {/* Search — Quartr pill, sized + bordered, no Tailwind background.
+          Hidden below lg; mobile users get the CommandPalette via the
+          account menu / keyboard shortcut. */}
       <div
-        className="flex flex-1 items-center gap-2"
+        className="hidden flex-1 items-center gap-2 lg:flex"
         style={{
           maxWidth: 360,
           height: 38,
@@ -753,8 +789,20 @@ function AccountMenu({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const helpCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // On phones the side flyout pops off the left edge of the screen, so
+  // collapse Help into an inline expansion below the menu item instead.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = (): void => setIsNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   const cancelHelpClose = useCallback(() => {
     if (helpCloseTimer.current) {
@@ -864,15 +912,20 @@ function AccountMenu({
           <div
             style={{ position: "relative" }}
             onMouseEnter={() => {
+              if (isNarrow) return;
               cancelHelpClose();
               setHelpOpen(true);
             }}
-            onMouseLeave={scheduleHelpClose}
+            onMouseLeave={() => {
+              if (isNarrow) return;
+              scheduleHelpClose();
+            }}
           >
             <MenuItem
               icon={HelpCircle}
               label="Help"
               hasChevron={true}
+              chevronDirection={isNarrow ? "down" : "side"}
               active={helpOpen}
               onClick={() => setHelpOpen((v) => !v)}
             />
@@ -880,22 +933,38 @@ function AccountMenu({
               <div
                 role="menu"
                 data-testid="account-menu-help-submenu"
-                onMouseEnter={cancelHelpClose}
-                onMouseLeave={scheduleHelpClose}
-                style={{
-                  position: "absolute",
-                  top: -4,
-                  right: "calc(100% + 6px)",
-                  minWidth: 200,
-                  padding: 4,
-                  background: "var(--bg-primary)",
-                  border: "1px solid var(--glass-border)",
-                  borderRadius: "var(--radius-md)",
-                  boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-                  zIndex: 60,
-                  display: "flex",
-                  flexDirection: "column",
-                }}
+                onMouseEnter={isNarrow ? undefined : cancelHelpClose}
+                onMouseLeave={isNarrow ? undefined : scheduleHelpClose}
+                style={
+                  isNarrow
+                    ? {
+                        // Phone: render submenu inline below the Help row.
+                        // No absolute positioning so it can't fall off the
+                        // left edge of the viewport.
+                        marginTop: 4,
+                        marginLeft: 8,
+                        padding: 4,
+                        background: "var(--bg-elevated)",
+                        border: "1px solid var(--glass-border)",
+                        borderRadius: "var(--radius-md)",
+                        display: "flex",
+                        flexDirection: "column",
+                      }
+                    : {
+                        position: "absolute",
+                        top: -4,
+                        right: "calc(100% + 6px)",
+                        minWidth: 200,
+                        padding: 4,
+                        background: "var(--bg-primary)",
+                        border: "1px solid var(--glass-border)",
+                        borderRadius: "var(--radius-md)",
+                        boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+                        zIndex: 60,
+                        display: "flex",
+                        flexDirection: "column",
+                      }
+                }
               >
                 <MenuItem
                   icon={ShieldCheck}
@@ -997,6 +1066,7 @@ function MenuItem({
   label,
   onClick,
   hasChevron = false,
+  chevronDirection = "down",
   hasExternalArrow = false,
   active = false,
   testId,
@@ -1005,12 +1075,29 @@ function MenuItem({
   label: string;
   onClick: () => void;
   hasChevron?: boolean;
+  /** "down" rotates 180° when active (inline expand on phones); "side"
+   *  uses a left-pointing chevron that mirrors the actual flyout
+   *  direction on desktop, where the submenu opens to the left of the
+   *  AccountMenu. */
+  chevronDirection?: "down" | "side";
   hasExternalArrow?: boolean;
   active?: boolean;
   testId?: string;
 }): React.ReactElement {
   const trailing = hasChevron ? (
-    <ChevronLeft size={14} strokeWidth={2} aria-hidden={true} />
+    chevronDirection === "side" ? (
+      <ChevronLeft size={14} strokeWidth={2} aria-hidden={true} />
+    ) : (
+      <ChevronDown
+        size={14}
+        strokeWidth={2}
+        aria-hidden={true}
+        style={{
+          transform: active ? "rotate(180deg)" : "rotate(0deg)",
+          transition: "transform 0.18s var(--ease-quartr)",
+        }}
+      />
+    )
   ) : hasExternalArrow ? (
     <ExternalLink size={12} strokeWidth={2} aria-hidden={true} />
   ) : null;
@@ -1154,7 +1241,7 @@ function MetricStack({
             <span
               style={{
                 fontSize: 11.5,
-                fontFamily: "var(--font-mono)",
+                fontFamily: "var(--font-display)",
                 opacity: 0.85,
               }}
             >
@@ -1227,17 +1314,27 @@ function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement 
 function Sidebar({
   active,
   onTabChange,
+  onNewChat,
   conversations,
+  mobileOpen,
+  onMobileClose,
 }: {
   active: TabKey;
   onTabChange: (key: TabKey) => void;
+  onNewChat: () => void;
   conversations: ConvEntry[];
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }): React.ReactElement {
+  // On lg+ the sidebar sits inline (in the flex row) — same look as before.
+  // Below lg it becomes a fixed slide-in drawer driven by `mobileOpen`.
+  // We do NOT use `hidden` so the transform transition stays smooth.
   return (
     <nav
-      className="hidden shrink-0 lg:flex lg:flex-col"
+      className="sidebar-shell shrink-0 flex flex-col"
       aria-label="Primary navigation"
       data-testid="sidebar-nav"
+      data-mobile-open={mobileOpen ? "true" : "false"}
       style={{
         width: 240,
         background: "var(--bg-base)",
@@ -1245,6 +1342,31 @@ function Sidebar({
         padding: "18px 14px 16px",
       }}
     >
+      {/* Mobile-only close button — keeps the drawer escapable for
+          screen-reader / keyboard users (clicking nav or backdrop also
+          closes). The .sidebar-close-mobile class hides this on lg+
+          (see globals.css); inline `display: inline-flex` was fighting
+          Tailwind's lg:hidden, so we drive display from CSS. */}
+      <button
+        type="button"
+        onClick={onMobileClose}
+        aria-label="Close navigation"
+        className="sidebar-close-mobile self-end"
+        style={{
+          width: 36,
+          height: 36,
+          margin: "-4px -4px 6px 0",
+          background: "transparent",
+          border: "none",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--text-secondary)",
+          cursor: "pointer",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <X size={18} strokeWidth={2} aria-hidden="true" />
+      </button>
       {/* Nav — text-only, with a 4×4 dot indicator on the active row.
           Mirrors frontend-quartr/.../Sidebar.jsx exactly. */}
       <nav className="flex flex-col" style={{ gap: 2 }} aria-label="Primary navigation list">
@@ -1281,21 +1403,6 @@ function Sidebar({
               }}
             >
               {label}
-              {isActive && (
-                <span
-                  aria-hidden={true}
-                  style={{
-                    position: "absolute",
-                    right: 14,
-                    top: "50%",
-                    marginTop: -2,
-                    width: 4,
-                    height: 4,
-                    borderRadius: "50%",
-                    background: "var(--text-primary)",
-                  }}
-                />
-              )}
             </button>
           );
         })}
@@ -1311,11 +1418,52 @@ function Sidebar({
         }}
       />
 
-      {/* Conversation history — uppercase header + truncated titles */}
+      {/* Conversation history — uppercase header + truncated titles.
+          A "New chat" pill sits above the list so it's always reachable
+          from the sidebar (replaces the old floating button that was
+          pinned to the chat surface's top-right). */}
       <div
         className="flex-1 overflow-y-auto flex flex-col"
         style={{ gap: 14, padding: "0 4px" }}
       >
+        <button
+          type="button"
+          onClick={onNewChat}
+          aria-label="Start new chat"
+          data-testid="new-chat-btn"
+          className="inline-flex items-center"
+          style={{
+            gap: 10,
+            padding: "9px 14px",
+            background: "transparent",
+            border: "none",
+            // Match the sidebar nav items' edge radius (Chat / Portfolio / …)
+            // so this button reads as a peer to those rows, not a pill CTA.
+            borderRadius: "var(--radius-sm)",
+            color: "var(--text-secondary)",
+            fontFamily: "var(--font-ui)",
+            fontSize: 13.5,
+            fontWeight: 500,
+            letterSpacing: "-0.005em",
+            cursor: "pointer",
+            textAlign: "left",
+            justifyContent: "flex-start",
+            transition:
+              "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--text-primary)";
+            e.currentTarget.style.background = "var(--surface-active)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--text-secondary)";
+            e.currentTarget.style.background = "transparent";
+          }}
+        >
+          <Plus size={14} strokeWidth={2} aria-hidden="true" />
+          New chat
+        </button>
+
         <div
           style={{
             padding: "0 10px",

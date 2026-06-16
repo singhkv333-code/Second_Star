@@ -18,15 +18,14 @@ import {
   AlertCircle,
   Bot,
   RefreshCw,
-  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { createWorkflow, getWorkflow, listWorkflows } from "@/lib/api";
+import { getWorkflow, listWorkflows } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
-import { DEMO_WORKFLOW } from "@/components/agent-panel/demo-workflow";
+import { AgentsSummaryHeader } from "./AgentsSummaryHeader";
 
 const BRAND_GREEN = "#4CAF50";
 
@@ -71,7 +70,7 @@ function deriveCategory(wf: WorkflowSummary): Category {
 
 function categoryLabel(cat: Category): string {
   const MAP: Record<Category, string> = {
-    STRATEGY: "Strategy",
+    STRATEGY: "Agent",
     INCOME: "Income",
     RISK: "Risk",
     RESEARCH: "Research",
@@ -91,7 +90,11 @@ function categoryChipClass(cat: Category): string {
     case "INCOME":
       return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
     default:
-      return "bg-muted text-muted-foreground";
+      // Light: cobalt text on cobalt-tinted background.
+      // Dark: lighten the text to #60b3e8 (same hue family, ~70% lightness)
+      // so it stays readable — the deep cobalt #1b7cc7 washes out against
+      // the dark surface otherwise.
+      return "bg-[#1b7cc7]/10 text-[#1b7cc7] dark:bg-[#1b7cc7]/20 dark:text-[#60b3e8]";
   }
 }
 
@@ -145,8 +148,6 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
   const [filter, setFilter] = useState<Filter>("all");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [openingId, setOpeningId] = useState<string | null>(null);
-  const [seeding, setSeeding] = useState(false);
-  const [seedError, setSeedError] = useState<string | null>(null);
 
   const load = (f: Filter): void => {
     setState({ kind: "loading" });
@@ -169,32 +170,6 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
     load(filter);
   }, [filter]);
 
-  const seedDemoAgent = (): void => {
-    setSeeding(true);
-    setSeedError(null);
-    createWorkflow({
-      name: DEMO_WORKFLOW.name,
-      description: DEMO_WORKFLOW.description ?? undefined,
-      single_instance: DEMO_WORKFLOW.single_instance,
-      steps: DEMO_WORKFLOW.steps.map((s) => ({
-        step_type: s.step_type,
-        label: s.label,
-        config: s.config,
-      })),
-    })
-      .then((result) => {
-        if (isError(result)) {
-          setSeedError(result.error.message);
-          return;
-        }
-        load(filter);
-      })
-      .catch((err: unknown) => {
-        setSeedError(err instanceof Error ? err.message : "Network error");
-      })
-      .finally(() => setSeeding(false));
-  };
-
   const handleSelect = (id: string): void => {
     setOpeningId(id);
     getWorkflow(id)
@@ -207,7 +182,7 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
   };
 
   return (
-    <div className="flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
+    <div className="agents-tab flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
       {/* Page heading — Quartr serif */}
       <h1
         className="q-serif"
@@ -221,7 +196,13 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
         Active Agents
       </h1>
 
-      {/* Filter chips — Quartr pills */}
+      {/* Summary header */}
+      <AgentsSummaryHeader
+        workflows={state.kind === "ok" ? state.items : []}
+        isLoading={state.kind === "loading"}
+      />
+
+      {/* Filter chips */}
       <div
         className="flex flex-wrap items-center"
         style={{ gap: 6 }}
@@ -288,28 +269,8 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
           <Bot className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm font-medium">No agents yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Start a chat to propose one, or try the example below.
+            Start a chat to propose one.
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4 gap-1.5"
-            onClick={seedDemoAgent}
-            disabled={seeding}
-            data-testid="create-example-agent-btn"
-          >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            {seeding ? "Creating..." : "Create example agent"}
-          </Button>
-          {seedError && (
-            <p
-              className="mt-2 text-xs text-destructive"
-              role="alert"
-              data-testid="seed-error"
-            >
-              {seedError}
-            </p>
-          )}
         </div>
       )}
 
@@ -375,7 +336,7 @@ function AgentMiniCard({
       onClick={onSelect}
       onKeyDown={handleKey}
       className={cn(
-        "group flex h-full cursor-pointer flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
+        "agents-mini-card group flex h-full cursor-pointer flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
         "transition-colors hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         isOpening && "opacity-70",
@@ -596,3 +557,4 @@ function AgentsGridSkeleton(): React.ReactElement {
     </div>
   );
 }
+

@@ -25,8 +25,9 @@ import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 
 const TOKEN_KEY = "pivot_jwt";
 
-/** Static routes that make no API calls and skip the auth gate. */
-const UNGATED_PATHS = ["/design"];
+/** Routes that render without the auth gate: the /design showcase and the
+ *  public marketing pages (e.g. /waitlist). */
+const UNGATED_PATHS = ["/design", "/waitlist"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 
@@ -35,9 +36,11 @@ export function AppBootstrap({
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
-  const [phase, setPhase] = useState<Phase>("loading");
   const pathname = usePathname();
-  const ungated = UNGATED_PATHS.some((p) => pathname?.startsWith(p));
+  const ungated =
+    pathname != null &&
+    UNGATED_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const [phase, setPhase] = useState<Phase>("loading");
 
   useEffect(() => {
     // Flip to real backend + wire token provider FIRST so any code path

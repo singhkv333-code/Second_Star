@@ -20,7 +20,7 @@
  * Theme tokens are pulled from globals.css so light + dark both work.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ChevronDown,
@@ -82,17 +82,17 @@ const SECTOR_MAP: Record<string, string> = {
 };
 
 // Vibrant Pivot palette — saturated 500-tier hexes, no violet/indigo/
-// fuchsia. Sky leads (brand accent), then emerald · amber · rose · cyan
-// · lime · teal · yellow for variety without going purple.
+// fuchsia. Cobalt leads (brand-anchor for the largest slice), then a
+// warm/cool rotation of orange · cyan-teal · golden yellow · dark teal
+// · red — deliberately avoids any green hue so the donut never reads
+// as "profit" against the rest of the surface.
 const PALETTE = [
-  "var(--pivot-blue)", // sky-500
-  "#10b981", // emerald-500
-  "#f59e0b", // amber-500
-  "#f43f5e", // rose-500
-  "#06b6d4", // cyan-500
-  "#84cc16", // lime-500
-  "#14b8a6", // teal-500
-  "#eab308", // yellow-500
+  "#1b7cc7", // cobalt blue
+  "#fb8500", // vivid orange
+  "#219ebc", // cyan teal
+  "#ffb703", // golden yellow
+  "#2c666e", // dark teal
+  "#d00000", // red (sparingly — last slot)
 ];
 
 // ---------------------------------------------------------------------------
@@ -117,6 +117,19 @@ function fmtPct(n: number, signed = true): string {
   const s = signed ? (n >= 0 ? "+" : "") : "";
   return `${s}${n.toFixed(2)}%`;
 }
+/** Plain grouped number (no ₹ symbol) — matches the broker-style holdings
+ *  list, e.g. "18,410.00", "+5,970.00". */
+function fmtPlain(n: number, opts: { sign?: boolean } = {}): string {
+  const { sign = false } = opts;
+  const s = sign ? (n >= 0 ? "+" : "−") : n < 0 ? "−" : "";
+  return (
+    s +
+    Math.abs(n).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
+}
 
 function holdingValue(h: Holding): number {
   return h.last_price * h.quantity;
@@ -131,7 +144,10 @@ type FetchState =
   | { kind: "error"; message: string }
   | { kind: "ok"; summary: PortfolioSummary; holdings: Holding[] };
 
+type PortfolioView = "overview" | "history";
+
 export function PortfolioTab(): React.ReactElement {
+  const [view, setView] = useState<PortfolioView>("overview");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
 
   const load = (): void => {
@@ -152,22 +168,65 @@ export function PortfolioTab(): React.ReactElement {
 
   return (
     <div data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
-      {/* Page title */}
-      <h1
-        className="q-serif"
-        style={{
-          fontSize: 22,
-          letterSpacing: "-0.025em",
-          color: "var(--text-primary)",
-          margin: "0 0 18px",
-        }}
-      >
-        Portfolio
-      </h1>
+      {/* Page title + Overview/History toggle */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
+        <h1
+          className="q-serif"
+          style={{
+            fontSize: 22,
+            letterSpacing: "-0.025em",
+            color: "var(--text-primary)",
+            margin: 0,
+          }}
+        >
+          Portfolio
+        </h1>
 
-      {state.kind === "loading" && <PortfolioLoading />}
+        <div
+          className="inline-flex"
+          style={{
+            gap: 2,
+            padding: 3,
+            background: "var(--bg-base)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-pill)",
+          }}
+        >
+          {(["overview", "history"] as const).map((v) => {
+            const active = view === v;
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={active}
+                data-testid={`portfolio-view-${v}`}
+                style={{
+                  padding: "6px 14px",
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: "var(--radius-pill)",
+                  fontSize: 12,
+                  fontFamily: "var(--font-ui)",
+                  fontWeight: 500,
+                  background: active ? "var(--text-primary)" : "transparent",
+                  color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                  transition:
+                    "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+                }}
+              >
+                {v === "overview" ? "Overview" : "History"}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-      {state.kind === "error" && (
+      {view === "history" && <TradeHistory />}
+
+      {view === "overview" && state.kind === "loading" && <PortfolioLoading />}
+
+      {view === "overview" && state.kind === "error" && (
         <div
           role="alert"
           className="flex flex-col items-center justify-center py-12 text-center"
@@ -212,9 +271,13 @@ export function PortfolioTab(): React.ReactElement {
         </div>
       )}
 
-      {state.kind === "ok" && (
+      {view === "overview" && state.kind === "ok" && (
         <>
-          <PerformanceChart totalValue={state.summary.total_value} />
+          <PerformanceChart summary={state.summary} />
+
+          {/* Mobile-only P&L strip above the holdings (on desktop these
+              figures already live in the top bar). */}
+          <PnlStripMobile summary={state.summary} />
 
           <Section label="Holdings">
             <Card padding={0} style={{ overflow: "hidden" }}>
@@ -237,7 +300,16 @@ export function PortfolioTab(): React.ReactElement {
                   </p>
                 </div>
               ) : (
-                <HoldingsTable holdings={state.holdings} />
+                <>
+                  {/* Desktop: sortable table. Mobile: broker-style stacked
+                      cards (Qty·Avg + return% / symbol + P&L / invested + LTP). */}
+                  <div className="hidden lg:block">
+                    <HoldingsTable holdings={state.holdings} />
+                  </div>
+                  <div className="lg:hidden">
+                    <HoldingsListMobile holdings={state.holdings} />
+                  </div>
+                </>
               )}
             </Card>
           </Section>
@@ -262,7 +334,7 @@ function Section({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <div style={{ marginBottom: 28 }}>
+    <div style={{ marginBottom: 48 }}>
       {label && (
         <div
           style={{
@@ -296,13 +368,48 @@ function Card({
       style={{
         padding,
         background: "var(--bg-primary)",
-        border: "1px solid var(--glass-border)",
+        border: "none",
         borderRadius: "var(--radius-md)",
-        transition: "border-color 0.25s var(--ease-quartr)",
         ...style,
       }}
     >
       {children}
+    </div>
+  );
+}
+
+// PortfolioValueHead — the hero figure that heads the performance chart.
+// The current value sits directly above the green line that visualises it,
+// with Invested + Holdings as a quiet sub-line. Lives inside the chart's
+// header so there's no separate competing box. Total/Day P&L stay in the
+// global top bar, so they're not repeated here.
+function PortfolioValueHead({ summary }: { summary: PortfolioSummary }): React.ReactElement {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <span
+        style={{
+          fontFamily: "var(--font-serif)",
+          fontWeight: 500,
+          fontSize: 36,
+          lineHeight: 1,
+          letterSpacing: "-0.02em",
+          fontVariantNumeric: "tabular-nums",
+          color: "var(--text-primary)",
+        }}
+      >
+        {fmtRupee(summary.total_value)}
+      </span>
+      <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+        Invested{" "}
+        <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+          {fmtRupee(summary.invested_value)}
+        </span>
+        {"  ·  "}
+        <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+          {summary.num_holdings}
+        </span>{" "}
+        holdings
+      </span>
     </div>
   );
 }
@@ -347,16 +454,17 @@ function fmtMonthAt(idx: number, totalDays: number): string {
 }
 
 function PerformanceChart({
-  totalValue,
+  summary,
 }: {
-  totalValue?: number;
+  summary: PortfolioSummary;
 }): React.ReactElement {
   const [rangeId, setRangeId] = useState<string>("1Y");
   const range = RANGES.find((r) => r.id === rangeId) ?? RANGES[4]!;
   const days = range.days;
+  const totalValue = summary.total_value;
 
   // Build series scaled so the last portfolio point = live total_value.
-  const { port, bench, ticks } = useMemo(() => {
+  const { port, bench } = useMemo(() => {
     const rawP = buildSeries(days, 7);
     const rawB = buildSeries(days, 21).map((v, i) => v * 0.95 + i * 0.005);
     const liveTotal = totalValue || 800000;
@@ -364,43 +472,39 @@ function PerformanceChart({
     const scaleB = (liveTotal * 0.94) / rawB[rawB.length - 1]!;
     const portfolio = rawP.map((v) => v * scaleP);
     const benchmark = rawB.map((v) => v * scaleB);
-
-    const tickCount = 5;
-    const t = Array.from({ length: tickCount }, (_, i) => {
-      const idx = Math.round((i / (tickCount - 1)) * (days - 1));
-      return { idx, label: fmtMonthAt(idx, days) };
-    });
-    return { port: portfolio, bench: benchmark, ticks: t };
+    return { port: portfolio, bench: benchmark };
   }, [days, totalValue]);
 
   return (
     <Section>
-      <Card padding="22px 24px">
-        {/* Header row */}
-        <div className="flex items-baseline" style={{ gap: 14, marginBottom: 18 }}>
-          <div
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: "var(--weight-display)" as unknown as number,
-              fontSize: 15,
-              letterSpacing: "-0.02em",
-              color: "var(--text-primary)",
-            }}
-          >
-            Performance
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
-            · {range.longLabel}
-          </div>
-          <div style={{ flex: 1 }} />
+      {/* Header row lives OUTSIDE the card — the portfolio value heads the
+          chart that visualises it (value above its own line), with the range
+          pills opposite. Value block + pills stack on phone, sit on one row
+          (value left, pills top-right) on sm+. */}
+      <div
+        className="flex flex-wrap items-start"
+        style={{ columnGap: 14, rowGap: 14, marginBottom: 8 }}
+      >
+        <PortfolioValueHead summary={summary} />
+        {/* Pills group: own row on phone (full width, scrolls if needed),
+            right-aligned on sm+. */}
+        <div
+          className="perf-pills flex w-full justify-start sm:ml-auto sm:w-auto sm:justify-end"
+          style={{
+            overflowX: "auto",
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "none",
+          }}
+        >
           <div
             className="inline-flex"
             style={{
               gap: 2,
               padding: 2,
               background: "var(--bg-base)",
-              border: "1px solid var(--glass-border)",
+              border: "none",
               borderRadius: "var(--radius-pill)",
+              flexShrink: 0,
             }}
           >
             {RANGES.map((r) => {
@@ -411,7 +515,7 @@ function PerformanceChart({
                   type="button"
                   onClick={() => setRangeId(r.id)}
                   style={{
-                    padding: "5px 11px",
+                    padding: "5px 12px",
                     border: "none",
                     borderRadius: "var(--radius-pill)",
                     fontFamily: "var(--font-ui)",
@@ -422,6 +526,7 @@ function PerformanceChart({
                     color: active ? "var(--bg-primary)" : "var(--text-secondary)",
                     transition:
                       "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {r.label}
@@ -430,24 +535,93 @@ function PerformanceChart({
             })}
           </div>
         </div>
+      </div>
 
-        <PerformanceSvg port={port} bench={bench} ticks={ticks} />
-      </Card>
+      <div style={{ padding: "22px 0 0" }}>
+        <PerformanceSvg port={port} bench={bench} />
+      </div>
     </Section>
+  );
+}
+
+/** One legend-dot + label (left) / value (right) row inside the chart tooltip. */
+function TipRow({
+  color,
+  label,
+  value,
+  strong,
+}: {
+  color: string;
+  label: string;
+  value: string;
+  strong?: boolean;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 22,
+      }}
+    >
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span
+          aria-hidden="true"
+          style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }}
+        />
+        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{label}</span>
+      </span>
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: strong ? 600 : 500,
+          color: strong ? "var(--text-primary)" : "var(--text-secondary)",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 
 function PerformanceSvg({
   port,
   bench,
-  ticks,
 }: {
   port: number[];
   bench: number[];
-  ticks: { idx: number; label: string }[];
 }): React.ReactElement {
+  // Groww-style hover state — tracks the downsampled point under the cursor.
+  // `null` means the user isn't currently over the chart, so the crosshair
+  // and tooltip are hidden.
+  const chartColRef = useRef<HTMLDivElement>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-  const W = 920, H = 240, padL = 56, padR = 16, padT = 14, padB = 36;
+  // Track the chart column's real rendered width and use it as the viewBox
+  // width so the `preserveAspectRatio="none"` SVG maps 1:1 horizontally —
+  // a fixed viewBox width (e.g. 920) squished into a ~340px phone column
+  // compressed the line horizontally while height stayed fixed, which read
+  // as a distorted, over-spiky curve. Matching viewBox W to the pixel width
+  // removes the squish at every viewport.
+  const [chartW, setChartW] = useState(920);
+  useEffect(() => {
+    const el = chartColRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) setChartW(Math.round(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Static Y / X labels and grid lines removed — the hover tooltip now
+  // provides the value/date at any point on the curve, so the chrome
+  // was just clutter. Padding shrunk accordingly (no axis labels to
+  // accommodate).
+  const W = chartW, H = 190, padL = 0, padR = 4, padT = 8, padB = 8;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
 
@@ -481,13 +655,6 @@ function PerformanceSvg({
   const benchPath = buildPath(benchDs);
   const areaPath = `${portPath} L ${xAt(portDs.length - 1).toFixed(1)} ${(padT + innerH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(padT + innerH).toFixed(1)} Z`;
 
-  const yTicks = 4;
-  const yLabels = Array.from({ length: yTicks }, (_, i) => {
-    const t = i / (yTicks - 1);
-    const v = minV + span * (1 - t);
-    return { y: padT + t * innerH, label: fmtINR(v) };
-  });
-
   const portReturnPct = ((port[port.length - 1]! - port[0]!) / port[0]!) * 100;
   const benchReturnPct = ((bench[bench.length - 1]! - bench[0]!) / bench[0]!) * 100;
   const alphaPct = portReturnPct - benchReturnPct;
@@ -496,118 +663,199 @@ function PerformanceSvg({
   // P/L colors used everywhere else (--color-profit / --color-loss).
   const isUp = portReturnPct >= 0;
   const lineColor = isUp ? "var(--color-profit)" : "var(--color-loss)";
-  const fillStopColor = isUp ? "#10b981" : "#ef4444";
 
   return (
     <>
-      <div style={{ position: "relative", width: "100%" }}>
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          width="100%"
-          height={H}
-          preserveAspectRatio="none"
-          style={{ display: "block" }}
+      {/* [y-label column | chart column] — the y-labels are physically
+          separated from the chart so the SVG can never overlap them
+          regardless of container width. */}
+      <div style={{ width: "100%" }}>
+        <div
+          ref={chartColRef}
+          style={{ position: "relative", width: "100%" }}
+          onMouseMove={(e) => {
+            const rect = chartColRef.current?.getBoundingClientRect();
+            if (!rect || rect.width === 0) return;
+            const px = e.clientX - rect.left;
+            // Mouse → viewBox X → portDs index. Chart geometry uses
+            // padL=0 so we only have to subtract the right-side padding
+            // from the usable width.
+            const chartPxW = rect.width * (innerW / W);
+            const frac = Math.max(0, Math.min(1, px / chartPxW));
+            const idx = Math.round(frac * (portDs.length - 1));
+            setHoverIdx(idx);
+          }}
+          onMouseLeave={() => setHoverIdx(null)}
         >
-          <defs>
-            <linearGradient id="perf-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={fillStopColor} stopOpacity="0.18" />
-              <stop offset="100%" stopColor={fillStopColor} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          {yLabels.map(({ y }, i) => (
-            <line
-              key={i}
-              x1={padL}
-              x2={W - padR}
-              y1={y}
-              y2={y}
-              stroke="var(--glass-border)"
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            width="100%"
+            height={H}
+            preserveAspectRatio="none"
+            style={{ display: "block" }}
+          >
+            <path
+              d={benchPath}
+              fill="none"
+              stroke="var(--text-disabled)"
               strokeWidth="1"
+              strokeDasharray="3 4"
+              strokeLinejoin="miter"
               vectorEffect="non-scaling-stroke"
             />
-          ))}
-          <path
-            d={benchPath}
-            fill="none"
-            stroke="var(--text-disabled)"
-            strokeWidth="1.25"
-            strokeDasharray="3 4"
-            strokeLinejoin="miter"
-            vectorEffect="non-scaling-stroke"
-          />
-          <path d={areaPath} fill="url(#perf-fill)" />
-          <path
-            d={portPath}
-            fill="none"
-            stroke={lineColor}
-            strokeWidth="1.75"
-            strokeLinecap="butt"
-            strokeLinejoin="miter"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-        {yLabels.map(({ y, label }, i) => (
-          <span
-            key={i}
-            style={{
-              position: "absolute",
-              top: `${(y / H) * 100}%`,
-              left: 0,
-              width: padL - 10,
-              transform: "translateY(-50%)",
-              textAlign: "right",
-              fontFamily: "var(--font-ui)",
-              fontSize: 11,
-              fontVariantNumeric: "tabular-nums",
-              color: "var(--text-tertiary)",
-              lineHeight: 1,
-              pointerEvents: "none",
-            }}
-          >
-            {label}
-          </span>
-        ))}
-        {ticks.map(({ idx, label }, i) => {
-          const isFirst = i === 0;
-          const isLast = i === ticks.length - 1;
-          return (
-            <span
-              key={i}
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: `${(xAt(idx) / W) * 100}%`,
-                transform: isFirst
-                  ? "translateX(0)"
-                  : isLast
-                    ? "translateX(-100%)"
-                    : "translateX(-50%)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 11,
-                color: "var(--text-tertiary)",
-                lineHeight: 1,
-                pointerEvents: "none",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {label}
-            </span>
-          );
-        })}
+            <path
+              d={portPath}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth="1.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+
+          {/* ── Hover overlay — Groww-style crosshair, dual dots, tooltip.
+              Crosshair and dots are rendered as positioned divs (not
+              SVG elements) so they stay crisp regardless of how the
+              `preserveAspectRatio="none"` SVG above is stretched. */}
+          {hoverIdx !== null && (() => {
+            const portVal = portDs[hoverIdx]!;
+            const benchVal = benchDs[hoverIdx]!;
+            // Position the crosshair within the chart's USABLE width
+            // (innerW / W of the container, since padR sits to the right).
+            const xPctOfChart = (xAt(hoverIdx) / innerW) * (innerW / W) * 100;
+            const portYPct = (yAt(portVal) / H) * 100;
+            const benchYPct = (yAt(benchVal) / H) * 100;
+            // Map the downsampled idx back to the original `port` array
+            // (port.length = days) so we can compute the calendar date.
+            const originalIdx = Math.round(
+              (hoverIdx / (portDs.length - 1)) * (port.length - 1),
+            );
+            const dateLabel = fmtMonthAt(originalIdx, port.length);
+            // Edge-clamp the tooltip so it doesn't disappear off the
+            // sides of the chart.
+            const tipAnchor: React.CSSProperties =
+              xPctOfChart < 10
+                ? { left: 0, transform: "translateX(0)" }
+                : xPctOfChart > 90
+                  ? { left: `${xPctOfChart}%`, transform: "translateX(-100%)" }
+                  : { left: `${xPctOfChart}%`, transform: "translateX(-50%)" };
+            return (
+              <>
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: padT,
+                    bottom: padB,
+                    left: `${xPctOfChart}%`,
+                    borderLeft: "1px dashed var(--text-tertiary)",
+                    opacity: 0.5,
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: `${xPctOfChart}%`,
+                    top: `${portYPct}%`,
+                    width: 10,
+                    height: 10,
+                    marginLeft: -5,
+                    marginTop: -5,
+                    borderRadius: "50%",
+                    background: lineColor,
+                    border: "2px solid var(--bg-base)",
+                    boxShadow: "0 0 0 1px rgba(0,0,0,0.06)",
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: `${xPctOfChart}%`,
+                    top: `${benchYPct}%`,
+                    width: 8,
+                    height: 8,
+                    marginLeft: -4,
+                    marginTop: -4,
+                    borderRadius: "50%",
+                    background: "var(--text-disabled)",
+                    border: "2px solid var(--bg-base)",
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    marginTop: -10,
+                    ...tipAnchor,
+                    transform: `${tipAnchor.transform ?? ""} translateY(-100%)`,
+                    padding: "9px 11px",
+                    background: "var(--bg-base)",
+                    border: "1px solid var(--glass-border)",
+                    borderRadius: 10,
+                    boxShadow:
+                      "0 8px 24px -6px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.05)",
+                    fontFamily: "var(--font-ui)",
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    zIndex: 5,
+                    minWidth: 150,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 500,
+                      letterSpacing: "0.02em",
+                      color: "var(--text-tertiary)",
+                      paddingBottom: 7,
+                      marginBottom: 7,
+                      borderBottom: "1px solid var(--glass-border)",
+                    }}
+                  >
+                    {dateLabel}
+                  </div>
+                  <TipRow
+                    color={lineColor}
+                    label="Portfolio"
+                    value={fmtRupee(portVal, { max: 0 })}
+                    strong
+                  />
+                  <div style={{ height: 5 }} />
+                  <TipRow
+                    color="var(--text-disabled)"
+                    label="NIFTY 50"
+                    value={fmtRupee(benchVal, { max: 0 })}
+                  />
+                </div>
+              </>
+            );
+          })()}
+        </div>
       </div>
 
-      {/* Footer comparison line */}
+      {/* Footer comparison line — kept to a single row at every width via a
+          compact scale + nowrap (it's a small caption, so it reads fine even
+          on the narrowest phones). */}
       <div
-        className="flex flex-wrap items-center"
+        className="flex items-center"
         style={{
-          marginTop: 8,
-          gap: 18,
-          fontSize: 12,
+          marginTop: 10,
+          columnGap: 9,
+          fontSize: 11,
+          whiteSpace: "nowrap",
           color: "var(--text-tertiary)",
         }}
       >
         <span>
-          vs&nbsp;&nbsp;<span style={{ color: "var(--text-secondary)" }}>NIFTY&nbsp;50</span>
+          vs&nbsp;<span style={{ color: "var(--text-secondary)" }}>NIFTY&nbsp;50</span>
         </span>
         <PerfStat label="portfolio" value={portReturnPct} />
         <PerfStat label="benchmark" value={benchReturnPct} />
@@ -627,13 +875,180 @@ function PerfStat({
   const pos = value >= 0;
   const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
-    <span className="inline-flex items-center" style={{ gap: 6, fontFamily: "var(--font-mono)" }}>
+    <span className="inline-flex items-center" style={{ gap: 4, fontFamily: "var(--font-mono)" }}>
       <span style={{ color }}>
         {pos ? "+" : ""}
         {value.toFixed(1)}%
       </span>
       <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>{label}</span>
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PnlStripMobile — two-cell Total P&L / Today's P&L summary shown above the
+// holdings on phones (on desktop these figures live in the global top bar).
+// ---------------------------------------------------------------------------
+
+function PnlStripMobile({
+  summary,
+}: {
+  summary: PortfolioSummary;
+}): React.ReactElement {
+  const totalPos = summary.total_pnl >= 0;
+  const dayPos = summary.day_pnl >= 0;
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    color: "var(--text-tertiary)",
+  };
+  // Phone-only. The hide class lives on this wrapper (which has NO inline
+  // `display`) — putting it on the grid below would lose to the inline
+  // `display: grid` and leak the strip onto tablet/laptop.
+  return (
+    <div className="sm:hidden">
+      <div
+        data-testid="portfolio-pnl-strip"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 1,
+          marginBottom: 20,
+          background: "var(--glass-border)",
+          borderRadius: "var(--radius-md)",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ background: "var(--bg-primary)", padding: "14px 16px" }}>
+          <div style={labelStyle}>Total P&amp;L</div>
+          <div
+            style={{
+              marginTop: 5,
+              display: "flex",
+              alignItems: "baseline",
+              gap: 6,
+              fontSize: 17,
+              fontWeight: 600,
+              color: totalPos ? "var(--color-profit)" : "var(--color-loss)",
+            }}
+          >
+            {fmtRupee(summary.total_pnl, { sign: true, max: 0 })}
+            <span style={{ fontSize: 12, fontWeight: 500 }}>
+              ({fmtPct(summary.total_pnl_pct)})
+            </span>
+          </div>
+        </div>
+        <div style={{ background: "var(--bg-primary)", padding: "14px 16px" }}>
+          <div style={labelStyle}>Today&apos;s P&amp;L</div>
+          <div
+            style={{
+              marginTop: 5,
+              fontSize: 17,
+              fontWeight: 600,
+              color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
+            }}
+          >
+            {fmtRupee(summary.day_pnl, { sign: true, max: 0 })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HoldingsListMobile — broker-style stacked cards (Groww layout): a row of
+// Qty·Avg + total return %, the symbol + absolute P&L, and Invested + live LTP
+// with the day move. Shown only on phones; desktop keeps the sortable table.
+// ---------------------------------------------------------------------------
+
+function HoldingsListMobile({
+  holdings,
+}: {
+  holdings: Holding[];
+}): React.ReactElement {
+  const sorted = useMemo(
+    () => [...holdings].sort((a, b) => b.pnl - a.pnl),
+    [holdings],
+  );
+  return (
+    <div data-testid="holdings-list-mobile">
+      {sorted.map((h, i) => (
+        <HoldingCardMobile
+          key={`${h.exchange}:${h.tradingsymbol}`}
+          holding={h}
+          last={i === sorted.length - 1}
+        />
+      ))}
+    </div>
+  );
+}
+
+function HoldingCardMobile({
+  holding: h,
+  last,
+}: {
+  holding: Holding;
+  last: boolean;
+}): React.ReactElement {
+  const liveQuote = useLiveQuote(h.tradingsymbol);
+  const ltp = liveQuote.ltp ?? h.last_price;
+  const invested = h.average_price * h.quantity;
+  const pnlPct = invested > 0 ? (h.pnl / invested) * 100 : 0;
+  const pnlColor = h.pnl >= 0 ? "var(--color-profit)" : "var(--color-loss)";
+  const dayColor =
+    h.day_change_percentage >= 0 ? "var(--color-profit)" : "var(--color-loss)";
+  const muted: React.CSSProperties = { fontSize: 11.5, color: "var(--text-tertiary)" };
+
+  return (
+    <Link
+      href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
+      className="block"
+      data-testid={`holding-m-${h.tradingsymbol}`}
+      style={{
+        textDecoration: "none",
+        padding: "13px 16px",
+        borderBottom: last ? "none" : "1px solid var(--glass-border)",
+      }}
+    >
+      {/* Row 1 — quantity · average cost  |  total return % */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 5 }}>
+        <span style={muted}>
+          Qty. {h.quantity} · Avg. {fmtPlain(h.average_price)}
+        </span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: pnlColor }}>
+          {fmtPct(pnlPct)}
+        </span>
+      </div>
+      {/* Row 2 — symbol  |  absolute P&L */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 5 }}>
+        <span
+          style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {h.tradingsymbol}
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: pnlColor }}>
+          {fmtPlain(h.pnl, { sign: true })}
+        </span>
+      </div>
+      {/* Row 3 — invested  |  live LTP (day move) */}
+      <div className="flex items-center justify-between">
+        <span style={muted}>Invested {fmtPlain(invested)}</span>
+        <span style={muted}>
+          LTP {fmtPlain(ltp)}{" "}
+          <span style={{ color: dayColor }}>
+            ({fmtPct(h.day_change_percentage, false)})
+          </span>
+        </span>
+      </div>
+    </Link>
   );
 }
 
@@ -651,15 +1066,61 @@ type SortKey =
   | "value";
 type SortDir = "asc" | "desc";
 
-const COLUMNS: { key: SortKey | null; label: string }[] = [
-  { key: "tradingsymbol", label: "Symbol" },
-  { key: "quantity", label: "Qty" },
-  { key: "average_price", label: "Avg" },
-  { key: "last_price", label: "LTP" },
-  { key: "pnl", label: "P&L" },
-  { key: "day_change_percentage", label: "Day" },
-  { key: null, label: "Value" },
+const COLUMNS: { key: SortKey | null; label: string; align: "left" | "right" }[] = [
+  { key: "tradingsymbol", label: "Symbol", align: "left" },
+  { key: "quantity", label: "Qty", align: "right" },
+  { key: "average_price", label: "Avg", align: "right" },
+  { key: "last_price", label: "LTP", align: "right" },
+  { key: "pnl", label: "P&L", align: "right" },
+  { key: "day_change_percentage", label: "Day", align: "right" },
+  { key: null, label: "Value", align: "right" },
 ];
+
+// Screener-style brand glyph — a small rounded tile holding the symbol's
+// initial, tinted by sector. Mirrors ScreenerPage's BrandGlyph so the
+// holdings table reads as the same product.
+function brandGlyphHue(key?: string): string {
+  if (!key) return "#94a3b8";
+  const s = key.toLowerCase();
+  if (s.includes("bank") || s.includes("financ") || s.includes("nbfc")) return "#60a5fa";
+  if (s.includes("tech") || s.includes("it ") || s.includes("software")) return "#a78bfa";
+  if (s.includes("energy") || s.includes("oil")) return "#f97316";
+  if (s.includes("pharma") || s.includes("health")) return "#10b981";
+  if (s.includes("auto")) return "#facc15";
+  if (s.includes("fmcg") || s.includes("consumer")) return "#34d399";
+  if (s.includes("material") || s.includes("metal")) return "#f472b6";
+  if (s.includes("telecom")) return "#22d3ee";
+  if (s.includes("gold") || s.includes("commod")) return "#eab308";
+  if (s.includes("etf") || s.includes("index")) return "#38bdf8";
+  return "#94a3b8";
+}
+
+function HoldingGlyph({ symbol, hueKey }: { symbol: string; hueKey?: string }): React.ReactElement {
+  const initial = symbol.trim()[0]?.toUpperCase() ?? "•";
+  const hue = brandGlyphHue(hueKey);
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        width: 34,
+        height: 34,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "var(--radius-sm)",
+        background: `${hue}22`,
+        color: hue,
+        fontFamily: "var(--font-ui)",
+        fontSize: 14,
+        fontWeight: 500,
+        letterSpacing: "-0.02em",
+      }}
+    >
+      {initial}
+    </div>
+  );
+}
 
 function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElement {
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
@@ -693,7 +1154,7 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }} data-testid="holdings-table">
         <thead>
-          <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
+          <tr>
             {COLUMNS.map((col) => {
               const active = col.key && sort.key === col.key;
               const Icon = !active
@@ -707,19 +1168,31 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
                   scope="col"
                   onClick={() => col.key && cycle(col.key)}
                   style={{
-                    padding: "14px 18px",
-                    fontSize: 12,
-                    fontWeight: 500,
+                    padding: "13px 18px",
+                    fontSize: 10,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    fontWeight: "var(--weight-display)" as unknown as number,
                     color: active ? "var(--text-primary)" : "var(--text-tertiary)",
                     cursor: col.key ? "pointer" : "default",
                     userSelect: "none",
                     whiteSpace: "nowrap",
-                    textAlign: "left",
+                    textAlign: col.align,
+                    borderBottom: "1.5px solid var(--glass-border)",
                     transition: "color 180ms",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!active && col.key) e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active && col.key) e.currentTarget.style.color = "var(--text-tertiary)";
                   }}
                   data-testid={col.key ? `sort-${col.key}` : undefined}
                 >
-                  <span className="inline-flex items-center" style={{ gap: 4 }}>
+                  <span
+                    className="inline-flex items-center"
+                    style={{ gap: 5, flexDirection: col.align === "right" ? "row-reverse" : "row" }}
+                  >
                     {col.label}
                     {col.key && (
                       <Icon size={12} aria-hidden="true" style={{ opacity: active ? 1 : 0.45 }} />
@@ -762,56 +1235,58 @@ function HoldingRow({ holding: h }: { holding: Holding }): React.ReactElement {
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
       data-testid={`holding-${h.tradingsymbol}`}
     >
-      <td style={{ padding: "14px 18px" }}>
-        <Link
-          href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
-          className="inline-flex items-center"
-          style={{
-            gap: 6,
-            padding: "4px 10px",
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: 999,
-            fontFamily: "var(--font-ui)",
-            fontSize: 12,
-            fontWeight: 500,
-            color: "var(--text-primary)",
-          }}
-        >
-          <span
-            style={{
-              color: "var(--text-tertiary)",
-              fontSize: 10,
-              fontWeight: 400,
-            }}
-          >
-            {h.exchange || "NSE"}
-          </span>
-          {h.tradingsymbol}
-        </Link>
-        {sector && (
-          <span
-            style={{
-              display: "block",
-              fontSize: 11,
-              color: "var(--text-tertiary)",
-              marginTop: 4,
-            }}
-          >
-            {sector}
-          </span>
-        )}
+      <td style={{ padding: "16px 18px" }}>
+        <div className="inline-flex items-center" style={{ gap: 12 }}>
+          <HoldingGlyph symbol={h.tradingsymbol} hueKey={sector} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Link
+              href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
+              className="inline-flex items-baseline"
+              style={{
+                gap: 6,
+                fontFamily: "var(--font-ui)",
+                fontSize: 13,
+                fontWeight: 500,
+                color: "var(--text-primary)",
+                textDecoration: "none",
+              }}
+            >
+              <span
+                style={{
+                  color: "var(--text-tertiary)",
+                  fontSize: 10,
+                  fontWeight: 400,
+                }}
+              >
+                {h.exchange || "NSE"}
+              </span>
+              {h.tradingsymbol}
+            </Link>
+            {sector && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-tertiary)",
+                }}
+              >
+                {sector}
+              </span>
+            )}
+          </div>
+        </div>
       </td>
       <NumCell>{h.quantity}</NumCell>
       <NumCell>{fmtRupee(h.average_price, { max: 2 })}</NumCell>
       {/* LTP cell — green dot when live, grey when REST/stale */}
       <td
         style={{
-          padding: "14px 18px",
-          fontFamily: "var(--font-ui)",
-          fontSize: 13,
+          padding: "16px 18px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
           fontWeight: 500,
           color: "var(--text-secondary)",
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
         }}
       >
         <span className="inline-flex items-center" style={{ gap: 5 }}>
@@ -823,7 +1298,7 @@ function HoldingRow({ holding: h }: { holding: Holding }): React.ReactElement {
               width: 6,
               height: 6,
               borderRadius: "50%",
-              background: liveQuote.isLive ? "#10b981" : "var(--text-tertiary)",
+              background: liveQuote.isLive ? "var(--color-profit)" : "var(--text-tertiary)",
               flexShrink: 0,
             }}
           />
@@ -832,9 +1307,11 @@ function HoldingRow({ holding: h }: { holding: Holding }): React.ReactElement {
       </td>
       <td
         style={{
-          padding: "14px 18px",
+          padding: "16px 18px",
           fontFamily: "var(--font-mono)",
           fontSize: 12.5,
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
           color: pnlPos ? "var(--color-profit)" : "var(--color-loss)",
         }}
       >
@@ -842,9 +1319,11 @@ function HoldingRow({ holding: h }: { holding: Holding }): React.ReactElement {
       </td>
       <td
         style={{
-          padding: "14px 18px",
+          padding: "16px 18px",
           fontFamily: "var(--font-mono)",
           fontSize: 12.5,
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
           color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
         }}
       >
@@ -865,11 +1344,13 @@ function NumCell({
   return (
     <td
       style={{
-        padding: "14px 18px",
-        fontFamily: "var(--font-ui)",
-        fontSize: 13,
+        padding: "16px 18px",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12.5,
+        textAlign: "right",
+        fontVariantNumeric: "tabular-nums",
         color: strong ? "var(--text-primary)" : "var(--text-secondary)",
-        fontWeight: strong ? 500 : 500,
+        fontWeight: 500,
       }}
     >
       {children}
@@ -948,7 +1429,7 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
 
   return (
     <Section label="Asset Allocation">
-      <Card>
+      <Card style={{ background: "transparent", padding: 0 }}>
         {/* Tabs */}
         <div
           className="flex"
@@ -969,8 +1450,7 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
                 style={{
                   padding: "6px 14px",
                   background: active ? "var(--bg-elevated)" : "transparent",
-                  border: "1px solid",
-                  borderColor: active ? "var(--glass-border-hover)" : "transparent",
+                  border: "none",
                   borderRadius: "var(--radius-sm)",
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
                   fontFamily: "var(--font-ui)",
@@ -978,7 +1458,7 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
                   fontWeight: 500,
                   cursor: "pointer",
                   transition:
-                    "color 0.25s var(--ease-quartr), background-color 0.25s var(--ease-quartr), border-color 0.25s var(--ease-quartr)",
+                    "color 0.25s var(--ease-quartr), background-color 0.25s var(--ease-quartr)",
                 }}
               >
                 {t.label}
@@ -1012,6 +1492,9 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
                     strokeWidth={1.25}
                     onMouseEnter={() => setHover(seg)}
                     onMouseLeave={() => setHover(null)}
+                    onClick={() =>
+                      setHover((curr) => (curr?.label === seg.label ? null : seg))
+                    }
                     style={{
                       cursor: "pointer",
                       transition: "opacity 180ms var(--ease-quartr)",
@@ -1070,8 +1553,19 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
                 return (
                   <div
                     key={seg.label}
+                    role="button"
+                    tabIndex={0}
                     onMouseEnter={() => setHover(seg)}
                     onMouseLeave={() => setHover(null)}
+                    onClick={() =>
+                      setHover((curr) => (curr?.label === seg.label ? null : seg))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setHover((curr) => (curr?.label === seg.label ? null : seg));
+                      }
+                    }}
                     style={{
                       display: "grid",
                       gridTemplateColumns: "12px minmax(0, 1fr) auto",
@@ -1202,6 +1696,7 @@ function ScoreBar({
 }): React.ReactElement {
   return (
     <div
+      className="portfolio-meter-row"
       style={{
         width: "100%",
         display: "grid",
@@ -1253,7 +1748,7 @@ function PortfolioLoading(): React.ReactElement {
   return (
     <div className="flex flex-col" style={{ gap: 28 }} data-testid="portfolio-loading">
       <Card padding="22px 24px">
-        <Skeleton style={{ height: 240, width: "100%" }} />
+        <Skeleton style={{ height: 190, width: "100%" }} />
       </Card>
       <Card padding={0} style={{ overflow: "hidden" }}>
         <Skeleton style={{ height: 40, width: "100%" }} />
@@ -1268,6 +1763,150 @@ function PortfolioLoading(): React.ReactElement {
         <Skeleton style={{ height: 8, width: "100%", marginBottom: 12 }} />
         <Skeleton style={{ height: 8, width: "100%" }} />
       </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TradeHistory — trade log table
+// ---------------------------------------------------------------------------
+
+type TradeRow = {
+  id: string;
+  symbol: string;
+  side: "BUY" | "SELL";
+  quantity: number;
+  price: number;
+  amount: number;
+  datetime: string;
+  agent: string;
+};
+
+function generateMockTrades(): TradeRow[] {
+  const agents: string[] = ["INFY weekly dip-buy", "RELIANCE 3:55 PM buy", "TCS monthly SIP"];
+  const symbols: string[] = ["INFY", "RELIANCE", "TCS", "HDFC", "WIPRO"];
+  const trades: TradeRow[] = [];
+  const now = Date.now();
+  for (let i = 0; i < 20; i++) {
+    const symbol = symbols[i % symbols.length]!;
+    const side: "BUY" | "SELL" = i % 2 === 0 ? "BUY" : "SELL";
+    const qty = (i % 5 + 1) * 5;
+    const price = 1000 + ((i * 137 + 42) % 3000);
+    const agent = agents[i % agents.length]!;
+    trades.push({
+      id: `trade-${i}`,
+      symbol,
+      side,
+      quantity: qty,
+      price,
+      amount: qty * price,
+      datetime: new Date(now - i * 3_600_000 * 8).toISOString(),
+      agent,
+    });
+  }
+  return trades;
+}
+
+const MOCK_TRADES = generateMockTrades();
+
+function TradeHistory(): React.ReactElement {
+  const fmt = (iso: string): { date: string; time: string } => {
+    const d = new Date(iso);
+    return {
+      date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+      time: d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }),
+    };
+  };
+
+  return (
+    <div className="flex flex-col" style={{ gap: 12 }}>
+      <div
+        className="overflow-hidden rounded-2xl border border-border/50 bg-card"
+        style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.04)" }}
+      >
+        <table className="w-full" style={{ borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
+              {["Symbol", "Side", "Qty", "Price (₹)", "Amount (₹)", "Date", "Time", "Agent"].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    padding: "10px 14px",
+                    fontWeight: 500,
+                    color: "var(--text-tertiary)",
+                    textAlign: "left",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MOCK_TRADES.map((t, idx) => {
+              const { date, time } = fmt(t.datetime);
+              const isBuy = t.side === "BUY";
+              return (
+                <tr
+                  key={t.id}
+                  style={{
+                    borderBottom:
+                      idx < MOCK_TRADES.length - 1 ? "1px solid var(--glass-border)" : "none",
+                    background: idx % 2 === 0 ? "transparent" : "rgba(0,0,0,0.015)",
+                  }}
+                >
+                  <td style={{ padding: "10px 14px", fontWeight: 600, color: "var(--text-primary)" }}>
+                    {t.symbol}
+                  </td>
+                  <td style={{ padding: "10px 14px" }}>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: isBuy ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+                        color: isBuy ? "#10b981" : "#ef4444",
+                      }}
+                    >
+                      {t.side}
+                    </span>
+                  </td>
+                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)" }}>{t.quantity}</td>
+                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)" }}>
+                    {t.price.toLocaleString("en-IN")}
+                  </td>
+                  <td style={{ padding: "10px 14px", fontWeight: 500, color: "var(--text-primary)" }}>
+                    ₹{t.amount.toLocaleString("en-IN")}
+                  </td>
+                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    {date}
+                  </td>
+                  <td style={{ padding: "10px 14px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    {time}
+                  </td>
+                  <td
+                    style={{
+                      padding: "10px 14px",
+                      color: "var(--text-tertiary)",
+                      maxWidth: 160,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {t.agent}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
+        Showing last 20 trades · Live data requires Kite Connect
+      </p>
     </div>
   );
 }

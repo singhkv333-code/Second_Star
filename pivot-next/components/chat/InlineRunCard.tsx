@@ -52,7 +52,7 @@ export function InlineRunCard({
       <div
         role="alert"
         data-testid="inline-run-error"
-        className="my-2 w-full max-w-[440px] rounded-3xl border border-destructive/40 bg-destructive/5 px-6 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
+        className="mb-2 mt-1 w-full max-w-[388px] rounded-3xl border border-destructive/40 bg-destructive/5 px-6 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
       >
         <p className="inline-flex items-center gap-1.5 text-[13px] font-medium text-destructive">
           <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
@@ -76,7 +76,7 @@ export function InlineRunCard({
       role="region"
       aria-label={`Live run: ${workflowName}`}
       className={cn(
-        "my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card",
+        "mb-2 mt-1 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "transition-all duration-500 ease-out",
         isPositiveTerminal
           ? "shadow-[0_1px_2px_rgba(76,175,80,0.08),0_18px_36px_-18px_rgba(76,175,80,0.22)]"
@@ -87,37 +87,55 @@ export function InlineRunCard({
       }}
     >
       <div className="flex flex-col">
-        <div className="flex flex-col gap-5 px-6 pt-6 pb-5">
-          {/* HEADER — Run · manual chip on the left, run-status pill +
-              optional reconnecting indicator on the right. */}
-          <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
-              Run · {run.triggered_by}
-            </span>
-            <div className="flex items-center gap-1.5">
-              {isReconnecting && (
-                <span
-                  data-testid="inline-run-reconnecting"
-                  role="status"
-                  className="inline-flex items-center gap-1 rounded-full bg-amber-100/80 px-2 py-0.5 text-[10.5px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-                >
-                  <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden="true" />
-                  reconnecting
-                </span>
-              )}
-              <RunStatusPill status={run.status} />
+        <div className="flex flex-col gap-3 px-5 pt-4 pb-4">
+          {/* HEADER — Run · trigger chip on the left, run-status pill +
+              optional reconnecting indicator on the right. Tightened to
+              match WorkflowDraftCard's header rhythm one-for-one so the
+              card stays the *same height* as the draft / saved cards
+              (no jump in the chat thread on activation → live run). */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center rounded-md bg-sky-100 px-2 py-0.5 text-[10.5px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+                Run · {run.triggered_by}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {isReconnecting && (
+                  <span
+                    data-testid="inline-run-reconnecting"
+                    role="status"
+                    className="inline-flex items-center gap-1 rounded-full bg-amber-100/80 px-2 py-0.5 text-[10.5px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                  >
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden="true" />
+                    reconnecting
+                  </span>
+                )}
+                <RunStatusPill status={run.status} />
+              </div>
             </div>
+
+            {/* TITLE — runHeadline keeps the existing copy contract
+                (`Running · …`, `Completed · …`, `Failed · …`, etc).
+                Scaled to match the draft card's h3 so titles wrap at
+                the same line count and reserve the same vertical slot. */}
+            <h3
+              className="text-[15px] leading-[1.25] font-semibold tracking-tight text-foreground"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {runHeadline(run, workflowName)}
+            </h3>
           </div>
 
-          {/* TITLE — runHeadline keeps the existing copy contract
-              (`Running · …`, `Completed · …`, `Failed · …`, etc). */}
-          <h3 className="text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
-            {runHeadline(run, workflowName)}
-          </h3>
-
-          {/* STEP LIST — tile style identical to WorkflowDraftCard. */}
+          {/* STEP LIST — same compact rhythm as DraftBody. Status info
+              now rides as a right-aligned indicator on each row instead
+              of an extra sub-line, so the rows stay single-line and the
+              card's total height matches DraftBody / SavedState. */}
           <ol
-            className="m-0 flex flex-col gap-2"
+            className="m-0 flex flex-col gap-1.5"
             data-testid="inline-run-steps"
           >
             {run.steps.map((step, idx) => (
@@ -147,12 +165,11 @@ export function InlineRunCard({
           )}
         </div>
 
-        {/* DISCLAIMER — same as WorkflowDraftCard. Tone shifts to a soft
-            failure tint when the run failed so the disclaimer doubles as
-            a quiet negative signal. */}
+        {/* DISCLAIMER — same padding/tone as the draft surface so the
+            footer strip matches across states (no height jump). */}
         <div
           className={cn(
-            "flex items-center gap-1.5 border-t border-border/40 px-6 py-2.5",
+            "flex items-center gap-1.5 border-t border-border/40 px-5 py-1.5",
             isFailed
               ? "bg-rose-50/40 dark:bg-rose-500/[0.04]"
               : "bg-amber-50/40 dark:bg-amber-500/[0.04]",
@@ -169,7 +186,7 @@ export function InlineRunCard({
           />
           <p
             className={cn(
-              "text-[11px] leading-snug",
+              "text-[10.5px] leading-snug",
               isFailed
                 ? "text-rose-700/90 dark:text-rose-300/90"
                 : "text-amber-700/90 dark:text-amber-300/90",
@@ -219,19 +236,21 @@ function InlineStepRow({
   // Pending/skipped keep the neutral tile shell.
   const tileStyle: React.CSSProperties = (() => {
     if (isSucceeded || isRunning) {
-      return {
-        borderColor: `${BRAND_GREEN}66`,
-        backgroundColor: `${BRAND_GREEN}14`,
-      };
+      // No border on active tiles — just the soft tint.
+      return { backgroundColor: `${BRAND_GREEN}14` };
     }
     return {};
   })();
 
+  // Active rows (succeeded / running) skip the outline — they read as
+  // soft tinted tiles instead of bordered cards so the column doesn't
+  // feel like 4 stacked sub-cards. Pre-run, failed, and awaiting
+  // states keep their border so the state still announces itself.
   const tileClass = cn(
-    "flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors",
-    !isSucceeded && !isRunning && !isFailed && !isAwaiting && "border-border/50 bg-card",
-    isFailed && "border-rose-500/40 bg-rose-50/60 dark:border-rose-500/30 dark:bg-rose-500/[0.06]",
-    isAwaiting && "border-amber-500/40 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/[0.06]",
+    "flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 transition-colors",
+    !isSucceeded && !isRunning && !isFailed && !isAwaiting && "border border-border/50 bg-card",
+    isFailed && "border border-rose-500/40 bg-rose-50/60 dark:border-rose-500/30 dark:bg-rose-500/[0.06]",
+    isAwaiting && "border border-amber-500/40 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/[0.06]",
     isSkipped && "opacity-60",
   );
 
@@ -241,11 +260,43 @@ function InlineStepRow({
       : {};
 
   const iconChipClass = cn(
-    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
     !isSucceeded && !isRunning && !isFailed && !isAwaiting && "bg-muted/70 text-muted-foreground",
     isFailed && "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400",
     isAwaiting && "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
   );
+
+  // Computed elapsed/attempts text — preserved here as the indicator's
+  // accessible title so the step's timing info isn't lost when the
+  // sub-line collapses into a single-icon indicator.
+  const seconds = elapsedSeconds(step);
+  const statusTooltip = (() => {
+    switch (step.status) {
+      case "succeeded":
+        return [
+          "Succeeded",
+          seconds !== null ? `${seconds}s` : null,
+          step.attempts > 1 ? `${step.attempts} attempts` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      case "running":
+        return "Running…";
+      case "failed":
+        return [
+          "Failed",
+          step.attempts > 1 ? `${step.attempts} attempts` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      case "awaiting_approval":
+        return "Awaiting approval";
+      case "skipped":
+        return "Skipped";
+      default:
+        return undefined;
+    }
+  })();
 
   return (
     <li
@@ -259,79 +310,89 @@ function InlineStepRow({
       }}
     >
       <span aria-hidden="true" className={iconChipClass} style={iconChipStyle}>
-        <StepIcon name={iconName} className="h-4 w-4" />
+        <StepIcon name={iconName} className="h-3.5 w-3.5" />
       </span>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      {/* Step label — single-line. Status info collapses into a small
+          right-aligned indicator below so the row height matches
+          DraftStepRow (no extra sub-line eating vertical space). */}
+      <div className="flex min-w-0 flex-1 items-center">
         <span
           className={cn(
-            "truncate text-[13px] font-medium tracking-tight text-foreground",
+            "truncate text-[12.5px] font-medium tracking-tight text-foreground",
             isSkipped && "italic text-muted-foreground",
           )}
         >
           {label}
         </span>
-        {!isPending && (
-          <StepStatusLine
-            step={step}
-            brandGreen={BRAND_GREEN}
-          />
-        )}
       </div>
+
+      <InlineStepStatusIndicator
+        step={step}
+        brandGreen={BRAND_GREEN}
+        tooltip={statusTooltip}
+      />
     </li>
   );
 }
 
-function StepStatusLine({
+/** Right-aligned status icon — replaces the old sub-line so the row
+ *  stays single-line. Each state gets a tone-matched icon; the
+ *  human-readable status (including timing / attempt count) rides as
+ *  `title` and aria-label so the data isn't lost. */
+function InlineStepStatusIndicator({
   step,
   brandGreen,
+  tooltip,
 }: {
   step: RunStep;
   brandGreen: string;
+  tooltip?: string;
 }): React.ReactElement | null {
-  const baseClass = "inline-flex items-center gap-1 text-[11px]";
-
+  const iconBase = "h-3.5 w-3.5 shrink-0";
   switch (step.status) {
-    case "succeeded": {
-      const seconds = elapsedSeconds(step);
+    case "succeeded":
       return (
-        <span className={baseClass} style={{ color: brandGreen }}>
-          <CheckCircle2 className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden="true" />
-          Succeeded
-          {seconds !== null && ` · ${seconds}s`}
-          {step.attempts > 1 && ` · ${step.attempts} attempts`}
-        </span>
+        <CheckCircle2
+          className={iconBase}
+          strokeWidth={2.25}
+          style={{ color: brandGreen }}
+          aria-label={tooltip ?? "Succeeded"}
+        >
+          <title>{tooltip ?? "Succeeded"}</title>
+        </CheckCircle2>
       );
-    }
     case "running":
       return (
-        <span className={baseClass} style={{ color: brandGreen }}>
-          <Loader2
-            className="h-3 w-3 shrink-0 animate-spin"
-            strokeWidth={2.25}
-            aria-hidden="true"
-          />
-          Running…
-        </span>
+        <Loader2
+          className={cn(iconBase, "animate-spin")}
+          strokeWidth={2.25}
+          style={{ color: brandGreen }}
+          aria-label="Running"
+        />
       );
     case "failed":
       return (
-        <span className={`${baseClass} text-rose-700 dark:text-rose-400`}>
-          <XCircle className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden="true" />
-          Failed
-          {step.attempts > 1 && ` · ${step.attempts} attempts`}
-        </span>
+        <XCircle
+          className={cn(iconBase, "text-rose-700 dark:text-rose-400")}
+          strokeWidth={2.25}
+          aria-label={tooltip ?? "Failed"}
+        />
       );
     case "awaiting_approval":
       return (
-        <span className={`${baseClass} text-amber-700 dark:text-amber-400`}>
-          <PauseCircle className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden="true" />
-          Awaiting approval
-        </span>
+        <PauseCircle
+          className={cn(iconBase, "text-amber-700 dark:text-amber-400")}
+          strokeWidth={2.25}
+          aria-label="Awaiting approval"
+        />
       );
     case "skipped":
       return (
-        <span className={`${baseClass} text-muted-foreground/70`}>Skipped</span>
+        <span
+          aria-label="Skipped"
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50"
+        />
       );
     default:
       return null;
@@ -405,16 +466,16 @@ function InlineRunCardSkeleton(): React.ReactElement {
   return (
     <div
       data-testid="inline-run-skeleton"
-      className="my-2 w-full max-w-[440px] rounded-3xl border border-border/50 bg-card px-6 py-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
+      className="mb-2 mt-1 w-full max-w-[388px] rounded-3xl border border-border/50 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
     >
       <div className="flex items-center justify-between">
         <Skeleton className="h-5 w-20 rounded-md" />
         <Skeleton className="h-6 w-16 rounded-full" />
       </div>
-      <Skeleton className="mt-5 h-6 w-3/4 rounded-md" />
-      <div className="mt-5 space-y-2">
+      <Skeleton className="mt-2 h-5 w-3/4 rounded-md" />
+      <div className="mt-3 space-y-1.5">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-14 w-full rounded-xl" />
+          <Skeleton key={i} className="h-10 w-full rounded-xl" />
         ))}
       </div>
     </div>

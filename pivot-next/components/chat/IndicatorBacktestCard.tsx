@@ -236,7 +236,7 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
 
   return (
     <div
-      className="my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card px-6 pt-6 pb-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
+      className="mb-2 mt-1 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card px-6 pt-6 pb-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
       data-testid="indicator-backtest-card"
       role="region"
       aria-label={`Indicator backtest ${symbol}`}
