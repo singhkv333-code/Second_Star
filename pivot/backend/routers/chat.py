@@ -42,9 +42,40 @@ class ChatRequest(BaseModel):
     # the matching family — bypassing the keyword classifier. None
     # means "let the classifier decide", which is the default.
     mode: Optional[str] = None              # "automation" | "agent" | "backtest"
+    # Reply-by-selecting: when the user highlights a snippet of a prior
+    # assistant answer and replies to it, the FE sends the highlighted
+    # excerpt here. We weave it into the current user message so the LLM
+    # knows precisely what is being replied to. None / empty = no quote.
+    quoted_text: Optional[str] = None
 
 
 # ---- Helpers -----------------------------------------------------------
+
+
+# Hard cap on the quoted excerpt we inline into the prompt — a guard
+# against a runaway selection blowing up the context window.
+_MAX_QUOTE_CHARS = 2000
+
+
+def _with_reply_context(message: str, quoted_text: Optional[str]) -> str:
+    """Prefix `message` with the assistant excerpt the user is replying to.
+
+    Returns `message` unchanged when there's no quote. The excerpt is
+    rendered as a markdown blockquote so the model reads it as "the thing
+    being replied to", not as a new instruction.
+    """
+    quote = (quoted_text or "").strip()
+    if not quote:
+        return message
+    if len(quote) > _MAX_QUOTE_CHARS:
+        quote = quote[:_MAX_QUOTE_CHARS].rstrip() + " …"
+    quoted_block = "\n".join(f"> {line}" for line in quote.splitlines())
+    return (
+        "The user highlighted this excerpt from your previous reply and is "
+        "responding to it specifically:\n\n"
+        f"{quoted_block}\n\n"
+        f"Their reply:\n{message}"
+    )
 
 
 def _auth(authorization: str) -> int:
@@ -403,8 +434,12 @@ async def chat(
         and m.get("content")
     ][:-1]                                    # drop the just-arrived user msg
 
+    # Reply-by-selecting: weave the highlighted excerpt into the message
+    # the LLM sees (slash shortcuts above already ran on the raw text).
+    llm_msg = _with_reply_context(last_msg, request.quoted_text)
+
     turn = await _chat_service.handle(
-        last_msg, conv_id, ctx,
+        llm_msg, conv_id, ctx,
         # Always pass the FE's history (even when empty) — this is the
         # session boundary signal. None would re-hydrate from Redis.
         history_override=history,
@@ -544,8 +579,11 @@ async def chat_stream(
             yield f"data: {json.dumps(done_event, default=str)}\n\n"
             return
         try:
+            # Reply-by-selecting: inline the highlighted excerpt for the
+            # LLM (the slash shortcut above ran on the raw text).
+            llm_msg = _with_reply_context(last_msg, request.quoted_text)
             async for event in _chat_service.handle_stream(
-                last_msg, conv_id, ctx,
+                llm_msg, conv_id, ctx,
                 history_override=history,  # always honour FE-sent window
                 mode_override=request.mode,
             ):

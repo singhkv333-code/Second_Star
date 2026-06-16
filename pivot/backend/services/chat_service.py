@@ -8166,16 +8166,25 @@ def _format_recoverable_failure_question(
         # curated universe, and (3) only name a token the user actually
         # typed — never a filler word.
         sym = _extract_user_symbol(user_message)
+        # A market-overview / index ask ("tell me about the market today",
+        # "how's the market") has NO single ticker to name. The old reply
+        # here — "give me an NSE ticker, Pivot covers NSE-listed equities
+        # only" — was wrong on both counts: it treated a broad-market ask
+        # as a failed single-stock quote, AND it claimed an NSE-only scope
+        # that isn't true (Kite spans NSE + BSE + F&O; the yfinance
+        # fallback still covers the indices). Treat a no-symbol failure as
+        # a transient feed issue, not a user error.
         if sym is None:
             return (
-                "I couldn't pull a live quote just now. Tell me the NSE "
-                "ticker (e.g. TATAMOTORS, INFY) and I'll try again — "
-                "Pivot covers NSE-listed equities and indices."
+                "I couldn't pull the live market level just now — the "
+                "quote feed is momentarily unavailable. Give it a few "
+                "seconds and try again, or name a specific stock or index "
+                "(e.g. NIFTY, RELIANCE) if you wanted one in particular."
             )
         return (
-            f"I couldn't find price data for `{sym}` on NSE. Double-"
-            f"check the ticker spelling — Pivot covers NSE-listed "
-            f"equities only."
+            f"I couldn't pull price data for `{sym}` just now — double-"
+            f"check the ticker, or try again in a moment if the quote "
+            f"feed is momentarily unavailable."
         )
     return _LLM_CLARIFY_SENTINEL
 

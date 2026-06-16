@@ -336,6 +336,37 @@ _RULES: list[_Rule] = [
         "propose_workflow", "propose_dsl_workflow",
     ),
 
+    # ── Broad MARKET OVERVIEW intent ───────────────────────────────
+    # "tell me about the market today", "how's the market", "market
+    # update / overview / wrap", "what are the markets doing", "how did
+    # the market do today" — these mean the BROAD market (indices +
+    # breadth), NOT a single stock and NOT a clarification.
+    #
+    # WHY this rule is load-bearing: `select_tool_names` UNIONS every
+    # matching rule, and before this existed "tell me about the market
+    # today" matched ONLY the single-stock analysis rule below — so it
+    # got a toolset with get_live_price + fundamentals but NO
+    # get_index_level / get_top_movers. With the overview tools missing,
+    # the model non-deterministically either tried get_live_price (which
+    # failed → the "give me an NSE ticker" message) or asked "Nifty /
+    # Sensex or a specific stock?". Surfacing the index+movers+status
+    # tools here makes the overview chain available EVERY time, so the
+    # answer is deterministic. (See the matching directive in system.md.)
+    _r(
+        # overview verb/noun sitting near the word market(s)
+        r"\b(?:tell\s+me\s+about|how(?:'s|\s+is|\s+are|\s+did)|"
+        r"what(?:'s|\s+is|\s+are|\s+happened|\s+happening)|state\s+of|"
+        r"recap\s+of|overview\s+of|update\s+on|summary\s+of)\b"
+        r"[^.?!]{0,24}\bmarkets?\b"
+        # market(s) immediately followed by an overview noun / time word
+        r"|\bmarkets?\b\s*(?:today|now|update|overview|wrap|recap|summary|"
+        r"round[- ]?up|this\s+(?:morning|week)|doing|looking)\b"
+        # bare "the market today?" / "markets today" / "the markets?"
+        r"|^\s*(?:the\s+)?markets?(?:\s+today)?\s*\??\s*$",
+        "get_index_level", "get_top_movers", "get_market_status",
+        "get_symbol_news",
+    ),
+
     # ── Live price / quote / OHLC ──────────────────────────────────
     _r(
         r"\b(price|quote|snapshot|ltp|last\s+traded|how\s+(much|is)\s+\w+\s+trading"
@@ -434,7 +465,9 @@ _RULES: list[_Rule] = [
         r"|\bwhat\s+do\s+you\s+think\s+(?:about|of)\b"
         r"|\byour\s+(?:view|take|opinion|read|thoughts?)\s+on\b"
         r"|\bthoughts?\s+on\b"
-        r"|\btell\s+me\s+about\b"
+        # "tell me about <X>" is single-stock — but NOT "tell me about the
+        # market(s)", which the broad market-overview rule above owns.
+        r"|\btell\s+me\s+about\b(?!\s+(?:the\s+|all\s+)?markets?\b)"
         r"|\b(?:is|should\s+i\s+(?:buy|consider|look\s+at))\s+\w+\s+a?\s*"
         r"(?:buy|good|worth|investment)\b",
         "get_price_history", "get_52wk_range", "get_indicator",

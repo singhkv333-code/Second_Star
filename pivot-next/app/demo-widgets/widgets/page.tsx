@@ -6,7 +6,6 @@
  * anywhere; render-only, no API dependencies.
  */
 
-import { StockSnapshotCard } from "@/components/chat/StockSnapshotCard";
 import { WorkflowDraftCard, type WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
 
 const MOCK_DRAFT: WorkflowDraft = {
@@ -71,11 +70,6 @@ export default function DemoWidgets(): React.ReactElement {
       </h1>
 
       <div style={{ display: "flex", gap: 28, alignItems: "flex-start", flexWrap: "wrap" }}>
-        {/* StockSnapshotCard — fetches its own data; symbol drives it. */}
-        <div style={{ width: 520 }}>
-          <StockSnapshotCard symbol="RELIANCE" exchange="NSE" />
-        </div>
-
         {/* WorkflowDraftCard — mocked draft, no save/run side effects. */}
         <div style={{ width: 600 }}>
           <WorkflowDraftCard

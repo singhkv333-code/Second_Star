@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -19,9 +20,20 @@ type Props = {
  * react-markdown + remark-gfm and style each element via Tailwind so
  * the output matches the rest of the app (font, color tokens, spacing).
  */
-export default function AssistantMessage({ text, className }: Props): React.JSX.Element {
+/**
+ * Memoised so a parent re-render (market-data poll, hover state, the
+ * streaming elapsed counter, …) does NOT re-parse the markdown and
+ * replace the rendered text nodes. Stable DOM nodes are what let a
+ * user's text selection survive long enough to use the "reply by
+ * selecting" gesture — otherwise the selection collapses mid-render.
+ */
+function AssistantMessage({ text, className }: Props): React.JSX.Element {
   return (
     <div
+      // Marks this prose as a valid source for the "reply by selecting"
+      // gesture — ChatDemo's selection listener only surfaces the
+      // floating Reply button for text highlighted inside this element.
+      data-reply-source=""
       className={cn(
         // Base reading column — generous max-width so paragraphs breathe
         // but we don't fight the parent layout.
@@ -141,3 +153,5 @@ export default function AssistantMessage({ text, className }: Props): React.JSX.
     </div>
   );
 }
+
+export default memo(AssistantMessage);
