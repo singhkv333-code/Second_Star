@@ -109,10 +109,19 @@ const INR = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 2,
 });
 
+/** INR.format guarded against null/NaN — the quotes API returns NaN for
+ *  fields a source doesn't carry (52-week, prev close), which otherwise
+ *  render as "₹NaN". */
+function inrOrDash(n: number | null | undefined): string {
+  return n != null && Number.isFinite(n) ? INR.format(n) : "—";
+}
+
 function fmtCr(n: number | null): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  // Input is rupees. 1 Cr = 1e7, 1 K Cr (thousand crore) = 1e10,
+  // 1 L Cr (lakh crore) = 1e12.
   if (n >= 1e12) return `₹${(n / 1e12).toFixed(2)} L Cr`;
-  if (n >= 1e9) return `₹${(n / 1e9).toFixed(2)} K Cr`;
+  if (n >= 1e10) return `₹${(n / 1e10).toFixed(2)} K Cr`;
   if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
   return INR.format(n);
 }
@@ -411,6 +420,13 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         </div>
       </div>
 
+      {/* Performance — daily + 52-week price-within-range bars. Full width so
+          the two bars each keep a comfortable size side by side (the left
+          overview card was too narrow to fit both). */}
+      {quoteState.kind === "ok" && (
+        <PerformanceRanges quote={quoteState.quote} />
+      )}
+
       {/* Key Metrics — snapshot tiles from the financials DB. Skipped
           entirely when the symbol has no MC entry. */}
       {quoteState.kind === "ok" && financials && financials.available && (
@@ -641,7 +657,7 @@ function SectionLabel({ children }: { children: React.ReactNode }): React.ReactE
       className="m-0"
       style={{
         fontFamily: "var(--font-ui)",
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: 600,
         letterSpacing: "-0.01em",
         color: "var(--text-primary)",
@@ -717,10 +733,11 @@ const COMPANY_PROFILES: Record<string, CompanyProfile> = {
  *  columns sit beneath the facts table as a continuation of the same
  *  block. */
 function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElement {
+  // 52-week high/low and the day high/low now live in the Performance range
+  // bars below, so they're dropped from these columns (no duplication, and no
+  // "₹NaN" when a source omits the 52-week figures).
   const profile: { label: string; value: string }[] = [
     { label: "Market Cap", value: fmtCr(quote.market_cap) },
-    { label: "52W High", value: INR.format(quote.week_52_high) },
-    { label: "52W Low", value: INR.format(quote.week_52_low) },
     { label: "Volume", value: quote.volume.toLocaleString("en-IN") },
   ];
   const valuation: { label: string; value: string }[] = [
@@ -730,10 +747,8 @@ function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElemen
     { label: "EV/EBITDA", value: "—" },
   ];
   const day: { label: string; value: string }[] = [
-    { label: "Open", value: INR.format(quote.open) },
-    { label: "High", value: INR.format(quote.high) },
-    { label: "Low", value: INR.format(quote.low) },
-    { label: "Prev Close", value: INR.format(quote.close) },
+    { label: "Open", value: inrOrDash(quote.open) },
+    { label: "Prev Close", value: inrOrDash(quote.close) },
   ];
 
   return (
@@ -752,7 +767,7 @@ function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElemen
       >
         <StatColumn title="Profile" rows={profile} />
         <StatColumn title="Valuation (TTM)" rows={valuation} />
-        <StatColumn title="Day's Range" rows={day} />
+        <StatColumn title="Today" rows={day} />
       </div>
     </Card>
   );
@@ -915,6 +930,143 @@ function StatColumn({
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Performance — where the live price sits inside its daily and 52-week range.
+// The two ranges sit side by side. Each shows low/high labels + values with a
+// marker on a track at the current price; when a range has no data (e.g. a
+// missing 52-week high/low) it shows "—" and omits the marker rather than
+// disappearing, so the daily and 52-week bars always read as a pair.
+// ---------------------------------------------------------------------------
+
+function RangeBar({
+  lowLabel,
+  highLabel,
+  low,
+  high,
+  current,
+}: {
+  lowLabel: string;
+  highLabel: string;
+  low: number;
+  high: number;
+  current: number;
+}): React.ReactElement {
+  const valid = Number.isFinite(low) && Number.isFinite(high) && high > low;
+  const showMarker = valid && Number.isFinite(current);
+  const pct = showMarker
+    ? Math.min(100, Math.max(0, ((current - low) / (high - low)) * 100))
+    : 0;
+
+  const labelStyle: React.CSSProperties = {
+    fontFamily: "var(--font-ui)",
+    fontSize: 11.5,
+    color: "var(--text-tertiary)",
+  };
+  const valueStyle: React.CSSProperties = {
+    fontFamily: "var(--font-mono)",
+    fontSize: 14,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  };
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 3 }}>
+        <span style={labelStyle}>{lowLabel}</span>
+        <span style={labelStyle}>{highLabel}</span>
+      </div>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
+        <span className="tabular-nums" style={valueStyle}>{inrOrDash(low)}</span>
+        <span className="tabular-nums" style={valueStyle}>{inrOrDash(high)}</span>
+      </div>
+      <div style={{ position: "relative", height: 6 }}>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: 999,
+            background: "var(--bg-secondary)",
+          }}
+        />
+        {/* Up-pointing marker at the current price (only when in-range). */}
+        {showMarker && (
+          <div
+            style={{
+              position: "absolute",
+              top: -8,
+              left: `${pct}%`,
+              transform: "translateX(-50%)",
+              width: 0,
+              height: 0,
+              borderLeft: "5px solid transparent",
+              borderRight: "5px solid transparent",
+              borderBottom: "7px solid var(--text-secondary)",
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement | null {
+  const dayValid =
+    Number.isFinite(quote.low) && Number.isFinite(quote.high) && quote.high > quote.low;
+  const yearValid =
+    Number.isFinite(quote.week_52_low) &&
+    Number.isFinite(quote.week_52_high) &&
+    quote.week_52_high > quote.week_52_low;
+
+  if (!dayValid && !yearValid) return null;
+
+  return (
+    // Full-width section; 20px inset aligns with Key Metrics / Financial
+    // Performance below.
+    <div style={{ marginTop: 24, padding: "0 20px" }}>
+      <h2
+        className="m-0"
+        style={{
+          fontFamily: "var(--font-ui)",
+          fontSize: 14,
+          fontWeight: 600,
+          letterSpacing: "-0.01em",
+          color: "var(--text-primary)",
+          marginBottom: 16,
+        }}
+      >
+        Performance
+      </h2>
+      {/* Daily and 52-week ranges, each a comfortable fixed width, pushed to
+          opposite ends so the empty middle becomes the gap between them
+          (space-between) rather than dead space on the right. Wraps on narrow
+          screens. */}
+      <div
+        className="flex flex-wrap"
+        style={{ gap: 40, justifyContent: "space-between" }}
+      >
+        <div style={{ flex: "0 1 480px" }}>
+          <RangeBar
+            lowLabel="Today's low"
+            highLabel="Today's high"
+            low={quote.low}
+            high={quote.high}
+            current={quote.ltp}
+          />
+        </div>
+        <div style={{ flex: "0 1 480px" }}>
+          <RangeBar
+            lowLabel="52 week low"
+            highLabel="52 week high"
+            low={quote.week_52_low}
+            high={quote.week_52_high}
+            current={quote.ltp}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -1361,7 +1513,7 @@ function ChartCard({
       <div
         className="flex flex-wrap items-center"
         style={{
-          gap: 10,
+          gap: 8,
           padding: "0 18px 14px",
         }}
       >
@@ -1414,7 +1566,11 @@ function ChartCard({
           placeholder="Max Date"
           aria-label="Maximum date"
         />
-        <MetricSelector value={metric} onChange={setMetric} />
+        {/* Pushed to the right so its edge lines up with the search row's
+            right edge (the expand button) above. */}
+        <div style={{ marginLeft: "auto" }}>
+          <MetricSelector value={metric} onChange={setMetric} />
+        </div>
       </div>
 
       {/* ── Chart with end-label price tags ───────────────────────────── */}
@@ -1882,7 +2038,7 @@ function DateField({
         aria-expanded={open}
         aria-label={ariaLabel}
         style={{
-          width: 150,
+          width: 128,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -2307,7 +2463,7 @@ function MetricSelector({
           fontFamily: "var(--font-ui)",
           fontSize: 12,
           cursor: "pointer",
-          minWidth: 150,
+          minWidth: 124,
           justifyContent: "space-between",
         }}
       >
@@ -2703,7 +2859,9 @@ function KeyMetricsStrip({
   })();
 
   return (
-    <div style={{ marginTop: 24 }}>
+    // Horizontal padding matches the Financial Performance panel below so the
+    // heading + tiles line up with it (instead of sitting flush-left).
+    <div style={{ marginTop: 36, padding: "0 20px" }}>
       <div
         style={{
           display: "flex",
@@ -2716,7 +2874,7 @@ function KeyMetricsStrip({
           className="m-0"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: 600,
             letterSpacing: "-0.01em",
             color: "var(--text-primary)",
@@ -2796,8 +2954,16 @@ type FinPanelTab = "financials" | "pl";
 
 function parseFinVal(v: string | null | undefined): number | null {
   if (!v || v === "—") return null;
-  const n = parseFloat(v.replace(/[₹,KCrL%x\s]/g, ""));
-  return isNaN(n) ? null : n;
+  const num = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+  if (Number.isNaN(num)) return null;
+  // Re-apply the magnitude fmtCr() encoded as a suffix, normalised to ₹ Cr,
+  // so series with different suffixes (L Cr / K Cr / Cr) stay on one
+  // comparable scale — otherwise "7.00 L Cr" and "67.57 K Cr" parse to bare
+  // 7 vs 67.57 and the chart shows revenue as smaller than profit.
+  if (/L\s*Cr/.test(v)) return num * 1e5; // lakh crore → crore
+  if (/K\s*Cr/.test(v)) return num * 1e3; // thousand crore → crore
+  if (/Cr/.test(v)) return num; // already crore
+  return num; // plain number (EPS / %, not charted)
 }
 
 function fmtShort(n: number): string {
@@ -3093,7 +3259,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
+        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (
