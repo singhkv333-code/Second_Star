@@ -1480,7 +1480,7 @@ function ChartCard({
               {selectionInfo && (
                 <Area
                   dataKey="__selValue"
-                  type="monotone"
+                  type="linear"
                   fill={
                     selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
                       ? "var(--color-profit)"
@@ -1529,7 +1529,7 @@ function ChartCard({
               {tickers.map((sym) => (
                 <Line
                   key={sym}
-                  type="monotone"
+                  type="linear"
                   dataKey={sym}
                   name={sym}
                   stroke={colorFor(sym)}
@@ -2489,38 +2489,6 @@ function symbolSeed(s: string): number {
   return h >>> 0;
 }
 
-function buildFinancials(quote: StockQuote): FinancialRow[] {
-  const rng = mulberry32(symbolSeed(quote.symbol));
-  // Anchor the latest year's revenue near 1% of market cap so the
-  // numbers feel plausible relative to the price strip.
-  const latestRevenue = Math.max(
-    quote.market_cap !== null ? quote.market_cap * 0.012 : 1.5e11,
-    5e10,
-  );
-  const growth = 0.07 + rng() * 0.08; // 7–15% YoY
-  const revenues = FY_YEARS.map((_, i) => {
-    const yearsBack = FY_YEARS.length - 1 - i;
-    return latestRevenue / Math.pow(1 + growth, yearsBack);
-  });
-  const grossMargin = 0.32 + rng() * 0.18;
-  const opMargin = grossMargin - (0.06 + rng() * 0.05);
-  const netMargin = opMargin - (0.04 + rng() * 0.03);
-
-  const sharesOutstanding = 4e8 + rng() * 1e8;
-  const roe = 0.12 + rng() * 0.18; // 12–30%
-  const netMarginPct = netMargin * 100;
-  const grossMarginPct = grossMargin * 100;
-
-  return [
-    { label: "Revenue",      values: revenues.map((r) => fmtCr(r)) },
-    { label: "EBITDA",       values: revenues.map((r) => fmtCr(r * (opMargin + 0.04))) },
-    { label: "Net Income",   values: revenues.map((r) => fmtCr(r * netMargin)) },
-    { label: "EPS (₹)",      values: revenues.map((r) => ((r * netMargin) / sharesOutstanding).toFixed(2)) },
-    { label: "Gross Margin", values: FY_YEARS.map(() => fmtPct(grossMarginPct, false)) },
-    { label: "Net Margin",   values: FY_YEARS.map(() => fmtPct(netMarginPct, false)) },
-  ];
-}
-
 function buildProfitLoss(quote: StockQuote): FinancialRow[] {
   const rng = mulberry32(symbolSeed(quote.symbol) ^ 0xa1b2c3d4);
   const latestRevenue = Math.max(
@@ -2561,13 +2529,13 @@ function FinancialsTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildFinancialsFromDB(financials);
-    return buildFinancials(quote);
-  }, [quote, financials]);
+    if (financials?.available) return buildBalanceSheetFromDB(financials);
+    return buildBalanceSheetEstimate();
+  }, [financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
   return (
     <FinancialsLikeTable
-      title="Financials"
+      title="Balance Sheet"
       subtitle={source}
       rows={rows}
       minRows={minRows}
@@ -2591,7 +2559,7 @@ function ProfitLossTable({
   const source = financials?.available ? "Moneycontrol" : "placeholder";
   return (
     <FinancialsLikeTable
-      title="Profit & Loss"
+      title="Profit and Loss"
       subtitle={source}
       rows={rows}
       minRows={minRows}
@@ -2616,57 +2584,57 @@ function yearLabel(periodEnd: string | null): string {
   return `FY${y.slice(2)}`;
 }
 
-function buildFinancialsFromDB(f: FinancialsResponse): FinancialRow[] {
-  const revenue = f.history["revenue"] ?? [];
-  const op = f.history["operating_profit"] ?? [];
-  const net = f.history["net_profit"] ?? [];
-  const eps = f.history["eps_basic"] ?? [];
-  // Latest snapshot ratios are also rendered for at-a-glance ratios.
-  const opMarginLatest = f.latest["ebitda_margin"]?.value ?? null;
+// Shared period picker — match a history series to a fiscal-year label so
+// every series aligns to the FY_YEARS header (oldest → newest). No header
+// row is injected; the table renders the years itself.
+function pickByFY(
+  arr: FinancialsHistoryPoint[],
+  fy: string,
+): number | null {
+  const hit = arr.find((r) => r.period_end && yearLabel(r.period_end) === fy);
+  return hit?.value ?? null;
+}
 
-  // Header years: take the union of periods, newest first, capped at 5.
-  const yearsSet = new Set<string>();
-  [revenue, op, net, eps].forEach((arr) =>
-    arr.forEach((r) => r.period_end && yearsSet.add(r.period_end)),
-  );
-  const years = Array.from(yearsSet).sort().reverse().slice(0, 5);
-  const headerRow: FinancialRow = {
-    label: "",
-    values: years.map(yearLabel),
-  };
+function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
+  const equity = f.history["total_equity"] ?? [];
+  const reserves = f.history["reserves"] ?? [];
+  const debt = f.history["total_debt"] ?? [];
+  const bvps = f.history["book_value_per_share"] ?? [];
 
-  const pick = (arr: FinancialsHistoryPoint[], year: string): number | null => {
-    const hit = arr.find((r) => r.period_end === year);
-    return hit?.value ?? null;
-  };
+  return [
+    {
+      label: "Total Equity",
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(equity, fy))),
+    },
+    {
+      label: "Reserves",
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(reserves, fy))),
+    },
+    {
+      label: "Total Debt",
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(debt, fy))),
+    },
+    {
+      label: "Book Value / Share",
+      values: FY_YEARS.map((fy) => {
+        const v = pickByFY(bvps, fy);
+        return v === null ? "—" : `₹${v.toFixed(2)}`;
+      }),
+    },
+  ];
+}
 
-  const rows: FinancialRow[] = [headerRow];
-  rows.push({
-    label: "Revenue",
-    values: years.map((y) => fmtCrFromMC(pick(revenue, y))),
-  });
-  rows.push({
-    label: "Operating Profit",
-    values: years.map((y) => fmtCrFromMC(pick(op, y))),
-  });
-  rows.push({
-    label: "Net Profit",
-    values: years.map((y) => fmtCrFromMC(pick(net, y))),
-  });
-  rows.push({
-    label: "EPS (₹)",
-    values: years.map((y) => {
-      const v = pick(eps, y);
-      return v === null ? "—" : v.toFixed(2);
-    }),
-  });
-  rows.push({
-    label: "EBITDA Margin",
-    values: years.map((_, i) =>
-      i === 0 && opMarginLatest !== null ? fmtPct(opMarginLatest, false) : "—",
-    ),
-  });
-  return rows;
+// Estimated fallback for the Balance Sheet tab. We don't fabricate balance
+// sheets when the financials DB has no data — the line items show as
+// unavailable rather than inventing numbers.
+function buildBalanceSheetEstimate(): FinancialRow[] {
+  const dashes = FY_YEARS.map(() => "—");
+  return [
+    { label: "Total Equity", values: dashes },
+    { label: "Reserves", values: dashes },
+    { label: "Total Debt", values: dashes },
+    { label: "Book Value / Share", values: dashes },
+  ];
 }
 
 function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
@@ -2674,41 +2642,31 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
   const op = f.history["operating_profit"] ?? [];
   const net = f.history["net_profit"] ?? [];
   const interest = f.history["interest_expense"] ?? [];
-  const cfo = f.history["cash_from_ops"] ?? [];
-
-  const yearsSet = new Set<string>();
-  [revenue, op, net, interest, cfo].forEach((arr) =>
-    arr.forEach((r) => r.period_end && yearsSet.add(r.period_end)),
-  );
-  const years = Array.from(yearsSet).sort().reverse().slice(0, 5);
-  const headerRow: FinancialRow = { label: "", values: years.map(yearLabel) };
-
-  const pick = (arr: FinancialsHistoryPoint[], year: string): number | null => {
-    const hit = arr.find((r) => r.period_end === year);
-    return hit?.value ?? null;
-  };
+  const eps = f.history["eps_basic"] ?? [];
 
   return [
-    headerRow,
     {
       label: "Revenue",
-      values: years.map((y) => fmtCrFromMC(pick(revenue, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(revenue, fy))),
     },
     {
       label: "Operating Profit",
-      values: years.map((y) => fmtCrFromMC(pick(op, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(op, fy))),
     },
     {
       label: "Interest Expense",
-      values: years.map((y) => fmtCrFromMC(pick(interest, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(interest, fy))),
     },
     {
       label: "Net Profit",
-      values: years.map((y) => fmtCrFromMC(pick(net, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(net, fy))),
     },
     {
-      label: "Cash from Ops",
-      values: years.map((y) => fmtCrFromMC(pick(cfo, y))),
+      label: "EPS (₹)",
+      values: FY_YEARS.map((fy) => {
+        const v = pickByFY(eps, fy);
+        return v === null ? "—" : v.toFixed(2);
+      }),
     },
   ];
 }
@@ -2782,29 +2740,40 @@ function KeyMetricsStrip({
             <div
               key={t.key}
               style={{
-                background: "var(--bg-primary)",
-                border: "1px solid var(--glass-border)",
+                padding: "12px 14px",
+                background: "var(--bg-secondary)",
+                border: "none",
                 borderRadius: "var(--radius-md)",
-                padding: "10px 12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                transition: "background-color 0.2s var(--ease-quartr)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--bg-elevated)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--bg-secondary)";
               }}
             >
               <div
                 style={{
-                  fontSize: 10,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "var(--text-tertiary)",
-                  marginBottom: 4,
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12,
+                  fontWeight: "var(--weight-medium)" as unknown as number,
+                  color: "var(--text-primary)",
                 }}
               >
                 {t.label}
               </div>
               <div
                 style={{
-                  fontFamily: "var(--font-mono)",
+                  fontFamily: "var(--font-display)",
+                  fontWeight: "var(--weight-medium)" as unknown as number,
                   fontSize: 15,
-                  fontWeight: 600,
                   color: "var(--text-primary)",
+                  fontVariantNumeric: "tabular-nums",
+                  letterSpacing: "-0.01em",
                 }}
               >
                 {v && v.value !== null
@@ -2963,24 +2932,25 @@ function FinancialsPanel({
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
 
-  const finRows = useMemo(
-    () => financials?.available ? buildFinancialsFromDB(financials) : buildFinancials(quote),
-    [quote, financials],
+  // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
+  const bsRows = useMemo(
+    () => financials?.available ? buildBalanceSheetFromDB(financials) : buildBalanceSheetEstimate(),
+    [financials],
   );
   const plRows = useMemo(
     () => financials?.available ? buildProfitLossFromDB(financials) : buildProfitLoss(quote),
     [quote, financials],
   );
 
-  const rows = tab === "financials" ? finRows : plRows;
+  const rows = tab === "financials" ? bsRows : plRows;
   const source = financials?.available ? "Moneycontrol" : "Estimated";
 
   const getMetric = (label: string): (number | null)[] =>
     rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? FY_YEARS.map(() => null);
 
   const cfg = tab === "financials"
-    ? { a: "Revenue", b: "Net Income",         colorA: "#64748b", colorB: "#10b981" }
-    : { a: "Revenue", b: "Net Profit",          colorA: "#64748b", colorB: "#1b7cc7" };
+    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b" }
+    : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7" };
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -3007,7 +2977,7 @@ function FinancialsPanel({
                   borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
                   cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
                 }}>
-                  {t === "financials" ? "Financials" : "Profit & Loss"}
+                  {t === "financials" ? "Balance Sheet" : "Profit and Loss"}
                 </button>
               );
             })}

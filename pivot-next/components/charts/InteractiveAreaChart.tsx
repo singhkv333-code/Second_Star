@@ -29,7 +29,8 @@ type Props = {
   formatValue?: (v: number) => string;
   /** Format the tooltip date label. Defaults to the raw `t` string. */
   formatDate?: (iso: string) => string;
-  /** Render the curve as a smooth Catmull-Rom spline (default true). */
+  /** Render the curve as a smooth Catmull-Rom spline. Default false —
+   *  straight line segments, matching the other charts in the app. */
   smooth?: boolean;
   /** Show 4 horizontal gridlines + Y-axis labels on the right edge. */
   showGrid?: boolean;
@@ -139,7 +140,7 @@ export function InteractiveAreaChart({
   height = 200,
   formatValue,
   formatDate,
-  smooth = true,
+  smooth = false,
   showGrid = false,
   referenceY,
   enableRangeSelect = true,

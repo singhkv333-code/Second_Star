@@ -314,7 +314,8 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
           // merging can't reliably override. Keep these bounds in sync with
           // AGENT_PANEL_MIN_WIDTH (340) / AGENT_PANEL_DEFAULT_WIDTH (520).
           style={{ width: "clamp(340px, 25vw, 520px)", maxWidth: "100%" }}
-          className="flex flex-col gap-0 border-l bg-background p-0 shadow-xl [&>button.opacity-70]:hidden"
+          overlayClassName="backtest-sheet-overlay"
+          className="backtest-sheet-shell flex flex-col gap-0 border-l bg-background p-0 shadow-xl [&>button.opacity-70]:hidden"
         >
           <SheetTitle className="sr-only">{titleFor(payload)}</SheetTitle>
           {/* Header bar — same rhythm as AgentPanel's header (borderless). */}

@@ -1,7 +1,8 @@
 // @ts-nocheck — exact 1:1 port from frontend-quartr/.../ScreenerPage.jsx;
 // type-checking is suppressed so the file matches the source verbatim.
 "use client";
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import {
   STOCKS, SECTORS, MARKET_CAP_TIERS,
@@ -416,6 +417,15 @@ export function ScreenerPage() {
         gap: 16,
         padding: '0 32px 24px',
       }}>
+        {/* Mobile-only dim backdrop — tap to dismiss the filter sheet.
+            Only rendered while open; CSS hides it on desktop regardless. */}
+        {mobileFiltersOpen && (
+          <div
+            className="screener-filter-backdrop"
+            onClick={() => setMobileFiltersOpen(false)}
+            aria-hidden="true"
+          />
+        )}
         <FilterRail
           screenId={screenId}
           filters={filters}
@@ -424,6 +434,7 @@ export function ScreenerPage() {
           reset={reset}
           mobileOpen={mobileFiltersOpen}
           onMobileClose={() => setMobileFiltersOpen(false)}
+          resultCount={results.length}
         />
 
         <ResultsTable
@@ -535,76 +546,65 @@ function WatchlistStrip() {
 }
 
 // ── Filter rail ──────────────────────────────────────────
-function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobileOpen, onMobileClose }) {
-  return (
-    <aside
-      id="screener-filter-rail"
-      className="screener-filter-rail quartr-no-scrollbar"
-      data-mobile-open={mobileOpen ? 'true' : 'false'}
-      style={{
-        minHeight: 0,
-        // Scroll inside its own column so the lower filters (Momentum …)
-        // are always reachable instead of being clipped by the page's
-        // overflow:hidden when the rail is taller than the viewport.
-        overflowY: 'auto',
-        background: 'var(--bg-primary)',
-        border: 'none',
-        borderRadius: 'var(--radius-md)',
-        padding: 16,
-        display: 'flex', flexDirection: 'column', gap: 13,
-      }}
-    >
+function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobileOpen, onMobileClose, resultCount }) {
+  // Portals need the DOM — only mount the sheet client-side.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const headerEl = (
+    <div className="screener-filter-header" style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    }}>
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        fontFamily: 'var(--font-display)',
+        fontWeight: 'var(--weight-display)',
+        fontSize: 15,
+        color: 'var(--text-primary)',
+        letterSpacing: '-0.01em',
       }}>
-        <div style={{
-          fontFamily: 'var(--font-display)',
-          fontWeight: 'var(--weight-display)',
-          fontSize: 13,
-          color: 'var(--text-primary)',
-          letterSpacing: '-0.01em',
-        }}>
-          Filters
-        </div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={reset} style={{
+        Filters
+      </div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+        <button onClick={reset} style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          fontFamily: 'var(--font-ui)',
+          fontSize: 12,
+          color: 'var(--text-tertiary)',
+        }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+        >
+          Reset
+        </button>
+        {/* Mobile-only close — the sheet's dismiss affordance. CSS hides
+            it on the desktop in-grid rail. */}
+        <button
+          type="button"
+          className="screener-filter-close"
+          onClick={onMobileClose}
+          aria-label="Hide filters"
+          style={{
+            display: 'none',
+            width: 28, height: 28,
+            alignItems: 'center', justifyContent: 'center',
             background: 'transparent',
             border: 'none',
-            padding: 0,
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--text-secondary)',
             cursor: 'pointer',
-            fontFamily: 'var(--font-ui)',
-            fontSize: 11.5,
-            color: 'var(--text-tertiary)',
           }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-          >
-            Reset
-          </button>
-          {/* Mobile-only close — keyboard/screen-reader path to dismiss
-              the rail without scrolling back up to the slider icon.
-              CSS hides this on desktop where the rail is always pinned. */}
-          <button
-            type="button"
-            className="screener-filter-close"
-            onClick={onMobileClose}
-            aria-label="Hide filters"
-            style={{
-              display: 'none',
-              width: 28, height: 28,
-              alignItems: 'center', justifyContent: 'center',
-              background: 'transparent',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-            }}
-          >
-            <X size={16} strokeWidth={2} aria-hidden="true" />
-          </button>
-        </div>
+        >
+          <X size={16} strokeWidth={2} aria-hidden="true" />
+        </button>
       </div>
+    </div>
+  );
 
+  const groupsEl = (
+    <>
       {screenId === 'stocks' && (
         <>
           <FilterGroup label="Sector">
@@ -631,8 +631,14 @@ function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobil
                   && String(filters.mcap_max) === String(expMax);
                 return (
                   <button key={id} onClick={() => {
-                    setFilter('mcap_min', expMin);
-                    setFilter('mcap_max', expMax);
+                    if (active) {
+                      // Clicking the already-selected tier toggles it off.
+                      setFilter('mcap_min', '');
+                      setFilter('mcap_max', '');
+                    } else {
+                      setFilter('mcap_min', expMin);
+                      setFilter('mcap_max', expMax);
+                    }
                   }} style={{
                     ...tierBtnStyle,
                     background: active ? 'var(--text-primary)' : 'transparent',
@@ -735,6 +741,56 @@ function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobil
           </FilterGroup>
         </>
       )}
+    </>
+  );
+
+  // Mobile: portal a bottom sheet to <body> so an ancestor `transform`
+  // can't trap position:fixed (the in-grid rail otherwise anchors mid-page
+  // and the scrim fails to cover the viewport). This is the same reason
+  // the agent editor renders its overlay at the root.
+  if (mobileOpen && mounted) {
+    return createPortal(
+      <div className="screener-sheet-overlay" role="dialog" aria-modal="true" aria-label="Filters">
+        <div className="screener-filter-backdrop" onClick={onMobileClose} aria-hidden="true" />
+        <aside className="screener-filter-sheet">
+          <div className="screener-sheet-handle" aria-hidden="true" />
+          {headerEl}
+          <div className="screener-sheet-body quartr-no-scrollbar">
+            {groupsEl}
+          </div>
+          <button
+            type="button"
+            className="screener-sheet-apply"
+            onClick={onMobileClose}
+          >
+            Show {resultCount} {resultCount === 1 ? 'result' : 'results'}
+          </button>
+        </aside>
+      </div>,
+      document.body,
+    );
+  }
+
+  // Desktop / collapsed: in-grid rail (CSS hides it at <lg).
+  return (
+    <aside
+      id="screener-filter-rail"
+      className="screener-filter-rail quartr-no-scrollbar"
+      style={{
+        minHeight: 0,
+        // Scroll inside its own column so the lower filters (Momentum …)
+        // are always reachable instead of being clipped by the page's
+        // overflow:hidden when the rail is taller than the viewport.
+        overflowY: 'auto',
+        background: 'var(--bg-primary)',
+        border: 'none',
+        borderRadius: 'var(--radius-md)',
+        padding: 16,
+        display: 'flex', flexDirection: 'column', gap: 13,
+      }}
+    >
+      {headerEl}
+      {groupsEl}
     </aside>
   );
 }

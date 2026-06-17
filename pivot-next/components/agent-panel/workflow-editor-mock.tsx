@@ -432,7 +432,7 @@ export function WorkflowEditorMock({
           flow terminates in a connected dashed "Add step" node so there's
           never a disconnected button floating in empty space. */}
       <div className="flex flex-1 min-h-0 flex-col border-t border-border/40 bg-muted/20">
-        <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="flex flex-1 flex-col overflow-y-auto px-5 py-5">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -450,21 +450,27 @@ export function WorkflowEditorMock({
                       catalogEntry={findStepType(catalog, step.step_type)}
                       onConfigure={() => setEditingStepId(step.id)}
                     />
-                    <FlowConnector
-                      onInsert={() => setPickerInsertIndex(i + 1)}
-                    />
+                    {/* Connector only between steps — never trailing past the
+                        last one, since the Add button is pinned to the bottom. */}
+                    {i < workflow.steps.length - 1 && (
+                      <FlowConnector
+                        onInsert={() => setPickerInsertIndex(i + 1)}
+                      />
+                    )}
                   </li>
                 ))}
               </ol>
             </SortableContext>
           </DndContext>
 
-          {/* Terminal node — the trailing connector above flows into this. */}
+          {/* Terminal node — pinned near the bottom of the scroll area via
+              mt-auto so it sits low regardless of step count, yet collapses
+              and scrolls naturally once the steps overflow the viewport. */}
           <button
             type="button"
             onClick={() => setPickerInsertIndex(workflow.steps.length)}
             data-testid="add-step-button"
-            className="flex h-12 w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
+            className="mt-auto flex h-12 w-full shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}

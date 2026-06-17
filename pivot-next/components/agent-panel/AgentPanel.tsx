@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { AlertCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -16,9 +16,11 @@ export const AGENT_PANEL_MIN_WIDTH = 340;
 export const AGENT_PANEL_MAX_WIDTH = 920;
 export const AGENT_PANEL_DEFAULT_WIDTH = 520;
 
-const MIN_WIDTH = AGENT_PANEL_MIN_WIDTH;
-const MAX_WIDTH = AGENT_PANEL_MAX_WIDTH;
-const DEFAULT_WIDTH = AGENT_PANEL_DEFAULT_WIDTH;
+// Fixed (non-resizable) panel width on desktop — kept in lockstep with the
+// Backtest sheet's `clamp(340px, 25vw, 520px)` so the two side panels are
+// always exactly the same width on any screen. The <lg overrides (100vw /
+// tablet 50vw) live in globals.css.
+const PANEL_WIDTH = "clamp(340px, 25vw, 520px)";
 
 export type AgentPanelProps = {
   open: boolean;
@@ -30,24 +32,19 @@ export type AgentPanelProps = {
    * - AgentsTab row click (saved workflow, has id)
    */
   initialWorkflow?: Workflow;
-  /** Controlled width. When provided, the panel renders at this width and
-   * notifies the parent through `onWidthChange` so the parent can reserve
-   * matching space in its own layout (avoid panel-over-content overlap). */
-  width?: number;
-  onWidthChange?: (width: number) => void;
 };
 
 /**
  * Persistent right-side drawer for the Agent System UI.
  *
  * Why custom (not shadcn `Sheet`)? Sheet is modal — overlay + focus trap +
- * unmount on close. We need a *persistent* side panel that coexists with
- * the chat, with a draggable left edge to resize. ARCHITECTURE.md §11
- * called this out explicitly.
+ * unmount on close. This panel matches that modal behaviour but stays a
+ * hand-rolled overlay so its width can be pinned to the exact same value as
+ * the Backtest sheet (`PANEL_WIDTH`).
  *
  * Behaviors:
  * - Esc closes (per spec keyboard support).
- * - Left edge is a draggable resize handle (clamped to MIN/MAX).
+ * - Fixed width (no resize) — identical to the Backtest panel on every screen.
  * - Mounts WorkflowEditorMock once the catalog loads; renders skeleton
  *   while loading and a typed error state if the catalog fetch fails.
  */
@@ -55,19 +52,7 @@ export function AgentPanel({
   open,
   onOpenChange,
   initialWorkflow,
-  width: controlledWidth,
-  onWidthChange,
 }: AgentPanelProps): React.ReactElement | null {
-  const [internalWidth, setInternalWidth] = useState(DEFAULT_WIDTH);
-  const width = controlledWidth ?? internalWidth;
-  const setWidth = useCallback(
-    (next: number) => {
-      if (controlledWidth === undefined) setInternalWidth(next);
-      onWidthChange?.(next);
-    },
-    [controlledWidth, onWidthChange],
-  );
-  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
 
   // Esc-to-close.
@@ -83,40 +68,6 @@ export function AgentPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onOpenChange]);
 
-  // Click-outside-to-close was removed when the shell started reserving
-  // `paddingRight` on the body to host the panel as a true side-by-side
-  // surface: the chat composer + cards are visible next to the editor, and
-  // every click there would otherwise dismiss the editor. The Esc key
-  // listener + the header X button remain the supported close affordances.
-
-  const onPointerMove = useCallback((e: PointerEvent) => {
-    if (!dragState.current) return;
-    const delta = dragState.current.startX - e.clientX;
-    const next = clamp(
-      dragState.current.startWidth + delta,
-      MIN_WIDTH,
-      MAX_WIDTH,
-    );
-    setWidth(next);
-  }, []);
-
-  const onPointerUp = useCallback(() => {
-    dragState.current = null;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup", onPointerUp);
-  }, [onPointerMove]);
-
-  const onResizeStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    dragState.current = { startX: e.clientX, startWidth: width };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-  };
-
   if (!open) return null;
 
   // Every agent editor — a chat draft, or an active/paused agent opened from
@@ -128,7 +79,7 @@ export function AgentPanel({
       <div
         aria-hidden="true"
         onClick={() => onOpenChange(false)}
-        className="fixed inset-0 z-40 bg-black/60 animate-in fade-in-0"
+        className="agent-panel-backdrop fixed inset-0 z-40 bg-black/60 animate-in fade-in-0"
         data-testid="agent-panel-backdrop"
       />
       <aside
@@ -137,30 +88,20 @@ export function AgentPanel({
       aria-label="Agent panel"
       aria-modal="true"
       style={{
-        width,
+        width: PANEL_WIDTH,
+        maxWidth: "100%",
         top: 0,
         animation:
           "agentPanelIn-quartr 300ms cubic-bezier(0.22, 1, 0.36, 1) both",
       }}
       className={cn(
-        // Covers full height and sits above the backdrop scrim.
+        // Covers full height and sits above the backdrop scrim. Fixed width
+        // (PANEL_WIDTH) matches the Backtest sheet exactly. The mobile/tablet
+        // overrides (100vw / 50vw) live in globals.css.
         "agent-panel-shell fixed bottom-0 right-0 z-50 flex border-l bg-background shadow-xl",
-        // Desktop sizing constraints; mobile override lives in globals.css
-        // (forces 100vw and ignores the inline width so the panel becomes
-        // a full-screen sheet at <lg).
-        "lg:min-w-[340px] lg:max-w-[920px]",
       )}
       data-testid="agent-panel"
     >
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize agent panel"
-        onPointerDown={onResizeStart}
-        className="absolute inset-y-0 left-0 w-1 cursor-col-resize bg-transparent transition-colors hover:bg-primary/40"
-        data-testid="agent-panel-resize-handle"
-      />
-
       <div className="flex h-full w-full flex-col">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center">
@@ -235,8 +176,4 @@ function AgentPanelBody({
       catalog={state.catalog}
     />
   );
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }

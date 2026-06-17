@@ -29,7 +29,9 @@ import {
   ChevronLeft,
   ExternalLink,
   FileText,
+  FlaskConical,
   HelpCircle,
+  Info,
   Keyboard,
   KeyRound,
   LogOut,
@@ -43,7 +45,6 @@ import {
   Settings,
   ShieldCheck,
   Sun,
-  Wallet,
   X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -51,23 +52,35 @@ import {
   KiteCredentialsPanel,
   type KiteOAuthResult,
 } from "@/components/KiteCredentialsPanel";
-import { AgentPanel, AGENT_PANEL_DEFAULT_WIDTH } from "@/components/agent-panel/AgentPanel";
+import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
-import { PaperDashboard } from "@/components/paper/PaperDashboard";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { DashboardTab } from "@/components/DashboardTab";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   getPortfolioSummary,
   getWorkflow,
   listConversations,
+  setAccountMode,
   type PortfolioSummary,
 } from "@/lib/api";
 import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
+import {
+  getTradingMode,
+  setTradingMode,
+  type TradingMode,
+} from "@/lib/trading-mode";
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -76,7 +89,6 @@ import { isError } from "@/lib/types";
 type TabKey =
   | "chat"
   | "portfolio"
-  | "paper"
   | "agents"
   | "calendar"
   | "screener";
@@ -88,7 +100,6 @@ const NAV_ITEMS: {
 }[] = [
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
-  { key: "paper", label: "Paper", Icon: Wallet },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
@@ -206,29 +217,18 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [active, setActive] = useState<TabKey>(DEFAULT_TAB);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(undefined);
-  // Track the right-side AgentPanel's width here so the main pane can reserve
-  // matching padding-right when the panel is open — keeps chat and editor
-  // side-by-side instead of letting the panel overlap the chat column.
-  const [panelWidth, setPanelWidth] = useState(AGENT_PANEL_DEFAULT_WIDTH);
-  // The panel's default width (520px) was tuned on a 2560px design canvas.
-  // On narrower screens that fixed width dominates the viewport (e.g. a
-  // ~15" 1920px laptop), so on mount we scale the default down to ~25vw —
-  // ≈480px at 1920, back up to the 520px design value at 2560, capped there.
-  // Runs once; a manual drag (setPanelWidth) afterwards is preserved.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const proportional = Math.min(
-      AGENT_PANEL_DEFAULT_WIDTH,
-      Math.max(340, Math.round(window.innerWidth * 0.25)),
-    );
-    setPanelWidth(proportional);
-  }, []);
+  // The AgentPanel renders as a modal overlay at a fixed width (matched to
+  // the Backtest sheet via CSS clamp inside AgentPanel) — no width state or
+  // side-by-side padding to track here.
   const [kitePanelOpen, setKitePanelOpen] = useState(false);
   const [kiteOauthResult, setKiteOauthResult] = useState<KiteOAuthResult | null>(
     null,
   );
   const [metrics, setMetrics] = useState<MetricState>({ kind: "loading" });
   const [theme, setTheme] = useState<Theme>("system");
+  // Global trading mode (real/live vs paper). Mirrors the persisted store so
+  // the toggle + banner re-render; the data layer reads the store directly.
+  const [tradingMode, setTradingModeState] = useState<TradingMode>("real");
   const [conversations, setConversations] = useState<ConvEntry[]>([]);
   // First letter of the signed-in user's name/email — used for the
   // avatar initial in the topbar (Quartr's TopHeader.jsx pattern).
@@ -253,6 +253,14 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     const initial = readStoredTheme() ?? "system";
     setTheme(initial);
     applyTheme(initial);
+
+    // Trading mode: adopt the persisted choice (default 'real') and reconcile
+    // the backend account mode to match, so order routing (`should_use_paper`)
+    // always agrees with what the banner/UI claims — a paper UI never places
+    // a live order and vice-versa.
+    const storedMode = getTradingMode();
+    setTradingModeState(storedMode);
+    void setAccountMode(storedMode === "real" ? "live" : "paper");
 
     // Load conversations from real backend
     void fetchConversations().then(setConversations);
@@ -360,7 +368,30 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     return () => {
       if (metricTimerRef.current) clearInterval(metricTimerRef.current);
     };
-  }, [active, loadMetrics]);
+    // `tradingMode` is included so the strip re-fetches (paper vs real) the
+    // instant the mode flips.
+  }, [active, tradingMode, loadMetrics]);
+
+  // Switch trading mode: optimistically flip the store (persists + notifies
+  // every useTradingMode subscriber), push the change to the backend account
+  // mode, and revert on failure so the UI never claims a mode the backend
+  // isn't actually in.
+  const chooseTradingMode = useCallback(
+    async (next: TradingMode): Promise<void> => {
+      const prev = getTradingMode();
+      if (next === prev) return;
+      setTradingMode(next);
+      setTradingModeState(next);
+      const res = await setAccountMode(next === "real" ? "live" : "paper");
+      if (isError(res)) {
+        setTradingMode(prev);
+        setTradingModeState(prev);
+        return;
+      }
+      loadMetrics();
+    },
+    [loadMetrics],
+  );
 
   const startNewChat = useCallback((): void => {
     setChatActive(false);
@@ -409,12 +440,18 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       <TopHeader
         theme={theme}
         onChooseTheme={chooseTheme}
+        tradingMode={tradingMode}
+        onChooseTradingMode={chooseTradingMode}
         metrics={metrics}
         accountInitial={accountInitial}
         onOpenKite={() => setKitePanelOpen(true)}
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onBrandClick={() => goTab("chat")}
       />
+
+      {/* Paper-mode banner — full-width, unmissable, on every page. Sits
+          between the header and the body so it spans sidebar + content. */}
+      {tradingMode === "paper" && <PaperModeBanner />}
 
       {/* Mobile nav backdrop — fades in behind the drawer; tap to close. */}
       {mobileNavOpen && (
@@ -509,12 +546,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
               <PortfolioTab />
             </div>
-          ) : active === "paper" ? (
-            // Paper Trading dashboard — the simulated portfolio (/paper/*).
-            // Owns its full pane height; sub-views + tables scroll inside.
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <PaperDashboard />
-            </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
               {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
@@ -542,8 +573,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         open={panelOpen}
         onOpenChange={setPanelOpen}
         initialWorkflow={panelWorkflow}
-        width={panelWidth}
-        onWidthChange={setPanelWidth}
       />
 
       <KiteCredentialsPanel
@@ -571,6 +600,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 function TopHeader({
   theme,
   onChooseTheme,
+  tradingMode,
+  onChooseTradingMode,
   metrics,
   accountInitial,
   onOpenKite,
@@ -579,6 +610,8 @@ function TopHeader({
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
+  tradingMode: TradingMode;
+  onChooseTradingMode: (m: TradingMode) => void;
   metrics: MetricState;
   accountInitial: string;
   onOpenKite: () => void;
@@ -749,6 +782,8 @@ function TopHeader({
         <AccountMenu
           theme={theme}
           onChooseTheme={onChooseTheme}
+          tradingMode={tradingMode}
+          onChooseTradingMode={onChooseTradingMode}
           initial={accountInitial}
           onOpenKite={onOpenKite}
         />
@@ -768,11 +803,15 @@ function TopHeader({
 function AccountMenu({
   theme,
   onChooseTheme,
+  tradingMode,
+  onChooseTradingMode,
   initial,
   onOpenKite,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
+  tradingMode: TradingMode;
+  onChooseTradingMode: (m: TradingMode) => void;
   initial: string;
   onOpenKite: () => void;
 }): React.ReactElement {
@@ -1012,6 +1051,74 @@ function AccountMenu({
             }}
           />
 
+          {/* Trading-mode toggle — Real vs Paper. Switches the WHOLE app's
+              data source (portfolio/holdings/orders/P&L) and routes
+              buys/sells to the isolated paper book when Paper. */}
+          <div
+            style={{
+              padding: "2px 10px 4px",
+              fontSize: 10.5,
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              color: "var(--text-tertiary)",
+            }}
+          >
+            Trading mode
+          </div>
+          <div
+            className="flex items-center justify-center"
+            style={{ padding: "0 10px 8px", gap: 12 }}
+          >
+            <span
+              style={{
+                fontSize: 12.5,
+                fontWeight: 600,
+                letterSpacing: "-0.01em",
+                color:
+                  tradingMode === "real"
+                    ? "var(--text-primary)"
+                    : "var(--text-tertiary)",
+                transition: "color 0.2s var(--ease-quartr)",
+              }}
+            >
+              Real
+            </span>
+            <Switch
+              checked={tradingMode === "paper"}
+              onCheckedChange={(checked) =>
+                onChooseTradingMode(checked ? "paper" : "real")
+              }
+              aria-label="Toggle paper trading mode"
+              data-testid="trading-mode-switch"
+              className="data-[state=checked]:bg-[#d97706]"
+            />
+            <span
+              style={{
+                fontSize: 12.5,
+                fontWeight: 600,
+                letterSpacing: "-0.01em",
+                color:
+                  tradingMode === "paper"
+                    ? "#d97706"
+                    : "var(--text-tertiary)",
+                transition: "color 0.2s var(--ease-quartr)",
+              }}
+            >
+              Paper
+            </span>
+          </div>
+
+          {/* Divider */}
+          <div
+            aria-hidden={true}
+            style={{
+              height: 1,
+              background: "var(--glass-border)",
+              margin: "4px 6px",
+            }}
+          />
+
           {/* Theme toggle row — three icon-only buttons in one horizontal row */}
           <div
             role="radiogroup"
@@ -1175,6 +1282,67 @@ function ThemeIconButton({
     >
       {children}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Paper-mode banner — full-width, unmissable bar shown on every page while
+// the app is in paper (simulated) mode.
+// ---------------------------------------------------------------------------
+
+function PaperModeBanner(): React.ReactElement {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="paper-mode-banner"
+      className="flex shrink-0 items-center justify-center gap-1.5"
+      style={{
+        background: "#d97706",
+        color: "#ffffff",
+        padding: "5px 16px",
+        fontFamily: "var(--font-ui)",
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: "0.01em",
+        borderBottom: "1px solid rgba(0,0,0,0.10)",
+      }}
+    >
+      <FlaskConical size={13} strokeWidth={2.25} aria-hidden={true} />
+      <span>Paper Trading Mode</span>
+      <TooltipProvider delayDuration={100}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="What is paper trading?"
+              data-testid="paper-mode-info"
+              className="inline-flex items-center justify-center rounded-full"
+              style={{
+                width: 16,
+                height: 16,
+                marginLeft: 1,
+                color: "#ffffff",
+                opacity: 0.85,
+                cursor: "help",
+              }}
+            >
+              <Info size={13} strokeWidth={2.5} aria-hidden={true} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            side="bottom"
+            className="max-w-[280px] text-left font-normal leading-relaxed"
+          >
+            Paper trading places{" "}
+            <strong className="font-semibold">simulated</strong> buys &amp;
+            sells with virtual cash. Balances, holdings, and P&amp;L here are
+            tracked separately — no real money is used and your real portfolio
+            is never touched.
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
   );
 }
 

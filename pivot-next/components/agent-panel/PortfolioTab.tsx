@@ -38,6 +38,7 @@ import {
   type PortfolioSummary,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { useTradingMode } from "@/lib/trading-mode";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 
 // ---------------------------------------------------------------------------
@@ -149,6 +150,10 @@ type PortfolioView = "overview" | "history";
 export function PortfolioTab(): React.ReactElement {
   const [view, setView] = useState<PortfolioView>("overview");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
+  // Re-fetch whenever the global trading mode flips: getPortfolioSummary /
+  // getPortfolioHoldings are mode-aware, so this swaps the page between real
+  // and paper data with no other change.
+  const mode = useTradingMode();
 
   const load = (): void => {
     setState({ kind: "loading" });
@@ -164,7 +169,7 @@ export function PortfolioTab(): React.ReactElement {
       });
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [mode]);
 
   return (
     <div data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
@@ -475,70 +480,81 @@ function PerformanceChart({
     return { port: portfolio, bench: benchmark };
   }, [days, totalValue]);
 
+  // Range pills — rendered top-right of the header on sm+, and below the
+  // chart on phone (see the two breakpoint-gated wrappers below).
+  const rangePills = (
+    <div
+      className="flex w-full sm:inline-flex sm:w-auto"
+      style={{
+        gap: 2,
+        padding: 2,
+        background: "var(--bg-base)",
+        border: "none",
+        borderRadius: "var(--radius-pill)",
+        flexShrink: 0,
+      }}
+    >
+      {RANGES.map((r) => {
+        const active = r.id === rangeId;
+        return (
+          <button
+            key={r.id}
+            type="button"
+            onClick={() => setRangeId(r.id)}
+            className="flex-1 sm:flex-none"
+            style={{
+              padding: "5px 12px",
+              border: "none",
+              borderRadius: "var(--radius-pill)",
+              fontFamily: "var(--font-ui)",
+              fontSize: 11.5,
+              fontWeight: 500,
+              cursor: "pointer",
+              background: active ? "var(--text-primary)" : "transparent",
+              color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+              transition:
+                "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {r.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <Section>
       {/* Header row lives OUTSIDE the card — the portfolio value heads the
-          chart that visualises it (value above its own line), with the range
-          pills opposite. Value block + pills stack on phone, sit on one row
-          (value left, pills top-right) on sm+. */}
+          chart that visualises it (value above its own line). On sm+ the range
+          pills sit opposite (top-right); on phone they move below the chart. */}
       <div
         className="flex flex-wrap items-start"
         style={{ columnGap: 14, rowGap: 14, marginBottom: 8 }}
       >
         <PortfolioValueHead summary={summary} />
-        {/* Pills group: own row on phone (full width, scrolls if needed),
-            right-aligned on sm+. */}
-        <div
-          className="perf-pills flex w-full justify-start sm:ml-auto sm:w-auto sm:justify-end"
-          style={{
-            overflowX: "auto",
-            WebkitOverflowScrolling: "touch",
-            scrollbarWidth: "none",
-          }}
-        >
-          <div
-            className="inline-flex"
-            style={{
-              gap: 2,
-              padding: 2,
-              background: "var(--bg-base)",
-              border: "none",
-              borderRadius: "var(--radius-pill)",
-              flexShrink: 0,
-            }}
-          >
-            {RANGES.map((r) => {
-              const active = r.id === rangeId;
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setRangeId(r.id)}
-                  style={{
-                    padding: "5px 12px",
-                    border: "none",
-                    borderRadius: "var(--radius-pill)",
-                    fontFamily: "var(--font-ui)",
-                    fontSize: 11.5,
-                    fontWeight: 500,
-                    cursor: "pointer",
-                    background: active ? "var(--text-primary)" : "transparent",
-                    color: active ? "var(--bg-primary)" : "var(--text-secondary)",
-                    transition:
-                      "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {r.label}
-                </button>
-              );
-            })}
-          </div>
+        {/* Pills in header — sm+ only (hidden on phone). */}
+        <div className="perf-pills hidden sm:flex sm:ml-auto sm:w-auto sm:justify-end">
+          {rangePills}
         </div>
       </div>
 
       <div style={{ padding: "22px 0 0" }}>
         <PerformanceSvg port={port} bench={bench} />
+      </div>
+
+      {/* Pills below chart — phone only (full width, scrolls if needed). */}
+      <div
+        className="perf-pills flex w-full justify-start sm:hidden"
+        style={{
+          marginTop: 14,
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none",
+        }}
+      >
+        {rangePills}
       </div>
     </Section>
   );
@@ -904,50 +920,61 @@ function PnlStripMobile({
     textTransform: "uppercase",
     color: "var(--text-tertiary)",
   };
-  // Phone-only. The hide class lives on this wrapper (which has NO inline
-  // `display`) — putting it on the grid below would lose to the inline
-  // `display: grid` and leak the strip onto tablet/laptop.
+  const totalColor = totalPos ? "var(--color-profit)" : "var(--color-loss)";
+  const dayColor = dayPos ? "var(--color-profit)" : "var(--color-loss)";
+  // Phone-only. No background fills — Total P&L as the hero on the left,
+  // Today's P&L beside it on the right (bottom-aligned). The hide class
+  // lives on this wrapper (which has NO inline `display`) so it never
+  // leaks onto desktop.
   return (
-    <div className="sm:hidden">
+    <div className="sm:hidden" style={{ marginBottom: 28 }}>
       <div
         data-testid="portfolio-pnl-strip"
         style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 1,
-          marginBottom: 20,
-          background: "var(--glass-border)",
-          borderRadius: "var(--radius-md)",
-          overflow: "hidden",
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
         }}
       >
-        <div style={{ background: "var(--bg-primary)", padding: "14px 16px" }}>
+        {/* Total P&L — hero */}
+        <div>
           <div style={labelStyle}>Total P&amp;L</div>
           <div
             style={{
-              marginTop: 5,
+              marginTop: 6,
               display: "flex",
               alignItems: "baseline",
-              gap: 6,
-              fontSize: 17,
-              fontWeight: 600,
-              color: totalPos ? "var(--color-profit)" : "var(--color-loss)",
+              gap: 10,
+              color: totalColor,
             }}
           >
-            {fmtRupee(summary.total_pnl, { sign: true, max: 0 })}
-            <span style={{ fontSize: 12, fontWeight: 500 }}>
-              ({fmtPct(summary.total_pnl_pct)})
+            <span
+              style={{
+                fontSize: 24,
+                fontWeight: 650,
+                letterSpacing: "-0.02em",
+                lineHeight: 1,
+              }}
+            >
+              {fmtRupee(summary.total_pnl, { sign: true, max: 0 })}
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>
+              {fmtPct(summary.total_pnl_pct)}
             </span>
           </div>
         </div>
-        <div style={{ background: "var(--bg-primary)", padding: "14px 16px" }}>
+        {/* Today's P&L — beside it, right-aligned */}
+        <div style={{ textAlign: "right" }}>
           <div style={labelStyle}>Today&apos;s P&amp;L</div>
           <div
             style={{
-              marginTop: 5,
-              fontSize: 17,
-              fontWeight: 600,
-              color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
+              marginTop: 6,
+              fontSize: 24,
+              fontWeight: 650,
+              letterSpacing: "-0.02em",
+              lineHeight: 1,
+              color: dayColor,
             }}
           >
             {fmtRupee(summary.day_pnl, { sign: true, max: 0 })}
@@ -1009,12 +1036,12 @@ function HoldingCardMobile({
       data-testid={`holding-m-${h.tradingsymbol}`}
       style={{
         textDecoration: "none",
-        padding: "13px 16px",
+        padding: "18px 4px",
         borderBottom: last ? "none" : "1px solid var(--glass-border)",
       }}
     >
       {/* Row 1 — quantity · average cost  |  total return % */}
-      <div className="flex items-center justify-between" style={{ marginBottom: 5 }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
         <span style={muted}>
           Qty. {h.quantity} · Avg. {fmtPlain(h.average_price)}
         </span>
@@ -1023,18 +1050,18 @@ function HoldingCardMobile({
         </span>
       </div>
       {/* Row 2 — symbol  |  absolute P&L */}
-      <div className="flex items-center justify-between" style={{ marginBottom: 5 }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
         <span
           style={{
-            fontSize: 15,
+            fontSize: 15.5,
             fontWeight: 600,
             color: "var(--text-primary)",
-            letterSpacing: "-0.01em",
+            letterSpacing: "-0.015em",
           }}
         >
           {h.tradingsymbol}
         </span>
-        <span style={{ fontSize: 14, fontWeight: 600, color: pnlColor }}>
+        <span style={{ fontSize: 14.5, fontWeight: 600, color: pnlColor }}>
           {fmtPlain(h.pnl, { sign: true })}
         </span>
       </div>
@@ -1410,6 +1437,21 @@ function arcPath(cx: number, cy: number, rOuter: number, rInner: number, startA:
 function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElement {
   const [tab, setTab] = useState<"marketcap" | "sectors" | "stocks">("marketcap");
   const [hover, setHover] = useState<AllocRow | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+
+  // Clicking/tapping anywhere outside the donut + legend clears the
+  // selection (mirrors moving the mouse away on desktop). pointerdown
+  // covers both mouse and touch.
+  useEffect(() => {
+    if (!hover) return;
+    function onDocPointerDown(e: PointerEvent): void {
+      if (chartRef.current && !chartRef.current.contains(e.target as Node)) {
+        setHover(null);
+      }
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+  }, [hover]);
 
   const data = useMemo(() => {
     if (!holdings || holdings.length === 0) return { total: 0, rows: [] as AllocRow[] };
@@ -1484,7 +1526,11 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
             No allocation data.
           </div>
         ) : (
-          <div className="flex flex-wrap items-center" style={{ gap: 28 }}>
+          <div
+            ref={chartRef}
+            className="flex flex-wrap items-center justify-center lg:justify-start"
+            style={{ gap: 28 }}
+          >
             {/* Donut */}
             <div style={{ position: "relative", width: 220, height: 220, flexShrink: 0 }}>
               <svg width={220} height={220} viewBox="0 0 220 220">
@@ -1495,8 +1541,12 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
                     fill={seg.color}
                     stroke="var(--bg-primary)"
                     strokeWidth={1.25}
-                    onMouseEnter={() => setHover(seg)}
-                    onMouseLeave={() => setHover(null)}
+                    onPointerEnter={(e) => {
+                      if (e.pointerType === "mouse") setHover(seg);
+                    }}
+                    onPointerLeave={(e) => {
+                      if (e.pointerType === "mouse") setHover(null);
+                    }}
                     onClick={() =>
                       setHover((curr) => (curr?.label === seg.label ? null : seg))
                     }
@@ -1560,8 +1610,12 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
                     key={seg.label}
                     role="button"
                     tabIndex={0}
-                    onMouseEnter={() => setHover(seg)}
-                    onMouseLeave={() => setHover(null)}
+                    onPointerEnter={(e) => {
+                      if (e.pointerType === "mouse") setHover(seg);
+                    }}
+                    onPointerLeave={(e) => {
+                      if (e.pointerType === "mouse") setHover(null);
+                    }}
                     onClick={() =>
                       setHover((curr) => (curr?.label === seg.label ? null : seg))
                     }
@@ -1835,10 +1889,17 @@ function TradeHistory(): React.ReactElement {
 
   return (
     <div className="flex flex-col" style={{ gap: 12 }}>
-      <div className="overflow-hidden rounded-2xl bg-card">
+      <div
+        className="overflow-x-auto rounded-2xl bg-card"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
         <table
           className="w-full"
-          style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}
+          style={{
+            borderCollapse: "collapse",
+            fontFamily: "var(--font-ui)",
+            minWidth: 760,
+          }}
         >
           <thead>
             <tr>

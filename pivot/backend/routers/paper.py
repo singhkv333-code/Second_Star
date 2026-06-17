@@ -15,11 +15,13 @@ import datetime as dt
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
-from backend.models import PaperIpoAllocation
+from backend.models import PAPER_ACCOUNT_MODES, PaperIpoAllocation
+from backend.paper.accounts import get_or_create_account
 from backend.paper.ipo_sim import serialize_paper_ipo_allocation
 from backend.paper.portfolio import (
     account_summary,
@@ -65,6 +67,61 @@ def paper_summary(
     user_id: int = Depends(get_user_id), db: Session = Depends(get_db)
 ):
     return account_summary(db, user_id)
+
+
+# ── Account trading mode (real/live vs paper) ─────────────────────────────
+# The single source of truth for whether this user's orders fill in the
+# paper book: ``should_use_paper`` (backend/paper/routing.py) reads
+# ``account.mode``. The frontend mode toggle drives THIS endpoint, so a
+# 'paper' mode genuinely routes buys/sells to the PaperBroker and a 'live'
+# mode leaves the real/Kite path untouched. Read-only ``account.mode`` —
+# no balances or positions are mutated here.
+
+class AccountModeResponse(BaseModel):
+    mode: str  # 'paper' | 'live'
+
+
+class SetAccountModeRequest(BaseModel):
+    mode: str
+
+    @field_validator("mode")
+    @classmethod
+    def _valid_mode(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in PAPER_ACCOUNT_MODES:  # {'paper', 'live'}
+            raise ValueError(
+                f"mode must be one of {sorted(PAPER_ACCOUNT_MODES)}"
+            )
+        return v
+
+
+@router.get("/account/mode", response_model=AccountModeResponse)
+def get_account_mode(
+    user_id: int = Depends(get_user_id), db: Session = Depends(get_db)
+):
+    """Current trading mode for the user's paper account. Creates+seeds the
+    account on first touch (default mode 'paper'); commit persists that
+    lazy create, matching how ``should_use_paper`` materialises it."""
+    acct = get_or_create_account(db, user_id)
+    db.commit()
+    return AccountModeResponse(mode=str(acct.mode))
+
+
+@router.post("/account/mode", response_model=AccountModeResponse)
+def set_account_mode(
+    body: SetAccountModeRequest,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db),
+):
+    """Set the trading mode. Only ``account.mode`` changes — this is the
+    seam that makes subsequent buys/sells route to the paper book (mode
+    'paper') or the real/Kite path (mode 'live'). Never touches balances."""
+    acct = get_or_create_account(db, user_id)
+    acct.mode = body.mode
+    db.add(acct)
+    db.commit()
+    db.refresh(acct)
+    return AccountModeResponse(mode=str(acct.mode))
 
 
 @router.get("/holdings")

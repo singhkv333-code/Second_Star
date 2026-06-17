@@ -41,6 +41,8 @@ import type {
   WorkflowStatus,
   WorkflowSummary,
 } from "@/lib/types";
+import { isError } from "@/lib/types";
+import { getTradingMode } from "@/lib/trading-mode";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -509,14 +511,66 @@ export type PortfolioSummary = {
   num_holdings: number;
 };
 
-/** `GET /portfolio/summary` — backed by Kite (mock when KITE_API_KEY is empty). */
+/** `GET /portfolio/summary` — backed by Kite (mock when KITE_API_KEY is empty).
+ *  In paper mode this reads the paper book and adapts it to the SAME shape so
+ *  every consumer (metric strip, Portfolio tab) renders identically. */
 export function getPortfolioSummary(): Promise<ApiResult<PortfolioSummary>> {
+  if (getTradingMode() === "paper") {
+    return getPaperSummary().then((r) =>
+      isError(r) ? r : { data: adaptPaperSummary(r.data) },
+    );
+  }
   return requestLegacy<PortfolioSummary>("/portfolio/summary");
 }
 
-/** `GET /portfolio/holdings` — list of Holdings (mock data in test mode). */
+/** `GET /portfolio/holdings` — list of Holdings (mock data in test mode).
+ *  In paper mode this reads the paper positions, adapted to Holding[]. */
 export function getPortfolioHoldings(): Promise<ApiResult<Holding[]>> {
+  if (getTradingMode() === "paper") {
+    return getPaperHoldings().then((r) =>
+      isError(r) ? r : { data: r.data.map(adaptPaperHolding) },
+    );
+  }
   return requestLegacy<Holding[]>("/portfolio/holdings");
+}
+
+// Paper → real shape adapters. The goal is visual parity: the paper book's
+// fields map onto the real Portfolio/Holding contracts. Fields with no paper
+// equivalent are derived or defaulted (never faked into a wrong number).
+function adaptPaperSummary(p: PaperSummary): PortfolioSummary {
+  if (!p.exists) {
+    // Fresh paper book reads as an empty portfolio, not an error.
+    return {
+      total_value: 0,
+      invested_value: 0,
+      total_pnl: 0,
+      total_pnl_pct: 0,
+      day_pnl: 0,
+      num_holdings: 0,
+    };
+  }
+  return {
+    total_value: p.nav, // NAV = cash + reserved + positions market value
+    invested_value: p.invested,
+    total_pnl: p.total_pnl,
+    total_pnl_pct: p.total_pnl_pct,
+    day_pnl: p.day_pnl,
+    num_holdings: p.num_positions,
+  };
+}
+
+function adaptPaperHolding(h: PaperHolding): Holding {
+  return {
+    tradingsymbol: h.symbol,
+    exchange: "NSE", // paper book has no exchange field; it is NSE-only
+    quantity: h.quantity,
+    average_price: h.avg_cost,
+    last_price: h.last_price ?? h.avg_cost, // unmarked lot → book cost
+    pnl: h.unrealized_pnl,
+    day_change: h.day_pnl,
+    day_change_percentage:
+      h.invested !== 0 ? (h.day_pnl / h.invested) * 100 : 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -634,12 +688,51 @@ export type OrderHistoryRow = {
   placed_at: string;
 };
 
-/** `GET /orders/history` — most recent registered/executed orders. */
+/** `GET /orders/history` — most recent registered/executed orders. In paper
+ *  mode this returns the paper fills journal adapted to the same row shape. */
 export function getOrderHistory(
   limit = 20,
 ): Promise<ApiResult<OrderHistoryRow[]>> {
+  if (getTradingMode() === "paper") {
+    return getPaperFills(limit).then((r) =>
+      isError(r) ? r : { data: r.data.map(adaptPaperFill) },
+    );
+  }
   return requestLegacy<OrderHistoryRow[]>("/orders/history", {
     query: { limit },
+  });
+}
+
+function adaptPaperFill(f: PaperFillRow): OrderHistoryRow {
+  return {
+    id: Number(f.id) || 0, // paper id is a string; OrderHistoryRow.id is number
+    symbol: f.symbol,
+    action: f.side, // "BUY" | "SELL"
+    quantity: f.quantity,
+    status: "filled", // the fills journal contains executed fills only
+    placed_at: f.filled_at ?? "",
+  };
+}
+
+// ── Account trading mode (real/live vs paper) ─────────────────────────────
+// Drives the backend's per-account mode, which `should_use_paper` reads to
+// route buys/sells. The UI term 'real' maps to the backend's 'live'.
+export type BackendMode = "live" | "paper";
+export type AccountMode = { mode: BackendMode };
+
+/** `GET /paper/account/mode` — the backend's current trading mode. */
+export function getAccountMode(): Promise<ApiResult<AccountMode>> {
+  return requestLegacy<AccountMode>("/paper/account/mode");
+}
+
+/** `POST /paper/account/mode` — set the backend trading mode. Isolates
+ *  buys/sells to the paper book when 'paper'; leaves the real path in 'live'. */
+export function setAccountMode(
+  mode: BackendMode,
+): Promise<ApiResult<AccountMode>> {
+  return requestLegacy<AccountMode>("/paper/account/mode", {
+    method: "POST",
+    body: { mode },
   });
 }
 
