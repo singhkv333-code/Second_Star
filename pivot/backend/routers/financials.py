@@ -36,12 +36,18 @@ def _auth(authorization: Optional[str]) -> int:
 # focused — the latest snapshot already carries all 26 ratios; history
 # is only useful for line items that change meaningfully year-over-year.
 _HISTORY_FIELDS: tuple[str, ...] = (
+    # Profit & Loss lines
     "revenue",
     "operating_profit",
     "net_profit",
     "eps_basic",
     "interest_expense",
     "cash_from_ops",
+    # Balance-sheet lines — power the stock page's Balance Sheet tab.
+    "total_equity",
+    "reserves",
+    "total_debt",
+    "book_value_per_share",
 )
 
 _HISTORY_LIMIT = 6  # last six fiscal years — keeps payload bounded

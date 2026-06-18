@@ -539,7 +539,7 @@ export function WorkflowEditorMock({
           flow terminates in a connected dashed "Add step" node so there's
           never a disconnected button floating in empty space. */}
       <div className="flex flex-1 min-h-0 flex-col border-t border-border/40 bg-muted/20">
-        <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="flex flex-1 flex-col overflow-y-auto px-5 py-5">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -560,21 +560,27 @@ export function WorkflowEditorMock({
                       onDelete={handleDeleteStep}
                       onDuplicate={handleDuplicateStep}
                     />
-                    <FlowConnector
-                      onInsert={() => setPickerInsertIndex(i + 1)}
-                    />
+                    {/* Connector only between steps — never trailing past the
+                        last one, since the Add button is pinned to the bottom. */}
+                    {i < workflow.steps.length - 1 && (
+                      <FlowConnector
+                        onInsert={() => setPickerInsertIndex(i + 1)}
+                      />
+                    )}
                   </li>
                 ))}
               </ol>
             </SortableContext>
           </DndContext>
 
-          {/* Terminal node — the trailing connector above flows into this. */}
+          {/* Terminal node — pinned near the bottom of the scroll area via
+              mt-auto so it sits low regardless of step count, yet collapses
+              and scrolls naturally once the steps overflow the viewport. */}
           <button
             type="button"
             onClick={() => setPickerInsertIndex(workflow.steps.length)}
             data-testid="add-step-button"
-            className="flex h-12 w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
+            className="mt-auto flex h-12 w-full shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}
@@ -625,7 +631,7 @@ function FlowConnector({
         onClick={onInsert}
         aria-label="Insert a step here"
         data-step-card-noclick
-        className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground opacity-0 shadow-sm transition-all hover:border-primary hover:text-foreground group-hover/conn:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border/50 bg-background text-muted-foreground opacity-0 shadow-sm transition-all hover:border-border hover:text-foreground hover:shadow-[0_2px_8px_-4px_rgba(15,23,42,0.08)] group-hover/conn:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Plus className="h-3 w-3" aria-hidden="true" />
       </button>

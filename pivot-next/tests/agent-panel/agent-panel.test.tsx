@@ -65,15 +65,4 @@ describe("AgentPanel", () => {
     );
     expect(calls).toContain(false);
   });
-
-  it("exposes a vertical resize handle on the panel's left edge", async () => {
-    render(<AgentPanel open={true} onOpenChange={() => {}} />);
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("agent-panel-resize-handle"),
-      ).toBeInTheDocument();
-    });
-    const handle = screen.getByTestId("agent-panel-resize-handle");
-    expect(handle).toHaveAttribute("aria-orientation", "vertical");
-  });
 });

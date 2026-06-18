@@ -109,6 +109,13 @@ const INR = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 2,
 });
 
+/** INR.format guarded against null/NaN — the quotes API returns NaN for
+ *  fields a source doesn't carry (52-week, prev close), which otherwise
+ *  render as "₹NaN". */
+function inrOrDash(n: number | null | undefined): string {
+  return n != null && Number.isFinite(n) ? INR.format(n) : "—";
+}
+
 function fmtCr(n: number | null): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
   // `n` is in rupees. Indian scale: 1 Cr = 1e7, 1 thousand-Cr = 1e10,
@@ -419,6 +426,13 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         </div>
       </div>
 
+      {/* Performance — daily + 52-week price-within-range bars. Full width so
+          the two bars each keep a comfortable size side by side (the left
+          overview card was too narrow to fit both). */}
+      {quoteState.kind === "ok" && (
+        <PerformanceRanges quote={quoteState.quote} />
+      )}
+
       {/* Key Metrics — snapshot tiles from the financials DB. Skipped
           entirely when the symbol has no MC entry. */}
       {quoteState.kind === "ok" && financials && financials.available && (
@@ -649,7 +663,7 @@ function SectionLabel({ children }: { children: React.ReactNode }): React.ReactE
       className="m-0"
       style={{
         fontFamily: "var(--font-ui)",
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: 600,
         letterSpacing: "-0.01em",
         color: "var(--text-primary)",
@@ -725,10 +739,11 @@ const COMPANY_PROFILES: Record<string, CompanyProfile> = {
  *  columns sit beneath the facts table as a continuation of the same
  *  block. */
 function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElement {
+  // 52-week high/low and the day high/low now live in the Performance range
+  // bars below, so they're dropped from these columns (no duplication, and no
+  // "₹NaN" when a source omits the 52-week figures).
   const profile: { label: string; value: string }[] = [
     { label: "Market Cap", value: fmtCr(quote.market_cap) },
-    { label: "52W High", value: INR.format(quote.week_52_high) },
-    { label: "52W Low", value: INR.format(quote.week_52_low) },
     { label: "Volume", value: quote.volume.toLocaleString("en-IN") },
   ];
   const valuation: { label: string; value: string }[] = [
@@ -738,10 +753,8 @@ function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElemen
     { label: "EV/EBITDA", value: "—" },
   ];
   const day: { label: string; value: string }[] = [
-    { label: "Open", value: INR.format(quote.open) },
-    { label: "High", value: INR.format(quote.high) },
-    { label: "Low", value: INR.format(quote.low) },
-    { label: "Prev Close", value: INR.format(quote.close) },
+    { label: "Open", value: inrOrDash(quote.open) },
+    { label: "Prev Close", value: inrOrDash(quote.close) },
   ];
 
   return (
@@ -760,7 +773,7 @@ function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElemen
       >
         <StatColumn title="Profile" rows={profile} />
         <StatColumn title="Valuation (TTM)" rows={valuation} />
-        <StatColumn title="Day's Range" rows={day} />
+        <StatColumn title="Today" rows={day} />
       </div>
     </Card>
   );
@@ -923,6 +936,143 @@ function StatColumn({
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Performance — where the live price sits inside its daily and 52-week range.
+// The two ranges sit side by side. Each shows low/high labels + values with a
+// marker on a track at the current price; when a range has no data (e.g. a
+// missing 52-week high/low) it shows "—" and omits the marker rather than
+// disappearing, so the daily and 52-week bars always read as a pair.
+// ---------------------------------------------------------------------------
+
+function RangeBar({
+  lowLabel,
+  highLabel,
+  low,
+  high,
+  current,
+}: {
+  lowLabel: string;
+  highLabel: string;
+  low: number;
+  high: number;
+  current: number;
+}): React.ReactElement {
+  const valid = Number.isFinite(low) && Number.isFinite(high) && high > low;
+  const showMarker = valid && Number.isFinite(current);
+  const pct = showMarker
+    ? Math.min(100, Math.max(0, ((current - low) / (high - low)) * 100))
+    : 0;
+
+  const labelStyle: React.CSSProperties = {
+    fontFamily: "var(--font-ui)",
+    fontSize: 11.5,
+    color: "var(--text-tertiary)",
+  };
+  const valueStyle: React.CSSProperties = {
+    fontFamily: "var(--font-mono)",
+    fontSize: 14,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  };
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 3 }}>
+        <span style={labelStyle}>{lowLabel}</span>
+        <span style={labelStyle}>{highLabel}</span>
+      </div>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
+        <span className="tabular-nums" style={valueStyle}>{inrOrDash(low)}</span>
+        <span className="tabular-nums" style={valueStyle}>{inrOrDash(high)}</span>
+      </div>
+      <div style={{ position: "relative", height: 6 }}>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: 999,
+            background: "var(--bg-secondary)",
+          }}
+        />
+        {/* Up-pointing marker at the current price (only when in-range). */}
+        {showMarker && (
+          <div
+            style={{
+              position: "absolute",
+              top: -8,
+              left: `${pct}%`,
+              transform: "translateX(-50%)",
+              width: 0,
+              height: 0,
+              borderLeft: "5px solid transparent",
+              borderRight: "5px solid transparent",
+              borderBottom: "7px solid var(--text-secondary)",
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement | null {
+  const dayValid =
+    Number.isFinite(quote.low) && Number.isFinite(quote.high) && quote.high > quote.low;
+  const yearValid =
+    Number.isFinite(quote.week_52_low) &&
+    Number.isFinite(quote.week_52_high) &&
+    quote.week_52_high > quote.week_52_low;
+
+  if (!dayValid && !yearValid) return null;
+
+  return (
+    // Full-width section; 20px inset aligns with Key Metrics / Financial
+    // Performance below.
+    <div style={{ marginTop: 24, padding: "0 20px" }}>
+      <h2
+        className="m-0"
+        style={{
+          fontFamily: "var(--font-ui)",
+          fontSize: 14,
+          fontWeight: 600,
+          letterSpacing: "-0.01em",
+          color: "var(--text-primary)",
+          marginBottom: 16,
+        }}
+      >
+        Performance
+      </h2>
+      {/* Daily and 52-week ranges, each a comfortable fixed width, pushed to
+          opposite ends so the empty middle becomes the gap between them
+          (space-between) rather than dead space on the right. Wraps on narrow
+          screens. */}
+      <div
+        className="flex flex-wrap"
+        style={{ gap: 40, justifyContent: "space-between" }}
+      >
+        <div style={{ flex: "0 1 480px" }}>
+          <RangeBar
+            lowLabel="Today's low"
+            highLabel="Today's high"
+            low={quote.low}
+            high={quote.high}
+            current={quote.ltp}
+          />
+        </div>
+        <div style={{ flex: "0 1 480px" }}>
+          <RangeBar
+            lowLabel="52 week low"
+            highLabel="52 week high"
+            low={quote.week_52_low}
+            high={quote.week_52_high}
+            current={quote.ltp}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -1369,7 +1519,7 @@ function ChartCard({
       <div
         className="flex flex-wrap items-center"
         style={{
-          gap: 10,
+          gap: 8,
           padding: "0 18px 14px",
         }}
       >
@@ -1422,7 +1572,11 @@ function ChartCard({
           placeholder="Max Date"
           aria-label="Maximum date"
         />
-        <MetricSelector value={metric} onChange={setMetric} />
+        {/* Pushed to the right so its edge lines up with the search row's
+            right edge (the expand button) above. */}
+        <div style={{ marginLeft: "auto" }}>
+          <MetricSelector value={metric} onChange={setMetric} />
+        </div>
       </div>
 
       {/* ── Chart with end-label price tags ───────────────────────────── */}
@@ -1488,7 +1642,7 @@ function ChartCard({
               {selectionInfo && (
                 <Area
                   dataKey="__selValue"
-                  type="monotone"
+                  type="linear"
                   fill={
                     selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
                       ? "var(--color-profit)"
@@ -1537,7 +1691,7 @@ function ChartCard({
               {tickers.map((sym) => (
                 <Line
                   key={sym}
-                  type="monotone"
+                  type="linear"
                   dataKey={sym}
                   name={sym}
                   stroke={colorFor(sym)}
@@ -1890,7 +2044,7 @@ function DateField({
         aria-expanded={open}
         aria-label={ariaLabel}
         style={{
-          width: 150,
+          width: 128,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -2315,7 +2469,7 @@ function MetricSelector({
           fontFamily: "var(--font-ui)",
           fontSize: 12,
           cursor: "pointer",
-          minWidth: 150,
+          minWidth: 124,
           justifyContent: "space-between",
         }}
       >
@@ -2497,38 +2651,6 @@ function symbolSeed(s: string): number {
   return h >>> 0;
 }
 
-function buildFinancials(quote: StockQuote): FinancialRow[] {
-  const rng = mulberry32(symbolSeed(quote.symbol));
-  // Anchor the latest year's revenue near 1% of market cap so the
-  // numbers feel plausible relative to the price strip.
-  const latestRevenue = Math.max(
-    quote.market_cap !== null ? quote.market_cap * 0.012 : 1.5e11,
-    5e10,
-  );
-  const growth = 0.07 + rng() * 0.08; // 7–15% YoY
-  const revenues = FY_YEARS.map((_, i) => {
-    const yearsBack = FY_YEARS.length - 1 - i;
-    return latestRevenue / Math.pow(1 + growth, yearsBack);
-  });
-  const grossMargin = 0.32 + rng() * 0.18;
-  const opMargin = grossMargin - (0.06 + rng() * 0.05);
-  const netMargin = opMargin - (0.04 + rng() * 0.03);
-
-  const sharesOutstanding = 4e8 + rng() * 1e8;
-  const roe = 0.12 + rng() * 0.18; // 12–30%
-  const netMarginPct = netMargin * 100;
-  const grossMarginPct = grossMargin * 100;
-
-  return [
-    { label: "Revenue",      values: revenues.map((r) => fmtCr(r)) },
-    { label: "EBITDA",       values: revenues.map((r) => fmtCr(r * (opMargin + 0.04))) },
-    { label: "Net Income",   values: revenues.map((r) => fmtCr(r * netMargin)) },
-    { label: "EPS (₹)",      values: revenues.map((r) => ((r * netMargin) / sharesOutstanding).toFixed(2)) },
-    { label: "Gross Margin", values: FY_YEARS.map(() => fmtPct(grossMarginPct, false)) },
-    { label: "Net Margin",   values: FY_YEARS.map(() => fmtPct(netMarginPct, false)) },
-  ];
-}
-
 function buildProfitLoss(quote: StockQuote): FinancialRow[] {
   const rng = mulberry32(symbolSeed(quote.symbol) ^ 0xa1b2c3d4);
   const latestRevenue = Math.max(
@@ -2569,13 +2691,13 @@ function FinancialsTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildFinancialsFromDB(financials);
-    return buildFinancials(quote);
-  }, [quote, financials]);
+    if (financials?.available) return buildBalanceSheetFromDB(financials);
+    return buildBalanceSheetEstimate();
+  }, [financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
   return (
     <FinancialsLikeTable
-      title="Financials"
+      title="Balance Sheet"
       subtitle={source}
       rows={rows}
       minRows={minRows}
@@ -2599,7 +2721,7 @@ function ProfitLossTable({
   const source = financials?.available ? "Moneycontrol" : "placeholder";
   return (
     <FinancialsLikeTable
-      title="Profit & Loss"
+      title="Profit and Loss"
       subtitle={source}
       rows={rows}
       minRows={minRows}
@@ -2624,57 +2746,57 @@ function yearLabel(periodEnd: string | null): string {
   return `FY${y.slice(2)}`;
 }
 
-function buildFinancialsFromDB(f: FinancialsResponse): FinancialRow[] {
-  const revenue = f.history["revenue"] ?? [];
-  const op = f.history["operating_profit"] ?? [];
-  const net = f.history["net_profit"] ?? [];
-  const eps = f.history["eps_basic"] ?? [];
-  // Latest snapshot ratios are also rendered for at-a-glance ratios.
-  const opMarginLatest = f.latest["ebitda_margin"]?.value ?? null;
+// Shared period picker — match a history series to a fiscal-year label so
+// every series aligns to the FY_YEARS header (oldest → newest). No header
+// row is injected; the table renders the years itself.
+function pickByFY(
+  arr: FinancialsHistoryPoint[],
+  fy: string,
+): number | null {
+  const hit = arr.find((r) => r.period_end && yearLabel(r.period_end) === fy);
+  return hit?.value ?? null;
+}
 
-  // Header years: take the union of periods, newest first, capped at 5.
-  const yearsSet = new Set<string>();
-  [revenue, op, net, eps].forEach((arr) =>
-    arr.forEach((r) => r.period_end && yearsSet.add(r.period_end)),
-  );
-  const years = Array.from(yearsSet).sort().reverse().slice(0, 5);
-  const headerRow: FinancialRow = {
-    label: "",
-    values: years.map(yearLabel),
-  };
+function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
+  const equity = f.history["total_equity"] ?? [];
+  const reserves = f.history["reserves"] ?? [];
+  const debt = f.history["total_debt"] ?? [];
+  const bvps = f.history["book_value_per_share"] ?? [];
 
-  const pick = (arr: FinancialsHistoryPoint[], year: string): number | null => {
-    const hit = arr.find((r) => r.period_end === year);
-    return hit?.value ?? null;
-  };
+  return [
+    {
+      label: "Total Equity",
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(equity, fy))),
+    },
+    {
+      label: "Reserves",
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(reserves, fy))),
+    },
+    {
+      label: "Total Debt",
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(debt, fy))),
+    },
+    {
+      label: "Book Value / Share",
+      values: FY_YEARS.map((fy) => {
+        const v = pickByFY(bvps, fy);
+        return v === null ? "—" : `₹${v.toFixed(2)}`;
+      }),
+    },
+  ];
+}
 
-  const rows: FinancialRow[] = [headerRow];
-  rows.push({
-    label: "Revenue",
-    values: years.map((y) => fmtCrFromMC(pick(revenue, y))),
-  });
-  rows.push({
-    label: "Operating Profit",
-    values: years.map((y) => fmtCrFromMC(pick(op, y))),
-  });
-  rows.push({
-    label: "Net Profit",
-    values: years.map((y) => fmtCrFromMC(pick(net, y))),
-  });
-  rows.push({
-    label: "EPS (₹)",
-    values: years.map((y) => {
-      const v = pick(eps, y);
-      return v === null ? "—" : v.toFixed(2);
-    }),
-  });
-  rows.push({
-    label: "EBITDA Margin",
-    values: years.map((_, i) =>
-      i === 0 && opMarginLatest !== null ? fmtPct(opMarginLatest, false) : "—",
-    ),
-  });
-  return rows;
+// Estimated fallback for the Balance Sheet tab. We don't fabricate balance
+// sheets when the financials DB has no data — the line items show as
+// unavailable rather than inventing numbers.
+function buildBalanceSheetEstimate(): FinancialRow[] {
+  const dashes = FY_YEARS.map(() => "—");
+  return [
+    { label: "Total Equity", values: dashes },
+    { label: "Reserves", values: dashes },
+    { label: "Total Debt", values: dashes },
+    { label: "Book Value / Share", values: dashes },
+  ];
 }
 
 function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
@@ -2682,41 +2804,31 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
   const op = f.history["operating_profit"] ?? [];
   const net = f.history["net_profit"] ?? [];
   const interest = f.history["interest_expense"] ?? [];
-  const cfo = f.history["cash_from_ops"] ?? [];
-
-  const yearsSet = new Set<string>();
-  [revenue, op, net, interest, cfo].forEach((arr) =>
-    arr.forEach((r) => r.period_end && yearsSet.add(r.period_end)),
-  );
-  const years = Array.from(yearsSet).sort().reverse().slice(0, 5);
-  const headerRow: FinancialRow = { label: "", values: years.map(yearLabel) };
-
-  const pick = (arr: FinancialsHistoryPoint[], year: string): number | null => {
-    const hit = arr.find((r) => r.period_end === year);
-    return hit?.value ?? null;
-  };
+  const eps = f.history["eps_basic"] ?? [];
 
   return [
-    headerRow,
     {
       label: "Revenue",
-      values: years.map((y) => fmtCrFromMC(pick(revenue, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(revenue, fy))),
     },
     {
       label: "Operating Profit",
-      values: years.map((y) => fmtCrFromMC(pick(op, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(op, fy))),
     },
     {
       label: "Interest Expense",
-      values: years.map((y) => fmtCrFromMC(pick(interest, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(interest, fy))),
     },
     {
       label: "Net Profit",
-      values: years.map((y) => fmtCrFromMC(pick(net, y))),
+      values: FY_YEARS.map((fy) => fmtCrFromMC(pickByFY(net, fy))),
     },
     {
-      label: "Cash from Ops",
-      values: years.map((y) => fmtCrFromMC(pick(cfo, y))),
+      label: "EPS (₹)",
+      values: FY_YEARS.map((fy) => {
+        const v = pickByFY(eps, fy);
+        return v === null ? "—" : v.toFixed(2);
+      }),
     },
   ];
 }
@@ -2753,7 +2865,9 @@ function KeyMetricsStrip({
   })();
 
   return (
-    <div style={{ marginTop: 24 }}>
+    // Horizontal padding matches the Financial Performance panel below so the
+    // heading + tiles line up with it (instead of sitting flush-left).
+    <div style={{ marginTop: 36, padding: "0 20px" }}>
       <div
         style={{
           display: "flex",
@@ -2766,7 +2880,7 @@ function KeyMetricsStrip({
           className="m-0"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: 600,
             letterSpacing: "-0.01em",
             color: "var(--text-primary)",
@@ -2790,29 +2904,40 @@ function KeyMetricsStrip({
             <div
               key={t.key}
               style={{
-                background: "var(--bg-primary)",
-                border: "1px solid var(--glass-border)",
+                padding: "12px 14px",
+                background: "var(--bg-secondary)",
+                border: "none",
                 borderRadius: "var(--radius-md)",
-                padding: "10px 12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                transition: "background-color 0.2s var(--ease-quartr)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--bg-elevated)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--bg-secondary)";
               }}
             >
               <div
                 style={{
-                  fontSize: 10,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "var(--text-tertiary)",
-                  marginBottom: 4,
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12,
+                  fontWeight: "var(--weight-medium)" as unknown as number,
+                  color: "var(--text-primary)",
                 }}
               >
                 {t.label}
               </div>
               <div
                 style={{
-                  fontFamily: "var(--font-mono)",
+                  fontFamily: "var(--font-display)",
+                  fontWeight: "var(--weight-medium)" as unknown as number,
                   fontSize: 15,
-                  fontWeight: 600,
                   color: "var(--text-primary)",
+                  fontVariantNumeric: "tabular-nums",
+                  letterSpacing: "-0.01em",
                 }}
               >
                 {v && v.value !== null
@@ -2835,8 +2960,16 @@ type FinPanelTab = "financials" | "pl";
 
 function parseFinVal(v: string | null | undefined): number | null {
   if (!v || v === "—") return null;
-  const n = parseFloat(v.replace(/[₹,KCrL%x\s]/g, ""));
-  return isNaN(n) ? null : n;
+  const num = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+  if (Number.isNaN(num)) return null;
+  // Re-apply the magnitude fmtCr() encoded as a suffix, normalised to ₹ Cr,
+  // so series with different suffixes (L Cr / K Cr / Cr) stay on one
+  // comparable scale — otherwise "7.00 L Cr" and "67.57 K Cr" parse to bare
+  // 7 vs 67.57 and the chart shows revenue as smaller than profit.
+  if (/L\s*Cr/.test(v)) return num * 1e5; // lakh crore → crore
+  if (/K\s*Cr/.test(v)) return num * 1e3; // thousand crore → crore
+  if (/Cr/.test(v)) return num; // already crore
+  return num; // plain number (EPS / %, not charted)
 }
 
 function fmtShort(n: number): string {
@@ -2971,24 +3104,25 @@ function FinancialsPanel({
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
 
-  const finRows = useMemo(
-    () => financials?.available ? buildFinancialsFromDB(financials) : buildFinancials(quote),
-    [quote, financials],
+  // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
+  const bsRows = useMemo(
+    () => financials?.available ? buildBalanceSheetFromDB(financials) : buildBalanceSheetEstimate(),
+    [financials],
   );
   const plRows = useMemo(
     () => financials?.available ? buildProfitLossFromDB(financials) : buildProfitLoss(quote),
     [quote, financials],
   );
 
-  const rows = tab === "financials" ? finRows : plRows;
+  const rows = tab === "financials" ? bsRows : plRows;
   const source = financials?.available ? "Moneycontrol" : "Estimated";
 
   const getMetric = (label: string): (number | null)[] =>
     rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? FY_YEARS.map(() => null);
 
   const cfg = tab === "financials"
-    ? { a: "Revenue", b: "Net Income",         colorA: "#64748b", colorB: "#10b981" }
-    : { a: "Revenue", b: "Net Profit",          colorA: "#64748b", colorB: "#1b7cc7" };
+    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b" }
+    : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7" };
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -3015,15 +3149,15 @@ function FinancialsPanel({
                   borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
                   cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
                 }}>
-                  {t === "financials" ? "Financials" : "Profit & Loss"}
+                  {t === "financials" ? "Balance Sheet" : "Profit and Loss"}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Body: chart left | table right */}
-        <div className="grid grid-cols-1 lg:grid-cols-2">
+        {/* Body: chart left | table right (table gets a bit more room) */}
+        <div className="grid grid-cols-1 lg:grid-cols-[5fr_6fr]">
 
           {/* Left — bar chart */}
           <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
@@ -3035,16 +3169,16 @@ function FinancialsPanel({
           </div>
 
           {/* Right — data table */}
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
+          <div style={{ overflow: "hidden" }}>
+            <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
               <thead>
                 <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
-                  <th style={{ padding: "12px 16px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
+                  <th style={{ width: "26%", padding: "12px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
                     Metric
                   </th>
                   {FY_YEARS.map((y, i) => (
                     <th key={y} style={{
-                      padding: "12px 14px", fontSize: 10.5, fontWeight: 600,
+                      padding: "12px 8px", fontSize: 10.5, fontWeight: 600,
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       textAlign: "right", whiteSpace: "nowrap",
                       color: i === FY_YEARS.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
@@ -3061,24 +3195,23 @@ function FinancialsPanel({
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
-                    <td style={{ padding: "11px 16px" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <td style={{ padding: "11px 12px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                         <span style={{
                           width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
                           background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
                         }} />
-                        <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
                           {r.label}
                         </span>
                       </span>
                     </td>
                     {r.values.map((v, i) => (
                       <td key={i} className="tabular-nums" style={{
-                        padding: "11px 14px", textAlign: "right",
-                        fontSize: 12.5, fontFamily: "var(--font-mono)",
+                        padding: "11px 8px", textAlign: "right",
+                        fontSize: 11.5, fontFamily: "var(--font-mono)",
                         fontWeight: i === FY_YEARS.length - 1 ? 600 : 400,
                         color: i === FY_YEARS.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
-                        whiteSpace: "nowrap",
                       }}>
                         {v ?? "—"}
                       </td>
@@ -3132,7 +3265,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
+        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (

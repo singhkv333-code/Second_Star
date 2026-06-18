@@ -67,7 +67,6 @@ export function InlineRunCard({
     return <InlineRunCardSkeleton />;
   }
 
-  const isPositiveTerminal = run.status === "succeeded";
   const isFailed = run.status === "failed";
 
   return (
@@ -78,9 +77,7 @@ export function InlineRunCard({
       className={cn(
         "mb-2 mt-1 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "transition-all duration-500 ease-out",
-        isPositiveTerminal
-          ? "shadow-[0_1px_2px_rgba(76,175,80,0.08),0_18px_36px_-18px_rgba(76,175,80,0.22)]"
-          : "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
+        "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
       )}
       style={{
         animation: "draftCardIn-quartr 360ms cubic-bezier(0.22, 1, 0.36, 1) both",

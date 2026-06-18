@@ -601,7 +601,6 @@ export function OptionStrategyCard({
       className={cn(
         "my-2 w-full max-w-[480px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
-        isRegistered && "shadow-[0_1px_2px_rgba(76,175,80,0.08),0_18px_36px_-18px_rgba(76,175,80,0.22)]",
       )}
     >
       {/* Header */}
