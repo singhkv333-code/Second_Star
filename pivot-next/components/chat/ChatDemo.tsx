@@ -59,7 +59,9 @@ import { IpoListedCard } from "@/components/chat/IpoListedCard";
 import { OptionChainCard } from "@/components/chat/OptionChainCard";
 import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
 import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
-import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload } from "@/lib/types";
+import { ClarifyCard } from "@/components/chat/ClarifyCard";
+import { StrategyBuilderCard } from "@/components/chat/StrategyBuilderCard";
+import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -526,6 +528,8 @@ type Message =
   | { kind: "option_chain"; payload: OptionChainPayload; intro: string }
   | { kind: "option_strategy"; payload: OptionStrategyPayload; intro: string }
   | { kind: "portfolio_greeks"; payload: PortfolioGreeksPayload; intro: string }
+  | { kind: "clarify"; card: ClarifyCardData; intro: string }
+  | { kind: "strategy_builder"; card: StrategyBuilderCardData; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
@@ -936,6 +940,32 @@ export function ChatDemo({
         payload: rawData as unknown as PortfolioGreeksPayload,
         intro: data.response ?? "",
       };
+    } else if (hint === "clarify_card" && rawData) {
+      // raw_data = { _render_hint: "clarify_card", clarify: <ClarifyCard> }.
+      const clarify = (rawData as { clarify?: ClarifyCardData }).clarify;
+      if (clarify && Array.isArray(clarify.questions)) {
+        finalMessage = {
+          kind: "clarify",
+          card: clarify,
+          intro: data.response ?? "",
+        };
+      } else {
+        finalMessage = { kind: "assistant", text: data.response ?? "" };
+      }
+    } else if (hint === "strategy_builder_card" && rawData) {
+      // The StrategyBuilderCard fields are spread at the top level of raw_data
+      // alongside the render hint (mirrors the executor's
+      // `{ "_render_hint": ..., **card.model_dump() }`).
+      const card = rawData as unknown as StrategyBuilderCardData;
+      if (Array.isArray(card.constituents)) {
+        finalMessage = {
+          kind: "strategy_builder",
+          card,
+          intro: data.response ?? "",
+        };
+      } else {
+        finalMessage = { kind: "assistant", text: data.response ?? "" };
+      }
     } else {
       finalMessage = { kind: "assistant", text: data.response ?? "" };
     }
@@ -1526,6 +1556,52 @@ export function ChatDemo({
                   )}
                   <div className="flex justify-start">
                     <PortfolioGreeksCard payload={msg.payload} />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "clarify") {
+              // Only the latest clarify card is interactive — older ones in the
+              // thread are already answered (the backend advances the N-of-M
+              // flow in-band, re-surfacing a fresh card each turn).
+              const isLatestClarify = !messages
+                .slice(idx + 1)
+                .some((m) => m.kind === "clarify" || m.kind === "strategy_builder");
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <ClarifyCard
+                      card={msg.card}
+                      disabled={loading || !isLatestClarify}
+                      onSendMessage={(text) => void submit(text)}
+                    />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "strategy_builder") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <StrategyBuilderCard card={msg.card} />
                   </div>
                 </div>
               );

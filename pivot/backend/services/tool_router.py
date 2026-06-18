@@ -53,6 +53,15 @@ _ALWAYS_INCLUDE: frozenset[str] = frozenset({
     "propose_threshold_order",
     "propose_basket_allocation",
     "propose_holding_action",
+    # Workstream B: the DB-driven equity+gold builder. Always in scope (like
+    # propose_basket_allocation) so a thoughtful-portfolio ask reaches the
+    # builder even when the basket regex doesn't fire — the model then chooses
+    # a named weighting scheme + a fundamentals gate instead of a bare 1/N
+    # macro. `ask_user_dynamic` is DELIBERATELY *not* here: it is gated behind
+    # the basket/strategy intent rule so it can never fire on non-strategy
+    # turns (avoids the over-asking failure mode; plan §2c "don't ask on
+    # reflex"). The builder's own skip-entirely gate handles confident asks.
+    "build_strategy",
     # `find_tool` is the lazy-load escape hatch when no keyword rule
     # surfaces the right tool. The schema itself is tiny (one string +
     # one int), so the cost of unconditional inclusion is negligible
@@ -299,6 +308,12 @@ _RULES: list[_Rule] = [
         r"|\bwhen\s+(rsi|sma|ema|price|the\s+price)",
         "propose_workflow",
         "propose_dsl_workflow",
+        # Under-specified agent ask ("make me an agent that buys options in
+        # RELIANCE" — action verb, no trigger, no size) → the deterministic
+        # clarify_card. Its own gate (should_ask_agent) self-filters: it
+        # returns no card when a trigger/size is present (the every-<day> / if-
+        # <rsi> branches above), so co-surfacing it here is safe.
+        "ask_agent_clarify",
     ),
 
     # ── Order-card quantity/price amendments ──────────────────────
@@ -626,13 +641,36 @@ _RULES: list[_Rule] = [
     # often picks propose_workflow instead. Surfacing a basket-shaped
     # rule with the right tool family puts the macro front-and-center
     # and pulls in the supporting screener/order tools.
+    #
+    # Workstreams A & B: this is ALSO the entry point for the DB-driven
+    # builder (build_strategy) + dynamic clarifying questions
+    # (ask_user_dynamic). The regex now also catches the thoughtful-
+    # portfolio framings ("build me a long-term portfolio", "a balanced
+    # basket of quality stocks", "invest ₹2L for the long run", "design
+    # a strategy") that should get a named weighting scheme + a
+    # fundamentals gate rather than a bare equal-weight macro. We co-
+    # surface screen_fundamentals + fetch_fundamentals so the DB
+    # selection gate is always reachable from the basket path (plan §3b:
+    # the fundamentals tools were never wired into the basket path).
     _r(
         r"\bbasket\s+of\b"
-        r"|\b(?:invest|allocate|put|deploy|split)\b.{0,40}\b(?:across|equally|weighted)\b"
+        r"|\b(?:invest|allocate|put|deploy|split)\b.{0,40}\b(?:across|equally|weighted|portfolio|long[\s-]?term|long\s+run)\b"
         r"|\btop\s+\d+\s+(?:[a-z_]+\s+)?stocks?\b"
         r"|\bequal\s+weight(?:age)?\b|\bmcap[- ]weighted\b|\bmarket[- ]cap\s+weighted\b"
-        r"|\bsector\s+(?:basket|allocation)\b",
+        r"|\brisk[\s-]?parity\b|\bmin(?:imum)?[\s-]?variance\b|\bblack[\s-]?litterman\b"
+        r"|\bsector\s+(?:basket|allocation)\b"
+        # Thoughtful-portfolio / strategy-builder framings.
+        r"|\b(?:build|make|create|design|construct|put\s+together|give\s+me)\b"
+        r"[^.]{0,40}\b(?:portfolio|basket|strateg(?:y|ies)|allocation)\b"
+        r"|\b(?:portfolio|basket)\b[^.]{0,30}\b(?:of\s+(?:quality|value|growth|dividend|good)\s+stocks?|for\s+(?:the\s+)?long)\b",
         "propose_basket_allocation",
+        # Workstreams A & B — DB-driven builder + dynamic questions.
+        "build_strategy",
+        "ask_user_dynamic",
+        # Co-surface the fundamentals-DB tools so the selection gate
+        # (F-score / Magic-Formula / multi-factor) is always reachable.
+        "screen_fundamentals",
+        "fetch_fundamentals",
         "place_basket_order",
         "get_live_price",
     ),

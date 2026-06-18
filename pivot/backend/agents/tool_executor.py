@@ -91,6 +91,12 @@ async def execute_tool(tool_name: str, arguments: dict,
         "screen_fundamentals":        _screen_fundamentals,
         "fetch_fundamentals":         _fetch_fundamentals,
         "get_symbol_news":            _get_symbol_news,
+        # Strategy builder + dynamic clarifying questions (Workstreams A & B).
+        # build_strategy emits a strategy_builder_card; ask_user_dynamic runs
+        # the VOI question engine and pauses the turn via needs_clarification.
+        "build_strategy":             _build_strategy,
+        "ask_user_dynamic":           _ask_user_dynamic,
+        "ask_agent_clarify":          _ask_agent_clarify,
         "list_upcoming_ipos":         _list_upcoming_ipos,
         "get_ipo_details":            _get_ipo_details,
         "get_ipo_listing":            _get_ipo_listing,
@@ -1487,6 +1493,210 @@ async def _get_symbol_news(a, kt, db, uid):
     return {"success": True,
             "data": get_symbol_news(str(a.get("symbol", "")), int(a.get("limit", 5))),
             "logiccard": None}
+
+
+# ── STRATEGY BUILDER + DYNAMIC CLARIFYING QUESTIONS (Workstreams A & B) ───────
+#
+# These two executors back the `build_strategy` + `ask_user_dynamic` tools.
+# The model passes the REQUEST CONTEXT (and, for the builder, the slot-state);
+# the construction lives in the engines (services/strategy_builder.py +
+# services/clarify_engine.py), never in the LLM args. Wire shapes + render
+# hints come from services/strategy_contracts.py (the single source of truth).
+#
+# `_ask_user_dynamic` runs the VOI question engine and emits a clarify_card.
+# It does NOT execute anything — it returns a `needs_clarification` marker so
+# validation_handler/chat_service pause the turn (mirrors the ASK_USER
+# intercept). `_build_strategy` runs the §3a pipeline and emits the
+# strategy_builder_card the FE renders.
+
+
+def _slot_state_from_args(a: dict):
+    """Map the LLM's build_strategy args → a typed SlotState.
+
+    Anything the model supplied is taken as explicit and its ``assumed`` flag
+    is cleared; anything omitted keeps the contract default and stays flagged
+    ``assumed`` so the card surfaces "(assumed …)" (plan §2f / §3c). Tolerant of
+    partial / malformed args — a bad sub-field falls back to its default rather
+    than failing the build (honest boundary over a hard error).
+    """
+    from backend.services.strategy_contracts import (
+        AssetPrefs,
+        SlotState,
+        ViewSlot,
+    )
+
+    slots = SlotState()
+    cleared: list[str] = []
+
+    view_in = a.get("view")
+    if isinstance(view_in, dict) and view_in:
+        try:
+            slots.view = ViewSlot(**{
+                k: v for k, v in view_in.items()
+                if k in ViewSlot.model_fields and v is not None
+            })
+            cleared.append("view")
+        except Exception:
+            pass
+
+    risk_in = a.get("risk")
+    if isinstance(risk_in, str) and risk_in.strip():
+        try:
+            slots.risk = risk_in.strip().lower()  # type: ignore[assignment]
+            SlotState.model_validate(slots.model_dump())  # enum check
+            cleared.append("risk")
+        except Exception:
+            slots.risk = "balanced"
+
+    horizon_in = a.get("horizon")
+    if isinstance(horizon_in, str) and horizon_in.strip():
+        try:
+            slots.horizon = horizon_in.strip().lower()  # type: ignore[assignment]
+            SlotState.model_validate(slots.model_dump())
+            cleared.append("horizon")
+        except Exception:
+            slots.horizon = "medium"
+
+    cap_in = a.get("capital_inr")
+    if cap_in is not None:
+        try:
+            slots.capital_inr = float(cap_in)
+            cleared.append("capital_inr")
+        except (TypeError, ValueError):
+            pass
+
+    prefs_in = a.get("asset_prefs")
+    if isinstance(prefs_in, dict) and prefs_in:
+        try:
+            slots.asset_prefs = AssetPrefs(**{
+                k: v for k, v in prefs_in.items()
+                if k in AssetPrefs.model_fields and v is not None
+            })
+            cleared.append("asset_prefs")
+        except Exception:
+            pass
+
+    theme_in = a.get("theme")
+    if isinstance(theme_in, str) and theme_in.strip():
+        slots.theme = theme_in.strip()
+        cleared.append("theme")
+
+    # Re-validate the whole thing once; on any enum slip fall back to a clean
+    # default state so the builder always receives a valid SlotState.
+    try:
+        slots = SlotState.model_validate(slots.model_dump())
+    except Exception:
+        slots = SlotState()
+        cleared = []
+
+    if cleared:
+        slots.mark_assumed(*cleared, value=False)
+    return slots
+
+
+async def _build_strategy(a, kt, db, uid):
+    """Run the §3a equity+gold construction pipeline → strategy_builder_card.
+
+    Emits ``data = {"_render_hint": "strategy_builder_card", ...card}`` on the
+    normal tool-success path; chat_service stashes it under
+    ``raw_data["build_strategy"]`` and the chat router hoists the render hint to
+    the top level (so the FE's StrategyBuilderCard renders). Register-not-
+    execute + the not-advice disclaimer are carried inside the card."""
+    from backend.services.strategy_builder import build_strategy
+    from backend.services.strategy_contracts import RENDER_HINT_STRATEGY_BUILDER
+
+    request = str(a.get("request") or "").strip()
+    slots = _slot_state_from_args(a)
+    # ctx is loose-typed in the builder; hand it the per-turn DB session so it
+    # can reuse an open session (it otherwise opens its own read-only ones).
+    card = build_strategy(request, slots, ctx=db)
+    payload = {"_render_hint": RENDER_HINT_STRATEGY_BUILDER, **card.model_dump()}
+    return {"success": True, "data": payload, "logiccard": None}
+
+
+async def _ask_user_dynamic(a, kt, db, uid):
+    """Generate the VOI-ranked clarify card → needs_clarification marker.
+
+    Calls the engine's :func:`clarify_engine.generate_clarify_card`. When the
+    skip-entirely gate fires (or nothing clears τ_q) the engine returns
+    ``None`` — we surface a ``needs_clarification=False`` marker so the chat
+    loop knows to build directly instead of pausing. Otherwise we return the
+    clarify_card payload + a ``needs_clarification`` marker that
+    validation_handler maps onto a paused turn (mirrors ASK_USER).
+
+    The card is emitted under ``data`` with ``_render_hint='clarify_card'`` so
+    the chat layer can surface it as raw_data on the paused turn."""
+    from backend.services.clarify_engine import generate_clarify_card
+    from backend.services.strategy_contracts import RENDER_HINT_CLARIFY
+
+    request = str(a.get("request") or "").strip()
+    slots = _slot_state_from_args(a)
+    card = await generate_clarify_card(request, slots, ctx=db)
+    if card is None:
+        # Nothing worth asking — tell the caller to build directly. No card,
+        # no pause; this is NOT an error.
+        return {
+            "success": True,
+            "data": {"_clarify_skip": True},
+            "logiccard": None,
+            "needs_clarification": False,
+        }
+    first = card.questions[0] if card.questions else None
+    return {
+        "success": True,
+        "data": {
+            "_render_hint": RENDER_HINT_CLARIFY,
+            "clarify": card.model_dump(),
+        },
+        "logiccard": None,
+        # Markers consumed by validation_handler to pause the turn and surface
+        # the first question's prompt as the assistant reply.
+        "needs_clarification": True,
+        "question": (first.prompt if first is not None else ""),
+    }
+
+
+async def _ask_agent_clarify(a, kt, db, uid):
+    """Generate the structured clarify card for an UNDER-SPECIFIED agent build.
+
+    Deterministic (no LLM) — the agent-build unknowns are a small closed set.
+    When the ask is specific enough to build, ``generate_agent_clarify_card``
+    returns ``None`` and we surface ``needs_clarification=False`` so the chat
+    loop proceeds to propose_workflow. Otherwise we emit a clarify_card tagged
+    ``_clarify_kind='agent'`` / ``_build_tool='propose_workflow'`` so the resume
+    path folds answers into an enriched intent and builds via propose_workflow
+    (not the portfolio build_strategy)."""
+    from backend.services.agent_clarify import generate_agent_clarify_card
+    from backend.services.strategy_contracts import RENDER_HINT_CLARIFY
+
+    request = str(a.get("request") or "").strip()
+    sym = str(a.get("symbol") or "").strip()
+    if sym and sym.upper() not in request.upper():
+        # Fold an explicitly-passed symbol into the request so the engine
+        # grounds the chips on it even when the model didn't echo it verbatim.
+        request = f"{request} {sym}".strip()
+    card = generate_agent_clarify_card(request)
+    if card is None:
+        return {
+            "success": True,
+            "data": {"_clarify_skip": True},
+            "logiccard": None,
+            "needs_clarification": False,
+        }
+    questions = card.get("questions") or []
+    first = questions[0] if questions else None
+    return {
+        "success": True,
+        "data": {
+            "_render_hint": RENDER_HINT_CLARIFY,
+            "clarify": card,
+            "_clarify_kind": "agent",
+            "_build_tool": "propose_workflow",
+        },
+        "logiccard": None,
+        "needs_clarification": True,
+        "question": (first.get("prompt") if isinstance(first, dict) else ""),
+    }
 
 
 async def _list_upcoming_ipos(a, kt, db, uid):

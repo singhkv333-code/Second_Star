@@ -22,17 +22,19 @@ cd Second_Star
 git checkout Eventtriggers      # the active branch
 ```
 
-## 2. Ask the owner to allowlist your IP (one-time, required)
-The Azure DB firewall only accepts known IPs. Send the owner your public IP:
-```bash
-curl -s https://api.ipify.org      # <- send this to the owner
-```
-The owner runs (Azure Cloud Shell):
-```bash
-az postgres flexible-server firewall-rule create -g pivot -n pivot-db-india \
-  --rule-name <your-name>-laptop --start-ip-address <YOUR_IP> --end-ip-address <YOUR_IP>
-```
-(If your IP changes, you'll need this re-added.)
+## 2. Firewall — nothing to do (dev DB is open to all IPs)
+The `pivot-db-india` server has an `allow-all-dev` rule (`0.0.0.0–255.255.255.255`),
+so you can connect from any IP without asking the owner to allowlist you. The DB is
+protected by the `pivotadmin` password + `sslmode=require` only — **do not** put real
+secrets or production data on it, and don't share the connection string publicly.
+
+> Owner note: to lock it back down, delete the open rule and add per-IP rules again:
+> ```bash
+> az postgres flexible-server firewall-rule delete -g pivot -s pivot-db-india -n allow-all-dev
+> az postgres flexible-server firewall-rule create -g pivot -s pivot-db-india \
+>   -n <name>-laptop --start-ip-address <IP> --end-ip-address <IP>
+> ```
+> (Note: this `az` version uses `-s` for the server and `-n` for the rule name.)
 
 ## 3. Get the secrets from the owner (out-of-band — NOT via git/chat)
 Ask the owner to send you their two env files securely (password manager / Signal / etc.):

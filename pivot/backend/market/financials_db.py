@@ -499,36 +499,49 @@ def get_fundamental_history(
         sc_id = resolve_symbol(symbol_or_sc_id, session=s)
         if sc_id is None:
             return []
-        # Over-fetch then dedupe. The list_position trick gives us
-        # synonym-priority ordering so the preferred name wins on a tie.
-        rows = s.execute(
-            text(
-                """
-                SELECT DISTINCT ON (period_end)
-                       line_item, basis, period_label, period_end,
-                       availability_date, value_numeric, value_text, unit
-                FROM mc.statement_lines
-                WHERE sc_id = :sc
-                  AND statement = :stmt
-                  AND basis = :basis
-                  AND line_item = ANY(:items)
-                  AND value_numeric IS NOT NULL
-                  AND period_end IS NOT NULL
-                  AND (:as_of IS NULL OR availability_date <= :as_of)
-                ORDER BY period_end DESC,
-                         array_position(CAST(:items AS text[]), line_item)
-                LIMIT :lim
-                """
-            ),
-            {
-                "sc": sc_id,
-                "stmt": statement,
-                "basis": basis,
-                "items": list(synonyms),
-                "as_of": as_of_date,
-                "lim": limit,
-            },
-        ).fetchall()
+        # Try the requested basis first, then fall back to the other one —
+        # mirrors `_get_line_item_value`. Without this, a company that only
+        # files standalone statements (e.g. TCS — ~3,285 names in this DB
+        # have no consolidated rows) returns an EMPTY history for the
+        # default consolidated basis, so the FE renders all-"—" P&L and
+        # Financials tables even though the data is present standalone.
+        rows = []
+        for active_basis in (
+            basis,
+            "standalone" if basis == "consolidated" else "consolidated",
+        ):
+            # Over-fetch then dedupe. The list_position trick gives us
+            # synonym-priority ordering so the preferred name wins on a tie.
+            rows = s.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (period_end)
+                           line_item, basis, period_label, period_end,
+                           availability_date, value_numeric, value_text, unit
+                    FROM mc.statement_lines
+                    WHERE sc_id = :sc
+                      AND statement = :stmt
+                      AND basis = :basis
+                      AND line_item = ANY(:items)
+                      AND value_numeric IS NOT NULL
+                      AND period_end IS NOT NULL
+                      AND (:as_of IS NULL OR availability_date <= :as_of)
+                    ORDER BY period_end DESC,
+                             array_position(CAST(:items AS text[]), line_item)
+                    LIMIT :lim
+                    """
+                ),
+                {
+                    "sc": sc_id,
+                    "stmt": statement,
+                    "basis": active_basis,
+                    "items": list(synonyms),
+                    "as_of": as_of_date,
+                    "lim": limit,
+                },
+            ).fetchall()
+            if rows:
+                break
         return [
             FundamentalValue(
                 sc_id=sc_id,

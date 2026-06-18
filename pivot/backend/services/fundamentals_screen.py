@@ -518,3 +518,149 @@ def screen_by_fundamentals(
         "applied_filters": valid_filters,
         "note": "; ".join(notes),
     }
+
+
+# ── Batch gate-input fetch (latency path for the strategy builder) ──────────
+# The cheap quality/value ratios the strategy builder's selection GATE needs
+# (roe, roce, de, pe) for an EXPLICIT symbol list, pulled in ONE round-trip.
+_GATE_FIELDS: tuple[str, ...] = ("roe", "roce", "de", "pe")
+
+
+def fetch_gate_inputs(
+    symbols: list[str],
+    *,
+    min_period_end: date | None | str = "default",
+    session: Session | None = None,
+) -> dict[str, dict[str, float | None]]:
+    """Batch-fetch the cheap gate ratios (roe/roce/de/pe) for ``symbols`` in ONE
+    SQL round-trip, keyed by UPPER(symbol).
+
+    This is the latency fast-path for ``strategy_builder``: instead of calling
+    the per-name :func:`analysis_chat_tools.fetch_fundamentals` (≈9 Azure
+    round-trips each) across a ~30-name pre-gate universe, we resolve only the
+    four ratios the gate actually reads, for the whole universe, in a single
+    statement — then run the cheap gate and call the FULL per-name fetch only on
+    the ~8-12 survivors. Output is byte-identical to what the gate would have
+    read from the per-name fetcher (same DB CTEs: latest-per-sc_id, consolidated
+    basis preferred, same recency floor, same P/E = 1/EarningsYield derivation,
+    same data-quality bounds), so this is a pure I/O batching change — the gate
+    decision is unchanged.
+
+    Returns ``{SYMBOL: {"roe": .., "roce": .., "de": .., "pe": ..}}``. A symbol
+    the DB can't serve is simply absent from the map (never fabricated); the
+    caller leaves those ratios ``None`` exactly as the per-name path would.
+    """
+    syms = [str(s).strip().upper() for s in symbols if str(s).strip()]
+    if not syms:
+        return {}
+
+    if min_period_end == "default":
+        floor: date | None = _default_min_period_end()
+    elif isinstance(min_period_end, str):
+        floor = date.fromisoformat(min_period_end)
+    else:
+        floor = min_period_end
+
+    owns = session is None
+    s = session or FinancialsSessionLocal()
+    try:
+        # ── 1. Resolve the symbol list → sc_ids in ONE indexed companies lookup.
+        # This is the latency key: it lets the (expensive) statement_lines CTEs
+        # below be constrained to ≤30 sc_ids (index range-scan) instead of a
+        # DISTINCT-ON scan over the whole ~11k-company statement_lines table.
+        # The impostor-row dedup (RELIANCE collision) is applied here so we map
+        # each display symbol to the CANONICAL sc_id (nse_symbol holder wins).
+        comp_rows = s.execute(
+            text(
+                """
+                SELECT c.sc_id,
+                       UPPER(COALESCE(c.nse_symbol, c.ticker)) AS sym,
+                       c.nse_symbol
+                FROM mc.companies c
+                WHERE c.is_active
+                  AND UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:syms)
+                  AND (c.nse_symbol IS NOT NULL OR c.ticker NOT IN
+                       (SELECT nse_symbol FROM mc.companies
+                        WHERE nse_symbol IS NOT NULL))
+                """
+            ),
+            {"syms": syms},
+        ).fetchall()
+
+        sc_to_sym: dict[str, str] = {}
+        sym_has_canonical: dict[str, bool] = {}
+        for sc_id, sym, nse_symbol in comp_rows:
+            # On a residual collision prefer the canonical nse_symbol holder.
+            if sym in sym_has_canonical and sym_has_canonical[sym] and nse_symbol is None:
+                continue
+            sc_to_sym[str(sc_id)] = sym
+            sym_has_canonical[sym] = nse_symbol is not None
+        if not sc_to_sym:
+            return {}
+        sc_ids = list(sc_to_sym)
+
+        # ── 2. One CTE per gate metric, each constrained to our sc_ids ──
+        params: dict = {"floor": floor, "sc_ids": sc_ids}
+        cte_sqls: list[str] = []
+        select_cols: list[str] = []
+        for i, mf in enumerate(_GATE_FIELDS):
+            defn = _FIELD_DEFS[mf]
+            items_key = f"items_{i}"
+            params[items_key] = defn["items"]
+            cte_name = f"m_{mf}"
+            # Same EY guard as screen_by_fundamentals so a sub-1 P/E artifact can't
+            # leak into the gate (keeps the batch path identical to the per-name one).
+            extra = ""
+            if defn["kind"] == "pe_from_ey":
+                extra = "AND sl.value_numeric > 0 AND sl.value_numeric <= 1.0"
+            cte_sqls.append(
+                f"""{cte_name} AS (
+                    SELECT DISTINCT ON (sl.sc_id)
+                           sl.sc_id, sl.value_numeric AS v
+                    FROM mc.statement_lines sl
+                    WHERE sl.sc_id = ANY(:sc_ids)
+                      AND sl.line_item = ANY(:{items_key})
+                      AND sl.value_numeric IS NOT NULL
+                      {extra}
+                      AND (:floor IS NULL OR sl.period_end >= :floor)
+                    ORDER BY sl.sc_id,
+                             (sl.basis = 'consolidated') DESC,
+                             sl.period_end DESC NULLS LAST,
+                             sl.availability_date DESC NULLS LAST
+                )"""
+            )
+            if defn["kind"] == "pe_from_ey":
+                select_cols.append(
+                    f"CASE WHEN {cte_name}.v <> 0 THEN 1.0/{cte_name}.v END AS val_{mf}"
+                )
+            else:
+                select_cols.append(f"{cte_name}.v AS val_{mf}")
+
+        # Driver = the union of sc_ids present in ANY metric CTE; LEFT JOIN each
+        # metric onto it so a name present in only some metrics still returns its
+        # available ratios (the per-name fetcher is equally partial-tolerant).
+        union_ids = " UNION ".join(f"SELECT sc_id FROM m_{mf}" for mf in _GATE_FIELDS)
+        join_sqls = [f"LEFT JOIN m_{mf} ON m_{mf}.sc_id = d.sc_id" for mf in _GATE_FIELDS]
+        sql = f"""
+        WITH {", ".join(cte_sqls)},
+             driver AS ({union_ids})
+        SELECT d.sc_id, {", ".join(select_cols)}
+        FROM driver d
+        {" ".join(join_sqls)}
+        """
+        rows = s.execute(text(sql), params).fetchall()
+    finally:
+        if owns:
+            s.close()
+
+    out: dict[str, dict[str, float | None]] = {}
+    for row in rows:
+        sc_id = str(row[0]) if row[0] is not None else None
+        sym = sc_to_sym.get(sc_id) if sc_id else None
+        if sym is None:
+            continue
+        out[sym] = {
+            mf: (round(float(row[1 + i]), 4) if row[1 + i] is not None else None)
+            for i, mf in enumerate(_GATE_FIELDS)
+        }
+    return out

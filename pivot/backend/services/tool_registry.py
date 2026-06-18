@@ -131,6 +131,19 @@ _REAL_TOOLS: set[str] = {
     "propose_threshold_order",
     "propose_basket_allocation",
     "propose_holding_action",
+    # Strategy builder + dynamic clarifying questions (Workstreams A & B).
+    # build_strategy runs the DB-driven equity+gold construction pipeline and
+    # emits a strategy_builder_card; ask_user_dynamic runs the VOI question
+    # engine and emits a clarify_card (paused turn). MUST be here so the routed
+    # per-hop surface (get_tool_schema gates on this set) can show them to the
+    # model — otherwise the router selects them but they never reach the LLM.
+    "build_strategy",
+    "ask_user_dynamic",
+    # ask_agent_clarify: deterministic clarify_card for under-specified
+    # AUTOMATION/agent builds (action-kind + size); answers resume into
+    # propose_workflow. Sibling to ask_user_dynamic (which clarifies
+    # strategy/basket builds → build_strategy).
+    "ask_agent_clarify",
     # Polymarket — prediction-market trigger + catalog browse.
     # propose_polymarket_trigger emits a draft card (threshold or
     # resolution mode); persistence + activation happen via the

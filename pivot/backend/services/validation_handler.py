@@ -93,6 +93,12 @@ def ask_user_tool_def() -> ToolDef:
             "focused question containing real text — do NOT pass an empty "
             "string. Do not call this for greetings, definitions, or topics "
             "where you can answer directly.\n\n"
+            "NEVER use this to clarify a STRATEGY / BASKET / PORTFOLIO build — "
+            "those use `ask_user_dynamic` (a grounded multi-question card). In "
+            "particular, NEVER ask the user to pick a weighting scheme or a "
+            "selection gate, and never echo internal enum names (equal / "
+            "market-cap / risk-parity / min-variance / black-litterman / "
+            "factor / f-score / magic-formula) in a question.\n\n"
             "ALWAYS set `default_on_yes` when the question is a yes/no "
             "confirmation (single-option suggestion or disambiguation with "
             "an obvious pick) — that value is what a bare 'yes' next turn "
@@ -498,6 +504,45 @@ async def execute_with_completeness(
             default_on_yes=default_on_yes,
             options=options or None,
             latency_ms=int((time.monotonic() - started) * 1000),
+        )
+
+    # ASK_USER_DYNAMIC intercept (Workstream A — synthetic). Unlike ASK_USER
+    # (one shallow free-text question), this runs the VOI clarify engine
+    # server-side and either pauses the turn with a generated clarify_card or —
+    # when the skip-entirely gate fires / nothing clears τ_q — returns a normal
+    # success marker so the chat loop builds directly instead of asking. We run
+    # it through the executor here (rather than letting it fall to the generic
+    # `execute` path) so the engine's `needs_clarification` marker maps onto a
+    # paused turn exactly like ASK_USER does.
+    # ask_agent_clarify (automation/agent builds) takes the SAME paused-turn
+    # path — a deterministic clarify_card whose answers resume into
+    # propose_workflow (vs ask_user_dynamic's build_strategy). Both map their
+    # needs_clarification marker onto a paused turn exactly like ASK_USER.
+    if tool_name in ("ask_user_dynamic", "ask_agent_clarify"):
+        if tool_name == "ask_agent_clarify":
+            from backend.agents.tool_executor import _ask_agent_clarify as _clarify_exec
+        else:
+            from backend.agents.tool_executor import _ask_user_dynamic as _clarify_exec
+        result = await _clarify_exec(
+            {**args}, kite_token, db, user_id,
+        )
+        latency = int((time.monotonic() - started) * 1000)
+        if result.get("needs_clarification"):
+            return GuardedToolResult(
+                name=tool_name, args=args,
+                needs_clarification=True,
+                question=str(result.get("question") or "").strip(),
+                data=result.get("data") or {},
+                latency_ms=latency,
+            )
+        # No card worth asking: surface a benign success so the agentic loop
+        # takes another hop and calls build_strategy directly. The marker data
+        # never renders (it carries no _render_hint widget).
+        return GuardedToolResult(
+            name=tool_name, args=args,
+            success=True,
+            data=result.get("data") or {},
+            latency_ms=latency,
         )
 
     # Look up the schema for the chosen tool.

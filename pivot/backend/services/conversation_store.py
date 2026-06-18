@@ -56,6 +56,13 @@ PENDING_PREFIX = "chat:pending:"
 # without an LLM hop. Short TTL — clarifications are momentary.
 PENDING_RESOLUTION_TTL_SECONDS = 60 * 10     # 10 min
 PENDING_RESOLUTION_PREFIX = "chat:resolution:"
+# Strategy clarify flow (Workstream A): the in-band slot-state + the active
+# clarify_card (questions + current index) while a dynamic-questions card is on
+# screen. The FE round-trips session_slot_state on the next message; we ALSO
+# persist it here so the answer can be normalised + the N-of-M flow advanced
+# without re-running the generator. Short TTL — a clarify card is momentary.
+CLARIFY_TTL_SECONDS = 60 * 15                 # 15 min
+CLARIFY_PREFIX = "chat:clarify:"
 # Active workflow draft TTL: was 1h. A draft that hangs around for an
 # hour leaks into completely unrelated turns (PDF report case: a stale
 # "Sell HDFCBANK at 10% profit" draft appeared under a "pros and cons of
@@ -176,6 +183,47 @@ class PendingToolCall:
 
 
 @dataclass
+class ClarifyState:
+    """Active dynamic-clarify flow (Workstream A) for one conversation.
+
+    Persisted when ``ask_user_dynamic`` emits a clarify_card so the next user
+    message (an option pick / free text / skip) can be normalised into the
+    travelling slot-state and the N-of-M flow advanced WITHOUT re-running the
+    VOI generator. When the budget is exhausted / the user says "just build it",
+    the chat layer hands ``slot_state`` to ``strategy_builder.build_strategy``.
+
+    Fields are plain JSON (dicts/lists), not Pydantic models, so the dataclass
+    stays trivially (de)serialisable through Redis; the chat layer rehydrates
+    ``SlotState`` / ``ClarifyCard`` from these dicts at the edges.
+
+      * ``request``     — the original strategy ask (drives the eventual build).
+      * ``slot_state``  — the current ``SlotState`` as a dict (the in-band state).
+      * ``questions``   — the ranked ``ClarifyQuestion`` dicts (the whole card).
+      * ``index``       — 0-based cursor into ``questions`` (the next to answer).
+    """
+    request: str
+    slot_state: dict[str, Any]
+    questions: list[dict[str, Any]]
+    index: int = 0
+    asked_at_iso: str = ""
+    # Discriminator for the resume terminal. "portfolio" (default — legacy
+    # state deserialises unchanged) folds answers via clarify_engine and builds
+    # build_strategy; "agent" folds via agent_clarify and builds via
+    # ``build_tool`` (propose_workflow). New fields carry defaults so a state
+    # written before this field existed still rehydrates.
+    kind: str = "portfolio"
+    build_tool: str = "build_strategy"
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), default=str)
+
+    @classmethod
+    def from_json(cls, raw: str | bytes) -> "ClarifyState":
+        data = json.loads(raw if isinstance(raw, str) else raw.decode())
+        return cls(**data)
+
+
+@dataclass
 class ConversationStore:
     """Thin wrapper around Redis. Sync because cache.redis_client is sync."""
 
@@ -269,6 +317,51 @@ class ConversationStore:
             redis_client.delete(self._pending_key(conv_id))
         except Exception as e:
             logger.warning("pending clear failed: %s", e)
+
+    # ── Strategy clarify flow (Workstream A — dynamic questions) ────────
+
+    def _clarify_key(self, conv_id: str) -> str:
+        return f"{CLARIFY_PREFIX}{conv_id}"
+
+    def set_clarify(self, conv_id: str, state: ClarifyState) -> None:
+        """Stash the active clarify flow so the next reply advances the N-of-M
+        flow in-band (no generator re-run). 15-min TTL — clarification is
+        momentary; after that the user gets the full LLM path."""
+        if not conv_id:
+            return
+        try:
+            redis_client.set(
+                self._clarify_key(conv_id),
+                state.to_json(),
+                ex=CLARIFY_TTL_SECONDS,
+            )
+        except Exception as e:
+            logger.warning("clarify set failed: %s", e)
+
+    def get_clarify(self, conv_id: str) -> Optional[ClarifyState]:
+        """Return the active clarify flow for this conversation, or None."""
+        if not conv_id:
+            return None
+        try:
+            raw = redis_client.get(self._clarify_key(conv_id))
+        except Exception as e:
+            logger.warning("clarify get failed: %s", e)
+            return None
+        if raw is None:
+            return None
+        try:
+            return ClarifyState.from_json(raw)
+        except (TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.warning("clarify decode failed: %s", e)
+            return None
+
+    def clear_clarify(self, conv_id: str) -> None:
+        if not conv_id:
+            return
+        try:
+            redis_client.delete(self._clarify_key(conv_id))
+        except Exception as e:
+            logger.warning("clarify clear failed: %s", e)
 
     # ── Active workflow draft (multi-turn amendment) ────────────────
     #

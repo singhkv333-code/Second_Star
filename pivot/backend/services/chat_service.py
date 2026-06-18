@@ -63,6 +63,7 @@ from backend.services.chat_trace import TurnTrace, start_turn
 from backend.services.conversation_store import (
     CONV_PROMPT_WINDOW_TURNS,
     ActiveDraft,
+    ClarifyState,
     ConversationStore,
     PendingToolCall,
     default_store,
@@ -1086,7 +1087,12 @@ def _is_hedge_followup(message: str, history: list) -> bool:
 # ("yes make a concrete strategy") that carries none of the framing.
 _STRATEGY_FRAMED_RE = re.compile(
     r"\b(?:strateg(?:y|ies)|diversif\w*|re-?balanc\w*|hedg(?:e|ing)|"
-    r"allocat\w*|asset\s+mix)\b",
+    r"allocat\w*|asset\s+mix|"
+    # build_strategy / propose_basket_allocation framings: a "portfolio"
+    # or a multi-name "basket" is a thoughtful strategy build, not a
+    # mechanical order — it earns the strategy-explain guard + the
+    # high-cap strategy reply budget.
+    r"portfolio|basket)\b",
     re.IGNORECASE,
 )
 
@@ -2009,6 +2015,12 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
     """Return one of {'draft', 'automation', 'backtest', 'explainer',
     'capability', 'small_talk', 'analysis', 'analytical_short'}.
 
+    NOTE: the high-cap 'strategy' class is NOT returned here — a
+    strategy/basket build classifies as intent_kind='agent' → 'draft'.
+    The caller upgrades it to 'strategy' via `_is_strategy_framed`
+    AFTER calling this, so the builder path gets the 3800-token budget
+    (see the STRATEGY budget override in handle() / the stream path).
+
     The first three mirror intent_kind (with 'agent' renamed to 'draft'
     for clarity at the reply-budget layer); the rest sub-classify the
     'other' bucket so each shape gets a fitting length + format budget.
@@ -2083,6 +2095,29 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
         "REPLY-CLASS: SHORT-ANALYTICAL. Reply in ≤120 words of plain "
         "prose. No `##` headings. Do NOT append unsolicited live "
         "prices — recite them only if the user asked."
+    )),
+    # STRATEGY — the text that accompanies a build_strategy /
+    # propose_basket_allocation card. The draft cap (1500) strangled
+    # this: the strategy reply must CONNECT the card to the user's ask,
+    # justify the structure, and offer alternatives — that needs room.
+    # 3800-token cap so the model can write the full rationale +
+    # alternatives + a sizing/weights table without being truncated.
+    "strategy": (3800, (
+        "REPLY-CLASS: STRATEGY. This text accompanies a strategy/basket "
+        "CARD the user can see — do NOT restate every leg mechanically. "
+        "Aim for 250-450 words, well-structured with `## Section` "
+        "headings. CONNECT the build to the user's ask: (1) why this "
+        "structure fits their stated/assumed view, risk, horizon and "
+        "capital; (2) the rationale for the constituents and the "
+        "weighting (explain the LOGIC in plain English — 'tilted toward "
+        "lower-volatility names so a drawdown hurts less' — do NOT name "
+        "internal scheme/gate enums like risk-parity, min-variance, "
+        "black-litterman, f-score, magic-formula); (3) 1-2 real "
+        "ALTERNATIVES with the trade-off (e.g. 'fewer names = more "
+        "conviction but more single-stock risk'); (4) a markdown table "
+        "of the holdings with weights when 3+ names. Flag any "
+        "(assumed …) slot honestly. End with the register-not-execute "
+        "note and the not-advice disclaimer."
     )),
 }
 
@@ -2934,6 +2969,22 @@ def _apply_scenario_routing(
             matched=True, drop_ask_user=True,
         )
 
+    # Structured-clarify intents (lowest precedence). When the router has
+    # surfaced a STRUCTURED clarify tool — ask_user_dynamic (strategy/basket)
+    # or ask_agent_clarify (automation/agent) — the bare ASK_USER blank-text
+    # question must NOT be the model's clarify channel. Drop it so any
+    # clarification renders as the one-click clarify_card; the model can still
+    # build directly or ask via the structured tool. (Keeps tool_choice as the
+    # caller set it — we only remove the blank-text escape.)
+    if frozenset(selected_names) & {"ask_user_dynamic", "ask_agent_clarify"}:
+        defs = [t for t in tooldefs if t.name != ASK_USER_TOOL_NAME]
+        if len(defs) != len(tooldefs):
+            return _ScenarioRouting(
+                selected_names=selected_names, tooldefs=defs,
+                cache_key=cache_key, tool_choice=None,
+                matched=True, drop_ask_user=True,
+            )
+
     return no_change
 
 
@@ -3414,6 +3465,21 @@ _RESUME_CANCEL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Clarify-flow (Workstream A) escape hatches. "Just build it" / "go ahead" /
+# "whatever, make it" short-circuits the remaining questions and builds with
+# the slots filled so far (skipped slots take stated defaults). "Skip" / "next"
+# advances past the current question without answering it.
+_CLARIFY_BUILD_NOW_RE = re.compile(
+    r"\b(?:just\s+build|build\s+it|build\s+now|go\s+ahead|make\s+it|"
+    r"do\s+it|just\s+do\s+it|whatever|stop\s+asking|enough\s+questions?)\b",
+    re.IGNORECASE,
+)
+_CLARIFY_SKIP_RE = re.compile(
+    r"^\s*(?:skip|next|pass|don'?t\s+care|no\s+preference|not\s+sure|"
+    r"dunno|idk|either|any)\b[.!]?\s*$",
+    re.IGNORECASE,
+)
+
 # Broader cancel regex used by `_try_cancel_active_draft`. Allows
 # trailing referents the user typically appends when there's a draft on
 # screen — "cancel that one", "scrap it", "delete the agent / draft",
@@ -3759,6 +3825,289 @@ class ChatService:
             original_intent=original_intent[:280] if original_intent else None,
             asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         ))
+
+    # ── Strategy clarify flow (Workstream A — dynamic questions) ────────
+
+    def _maybe_set_clarify_state(
+        self, conv_id: str, original_request: str, guarded: GuardedToolResult,
+    ) -> None:
+        """Persist the active clarify flow when ``ask_user_dynamic`` emitted a
+        clarify_card, so the next user reply advances the N-of-M flow in-band
+        (no generator re-run). Cleared on a non-clarify clarification or by TTL.
+        """
+        data = guarded.data if isinstance(guarded.data, dict) else {}
+        card = data.get("clarify") if data.get("_render_hint") == "clarify_card" else None
+        if not isinstance(card, dict):
+            return
+        # Discriminator: ask_agent_clarify tags the payload kind='agent' +
+        # build_tool='propose_workflow'; the portfolio ask_user_dynamic leaves
+        # them absent → defaults below ('portfolio' / build_strategy).
+        kind = str(data.get("_clarify_kind") or "portfolio")
+        build_tool = str(
+            data.get("_build_tool")
+            or ("propose_workflow" if kind == "agent" else "build_strategy")
+        )
+        try:
+            self.store.set_clarify(conv_id, ClarifyState(
+                request=(original_request or "")[:600],
+                slot_state=card.get("session_slot_state") or {},
+                questions=card.get("questions") or [],
+                index=int(card.get("index") or 0),
+                asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                kind=kind,
+                build_tool=build_tool,
+            ))
+        except Exception as e:  # never let bookkeeping break the turn
+            logger.warning("clarify state persist failed: %s", e)
+
+    async def _try_resume_clarify(
+        self,
+        *,
+        message: str,
+        conv_id: str,
+        ctx: "UserContext",
+        trace: TurnTrace,
+        turn_started: float,
+        breakdown: dict[str, int],
+    ) -> Optional["ChatTurn"]:
+        """In-band ingestion of a clarify answer (Workstream A, plan §2d/§2f).
+
+        When a clarify_card is on screen and the user's next message answers the
+        current question — an option label/id, free text, or Skip — normalise it
+        into the travelling :class:`SlotState`, advance the N-of-M cursor, and
+        either re-surface the next question (still 0 LLM hops) or, when the
+        stopping rule is satisfied ("just build it" / budget exhausted), call
+        ``strategy_builder.build_strategy`` and render the card.
+
+        Returns ``None`` (fall through to the normal LLM path) when there is no
+        active clarify flow, or when the message clearly isn't an answer (a
+        topic switch / cancel) — the user is free to ignore the chips and ask
+        something else."""
+        # Duck-typed store: a stub/legacy store without the clarify methods has
+        # no clarify flow by definition — fall straight through.
+        get_clarify = getattr(self.store, "get_clarify", None)
+        if not callable(get_clarify):
+            return None
+        state = get_clarify(conv_id)
+        if state is None:
+            return None
+
+        from backend.services.strategy_contracts import ClarifyQuestion
+
+        # Discriminator: an agent clarify (kind='agent') folds answers via
+        # agent_clarify and builds via propose_workflow; the portfolio default
+        # folds via clarify_engine and builds build_strategy. Defaulting to
+        # 'portfolio' keeps any in-flight pre-deploy state building correctly.
+        is_agent = (getattr(state, "kind", "portfolio") == "agent")
+        if is_agent:
+            from backend.services.agent_clarify import (
+                build_agent_intent,
+                normalize_agent_answer_into_slots,
+            )
+            agent_slots: dict[str, Any] = dict(state.slot_state or {})
+            slot_state_dump = lambda: dict(agent_slots)  # noqa: E731
+        else:
+            from backend.services.clarify_engine import normalize_answer_into_slots
+            from backend.services.strategy_contracts import SlotState
+            try:
+                slots = SlotState.model_validate(state.slot_state or {})
+            except Exception:
+                slots = SlotState()
+            slot_state_dump = lambda: slots.model_dump()  # noqa: E731
+
+        text = (message or "").strip()
+        # Cancel / topic-switch off-ramp: abandon the flow and let the LLM
+        # handle the new request cleanly.
+        if _RESUME_CANCEL_RE.match(text):
+            self.store.clear_clarify(conv_id)
+            trace.event("clarify.cancelled")
+            return None
+
+        questions = [
+            ClarifyQuestion.model_validate(q)
+            for q in (state.questions or [])
+            if isinstance(q, dict)
+        ]
+        index = max(0, min(int(state.index or 0), len(questions)))
+        current = questions[index] if index < len(questions) else None
+
+        build_now = bool(_CLARIFY_BUILD_NOW_RE.search(text))
+        is_skip = bool(_CLARIFY_SKIP_RE.match(text))
+
+        if current is not None and not build_now and not is_skip:
+            # Normalise the answer (option id/label or free text) into the slot.
+            # The engine owns the parse so the slot vocabulary stays in one
+            # place; an unrecognisable answer leaves the slot at its default.
+            try:
+                if is_agent:
+                    agent_slots = normalize_agent_answer_into_slots(
+                        current.model_dump(), text, agent_slots,
+                    )
+                else:
+                    slots = normalize_answer_into_slots(current, text, slots)
+            except Exception as e:
+                logger.warning("clarify answer normalise failed: %s", e)
+
+        # Advance the cursor past the question we just handled (answered or
+        # skipped). A skipped slot keeps its default + stays flagged assumed.
+        next_index = index + 1 if current is not None else index
+
+        # Stopping rule: build when the user said so, or we've run the budget.
+        if build_now or next_index >= len(questions) or not questions:
+            self.store.clear_clarify(conv_id)
+            if is_agent:
+                # Assemble the answered slots into an enriched intent and build
+                # the workflow draft directly (the legacy user_intent path of
+                # the propose_workflow executor — bypasses the steps[] schema
+                # gate; runs the inner planner, NOT 0-hop, which is fine for a
+                # build turn). Honest-fallthrough to the LLM on failure.
+                from backend.agents.tool_executor import _propose_workflow
+                intent = build_agent_intent(state.request, agent_slots)
+                t0 = time.monotonic()
+                try:
+                    result = await _propose_workflow(
+                        {"user_intent": intent},
+                        ctx.kite_token, ctx.db, ctx.user_id,
+                    )
+                except Exception as e:
+                    logger.info("clarify agent build failed: %s", e)
+                    return None
+                breakdown["tool_propose_workflow"] = int(
+                    (time.monotonic() - t0) * 1000
+                )
+                if not result.get("success"):
+                    # Build failed (e.g. the chosen action couldn't be planned
+                    # into a valid trigger). Do NOT fall through to the LLM —
+                    # it would only see the bare chip id ("lot_2") with no
+                    # context and reply confusingly. Surface an honest, concrete
+                    # ask so the conversation stays coherent.
+                    trace.event("clarify.build", success=False,
+                                error=str(result.get("error") or "")[:120])
+                    msg = (
+                        "I couldn't turn that into a clean automation. Tell me "
+                        "the trigger in one line — e.g. “every Friday at "
+                        "9:30”, “when RSI drops below 30”, or "
+                        "“when the price crosses ₹1500” — and "
+                        "I'll draft it."
+                    )
+                    self.store.append(conv_id, message, msg)
+                    total = int((time.monotonic() - turn_started) * 1000)
+                    breakdown["total"] = total
+                    _log_timing("clarify_build_agent_failed", message, total,
+                                breakdown, tools=[])
+                    trace.event("turn.end", total_ms=total, tools_called=[],
+                                reason="clarify_build_agent_failed")
+                    trace.end()
+                    return ChatTurn(
+                        response=msg,
+                        tools_called=[],
+                        raw_data={"_render_hint": "ask_user"},
+                        latency_ms=total,
+                        latency_breakdown=breakdown,
+                    )
+                payload = result.get("data") or {}
+                raw_data: dict[str, Any] = {"propose_workflow": payload}
+                # Stash so a follow-up amendment ("make it 2 lots") patches it.
+                try:
+                    self._stash_workflow_draft(
+                        conv_id, payload, tool_name="propose_workflow",
+                    )
+                except Exception:
+                    pass
+                text_out = _ensure_widget_caption(
+                    "", tool_name="propose_workflow",
+                    logiccard=None, raw_data=raw_data,
+                )
+                self.store.append(conv_id, message, text_out)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["total"] = total
+                _log_timing("clarify_build_agent", message, total, breakdown,
+                            tools=["propose_workflow"])
+                trace.event("turn.end", total_ms=total,
+                            tools_called=["propose_workflow"],
+                            reason="clarify_build_agent")
+                trace.end()
+                return ChatTurn(
+                    response=text_out,
+                    tools_called=["propose_workflow"],
+                    raw_data=raw_data,
+                    latency_ms=total,
+                    latency_breakdown=breakdown,
+                )
+
+            guarded = await execute_with_completeness(
+                "build_strategy",
+                {"request": state.request, **slots.model_dump()},
+                llm_client=self._client(),
+                user_message=message,
+                kite_token=ctx.kite_token, db=ctx.db, user_id=ctx.user_id,
+            )
+            breakdown[f"tool_{guarded.name}"] = guarded.latency_ms
+            trace.event("clarify.build", success=guarded.success,
+                        error=(guarded.error or "")[:120])
+            if not guarded.success:
+                return None  # honest fallthrough to the LLM recovery path
+            raw_data = {}
+            if guarded.data:
+                raw_data[guarded.name] = guarded.data
+            text_out = _ensure_widget_caption(
+                _tool_summary_line(guarded.name, None),
+                tool_name=guarded.name, logiccard=None, raw_data=raw_data,
+            )
+            self.store.append(conv_id, message, text_out)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["total"] = total
+            _log_timing("clarify_build", message, total, breakdown,
+                        tools=[guarded.name])
+            trace.event("turn.end", total_ms=total, tools_called=[guarded.name],
+                        reason="clarify_build")
+            trace.end()
+            return ChatTurn(
+                response=text_out,
+                tools_called=[guarded.name],
+                raw_data=raw_data,
+                latency_ms=total,
+                latency_breakdown=breakdown,
+            )
+
+        # More questions remain — re-surface the next one as a fresh
+        # single-question clarify_card carrying the updated slot-state. Preserve
+        # the kind/build_tool discriminator so the next answer still routes to
+        # the right builder.
+        next_q = questions[next_index]
+        next_slot_state = slot_state_dump()
+        self.store.set_clarify(conv_id, ClarifyState(
+            request=state.request,
+            slot_state=next_slot_state,
+            questions=[q.model_dump() for q in questions],
+            index=next_index,
+            asked_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            kind=getattr(state, "kind", "portfolio"),
+            build_tool=getattr(state, "build_tool", "build_strategy"),
+        ))
+        clarify_payload = {
+            "_render_hint": "clarify_card",
+            "clarify": {
+                "session_slot_state": next_slot_state,
+                "total": len(questions),
+                "index": next_index,
+                "questions": [q.model_dump() for q in questions],
+            },
+        }
+        self.store.append(conv_id, message, next_q.prompt)
+        total = int((time.monotonic() - turn_started) * 1000)
+        breakdown["total"] = total
+        _log_timing("clarify_advance", message, total, breakdown, tools=[])
+        trace.event("turn.end", total_ms=total, tools_called=[],
+                    reason="clarify_advance", index=next_index)
+        trace.end()
+        return ChatTurn(
+            response=next_q.prompt,
+            tools_called=[],
+            raw_data=clarify_payload,
+            latency_ms=total,
+            latency_breakdown=breakdown,
+        )
 
     def _try_cancel_active_draft(
         self,
@@ -4210,7 +4559,7 @@ class ChatService:
             return ChatTurn(
                 response=guarded.question,
                 tools_called=[guarded.name],
-                raw_data={"_render_hint": "ask_user"},
+                raw_data=_clarify_raw_data(guarded),
                 latency_ms=total,
                 latency_breakdown=breakdown,
             )
@@ -4354,6 +4703,18 @@ class ChatService:
         )
         if resumed is not None:
             return resumed
+
+        # ── In-band clarify-answer ingestion (Workstream A) ────────
+        # When a dynamic clarify_card is on screen and the user answers the
+        # current question (option / free text / skip / "just build it"),
+        # normalise it into the slot-state, advance the N-of-M flow, and build
+        # when the stopping rule fires — all without an LLM hop.
+        clarified = await self._try_resume_clarify(
+            message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if clarified is not None:
+            return clarified
 
         # ── Deterministic cancel for an unactivated draft ──────────
         # When the user types "cancel that one" / "scrap it" right after
@@ -4824,7 +5185,24 @@ class ChatService:
         is_contradiction = _is_buy_sell_contradiction(message)
 
         if is_underspec_agent or is_filler_after_q or mentions_fno or is_contradiction:
-            agent_tool_choice = "auto"
+            # Genuine clarification cases (an underspecified agent build, or a
+            # buy/sell contradiction) must surface a STRUCTURED ASK_USER with
+            # tappable options — NOT a free-form prose question. With the build
+            # macros stripped (below), forcing tool_choice="required" leaves
+            # ASK_USER as the emit path, so the question renders as a tappable
+            # card AND the next-turn resolution path fires deterministically.
+            # This was the "only asks on the first message" bug: tool_choice
+            # was "auto" here, so the model usually wrote the question as prose
+            # (no card) instead of calling ASK_USER. A FILLER reply after our
+            # own question ("whatever", "you decide") stays prose-friendly so we
+            # don't loop the same menu; pure F&O surfacing (mentions_fno without
+            # an underspec/contradiction) also stays "auto" so the model can
+            # lead with the option chain when that's the better answer.
+            agent_tool_choice = (
+                "required"
+                if (is_underspec_agent or is_contradiction) and not is_filler_after_q
+                else "auto"
+            )
             if selected_names is not None:
                 _UNDERSPEC_STRIP = frozenset({
                     "propose_workflow", "propose_scheduled_order",
@@ -4991,6 +5369,15 @@ class ChatService:
                 or is_scared_idle_cash(message)
                 or is_unrealistic_return(message)):
             reply_class = "analysis"
+        # STRATEGY budget override: a strategy/basket/portfolio build
+        # (build_strategy / propose_basket_allocation) classifies as
+        # intent_kind='agent' → 'draft' (1500-token cap), which strangled
+        # the connection+rationale+alternatives+table reply. Route it to
+        # the high-cap 'strategy' class instead. _is_strategy_framed also
+        # catches the affirmative-follow-up turn ("yes, build it") that
+        # carries the framing only in recent history.
+        if _is_strategy_framed(message, history):
+            reply_class = "strategy"
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
@@ -5577,6 +5964,14 @@ class ChatService:
                 tool_calls=response.tool_calls,
             ))
 
+            # Hop-scoped flags. When a hop drafts a card with no error and no
+            # find_tool lazy-load, the FE already has everything to render —
+            # the narration hop (a full ~33k-token re-prefill just to restate
+            # the card) is pure waste and we finalize deterministically below.
+            hop_drafted_card = False
+            hop_error = False
+            hop_find_tool = False
+
             for tc in response.tool_calls or []:
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
@@ -5641,6 +6036,10 @@ class ChatService:
                     self._maybe_set_pending_resolution(
                         conv_id, message, guarded,
                     )
+                    # Workstream A: when this is a dynamic clarify_card, persist
+                    # the in-band slot-state + question list so the next answer
+                    # advances the N-of-M flow without re-running the generator.
+                    self._maybe_set_clarify_state(conv_id, message, guarded)
                     total = int((time.monotonic() - turn_started) * 1000)
                     breakdown["total"] = total
                     _log_timing(client.provider_name, message, total, breakdown,
@@ -5652,7 +6051,7 @@ class ChatService:
                     return ChatTurn(
                         response=guarded.question,
                         tools_called=[guarded.name],
-                        raw_data={"_render_hint": "ask_user"},
+                        raw_data=_clarify_raw_data(guarded),
                         latency_ms=total,
                         latency_breakdown=breakdown,
                     )
@@ -5708,6 +6107,14 @@ class ChatService:
                             or guarded.name in _OPTION_CARD_TOOLS
                             or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
+                    # A workflow/order DRAFT card this hop → the FE renders it
+                    # in full from raw_data; no narration hop needed. (Option
+                    # cards and analytics stay on the prose hop — their tables
+                    # / defended view / interpretation add real value.)
+                    if guarded.name in _STASH_DRAFT_TOOLS:
+                        hop_drafted_card = True
+                    if guarded.name == "find_tool":
+                        hop_find_tool = True
                     # find_tool lazy-load: union the candidate tool
                     # names into `loaded_extras` so they show up on the
                     # next hop. Rebuild tooldefs + cache_key to reflect
@@ -5747,6 +6154,7 @@ class ChatService:
                 # step_type, step 0 isn't a trigger.*, etc.) — then
                 # macro fallback, then deterministic question. All
                 # other tools fail single-shot — no LLM retry.
+                hop_error = True
                 last_tool_error = f"{guarded.name}: {guarded.error}"
                 # L12: when the tool error names a specific replacement
                 # tool ("use propose_holding_action instead"), force
@@ -5901,6 +6309,38 @@ class ChatService:
                     tools_called=tools_called + [guarded.name],
                     raw_data={"_render_hint": "ask_user"},
                     latency_ms=total,
+                    latency_breakdown=breakdown,
+                )
+
+            # A card was fully drafted this hop with no error / no lazy-load —
+            # skip the narration hop entirely. The card carries every value;
+            # a deterministic, data-rich caption (synthesised from the steps)
+            # replaces the ~33k-token narration round-trip. Biggest single
+            # latency win on an agent-build turn.
+            if hop_drafted_card and not hop_error and not hop_find_tool:
+                primary = next(
+                    (t for t in reversed(tools_called) if t in _STASH_DRAFT_TOOLS),
+                    "propose_workflow",
+                )
+                text_out = _ensure_widget_caption(
+                    "", tool_name=primary, logiccard=logiccard, raw_data=raw_data,
+                )
+                self.store.append(conv_id, message, text_out)
+                self.store.clear_pending(conv_id)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["total"] = total
+                breakdown["narration_hop_skipped"] = 1
+                _log_timing(client.provider_name, message, total, breakdown,
+                            tools=tools_called, note="draft_card_no_narration")
+                trace.event("turn.end", total_ms=total, tools_called=tools_called,
+                            reason="draft_card_no_narration")
+                trace.end()
+                return ChatTurn(
+                    response=text_out,
+                    tools_called=tools_called,
+                    logiccard=logiccard,
+                    latency_ms=total,
+                    raw_data=raw_data,
                     latency_breakdown=breakdown,
                 )
 
@@ -6069,6 +6509,44 @@ class ChatService:
                 "raw_data": resumed_turn.raw_data or None,
                 "latency_ms": resumed_turn.latency_ms,
                 "latency_breakdown": resumed_turn.latency_breakdown,
+            }
+            return
+
+        # ── Clarify-card resume (streaming) ────────────────────────
+        # CRITICAL: handle() resumes a clarify answer via _try_resume_clarify,
+        # but the streaming path historically did NOT — so on the SSE surface
+        # the FE actually uses, a clarify answer fell through to the full LLM
+        # loop (the deterministic 0-hop advance / build never ran). Wire it
+        # here, mirroring the fast-resume conversion. The streaming `done`
+        # ships raw_data verbatim (no router hoist), and the FE reads
+        # _render_hint at the TOP level — so hoist a nested widget payload
+        # (the agent build's {propose_workflow: draft}) to the top, while a
+        # clarify-advance card (already top-level _render_hint) ships as-is.
+        clarified_turn = await self._try_resume_clarify(
+            message=message, conv_id=conv_id, ctx=ctx, trace=trace,
+            turn_started=turn_started, breakdown=breakdown,
+        )
+        if clarified_turn is not None:
+            rd = clarified_turn.raw_data or {}
+            if rd and not rd.get("_render_hint"):
+                for _v in rd.values():
+                    if isinstance(_v, dict) and _v.get("_render_hint"):
+                        rd = {**rd, **_v}
+                        break
+            yield {"type": "start"}
+            for tname in clarified_turn.tools_called:
+                yield {"type": "tool_start", "name": tname}
+                yield {"type": "tool_done", "name": tname, "ok": True}
+            if clarified_turn.response:
+                yield {"type": "delta", "text": clarified_turn.response}
+            yield {
+                "type": "done",
+                "response": clarified_turn.response,
+                "tools_called": clarified_turn.tools_called,
+                "logiccard": clarified_turn.logiccard,
+                "raw_data": rd or None,
+                "latency_ms": clarified_turn.latency_ms,
+                "latency_breakdown": clarified_turn.latency_breakdown,
             }
             return
 
@@ -6413,7 +6891,24 @@ class ChatService:
         mentions_fno = _mentions_fno(message)
         is_contradiction = _is_buy_sell_contradiction(message)
         if is_underspec_agent or is_filler_after_q or mentions_fno or is_contradiction:
-            agent_tool_choice = "auto"
+            # Genuine clarification cases (an underspecified agent build, or a
+            # buy/sell contradiction) must surface a STRUCTURED ASK_USER with
+            # tappable options — NOT a free-form prose question. With the build
+            # macros stripped (below), forcing tool_choice="required" leaves
+            # ASK_USER as the emit path, so the question renders as a tappable
+            # card AND the next-turn resolution path fires deterministically.
+            # This was the "only asks on the first message" bug: tool_choice
+            # was "auto" here, so the model usually wrote the question as prose
+            # (no card) instead of calling ASK_USER. A FILLER reply after our
+            # own question ("whatever", "you decide") stays prose-friendly so we
+            # don't loop the same menu; pure F&O surfacing (mentions_fno without
+            # an underspec/contradiction) also stays "auto" so the model can
+            # lead with the option chain when that's the better answer.
+            agent_tool_choice = (
+                "required"
+                if (is_underspec_agent or is_contradiction) and not is_filler_after_q
+                else "auto"
+            )
             if selected_names is not None:
                 _UNDERSPEC_STRIP = frozenset({
                     "propose_workflow", "propose_scheduled_order",
@@ -6543,6 +7038,12 @@ class ChatService:
                 or is_scared_idle_cash(message)
                 or is_unrealistic_return(message)):
             reply_class = "analysis"
+        # STRATEGY budget override (mirror of handle()): route a
+        # strategy/basket build to the high-cap 'strategy' class so the
+        # connection + rationale + alternatives + table reply isn't
+        # truncated at the 1500-token draft cap.
+        if _is_strategy_framed(message, history):
+            reply_class = "strategy"
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
@@ -7014,6 +7515,13 @@ class ChatService:
                 tool_calls=tool_calls,
             ))
 
+            # Hop-scoped flags (stream mirror of handle()): a fully-drafted
+            # card with no error / no find_tool lazy-load needs no narration
+            # hop — finalize deterministically below.
+            hop_drafted_card = False
+            hop_error = False
+            hop_find_tool = False
+
             for tc in tool_calls:
                 yield {"type": "tool_start", "name": tc.get("name", "")}
                 trace.event("tool.invoke", tool=tc.get("name"),
@@ -7080,6 +7588,9 @@ class ChatService:
                     self._maybe_set_pending_resolution(
                         conv_id, message, guarded,
                     )
+                    # Workstream A: persist the dynamic clarify flow so the next
+                    # answer advances the N-of-M flow in-band (streaming mirror).
+                    self._maybe_set_clarify_state(conv_id, message, guarded)
                     total = int((time.monotonic() - turn_started) * 1000)
                     breakdown["total"] = total
                     yield {"type": "delta", "text": guarded.question}
@@ -7088,7 +7599,7 @@ class ChatService:
                         "response": guarded.question,
                         "tools_called": [guarded.name],
                         "logiccard": None,
-                        "raw_data": {"_render_hint": "ask_user"},
+                        "raw_data": _clarify_raw_data(guarded),
                         "latency_ms": total,
                         "latency_breakdown": breakdown,
                     }
@@ -7134,6 +7645,11 @@ class ChatService:
                             or guarded.name in _OPTION_CARD_TOOLS
                             or guarded.name in _COMPACT_PROSE_TOOLS):
                         last_was_macro_draft = True
+                    # Workflow/order draft card → no narration hop (mirror).
+                    if guarded.name in _STASH_DRAFT_TOOLS:
+                        hop_drafted_card = True
+                    if guarded.name == "find_tool":
+                        hop_find_tool = True
                     # Mirror of handle(): lazy-load find_tool matches
                     # into `loaded_extras` so the next hop sees them.
                     if guarded.name == "find_tool" and guarded.data:
@@ -7159,6 +7675,7 @@ class ChatService:
                                 )
                     continue
 
+                hop_error = True
                 last_tool_error = f"{guarded.name}: {guarded.error}"
                 # L12 (streaming mirror): route-redirect on
                 # "use <other_tool> instead" errors, plus the schedule-
@@ -7308,6 +7825,40 @@ class ChatService:
                 trace.end()
                 return
 
+            # A card was fully drafted this hop with no error / no lazy-load —
+            # skip the narration hop. Stream a deterministic, data-rich caption
+            # (synthesised from the steps) and finish. Removes a full ~33k-token
+            # narration round-trip on every agent-build turn.
+            if hop_drafted_card and not hop_error and not hop_find_tool:
+                primary = next(
+                    (t for t in reversed(tools_called) if t in _STASH_DRAFT_TOOLS),
+                    "propose_workflow",
+                )
+                text_out = _ensure_widget_caption(
+                    "", tool_name=primary, logiccard=logiccard, raw_data=raw_data,
+                )
+                self.store.append(conv_id, message, text_out)
+                self.store.clear_pending(conv_id)
+                total = int((time.monotonic() - turn_started) * 1000)
+                breakdown["total"] = total
+                breakdown["narration_hop_skipped"] = 1
+                yield {"type": "delta", "text": text_out}
+                _log_timing(client.provider_name, message, total, breakdown,
+                            tools=tools_called, note="stream-draft_card_no_narration")
+                trace.event("turn.end", total_ms=total, tools_called=tools_called,
+                            reason="draft_card_no_narration")
+                trace.end()
+                yield {
+                    "type": "done",
+                    "response": text_out,
+                    "tools_called": tools_called,
+                    "logiccard": logiccard,
+                    "raw_data": raw_data or None,
+                    "latency_ms": total,
+                    "latency_breakdown": breakdown,
+                }
+                return
+
             # next iteration of the loop will stream the next hop
 
         # Circuit-breaker hit during streaming.
@@ -7435,10 +7986,35 @@ def _workflow_skeleton_caption(skeleton: dict) -> str:
     do_phrase = "places the configured order"
     if action_step and action_step["step_type"] == "action.place_order":
         cfg = action_step.get("config") or {}
-        do_phrase = (
-            f"{cfg.get('side', 'buy')}s {cfg.get('quantity', '')} "
-            f"{cfg.get('symbol', '')} at {cfg.get('order_type', 'market')}"
-        ).strip()
+        side = cfg.get("side", "buy")
+        qty = cfg.get("quantity", "")
+        sym = cfg.get("symbol", "")
+        order_type = cfg.get("order_type", "market")
+        # Humanise Mustache refs so the caption never leaks a raw
+        # "{{ context.N.symbol }}" — a top-movers-driven symbol becomes
+        # "the day's top gainer/loser"; any other ref-symbol becomes
+        # "the selected stock". (The LLM narration used to phrase this; the
+        # deterministic caption now owns it on the no-narration fast path.)
+        humanized = isinstance(sym, str) and "{{" in sym
+        if humanized:
+            mover = next(
+                (s for s in steps if s.get("step_type") == "fetch.top_movers"),
+                None,
+            )
+            if mover is not None:
+                direction = (mover.get("config") or {}).get("direction") or "gainers"
+                sym = ("the day's top gainer" if "gain" in str(direction)
+                       else "the day's top loser")
+            else:
+                sym = "the selected stock"
+        if isinstance(qty, str) and "{{" in qty:
+            qty = ""  # a ref qty ("sell the whole position") → drop the number
+        if humanized:
+            qty_word = f"{qty} shares of " if qty != "" else ""
+            do_phrase = f"{side}s {qty_word}{sym} at {order_type}".strip()
+        else:
+            qty_part = f"{qty} " if qty != "" else ""
+            do_phrase = f"{side}s {qty_part}{sym} at {order_type}".strip()
 
     return (
         f"Here's a draft for **{name}** — it {do_phrase} {when_phrase}. "
@@ -8291,7 +8867,25 @@ _WIDGET_RENDER_HINTS = frozenset({
     "indicator_backtest_chart",
     "financial_backtest_chart",
     "multistep_card",          # L14: compose_multistep timeline payload
+    # Workstream B: the DB-driven equity+gold basket card. Editable,
+    # register-not-execute; ends with the not-advice disclaimer.
+    "strategy_builder_card",
 })
+
+
+def _clarify_raw_data(guarded: "GuardedToolResult") -> dict:
+    """raw_data block for a ``needs_clarification`` turn.
+
+    When the clarification came from ``ask_user_dynamic`` (Workstream A), the
+    executor stashed a ``clarify_card`` payload in ``guarded.data`` — surface it
+    verbatim so the FE renders the paginated 'N of M' ClarifyCard (with its
+    in-band ``session_slot_state``). Every other clarification keeps the legacy
+    thin ``ask_user`` hint. The chat router hoists the nested ``_render_hint`` to
+    the top level for the FE either way."""
+    data = guarded.data if isinstance(guarded.data, dict) else {}
+    if data.get("_render_hint") == "clarify_card":
+        return dict(data)
+    return {"_render_hint": "ask_user"}
 
 
 def _fmt_inr(v) -> str:

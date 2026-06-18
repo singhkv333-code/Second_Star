@@ -446,6 +446,12 @@ async def shutdown():
             await stop_telegram_worker()
         except Exception:
             pass
+    # Close the pooled LLM HTTP client (keep-alive connection pool).
+    try:
+        from backend.llm.openai_client import aclose_shared_async_client
+        await aclose_shared_async_client()
+    except Exception:
+        pass
 
 
 @app.get("/health")

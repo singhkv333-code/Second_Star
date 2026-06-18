@@ -15,6 +15,7 @@ because the rest of the codebase already uses httpx and the SDK adds
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -39,6 +40,56 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0)
 _API_URL = "https://api.openai.com/v1/responses"  # legacy module-level constant; LLMOpenAI.API_URL is the live source of truth.
+
+
+# ── Pooled, keep-alive HTTP client ─────────────────────────────────────
+#
+# We used to open a fresh `httpx.AsyncClient` per request (one for every
+# `complete()` and every stream). Against a far Azure endpoint that meant a
+# full TCP + TLS handshake on EVERY hop — ~0.85s each, measured — and a
+# single agent-build turn fires two hops, so ~1.6-2.2s/turn was pure
+# handshake. A process-wide pooled client reuses the warm connection and
+# removes that tax entirely.
+#
+# An `AsyncClient` binds to the event loop it was created on, so we rebind
+# transparently when the running loop changes (test isolation, a fresh app
+# instance) rather than erroring on a closed loop. Created lazily inside the
+# running loop — never at import time.
+_shared_client: Optional[httpx.AsyncClient] = None
+_shared_client_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _get_shared_async_client() -> httpx.AsyncClient:
+    """Return the process-wide keep-alive httpx client, (re)creating it if the
+    running event loop changed or it was closed."""
+    global _shared_client, _shared_client_loop
+    loop = asyncio.get_running_loop()
+    if (
+        _shared_client is None
+        or _shared_client.is_closed
+        or _shared_client_loop is not loop
+    ):
+        _shared_client = httpx.AsyncClient(
+            timeout=_DEFAULT_TIMEOUT,
+            limits=httpx.Limits(
+                max_keepalive_connections=10,
+                max_connections=20,
+                keepalive_expiry=90.0,
+            ),
+        )
+        _shared_client_loop = loop
+    return _shared_client
+
+
+async def aclose_shared_async_client() -> None:
+    """Close the pooled client (call from an app-shutdown hook). Idempotent."""
+    global _shared_client, _shared_client_loop
+    client, _shared_client, _shared_client_loop = _shared_client, None, None
+    if client is not None and not client.is_closed:
+        try:
+            await client.aclose()
+        except Exception:  # pragma: no cover - best-effort shutdown
+            pass
 
 
 def _messages_to_input(messages: list[LLMMessage]) -> list[dict[str, Any]]:
@@ -251,12 +302,12 @@ class LLMOpenAI(LLMClient):
         with trace as t:
             started = time.monotonic()
             try:
-                async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
-                    resp = await client.post(
-                        self.API_URL,
-                        headers=self._auth_headers(),
-                        json=payload,
-                    )
+                client = _get_shared_async_client()
+                resp = await client.post(
+                    self.API_URL,
+                    headers=self._auth_headers(),
+                    json=payload,
+                )
             except httpx.HTTPError as e:
                 err_resp = LLMResponse(
                     content=f"transport error: {type(e).__name__}: {e}",
@@ -347,34 +398,35 @@ async def _stream_responses_api(
     streamed_payload["stream"] = True
     sse_headers = dict(headers)
     sse_headers["Accept"] = "text/event-stream"
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream(
-            "POST",
-            url,
-            headers=sse_headers,
-            json=streamed_payload,
-        ) as resp:
-            if resp.status_code != 200:
-                # Read the error body before yielding so callers see it
-                # as an error event rather than a silent empty stream.
-                body = await resp.aread()
-                yield {
-                    "type": "error",
-                    "status": resp.status_code,
-                    "message": body.decode("utf-8", errors="replace")[:500],
-                }
-                return
-            async for line in resp.aiter_lines():
-                if not line or not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if not data or data == "[DONE]":
-                    continue
-                try:
-                    yield json.loads(data)
-                except json.JSONDecodeError:
-                    logger.warning("OpenAI SSE: malformed data line: %r", data[:200])
-                    continue
+    client = _get_shared_async_client()
+    async with client.stream(
+        "POST",
+        url,
+        headers=sse_headers,
+        json=streamed_payload,
+        timeout=timeout,
+    ) as resp:
+        if resp.status_code != 200:
+            # Read the error body before yielding so callers see it
+            # as an error event rather than a silent empty stream.
+            body = await resp.aread()
+            yield {
+                "type": "error",
+                "status": resp.status_code,
+                "message": body.decode("utf-8", errors="replace")[:500],
+            }
+            return
+        async for line in resp.aiter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                yield json.loads(data)
+            except json.JSONDecodeError:
+                logger.warning("OpenAI SSE: malformed data line: %r", data[:200])
+                continue
 
 
 class StreamingClient:

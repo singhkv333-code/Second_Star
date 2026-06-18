@@ -111,9 +111,17 @@ const INR = new Intl.NumberFormat("en-IN", {
 
 function fmtCr(n: number | null): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  if (n >= 1e12) return `₹${(n / 1e12).toFixed(2)} L Cr`;
-  if (n >= 1e9) return `₹${(n / 1e9).toFixed(2)} K Cr`;
-  if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
+  // `n` is in rupees. Indian scale: 1 Cr = 1e7, 1 thousand-Cr = 1e10,
+  // 1 lakh-Cr = 1e12. (The K-Cr branch previously used 1e9 — a 10×
+  // overstatement that made e.g. a ₹48,057 Cr net profit render as
+  // "₹480.57 K Cr" instead of "₹4.81 K Cr".) Work on |n| so losses
+  // and negative cash-flows format with a leading minus instead of
+  // falling through to the raw-rupee INR path.
+  const sign = n < 0 ? "−" : "";
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return `${sign}₹${(abs / 1e12).toFixed(2)} L Cr`;
+  if (abs >= 1e10) return `${sign}₹${(abs / 1e10).toFixed(2)} K Cr`;
+  if (abs >= 1e7) return `${sign}₹${(abs / 1e7).toFixed(2)} Cr`;
   return INR.format(n);
 }
 
