@@ -952,6 +952,18 @@ export type ClarifyCardPayload = {
   clarify: ClarifyCard;
 };
 
+/**
+ * One recorded answer from a local-paged clarify flow.
+ * `value` is the canonical answer sent to the backend (option id, free text, or "skip").
+ * `label` is the human-readable label shown in the summary (option label, free text, or "Skipped").
+ */
+export type ClarifyAnswerRecord = {
+  slot: string;
+  prompt: string;
+  value: string;
+  label: string;
+};
+
 // ── Strategy-builder payload (hint === "strategy_builder_card") ─────────────
 
 export type StrategyConstituent = {

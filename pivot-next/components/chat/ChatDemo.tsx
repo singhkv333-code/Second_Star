@@ -61,7 +61,7 @@ import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
 import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
 import { ClarifyCard } from "@/components/chat/ClarifyCard";
 import { StrategyBuilderCard } from "@/components/chat/StrategyBuilderCard";
-import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData } from "@/lib/types";
+import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -529,6 +529,11 @@ type Message =
   | { kind: "option_strategy"; payload: OptionStrategyPayload; intro: string }
   | { kind: "portfolio_greeks"; payload: PortfolioGreeksPayload; intro: string }
   | { kind: "clarify"; card: ClarifyCardData; intro: string }
+  /**
+   * Summary card appended after the last clarify answer in local-paging mode.
+   * Displays the recorded choices before the backend's built strategy card arrives.
+   */
+  | { kind: "clarify_summary"; answers: ClarifyAnswerRecord[] }
   | { kind: "strategy_builder"; card: StrategyBuilderCardData; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
@@ -639,6 +644,13 @@ export function ChatDemo({
    *  can cancel the SSE stream mid-response. Cleared in submit()'s
    *  finally block. */
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Index of the active clarify message in `messages`. Used to UPDATE the
+   * same message in-place when a clarify answer returns another clarify card
+   * (deduplication — the user sees a single card that paged locally, not a
+   * stacked new card per answer). Reset to -1 when the flow ends.
+   */
+  const clarifyMsgIdxRef = useRef<number>(-1);
   // Ref to the floating "Reply" button so the document mousedown
   // dismiss-handler can tell a button click from a click elsewhere.
   const selBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -972,6 +984,26 @@ export function ChatDemo({
 
     setMessages((prev) => {
       const next = [...prev];
+      // Clarify deduplication: when the backend returns another clarify card
+      // AND we already have an active clarify message in the thread, update it
+      // in place and discard the streaming bubble at streamingIdx.
+      // This prevents stacked cards when local paging drives per-answer requests.
+      if (finalMessage.kind === "clarify") {
+        const existingClarifyIdx = clarifyMsgIdxRef.current;
+        if (existingClarifyIdx >= 0 && existingClarifyIdx < next.length && next[existingClarifyIdx]?.kind === "clarify") {
+          // Update the existing clarify card in place.
+          next[existingClarifyIdx] = finalMessage;
+          // Remove the streaming bubble that was appended for this answer.
+          next.splice(streamingIdx, 1);
+          return next;
+        } else {
+          // First clarify card — record its position for future deduplication.
+          clarifyMsgIdxRef.current = streamingIdx;
+        }
+      } else {
+        // Non-clarify final message: the flow is done, reset clarify tracking.
+        clarifyMsgIdxRef.current = -1;
+      }
       next[streamingIdx] = finalMessage;
       return next;
     });
@@ -981,6 +1013,7 @@ export function ChatDemo({
     text: string,
     modeOverride?: ChatMode,
     quotedText?: string | null,
+    opts?: { silent?: boolean },
   ): Promise<void> => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
@@ -988,15 +1021,20 @@ export function ChatDemo({
     // Snapshot the quoted excerpt (if any) for this turn.
     const quote = (quotedText ?? "").trim() || null;
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        kind: "user",
-        text: trimmed,
-        timestamp: new Date().toISOString(),
-        ...(quote ? { quote } : {}),
-      },
-    ]);
+    // Silent turns (the batched clarify-card answer sent on completion) sync to
+    // the backend WITHOUT appending a user bubble — the sliding card and the
+    // "Your choices" summary are the visible record, not a raw answer payload.
+    if (!opts?.silent) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          kind: "user",
+          text: trimmed,
+          timestamp: new Date().toISOString(),
+          ...(quote ? { quote } : {}),
+        },
+      ]);
+    }
     setIntent("");
 
     // NOTE: the old "bare ticker → local StockSnapshotCard (no API call)"
@@ -1561,12 +1599,11 @@ export function ChatDemo({
               );
             }
             if (msg.kind === "clarify") {
-              // Only the latest clarify card is interactive — older ones in the
-              // thread are already answered (the backend advances the N-of-M
-              // flow in-band, re-surfacing a fresh card each turn).
+              // In local-paging mode this is the single card for the whole flow.
+              // In one-at-a-time mode multiple cards may exist; only the last is active.
               const isLatestClarify = !messages
                 .slice(idx + 1)
-                .some((m) => m.kind === "clarify" || m.kind === "strategy_builder");
+                .some((m) => m.kind === "clarify" || m.kind === "strategy_builder" || m.kind === "clarify_summary");
               return (
                 <div key={idx} className="flex flex-col gap-2">
                   {msg.intro && (
@@ -1583,9 +1620,33 @@ export function ChatDemo({
                       card={msg.card}
                       disabled={loading || !isLatestClarify}
                       onSendMessage={(text) => void submit(text)}
+                      onFlowComplete={(answers) => {
+                        // Local paging is done. Render the "Your choices" summary
+                        // immediately, then submit ALL answers as a single batch
+                        // (silent — no raw payload bubble) so the backend folds
+                        // them in one turn and builds the draft. One round-trip,
+                        // no per-question cursor race.
+                        setMessages((prev) => [
+                          ...prev,
+                          { kind: "clarify_summary", answers },
+                        ]);
+                        const batch = JSON.stringify({
+                          _clarify_answers: answers.map((a) => ({
+                            slot: a.slot,
+                            value: a.value,
+                            label: a.label,
+                          })),
+                        });
+                        void submit(batch, undefined, null, { silent: true });
+                      }}
                     />
                   </div>
                 </div>
+              );
+            }
+            if (msg.kind === "clarify_summary") {
+              return (
+                <ClarifySummaryBubble key={idx} answers={msg.answers} />
               );
             }
             if (msg.kind === "strategy_builder") {
@@ -2076,6 +2137,56 @@ function AssistantBubble({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ClarifySummaryBubble — compact "Your choices" confirmation rendered after
+// the last clarify answer in local-paging mode. Styled as a quiet assistant-
+// side reply so it reads naturally between the question card and the built
+// strategy card.
+// ---------------------------------------------------------------------------
+
+function ClarifySummaryBubble({
+  answers,
+}: {
+  answers: ClarifyAnswerRecord[];
+}): React.ReactElement {
+  return (
+    <div
+      data-testid="clarify-summary"
+      className="flex justify-start"
+      style={{
+        animation: "draftCardIn-quartr 300ms cubic-bezier(0.22, 1, 0.36, 1) both",
+      }}
+    >
+      <div
+        className="max-w-[420px] rounded-2xl border border-border/40 bg-muted/40 px-4 py-3"
+        role="status"
+        aria-label="Your choices summary"
+      >
+        <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Your choices
+        </p>
+        <ul className="flex flex-col gap-1.5">
+          {answers.map((a, i) => (
+            <li key={i} className="flex items-baseline gap-2 text-[12.5px] leading-snug">
+              <span className="shrink-0 font-medium text-foreground/70">
+                {a.prompt.replace(/[?:]$/, "")}
+              </span>
+              <span className="text-muted-foreground/60">·</span>
+              <span className="font-semibold text-foreground">
+                {a.label === "skip" || a.value === "skip" ? (
+                  <em className="not-italic text-muted-foreground">Default</em>
+                ) : (
+                  a.label
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

@@ -1659,10 +1659,13 @@ async def _ask_user_dynamic(a, kt, db, uid):
 async def _ask_agent_clarify(a, kt, db, uid):
     """Generate the structured clarify card for an UNDER-SPECIFIED agent build.
 
-    Deterministic (no LLM) — the agent-build unknowns are a small closed set.
-    When the ask is specific enough to build, ``generate_agent_clarify_card``
-    returns ``None`` and we surface ``needs_clarification=False`` so the chat
-    loop proceeds to propose_workflow. Otherwise we emit a clarify_card tagged
+    Makes ONE fast LLM call (≤6s hard timeout) to frame intent-aware questions
+    (exposure / structure / capital) for the actual request, with a deterministic
+    action+size fallback on any error or timeout — so the hop is bounded and
+    never breaks the clarify turn. When the ask is specific enough to build,
+    ``generate_agent_clarify_card`` returns ``None`` and we surface
+    ``needs_clarification=False`` so the chat loop proceeds to propose_workflow.
+    Otherwise we emit a clarify_card tagged
     ``_clarify_kind='agent'`` / ``_build_tool='propose_workflow'`` so the resume
     path folds answers into an enriched intent and builds via propose_workflow
     (not the portfolio build_strategy)."""
@@ -1675,7 +1678,7 @@ async def _ask_agent_clarify(a, kt, db, uid):
         # Fold an explicitly-passed symbol into the request so the engine
         # grounds the chips on it even when the model didn't echo it verbatim.
         request = f"{request} {sym}".strip()
-    card = generate_agent_clarify_card(request)
+    card = await generate_agent_clarify_card(request)
     if card is None:
         return {
             "success": True,

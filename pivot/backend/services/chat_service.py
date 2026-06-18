@@ -2048,16 +2048,19 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
 
 
 # Per-reply-class budget: (max_output_tokens, system hint).
-# Draft / automation / backtest stay at the legacy 1500-token cap and
-# emit no extra hint — those paths are tool-driven and the model's text
-# is summary-of-tool-result, where the existing rules already work.
-# The other four classes carry an explicit length + format directive
-# that overrides the system.md "≤120 words conversational" default.
+# 2026-06-18 BUDGET RAISE: previous caps were strangling rationale-heavy
+# replies (a "risk neutral oil agent" build that needed to disclose
+# producers-vs-refiners + hedge-honesty got truncated mid-sentence under
+# the old 1500-token draft cap). New caps below; small_talk + capability
+# stay tight so quick replies remain snappy. The companion change in
+# openai_client.py raises `complete()` / `stream_openai()` default
+# max_output_tokens from 1500 → 4000 so any caller that doesn't pass an
+# explicit budget also gets the headroom.
 _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
-    "draft": (1500, ""),
-    "automation": (1500, ""),
-    "backtest": (1500, ""),
-    "explainer": (2400, (
+    "draft": (3500, ""),
+    "automation": (3500, ""),
+    "backtest": (3000, ""),
+    "explainer": (4000, (
         "REPLY-CLASS: EXPLAINER. Aim for 250-500 words. Use `## Section` "
         "headings or bulleted highlights when the answer has multiple "
         "facets (segments, drivers, risks, comparisons). Depth and "
@@ -2079,7 +2082,7 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
     # ANALYSIS — structured, reasoned stock/comparison analysis. The
     # model MUST do the analytical work (not just restate numbers) and
     # produce a defended view with what-would-change-my-mind.
-    "analysis": (2400, (
+    "analysis": (4000, (
         "REPLY-CLASS: ANALYSIS. Aim for 250-450 words, well-structured. "
         "Use `## Section` headings: Snapshot / Technicals / Fundamentals / "
         "News / What to watch / View. "
@@ -2091,18 +2094,18 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
         "a winner with risk-adjusted reasoning and use a markdown table "
         "if 3+ metrics. End with standard disclaimer when actionable."
     )),
-    "analytical_short": (1500, (
+    "analytical_short": (3000, (
         "REPLY-CLASS: SHORT-ANALYTICAL. Reply in ≤120 words of plain "
         "prose. No `##` headings. Do NOT append unsolicited live "
         "prices — recite them only if the user asked."
     )),
     # STRATEGY — the text that accompanies a build_strategy /
-    # propose_basket_allocation card. The draft cap (1500) strangled
-    # this: the strategy reply must CONNECT the card to the user's ask,
-    # justify the structure, and offer alternatives — that needs room.
-    # 3800-token cap so the model can write the full rationale +
-    # alternatives + a sizing/weights table without being truncated.
-    "strategy": (3800, (
+    # propose_basket_allocation card. The previous 3800-token cap still
+    # truncated a hedge-honest "this isn't risk neutral, here's the
+    # nearest real F&O hedge" reply mid-table; raised to 6000 so the
+    # model can ship the full rationale + alternatives + sizing table
+    # + the honesty disclosure without being cut off.
+    "strategy": (6000, (
         "REPLY-CLASS: STRATEGY. This text accompanies a strategy/basket "
         "CARD the user can see — do NOT restate every leg mechanically. "
         "Aim for 250-450 words, well-structured with `## Section` "
@@ -3934,6 +3937,35 @@ class ChatService:
         build_now = bool(_CLARIFY_BUILD_NOW_RE.search(text))
         is_skip = bool(_CLARIFY_SKIP_RE.match(text))
 
+        # Batched local-paging answers: the FE pages all questions client-side
+        # and, on completion, submits every answer at once as a single silent
+        # turn -> {"_clarify_answers": [{slot, value, label}, ...]}. Fold them
+        # all here and go straight to the build, instead of one cursor advance
+        # per question. (Agent flow only; the portfolio clarify stays one-at-a-time.)
+        if is_agent and text.startswith("{") and "_clarify_answers" in text:
+            try:
+                _payload = json.loads(text)
+                _batch = _payload.get("_clarify_answers")
+            except Exception:
+                _batch = None
+            if isinstance(_batch, list):
+                _q_by_slot = {q.slot: q for q in questions}
+                for _a in _batch:
+                    if not isinstance(_a, dict):
+                        continue
+                    _aq = _q_by_slot.get(str(_a.get("slot") or ""))
+                    _aval = str(_a.get("value") or _a.get("label") or "")
+                    if _aq is not None and _aval:
+                        try:
+                            agent_slots = normalize_agent_answer_into_slots(
+                                _aq.model_dump(), _aval, agent_slots,
+                            )
+                        except Exception as e:
+                            logger.warning("clarify batch fold failed: %s", e)
+                # Every answer is folded — skip the single-answer path and build.
+                build_now = True
+                current = None
+
         if current is not None and not build_now and not is_skip:
             # Normalise the answer (option id/label or free text) into the slot.
             # The engine owns the parse so the slot vocabulary stays in one
@@ -4017,6 +4049,7 @@ class ChatService:
                 text_out = _ensure_widget_caption(
                     "", tool_name="propose_workflow",
                     logiccard=None, raw_data=raw_data,
+                    user_message=message,
                 )
                 self.store.append(conv_id, message, text_out)
                 total = int((time.monotonic() - turn_started) * 1000)
@@ -4053,6 +4086,7 @@ class ChatService:
             text_out = _ensure_widget_caption(
                 _tool_summary_line(guarded.name, None),
                 tool_name=guarded.name, logiccard=None, raw_data=raw_data,
+                user_message=message,
             )
             self.store.append(conv_id, message, text_out)
             total = int((time.monotonic() - turn_started) * 1000)
@@ -4585,6 +4619,7 @@ class ChatService:
         text = _ensure_widget_caption(
             text, tool_name=guarded.name,
             logiccard=logiccard, raw_data=raw_data,
+            user_message=message,
         )
         self.store.append(conv_id, message, text)
         total = int((time.monotonic() - turn_started) * 1000)
@@ -5933,6 +5968,7 @@ class ChatService:
                     tool_name=(tools_called[-1] if tools_called else ""),
                     logiccard=logiccard,
                     raw_data=raw_data,
+                    user_message=message,
                 )
                 self.store.append(conv_id, message, text)
                 # Successful turn supersedes any stale pending state
@@ -6324,6 +6360,7 @@ class ChatService:
                 )
                 text_out = _ensure_widget_caption(
                     "", tool_name=primary, logiccard=logiccard, raw_data=raw_data,
+                    user_message=message,
                 )
                 self.store.append(conv_id, message, text_out)
                 self.store.clear_pending(conv_id)
@@ -7461,6 +7498,7 @@ class ChatService:
                     tool_name=(tools_called[-1] if tools_called else ""),
                     logiccard=logiccard,
                     raw_data=raw_data,
+                    user_message=message,
                 )
                 if augmented != text:
                     sanitised = True
@@ -7836,6 +7874,7 @@ class ChatService:
                 )
                 text_out = _ensure_widget_caption(
                     "", tool_name=primary, logiccard=logiccard, raw_data=raw_data,
+                    user_message=message,
                 )
                 self.store.append(conv_id, message, text_out)
                 self.store.clear_pending(conv_id)
@@ -8020,6 +8059,135 @@ def _workflow_skeleton_caption(skeleton: dict) -> str:
         f"Here's a draft for **{name}** — it {do_phrase} {when_phrase}. "
         "Review the steps below and click Activate when you're happy "
         "with it."
+    )
+
+
+# Honesty guard: the user asked for a hedge / market-neutral / delta-neutral /
+# non-directional structure, but the agent loop just built a plain long-only
+# draft (SIP, single-side buy, allocate-notional basket). Long-only ≠ neutral;
+# silently shipping the draft as "your risk-neutral oil agent" is the exact
+# failure mode the 2026-06-17 incident exposed (user asked for "profits from
+# rising oil but risk neutral" → got a weekly long-only IOC SIP, which is
+# *neither* neutral nor an oil-producer exposure). Append a non-blocking
+# disclosure that names the mismatch and offers the nearest real thing.
+_RISK_NEUTRAL_CUE_RE = re.compile(
+    r"\b("
+    r"risk[\s-]?neutral|"
+    r"market[\s-]?neutral|"
+    r"delta[\s-]?neutral|"
+    r"non[\s-]?directional|"
+    r"hedg(?:e|ed|ing)|"
+    r"defined[\s-]?risk|"
+    r"capped[\s-]?risk"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Action step_types that we count as a "long-only directional" leg. Anything
+# outside this set (action.short_*, any action.option_*, action.write_*,
+# action.sell_to_open, etc.) counts as offsetting — we DON'T fire the
+# disclosure when the build includes a real hedge leg.
+_LONG_ONLY_ACTION_TYPES = frozenset({
+    "action.place_order",
+    "action.allocate_notional",
+    "action.allocate_basket",
+    "action.scheduled_order",
+    "action.sip",
+})
+
+
+def _is_long_only_draft(skeleton: dict) -> bool:
+    """True iff every action.* step in the workflow draft is a plain
+    long buy / allocate / SIP — no offsetting short or option leg.
+
+    A draft with zero action steps (notify-only, fetch-only) returns
+    False — there's nothing directional to disclose. A draft with even
+    one non-long-only action (a short, a written option, a put leg)
+    returns False — the build IS hedged in spirit.
+    """
+    steps = skeleton.get("steps") or []
+    action_steps = [
+        s for s in steps
+        if isinstance(s, dict)
+        and isinstance(s.get("step_type"), str)
+        and s["step_type"].startswith("action.")
+    ]
+    if not action_steps:
+        return False
+    for s in action_steps:
+        step_type = s["step_type"]
+        if step_type not in _LONG_ONLY_ACTION_TYPES:
+            return False
+        cfg = s.get("config") or {}
+        # An options leg (long put/call/spread) is a hedge in spirit even when
+        # "bought" — don't fire the long-only disclosure for it. Pivot routes
+        # options via action.place_option_strategy (already excluded above), but
+        # guard a place_order on an option symbol / explicit option fields too.
+        if (
+            cfg.get("option_type")
+            or cfg.get("instrument_type")
+            or cfg.get("template")
+            or str(cfg.get("symbol") or "").upper().endswith(("CE", "PE"))
+        ):
+            return False
+        # action.place_order can be a short — if side != "buy", treat as
+        # offsetting. Default missing side to "buy" (the schema default).
+        side = str(cfg.get("side") or "buy").lower()
+        if side not in {"buy", "long"}:
+            return False
+    return True
+
+
+def _risk_neutral_disclosure(
+    user_message: str, raw_data: dict | None,
+) -> Optional[str]:
+    """Return a one-paragraph honesty disclosure to APPEND to the reply
+    when the user asked for a neutral/hedged structure but the produced
+    workflow draft is plain long-only.
+
+    Returns None when no disclosure is warranted (no cue in the user
+    message, no workflow_draft in raw_data, or the draft already carries
+    an offsetting leg). Never raises — defensive against malformed
+    raw_data shapes the caller might pass.
+    """
+    if not user_message or not _RISK_NEUTRAL_CUE_RE.search(user_message):
+        return None
+    rd = raw_data or {}
+    skeleton: dict | None = None
+    # raw_data is keyed by tool name in chat_service-internal shape;
+    # accept both {"propose_workflow": {steps...}} and the hoisted
+    # {steps: [...]} shape (handle_stream hoists before this runs in
+    # some paths). Check both.
+    candidate = rd.get("propose_workflow")
+    if isinstance(candidate, dict) and candidate.get("steps"):
+        skeleton = candidate
+    elif isinstance(rd.get("steps"), list):
+        skeleton = rd  # type: ignore[assignment]
+    else:
+        # Other macro-draft tools (propose_threshold_order,
+        # propose_scheduled_order, propose_basket_allocation) — they
+        # also surface their steps[] under their tool key.
+        for k, v in rd.items():
+            if (k.startswith("propose_") and isinstance(v, dict)
+                    and isinstance(v.get("steps"), list)):
+                skeleton = v
+                break
+    if skeleton is None:
+        return None
+    if not _is_long_only_draft(skeleton):
+        return None
+    return (
+        "\n\n**Heads up — this draft is not actually risk-neutral.** You "
+        "asked for a hedged / market-neutral structure, but the agent "
+        "above is a plain long-only buy. A true neutral or hedged "
+        "expression for this view usually needs an offsetting leg — for "
+        "rising-oil exposure that typically means a long upstream "
+        "producer (ONGC, Oil India) paired with a short refiner/marketer "
+        "(BPCL, IOC, HPCL — whose margins compress when crude rises), or "
+        "a defined-risk **options** structure (a call spread on an "
+        "energy ETF / producer, or a bull-call-spread sized to your "
+        "loss budget). Want me to build the options version, or the "
+        "long-producer / short-refiner pair instead?"
     )
 
 
@@ -9051,6 +9219,7 @@ def _ensure_widget_caption(
     tool_name: str,
     logiccard: dict | None,
     raw_data: dict,
+    user_message: str = "",
 ) -> str:
     """Make sure assistant text accompanies any widget render.
 
@@ -9062,6 +9231,15 @@ def _ensure_widget_caption(
       - emitted a full sentence → leave it; the model already nailed it.
 
     Returns the (possibly-upgraded) text. Never empty.
+
+    `user_message` (optional) is the original user prompt that triggered
+    this turn. When supplied, this helper also runs the risk-neutral
+    honesty guard: if the user asked for a hedged / neutral structure
+    but the produced workflow_draft is plain long-only, a non-blocking
+    disclosure is appended naming the mismatch and offering the nearest
+    real thing (producers-vs-refiners pair, or an options structure).
+    Default empty string is back-compat for callers that don't carry
+    the user message in scope.
     """
     # Inside chat_service, raw_data is keyed by tool_name and the
     # _render_hint lives nested. The router hoists it later. Look both
@@ -9085,11 +9263,17 @@ def _ensure_widget_caption(
         tables = _fno_mandated_tables(rd)
         if tables and "| --- |" not in cleaned:
             base = cleaned or _tool_summary_line(tool_name or "", None)
-            return f"{base}\n\n{tables}"
-        return cleaned or _tool_summary_line(tool_name or "", None)
+            result = f"{base}\n\n{tables}"
+        else:
+            result = cleaned or _tool_summary_line(tool_name or "", None)
+        return _maybe_append_risk_neutral_disclosure(
+            result, user_message, rd, render_hint,
+        )
 
     if render_hint not in _WIDGET_RENDER_HINTS and not logiccard:
-        return text
+        return _maybe_append_risk_neutral_disclosure(
+            text, user_message, rd, render_hint,
+        )
 
     cleaned = (text or "").strip()
     too_terse = (
@@ -9101,27 +9285,60 @@ def _ensure_widget_caption(
         }
     )
     if not too_terse:
-        return cleaned
+        return _maybe_append_risk_neutral_disclosure(
+            cleaned, user_message, rd, render_hint,
+        )
 
     # Synthesise per-widget caption.
     if render_hint == "workflow_draft_card":
         skeleton = rd.get("propose_workflow") or rd
         if isinstance(skeleton, dict) and skeleton.get("steps"):
-            return _workflow_skeleton_caption(skeleton)
-        return _tool_summary_line("propose_workflow", None)
-    if render_hint == "indicator_backtest_chart":
-        return (
+            result = _workflow_skeleton_caption(skeleton)
+        else:
+            result = _tool_summary_line("propose_workflow", None)
+    elif render_hint == "indicator_backtest_chart":
+        result = (
             "Here's the backtest — equity curve, signals, and headline "
             "metrics are in the chart below."
         )
-    if render_hint == "financial_backtest_chart":
-        return (
+    elif render_hint == "financial_backtest_chart":
+        result = (
             "Here's the fundamentals backtest — performance vs. NIFTY and "
             "the rebalance trades are below."
         )
-    if logiccard or render_hint == "logic_card":
-        return _tool_summary_line(tool_name or "", logiccard)
-    return _tool_summary_line(tool_name or "", logiccard)
+    elif logiccard or render_hint == "logic_card":
+        result = _tool_summary_line(tool_name or "", logiccard)
+    else:
+        result = _tool_summary_line(tool_name or "", logiccard)
+    return _maybe_append_risk_neutral_disclosure(
+        result, user_message, rd, render_hint,
+    )
+
+
+def _maybe_append_risk_neutral_disclosure(
+    text: str,
+    user_message: str,
+    raw_data: dict,
+    render_hint: object,
+) -> str:
+    """Wrap `_risk_neutral_disclosure` with the render-hint gate so the
+    honesty guard only fires when the user is about to see a workflow
+    draft card (other widgets — option_chain, option_strategy, backtest
+    charts — are NOT plain long-only directional asks and the disclosure
+    would be noise). Non-blocking: appends to text, never replaces.
+    """
+    if not user_message:
+        return text
+    # The disclosure is specifically about the workflow_draft_card case.
+    # Other card types either already express a hedged structure
+    # (option_strategy_card) or don't carry a directional bet
+    # (logic_card / backtest_chart).
+    if render_hint != "workflow_draft_card":
+        return text
+    extra = _risk_neutral_disclosure(user_message, raw_data)
+    if not extra:
+        return text
+    return text + extra
 
 
 def _post_process(text: str) -> tuple[str, bool]:

@@ -390,3 +390,125 @@ def symbol_sector_map() -> dict[str, str]:
     network-free sector lookup (used by the portfolio engine's sector caps).
     Symbols not present here resolve to ``None`` at the call site."""
     return {r.symbol: r.sector for r in _UNIVERSE}
+
+
+# ── Macro beneficiary tagging (crude up/down, INR weak, etc.) ──────
+#
+# The static `energy` sector lumps producers and refiners together, but
+# for thematic asks ("profits from rising oil") the two groups move in
+# OPPOSITE directions — upstream producers benefit when crude rises;
+# refiners/marketers (oil marketing companies, OMCs) see margins
+# compress because retail fuel prices are politically administered and
+# they can't pass through the cost in real time. The same split applies
+# in reverse for "profits from falling oil".
+#
+# This tagging is INTENTIONALLY narrow — only the names where the
+# producer-vs-refiner split is unambiguous on NSE. Reliance is omitted
+# because it is integrated (upstream + refining + retail + telecom) and
+# doesn't cleanly map to either bucket; we don't guess.
+#
+# Caller contract: if a symbol isn't in either set, do NOT assume it is
+# the opposite — it is unclassified. Falling back silently leads to
+# IOC-for-rising-crude bugs.
+
+# Upstream crude / gas producers. Sell what they pull out of the ground;
+# revenue tracks the realised crude price (lagged + subject to windfall
+# tax mechanics, but the directional sign is correct).
+_OIL_UPSTREAM_PRODUCERS: tuple[str, ...] = (
+    "ONGC",       # Oil & Natural Gas Corporation — flagship upstream PSU
+    "OIL",        # Oil India Ltd — the second listed upstream PSU
+    # NOTE: Reliance has meaningful upstream (KG-D6) but its consolidated
+    #       margin is dominated by refining + retail + Jio. Do not classify
+    #       it here. Cairn / Vedanta is the next candidate but the listed
+    #       parent (VEDL) is diversified; left out for the same reason.
+)
+
+# Oil marketing / refining (OMCs). Buy crude as input, sell retail fuel
+# at administered prices → gross refining margin gets squeezed when crude
+# rises and expands when crude falls. The literal OPPOSITE direction
+# from the upstream producers.
+_OIL_REFINERS_MARKETERS: tuple[str, ...] = (
+    "IOC",        # Indian Oil Corporation
+    "BPCL",       # Bharat Petroleum
+    "HINDPETRO",  # Hindustan Petroleum (HPCL)
+)
+
+
+def crude_up_beneficiaries() -> list[str]:
+    """Return the NSE symbols whose earnings BENEFIT when crude oil
+    prices rise. Upstream producers only — not refiners.
+
+    Used by the planner / drafter when the user asks for an automation
+    that "profits from rising oil / crude". Picking IOC/BPCL/HPCL here
+    is a textbook backwards trade because their margins compress when
+    crude rises. We never include them in this list.
+    """
+    return list(_OIL_UPSTREAM_PRODUCERS)
+
+
+def crude_down_beneficiaries() -> list[str]:
+    """Return the NSE symbols whose earnings BENEFIT when crude oil
+    prices fall. Refiners / oil marketing companies whose gross
+    refining margin expands when input costs drop.
+
+    Heavy crude-consuming sectors (paints, aviation, tyres) also
+    benefit from falling crude, but they live outside the energy
+    bucket — they aren't returned here. TODO: extend with a wider
+    `crude_consumers` group when the screener supports cross-sector
+    queries.
+    """
+    return list(_OIL_REFINERS_MARKETERS)
+
+
+def oil_role(symbol: str) -> Optional[Literal["producer", "refiner"]]:
+    """Classify a symbol as upstream producer, downstream refiner, or
+    unclassified within the oil & gas value chain.
+
+    Returns None for any energy-sector name that isn't unambiguous
+    (Reliance, GAIL, NTPC, POWERGRID etc.) — callers must NOT default
+    "unclassified" to either side.
+    """
+    sym = (symbol or "").strip().upper()
+    if sym in _OIL_UPSTREAM_PRODUCERS:
+        return "producer"
+    if sym in _OIL_REFINERS_MARKETERS:
+        return "refiner"
+    return None
+
+
+# Higher-level intent → beneficiary basket. Centralises the
+# producer-vs-refiner logic so the planner, the macro hydrators, and
+# any future screener intent route through one source of truth.
+#
+# Intent vocabulary (kept tight on purpose — extending requires a real
+# economic rationale, not a guess):
+#
+#   "crude_up"    → benefits from a rising crude/oil/Brent print
+#   "crude_down"  → benefits from a falling crude/oil/Brent print
+#
+# When the requested intent isn't in the map we return an empty list +
+# leave a documented TODO rather than fabricate a basket — caller is
+# expected to surface "I can't cleanly map this view to instruments".
+
+_THEMATIC_BENEFICIARIES: dict[str, tuple[str, ...]] = {
+    "crude_up": _OIL_UPSTREAM_PRODUCERS,
+    "crude_down": _OIL_REFINERS_MARKETERS,
+    # TODO(prompt-priorities): add "inr_weak" → IT/pharma exporters,
+    #   "rate_cut" → NBFCs/housing/autos, "gold_up" → gold financiers
+    #   once the planner is wired to call this helper. Don't enumerate
+    #   until the call site is real — leaving stale tags around is
+    #   how IOC-for-rising-oil happened in the first place.
+}
+
+
+def beneficiaries_of(intent: str) -> list[str]:
+    """Return NSE symbols that benefit from a tagged macro/thematic
+    move. Empty list when the intent isn't a known tag — caller MUST
+    treat empty as "I don't know" rather than as "no beneficiaries".
+
+    Tag vocabulary today: "crude_up", "crude_down". Anything else
+    returns []. Extend `_THEMATIC_BENEFICIARIES` (with a real economic
+    rationale, not a guess) before adding tags to a calling site.
+    """
+    key = (intent or "").strip().lower().replace(" ", "_")
+    return list(_THEMATIC_BENEFICIARIES.get(key, ()))
