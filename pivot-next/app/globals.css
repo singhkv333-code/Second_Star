@@ -300,6 +300,14 @@
   to   { opacity: 1; transform: translateX(0); }
 }
 
+/* Panel fade-in (in place) — used when one drawer hands off to another that
+   occupies the same slot (e.g. "Know more" → Apply), so the new panel
+   cross-fades over the old one instead of sliding in from the edge. */
+@keyframes panelFadeIn-quartr {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* ─── P&L heatmap (Active Agents header) ─────────────────────────── */
 /* Each cell carries `--cell-light` / `--cell-dark` as inline CSS vars;
    this rule picks the right one based on the theme so the SVG fills

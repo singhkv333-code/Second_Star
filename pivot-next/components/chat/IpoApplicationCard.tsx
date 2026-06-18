@@ -24,6 +24,7 @@ import {
   ArrowUpRight,
   BellRing,
   CheckCircle2,
+  ChevronDown,
   ExternalLink,
   Loader2,
   RefreshCw,
@@ -55,6 +56,14 @@ export type IpoApplicationCardProps = {
    *  the IPO symbol so ChatDemo can forward it into the chat pipeline.
    *  Only rendered when `payload.automatable` is true. */
   onSetupReminders?: (symbol: string) => void;
+  /** Extra classes for the root surface. Used when the card is hosted in a
+   *  side panel (IpoApplicationPanel) to release its inline max-width. */
+  className?: string;
+  /** Visual variant.
+   *  - "inline" (default): standalone chat card with border + shadow.
+   *  - "panel": full-bleed for the IpoApplicationPanel drawer — no border,
+   *    no shadow, no rounding; the panel owns the surface. */
+  variant?: "inline" | "panel";
 };
 
 // ---------------------------------------------------------------------------
@@ -203,13 +212,13 @@ function computeAmountPreview(
 
 function StatusBadge({ status }: { status: IpoApplicationPayload["status"] }): React.ReactElement {
   const map = {
-    upcoming: { label: "Upcoming", cls: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" },
-    open: { label: "Open", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
-    closed: { label: "Closed", cls: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-400" },
+    upcoming: { label: "Upcoming", cls: "text-blue-600 dark:text-blue-300" },
+    open: { label: "Open", cls: "text-emerald-600 dark:text-emerald-300" },
+    closed: { label: "Closed", cls: "text-slate-500 dark:text-slate-400" },
   };
   const { label, cls } = map[status];
   return (
-    <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-[10.5px] font-medium tracking-tight", cls)}>
+    <span className={cn("shrink-0 text-[11.5px] font-medium tracking-tight", cls)}>
       {label}
     </span>
   );
@@ -218,35 +227,6 @@ function StatusBadge({ status }: { status: IpoApplicationPayload["status"] }): R
 // ---------------------------------------------------------------------------
 // Subscription helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Format a subscription times value for display.
- * Returns e.g. "2.1×" or null when the value is null.
- */
-function formatTimes(value: number | null): string | null {
-  if (value === null) return null;
-  return `${value.toFixed(1)}×`;
-}
-
-/**
- * Render the user-relevant subscription categories as a compact string.
- * E.g. "RII 2.1× · NII 0.8× · QIB 1.4×"
- * Returns null when all relevant values are null.
- */
-function formatSubscriptionSummary(sub: IpoSubscription): string | null {
-  const parts: string[] = [];
-  const rii = formatTimes(sub.rii);
-  const nii = formatTimes(sub.nii);
-  const qib = formatTimes(sub.qib);
-  const emp = formatTimes(sub.employee);
-  const sh = formatTimes(sub.shareholder);
-  if (rii) parts.push(`RII ${rii}`);
-  if (nii) parts.push(`NII ${nii}`);
-  if (qib) parts.push(`QIB ${qib}`);
-  if (emp) parts.push(`Employee ${emp}`);
-  if (sh) parts.push(`Shareholder ${sh}`);
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
 
 /**
  * Return the subscription value for the selected category, used to drive
@@ -284,8 +264,9 @@ function formatAsOf(asOf: string | undefined): string | null {
 // Main card
 // ---------------------------------------------------------------------------
 
-export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplicationCardProps): React.ReactElement {
+export function IpoApplicationCard({ payload, onSetupReminders, className, variant = "inline" }: IpoApplicationCardProps): React.ReactElement {
   const isReadOnly = payload.status === "closed";
+  const isPanel = variant === "panel";
 
   // Editable state — initialised from payload.editable
   const [category, setCategory] = useState<IpoCategory>(payload.editable.category);
@@ -400,59 +381,57 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
       role="region"
       aria-label={`IPO application: ${payload.name}`}
       className={cn(
-        "my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card",
-        "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
-        "transition-all duration-500 ease-out",
+        "w-full transition-all duration-500 ease-out",
+        isPanel
+          ? "bg-transparent"
+          : "my-2 max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
+        className,
       )}
       style={{
         animation: "draftCardIn-quartr 360ms cubic-bezier(0.22, 1, 0.36, 1) both",
       }}
     >
       {/* Header */}
-      <div className="flex flex-col gap-3 px-5 pt-4 pb-0">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center rounded-md bg-violet-100 px-2 py-0.5 text-[10.5px] font-medium tracking-tight text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
-              IPO
-            </span>
-            <span className="text-[10.5px] font-medium text-muted-foreground uppercase tracking-widest">
-              {payload.type}
-            </span>
+      <div className="flex flex-col gap-3.5 px-5 pt-4 pb-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-[16px] leading-[1.25] font-semibold tracking-tight text-foreground">
+              {payload.name}
+            </h3>
+            <p className="mt-1 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+              <span className="font-medium text-foreground/70">{payload.symbol}</span>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="capitalize">{payload.type} IPO</span>
+            </p>
           </div>
           <StatusBadge status={payload.status} />
         </div>
 
-        <div>
-          <h3 className="text-[15px] leading-[1.25] font-semibold tracking-tight text-foreground">
-            {payload.name}
-          </h3>
-          <p className="mt-0.5 text-[11.5px] text-muted-foreground">{payload.symbol}</p>
-        </div>
-
-        {/* Locked details grid */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl bg-muted/40 px-3 py-2.5 text-[11.5px]">
-          {payload.locked.price_band ? (
-            <LockedRow
-              label="Price band"
-              value={
-                payload.locked.price_band.is_fixed
+        {/* Spec sheet — hairline-divided fact rows (premium fintech read) */}
+        <div className="border-t border-border/40">
+          <SpecRow
+            label="Price band"
+            value={
+              payload.locked.price_band
+                ? payload.locked.price_band.is_fixed
                   ? formatIndianCurrency(payload.locked.price_band.max)
                   : `${formatIndianCurrency(payload.locked.price_band.min)} – ${formatIndianCurrency(payload.locked.price_band.max)}`
-              }
-            />
-          ) : (
-            <LockedRow label="Price band" value="TBA" muted />
-          )}
-          <LockedRow
+                : "TBA"
+            }
+            muted={!payload.locked.price_band}
+          />
+          <SpecRow
             label="Lot size"
             value={payload.locked.lot_size !== null ? `${payload.locked.lot_size} shares` : "TBA"}
             muted={payload.locked.lot_size === null}
           />
-          <LockedRow label="Open" value={formatDate(payload.locked.open_date)} />
-          <LockedRow label="Close" value={formatDate(payload.locked.close_date)} />
-          <LockedRow label="Issue size" value={payload.locked.issue_size} />
+          <SpecRow
+            label="Issue dates"
+            value={`${formatDate(payload.locked.open_date)} – ${formatDate(payload.locked.close_date)}`}
+          />
+          <SpecRow label="Issue size" value={payload.locked.issue_size} />
           {payload.locked.listing_date ? (
-            <LockedRow label="Listing" value={formatDate(payload.locked.listing_date)} />
+            <SpecRow label="Listing" value={formatDate(payload.locked.listing_date)} last />
           ) : null}
         </div>
 
@@ -467,11 +446,6 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
 
         {/* P1 — RHP, allotment/registrar, GMP */}
         <OfficialLinksBlock payload={payload} />
-
-        {/* KYC disclaimer — never show PAN/demat */}
-        <p className="text-[11px] text-muted-foreground/80 italic">
-          KYC details come from your broker — Pivot does not store your PAN/demat.
-        </p>
       </div>
 
       {/* Registered state — show confirmation, offer withdraw */}
@@ -535,12 +509,16 @@ export function IpoApplicationCard({ payload, onSetupReminders }: IpoApplication
       )}
 
       {/* Disclaimer footer */}
-      <div className="flex items-start gap-1.5 border-t border-border/40 bg-amber-50/40 px-5 py-2 dark:bg-amber-500/[0.04]">
+      <div
+        className={cn(
+          "mx-5 mt-3.5 mb-5 flex items-start gap-2 rounded-xl bg-amber-50/60 px-3 py-2.5 dark:bg-amber-500/[0.06]",
+        )}
+      >
         <ShieldAlert
-          className="mt-px h-3 w-3 shrink-0 text-amber-600/80 dark:text-amber-400/80"
+          className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600/80 dark:text-amber-400/80"
           aria-hidden="true"
         />
-        <p className="text-[10.5px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+        <p className="text-[10.5px] leading-relaxed text-amber-700/90 dark:text-amber-300/90">
           {payload.disclaimer}
         </p>
       </div>
@@ -569,49 +547,64 @@ function SubscriptionBlock({
   refreshError: string | null;
   onRefresh: () => void;
 }): React.ReactElement | null {
-  const summary = subscription ? formatSubscriptionSummary(subscription) : null;
   const asOfLabel = subscription?.as_of ? formatAsOf(subscription.as_of) : null;
+  const cats = subscription
+    ? ([
+        ["RII", subscription.rii],
+        ["NII", subscription.nii],
+        ["QIB", subscription.qib],
+        ["EMP", subscription.employee],
+        ["SH", subscription.shareholder],
+      ] as const).filter(([, v]) => v !== null)
+    : [];
 
   return (
-    <div className="flex items-start justify-between gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
-      <div className="flex flex-col gap-0.5 min-w-0">
-        <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+    <div className="flex flex-col gap-2 border-t border-border/40 pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">
           Subscription
         </span>
-        {summary ? (
-          <span className="text-[11.5px] font-medium text-foreground truncate">
-            {summary}
-          </span>
-        ) : (
-          <span className="text-[11.5px] text-muted-foreground">
-            Not available
-          </span>
-        )}
-        {asOfLabel && (
-          <span className="text-[10px] text-muted-foreground/60">as of {asOfLabel}</span>
-        )}
-        {refreshError && (
-          <span className="text-[10px] text-amber-600 dark:text-amber-400">{refreshError}</span>
-        )}
-      </div>
-      {isOpen && (
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          aria-label="Refresh subscription data"
-          title="Refresh subscription from NSE"
-          className={cn(
-            "mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground transition-colors",
-            "hover:bg-muted hover:text-foreground",
-            "disabled:cursor-not-allowed disabled:opacity-50",
+        <div className="flex items-center gap-2">
+          {asOfLabel && (
+            <span className="text-[10px] tabular-nums text-muted-foreground/55">as of {asOfLabel}</span>
           )}
-        >
-          <RefreshCw
-            className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
-            aria-hidden="true"
-          />
-        </button>
+          {isOpen && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              aria-label="Refresh subscription data"
+              title="Refresh subscription from NSE"
+              className={cn(
+                "shrink-0 rounded-full p-1 text-muted-foreground/70 transition-colors",
+                "hover:bg-muted hover:text-foreground",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+              )}
+            >
+              <RefreshCw
+                className={cn("h-3 w-3", refreshing && "animate-spin")}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {cats.length > 0 ? (
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px] tabular-nums">
+          {cats.map(([label, value]) => (
+            <span key={label} className="text-muted-foreground">
+              {label}{" "}
+              <span className="font-medium text-foreground">{(value as number).toFixed(1)}×</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <span className="text-[12px] text-muted-foreground">Not available yet</span>
+      )}
+
+      {refreshError && (
+        <span className="text-[10px] text-amber-600 dark:text-amber-400">{refreshError}</span>
       )}
     </div>
   );
@@ -632,30 +625,32 @@ function OfficialLinksBlock({
   const gmp = payload.gmp;
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {hasRhp && (
-        <a
-          href={locked.rhp_url!}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 self-start text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-          View prospectus (RHP)
-        </a>
-      )}
-
-      {hasAllotment ? (
-        <a
-          href={locked.allotment_deeplink!}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 self-start text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-          Check allotment{locked.registrar ? ` on ${locked.registrar}` : ""}
-        </a>
-      ) : (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
+        {hasRhp && (
+          <a
+            href={locked.rhp_url!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+            Prospectus (RHP)
+          </a>
+        )}
+        {hasAllotment && (
+          <a
+            href={locked.allotment_deeplink!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+            Allotment{locked.registrar ? ` · ${locked.registrar}` : ""}
+          </a>
+        )}
+      </div>
+      {!hasAllotment && (
         <p className="text-[11px] text-muted-foreground/70">
           Allotment: check with your broker / registrar
         </p>
@@ -751,75 +746,85 @@ function EditableForm({
     amountPreview !== null;
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
+    <div className="flex flex-col gap-3.5 px-5 pt-4">
       {/* Category */}
       <FormRow label="Category">
-        <select
-          value={category}
-          onChange={(e) => onCategoryChange(e.target.value as IpoCategory)}
-          disabled={isReadOnly || isSaving}
-          className={cn(
-            "w-full rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-[12px] text-foreground",
-            "focus:outline-none focus:ring-1 focus:ring-ring",
-            "disabled:cursor-not-allowed disabled:opacity-60",
-          )}
-        >
-          {validation.category_options.map((opt) => (
-            <option key={opt} value={opt}>
-              {CATEGORY_LABELS[opt]}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            value={category}
+            onChange={(e) => onCategoryChange(e.target.value as IpoCategory)}
+            disabled={isReadOnly || isSaving}
+            className={cn(
+              "w-full appearance-none rounded-lg border border-border/60 bg-background px-3 py-2 pr-9 text-[12.5px] font-medium text-foreground",
+              "transition-colors focus:border-foreground/30 focus:outline-none focus:ring-2 focus:ring-ring/30",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+            )}
+          >
+            {validation.category_options.map((opt) => (
+              <option key={opt} value={opt}>
+                {CATEGORY_LABELS[opt]}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60"
+            aria-hidden="true"
+          />
+        </div>
       </FormRow>
 
       {/* Quantity */}
       <FormRow label="Lots">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              aria-label="Decrease lots"
-              disabled={isReadOnly || isSaving || quantityLots <= validation.min_lots}
-              onClick={() => onQuantityChange(Math.max(validation.min_lots, quantityLots - 1))}
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-[14px] text-muted-foreground",
-                "hover:bg-muted hover:text-foreground transition-colors",
-                "disabled:cursor-not-allowed disabled:opacity-40",
-              )}
-            >
-              −
-            </button>
-            <input
-              type="number"
-              min={validation.min_lots}
-              value={quantityLots}
-              disabled={isReadOnly || isSaving}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10);
-                if (!isNaN(v)) onQuantityChange(v);
-              }}
-              className={cn(
-                "w-16 rounded-lg border border-border/60 bg-background px-2 py-1.5 text-center text-[12px] text-foreground",
-                "focus:outline-none focus:ring-1 focus:ring-ring",
-                "disabled:cursor-not-allowed disabled:opacity-60",
-              )}
-            />
-            <button
-              type="button"
-              aria-label="Increase lots"
-              disabled={isReadOnly || isSaving}
-              onClick={() => onQuantityChange(quantityLots + 1)}
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-[14px] text-muted-foreground",
-                "hover:bg-muted hover:text-foreground transition-colors",
-                "disabled:cursor-not-allowed disabled:opacity-40",
-              )}
-            >
-              +
-            </button>
-            {amountPreview !== null && (
-              <span className="text-[11.5px] text-muted-foreground">
-                ≈ {formatIndianCurrency(amountPreview)}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            {/* Premium stepper — single rounded shell with split controls. */}
+            <div className="inline-flex items-center rounded-lg border border-border/60 bg-background">
+              <button
+                type="button"
+                aria-label="Decrease lots"
+                disabled={isReadOnly || isSaving || quantityLots <= validation.min_lots}
+                onClick={() => onQuantityChange(Math.max(validation.min_lots, quantityLots - 1))}
+                className={cn(
+                  "flex h-7 w-7 items-center justify-center rounded-l-lg text-[15px] text-muted-foreground",
+                  "transition-colors hover:bg-muted hover:text-foreground",
+                  "disabled:cursor-not-allowed disabled:opacity-30",
+                )}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={validation.min_lots}
+                value={quantityLots}
+                disabled={isReadOnly || isSaving}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!isNaN(v)) onQuantityChange(v);
+                }}
+                className={cn(
+                  "w-10 border-x border-border/60 bg-transparent py-1.5 text-center text-[12.5px] font-semibold tabular-nums text-foreground",
+                  "focus:outline-none",
+                  "disabled:cursor-not-allowed disabled:opacity-60",
+                  "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+                )}
+              />
+              <button
+                type="button"
+                aria-label="Increase lots"
+                disabled={isReadOnly || isSaving}
+                onClick={() => onQuantityChange(quantityLots + 1)}
+                className={cn(
+                  "flex h-7 w-7 items-center justify-center rounded-r-lg text-[15px] text-muted-foreground",
+                  "transition-colors hover:bg-muted hover:text-foreground",
+                  "disabled:cursor-not-allowed disabled:opacity-30",
+                )}
+              >
+                +
+              </button>
+            </div>
+            {payload.locked.lot_size !== null && (
+              <span className="text-[11px] text-muted-foreground">
+                {(quantityLots * payload.locked.lot_size).toLocaleString("en-IN")} shares
               </span>
             )}
           </div>
@@ -827,33 +832,33 @@ function EditableForm({
           {isOversubscribed && categorySubValue !== null && (
             <p
               role="note"
-              className="flex items-start gap-1 text-[10.5px] leading-snug text-amber-700/90 dark:text-amber-300/90"
+              className="flex items-start gap-1.5 rounded-lg bg-amber-50/70 px-2.5 py-2 text-[10.5px] leading-snug text-amber-700/90 dark:bg-amber-500/[0.06] dark:text-amber-300/90"
             >
               <AlertCircle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
-              {CATEGORY_LABELS[category]} is {categorySubValue.toFixed(1)}× oversubscribed — allotment is a lottery; extra lots don&apos;t improve your odds.
+              {categorySubValue.toFixed(1)}× oversubscribed — allotment is by lottery; extra lots won&apos;t raise your odds.
             </p>
           )}
         </div>
       </FormRow>
 
-      {/* Bid price mode */}
+      {/* Bid price mode — segmented control (matches the app's chart-mode toggle) */}
       <FormRow label="Bid at">
-        <div className="flex gap-2">
-          <BidModeButton
+        <div className="inline-flex w-full overflow-hidden rounded-lg border border-border/60">
+          <SegmentButton
             active={bidPriceMode === "cutoff"}
             disabled={isReadOnly || isSaving || !catAllowsCutoff || !cutoffAllowed}
             title={!catAllowsCutoff ? "Cut-off only for retail/employee" : undefined}
             onClick={() => onBidPriceModeChange("cutoff")}
           >
-            Cut-off
-          </BidModeButton>
-          <BidModeButton
+            Cut-off price
+          </SegmentButton>
+          <SegmentButton
             active={bidPriceMode === "fixed"}
             disabled={isReadOnly || isSaving}
             onClick={() => onBidPriceModeChange("fixed")}
           >
             Fixed price
-          </BidModeButton>
+          </SegmentButton>
         </div>
       </FormRow>
 
@@ -871,13 +876,13 @@ function EditableForm({
             disabled={isReadOnly || isSaving}
             onChange={(e) => onBidPriceChange(e.target.value)}
             className={cn(
-              "w-full rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-[12px] text-foreground",
-              "focus:outline-none focus:ring-1 focus:ring-ring",
+              "w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-[12.5px] font-medium tabular-nums text-foreground",
+              "transition-colors focus:border-foreground/30 focus:outline-none focus:ring-2 focus:ring-ring/30",
               "disabled:cursor-not-allowed disabled:opacity-60",
             )}
           />
           {payload.locked.price_band && (
-            <p className="mt-1 text-[10.5px] text-muted-foreground">
+            <p className="mt-1.5 text-[10.5px] text-muted-foreground">
               Band: {formatIndianCurrency(payload.locked.price_band.min)} – {formatIndianCurrency(payload.locked.price_band.max)}
             </p>
           )}
@@ -886,7 +891,7 @@ function EditableForm({
 
       {/* UPI ID */}
       <FormRow label="UPI ID">
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
           <input
             type="text"
             placeholder="yourname@upi"
@@ -894,12 +899,12 @@ function EditableForm({
             disabled={isReadOnly || isSaving}
             onChange={(e) => onUpiIdChange(e.target.value)}
             className={cn(
-              "w-full rounded-lg border bg-background px-2.5 py-1.5 text-[12px] text-foreground",
-              "focus:outline-none focus:ring-1 focus:ring-ring",
+              "w-full rounded-lg border bg-background px-3 py-2 text-[12.5px] text-foreground",
+              "transition-colors focus:outline-none focus:ring-2 focus:ring-ring/30",
               "disabled:cursor-not-allowed disabled:opacity-60",
               upiFormatNote
-                ? "border-amber-400/60 dark:border-amber-500/40"
-                : "border-border/60",
+                ? "border-amber-400/60 focus:border-amber-500/50 dark:border-amber-500/40"
+                : "border-border/60 focus:border-foreground/30",
             )}
           />
           {upiFormatNote && (
@@ -907,19 +912,26 @@ function EditableForm({
               {upiFormatNote}
             </p>
           )}
-          {upiValid && (
-            <p className="text-[10.5px] text-muted-foreground">
-              Format looks valid — must be your own PAN-linked account (we can&apos;t verify this).
-            </p>
-          )}
         </div>
       </FormRow>
+
+      {/* Amount summary — the hero number, premium emphasis */}
+      {amountPreview !== null && (
+        <div className="flex items-center justify-between border-t border-border/40 pt-3.5">
+          <span className="text-[12px] font-medium text-muted-foreground">
+            Total at {bidPriceMode === "cutoff" ? "cut-off" : "bid"}
+          </span>
+          <span className="text-[16px] font-semibold tabular-nums tracking-tight text-foreground">
+            {formatIndianCurrency(amountPreview)}
+          </span>
+        </div>
+      )}
 
       {/* Validation error or amount-not-computable notice */}
       {!validationResult.ok && payload.locked.price_band && payload.locked.lot_size && (
         <div
           role="alert"
-          className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-[11.5px] text-destructive"
+          className="flex items-start gap-1.5 rounded-xl bg-destructive/10 px-3 py-2.5 text-[11.5px] text-destructive"
         >
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>{validationResult.reason}</span>
@@ -938,9 +950,9 @@ function EditableForm({
           disabled={!canRegister}
           data-testid="ipo-register-button"
           className={cn(
-            "inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full bg-primary text-[12.5px] font-medium tracking-tight text-primary-foreground transition-all",
+            "inline-flex h-8 w-full items-center justify-center gap-2 rounded-full bg-primary text-[12px] font-medium tracking-tight text-primary-foreground transition-all",
             "hover:bg-primary/90 active:scale-[0.98]",
-            "disabled:cursor-not-allowed disabled:opacity-70",
+            "disabled:cursor-not-allowed disabled:opacity-40",
           )}
         >
           {isSaving ? (
@@ -951,7 +963,7 @@ function EditableForm({
           ) : (
             <>
               <span>Register intent</span>
-              <ArrowUpRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             </>
           )}
         </button>
@@ -965,9 +977,8 @@ function EditableForm({
             onClick={onSetupReminders}
             data-testid="ipo-setup-reminders-button"
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11.5px] font-medium",
-              "border border-border/60 text-muted-foreground transition-colors",
-              "hover:bg-muted hover:text-foreground",
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-medium",
+              "text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
             )}
           >
             <BellRing className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -991,7 +1002,7 @@ function EditableForm({
         <p
           role="alert"
           data-testid="ipo-register-error"
-          className="rounded-lg bg-destructive/10 px-3 py-2 text-[11.5px] text-destructive"
+          className="rounded-xl bg-destructive/10 px-3 py-2.5 text-[11.5px] text-destructive"
           style={{
             animation: "draftCardIn-quartr 240ms cubic-bezier(0.22, 1, 0.36, 1) both",
           }}
@@ -1096,8 +1107,8 @@ function RegisteredConfirmation({
 
 function FormRow({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">
         {label}
       </label>
       {children}
@@ -1105,7 +1116,9 @@ function FormRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function BidModeButton({
+/** One segment of the "Bid at" segmented control. Mirrors the app's chart-mode
+ *  toggle: active segment is a solid dark fill, inactive are quiet text. */
+function SegmentButton({
   active,
   disabled,
   title,
@@ -1125,11 +1138,11 @@ function BidModeButton({
       disabled={disabled}
       title={title}
       className={cn(
-        "rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors border",
+        "flex-1 px-3 py-1.5 text-[12px] font-medium transition-colors",
         active
-          ? "border-primary bg-primary/10 text-primary"
-          : "border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground",
-        "disabled:cursor-not-allowed disabled:opacity-50",
+          ? "bg-foreground text-background"
+          : "text-muted-foreground hover:text-foreground",
+        "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted-foreground",
       )}
     >
       {children}
@@ -1137,19 +1150,32 @@ function BidModeButton({
   );
 }
 
-function LockedRow({
+/** A single hairline-divided fact row in the spec sheet (label left, value right). */
+function SpecRow({
   label,
   value,
   muted = false,
+  last = false,
 }: {
   label: string;
   value: string;
   muted?: boolean;
+  last?: boolean;
 }): React.ReactElement {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">{label}</span>
-      <span className={cn("text-[12px] font-medium", muted ? "text-muted-foreground" : "text-foreground")}>
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 py-2.5",
+        !last && "border-b border-border/40",
+      )}
+    >
+      <span className="text-[11.5px] text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "text-[12.5px] font-medium tabular-nums tracking-tight",
+          muted ? "text-muted-foreground" : "text-foreground",
+        )}
+      >
         {value}
       </span>
     </div>
