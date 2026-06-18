@@ -236,12 +236,16 @@ def _has_pending_approval(ctx: Any) -> Optional[WorkflowApproval]:
 @register_step(
     step_type="action.place_order",
     category="action",
-    label="Place order",
-    description="Place a market or limit order via Kite",
+    label="Place an order",
+    description=(
+        "Buy or sell a symbol — market or limit — via your broker. "
+        "Approval-gated."
+    ),
     icon="shopping-cart",
     max_retries=1,
     trigger_only=False,
     config_model=ActionPlaceOrderConfig,
+    group="Orders",
     output_schema={
         "type": "object",
         "properties": {
@@ -401,12 +405,13 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="action.cancel_orders",
     category="action",
-    label="Cancel orders",
-    description="Cancel matching pending orders",
+    label="Cancel pending orders",
+    description="Cancel your matching pending orders by symbol and side.",
     icon="x-circle",
     max_retries=1,
     trigger_only=False,
     config_model=ActionCancelOrdersConfig,
+    group="Orders",
     output_schema={
         "type": "object",
         "properties": {
@@ -465,12 +470,16 @@ async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="action.set_stoploss",
     category="action",
-    label="Set stop-loss",
-    description="Place a stop-loss order on a holding",
+    label="Set a stop-loss",
+    description=(
+        "Protect a holding with a stop-loss sell, at a price or a % "
+        "below entry (optionally trailing)."
+    ),
     icon="shield",
     max_retries=1,
     trigger_only=False,
     config_model=ActionSetStoplossConfig,
+    group="Exits & protection",
     output_schema={
         "type": "object",
         "properties": {
@@ -551,12 +560,16 @@ async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="action.set_takeprofit",
     category="action",
-    label="Set take-profit",
-    description="Place a take-profit sell order on a holding",
+    label="Set a take-profit",
+    description=(
+        "Lock in gains on a holding with a take-profit sell, at a price "
+        "or a % above entry."
+    ),
     icon="target",
     max_retries=1,
     trigger_only=False,
     config_model=ActionSetTakeprofitConfig,
+    group="Exits & protection",
     output_schema={
         "type": "object",
         "properties": {
@@ -632,15 +645,15 @@ async def execute_action_set_takeprofit(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="action.allocate_basket",
     category="action",
-    label="Open weighted basket",
+    label="Open a weighted basket",
     description=(
-        "Open a weighted basket of long and/or short positions in one "
-        "step (synthetic-security pattern)."
+        "Open several long/short legs at set weights in one step."
     ),
     icon="layers",
     max_retries=1,
     trigger_only=False,
     config_model=ActionAllocateBasketConfig,
+    group="Baskets",
     output_schema={
         "type": "object",
         "properties": {
@@ -742,15 +755,15 @@ async def execute_action_allocate_basket(
 @register_step(
     step_type="action.squareoff_all",
     category="action",
-    label="Square off everything",
+    label="Close all positions",
     description=(
-        "Close every open position — long AND short — at the trigger "
-        "bar's close. Companion exit step for action.allocate_basket."
+        "Exit every open position — long and short — at market."
     ),
     icon="x-circle",
     max_retries=1,
     trigger_only=False,
     config_model=ActionSquareoffAllConfig,
+    group="Exits & protection",
     output_schema={
         "type": "object",
         "properties": {
@@ -815,12 +828,13 @@ async def execute_action_squareoff_all(
 @register_step(
     step_type="action.update_watchlist",
     category="action",
-    label="Update watchlist",
-    description="Add or remove a symbol from your watchlist",
+    label="Update your watchlist",
+    description="Add or remove a symbol from your watchlist.",
     icon="list-plus",
     max_retries=1,
     trigger_only=False,
     config_model=ActionUpdateWatchlistConfig,
+    group="Watchlist",
     output_schema={
         "type": "object",
         "properties": {
@@ -891,16 +905,16 @@ async def execute_action_update_watchlist(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="action.allocate_notional",
     category="action",
-    label="Allocate budget across basket",
+    label="Split a budget across stocks",
     description=(
-        "Split a ₹ budget across a list of symbols and place each as "
-        "an order. Replaces N copies of action.place_order for a "
-        "portfolio buy/sell."
+        "Divide a ₹ budget across a list of symbols (equal or "
+        "cap-weighted) and place each — replaces many single orders."
     ),
     icon="layout-grid",
     max_retries=1,
     trigger_only=False,
     config_model=ActionAllocateNotionalConfig,
+    group="Baskets",
     output_schema={
         "type": "object",
         "properties": {
@@ -1159,15 +1173,16 @@ def _place_squareoff_legs(
 @register_step(
     step_type="action.squareoff_all_intraday",
     category="action",
-    label="Square off all intraday",
+    label="Close all intraday (MIS)",
     description=(
-        "Place market exits on every open MIS position. Pair with "
-        "fetch.intraday_pnl + condition.numeric for P&L-gated exits."
+        "Exit every open intraday (MIS) position — pair with Intraday "
+        "P&L for P&L-gated exits."
     ),
     icon="x-circle",
     max_retries=1,
     trigger_only=False,
     config_model=ActionSquareoffAllIntradayConfig,
+    group="Exits & protection",
     output_schema={
         "type": "object",
         "properties": {
@@ -1216,12 +1231,13 @@ async def execute_action_squareoff_all_intraday(
 @register_step(
     step_type="action.squareoff_symbol",
     category="action",
-    label="Square off symbol",
-    description="Exit a single symbol's open lot at market.",
+    label="Close a position",
+    description="Exit one symbol's open lot at market.",
     icon="x-circle",
     max_retries=1,
     trigger_only=False,
     config_model=ActionSquareoffSymbolConfig,
+    group="Exits & protection",
     output_schema={
         "type": "object",
         "properties": {
@@ -1271,16 +1287,16 @@ async def execute_action_squareoff_symbol(
 @register_step(
     step_type="action.arm_ipo_intent",
     category="action",
-    label="Arm IPO intent + reminder",
+    label="Register an IPO application",
     description=(
-        "Record an IPO intent and hand off to the user (no broker call, "
-        "never submits a bid). Pivot has NOT applied — you must apply "
-        "and approve the UPI mandate yourself in your broker app."
+        "Record an IPO application reminder. Pivot never submits a bid "
+        "— you apply and approve the UPI mandate yourself."
     ),
     icon="file-check",
     max_retries=2,
     trigger_only=False,
     config_model=ActionArmIpoIntentConfig,
+    group="IPO",
     output_schema={
         "type": "object",
         "properties": {
@@ -1471,18 +1487,17 @@ async def execute_action_arm_ipo_intent(
 @register_step(
     step_type="action.place_option_strategy",
     category="action",
-    label="Place option strategy",
+    label="Place / register an option strategy",
     description=(
-        "Place a multi-leg option strategy (paper-first). Paper book: "
-        "the legs fill in the simulated book. Live book: REGISTERS the "
-        "intent only — you execute in your broker app; Pivot never "
-        "places a live F&O order. MCX commodities are research-only "
-        "and rejected."
+        "Build a multi-leg option strategy. Paper book fills in "
+        "simulation; live book registers the intent only — you place it "
+        "in your broker app. MCX is research-only."
     ),
     icon="layers",
     max_retries=1,
     trigger_only=False,
     config_model=ActionPlaceOptionStrategyConfig,
+    group="Options",
     output_schema={
         "type": "object",
         "properties": {

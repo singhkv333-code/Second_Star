@@ -81,13 +81,17 @@ def _evaluate(left: float, op: str, right: float) -> bool:
 @register_step(
     step_type="condition.numeric",
     category="condition",
-    label="Numeric check",
-    description="Compare two numbers (or refs) with an operator",
+    label="Compare numbers",
+    description=(
+        "Continue only if two numbers (or earlier-step values) satisfy "
+        "your comparison — e.g. price ≥ 2500."
+    ),
     icon="equal",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionNumericConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Compare values",
 )
 async def execute_condition_numeric(ctx: Any) -> Optional[dict[str, Any]]:
     """Refs in `left`/`right` have already been resolved by the engine.
@@ -128,16 +132,17 @@ def _coerce_bool(v: Any) -> bool:
 @register_step(
     step_type="condition.boolean",
     category="condition",
-    label="Boolean check",
+    label="Check a yes/no value",
     description=(
-        "Pass when a boolean ref equals the expected value "
-        "(e.g. fetch.news's `matched`)"
+        "Continue only if an earlier step's true/false value matches — "
+        "e.g. news matched = true."
     ),
     icon="check-circle",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionBooleanConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Compare values",
 )
 async def execute_condition_boolean(ctx: Any) -> Optional[dict[str, Any]]:
     """Boolean equality gate. Pass when ``coerce_bool(left) == value``,
@@ -155,12 +160,16 @@ async def execute_condition_boolean(ctx: Any) -> Optional[dict[str, Any]]:
     step_type="condition.market_status",
     category="condition",
     label="Market is open / closed",
-    description="Pass when the NSE market is in the chosen state",
+    description=(
+        "Continue only when the NSE market is in the state you pick "
+        "(open, closed, pre, post)."
+    ),
     icon="calendar-clock",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionMarketStatusConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Market & time",
 )
 async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when NSE market is in the chosen state. Reuses the shared
@@ -178,13 +187,17 @@ async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="condition.position",
     category="condition",
-    label="Position held / not held",
-    description="Pass when the symbol is (or isn't) in your portfolio",
+    label="Position is held / not held",
+    description=(
+        "Continue based on whether a symbol is currently in your "
+        "portfolio."
+    ),
     icon="briefcase",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionPositionConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Positions",
 )
 async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when the symbol is (or isn't) in the user's holdings.
@@ -211,17 +224,18 @@ async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="condition.compound",
     category="condition",
-    label="Compound (DSL) check",
+    label="Advanced condition (visual builder)",
     description=(
-        "Pass when a DSL tree of indicator / price / volume / aggregator "
-        "conditions evaluates to True. Same grammar as trigger.compound; "
-        "collapses N x fetch.indicator + condition.numeric into one step."
+        "Continue when a visually-built tree of indicator / price / "
+        "volume conditions holds — collapses many fetch + compare steps "
+        "into one."
     ),
     icon="git-branch",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionCompoundConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Advanced",
 )
 async def execute_condition_compound(ctx: Any) -> Optional[dict[str, Any]]:
     """Evaluate a DSL tree as a mid-branch gate.
@@ -267,13 +281,16 @@ async def execute_condition_compound(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="condition.time_window",
     category="condition",
-    label="Time window",
-    description="Pass when the current time is inside the configured window",
+    label="Within a time window",
+    description=(
+        "Continue only when the current time is inside a window you set."
+    ),
     icon="hourglass",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionTimeWindowConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Market & time",
 )
 async def execute_condition_time_window(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when current time in the configured timezone is within

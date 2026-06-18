@@ -36,13 +36,17 @@ from backend.workflows.schemas import (
 @register_step(
     step_type="trigger.schedule",
     category="trigger",
-    label="On schedule",
-    description="Run on a cron schedule",
+    label="On a schedule",
+    description=(
+        "Run on a repeating clock — e.g. every weekday 9:20 AM, or "
+        "every 30 minutes."
+    ),
     icon="clock",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerScheduleConfig,
     output_schema=None,
+    group="Schedule & time",
 )
 async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the scheduler already decided this should fire. The
@@ -54,13 +58,17 @@ async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.price",
     category="trigger",
-    label="On price",
-    description="Fire when a symbol's price crosses a threshold",
+    label="When price crosses a level",
+    description=(
+        "Fire when a symbol's last price crosses above or below a "
+        "level you set."
+    ),
     icon="trending-up",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerPriceConfig,
     output_schema=None,
+    group="Price & indicators",
 )
 async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the watcher (backend/workflows/scheduler.py:_poll_watch_triggers)
@@ -73,13 +81,17 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.indicator",
     category="trigger",
-    label="On indicator",
-    description="Fire when a technical indicator crosses a threshold",
+    label="When an indicator crosses a level",
+    description=(
+        "Fire when a technical indicator (RSI, SMA, EMA, MACD…) "
+        "crosses a threshold."
+    ),
     icon="activity",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerIndicatorConfig,
     output_schema=None,
+    group="Price & indicators",
 )
 async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: same reasoning as trigger.price. The watcher fires the
@@ -93,16 +105,16 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     category="trigger",
     label="On option expiry day",
     description=(
-        "Fire once on the morning of an underlying's option expiry day "
-        "(derived from the live contract master — never a hardcoded "
-        "weekday). Use for roll / square-off nudges and expiry-day "
-        "strategies."
+        "Fire once on the morning of an underlying's option expiry, "
+        "read live from the contract master — for rolls & expiry-day "
+        "plays."
     ),
     icon="calendar-clock",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerExpiryDayConfig,
     output_schema=None,
+    group="Options & expiry",
 )
 async def execute_trigger_expiry_day(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the option watcher in scheduler.py fires this trigger
@@ -115,19 +127,18 @@ async def execute_trigger_expiry_day(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.compound",
     category="trigger",
-    label="On compound condition",
+    label="When multiple conditions are met",
     description=(
-        "Fire when a tree of indicator / price / volume / OPTION "
-        "conditions (IV, PCR, max pain, expected move, greeks, days-to-"
-        "expiry — joined with AND / OR / NOT) evaluates to True. The "
-        "DSL behind it lets one step type express any combination of "
-        "conditions without needing a new step type per shape."
+        "Fire when a combination of price, indicator, volume & option "
+        "conditions (AND / OR / NOT) all hold — built visually, no "
+        "extra steps."
     ),
     icon="git-merge",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerCompoundConfig,
     output_schema=None,
+    group="Price & indicators",
 )
 async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the watcher (backend/workflows/scheduler.py) evaluates
@@ -141,18 +152,18 @@ async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.exit_compound",
     category="trigger",
-    label="On compound exit condition",
+    label="When exit conditions are met (open position)",
     description=(
-        "Fire when a DSL tree (with position-state leaves) evaluates to "
-        "True AND this workflow has an open position from a prior fire. "
-        "Use for rich exits — e.g. 'unrealised_pct <= -2% OR (bars_held "
-        ">= 10 AND RSI > 70) OR drawdown_from_peak_pct >= 5%'."
+        "For a position this workflow opened: fire on a mix of P&L, "
+        "bars-held, drawdown & indicator conditions — e.g. down 2%, or "
+        "held 10 bars and RSI > 70."
     ),
     icon="log-out",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerExitCompoundConfig,
     output_schema=None,
+    group="Positions & exits",
 )
 async def execute_trigger_exit_compound(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the scheduler's watcher
@@ -166,15 +177,16 @@ async def execute_trigger_exit_compound(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.event",
     category="trigger",
-    label="On news event",
+    label="When a news event happens",
     description=(
-        "Fire when a news article confirms a described event "
-        "(e.g. 'RBI announces a repo rate cut')"
+        "Fire when a news article confirms an event you describe — "
+        "e.g. 'RBI announces a repo-rate cut'."
     ),
     icon="newspaper",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerEventConfig,
+    group="Events & news",
     output_schema={
         "type": "object",
         "properties": {
@@ -227,13 +239,14 @@ async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.manual",
     category="trigger",
-    label="Manual",
-    description="Only runs when you click Run now",
+    label="Manual (Run now)",
+    description="Never fires on its own — runs only when you press Run now.",
     icon="play",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerManualConfig,
     output_schema=None,
+    group="External & manual",
 )
 async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the user clicked Run now. The run row carries
@@ -244,15 +257,16 @@ async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.polymarket",
     category="trigger",
-    label="On Polymarket event",
+    label="On a Polymarket market",
     description=(
-        "Fire on a Polymarket binary market — either when YES "
-        "probability crosses a threshold OR when the market resolves"
+        "Fire when a Polymarket prediction market crosses a probability "
+        "you set, or resolves."
     ),
     icon="trending-up",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerPolymarketConfig,
+    group="Events & news",
     output_schema={
         "type": "object",
         "properties": {
@@ -285,13 +299,17 @@ async def execute_trigger_polymarket(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.market_relative_time",
     category="trigger",
-    label="At market open/close",
-    description="Fire at a fixed offset from the NSE open or close",
+    label="At market open / close",
+    description=(
+        "Fire at a fixed offset from the NSE open or close — e.g. "
+        "5 min after open."
+    ),
     icon="clock",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerMarketRelativeTimeConfig,
     output_schema=None,
+    group="Schedule & time",
 )
 async def execute_trigger_market_relative_time(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: by the time the engine reaches this executor, the
@@ -305,13 +323,14 @@ async def execute_trigger_market_relative_time(ctx: Any) -> Optional[dict[str, A
 @register_step(
     step_type="trigger.ipo_open",
     category="trigger",
-    label="On IPO open",
-    description="Fire when an IPO's subscription window opens",
+    label="When an IPO opens",
+    description="Fire when an IPO's subscription window opens.",
     icon="rocket",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerIpoOpenConfig,
     output_schema=None,
+    group="Events & news",
 )
 async def execute_trigger_ipo_open(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the IPO open watcher (``backend/workflows/scheduler.py
@@ -324,13 +343,17 @@ async def execute_trigger_ipo_open(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="trigger.webhook",
     category="trigger",
-    label="Webhook",
-    description="Fire when an external system POSTs to your unique URL",
+    label="On a webhook",
+    description=(
+        "Fire when an external system POSTs to this workflow's unique "
+        "URL; the payload is available to later steps."
+    ),
     icon="webhook",
     max_retries=0,
     trigger_only=True,
     config_model=TriggerWebhookConfig,
     output_schema=None,
+    group="External & manual",
 )
 async def execute_trigger_webhook(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op at execute time. The webhook router writes the inbound

@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pivot — Workflow Editor: Connection Logic + Catalog Cleanup</title>
+<style>
+  :root{
+    --bg:#fbfaf8; --panel:#ffffff; --ink:#1c1917; --ink2:#57534e; --ink3:#8b8682;
+    --line:#ece9e4; --line2:#e0ddd6;
+    --accent:#e8590c; --accent-soft:#fff1e8; --accent-line:#f8c9a8;
+    --sky:#0284c7; --sky-bg:#e8f3fb;
+    --teal:#0d9488; --teal-bg:#e6f5f3;
+    --amber:#d97706; --amber-bg:#fdf2e3;
+    --rose:#e11d48; --rose-bg:#fdeaee;
+    --emerald:#059669; --emerald-bg:#e7f6ef;
+    --violet:#7c3aed; --violet-bg:#f1ebfd;
+    --green:#16a34a; --green-bg:#e9f7ee;
+    --slate:#64748b; --slate-bg:#f1f3f6;
+    --radius:14px;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,.mono{font-family:var(--mono);font-size:.86em}
+  .wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:0;max-width:1280px;margin:0 auto}
+  /* sidebar */
+  nav.side{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;
+    padding:26px 18px 40px;border-right:1px solid var(--line);background:var(--bg)}
+  nav.side .brand{font-weight:700;font-size:15px;letter-spacing:-.2px;margin-bottom:2px}
+  nav.side .sub{font-size:11.5px;color:var(--ink3);margin-bottom:20px;line-height:1.4}
+  nav.side a{display:block;color:var(--ink2);font-size:13px;padding:6px 10px;border-radius:8px;
+    margin-bottom:1px;font-weight:500}
+  nav.side a:hover{background:var(--panel);text-decoration:none;color:var(--ink)}
+  nav.side a.head{margin-top:14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;
+    color:var(--ink3);font-weight:600;padding:4px 10px}
+  main{padding:34px 40px 120px;min-width:0}
+  /* hero */
+  .hero{background:linear-gradient(135deg,#fff7f1,#fffdfb);border:1px solid var(--accent-line);
+    border-radius:var(--radius);padding:26px 28px;margin-bottom:30px}
+  .hero h1{margin:0 0 6px;font-size:25px;letter-spacing:-.5px;line-height:1.15}
+  .hero .tag{display:inline-block;background:var(--accent);color:#fff;font-size:11px;font-weight:600;
+    padding:3px 9px;border-radius:999px;letter-spacing:.3px;margin-bottom:12px}
+  .hero p{margin:.4em 0;color:var(--ink2);font-size:14px}
+  .pillrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .pill{font-size:11.5px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid var(--line2);background:#fff;color:var(--ink2)}
+  .pill b{color:var(--accent)}
+  h2{font-size:20px;letter-spacing:-.3px;margin:46px 0 6px;padding-top:8px;scroll-margin-top:14px}
+  h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;font-weight:700;margin-right:8px}
+  h3{font-size:15.5px;margin:26px 0 8px;letter-spacing:-.2px}
+  .lead{color:var(--ink2);font-size:14px;max-width:74ch;margin:.2em 0 1em}
+  section{border-bottom:1px solid var(--line);padding-bottom:10px}
+  /* cards & callouts */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin:14px 0}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 10px 10px 0;margin:14px 0;font-size:13.5px;color:#7a3a12}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}.wrap{grid-template-columns:1fr}nav.side{display:none}}
+  .prob{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fff}
+  .prob h4{margin:0 0 5px;font-size:13.5px}
+  .prob p{margin:0;font-size:13px;color:var(--ink2)}
+  .prob .bad{color:var(--rose);font-weight:600}
+  /* chips */
+  .chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10.5px;
+    padding:2px 7px;border-radius:6px;border:1px solid var(--line2);background:#fff;color:var(--ink2);white-space:nowrap;margin:1px 2px 1px 0}
+  .chip.prod{background:var(--green-bg);border-color:#bfe6c9;color:#15803d}
+  .chip.req{background:var(--amber-bg);border-color:#f3d9a8;color:#b45309}
+  .chip.cons{background:var(--rose-bg);border-color:#f5c2cd;color:#be123c}
+  .cat-dot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle}
+  /* catalog tables */
+  .catblock{margin:18px 0}
+  .catbar{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700;margin:22px 0 4px;letter-spacing:-.2px}
+  .catbar .cnt{font-size:11px;font-weight:600;color:var(--ink3);background:var(--slate-bg);padding:2px 8px;border-radius:999px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);
+    font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line2)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:hover td{background:#fdfcfb}
+  .grp{font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;
+    padding-top:14px}
+  .id{font-family:var(--mono);font-size:11px;color:var(--ink3);white-space:nowrap}
+  .old{color:var(--ink3);text-decoration:line-through;font-size:12px}
+  .new{font-weight:600}
+  .desc{color:var(--ink2);font-size:12.5px}
+  /* simulator */
+  .sim{background:#fff;border:1px solid var(--line2);border-radius:var(--radius);padding:0;overflow:hidden;margin:16px 0}
+  .sim-top{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  @media(max-width:820px){.sim-top{grid-template-columns:1fr}}
+  .sim-col{padding:16px 18px}
+  .sim-col+.sim-col{border-left:1px solid var(--line)}
+  @media(max-width:820px){.sim-col+.sim-col{border-left:none;border-top:1px solid var(--line)}}
+  .sim h4{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)}
+  .seq{display:flex;flex-direction:column;gap:6px;min-height:40px}
+  .seqitem{display:flex;align-items:center;gap:8px;border:1px solid var(--line2);border-radius:9px;padding:7px 10px;background:#fff;font-size:13px}
+  .seqitem .n{font-family:var(--mono);font-size:10px;color:#fff;background:var(--ink2);border-radius:5px;padding:1px 5px}
+  .seqitem .x{margin-left:auto;cursor:pointer;color:var(--ink3);font-weight:700;font-size:15px;line-height:1}
+  .seqitem .x:hover{color:var(--rose)}
+  .empty{color:var(--ink3);font-size:12.5px;font-style:italic;padding:8px 2px}
+  .statewrap{margin-top:12px}
+  .ctrls{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .btn{font-size:12px;font-weight:600;padding:5px 11px;border-radius:8px;border:1px solid var(--line2);
+    background:#fff;color:var(--ink2);cursor:pointer}
+  .btn:hover{border-color:var(--accent-line);color:var(--accent)}
+  .toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);cursor:pointer;user-select:none}
+  .bucket{margin:14px 0}
+  .bucket-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;margin:0 0 6px}
+  .bdot{width:9px;height:9px;border-radius:999px;display:inline-block}
+  .cand{display:flex;flex-wrap:wrap;gap:6px}
+  .candbtn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 10px;border-radius:8px;
+    border:1px solid var(--line2);background:#fff;cursor:pointer;color:var(--ink)}
+  .candbtn:hover{box-shadow:0 1px 4px rgba(0,0,0,.07)}
+  .candbtn.rec{border-color:#bfe6c9;background:var(--green-bg)}
+  .candbtn.avl{border-color:var(--line2);background:#fff}
+  .candbtn.ns{border-color:#f3d9a8;background:var(--amber-bg)}
+  .candbtn .why{font-size:10.5px;color:var(--ink3)}
+  .sim-foot{border-top:1px solid var(--line);padding:12px 18px;font-size:12.5px;color:var(--ink2);background:#fdfcfb}
+  .reasons{margin:8px 0 0;padding:10px 14px;border-radius:9px;background:var(--slate-bg);font-size:12px;min-height:20px}
+  .reasons .ok{color:#15803d}
+  .reasons .warn{color:#b45309}
+  .reasons .info{color:var(--slate)}
+  .reasons div{margin:2px 0}
+  /* severity */
+  .sev{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+  @media(max-width:820px){.sev{grid-template-columns:1fr}}
+  .sevcard{border:1px solid var(--line2);border-radius:12px;padding:14px 16px;background:#fff}
+  .sevcard.err{border-top:3px solid var(--rose)}
+  .sevcard.warn{border-top:3px solid var(--amber)}
+  .sevcard.info{border-top:3px solid var(--sky)}
+  .sevcard h4{margin:0 0 6px;font-size:13.5px}
+  .sevcard p{margin:0;font-size:12.5px;color:var(--ink2)}
+  .sevcard .blocks{font-size:11px;font-weight:700;margin-top:8px}
+  pre{background:#1c1917;color:#f5f5f4;border-radius:11px;padding:14px 16px;overflow-x:auto;
+    font-family:var(--mono);font-size:12px;line-height:1.55;margin:12px 0}
+  pre .k{color:#fdba74}.pre .s{color:#86efac}
+  /* checklist */
+  .phase{border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden;background:#fff}
+  .phase-h{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#fdfcfb;border-bottom:1px solid var(--line);font-weight:700;font-size:14px}
+  .phase-h .badge{font-size:10.5px;font-weight:600;color:#fff;background:var(--accent);padding:2px 8px;border-radius:999px}
+  .phase ul{list-style:none;margin:0;padding:8px 16px 14px}
+  .phase li{display:flex;align-items:flex-start;gap:9px;padding:5px 0;font-size:13px}
+  .phase li input{margin-top:3px;width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
+  .phase li label{cursor:pointer;color:var(--ink)}
+  .phase li .f{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .donebar{font-size:12px;color:var(--ink3);margin:6px 2px}
+  .foot{margin-top:40px;color:var(--ink3);font-size:12px;text-align:center}
+  .kbd{font-family:var(--mono);font-size:11px;background:var(--slate-bg);border:1px solid var(--line2);border-radius:5px;padding:1px 6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="side">
+  <div class="brand">Workflow Editor</div>
+  <div class="sub">Connection logic + catalog cleanup<br>Source-of-execution spec</div>
+  <a href="#overview">Overview</a>
+  <a href="#why">The two problems</a>
+  <a href="#model">How it works elsewhere</a>
+  <a class="head">The design</a>
+  <a href="#capabilities">Capability model</a>
+  <a href="#severity">Severity &amp; diagnostics</a>
+  <a href="#simulator">Compatibility simulator</a>
+  <a class="head">Catalog</a>
+  <a href="#catalog">Renamed catalog (49)</a>
+  <a class="head">Execution</a>
+  <a href="#arch">Architecture &amp; API</a>
+  <a href="#checklist">Build checklist</a>
+</nav>
+<main>
+
+  <div class="hero" id="overview">
+    <span class="tag">PIVOT · LIVING SPEC</span>
+    <h1>The workflow editor needs real connection logic — and an honest catalog.</h1>
+    <p>Today the side editor lets you drop <em>any</em> step next to <em>any</em> step. A
+       stop-loss with no position, a comparison that references a fetch that doesn't exist yet —
+       all pass silently and only blow up when the automation actually runs. And the 49 step
+       types carry jargon-y, sometimes misleading names.</p>
+    <p>This document is both the explanation <strong>and the source of execution</strong>: the
+       capability rules and the renamed catalog below are authored here first, then ported
+       verbatim into the backend. The <a href="#simulator">simulator</a> is live — build a
+       sequence and watch what becomes valid.</p>
+    <div class="pillrow">
+      <span class="pill">Model: <b>linear pipeline</b> (Zapier-like)</span>
+      <span class="pill">Strictness: <b>hybrid</b> (hard-block only the impossible)</span>
+      <span class="pill">Names: <b>labels + groups</b>, IDs unchanged</span>
+      <span class="pill"><b>49</b> step types · <b>6</b> categories</span>
+    </div>
+  </div>
+
+  <!-- ============ WHY ============ -->
+  <section id="why">
+    <h2><span class="num">01</span>The two problems</h2>
+    <p class="lead">Both are real today and both are visible to the user in the right-side
+      editor (<code>AgentPanel → workflow-editor-mock</code>).</p>
+    <div class="grid2">
+      <div class="prob">
+        <h4>① No connection logic</h4>
+        <p>The <span class="bad">only</span> placement rule is "trigger goes first," enforced
+          purely in the front-end picker. Everything else is a free-for-all: invalid
+          arrangements pass validation and surface as a runtime <code>RefNotFoundError</code>
+          or a no-op. There is no notion of <em>what may legally follow what.</em></p>
+      </div>
+      <div class="prob">
+        <h4>② 49 steps, weak names</h4>
+        <p><code>arm_ipo_intent</code>, <code>trigger.compound</code>,
+          <code>squareoff</code>, <code>allocate_basket</code> vs <code>allocate_notional</code>
+          — jargon and near-duplicates. <span class="bad">"Place option strategy"</span> says
+          <em>place</em> but a live order only <em>registers</em>. Useful affordances (formulas,
+          the visual condition builder, paper-vs-live) are buried in code docstrings.</p>
+      </div>
+    </div>
+    <div class="note">
+      <strong>The lever:</strong> every fetch/action already declares an
+      <code>output_schema</code> (JSON Schema) in the registry. We type-check references against
+      it and derive "what this step produces" from it — instead of inventing a new type system.
+    </div>
+  </section>
+
+  <!-- ============ HOW OTHERS DO IT ============ -->
+  <section id="model">
+    <h2><span class="num">02</span>How the good builders do it</h2>
+    <p class="lead">Three reference points — and why Pivot borrows the <em>idea</em> (typed
+      compatibility) but not the <em>shape</em> (we are flat, they are trees/graphs).</p>
+    <table>
+      <thead><tr><th style="width:120px">Builder</th><th>Shape</th><th>How it constrains</th><th>What we take</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Composer</b><div class="desc">systematic investing</div></td>
+          <td>Typed <b>tree</b> of blocks (Weight / If-Else / Filter / Sort / Asset)</td>
+          <td>Each block has typed <b>slots</b>; only type-compatible blocks fit a slot — you
+            can't drop an asset where a condition belongs.</td>
+          <td>The principle that a slot accepts only a <b>defined set</b> of things.</td>
+        </tr>
+        <tr>
+          <td><b>n8n</b><div class="desc">general automation</div></td>
+          <td>Directed <b>graph</b> of nodes</td>
+          <td>Nodes declare typed input/output <b>ports</b>; the canvas refuses to connect
+            incompatible ports. Triggers have no input.</td>
+          <td>Typed produce/consume — but expressed as <b>pre/post-conditions</b> over order,
+            since our array order <em>is</em> the wiring (no edges to draw).</td>
+        </tr>
+        <tr>
+          <td><b>Zapier</b><div class="desc">linear automation</div></td>
+          <td>Linear: 1 trigger + N actions</td>
+          <td>Trigger first; each action maps fields from <b>prior steps</b> only.</td>
+          <td>Exactly Pivot's model. We add the missing layer: <b>preconditions</b> per step.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note"><strong>Decision:</strong> Pivot is a <b>linear pipeline</b>. So instead of
+      ports or slots, each step declares what it <b>produces</b> into an accumulated world-state
+      and what it <b>requires</b> from it. One pass down the list = full validation. This is just
+      the existing <code>dsl/validators.semantic_validate(allow_position=…)</code> precedent,
+      generalized from one flag to a tag-set.</div>
+  </section>
+
+  <!-- ============ CAPABILITY MODEL ============ -->
+  <section id="capabilities">
+    <h2><span class="num">03</span>The capability model</h2>
+    <p class="lead">A step <span class="chip prod">produces</span> capability tags,
+      <span class="chip req">requires</span> tags from earlier steps (or from your ambient
+      portfolio), and may <span class="chip cons">consume</span> (clear) them. A single linear
+      pass accumulates the produced tags; each step's requirements must be satisfiable by what
+      came before. A trigger at index&nbsp;&gt;&nbsp;0 starts a new branch and resets the state.</p>
+
+    <h3>Capability vocabulary</h3>
+    <div class="card" id="vocab"><!-- rendered by JS --></div>
+
+    <h3>Why "requires position" is a <em>warning</em>, not an error</h3>
+    <p class="lead">Your holdings live <em>outside</em> the workflow (ambient state). A
+      "close my Reliance position" automation is perfectly valid even with no opening step —
+      you may already hold it. So a missing position is a <strong>warning with a reason</strong>
+      ("needs a position — you may already hold it"), never a hard block. Toggle
+      <span class="kbd">Assume portfolio</span> in the simulator to see this flip.</p>
+  </section>
+
+  <!-- ============ SEVERITY ============ -->
+  <section id="severity">
+    <h2><span class="num">04</span>Severity &amp; diagnostics</h2>
+    <p class="lead">One <code>lint_workflow(steps, ambient?)</code> returns a list of
+      <code>Diagnostic</code> objects. Three severities — only <b>errors</b> ever block
+      saving/activating.</p>
+    <div class="sev">
+      <div class="sevcard err">
+        <h4>🔴 error</h4>
+        <p>Graph-internal contradictions: non-trigger at index 0; reference to a later/missing
+          step; reference to a field absent from the producing step's <code>output_schema</code>,
+          or with the wrong type; unknown step type.</p>
+        <div class="blocks" style="color:var(--rose)">Blocks activation ✓</div>
+      </div>
+      <div class="sevcard warn">
+        <h4>🟠 warning</h4>
+        <p>Likely-wrong but legitimately possible: a <code>requires position</code> /
+          <code>pending_orders</code> unmet by earlier steps and not guaranteed by your
+          portfolio. Renders as <b>"needs setup."</b></p>
+        <div class="blocks" style="color:var(--amber)">Never blocks ✗</div>
+      </div>
+      <div class="sevcard info">
+        <h4>🔵 info</h4>
+        <p>Advisory nudges: a branch with no action or notify does nothing useful; a reference
+          into a loose array/object subtree we can't type-check (downgraded, no false positive).</p>
+        <div class="blocks" style="color:var(--sky)">Never blocks ✗</div>
+      </div>
+    </div>
+    <h3>Diagnostic shape</h3>
+<pre>Diagnostic = {
+  step_index:   int,
+  severity:     "error" | "warning" | "info",
+  code:         "ref_forward" | "ref_bad_path" | "ref_type" |
+                "needs_position" | "needs_pending_orders" |
+                "trigger_placement" | "empty_branch" | "dead_branch",
+  message:      str,          // human-readable, shown on the step card
+  field?:       str,          // the offending config field, if any
+  suggested_fix?: str         // one-click apply target (Phase 4)
+}</pre>
+  </section>
+
+  <!-- ============ SIMULATOR ============ -->
+  <section id="simulator">
+    <h2><span class="num">05</span>Compatibility simulator <span style="font-size:12px;color:var(--ink3);font-weight:400">— live</span></h2>
+    <p class="lead">This runs the exact rules the backend will ship. Click a candidate to append
+      it; the buckets re-classify against the accumulated state. This is the experience the
+      <code>StepTypePicker</code> will give the user.</p>
+
+    <div class="sim">
+      <div class="ctrls" style="padding:14px 18px 0">
+        <button class="btn" onclick="resetSeq()">↺ Reset</button>
+        <button class="btn" onclick="loadExample()">Load example: RSI dip-buy + stop</button>
+        <label class="toggle"><input type="checkbox" id="ambient" onchange="render()" /> Assume portfolio (I already hold positions / have pending orders)</label>
+      </div>
+      <div class="sim-top">
+        <div class="sim-col">
+          <h4>Your workflow</h4>
+          <div class="seq" id="seq"></div>
+          <div class="statewrap">
+            <h4 style="margin-top:14px">Accumulated state</h4>
+            <div id="state"></div>
+          </div>
+        </div>
+        <div class="sim-col">
+          <h4>Add the next step</h4>
+          <div id="cands"></div>
+        </div>
+      </div>
+      <div class="sim-foot" id="hint"></div>
+    </div>
+  </section>
+
+  <!-- ============ CATALOG ============ -->
+  <section id="catalog">
+    <h2><span class="num">06</span>Renamed catalog — all 49 steps</h2>
+    <p class="lead">Every step keeps its <code>step_type</code> ID (no migration). What changes:
+      the <b>label</b>, the <b>description</b>, and a new <b>sub-group</b> so the picker is
+      navigable. Old label shown <span class="old">struck through</span>. Produce/require/consume
+      tags drive the connection logic above.</p>
+    <div id="catalog-body"><!-- rendered by JS --></div>
+  </section>
+
+  <!-- ============ ARCH ============ -->
+  <section id="arch">
+    <h2><span class="num">07</span>Architecture &amp; API surface</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3 style="margin-top:0">Backend — one source of truth</h3>
+        <p class="desc">New pure module <code>pivot/backend/workflows/compat.py</code>:</p>
+        <ul class="desc" style="padding-left:18px;margin:6px 0">
+          <li><code>CAPABILITY_RULES</code> — side table keyed by <code>step_type</code> (zero
+            edits to 49 decorators; missing = permissive).</li>
+          <li><code>lint_workflow(steps, ambient?)</code> → <code>list[Diagnostic]</code> —
+            three passes: structural → ref type-check → capability.</li>
+        </ul>
+        <p class="desc">Reuses <code>refs.py</code> (ref regex), each step's
+          <code>output_schema</code>, and the <code>semantic_validate</code> precedent.</p>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">The minimal API surface</h3>
+        <ul class="desc" style="padding-left:18px;margin:6px 0">
+          <li><code>GET /api/step-types</code> — each step gains a <code>compat</code> block +
+            <code>group</code>; bump <code>CATALOG_VERSION</code>.</li>
+          <li><code>POST /api/workflows/lint</code> — <code>{steps, ambient?}</code> →
+            <code>{diagnostics}</code>; shared with the validators (no rule drift).</li>
+          <li>Diagnostics also returned in the propose draft + workflow <code>GET</code>.</li>
+        </ul>
+        <p class="desc"><b>FE:</b> the picker uses <code>catalog.compat</code> for instant
+          buckets; a 250&nbsp;ms debounced <code>/lint</code> call is authoritative for ref
+          type-checking. Drag-reorder <b>warns inline</b> — only the trigger slot snaps back.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CHECKLIST ============ -->
+  <section id="checklist">
+    <h2><span class="num">08</span>Build checklist <span style="font-size:12px;color:var(--ink3);font-weight:400">— state saved in your browser</span></h2>
+    <div class="donebar" id="donebar"></div>
+    <div id="phases"></div>
+  </section>
+
+  <div class="foot">Pivot · <code>docs/plans/WORKFLOW_EDITOR_PLAN.html</code> — authored as the
+    source of execution. Edit the <code>STEPS</code> data object to update both the catalog and
+    the simulator at once.</div>
+</main>
+</div>
+
+<script>
+/* ===================================================================
+   SOURCE DATA — the single object the backend will mirror.
+   cat  : category id
+   group: new sub-group (picker heading)
+   old  : current label (struck through in the catalog)
+   label: new label
+   desc : new description
+   produces / requires / consumes : capability tags
+   requires entries: {cap[], ambient?, label, warn}  (cap[] = satisfiedBy)
+=================================================================== */
+const CAPS = {
+  "position_open":   "An open position exists",
+  "pending_orders":  "A resting/pending order exists",
+  "protective_order":"A stop/target order is set",
+  "data:quote":      "A live quote was fetched",
+  "data:indicator":  "An indicator value was computed",
+  "data:fundamental":"A fundamental was fetched",
+  "data:portfolio":  "Portfolio/holdings were fetched",
+  "data:pnl":        "P&L was computed",
+  "data:news":       "News articles were fetched",
+  "data:price_level":"A price level was computed",
+  "data:spread":     "A pair spread/z-score was computed",
+  "data:screen":     "A screened symbols list exists",
+  "data:movers":     "A top-movers list exists",
+  "webhook_payload": "An inbound webhook payload"
+};
+
+const NEEDS_POS = {cap:["position_open"], ambient:"positions",
+  label:"an open position", warn:"needs a position — open one earlier, or it must already be in your portfolio"};
+const NEEDS_ORD = {cap:["pending_orders"], ambient:"pending_orders",
+  label:"a pending order", warn:"needs a pending order — place one earlier, or have one resting in your account"};
+const NEEDS_SYMS = {cap:["data:screen","data:movers"], label:"a symbols list",
+  warn:"give an inline symbol list, or add Screen stocks / Top movers first"};
+const NEEDS_BOOL = {cap:["data:news"], label:"a yes/no value",
+  warn:"add a step that yields a true/false value first (e.g. Recent news)"};
+
+const STEPS = [
+ // ── TRIGGERS ──────────────────────────────────────────────
+ {id:"trigger.schedule",cat:"trigger",group:"Schedule & time",old:"On schedule",label:"On a schedule",desc:"Run on a repeating clock — e.g. every weekday 9:20 AM, or every 30 minutes."},
+ {id:"trigger.market_relative_time",cat:"trigger",group:"Schedule & time",old:"At market open/close",label:"At market open / close",desc:"Fire at a fixed offset from the NSE open or close — e.g. 5 min after open."},
+ {id:"trigger.price",cat:"trigger",group:"Price & indicators",old:"On price",label:"When price crosses a level",desc:"Fire when a symbol's last price crosses above or below a level you set."},
+ {id:"trigger.indicator",cat:"trigger",group:"Price & indicators",old:"On indicator",label:"When an indicator crosses a level",desc:"Fire when a technical indicator (RSI, SMA, EMA, MACD…) crosses a threshold."},
+ {id:"trigger.compound",cat:"trigger",group:"Price & indicators",old:"On compound condition",label:"When multiple conditions are met",desc:"Fire when a combination of price, indicator, volume & option conditions (AND / OR / NOT) all hold — built visually, no extra steps."},
+ {id:"trigger.exit_compound",cat:"trigger",group:"Positions & exits",old:"On compound exit condition",label:"When exit conditions are met (open position)",desc:"For a position this workflow opened: fire on a mix of P&L, bars-held, drawdown & indicator conditions — e.g. down 2%, or held 10 bars and RSI > 70.",requires:[NEEDS_POS]},
+ {id:"trigger.expiry_day",cat:"trigger",group:"Options & expiry",old:"On option expiry day",label:"On option expiry day",desc:"Fire once on the morning of an underlying's option expiry, read live from the contract master — for rolls & expiry-day plays."},
+ {id:"trigger.event",cat:"trigger",group:"Events & news",old:"On news event",label:"When a news event happens",desc:"Fire when a news article confirms an event you describe — e.g. 'RBI announces a repo-rate cut'.",produces:["data:news"]},
+ {id:"trigger.ipo_open",cat:"trigger",group:"Events & news",old:"On IPO open",label:"When an IPO opens",desc:"Fire when an IPO's subscription window opens."},
+ {id:"trigger.polymarket",cat:"trigger",group:"Events & news",old:"On Polymarket event",label:"On a Polymarket market",desc:"Fire when a Polymarket prediction market crosses a probability you set, or resolves.",produces:["webhook_payload"]},
+ {id:"trigger.manual",cat:"trigger",group:"External & manual",old:"Manual",label:"Manual (Run now)",desc:"Never fires on its own — runs only when you press Run now."},
+ {id:"trigger.webhook",cat:"trigger",group:"External & manual",old:"Webhook",label:"On a webhook",desc:"Fire when an external system POSTs to this workflow's unique URL; the payload is available to later steps.",produces:["webhook_payload"]},
+
+ // ── FETCHES ───────────────────────────────────────────────
+ {id:"fetch.quote",cat:"fetch",group:"Market data",old:"Get live quote",label:"Live quote",desc:"The latest price, OHLC and volume for a symbol.",produces:["data:quote","data:price_level"]},
+ {id:"fetch.day_open",cat:"fetch",group:"Market data",old:"Get today's open",label:"Today's open",desc:"Today's opening price for a symbol.",produces:["data:price_level"]},
+ {id:"fetch.prior_close",cat:"fetch",group:"Market data",old:"Get prior close",label:"Previous close",desc:"A recent session's closing price (1–10 sessions back).",produces:["data:price_level"]},
+ {id:"fetch.indicator",cat:"fetch",group:"Indicators & levels",old:"Get indicator value",label:"Indicator value",desc:"Compute a technical indicator (RSI, SMA, EMA, MACD and more).",produces:["data:indicator"]},
+ {id:"fetch.rolling_high",cat:"fetch",group:"Indicators & levels",old:"Get rolling N-day high",label:"Recent N-day high",desc:"The highest high over the last N daily bars — the recent peak (optionally × a multiplier).",produces:["data:price_level"]},
+ {id:"fetch.rolling_low",cat:"fetch",group:"Indicators & levels",old:"Get rolling N-day low",label:"Recent N-day low",desc:"The lowest low over the last N daily bars — the recent trough (optionally × a multiplier).",produces:["data:price_level"]},
+ {id:"fetch.relative_threshold",cat:"fetch",group:"Indicators & levels",old:"Compute relative price level",label:"Price level from a reference",desc:"Turn 'open + 1%' or 'prior close − 2%' into an absolute price level the next step can compare against.",produces:["data:price_level"]},
+ {id:"fetch.spread_z_score",cat:"fetch",group:"Indicators & levels",old:"Compute spread z-score",label:"Pair spread z-score",desc:"How stretched the price ratio of two symbols is, in standard deviations — for pairs / mean-reversion.",produces:["data:spread"]},
+ {id:"fetch.fundamental",cat:"fetch",group:"Fundamentals",old:"Get fundamental",label:"Fundamental metric",desc:"A fundamental like P/E, ROE, market cap or D/E — or a custom formula over them.",produces:["data:fundamental"]},
+ {id:"fetch.portfolio",cat:"fetch",group:"Portfolio & P&L",old:"Get portfolio",label:"Your portfolio",desc:"Your holdings, buying power and total value.",produces:["data:portfolio"]},
+ {id:"fetch.intraday_pnl",cat:"fetch",group:"Portfolio & P&L",old:"Get intraday P&L",label:"Intraday P&L",desc:"Realised + unrealised P&L across your current holdings.",produces:["data:pnl"]},
+ {id:"fetch.news",cat:"fetch",group:"News",old:"Get news",label:"Recent news",desc:"Recent articles for your keywords, optionally scored against an event you describe.",produces:["data:news"]},
+ {id:"fetch.screener",cat:"fetch",group:"Stock screens",old:"Screen stocks by sector / cap",label:"Screen stocks",desc:"Filter & rank Indian stocks by sector and market cap — returns a symbols list the next step can act on.",produces:["data:screen"]},
+ {id:"fetch.top_movers",cat:"fetch",group:"Stock screens",old:"Top gainers / losers",label:"Top gainers / losers",desc:"Today's biggest NIFTY-50 movers — drives 'buy the top gainer', 'short the top loser', etc.",produces:["data:movers"]},
+
+ // ── CONDITIONS ────────────────────────────────────────────
+ {id:"condition.numeric",cat:"condition",group:"Compare values",old:"Numeric check",label:"Compare numbers",desc:"Continue only if two numbers (or earlier-step values) satisfy your comparison — e.g. price ≥ 2500.",infoNote:"If either side references an earlier value, add the matching fetch first."},
+ {id:"condition.boolean",cat:"condition",group:"Compare values",old:"Boolean check",label:"Check a yes/no value",desc:"Continue only if an earlier step's true/false value matches — e.g. news matched = true.",requires:[NEEDS_BOOL]},
+ {id:"condition.market_status",cat:"condition",group:"Market & time",old:"Market is open / closed",label:"Market is open / closed",desc:"Continue only when the NSE market is in the state you pick (open, closed, pre, post)."},
+ {id:"condition.time_window",cat:"condition",group:"Market & time",old:"Time window",label:"Within a time window",desc:"Continue only when the current time is inside a window you set."},
+ {id:"condition.position",cat:"condition",group:"Positions",old:"Position held / not held",label:"Position is held / not held",desc:"Continue based on whether a symbol is currently in your portfolio."},
+ {id:"condition.compound",cat:"condition",group:"Advanced",old:"Compound (DSL) check",label:"Advanced condition (visual builder)",desc:"Continue when a visually-built tree of indicator / price / volume conditions holds — collapses many fetch + compare steps into one."},
+
+ // ── ACTIONS ───────────────────────────────────────────────
+ {id:"action.place_order",cat:"action",group:"Orders",old:"Place order",label:"Place an order",desc:"Buy or sell a symbol — market or limit — via your broker. Approval-gated.",produces:["position_open","pending_orders"]},
+ {id:"action.cancel_orders",cat:"action",group:"Orders",old:"Cancel orders",label:"Cancel pending orders",desc:"Cancel your matching pending orders by symbol and side.",requires:[NEEDS_ORD],consumes:["pending_orders"]},
+ {id:"action.set_stoploss",cat:"action",group:"Exits & protection",old:"Set stop-loss",label:"Set a stop-loss",desc:"Protect a holding with a stop-loss sell, at a price or a % below entry (optionally trailing).",requires:[NEEDS_POS],produces:["protective_order","pending_orders"]},
+ {id:"action.set_takeprofit",cat:"action",group:"Exits & protection",old:"Set take-profit",label:"Set a take-profit",desc:"Lock in gains on a holding with a take-profit sell, at a price or a % above entry.",requires:[NEEDS_POS],produces:["protective_order","pending_orders"]},
+ {id:"action.squareoff_symbol",cat:"action",group:"Exits & protection",old:"Square off symbol",label:"Close a position",desc:"Exit one symbol's open lot at market.",requires:[NEEDS_POS],consumes:["position_open"]},
+ {id:"action.squareoff_all",cat:"action",group:"Exits & protection",old:"Square off everything",label:"Close all positions",desc:"Exit every open position — long and short — at market.",requires:[NEEDS_POS],consumes:["position_open"]},
+ {id:"action.squareoff_all_intraday",cat:"action",group:"Exits & protection",old:"Square off all intraday",label:"Close all intraday (MIS)",desc:"Exit every open intraday (MIS) position — pair with Intraday P&L for P&L-gated exits.",requires:[NEEDS_POS],consumes:["position_open"]},
+ {id:"action.allocate_basket",cat:"action",group:"Baskets",old:"Open weighted basket",label:"Open a weighted basket",desc:"Open several long/short legs at set weights in one step.",produces:["position_open","pending_orders"]},
+ {id:"action.allocate_notional",cat:"action",group:"Baskets",old:"Allocate budget across basket",label:"Split a budget across stocks",desc:"Divide a ₹ budget across a list of symbols (equal or cap-weighted) and place each — replaces many single orders.",requires:[NEEDS_SYMS],produces:["position_open","pending_orders"]},
+ {id:"action.place_option_strategy",cat:"action",group:"Options",old:"Place option strategy",label:"Place / register an option strategy",desc:"Build a multi-leg option strategy. Paper book fills in simulation; live book registers the intent only — you place it in your broker app. MCX is research-only.",produces:["position_open","pending_orders"]},
+ {id:"action.arm_ipo_intent",cat:"action",group:"IPO",old:"Arm IPO intent + reminder",label:"Register an IPO application",desc:"Record an IPO application reminder. Pivot never submits a bid — you apply and approve the UPI mandate yourself."},
+ {id:"action.update_watchlist",cat:"action",group:"Watchlist",old:"Update watchlist",label:"Update your watchlist",desc:"Add or remove a symbol from your watchlist."},
+
+ // ── COMMUNICATION ─────────────────────────────────────────
+ {id:"notify.message",cat:"notify",group:"Notify",old:"Send message",label:"Send a notification",desc:"Send a push notification (email / SMS coming later)."},
+ {id:"notify.log",cat:"notify",group:"Notify",old:"Log message",label:"Add a run note",desc:"Write a line into this run's log — no external message."},
+ {id:"wait.approval",cat:"notify",group:"Approvals",old:"Wait for approval",label:"Pause for my approval",desc:"Pause the run until you approve or reject it in the app."},
+
+ // ── CONTROL FLOW ──────────────────────────────────────────
+ {id:"wait.delay",cat:"control",group:"Flow",old:"Wait",label:"Wait",desc:"Pause for a set duration, or until a specific time of day."},
+ {id:"control.skip_if",cat:"control",group:"Flow",old:"Skip if",label:"Skip next step if…",desc:"Skip the following step when a condition holds."}
+];
+
+const CAT = {
+  trigger:{label:"Triggers",  color:"--sky",   bg:"--sky-bg"},
+  fetch:  {label:"Data fetches",color:"--teal",bg:"--teal-bg"},
+  condition:{label:"Conditions",color:"--amber",bg:"--amber-bg"},
+  action: {label:"Actions",   color:"--rose",  bg:"--rose-bg"},
+  notify: {label:"Communication",color:"--emerald",bg:"--emerald-bg"},
+  control:{label:"Control flow",color:"--violet",bg:"--violet-bg"}
+};
+const ORDER = ["trigger","fetch","condition","action","notify","control"];
+const byId = Object.fromEntries(STEPS.map(s=>[s.id,s]));
+const cssv = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ---------- VOCAB CARD ---------- */
+(function renderVocab(){
+  const groups = {
+    "Position & order state":["position_open","pending_orders","protective_order"],
+    "Data families (one per fetch)":["data:quote","data:indicator","data:fundamental","data:portfolio","data:pnl","data:news","data:price_level","data:spread","data:screen","data:movers"],
+    "Ambient / external":["webhook_payload"]
+  };
+  let h="";
+  for(const [g,tags] of Object.entries(groups)){
+    h+=`<div style="margin:4px 0 12px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:6px">${g}</div>`;
+    h+=tags.map(t=>`<span class="chip prod" title="${CAPS[t]||''}">${t}</span>`).join("");
+    h+=`</div>`;
+  }
+  h+=`<div style="font-size:12.5px;color:var(--ink2);border-top:1px solid var(--line);padding-top:10px;margin-top:4px">Plus ambient flags <span class="chip">positions</span> <span class="chip">pending_orders</span> — set when the engine knows your live book — which satisfy <span class="chip req">requires</span> without an in-flow producer.</div>`;
+  document.getElementById("vocab").innerHTML=h;
+})();
+
+/* ---------- CATALOG ---------- */
+(function renderCatalog(){
+  let h="";
+  for(const cat of ORDER){
+    const rows=STEPS.filter(s=>s.cat===cat);
+    h+=`<div class="catbar"><span class="cat-dot" style="background:var(${CAT[cat].color})"></span>${CAT[cat].label}<span class="cnt">${rows.length}</span></div>`;
+    h+=`<table><thead><tr><th style="width:148px">ID</th><th style="width:150px">Label (was)</th><th>New description</th><th style="width:190px">Connection tags</th></tr></thead><tbody>`;
+    let lastG=null;
+    for(const s of rows){
+      if(s.group!==lastG){h+=`<tr><td class="grp" colspan="4">${s.group}</td></tr>`;lastG=s.group;}
+      const tags=[
+        ...(s.produces||[]).map(t=>`<span class="chip prod">+${t}</span>`),
+        ...(s.requires||[]).map(r=>`<span class="chip req">need ${r.label}</span>`),
+        ...(s.consumes||[]).map(t=>`<span class="chip cons">−${t}</span>`)
+      ].join("") || `<span class="chip">—</span>`;
+      h+=`<tr>
+        <td class="id">${s.id}</td>
+        <td><div class="new">${s.label}</div><div class="old">${s.old}</div></td>
+        <td class="desc">${s.desc}</td>
+        <td>${tags}</td></tr>`;
+    }
+    h+=`</tbody></table>`;
+  }
+  document.getElementById("catalog-body").innerHTML=h;
+})();
+
+/* ===================================================================
+   SIMULATOR ENGINE — mirrors backend lint_workflow capability pass.
+=================================================================== */
+let SEQ=[];
+function ambientSet(){
+  const s=new Set();
+  if(document.getElementById("ambient").checked){s.add("positions");s.add("pending_orders");}
+  return s;
+}
+function accumulate(seq){
+  const st=new Set();
+  for(const id of seq){
+    const s=byId[id];
+    (s.consumes||[]).forEach(c=>st.delete(c));
+    (s.produces||[]).forEach(p=>st.add(p));
+  }
+  return st;
+}
+function classify(cand,seq,amb){
+  const first=seq.length===0;
+  if(cand.cat==="trigger"){
+    if(first) return {bucket:"recommended",notes:[{ok:true,t:"Triggers start the workflow."}]};
+    return {bucket:"blocked",notes:[{warn:true,t:"A trigger can only go first (or start a new branch)."}]};
+  }
+  if(first) return {bucket:"blocked",notes:[{warn:true,t:"The first step must be a trigger."}]};
+  const st=accumulate(seq);
+  const notes=[]; let needs=false, satFlow=0;
+  const reqs=cand.requires||[];
+  for(const r of reqs){
+    const flow=(r.cap||[]).some(c=>st.has(c));
+    if(flow){satFlow++;notes.push({ok:true,t:"✓ "+r.label+" — from an earlier step"});}
+    else if(r.ambient && amb.has(r.ambient)){notes.push({ok:true,t:"✓ "+r.label+" — assumed from your portfolio"});}
+    else{needs=true;notes.push({warn:true,t:"⚠ "+r.warn});}
+  }
+  let bucket;
+  if(needs) bucket="needs-setup";
+  else if(reqs.length>0 && satFlow>0) bucket="recommended";
+  else{
+    const prev=byId[seq[seq.length-1]];
+    if(cand.cat==="action" && prev.cat==="condition") bucket="recommended";
+    else if(cand.cat==="condition" && prev.cat==="fetch") bucket="recommended";
+    else bucket="available";
+  }
+  if(cand.infoNote) notes.push({info:true,t:"ⓘ "+cand.infoNote});
+  return {bucket,notes};
+}
+
+function render(){
+  const amb=ambientSet();
+  // sequence
+  const seqEl=document.getElementById("seq");
+  if(SEQ.length===0){seqEl.innerHTML=`<div class="empty">Empty — add a trigger to begin.</div>`;}
+  else seqEl.innerHTML=SEQ.map((id,i)=>{
+    const s=byId[id];
+    return `<div class="seqitem"><span class="n">${i}</span><span class="cat-dot" style="background:var(${CAT[s.cat].color})"></span><span>${s.label}</span><span class="x" onclick="removeAt(${i})" title="remove">×</span></div>`;
+  }).join("");
+  // state
+  const st=[...accumulate(SEQ)];
+  document.getElementById("state").innerHTML = st.length
+    ? st.map(t=>`<span class="chip prod">${t}</span>`).join("")
+    : `<span class="empty">nothing produced yet</span>`;
+  // candidates, classified + bucketed
+  const buckets={recommended:[],available:[],"needs-setup":[],blocked:[]};
+  for(const s of STEPS){
+    const r=classify(s,SEQ,amb);
+    buckets[r.bucket].push({s,r});
+  }
+  const meta={
+    recommended:{label:"Recommended next",dot:cssv("--green"),cls:"rec"},
+    available:{label:"Available",dot:cssv("--slate"),cls:"avl"},
+    "needs-setup":{label:"Needs setup (allowed, warns)",dot:cssv("--amber"),cls:"ns"},
+    blocked:{label:"Not available here",dot:cssv("--rose"),cls:"blk"}
+  };
+  let h="";
+  for(const b of ["recommended","available","needs-setup"]){
+    const arr=buckets[b];
+    if(!arr.length) continue;
+    h+=`<div class="bucket"><div class="bucket-h"><span class="bdot" style="background:${meta[b].dot}"></span>${meta[b].label} <span style="color:var(--ink3);font-weight:500">· ${arr.length}</span></div><div class="cand">`;
+    h+=arr.map(({s,r})=>{
+      const why = r.notes.find(n=>n.warn)?.t || r.notes.find(n=>n.info)?.t || "";
+      return `<button class="candbtn ${meta[b].cls}" onclick="addStep('${s.id}')" title="${s.id}">
+        <span class="cat-dot" style="background:var(${CAT[s.cat].color})"></span>${s.label}
+        ${why?`<span class="why">${why.replace(/^[⚠ⓘ]\s*/,'')}</span>`:""}</button>`;
+    }).join("");
+    h+=`</div></div>`;
+  }
+  // blocked summary (count only, collapsed)
+  if(buckets.blocked.length){
+    h+=`<div class="bucket"><div class="bucket-h"><span class="bdot" style="background:${meta.blocked.dot}"></span>Not available here <span style="color:var(--ink3);font-weight:500">· ${buckets.blocked.length}</span></div>`;
+    h+=`<div style="font-size:12px;color:var(--ink3)">${SEQ.length===0?"Only triggers can be first.":"Triggers can't be inserted mid-workflow."}</div></div>`;
+  }
+  document.getElementById("cands").innerHTML=h;
+  // hint
+  const hintEl=document.getElementById("hint");
+  if(SEQ.length===0) hintEl.innerHTML="Start with a trigger — every workflow needs an entry point. Try <b>When an indicator crosses a level</b>.";
+  else{
+    const last=byId[SEQ[SEQ.length-1]];
+    hintEl.innerHTML=`Last step: <b>${last.label}</b>. Green = a natural next move given what's been produced; amber = allowed but needs a position/order it can't see (toggle <b>Assume portfolio</b> to satisfy it from your live book).`;
+  }
+}
+function addStep(id){SEQ.push(id);render();}
+function removeAt(i){SEQ.splice(i,1);render();}
+function resetSeq(){SEQ=[];render();}
+function loadExample(){SEQ=["trigger.indicator","fetch.portfolio","condition.position","action.place_order","action.set_stoploss"];render();}
+
+/* ===================================================================
+   BUILD CHECKLIST — persisted in localStorage
+=================================================================== */
+const PHASES=[
+ {n:"Phase 1",t:"Backend compatibility engine",items:[
+   {id:"p1a",t:"compat.py — CAPABILITY_RULES table + Diagnostic + AmbientState",f:"workflows/compat.py"},
+   {id:"p1b",t:"lint_workflow() — structural → ref type-check → capability passes",f:"workflows/compat.py"},
+   {id:"p1c",t:"POST /api/workflows/lint endpoint (shares lint_workflow)",f:"routers/workflows.py"},
+   {id:"p1d",t:"get_catalog() emits compat + group; bump CATALOG_VERSION",f:"workflows/registry.py"},
+   {id:"p1e",t:"propose.py validate hooks lint; errors raise, warnings → draft diagnostics",f:"workflows/propose.py"},
+   {id:"p1f",t:"Unit tests: squareoff-no-pos→warn; bad ref→error; valid chain→clean",f:"tests/"}
+ ]},
+ {n:"Phase 2",t:"Catalog naming / descriptions / groups",items:[
+   {id:"p2a",t:"Rewrite label + description across steps/*.py (49 steps, IDs unchanged)",f:"workflows/steps/*.py"},
+   {id:"p2b",t:"Add group kwarg → register_step / StepDefinition / get_catalog",f:"workflows/registry.py"},
+   {id:"p2c",t:"Honesty fixes: place→register (options/IPO), close not squareoff",f:"workflows/steps/actions.py"}
+ ]},
+ {n:"Phase 3",t:"Frontend — productionize editor + enforce",items:[
+   {id:"p3a",t:"types.ts — add compat + group to StepTypeDef; add Diagnostic",f:"lib/types.ts"},
+   {id:"p3b",t:"api.ts — switch catalog to real /api/step-types; add lintWorkflow()",f:"lib/api.ts"},
+   {id:"p3c",t:"StepTypePicker — Recommended / Available / Needs-setup buckets + groups",f:"agent-panel/StepTypePicker.tsx"},
+   {id:"p3d",t:"Editor — wire delete/duplicate; persist; 250ms debounced /lint",f:"agent-panel/workflow-editor-mock.tsx"},
+   {id:"p3e",t:"step-card — inline diagnostic chips (reuse CritiqueFlag styling)",f:"agent-panel/step-card.tsx"}
+ ]},
+ {n:"Phase 4",t:"Polish (optional)",items:[
+   {id:"p4a",t:"One-click suggested_fix apply",f:""},
+   {id:"p4b",t:"Symbol-scoped capabilities + ambient holdings from loaded portfolio",f:""},
+   {id:"p4c",t:"Audit script over persisted workflows → inform soft→error promotions",f:""}
+ ]}
+];
+const LS="pivot_wf_editor_checklist";
+function loadChecks(){try{return JSON.parse(localStorage.getItem(LS))||{}}catch(e){return {}}}
+function saveChecks(c){try{localStorage.setItem(LS,JSON.stringify(c))}catch(e){}}
+function renderChecklist(){
+  const c=loadChecks();
+  let total=0,done=0;
+  let h="";
+  for(const p of PHASES){
+    h+=`<div class="phase"><div class="phase-h"><span class="badge">${p.n}</span>${p.t}</div><ul>`;
+    for(const it of p.items){
+      total++; const ck=!!c[it.id]; if(ck)done++;
+      h+=`<li><input type="checkbox" id="${it.id}" ${ck?"checked":""} onchange="toggleCheck('${it.id}')"/>
+        <label for="${it.id}">${it.t} ${it.f?`<span class="f">${it.f}</span>`:""}</label></li>`;
+    }
+    h+=`</ul></div>`;
+  }
+  document.getElementById("phases").innerHTML=h;
+  const pct=total?Math.round(done/total*100):0;
+  document.getElementById("donebar").innerHTML=`<b>${done}/${total}</b> tasks complete · ${pct}%`;
+}
+function toggleCheck(id){const c=loadChecks();c[id]=!c[id];saveChecks(c);renderChecklist();}
+
+/* boot */
+render();
+renderChecklist();
+</script>
+</body>
+</html>

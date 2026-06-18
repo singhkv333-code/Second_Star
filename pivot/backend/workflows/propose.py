@@ -61,12 +61,20 @@ class WorkflowDraft(BaseModel):
     phrases (*"end of the month"*, *"next Friday"*) to ISO YYYY-MM-DD
     before emitting; the editor surfaces the field so the user can
     override.
+
+    ``diagnostics`` carries the serialized output of
+    :func:`backend.workflows.compat.lint_workflow` — only the non-fatal
+    (``warning`` / ``info``) findings end up here; ``error``-severity
+    diagnostics are raised as :class:`ProposalValidationError` before
+    the draft is returned. The FE editor dispatches on ``code`` to
+    render inline hints next to the offending step.
     """
     name: str
     description: Optional[str] = None
     steps: list[DraftStep]
     rationale: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
     valid_until: Optional[str] = Field(
         default=None,
         description=(
@@ -292,6 +300,31 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
                 f"{field}: {first.get('msg', 'unknown')}"
             ) from e
         prev_was_trigger = is_trigger
+
+    # Cross-step lint pass (capability / refs / structural). Runs after
+    # the per-step registry validation above so the linter sees a draft
+    # whose individual configs are already Pydantic-valid. ``error``
+    # diagnostics rejoin the same hard-failure mechanism the per-step
+    # loop uses (ProposalValidationError) so the LLM retry path can
+    # self-correct on them; ``warning`` / ``info`` findings are surfaced
+    # non-fatally via ``draft.warnings`` + ``draft.diagnostics`` for the
+    # FE editor to render inline.
+    from backend.workflows.compat import lint_workflow
+    lint_steps = [
+        {"step_type": s.step_type, "config": s.config or {}}
+        for s in draft.steps
+    ]
+    lint_diags = lint_workflow(lint_steps)
+    fatal = [d for d in lint_diags if d.severity == "error"]
+    if fatal:
+        first = fatal[0]
+        raise ProposalValidationError(
+            f"step {first.step_index} lint: {first.code}: {first.message}"
+        )
+    non_fatal = [d for d in lint_diags if d.severity != "error"]
+    if non_fatal:
+        draft.warnings.extend(d.message for d in non_fatal)
+        draft.diagnostics = [d.model_dump() for d in non_fatal]
 
     return draft
 

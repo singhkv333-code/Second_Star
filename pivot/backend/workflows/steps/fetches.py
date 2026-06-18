@@ -48,12 +48,13 @@ class NotYetAvailableError(RuntimeError):
 @register_step(
     step_type="fetch.quote",
     category="fetch",
-    label="Get live quote",
-    description="Fetch the latest LTP, OHLC, and volume for a symbol",
+    label="Live quote",
+    description="The latest price, OHLC and volume for a symbol.",
     icon="bar-chart-3",
     max_retries=3,
     trigger_only=False,
     config_model=FetchQuoteConfig,
+    group="Market data",
     output_schema={
         "type": "object",
         "properties": {
@@ -140,12 +141,15 @@ async def execute_fetch_quote(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.indicator",
     category="fetch",
-    label="Get indicator value",
-    description="Compute a technical indicator (RSI, SMA, EMA, MACD)",
+    label="Indicator value",
+    description=(
+        "Compute a technical indicator (RSI, SMA, EMA, MACD and more)."
+    ),
     icon="line-chart",
     max_retries=3,
     trigger_only=False,
     config_model=FetchIndicatorConfig,
+    group="Indicators & levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -213,12 +217,16 @@ async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.fundamental",
     category="fetch",
-    label="Get fundamental",
-    description="Fetch a fundamental metric (P/E, ROE, market cap, D/E)",
+    label="Fundamental metric",
+    description=(
+        "A fundamental like P/E, ROE, market cap or D/E — or a custom "
+        "formula over them."
+    ),
     icon="book-open",
     max_retries=3,
     trigger_only=False,
     config_model=FetchFundamentalConfig,
+    group="Fundamentals",
     output_schema={
         "type": "object",
         "properties": {
@@ -315,12 +323,13 @@ async def execute_fetch_fundamental(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.portfolio",
     category="fetch",
-    label="Get portfolio",
-    description="Fetches holdings, buying power, and total value",
+    label="Your portfolio",
+    description="Your holdings, buying power and total value.",
     icon="wallet",
     max_retries=3,
     trigger_only=False,
     config_model=FetchPortfolioConfig,
+    group="Portfolio & P&L",
     output_schema={
         "type": "object",
         "properties": {
@@ -345,12 +354,13 @@ async def execute_fetch_portfolio(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.intraday_pnl",
     category="fetch",
-    label="Get intraday P&L",
-    description="Compute realised + unrealised P&L from current holdings",
+    label="Intraday P&L",
+    description="Realised + unrealised P&L across your current holdings.",
     icon="trending-down",
     max_retries=3,
     trigger_only=False,
     config_model=FetchIntradayPnLConfig,
+    group="Portfolio & P&L",
     output_schema={
         "type": "object",
         "properties": {
@@ -436,15 +446,16 @@ async def execute_fetch_intraday_pnl(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.news",
     category="fetch",
-    label="Get news",
+    label="Recent news",
     description=(
-        "Fetch recent news articles for keywords and (optionally) "
-        "classify them against an event description"
+        "Recent articles for your keywords, optionally scored against "
+        "an event you describe."
     ),
     icon="newspaper",
     max_retries=3,
     trigger_only=False,
     config_model=FetchNewsConfig,
+    group="News",
     output_schema={
         "type": "object",
         "properties": {
@@ -653,12 +664,13 @@ def _resolve_day_anchor(
 @register_step(
     step_type="fetch.day_open",
     category="fetch",
-    label="Get today's open",
-    description="Fetch today's market open price for a symbol",
+    label="Today's open",
+    description="Today's opening price for a symbol.",
     icon="sunrise",
     max_retries=3,
     trigger_only=False,
     config_model=FetchDayOpenConfig,
+    group="Market data",
     output_schema={
         "type": "object",
         "properties": {
@@ -688,12 +700,13 @@ async def execute_fetch_day_open(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.prior_close",
     category="fetch",
-    label="Get prior close",
-    description="Fetch the previous trading day's closing price",
+    label="Previous close",
+    description="A recent session's closing price (1–10 sessions back).",
     icon="sunset",
     max_retries=3,
     trigger_only=False,
     config_model=FetchPriorCloseConfig,
+    group="Market data",
     output_schema={
         "type": "object",
         "properties": {
@@ -729,14 +742,16 @@ async def execute_fetch_prior_close(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.rolling_high",
     category="fetch",
-    label="Get rolling N-day high",
+    label="Recent N-day high",
     description=(
-        "Highest HIGH over the last N daily bars — the recent peak."
+        "The highest high over the last N daily bars — the recent peak "
+        "(optionally × a multiplier)."
     ),
     icon="trending-up",
     max_retries=3,
     trigger_only=False,
     config_model=FetchRollingHighConfig,
+    group="Indicators & levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -774,14 +789,16 @@ async def execute_fetch_rolling_high(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.rolling_low",
     category="fetch",
-    label="Get rolling N-day low",
+    label="Recent N-day low",
     description=(
-        "Lowest LOW over the last N daily bars — the recent trough."
+        "The lowest low over the last N daily bars — the recent trough "
+        "(optionally × a multiplier)."
     ),
     icon="trending-down",
     max_retries=3,
     trigger_only=False,
     config_model=FetchRollingLowConfig,
+    group="Indicators & levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -818,14 +835,16 @@ async def execute_fetch_rolling_low(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="fetch.spread_z_score",
     category="fetch",
-    label="Compute spread z-score",
+    label="Pair spread z-score",
     description=(
-        "Z-score of (close_a − close_b) spread over a rolling window."
+        "How stretched the price ratio of two symbols is, in standard "
+        "deviations — for pairs / mean-reversion."
     ),
     icon="git-compare",
     max_retries=3,
     trigger_only=False,
     config_model=FetchSpreadZScoreConfig,
+    group="Indicators & levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -889,15 +908,16 @@ async def execute_fetch_spread_z_score(
 @register_step(
     step_type="fetch.relative_threshold",
     category="fetch",
-    label="Compute relative price level",
+    label="Price level from a reference",
     description=(
-        "Compute an absolute price level relative to today's open or a "
-        "prior session value, plus a percentage offset"
+        "Turn 'open + 1%' or 'prior close − 2%' into an absolute price "
+        "level the next step can compare against."
     ),
     icon="git-compare",
     max_retries=3,
     trigger_only=False,
     config_model=FetchRelativeThresholdConfig,
+    group="Indicators & levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -985,15 +1005,16 @@ async def execute_fetch_relative_threshold(
 @register_step(
     step_type="fetch.screener",
     category="fetch",
-    label="Screen stocks by sector / cap",
+    label="Screen stocks",
     description=(
-        "Filter and rank Indian stocks by sector and market cap. "
-        "Returns a symbols list the next step can act on."
+        "Filter & rank Indian stocks by sector and market cap — returns "
+        "a symbols list the next step can act on."
     ),
     icon="filter",
     max_retries=1,
     trigger_only=False,
     config_model=FetchScreenerConfig,
+    group="Stock screens",
     output_schema={
         "type": "object",
         "properties": {
@@ -1060,14 +1081,14 @@ async def execute_fetch_screener(ctx: Any) -> Optional[dict[str, Any]]:
     category="fetch",
     label="Top gainers / losers",
     description=(
-        "Today's biggest movers in NIFTY 50. Use to drive prompts "
-        "like 'buy the top gainer at close' or 'short the day's "
-        "top loser'."
+        "Today's biggest NIFTY-50 movers — drives 'buy the top gainer', "
+        "'short the top loser', etc."
     ),
     icon="trending-up",
     max_retries=1,
     trigger_only=False,
     config_model=FetchTopMoversConfig,
+    group="Stock screens",
     output_schema={
         "type": "object",
         "properties": {

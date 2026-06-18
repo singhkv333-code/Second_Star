@@ -35,6 +35,12 @@ export type Workflow = {
   last_run_at: string | null;
   next_run_at: string | null;
   steps: Step[];
+  /**
+   * Server-computed lint diagnostics for the saved steps (errors + warnings +
+   * info), so the editor can surface advisories on load without a round-trip.
+   * Absent on older payloads → editor falls back to a mount-time lint call.
+   */
+  diagnostics?: Diagnostic[];
 };
 
 /** List-view shape used by `GET /api/workflows`. Omits `steps`. */
@@ -144,9 +150,34 @@ export type ConfigSchema = {
   [extra: string]: unknown;
 };
 
+/**
+ * One entry in a step type's requires[] array — describes a capability the
+ * step needs from prior steps or from the user's ambient portfolio.
+ * Mirrors the HTML STEPS[*].requires shape and the backend compat.py rule.
+ */
+export type StepCompat = {
+  /** Capability tags that satisfy this requirement if present in the flow. */
+  any_of: string[];
+  /**
+   * Ambient-flag name (e.g. "positions", "pending_orders") — if the engine's
+   * ambient state carries this flag the requirement is satisfied without an
+   * in-flow producer.
+   */
+  ambient?: string | null;
+  /** Short human label, e.g. "an open position". */
+  label: string;
+  /** Warning message shown when the requirement is unmet. */
+  warn: string;
+};
+
 export type StepTypeDef = {
   step_type: string;
   category: StepCategory["id"];
+  /**
+   * Sub-group within the category, used as the picker heading.
+   * e.g. "Schedule & time", "Exits & protection".
+   */
+  group?: string;
   label: string;
   description: string;
   /** lucide-react icon name, e.g. "clock", "wallet". */
@@ -155,6 +186,77 @@ export type StepTypeDef = {
   trigger_only: boolean;
   config_schema: ConfigSchema;
   output_schema: ConfigSchema | null;
+  /**
+   * Connection logic — capability tags this step produces, requirements it
+   * declares, and tags it consumes (clears) from accumulated world state.
+   * Absent on old catalog entries → treated as permissive (no constraints).
+   */
+  compat?: {
+    /** Tags added to the accumulated capability set when this step runs. */
+    produces: string[];
+    /**
+     * Ordered list of capability requirements. Each entry is satisfied when
+     * any tag in `any_of` is in the accumulated set, or when the matching
+     * `ambient` flag is present in the engine's AmbientState.
+     */
+    requires: StepCompat[];
+    /** Tags removed from the accumulated capability set after this step runs. */
+    consumes: string[];
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Diagnostics (returned by POST /api/workflows/lint and GET /api/workflows/{id})
+// ---------------------------------------------------------------------------
+
+/**
+ * A single diagnostic from the backend's `lint_workflow` engine.
+ * Mirrors the `Diagnostic` shape in pivot/backend/workflows/compat.py.
+ *
+ * `severity`:
+ *   - "error"   — graph-internal contradiction; blocks activation
+ *   - "warning" — likely-wrong but legitimately possible; never blocks
+ *   - "info"    — advisory nudge; never blocks
+ *
+ * `code` values:
+ *   - "ref_forward"          — reference to a step that comes later / doesn't exist
+ *   - "ref_bad_path"         — reference to a field absent from the producing step's output_schema
+ *   - "ref_type"             — reference to a field whose type mismatches the consumer
+ *   - "needs_position"       — requires an open position, not satisfied by prior steps or ambient
+ *   - "needs_pending_orders" — requires a pending order, not satisfied by prior steps or ambient
+ *   - "needs_symbols"        — requires a symbols list (e.g. a screen/movers fetch) not satisfied
+ *   - "needs_boolean"        — requires a yes/no value from a prior step, not satisfied
+ *   - "trigger_placement"    — non-trigger at index 0, or trigger not in a branch-start slot
+ *   - "empty_branch"         — a branch produces no action or notify step
+ *   - "dead_branch"          — a trigger starts a branch that has no reachable steps
+ *   - "unknown_step_type"    — step_type not found in the registry
+ */
+export type Diagnostic = {
+  /** Zero-based index of the step that triggered this diagnostic. */
+  step_index: number;
+  severity: "error" | "warning" | "info";
+  code:
+    | "ref_forward"
+    | "ref_bad_path"
+    | "ref_type"
+    | "needs_position"
+    | "needs_pending_orders"
+    | "needs_symbols"
+    | "needs_boolean"
+    | "trigger_placement"
+    | "empty_branch"
+    | "dead_branch"
+    | "unknown_step_type"
+    | string; // forward-compat — new codes from the backend should not crash the FE
+  /** Human-readable message shown on the step card. */
+  message: string;
+  /** The offending config field name, if the diagnostic is field-specific. */
+  field?: string | null;
+  /**
+   * One-click apply target — a stringified patch the FE can apply to fix the
+   * issue (Phase 4 feature; may be absent in Phase 1-3).
+   */
+  suggested_fix?: string | null;
 };
 
 export type StepTypeCatalog = {
@@ -746,4 +848,171 @@ export type OptionStrategyRegisterResponse = {
     created_at: string;
   } | null;
   error?: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Strategy builder + dynamic clarifying-questions
+//
+// Mirrors pivot/backend/services/strategy_contracts.py 1:1. The wire is
+// snake_case (Pydantic v2 model_dump), so — matching every other payload in
+// this file (e.g. OptionStrategyPayload) — we consume snake_case directly
+// rather than adding a camelCase mapping layer. Keep the string-literal
+// unions byte-identical to the backend Literal enums.
+//
+// Render hints (raw_data._render_hint):
+//   "clarify_card"           → raw_data = { clarify: ClarifyCard }
+//   "strategy_builder_card"  → raw_data = { ...StrategyBuilderCard }
+// ---------------------------------------------------------------------------
+
+// ── Slot vocabularies (closed enums) ───────────────────────────────────────
+
+export type ViewDirection = "bull" | "bear" | "neutral" | "none";
+export type ViewTarget = "stock" | "sector" | "index" | "market";
+export type Conviction = "low" | "medium" | "high";
+export type RiskLevel = "conservative" | "balanced" | "aggressive";
+export type Horizon = "tactical" | "medium" | "long";
+export type AssetClass = "equity" | "etf_mf" | "options" | "gold";
+
+// ── Builder vocabularies ───────────────────────────────────────────────────
+
+export type WeightingScheme =
+  | "equal"
+  | "mcap"
+  | "risk_parity"
+  | "min_variance"
+  | "black_litterman"
+  | "factor";
+
+export type SelectionGate = "fscore" | "magic_formula" | "multifactor" | "none";
+
+export type SleeveKind = "gold" | "options" | "hedge";
+
+export type GoldInstrumentKind = "sgb" | "etf";
+
+// ── Slot-state (travels in-band on ClarifyCard.session_slot_state) ──────────
+
+export type ViewSlot = {
+  direction: ViewDirection;
+  target: ViewTarget;
+  conviction: Conviction;
+};
+
+export type AssetPrefs = {
+  allow: AssetClass[];
+  deny: AssetClass[];
+  exclusions: string[];
+};
+
+export type SlotAssumptions = {
+  view: boolean;
+  risk: boolean;
+  horizon: boolean;
+  capital_inr: boolean;
+  asset_prefs: boolean;
+  theme: boolean;
+};
+
+export type SlotState = {
+  view: ViewSlot;
+  risk: RiskLevel;
+  horizon: Horizon;
+  capital_inr: number | null;
+  asset_prefs: AssetPrefs;
+  theme: string | null;
+  assumed: SlotAssumptions;
+};
+
+// ── Clarify payload (raw_data._render_hint === "clarify_card") ──────────────
+
+export type ClarifyOption = {
+  id: string;
+  label: string;
+};
+
+export type ClarifyQuestion = {
+  id: string;
+  slot: string;
+  prompt: string;
+  voi: number;
+  options: ClarifyOption[];
+  free_text: boolean;
+  skippable: boolean;
+};
+
+export type ClarifyCard = {
+  session_slot_state: SlotState;
+  total: number;
+  index: number;
+  questions: ClarifyQuestion[];
+};
+
+/** Shape of the raw_data the backend emits under the "clarify_card" hint. */
+export type ClarifyCardPayload = {
+  _render_hint: "clarify_card";
+  clarify: ClarifyCard;
+};
+
+// ── Strategy-builder payload (hint === "strategy_builder_card") ─────────────
+
+export type StrategyConstituent = {
+  symbol: string;
+  name: string;
+  sector: string;
+  weight_pct: number;
+  gate_metrics: Record<string, number>;
+};
+
+export type GoldInstrument = {
+  kind: GoldInstrumentKind;
+  symbol: string;
+  name: string;
+  weight_pct: number;
+};
+
+export type Sleeve = {
+  kind: SleeveKind;
+  pct: number;
+  instruments: GoldInstrument[];
+  note?: string | null;
+};
+
+/**
+ * One "you might prefer this instead" alternative strategy (backend
+ * `StrategyAlternative`). `title` is the short heading the FE shows (e.g.
+ * "Value tilt", "Lower-risk", "Passive"); `detail` is the 1-2 plain-English
+ * sentences explaining what it changes and *when the user would prefer it*.
+ * Alternatives are suggestions, not selectable legs — rendered as explained
+ * text, never as constituents. Nothing here is registered until the user
+ * re-asks for one.
+ */
+export type StrategyAlternative = {
+  title: string;
+  detail: string;
+};
+
+export type StrategyBuilderCard = {
+  title: string;
+  rationale: string;
+  weighting_scheme: WeightingScheme;
+  selection_gate: SelectionGate;
+  sector_cap: number;
+  constituents: StrategyConstituent[];
+  sleeves: Sleeve[];
+  assumptions: string[];
+  /**
+   * 1-3 genuinely different strategies the user might prefer instead of the
+   * proposed basket. Defaults to `[]` from the backend, so always present.
+   */
+  alternatives: StrategyAlternative[];
+  disclaimer: string;
+};
+
+/**
+ * Shape of the raw_data the backend emits under the "strategy_builder_card"
+ * hint — the StrategyBuilderCard fields are spread at the top level alongside
+ * the render hint (NOT nested), mirroring the executor's
+ * `{ "_render_hint": ..., **card.model_dump() }`.
+ */
+export type StrategyBuilderCardPayload = StrategyBuilderCard & {
+  _render_hint: "strategy_builder_card";
 };

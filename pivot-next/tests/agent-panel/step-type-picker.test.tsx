@@ -3,9 +3,27 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StepTypePicker } from "@/components/agent-panel/StepTypePicker";
 import { MOCK_CATALOG } from "@/lib/mock-catalog";
+import type { Step } from "@/lib/types";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Minimal Step factory for tests. */
+function mkStep(step_index: number, step_type: string): Step {
+  return {
+    id: `test-${step_index}`,
+    step_index,
+    step_type,
+    label: null,
+    config: {},
+  };
+}
 
 describe("StepTypePicker", () => {
-  it("renders all 24 v1 step types when insertIndex > 0 (no triggers visible)", () => {
+  // ── Hard structural filter ──────────────────────────────────────────────
+
+  it("renders all non-trigger step types when insertIndex > 0", () => {
     render(
       <StepTypePicker
         open
@@ -15,9 +33,9 @@ describe("StepTypePicker", () => {
         onClose={() => {}}
       />,
     );
-    // 24 in catalog - 6 triggers = 18 visible.
+    const expectedCount = MOCK_CATALOG.step_types.filter((d) => !d.trigger_only).length;
     const items = screen.getAllByTestId(/^step-picker-item-/);
-    expect(items.length).toBe(18);
+    expect(items.length).toBe(expectedCount);
     // No trigger.* item should appear.
     for (const item of items) {
       const tid = item.getAttribute("data-testid") ?? "";
@@ -25,7 +43,7 @@ describe("StepTypePicker", () => {
     }
   });
 
-  it("at insertIndex === 0 only the 6 trigger.* step types are visible", () => {
+  it("at insertIndex === 0 only the trigger step types are visible", () => {
     render(
       <StepTypePicker
         open
@@ -35,15 +53,18 @@ describe("StepTypePicker", () => {
         onClose={() => {}}
       />,
     );
+    const expectedCount = MOCK_CATALOG.step_types.filter((d) => d.trigger_only).length;
     const items = screen.getAllByTestId(/^step-picker-item-/);
-    expect(items.length).toBe(6);
+    expect(items.length).toBe(expectedCount);
     for (const item of items) {
       const tid = item.getAttribute("data-testid") ?? "";
       expect(tid.startsWith("step-picker-item-trigger.")).toBe(true);
     }
   });
 
-  it("groups items by category, using catalog-supplied category labels", () => {
+  // ── Group sub-headings ──────────────────────────────────────────────────
+
+  it("renders group headings for all non-trigger categories at insertIndex > 0", () => {
     render(
       <StepTypePicker
         open
@@ -53,27 +74,115 @@ describe("StepTypePicker", () => {
         onClose={() => {}}
       />,
     );
-    // All non-trigger categories should have a group rendered.
-    expect(
-      screen.getByTestId("step-picker-group-fetch"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("step-picker-group-condition"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("step-picker-group-action"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("step-picker-group-notify"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("step-picker-group-control"),
-    ).toBeInTheDocument();
-    // Trigger group must NOT be present at insertIndex > 0.
-    expect(
-      screen.queryByTestId("step-picker-group-trigger"),
-    ).toBeNull();
+    // Each category appears in at least one bucket — look for any group with
+    // that category ID regardless of bucket (testId is bucket-category).
+    const allGroupTestIds = screen
+      .getAllByTestId(/^step-picker-group-/)
+      .map((el) => el.getAttribute("data-testid") ?? "");
+
+    const hasCategory = (cat: string) =>
+      allGroupTestIds.some((tid) => tid.endsWith(`-${cat}`));
+
+    expect(hasCategory("fetch")).toBe(true);
+    expect(hasCategory("condition")).toBe(true);
+    expect(hasCategory("action")).toBe(true);
+    expect(hasCategory("notify")).toBe(true);
+    expect(hasCategory("control")).toBe(true);
+    // Trigger category must NOT appear at insertIndex > 0.
+    expect(hasCategory("trigger")).toBe(false);
   });
+
+  // ── Capability buckets ──────────────────────────────────────────────────
+
+  it("places all triggers in Recommended bucket at insertIndex === 0", () => {
+    render(
+      <StepTypePicker
+        open
+        insertIndex={0}
+        catalog={MOCK_CATALOG}
+        onSelect={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(
+      screen.getByTestId("step-picker-bucket-recommended"),
+    ).toBeInTheDocument();
+    // At trigger slot no Available or Needs-setup bucket should render.
+    expect(screen.queryByTestId("step-picker-bucket-available")).toBeNull();
+    expect(screen.queryByTestId("step-picker-bucket-needs-setup")).toBeNull();
+  });
+
+  it("after a place_order step, set_stoploss/set_takeprofit go to Recommended", () => {
+    const priorSteps: Step[] = [
+      mkStep(0, "trigger.schedule"),
+      mkStep(1, "action.place_order"),
+    ];
+    render(
+      <StepTypePicker
+        open
+        insertIndex={2}
+        steps={priorSteps}
+        catalog={MOCK_CATALOG}
+        onSelect={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    // action.place_order produces position_open → set_stoploss requires
+    // position_open → should appear in Recommended.
+    const bucketRec = screen.getByTestId("step-picker-bucket-recommended");
+    expect(bucketRec).toBeInTheDocument();
+
+    const stopItem = screen.getByTestId("step-picker-item-action.set_stoploss");
+    expect(stopItem).toBeInTheDocument();
+  });
+
+  it("without a prior position producer, set_stoploss goes to Needs setup", () => {
+    const priorSteps: Step[] = [
+      mkStep(0, "trigger.schedule"),
+    ];
+    render(
+      <StepTypePicker
+        open
+        insertIndex={1}
+        steps={priorSteps}
+        catalog={MOCK_CATALOG}
+        onSelect={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    // No prior position producer — set_stoploss must be in Needs setup.
+    const needsBucket = screen.getByTestId("step-picker-bucket-needs-setup");
+    expect(needsBucket).toBeInTheDocument();
+
+    const stopItem = screen.getByTestId("step-picker-item-action.set_stoploss");
+    expect(stopItem).toBeInTheDocument();
+    // The warn text should be visible on the row (overrides description).
+    expect(stopItem.textContent).toContain("needs a position");
+  });
+
+  it("Needs-setup items remain clickable (hybrid strictness)", async () => {
+    const onSelect = vi.fn();
+    const priorSteps: Step[] = [mkStep(0, "trigger.schedule")];
+    render(
+      <StepTypePicker
+        open
+        insertIndex={1}
+        steps={priorSteps}
+        catalog={MOCK_CATALOG}
+        onSelect={onSelect}
+        onClose={() => {}}
+      />,
+    );
+    // Even though set_stoploss is in Needs setup, clicking it should fire onSelect.
+    await userEvent.click(
+      screen.getByTestId("step-picker-item-action.set_stoploss"),
+    );
+    expect(onSelect).toHaveBeenCalled();
+    const arg = onSelect.mock.calls[0]?.[0] as { step_type?: string };
+    expect(arg?.step_type).toBe("action.set_stoploss");
+  });
+
+  // ── Search ──────────────────────────────────────────────────────────────
 
   it("search narrows the visible items by step_type, label, or description", async () => {
     render(
@@ -89,16 +198,15 @@ describe("StepTypePicker", () => {
     const input = screen.getByRole("combobox");
     await userEvent.type(input, "place_order");
 
-    // After typing 'place_order', only action.place_order should match — the
-    // string is unique enough that cmdk leaves only that single option.
     expect(
       screen.getByTestId("step-picker-item-action.place_order"),
     ).toBeInTheDocument();
-    // Other types should be filtered out by cmdk (DOM removes them entirely).
     expect(
       screen.queryByTestId("step-picker-item-fetch.portfolio"),
     ).toBeNull();
   });
+
+  // ── onSelect / onClose ──────────────────────────────────────────────────
 
   it("invokes onSelect with the chosen def and closes", async () => {
     const onSelect = vi.fn();

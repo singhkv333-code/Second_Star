@@ -140,8 +140,17 @@ class WorkflowSummary(BaseModel):
 
 
 class WorkflowOut(WorkflowSummary):
-    """Detail-view shape used by GET /api/workflows/{id}, etc."""
+    """Detail-view shape used by GET /api/workflows/{id}, etc.
+
+    `diagnostics` carries the full lint result (errors + warnings + info)
+    computed by `backend.workflows.compat.lint_workflow` at response time
+    so the editor can surface advisories on already-saved workflows
+    without re-POSTing to /api/workflows/lint. Each item is the dict form
+    of `compat.Diagnostic`: `{step_index, severity, code, message, field,
+    suggested_fix}`. Empty list when the workflow lints clean.
+    """
     steps: list[StepOut] = Field(default_factory=list)
+    diagnostics: list[dict[str, object]] = Field(default_factory=list)
 
 
 class WorkflowListResponse(BaseModel):
@@ -246,6 +255,10 @@ class ProposeWorkflowResponse(BaseModel):
     steps: list[ProposeWorkflowDraftStep]
     rationale: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
+    # Structured lint diagnostics (errors join `warnings` as text too); dict
+    # form of compat.Diagnostic. Without this field the response model would
+    # silently strip draft.diagnostics on model_validate. Empty when clean.
+    diagnostics: list[dict[str, object]] = Field(default_factory=list)
 
 
 # ── Approvals ────────────────────────────────────────────────────────
@@ -287,9 +300,17 @@ class StepCategory(BaseModel):
 class StepTypeDefinition(BaseModel):
     """One entry in the catalog. config_schema is JSON Schema draft 2020-12;
     output_schema is the same dialect (or null when the step produces no
-    output, e.g. triggers and notify.log)."""
+    output, e.g. triggers and notify.log).
+
+    `group` is the sub-group heading within the category (picker navigation);
+    `compat` is the connection-logic metadata `{produces, requires, consumes}`
+    from `backend.workflows.compat.catalog_compat` — used by the editor to
+    bucket steps (recommended / available / needs-setup) at each insert
+    position. Both are loose-typed pass-throughs (like config_schema) so the
+    catalog source of truth stays in the registry/compat module, not here."""
     step_type: str
     category: str
+    group: str = ""
     label: str
     description: str
     icon: str
@@ -297,6 +318,7 @@ class StepTypeDefinition(BaseModel):
     trigger_only: bool
     config_schema: dict[str, object]
     output_schema: Optional[dict[str, object]] = None
+    compat: Optional[dict[str, object]] = None
 
 
 class StepTypeCatalogResponse(BaseModel):

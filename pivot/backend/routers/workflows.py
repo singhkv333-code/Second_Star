@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
@@ -64,6 +64,11 @@ from backend.schemas import (
     WorkflowOut,
     WorkflowPatch,
     WorkflowSummary,
+)
+from backend.workflows.compat import (
+    AmbientState,
+    Diagnostic,
+    lint_workflow,
 )
 from backend.workflows.engine import WorkflowEngine
 from backend.workflows.registry import STEP_REGISTRY, get_catalog
@@ -165,6 +170,27 @@ def _validate_steps(
                 },
             )
 
+    # Final pass: share the single-source-of-truth linter so create /
+    # update / activate never drift from the editor's /lint endpoint.
+    # ONLY severity=="error" diagnostics block; warnings + info are
+    # advisory and surface via the GET response's `diagnostics` field.
+    # No ambient state at the router boundary — ambient is a per-run
+    # engine concept; the editor is reasoning about the workflow shape
+    # in isolation here.
+    lint_diags = lint_workflow(steps, ambient=None)
+    lint_errors = [d for d in lint_diags if d.severity == "error"]
+    if lint_errors:
+        first = lint_errors[0]
+        raise validation_error(
+            f"step {first.step_index} {first.code}: {first.message}",
+            details={
+                "step_index": first.step_index,
+                "field": first.field,
+                "reason": first.code,
+                "diagnostics": [d.model_dump() for d in lint_errors],
+            },
+        )
+
 
 def _workflow_for_user(
     db: Session, user_id: int, workflow_id: str,
@@ -201,7 +227,20 @@ def _replace_steps(
 
 
 def _to_workflow_out(wf: Workflow) -> WorkflowOut:
-    """Build the canonical WorkflowOut shape with steps[]."""
+    """Build the canonical WorkflowOut shape with steps[] + diagnostics[].
+
+    Diagnostics are the full lint result (errors + warnings + info) so
+    already-saved workflows surface advisories on GET without a separate
+    /lint round-trip. Never raises — lint_workflow is pure + defensive."""
+    ordered_steps = sorted(wf.steps, key=lambda s: int(s.step_index))
+    lint_input = [
+        {
+            "step_type": str(s.step_type),
+            "config": dict(s.config or {}),
+        }
+        for s in ordered_steps
+    ]
+    diagnostics = [d.model_dump() for d in lint_workflow(lint_input, ambient=None)]
     return WorkflowOut(
         id=str(wf.id),
         name=str(wf.name),
@@ -225,8 +264,9 @@ def _to_workflow_out(wf: Workflow) -> WorkflowOut:
                 config=dict(s.config or {}),
                 next_run_at=s.next_run_at,
             )
-            for s in sorted(wf.steps, key=lambda s: int(s.step_index))
+            for s in ordered_steps
         ],
+        diagnostics=diagnostics,
     )
 
 
@@ -266,6 +306,70 @@ def get_step_types(
 ) -> StepTypeCatalogResponse:
     catalog = get_catalog()
     return StepTypeCatalogResponse.model_validate(catalog)
+
+
+# ── /lint — editor-facing lint endpoint (shares lint_workflow) ────────
+
+
+class _LintAmbientIn(BaseModel):
+    """Per-call ambient state passed by the editor (mirrors
+    `backend.workflows.compat.AmbientState`). Defaults are permissive-
+    unknown so callers can omit it."""
+    model_config = ConfigDict(extra="forbid")
+
+    held_symbols: list[str] = Field(default_factory=list)
+    has_pending_orders: bool = False
+
+
+class _LintWorkflowRequest(BaseModel):
+    """Body for ``POST /api/workflows/lint``.
+
+    `steps` is the same shape the create/update path uses (list of
+    `{step_type, config, label?}` dicts). `ambient` is optional —
+    when present, capability checks that could be satisfied by an
+    open position or a pending order in the user's book stop firing.
+    The endpoint is PURE: no DB writes, no DB reads, no LLM, no
+    network — it just calls `lint_workflow` and returns the result.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    steps: list[dict[str, object]] = Field(default_factory=list)
+    ambient: Optional[_LintAmbientIn] = None
+
+
+class _LintWorkflowResponse(BaseModel):
+    """Response is the lint result, 1:1 with `compat.Diagnostic`."""
+    diagnostics: list[Diagnostic]
+
+
+@router.post(
+    "/workflows/lint",
+    response_model=_LintWorkflowResponse,
+    summary="Lint a workflow draft (errors + warnings + info)",
+    description=(
+        "Runs the single-source-of-truth `lint_workflow` over the supplied "
+        "steps and returns the diagnostics the editor surfaces inline. "
+        "Pure (no DB writes, no scheduling side-effects) so it can be "
+        "called on every edit — the FE debounces at ~250ms. The same "
+        "function is invoked at create/update/activate, where ONLY "
+        "`severity=='error'` diagnostics block; warnings and info are "
+        "advisory."
+    ),
+)
+def lint_workflow_endpoint(
+    body: _LintWorkflowRequest,
+    _user_id: int = Depends(require_user),
+) -> _LintWorkflowResponse:
+    ambient = (
+        AmbientState(
+            held_symbols=body.ambient.held_symbols,
+            has_pending_orders=body.ambient.has_pending_orders,
+        )
+        if body.ambient is not None
+        else None
+    )
+    diagnostics = lint_workflow(body.steps, ambient=ambient)
+    return _LintWorkflowResponse(diagnostics=diagnostics)
 
 
 # ── propose_workflow as a direct REST endpoint (Day 6 #38) ────────────
@@ -641,9 +745,6 @@ async def run_workflow(
 # ── Workflow draft backtest ───────────────────────────────────────────
 
 
-from pydantic import BaseModel, Field as _PField
-
-
 class _BacktestDraftRequest(BaseModel):
     """Body for ``POST /api/workflows/backtest-draft``.
 
@@ -651,10 +752,10 @@ class _BacktestDraftRequest(BaseModel):
     ``propose_workflow``. Period defaults to 5y to match the
     indicator-backtest UX. Name is purely cosmetic — used in the
     summary string of the result."""
-    name: str = _PField(default="Workflow")
+    name: str = Field(default="Workflow")
     description: str | None = None
-    steps: list[dict] = _PField(default_factory=list)
-    period: str = _PField(
+    steps: list[dict] = Field(default_factory=list)
+    period: str = Field(
         default="5y",
         description=(
             "yfinance period: 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, max."
