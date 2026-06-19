@@ -169,7 +169,7 @@ async def execute_condition_boolean(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=False,
     config_model=ConditionMarketStatusConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
-    group="Market & time",
+    group="Gates",
 )
 async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when NSE market is in the chosen state. Reuses the shared
@@ -197,7 +197,7 @@ async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=False,
     config_model=ConditionPositionConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
-    group="Positions",
+    group="Gates",
 )
 async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when the symbol is (or isn't) in the user's holdings.
@@ -290,7 +290,7 @@ async def execute_condition_compound(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=False,
     config_model=ConditionTimeWindowConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
-    group="Market & time",
+    group="Gates",
 )
 async def execute_condition_time_window(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when current time in the configured timezone is within

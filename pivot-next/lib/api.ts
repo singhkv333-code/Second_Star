@@ -43,6 +43,7 @@ import type {
   WorkflowSummary,
 } from "@/lib/types";
 import { isError } from "@/lib/types";
+import type { DslNode, DslSchema, DslDescribeResult } from "@/lib/types";
 import { getTradingMode } from "@/lib/trading-mode";
 
 // ---------------------------------------------------------------------------
@@ -537,6 +538,53 @@ export function lintWorkflow(
 }
 
 // ---------------------------------------------------------------------------
+// DSL condition-tree builder helpers (ConditionBuilder)
+//   GET  /api/workflows/dsl/schema    — operand-picker metadata (cached)
+//   POST /api/workflows/dsl/describe  — english readback of one tree
+// ---------------------------------------------------------------------------
+
+// The schema is static per backend deploy, so cache the first success for the
+// session (the use-dsl-schema hook calls this on every editor mount). Errors
+// are never cached.
+let _dslSchemaCache: DslSchema | null = null;
+
+// Builder helpers degrade gracefully: `request` throws on network/parse
+// failure, but the ConditionBuilder must never crash the editor over a
+// transient backend hiccup — it just loses the live readback / falls back to
+// the JSON hatch. So both helpers swallow throws into the error envelope.
+function _dslNetworkError(e: unknown): ErrorBody {
+  return {
+    code: "internal_error",
+    message: e instanceof Error ? e.message : "DSL request failed",
+  };
+}
+
+export async function getDslSchema(): Promise<ApiResult<DslSchema>> {
+  if (_dslSchemaCache) return { data: _dslSchemaCache };
+  try {
+    const result = await request<DslSchema>("/workflows/dsl/schema");
+    if (!isError(result)) _dslSchemaCache = result.data;
+    return result;
+  } catch (e) {
+    return { error: _dslNetworkError(e) };
+  }
+}
+
+export async function describeDsl(
+  tree: DslNode,
+  mode: "entry" | "exit",
+): Promise<ApiResult<DslDescribeResult>> {
+  try {
+    return await request<DslDescribeResult>("/workflows/dsl/describe", {
+      method: "POST",
+      body: { tree, mode },
+    });
+  } catch (e) {
+    return { error: _dslNetworkError(e) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Scheduled runs (Calendar tab — API_CONTRACT.md §6.5)
 // ---------------------------------------------------------------------------
 
@@ -665,6 +713,8 @@ export type FinancialsLatestValue = {
   line_item: string;
   unit: string | null;
   basis: string;
+  /** Which data source produced this field. Present when the yfinance fallback is used. */
+  source?: "moneycontrol" | "yfinance";
 };
 
 export type FinancialsHistoryPoint = {
@@ -841,9 +891,14 @@ export type StockQuote = {
   open: number;
   high: number;
   low: number;
-  close: number;
-  week_52_high: number;
-  week_52_low: number;
+  /** Most-recent daily close (previous session). Use for "Prev Close" display. */
+  prev_close: number;
+  /** @deprecated Backend returns `prev_close`; `close` is no longer present. */
+  close?: number;
+  /** 52-week high price. */
+  w52_high: number;
+  /** 52-week low price. */
+  w52_low: number;
   volume: number;
   market_cap: number | null;
   pe_ratio: number | null;
@@ -919,6 +974,63 @@ export function getOhlc(
   return request<OhlcResponse>(
     `/markets/ohlc/${encodeURIComponent(symbol)}`,
     { query: exchange ? { range, exchange } : { range } },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Company search — `GET /api/companies/search?q=<str>&limit=10`
+// Returns a ranked list of symbols matching the query for use in search
+// autosuggest dropdowns. Sector and has_fundamentals let the UI surface
+// richer context inline.
+// ---------------------------------------------------------------------------
+
+export type CompanySearchResult = {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  has_fundamentals: boolean;
+};
+
+export type CompanySearchResponse = {
+  results: CompanySearchResult[];
+};
+
+/** `GET /api/companies/search?q=<str>&limit=10` — ranked symbol search. */
+export function searchCompanies(
+  q: string,
+  limit = 10,
+): Promise<ApiResult<CompanySearchResponse>> {
+  return request<CompanySearchResponse>("/companies/search", {
+    query: { q, limit },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Metric series — `GET /api/markets/metric-series/{symbol}?metric=pe|ev_ebitda&range=…`
+// Returns a time-series of the requested fundamental metric for the chart.
+// `available:false` + empty `points` when the data cannot be computed.
+// ---------------------------------------------------------------------------
+
+export type MetricSeriesPoint = { t: string; v: number };
+
+export type MetricSeriesResponse = {
+  symbol: string;
+  metric: "pe" | "ev_ebitda";
+  range: string;
+  available: boolean;
+  points: MetricSeriesPoint[];
+  source: string;
+};
+
+/** `GET /api/markets/metric-series/{symbol}?metric=pe|ev_ebitda&range=…` — fundamental metric series. */
+export function getMetricSeries(
+  symbol: string,
+  metric: "pe" | "ev_ebitda",
+  range: SparklineRange,
+): Promise<ApiResult<MetricSeriesResponse>> {
+  return request<MetricSeriesResponse>(
+    `/markets/metric-series/${encodeURIComponent(symbol)}`,
+    { query: { metric, range } },
   );
 }
 

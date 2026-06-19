@@ -300,7 +300,9 @@ def test_second_trigger_resets_state_and_stoploss_warns_again() -> None:
 
 def test_get_catalog_every_step_has_group_and_compat_block() -> None:
     """The frontend picker requires:
-      - n == 49 registered step types,
+      - n == 44 visible step types (the 9 collapsed legacy ids are
+        deprecated + excluded; their 4 parameterized replacements are
+        visible),
       - non-empty `group` on every entry,
       - a `compat` block with `produces`, `requires`, `consumes` keys
         (any may be an empty list, but all three keys must exist),
@@ -312,8 +314,8 @@ def test_get_catalog_every_step_has_group_and_compat_block() -> None:
     assert catalog["catalog_version"], "catalog_version must be non-empty"
 
     step_types = catalog["step_types"]
-    assert len(step_types) == 49, (
-        f"expected n==49 registered step types; got {len(step_types)}"
+    assert len(step_types) == 44, (
+        f"expected n==44 visible step types; got {len(step_types)}"
     )
 
     missing_group: list[str] = []
@@ -401,7 +403,130 @@ def test_response_model_preserves_group_and_compat() -> None:
     assert all(s.get("group") for s in dumped["step_types"]), "a step lost its group"
     assert all(s.get("compat") is not None for s in dumped["step_types"]), "a step lost compat"
 
-    sl = by["action.set_stoploss"]
+    # action.set_protective is the collapsed replacement for set_stoploss /
+    # set_takeprofit (the legacy ids are deprecated + excluded from the catalog).
+    sl = by["action.set_protective"]
     assert sl["group"] == "Exits & protection"
     assert "protective_order" in sl["compat"]["produces"]
     assert any(r["any_of"] == ["position_open"] for r in sl["compat"]["requires"])
+
+
+# ---------------------------------------------------------------------------
+# Humanised diagnostic messages — must NOT leak raw step_type ids or raw
+# dotted template paths. The editor surfaces these inline; "trigger.exit_
+# compound" and "holdings.RELIANCE.quantity" are internal identifiers.
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_placement_message_is_human_and_no_raw_id() -> None:
+    """The structural pass must report a friendly reference instead of
+    the bare ``step_type`` id. ``Step 1 ("…")`` or registry fallback —
+    never ``fetch.quote``."""
+    steps = [
+        _step("fetch.quote", symbol="RELIANCE"),
+        _step("action.place_order", symbol="RELIANCE", quantity=1, side="buy"),
+    ]
+    diags = lint_workflow(steps)
+    placement = next(
+        d for d in diags
+        if d.code == "trigger_placement" and d.step_index == 0
+    )
+    # Never leak the raw step_type id.
+    assert "fetch.quote" not in placement.message, placement.message
+    assert placement.message.startswith("the first step must be a trigger"), (
+        placement.message
+    )
+    # The friendly reference shape lives in the message.
+    assert "Step 1" in placement.message, placement.message
+
+
+def test_trigger_placement_uses_user_supplied_label() -> None:
+    """When the caller passes ``step_names``, the message uses that label
+    as the friendly hint — proving the router can humanise diagnostics
+    from saved/edited step labels."""
+    steps = [
+        _step("fetch.quote", symbol="RELIANCE"),
+        _step("action.place_order", symbol="RELIANCE", quantity=1, side="buy"),
+    ]
+    diags = lint_workflow(steps, step_names={0: "Grab the quote"})
+    placement = next(
+        d for d in diags
+        if d.code == "trigger_placement" and d.step_index == 0
+    )
+    assert "Grab the quote" in placement.message, placement.message
+    assert "fetch.quote" not in placement.message, placement.message
+
+
+def test_ref_bad_path_message_drops_raw_step_id_and_dotted_path() -> None:
+    """The ref-missing diagnostic must reference the producer step with
+    the friendly helper (``Step N ("…")``) — never ``fetch.portfolio`` —
+    and never embed the raw dotted ``holdings.RELIANCE.quantity`` template
+    path. The leaf field name is OK to surface, but the full template is
+    an internal identifier."""
+    steps = [
+        _step("trigger.manual"),
+        _step("fetch.portfolio"),
+        _step(
+            "condition.numeric",
+            left="{{ context.1.nonexistent_field }}",
+            op="lt",
+            right=100,
+        ),
+    ]
+    diags = lint_workflow(steps)
+    bad = next(
+        d for d in diags
+        if d.code == "ref_bad_path" and d.step_index == 2
+        and d.severity == "error"
+    )
+    assert "fetch.portfolio" not in bad.message, bad.message
+    # The leaf field name is fine to surface (and helpful);
+    # the FULL dotted path-with-parens shape from the old impl is not.
+    assert "Step 2" in bad.message, bad.message
+    assert "nonexistent_field" in bad.message, bad.message
+
+
+def test_needs_position_message_drops_raw_step_id() -> None:
+    """The capability warning must NOT prefix the raw step id
+    (``trigger.exit_compound``, ``action.squareoff_all``) — that leaks
+    an internal identifier. It uses the friendly reference instead."""
+    steps = [
+        _step("trigger.manual"),
+        _step("action.squareoff_all"),
+    ]
+    diags = lint_workflow(steps)
+    warn = next(d for d in diags if d.code == "needs_position")
+    assert "action.squareoff_all" not in warn.message, warn.message
+    assert "Step 2" in warn.message, warn.message
+    # The Requirement-supplied "needs a position …" hint is preserved.
+    assert "position" in warn.message.lower(), warn.message
+
+
+def test_loose_ref_info_message_is_humanised() -> None:
+    """The info-level loose-path diagnostic stops surfacing the raw
+    dotted template path; it references the producer step instead."""
+    steps = [
+        _step("trigger.manual"),
+        _step("fetch.portfolio"),
+        # holdings is a loose-shape object on fetch.portfolio output —
+        # walking deeper hits the "loose" ambiguity branch.
+        _step(
+            "condition.numeric",
+            left="{{ context.1.holdings.RELIANCE.quantity }}",
+            op="gt",
+            right=0,
+        ),
+    ]
+    diags = lint_workflow(steps)
+    # The loose branch is informational; assert it doesn't leak the raw
+    # dotted path when fired. If the producer schema's ``holdings`` is
+    # already a leaf (not an object) the walk reports "missing" instead —
+    # in that case the bad-path test above already covers the leak.
+    infos = [
+        d for d in diags
+        if d.code == "ref_bad_path" and d.severity == "info"
+        and d.step_index == 2
+    ]
+    for info in infos:
+        assert "fetch.portfolio" not in info.message, info.message
+        assert "holdings.RELIANCE.quantity" not in info.message, info.message

@@ -1028,3 +1028,103 @@ export type StrategyBuilderCard = {
 export type StrategyBuilderCardPayload = StrategyBuilderCard & {
   _render_hint: "strategy_builder_card";
 };
+
+// ---------------------------------------------------------------------------
+// DSL condition tree — the visual ConditionBuilder editor
+//   GET  /api/workflows/dsl/schema    (operand-picker metadata)
+//   POST /api/workflows/dsl/describe  (english readback)
+// Node shapes mirror pivot/backend/workflows/dsl/schema.py (the subset the
+// builder renders; advanced nodes go through the raw-JSON escape hatch).
+// ---------------------------------------------------------------------------
+
+/** A registry-backed indicator value leaf (RSI/MACD/SMA…). */
+export type DslIndicatorNode = {
+  type: "indicator";
+  indicator: string;
+  symbol: string;
+  period: number;
+  timeframe?: "daily" | "weekly";
+  exchange?: string;
+  offset?: number;
+  component?: string | null;
+};
+
+/** A bar-component price leaf (close/open/high/low). */
+export type DslPriceNode = {
+  type: "price";
+  symbol: string;
+  basis: "close" | "open" | "high" | "low";
+  exchange?: string;
+  offset?: number;
+};
+
+/** A literal number leaf — the right-hand side of most comparisons. */
+export type DslConstantNode = {
+  type: "constant";
+  value: number;
+};
+
+/** A position-property leaf — only valid inside an EXIT tree. */
+export type DslPositionNode = {
+  type: "position";
+  field: string;
+  basis?: "close" | "low" | "high" | null;
+};
+
+export type DslLeafNode =
+  | DslIndicatorNode
+  | DslPriceNode
+  | DslConstantNode
+  | DslPositionNode;
+
+/** A binary comparison `left <op> right`. */
+export type DslComparisonNode = {
+  type: "comparison";
+  op: string;
+  left: DslNode;
+  right: DslNode;
+};
+
+/**
+ * and / or joining sub-trees. (The grammar also allows `not`, but the visual
+ * builder only constructs and/or; a `not` tree reaches the builder only via
+ * the raw-JSON escape hatch, which casts.)
+ */
+export type DslLogicNode = {
+  type: "logic";
+  op: "and" | "or";
+  operands: DslNode[];
+};
+
+/** Any node in a condition tree (recursive). */
+export type DslNode = DslLeafNode | DslComparisonNode | DslLogicNode;
+
+/** One entry in the DSL schema's `indicators` list. */
+export type DslIndicatorMeta = {
+  id: string;
+  label: string;
+  default_period: number;
+  multi_output: boolean;
+  components: string[];
+};
+
+/** An id+label pair (operators, position_fields). */
+export type DslLabeled = { id: string; label: string };
+
+/** Which config field holds the tree + whether position leaves are allowed. */
+export type DslTreeFieldMeta = { field: string; mode: "entry" | "exit" };
+
+/** Response of `GET /api/workflows/dsl/schema`. */
+export type DslSchema = {
+  indicators: DslIndicatorMeta[];
+  operators: DslLabeled[];
+  operand_kinds: string[];
+  price_bases: string[];
+  position_fields: DslLabeled[];
+  logic_ops: string[];
+  timeframes: string[];
+  tree_fields: Record<string, DslTreeFieldMeta>;
+};
+
+/** Response of `POST /api/workflows/dsl/describe`. */
+export type DslDescribeResult = { english: string; error?: string | null };

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   WorkflowDraftCard,
@@ -62,6 +63,7 @@ import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
 import { ClarifyCard } from "@/components/chat/ClarifyCard";
 import { StrategyBuilderCard } from "@/components/chat/StrategyBuilderCard";
 import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
+import { useActiveDraft } from "@/components/agent-panel/active-draft-context";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -130,6 +132,13 @@ async function* streamChat(
    * answer, the highlighted excerpt is sent here so the backend can
    * thread it into the prompt as the thing being replied to. */
   quotedText: string | null,
+  /**
+   * The unsaved draft currently open in the editor (if any). Sent to
+   * the backend so it amends exactly what the user sees, not its own
+   * Redis copy. Absent when the editor is closed or showing a saved
+   * workflow — in that case the backend falls back to its Redis state.
+   */
+  editorDraft?: WorkflowDraft | null,
 ): AsyncGenerator<SseEvent> {
   const base =
     (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
@@ -166,6 +175,9 @@ async function* streamChat(
       // Reply-by-selecting: the highlighted excerpt the user is
       // replying to. Omitted entirely when there's no active quote.
       ...(quotedText ? { quoted_text: quotedText } : {}),
+      // Editor-draft sync: when the editor is open on an unsaved draft,
+      // send it so the backend amends exactly what the user sees.
+      ...(editorDraft ? { editor_draft: editorDraft } : {}),
     }),
     cache: "no-store",
     signal,
@@ -571,6 +583,12 @@ type ChatDemoProps = {
   /** Called after a `demoSeed` has been consumed so parent can clear it
    * (same pattern as `onPrefillConsumed`). */
   onDemoSeedConsumed?: () => void;
+  /**
+   * Called whenever a chat turn yields a workflow_draft_card (new OR
+   * amended). AppShell uses this to push the draft into the bound editor
+   * without needing the user to click "Open in editor" again.
+   */
+  onDraftFromChat?: (draft: Workflow) => void;
 };
 
 export type ChatDemoSeed = {
@@ -612,7 +630,11 @@ export function ChatDemo({
   onActiveChange,
   demoSeed,
   onDemoSeedConsumed,
+  onDraftFromChat,
 }: ChatDemoProps): React.ReactElement {
+  // Read the active draft context so we can attach editor_draft on outgoing
+  // requests when the panel is open on an unsaved draft.
+  const { activeEditorDraft, panelOpenWithDraft } = useActiveDraft();
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -889,6 +911,15 @@ export function ChatDemo({
           _render_hint: "workflow_draft_card",
         };
         finalMessage = { kind: "draft", draft, intro: data.response ?? "" };
+        // Notify parent so the bound editor re-renders with the new draft.
+        onDraftFromChat?.(draftToWorkflow(draft));
+        // Toast only when the editor was already open on this draft (amendment).
+        if (panelOpenWithDraft) {
+          toast("Chat updated the agent", {
+            description: "The editor reflects the latest changes from this conversation.",
+            duration: 3000,
+          });
+        }
       } else {
         finalMessage = { kind: "assistant", text: data.response ?? "" };
       }
@@ -1069,6 +1100,25 @@ export function ChatDemo({
       // set inside the setter above — wait one tick for the flush.
       await Promise.resolve();
 
+      // Build the editor_draft payload: only include it when the panel is
+      // open and bound to an unsaved draft — converts Workflow → WorkflowDraft
+      // shape so the backend contract is satisfied.
+      const editorDraft: WorkflowDraft | null =
+        panelOpenWithDraft && activeEditorDraft
+          ? {
+              name: activeEditorDraft.name,
+              description: activeEditorDraft.description ?? "",
+              steps: activeEditorDraft.steps.map((s) => ({
+                step_type: s.step_type,
+                label: s.label,
+                config: s.config,
+              })),
+              rationale: "",
+              warnings: [],
+              _render_hint: "workflow_draft_card",
+            }
+          : null;
+
       const gen = streamChat(
         trimmed,
         historyRef.current,
@@ -1080,6 +1130,7 @@ export function ChatDemo({
         // tick — the prefill path calls setMode(mode) AND passes it here.
         modeOverride ?? mode,
         quote,
+        editorDraft,
       );
 
       for await (const event of gen) {

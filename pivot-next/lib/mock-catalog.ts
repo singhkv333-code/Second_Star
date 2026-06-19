@@ -90,7 +90,7 @@ const triggerSchedule: StepTypeDef = {
 const triggerPrice: StepTypeDef = {
   step_type: "trigger.price",
   category: "trigger",
-  group: "Price & indicators",
+  group: "Price, indicators & exits",
   label: "When price crosses a level",
   description:
     "Fire when a symbol's last price crosses above or below a level you set.",
@@ -116,7 +116,7 @@ const triggerPrice: StepTypeDef = {
 const triggerIndicator: StepTypeDef = {
   step_type: "trigger.indicator",
   category: "trigger",
-  group: "Price & indicators",
+  group: "Price, indicators & exits",
   label: "When an indicator crosses a level",
   description:
     "Fire when a technical indicator (RSI, SMA, EMA, MACD…) crosses a threshold.",
@@ -140,7 +140,7 @@ const triggerIndicator: StepTypeDef = {
 const triggerEvent: StepTypeDef = {
   step_type: "trigger.event",
   category: "trigger",
-  group: "Events & news",
+  group: "Events & external",
   label: "When a news event happens",
   description:
     "Fire when a news article confirms an event you describe — e.g. 'RBI announces a repo-rate cut'.",
@@ -164,7 +164,7 @@ const triggerEvent: StepTypeDef = {
 const triggerManual: StepTypeDef = {
   step_type: "trigger.manual",
   category: "trigger",
-  group: "External & manual",
+  group: "Events & external",
   label: "Manual (Run now)",
   description: "Never fires on its own — runs only when you press Run now.",
   icon: "play",
@@ -178,7 +178,7 @@ const triggerManual: StepTypeDef = {
 const triggerWebhook: StepTypeDef = {
   step_type: "trigger.webhook",
   category: "trigger",
-  group: "External & manual",
+  group: "Events & external",
   label: "On a webhook",
   description:
     "Fire when an external system POSTs to this workflow's unique URL; the payload is available to later steps.",
@@ -197,7 +197,7 @@ const triggerWebhook: StepTypeDef = {
 const fetchQuote: StepTypeDef = {
   step_type: "fetch.quote",
   category: "fetch",
-  group: "Market data",
+  group: "Quotes & price levels",
   label: "Live quote",
   description: "The latest price, OHLC and volume for a symbol.",
   icon: "line-chart",
@@ -225,7 +225,7 @@ const fetchQuote: StepTypeDef = {
 const fetchIndicator: StepTypeDef = {
   step_type: "fetch.indicator",
   category: "fetch",
-  group: "Indicators & levels",
+  group: "Indicators",
   label: "Indicator value",
   description: "Compute a technical indicator (RSI, SMA, EMA, MACD and more).",
   icon: "activity",
@@ -249,7 +249,7 @@ const fetchIndicator: StepTypeDef = {
 const fetchFundamental: StepTypeDef = {
   step_type: "fetch.fundamental",
   category: "fetch",
-  group: "Fundamentals",
+  group: "Research & screens",
   label: "Fundamental metric",
   description:
     "A fundamental like P/E, ROE, market cap or D/E — or a custom formula over them.",
@@ -292,7 +292,7 @@ const fetchPortfolio: StepTypeDef = {
 const fetchNews: StepTypeDef = {
   step_type: "fetch.news",
   category: "fetch",
-  group: "News",
+  group: "Research & screens",
   label: "Recent news",
   description:
     "Recent articles for your keywords, optionally scored against an event you describe.",
@@ -342,7 +342,7 @@ const conditionNumeric: StepTypeDef = {
 const conditionMarketStatus: StepTypeDef = {
   step_type: "condition.market_status",
   category: "condition",
-  group: "Market & time",
+  group: "Gates",
   label: "Market is open / closed",
   description:
     "Continue only when the NSE market is in the state you pick (open, closed, pre, post).",
@@ -362,7 +362,7 @@ const conditionMarketStatus: StepTypeDef = {
 const conditionPosition: StepTypeDef = {
   step_type: "condition.position",
   category: "condition",
-  group: "Positions",
+  group: "Gates",
   label: "Position is held / not held",
   description:
     "Continue based on whether a symbol is currently in your portfolio.",
@@ -383,7 +383,7 @@ const conditionPosition: StepTypeDef = {
 const conditionTimeWindow: StepTypeDef = {
   step_type: "condition.time_window",
   category: "condition",
-  group: "Market & time",
+  group: "Gates",
   label: "Within a time window",
   description: "Continue only when the current time is inside a window you set.",
   icon: "calendar-clock",
@@ -460,23 +460,30 @@ const actionCancelOrders: StepTypeDef = {
   compat: { produces: [], requires: [NEEDS_ORD], consumes: ["pending_orders"] },
 };
 
-const actionSetStoploss: StepTypeDef = {
-  step_type: "action.set_stoploss",
+// ---------------------------------------------------------------------------
+// New parameterized step: action.set_protective
+// Replaces deprecated action.set_stoploss + action.set_takeprofit
+// ---------------------------------------------------------------------------
+
+const actionSetProtective: StepTypeDef = {
+  step_type: "action.set_protective",
   category: "action",
   group: "Exits & protection",
-  label: "Set a stop-loss",
+  label: "Set a stop-loss or take-profit",
   description:
-    "Protect a holding with a stop-loss sell, at a price or a % below entry (optionally trailing).",
+    "Protect a holding with a stop-loss or take-profit sell order. Choose kind: stoploss or takeprofit.",
   icon: "shield-alert",
   max_retries: 1,
   trigger_only: false,
   config_schema: objectSchema(
     {
+      kind: { type: "string", enum: ["stoploss", "takeprofit"] },
       symbol: { type: "string" },
       trigger_price: { type: "number" },
+      trigger_offset_pct: { type: "number" },
       quantity: { type: "integer", minimum: 1 },
     },
-    ["symbol", "trigger_price"],
+    ["kind", "symbol"],
   ),
   output_schema: objectSchema(
     {
@@ -495,7 +502,7 @@ const actionSetStoploss: StepTypeDef = {
 const actionUpdateWatchlist: StepTypeDef = {
   step_type: "action.update_watchlist",
   category: "action",
-  group: "Watchlist",
+  group: "Special",
   label: "Update your watchlist",
   description: "Add or remove a symbol from your watchlist.",
   icon: "list-plus",
@@ -519,7 +526,7 @@ const actionUpdateWatchlist: StepTypeDef = {
 const notifyMessage: StepTypeDef = {
   step_type: "notify.message",
   category: "notify",
-  group: "Notify",
+  group: "Notifications",
   label: "Send a notification",
   description: "Send a push notification (email / SMS coming later).",
   icon: "send",
@@ -546,7 +553,7 @@ const notifyMessage: StepTypeDef = {
 const notifyLog: StepTypeDef = {
   step_type: "notify.log",
   category: "notify",
-  group: "Notify",
+  group: "Notifications",
   label: "Add a run note",
   description: "Write a line into this run's log — no external message.",
   icon: "file-text",
@@ -629,92 +636,45 @@ const controlSkipIf: StepTypeDef = {
 };
 
 // ---------------------------------------------------------------------------
+// New parameterized step: action.squareoff
+// Replaces deprecated action.squareoff_all, action.squareoff_symbol,
+// action.squareoff_all_intraday
+// ---------------------------------------------------------------------------
+
+const actionSquareoff: StepTypeDef = {
+  step_type: "action.squareoff",
+  category: "action",
+  group: "Exits & protection",
+  label: "Close position(s)",
+  description:
+    "Exit open position(s) at market. scope=all closes every position; scope=symbol closes one; scope=intraday closes all MIS positions.",
+  icon: "x-circle",
+  max_retries: 1,
+  trigger_only: false,
+  config_schema: objectSchema(
+    {
+      scope: { type: "string", enum: ["all", "symbol", "intraday"] },
+      symbol: { type: "string", description: "Required when scope=symbol" },
+    },
+    ["scope"],
+  ),
+  output_schema: objectSchema({
+    closed_count: { type: "integer" },
+    order_ids: { type: "array", items: { type: "string" } },
+  }),
+  compat: {
+    produces: [],
+    requires: [NEEDS_POS],
+    consumes: ["position_open"],
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Additional steps from the 49-step catalog (HTML spec)
 // These are the steps present in the spec but not in the original 24-step set.
 // Included here so the mock is a faithful fallback even before the real
 // backend catalog lands the full 49.
 // ---------------------------------------------------------------------------
-
-const actionSetTakeprofit: StepTypeDef = {
-  step_type: "action.set_takeprofit",
-  category: "action",
-  group: "Exits & protection",
-  label: "Set a take-profit",
-  description:
-    "Lock in gains on a holding with a take-profit sell, at a price or a % above entry.",
-  icon: "target",
-  max_retries: 1,
-  trigger_only: false,
-  config_schema: objectSchema(
-    {
-      symbol: { type: "string" },
-      target_price: { type: "number" },
-      quantity: { type: "integer", minimum: 1 },
-    },
-    ["symbol", "target_price"],
-  ),
-  output_schema: objectSchema({ trigger_id: { type: "string" } }, ["trigger_id"]),
-  compat: {
-    produces: ["protective_order", "pending_orders"],
-    requires: [NEEDS_POS],
-    consumes: [],
-  },
-};
-
-const actionSquareoffSymbol: StepTypeDef = {
-  step_type: "action.squareoff_symbol",
-  category: "action",
-  group: "Exits & protection",
-  label: "Close a position",
-  description: "Exit one symbol's open lot at market.",
-  icon: "log-out",
-  max_retries: 1,
-  trigger_only: false,
-  config_schema: objectSchema({ symbol: { type: "string" } }, ["symbol"]),
-  output_schema: objectSchema({ order_id: { type: "string" } }, ["order_id"]),
-  compat: {
-    produces: [],
-    requires: [NEEDS_POS],
-    consumes: ["position_open"],
-  },
-};
-
-const actionSquareoffAll: StepTypeDef = {
-  step_type: "action.squareoff_all",
-  category: "action",
-  group: "Exits & protection",
-  label: "Close all positions",
-  description: "Exit every open position — long and short — at market.",
-  icon: "x-circle",
-  max_retries: 1,
-  trigger_only: false,
-  config_schema: noConfig,
-  output_schema: objectSchema({ closed_count: { type: "integer" } }),
-  compat: {
-    produces: [],
-    requires: [NEEDS_POS],
-    consumes: ["position_open"],
-  },
-};
-
-const actionSquareoffAllIntraday: StepTypeDef = {
-  step_type: "action.squareoff_all_intraday",
-  category: "action",
-  group: "Exits & protection",
-  label: "Close all intraday (MIS)",
-  description:
-    "Exit every open intraday (MIS) position — pair with Intraday P&L for P&L-gated exits.",
-  icon: "clock-4",
-  max_retries: 1,
-  trigger_only: false,
-  config_schema: noConfig,
-  output_schema: objectSchema({ closed_count: { type: "integer" } }),
-  compat: {
-    produces: [],
-    requires: [NEEDS_POS],
-    consumes: ["position_open"],
-  },
-};
 
 const actionAllocateBasket: StepTypeDef = {
   step_type: "action.allocate_basket",
@@ -778,7 +738,7 @@ const actionAllocateNotional: StepTypeDef = {
 const actionPlaceOptionStrategy: StepTypeDef = {
   step_type: "action.place_option_strategy",
   category: "action",
-  group: "Options",
+  group: "Special",
   label: "Place / register an option strategy",
   description:
     "Build a multi-leg option strategy. Paper book fills in simulation; live book registers the intent only — you place it in your broker app. MCX is research-only.",
@@ -807,7 +767,7 @@ const actionPlaceOptionStrategy: StepTypeDef = {
 const actionArmIpoIntent: StepTypeDef = {
   step_type: "action.arm_ipo_intent",
   category: "action",
-  group: "IPO",
+  group: "Special",
   label: "Register an IPO application",
   description:
     "Record an IPO application reminder. Pivot never submits a bid — you apply and approve the UPI mandate yourself.",
@@ -850,7 +810,7 @@ const conditionBoolean: StepTypeDef = {
 const fetchScreener: StepTypeDef = {
   step_type: "fetch.screener",
   category: "fetch",
-  group: "Stock screens",
+  group: "Research & screens",
   label: "Screen stocks",
   description:
     "Filter & rank Indian stocks by sector and market cap — returns a symbols list the next step can act on.",
@@ -874,7 +834,7 @@ const fetchScreener: StepTypeDef = {
 const fetchTopMovers: StepTypeDef = {
   step_type: "fetch.top_movers",
   category: "fetch",
-  group: "Stock screens",
+  group: "Research & screens",
   label: "Top gainers / losers",
   description:
     "Today's biggest NIFTY-50 movers — drives 'buy the top gainer', 'short the top loser', etc.",
@@ -915,11 +875,66 @@ const fetchIntradayPnl: StepTypeDef = {
 };
 
 // ---------------------------------------------------------------------------
+// New parameterized step: fetch.price_reference
+// Replaces deprecated fetch.day_open + fetch.prior_close
+// ---------------------------------------------------------------------------
+
+const fetchPriceReference: StepTypeDef = {
+  step_type: "fetch.price_reference",
+  category: "fetch",
+  group: "Quotes & price levels",
+  label: "Price reference level",
+  description:
+    "Fetch a reference price level — day open or prior session close — for use in conditions or orders.",
+  icon: "bookmark",
+  max_retries: 3,
+  trigger_only: false,
+  config_schema: objectSchema(
+    {
+      reference: { type: "string", enum: ["day_open", "prior_close"] },
+      symbol: { type: "string" },
+      exchange: { type: "string", default: "NSE" },
+    },
+    ["reference", "symbol"],
+  ),
+  output_schema: objectSchema({ price: { type: "number" }, asof: { type: "string" } }),
+  compat: { produces: ["data:price_level"], requires: [], consumes: [] },
+};
+
+// ---------------------------------------------------------------------------
+// New parameterized step: fetch.rolling_extreme
+// Replaces deprecated fetch.rolling_high + fetch.rolling_low
+// ---------------------------------------------------------------------------
+
+const fetchRollingExtreme: StepTypeDef = {
+  step_type: "fetch.rolling_extreme",
+  category: "fetch",
+  group: "Quotes & price levels",
+  label: "Rolling high / low",
+  description:
+    "The highest or lowest price over a lookback window — use as a dynamic support/resistance reference.",
+  icon: "bar-chart-2",
+  max_retries: 3,
+  trigger_only: false,
+  config_schema: objectSchema(
+    {
+      side: { type: "string", enum: ["high", "low"] },
+      symbol: { type: "string" },
+      window: { type: "integer", minimum: 1, description: "Lookback in bars" },
+      exchange: { type: "string", default: "NSE" },
+    },
+    ["side", "symbol", "window"],
+  ),
+  output_schema: objectSchema({ price: { type: "number" }, asof: { type: "string" } }),
+  compat: { produces: ["data:price_level"], requires: [], consumes: [] },
+};
+
+// ---------------------------------------------------------------------------
 // Catalog assembly
 // ---------------------------------------------------------------------------
 
 export const MOCK_CATALOG: StepTypeCatalog = {
-  catalog_version: "2026-06-17T00:00:00Z",
+  catalog_version: "2026-06-18T00:00:00Z",
   categories: [
     { id: "trigger", label: "Triggers" },
     { id: "fetch", label: "Data fetches" },
@@ -929,46 +944,55 @@ export const MOCK_CATALOG: StepTypeCatalog = {
     { id: "control", label: "Control flow" },
   ],
   step_types: [
-    // Triggers
+    // Triggers — "Schedule & time"
     triggerSchedule,
+    // Triggers — "Price, indicators & exits"
     triggerPrice,
     triggerIndicator,
+    // Triggers — "Events & external"
     triggerEvent,
     triggerManual,
     triggerWebhook,
-    // Fetches
+    // Fetches — "Quotes & price levels"
     fetchQuote,
+    fetchPriceReference,
+    fetchRollingExtreme,
+    // Fetches — "Indicators"
     fetchIndicator,
-    fetchFundamental,
+    // Fetches — "Portfolio & P&L"
     fetchPortfolio,
+    fetchIntradayPnl,
+    // Fetches — "Research & screens"
+    fetchFundamental,
     fetchNews,
     fetchScreener,
     fetchTopMovers,
-    fetchIntradayPnl,
-    // Conditions
+    // Conditions — "Compare values"
     conditionNumeric,
     conditionBoolean,
+    // Conditions — "Gates"
     conditionMarketStatus,
     conditionPosition,
     conditionTimeWindow,
-    // Actions
+    // Actions — "Orders"
     actionPlaceOrder,
     actionCancelOrders,
-    actionSetStoploss,
-    actionSetTakeprofit,
-    actionSquareoffSymbol,
-    actionSquareoffAll,
-    actionSquareoffAllIntraday,
+    // Actions — "Exits & protection"
+    actionSetProtective,
+    actionSquareoff,
+    // Actions — "Baskets"
     actionAllocateBasket,
     actionAllocateNotional,
-    actionPlaceOptionStrategy,
+    // Actions — "Special"
     actionArmIpoIntent,
+    actionPlaceOptionStrategy,
     actionUpdateWatchlist,
-    // Communication
+    // Communication — "Notifications"
     notifyMessage,
     notifyLog,
+    // Communication — "Approvals"
     waitApproval,
-    // Control flow
+    // Control flow — "Flow"
     waitDelay,
     controlSkipIf,
   ],

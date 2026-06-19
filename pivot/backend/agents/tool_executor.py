@@ -604,6 +604,7 @@ async def _propose_workflow(a, kt, db, uid):
     """
     from backend.workflows.propose import (
         ProposalValidationError,
+        _ensure_step_labels,
         propose_workflow_async,
         resolve_polymarket_event_descriptions,
         validate_draft_against_registry,
@@ -632,6 +633,13 @@ async def _propose_workflow(a, kt, db, uid):
                 "data": {},
                 "logiccard": None,
             }
+        # Defense-in-depth: ensure every step carries a human label so
+        # the FE chat card never shows a raw step_type id like
+        # "trigger.compound" / "action.place_order". The validator above
+        # already calls this; the second call is a no-op when labels
+        # are present and a cheap safety net for any future caller that
+        # constructs a draft outside the validator path.
+        _ensure_step_labels(draft)
         payload = draft.model_dump()
         payload["_render_hint"] = "workflow_draft_card"
         # R4a: pre-flight check Mustache refs against the backtester's

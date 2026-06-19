@@ -2057,9 +2057,27 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
 # max_output_tokens from 1500 → 4000 so any caller that doesn't pass an
 # explicit budget also gets the headroom.
 _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
-    "draft": (3500, ""),
-    "automation": (3500, ""),
-    "backtest": (3000, ""),
+    "draft": (3500, (
+        "REPLY-CLASS: DRAFT. A workflow/agent CARD is being rendered "
+        "below your text — DO NOT restate the full trigger/action list. "
+        "Lead with ONE plain-English sentence summarising the trigger "
+        "and action, then let the card speak. If you must add notes, "
+        "use short labelled lines (e.g. `Sizing: ...`, `Risk: ...`) — "
+        "never a wall of prose."
+    )),
+    "automation": (3500, (
+        "REPLY-CLASS: AUTOMATION. A registered order / SIP / GTT CARD "
+        "is being rendered — keep prose tight. ONE plain-English "
+        "sentence on what got registered + the register-not-execute "
+        "note. Use short labelled lines for any caveats; never a wall "
+        "of text."
+    )),
+    "backtest": (3000, (
+        "REPLY-CLASS: BACKTEST. A backtest CARD with equity curve + "
+        "metrics is being rendered. ONE summary sentence (window + "
+        "headline result) and then let the card speak. If you call out "
+        "a metric in prose, prefer short labelled lines over paragraphs."
+    )),
     "explainer": (4000, (
         "REPLY-CLASS: EXPLAINER. Aim for 250-500 words. Use `## Section` "
         "headings or bulleted highlights when the answer has multiple "
@@ -3678,6 +3696,116 @@ class ChatService:
                 except Exception:  # noqa: BLE001 — defensive, never blocks turn
                     logger.debug("session reset: %s failed", attr, exc_info=True)
 
+    def _seed_editor_draft(
+        self,
+        conv_id: str,
+        editor_draft: Optional[dict],
+        trace: Optional[TurnTrace] = None,
+    ) -> None:
+        """Override the conversation's active_draft with the editor's
+        unsaved on-screen draft so the next amendment-hint computes
+        against what the user is actually looking at — not whatever
+        stale copy sits in Redis.
+
+        Shared contract: ``editor_draft`` is the same shape the
+        workflow_draft_card / propose_workflow output uses (``name``,
+        ``description``, ``steps: [{step_type,label,config}]``, ...). When
+        absent / malformed, we are a no-op — the legacy Redis flow stays
+        byte-for-byte unchanged.
+
+        Defensive: we never raise from here. Coercion failures get
+        traced and dropped so a typo in the FE payload can't 500 a chat
+        turn. This is called BEFORE the amendment-hint is built so the
+        rest of the pipeline (`_select_active_draft`, `workflow_hint`,
+        the stash on the next propose call) operate on the editor's
+        copy.
+        """
+        if not isinstance(editor_draft, dict):
+            return
+        # Must look like a workflow draft: a steps array is the load-bearing
+        # field for the amendment-hint JSON dump. Reject anything else
+        # rather than seed a garbage draft.
+        steps = editor_draft.get("steps")
+        if not isinstance(steps, list):
+            if trace is not None:
+                trace.event("editor_draft.rejected", reason="no_steps")
+            return
+        # Light-touch validation of each step: must be dict-shaped with a
+        # string step_type. Don't validate against the registry here — the
+        # registry validation happens when propose_workflow runs; this
+        # path just needs a usable JSON dump for the amendment hint.
+        clean_steps: list[dict] = []
+        for raw in steps:
+            if not isinstance(raw, dict):
+                continue
+            stype = raw.get("step_type")
+            if not isinstance(stype, str) or not stype.strip():
+                continue
+            entry: dict[str, Any] = {"step_type": stype}
+            lbl = raw.get("label")
+            if isinstance(lbl, str):
+                entry["label"] = lbl
+            cfg = raw.get("config")
+            entry["config"] = cfg if isinstance(cfg, dict) else {}
+            clean_steps.append(entry)
+        if not clean_steps:
+            if trace is not None:
+                trace.event("editor_draft.rejected", reason="no_valid_steps")
+            return
+        # Build the canonical draft dict. Keep additional known fields
+        # the propose_workflow path emits (rationale, valid_until,
+        # diagnostics, warnings) when present so the amendment hint
+        # carries them forward.
+        canonical: dict[str, Any] = {
+            "name": (
+                editor_draft.get("name")
+                if isinstance(editor_draft.get("name"), str)
+                else ""
+            ),
+            "steps": clean_steps,
+        }
+        for opt_key in ("description", "rationale", "valid_until"):
+            val = editor_draft.get(opt_key)
+            if isinstance(val, str):
+                canonical[opt_key] = val
+        for list_key in ("warnings", "diagnostics"):
+            val = editor_draft.get(list_key)
+            if isinstance(val, list):
+                canonical[list_key] = val
+
+        # Preserve the existing tool_name when an active draft is
+        # already in cache — that's the tool the amendment-hint should
+        # re-emit. Fall back to propose_workflow (the canonical
+        # workflow_draft_card emitter) when there's nothing in cache.
+        existing = self.store.get_active_draft(conv_id)
+        tool_name = (
+            existing.tool_name
+            if existing is not None and existing.tool_name in _MACRO_AMENDMENT_TOOLS
+            else "propose_workflow"
+        )
+        last_caption = existing.last_caption if existing is not None else ""
+
+        try:
+            self.store.set_active_draft(conv_id, ActiveDraft(
+                tool_name=tool_name,
+                draft=canonical,
+                last_caption=last_caption[:400],
+                created_at_iso=time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime(),
+                ),
+                symbol=_draft_primary_symbol(canonical),
+            ))
+        except Exception as e:  # noqa: BLE001 — never block a chat turn
+            logger.warning("editor_draft seed failed: %s", e)
+            return
+        if trace is not None:
+            trace.event(
+                "editor_draft.seeded",
+                tool=tool_name,
+                steps=len(clean_steps),
+                had_prior=existing is not None,
+            )
+
     def _stash_workflow_draft(
         self, conv_id: str, draft: dict, caption: str = "",
         tool_name: str = "propose_workflow",
@@ -4646,6 +4774,7 @@ class ChatService:
         *,
         history_override: list[dict] | None = None,
         mode_override: Optional[str] = None,
+        editor_draft: Optional[dict] = None,
     ) -> ChatTurn:
         turn_started = time.monotonic()
         # Make the conversation id ambient so tool handlers that don't take it
@@ -4655,6 +4784,16 @@ class ChatService:
         breakdown: dict[str, int] = {}
         trace = start_turn(conv_id, message)
         trace.event("turn.start", message_preview=message[:120])
+
+        # ── Editor-draft seed (shared contract) ────────────────────
+        # When the FE has an unsaved workflow draft open in the editor,
+        # it attaches the on-screen copy here. Seed it into the
+        # conversation's active_draft slot so the amendment-hint path
+        # computes against what the user sees — not a stale Redis copy.
+        # When absent / malformed, this is a no-op and the existing
+        # Redis flow runs byte-for-byte unchanged.
+        if editor_draft is not None:
+            self._seed_editor_draft(conv_id, editor_draft, trace)
 
         # ── Fast path ──────────────────────────────────────────────
         fast_response = try_fast_path(message)
@@ -6441,6 +6580,7 @@ class ChatService:
         *,
         history_override: list[dict] | None = None,
         mode_override: Optional[str] = None,
+        editor_draft: Optional[dict] = None,
     ) -> AsyncIterator[dict]:
         from backend.llm.openai_client import LLMOpenAI, stream_openai
         from backend.services.turn_context import set_conversation_id
@@ -6450,6 +6590,15 @@ class ChatService:
         breakdown: dict[str, int] = {}
         trace = start_turn(conv_id, message)
         trace.event("turn.start.stream", message_preview=message[:120])
+
+        # ── Editor-draft seed (shared contract) ────────────────────
+        # Mirror of handle() — see _seed_editor_draft for the rationale.
+        # When the FE has an unsaved workflow draft open and attaches
+        # it here, base any amendment against the on-screen copy. When
+        # absent / malformed, this is a no-op and the existing Redis
+        # active_draft flow stays byte-for-byte unchanged.
+        if editor_draft is not None:
+            self._seed_editor_draft(conv_id, editor_draft, trace)
 
         yield {"type": "start"}
 
@@ -6803,10 +6952,15 @@ class ChatService:
         can_stream = isinstance(client, LLMOpenAI)
 
         if not can_stream:
+            # editor_draft has already been seeded above; don't re-seed
+            # in handle() — pass None so the inner call is a no-op on
+            # the seed path. The active_draft slot already holds the
+            # editor copy.
             turn = await self.handle(
                 message, conv_id, ctx,
                 history_override=history_override,
                 mode_override=mode_override,
+                editor_draft=None,
             )
             yield {"type": "delta", "text": turn.response}
             yield {

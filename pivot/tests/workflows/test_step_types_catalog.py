@@ -44,12 +44,12 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "fetch.fundamental": "fetch",
     "fetch.portfolio": "fetch",
     "fetch.news": "fetch",
-    "fetch.day_open": "fetch",
     "fetch.intraday_pnl": "fetch",
-    "fetch.prior_close": "fetch",
     "fetch.relative_threshold": "fetch",
-    "fetch.rolling_high": "fetch",
-    "fetch.rolling_low": "fetch",
+    # Collapsed: replaces fetch.day_open + fetch.prior_close (reference enum)
+    "fetch.price_reference": "fetch",
+    # Collapsed: replaces fetch.rolling_high + fetch.rolling_low (side enum)
+    "fetch.rolling_extreme": "fetch",
     "fetch.screener": "fetch",
     "fetch.spread_z_score": "fetch",
     "fetch.top_movers": "fetch",
@@ -64,14 +64,13 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     # ── Actions (10) ──
     "action.place_order": "action",
     "action.cancel_orders": "action",
-    "action.set_stoploss": "action",
-    "action.set_takeprofit": "action",
+    # Collapsed: replaces action.set_stoploss + action.set_takeprofit (kind enum)
+    "action.set_protective": "action",
     "action.update_watchlist": "action",
     "action.allocate_basket": "action",
     "action.allocate_notional": "action",
-    "action.squareoff_symbol": "action",
-    "action.squareoff_all": "action",
-    "action.squareoff_all_intraday": "action",
+    # Collapsed: replaces action.squareoff_symbol/_all/_all_intraday (scope enum)
+    "action.squareoff": "action",
     # P2 — IPO arm-intent (register-not-execute, no broker call)
     "action.arm_ipo_intent": "action",
     # F&O P3 — multi-leg option strategy (paper executes; live registers)
@@ -219,7 +218,7 @@ def test_max_retries_match_invariant_3(
     # Actions
     for st in (
         "action.place_order", "action.cancel_orders",
-        "action.set_stoploss", "action.update_watchlist",
+        "action.set_protective", "action.update_watchlist",
     ):
         assert by_type[st]["max_retries"] == 1, st
 

@@ -183,6 +183,9 @@ CAPABILITY_RULES: dict[str, StepCompat] = {
     "fetch.rolling_high": StepCompat(produces=["data:price_level"]),
     "fetch.rolling_low": StepCompat(produces=["data:price_level"]),
     "fetch.relative_threshold": StepCompat(produces=["data:price_level"]),
+    # Collapsed replacements (alias the price-level families above):
+    "fetch.price_reference": StepCompat(produces=["data:price_level"]),
+    "fetch.rolling_extreme": StepCompat(produces=["data:price_level"]),
     "fetch.spread_z_score": StepCompat(produces=["data:spread"]),
     "fetch.fundamental": StepCompat(produces=["data:fundamental"]),
     "fetch.portfolio": StepCompat(produces=["data:portfolio"]),
@@ -222,6 +225,15 @@ CAPABILITY_RULES: dict[str, StepCompat] = {
         consumes=["position_open"],
     ),
     "action.squareoff_all_intraday": StepCompat(
+        requires=[_NEEDS_POS],
+        consumes=["position_open"],
+    ),
+    # Collapsed replacements (alias the protective / squareoff families above):
+    "action.set_protective": StepCompat(
+        requires=[_NEEDS_POS],
+        produces=["protective_order", "pending_orders"],
+    ),
+    "action.squareoff": StepCompat(
         requires=[_NEEDS_POS],
         consumes=["position_open"],
     ),
@@ -486,6 +498,64 @@ def _is_trigger(step_type: str) -> bool:
     return step_type.startswith(_TRIGGER_PREFIX)
 
 
+# ---------------------------------------------------------------------------
+# Step reference rendering — human-readable, never leaks raw ids.
+# ---------------------------------------------------------------------------
+
+
+def _friendly_label_from_registry(
+    step_type: str, registry_module: Any,
+) -> Optional[str]:
+    """Best-effort: pull the human ``label`` field from STEP_REGISTRY.
+    Returns None when the step type isn't in the registry (caller falls
+    back to a generic 'Step N'). Pure / read-only."""
+
+    if not step_type:
+        return None
+    step_registry = getattr(registry_module, "STEP_REGISTRY", None)
+    if not step_registry:
+        return None
+    defn = step_registry.get(step_type)
+    if defn is None:
+        return None
+    label = getattr(defn, "label", None)
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+    return None
+
+
+def _render_step_ref(
+    step_index: int,
+    step_type: str,
+    step_names: Optional[Mapping[int, str]],
+    registry_module: Optional[Any],
+) -> str:
+    """Render a step reference as ``Step {n+1} ("{label}")`` for diagnostics.
+
+    Resolution order for the label:
+      1. ``step_names[step_index]`` (caller-supplied per-step label),
+      2. friendly label from the registry (``STEP_REGISTRY[step_type].label``),
+      3. ``"Step {n+1}"`` with no parenthetical.
+
+    NEVER returns the raw ``step_type`` id (e.g. ``trigger.exit_compound``)
+    — that's an internal identifier the user shouldn't see in the editor.
+    """
+
+    human = ""
+    if step_names is not None:
+        candidate = step_names.get(step_index)
+        if isinstance(candidate, str) and candidate.strip():
+            human = candidate.strip()
+    if not human and registry_module is not None:
+        fallback = _friendly_label_from_registry(step_type, registry_module)
+        if fallback:
+            human = fallback
+    base = f"Step {step_index + 1}"
+    if human:
+        return f'{base} ("{human}")'
+    return base
+
+
 def _is_branch_useful(step_type: str) -> bool:
     """Does this step count as "the branch did something meaningful"?
     Used by the dead-branch check."""
@@ -503,6 +573,8 @@ def _is_branch_useful(step_type: str) -> bool:
 
 def _pass_structural(
     norm_steps: list[tuple[str, Mapping[str, Any]]],
+    step_names: Optional[Mapping[int, str]] = None,
+    registry_module: Optional[Any] = None,
 ) -> list[Diagnostic]:
     """Trigger placement, empty-branch and dead-branch checks."""
 
@@ -514,17 +586,21 @@ def _pass_structural(
     # Step 0 must be a trigger.
     first_type = norm_steps[0][0]
     if not _is_trigger(first_type):
+        # Surface a friendly reference instead of the raw step_type id.
+        first_ref = _render_step_ref(
+            0, first_type, step_names, registry_module,
+        )
         out.append(
             Diagnostic(
                 step_index=0,
                 severity="error",
                 code="trigger_placement",
                 message=(
-                    "the first step must be a trigger "
-                    f"(got {first_type!r})"
+                    f"the first step must be a trigger — {first_ref} "
+                    "is not one"
                 ),
                 suggested_fix=(
-                    "insert a trigger.* step at position 0, or remove "
+                    "insert a trigger step at position 0, or remove "
                     "this step"
                 ),
             )
@@ -595,6 +671,7 @@ def _pass_structural(
 def _pass_refs(
     norm_steps: list[tuple[str, Mapping[str, Any]]],
     registry_module: Any,
+    step_names: Optional[Mapping[int, str]] = None,
 ) -> list[Diagnostic]:
     """Ref forward/bad-path/type checks."""
 
@@ -654,14 +731,26 @@ def _pass_refs(
                 continue
 
             if ref_idx >= i or ref_idx < 0:
+                here_ref = _render_step_ref(
+                    i, step_type, step_names, registry_module,
+                )
+                if 0 <= ref_idx < n:
+                    target_ref = _render_step_ref(
+                        ref_idx,
+                        norm_steps[ref_idx][0],
+                        step_names,
+                        registry_module,
+                    )
+                else:
+                    target_ref = f"Step {ref_idx + 1}"
                 out.append(
                     Diagnostic(
                         step_index=i,
                         severity="error",
                         code="ref_forward",
                         message=(
-                            f"step {i} cannot reference step "
-                            f"{ref_idx} — refs can only point at "
+                            f"{here_ref} cannot reference "
+                            f"{target_ref} — refs can only point at "
                             "earlier steps"
                         ),
                         field=field_path or None,
@@ -676,8 +765,8 @@ def _pass_refs(
                         severity="error",
                         code="ref_forward",
                         message=(
-                            f"step {ref_idx} does not exist (workflow "
-                            f"has {n} steps)"
+                            f"Step {ref_idx + 1} does not exist "
+                            f"(workflow has {n} steps)"
                         ),
                         field=field_path or None,
                     )
@@ -694,6 +783,13 @@ def _pass_refs(
                 continue
 
             leaf, ambiguity = _walk_output_path(schema, tail)
+            producer_ref = _render_step_ref(
+                ref_idx, producer_type, step_names, registry_module,
+            )
+            here_ref = _render_step_ref(
+                i, step_type, step_names, registry_module,
+            )
+            field_name = tail[-1] if tail else ""
             if ambiguity == "missing":
                 props = schema.get("properties")
                 avail = (
@@ -702,7 +798,7 @@ def _pass_refs(
                     else []
                 )
                 fix = (
-                    f"available fields on step {ref_idx}: "
+                    f"available fields on {producer_ref}: "
                     f"{', '.join(avail)}"
                     if avail
                     else None
@@ -713,8 +809,8 @@ def _pass_refs(
                         severity="error",
                         code="ref_bad_path",
                         message=(
-                            f"step {ref_idx} ({producer_type}) has no "
-                            f"output field {'.'.join(tail)!r}"
+                            f"{producer_ref} has no output field "
+                            f"{field_name!r}"
                         ),
                         field=field_path or None,
                         suggested_fix=fix,
@@ -723,16 +819,16 @@ def _pass_refs(
                 continue
             if ambiguity == "loose":
                 # Array/loose-object subtree — downgrade to info to
-                # avoid false positives.
+                # avoid false positives. We don't surface the raw
+                # dotted template path; describe the reference instead.
                 out.append(
                     Diagnostic(
                         step_index=i,
                         severity="info",
                         code="ref_bad_path",
                         message=(
-                            f"could not verify path {'.'.join(tail)!r} "
-                            f"on step {ref_idx} ({producer_type}); "
-                            "this is informational only"
+                            f"could not verify the reference to "
+                            f"{producer_ref} — informational only"
                         ),
                         field=field_path or None,
                     )
@@ -749,11 +845,9 @@ def _pass_refs(
                             severity="error",
                             code="ref_type",
                             message=(
-                                f"{step_type}.{field_path} expects a "
-                                f"number but step {ref_idx} "
-                                f"({producer_type}) returns a "
-                                f"non-numeric value at "
-                                f"{'.'.join(tail)!r}"
+                                f"{here_ref} expects a number for "
+                                f"{field_path!r} but {producer_ref} "
+                                "returns a non-numeric value there"
                             ),
                             field=field_path or None,
                         )
@@ -766,6 +860,8 @@ def _pass_capability(
     norm_steps: list[tuple[str, Mapping[str, Any]]],
     ambient: AmbientState,
     ref_indices: set[int],
+    step_names: Optional[Mapping[int, str]] = None,
+    registry_module: Optional[Any] = None,
 ) -> list[Diagnostic]:
     """Walk steps and emit capability warnings. Branch-resets on every
     trigger. Suppress at any step_index already flagged by the ref pass —
@@ -800,13 +896,16 @@ def _pass_capability(
                     ):
                         satisfied = True
                 if not satisfied:
+                    here_ref = _render_step_ref(
+                        i, step_type, step_names, registry_module,
+                    )
                     out.append(
                         Diagnostic(
                             step_index=i,
                             severity="warning",
                             code=req.code,
                             message=(
-                                f"{step_type} {req.warn} "
+                                f"{here_ref} {req.warn} "
                                 f"(needs {req.label})"
                             ),
                         )
@@ -875,12 +974,22 @@ def lint_workflow(
     steps: Any,
     *,
     ambient: AmbientState | None = None,
+    step_names: Optional[Mapping[int, str]] = None,
 ) -> list[Diagnostic]:
     """Run all three lint passes over ``steps``.
 
     ``steps`` may be a list of dicts (``{step_type, config}``) **or**
     objects exposing ``.step_type`` / ``.config`` — both shapes are
     normalised defensively.
+
+    ``step_names`` is an optional ``{step_index: label}`` map used to
+    humanise diagnostic messages — passing the user's per-step ``label``
+    (from ``StepInput.label`` / ``StepOut.label``) means an error reads
+    ``Step 3 ("Buy the dip")`` instead of leaking the raw step_type id.
+    When the lookup misses, the lint falls back to the registry's friendly
+    label and then to ``Step N``. Always supply this from the router so
+    editor-surfaced lint never leaks raw ``trigger.exit_compound``-style
+    identifiers.
 
     Returns the deduped, sorted list of diagnostics. The function is
     pure and synchronous; it never raises on malformed input — anything
@@ -904,11 +1013,17 @@ def lint_workflow(
 
     diags: list[Diagnostic] = []
     diags.extend(_pass_unknown(norm_steps, registry_module))
-    diags.extend(_pass_structural(norm_steps))
-    ref_diags = _pass_refs(norm_steps, registry_module)
+    diags.extend(
+        _pass_structural(norm_steps, step_names, registry_module)
+    )
+    ref_diags = _pass_refs(norm_steps, registry_module, step_names)
     diags.extend(ref_diags)
     ref_indices = {d.step_index for d in ref_diags}
-    diags.extend(_pass_capability(norm_steps, ambient, ref_indices))
+    diags.extend(
+        _pass_capability(
+            norm_steps, ambient, ref_indices, step_names, registry_module,
+        )
+    )
 
     return _dedupe_and_sort(diags)
 

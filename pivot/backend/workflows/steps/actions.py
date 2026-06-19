@@ -41,10 +41,12 @@ from backend.workflows.schemas import (
     ActionPlaceOptionStrategyConfig,
     ActionPlaceOrderConfig,
     ActionAllocateBasketConfig,
+    ActionSetProtectiveConfig,
     ActionSetStoplossConfig,
     ActionSetTakeprofitConfig,
     ActionSquareoffAllConfig,
     ActionSquareoffAllIntradayConfig,
+    ActionSquareoffConfig,
     ActionSquareoffSymbolConfig,
     ActionUpdateWatchlistConfig,
 )
@@ -480,6 +482,7 @@ async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=False,
     config_model=ActionSetStoplossConfig,
     group="Exits & protection",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -570,6 +573,7 @@ async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=False,
     config_model=ActionSetTakeprofitConfig,
     group="Exits & protection",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -640,6 +644,67 @@ async def execute_action_set_takeprofit(ctx: Any) -> Optional[dict[str, Any]]:
         "trigger_id": str(result.get("trigger_id", "")),
         "client_request_id": ctx.client_request_id,
     }
+
+
+@register_step(
+    step_type="action.set_protective",
+    category="action",
+    label="Set a protective sell",
+    description=(
+        "Protect a holding with a stop-loss OR a take-profit sell — "
+        "at a price or % from entry."
+    ),
+    icon="shield",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSetProtectiveConfig,
+    group="Exits & protection",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "trigger_id": {"type": "string"},
+            "client_request_id": {"type": "string"},
+            "kind": {"type": "string"},
+        },
+        "required": ["trigger_id"],
+    },
+)
+async def execute_action_set_protective(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Dispatch on ``kind`` into the existing stop-loss / take-profit
+    executors so we don't duplicate the GTT resolution + holding-default
+    + percent-offset logic. The two replaced step_types
+    (``action.set_stoploss``, ``action.set_takeprofit``) stay registered
+    + deprecated so any persisted/active workflow still runs."""
+
+    cfg = ctx.config
+    kind = str(cfg.get("kind", "stoploss")).lower()
+    # The legacy executors read ctx.config directly, so we hand them a
+    # minimal wrapper whose `config` dict carries only the fields they
+    # expect (no `kind` discriminator). This keeps the shared
+    # _resolve_entry_price_for_sl / paper-routing path identical.
+    legacy_cfg = {k: v for k, v in cfg.items() if k != "kind"}
+
+    class _Ctx:
+        pass
+
+    proxy = _Ctx()
+    for attr in (
+        "db", "run", "step", "workflow", "client_request_id",
+        "attempts", "config",
+    ):
+        if hasattr(ctx, attr):
+            setattr(proxy, attr, getattr(ctx, attr))
+    proxy.config = legacy_cfg
+
+    if kind == "takeprofit":
+        out = await execute_action_set_takeprofit(proxy)
+    else:
+        out = await execute_action_set_stoploss(proxy)
+    if isinstance(out, dict):
+        out.setdefault("kind", kind)
+    return out
 
 
 @register_step(
@@ -764,6 +829,7 @@ async def execute_action_allocate_basket(
     trigger_only=False,
     config_model=ActionSquareoffAllConfig,
     group="Exits & protection",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -834,7 +900,7 @@ async def execute_action_squareoff_all(
     max_retries=1,
     trigger_only=False,
     config_model=ActionUpdateWatchlistConfig,
-    group="Watchlist",
+    group="Special",
     output_schema={
         "type": "object",
         "properties": {
@@ -1183,6 +1249,7 @@ def _place_squareoff_legs(
     trigger_only=False,
     config_model=ActionSquareoffAllIntradayConfig,
     group="Exits & protection",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -1238,6 +1305,7 @@ async def execute_action_squareoff_all_intraday(
     trigger_only=False,
     config_model=ActionSquareoffSymbolConfig,
     group="Exits & protection",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -1281,6 +1349,70 @@ async def execute_action_squareoff_symbol(
     }
 
 
+@register_step(
+    step_type="action.squareoff",
+    category="action",
+    label="Close positions",
+    description=(
+        "Exit positions at market. Pick the scope: all positions, a "
+        "single symbol, or all intraday (MIS) only."
+    ),
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffConfig,
+    group="Exits & protection",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "skipped": {"type": "array"},
+            "n_filled": {"type": "integer"},
+            "n_skipped": {"type": "integer"},
+            "scope": {"type": "string"},
+        },
+        "required": ["orders", "n_filled", "scope"],
+    },
+)
+async def execute_action_squareoff(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Dispatch on ``scope`` into the existing squareoff executors —
+    they all rely on the same ``_build_squareoff_legs`` +
+    ``_place_squareoff_legs`` shared helpers (or the paper-broker
+    counterparts), so this is a thin proxy."""
+
+    cfg = ctx.config
+    scope = str(cfg.get("scope", "all")).lower()
+
+    class _Ctx:
+        pass
+
+    proxy = _Ctx()
+    for attr in (
+        "db", "run", "step", "workflow", "client_request_id",
+        "attempts", "config",
+    ):
+        if hasattr(ctx, attr):
+            setattr(proxy, attr, getattr(ctx, attr))
+
+    if scope == "symbol":
+        # The legacy per-symbol path reads `symbol` + `product` off
+        # ctx.config directly — strip the discriminator so its schema
+        # doesn't choke on the extra key.
+        proxy.config = {
+            "symbol": cfg["symbol"],
+            "product": cfg.get("product", "MIS"),
+        }
+        return await execute_action_squareoff_symbol(proxy)
+    if scope == "intraday":
+        proxy.config = {}
+        return await execute_action_squareoff_all_intraday(proxy)
+    # default = "all"
+    proxy.config = {}
+    return await execute_action_squareoff_all(proxy)
+
+
 # ── IPO arm-intent (P2 — register-not-execute) ───────────────────────
 
 
@@ -1296,7 +1428,7 @@ async def execute_action_squareoff_symbol(
     max_retries=2,
     trigger_only=False,
     config_model=ActionArmIpoIntentConfig,
-    group="IPO",
+    group="Special",
     output_schema={
         "type": "object",
         "properties": {
@@ -1497,7 +1629,7 @@ async def execute_action_arm_ipo_intent(
     max_retries=1,
     trigger_only=False,
     config_model=ActionPlaceOptionStrategyConfig,
-    group="Options",
+    group="Special",
     output_schema={
         "type": "object",
         "properties": {

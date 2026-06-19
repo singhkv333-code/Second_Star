@@ -818,7 +818,13 @@ def _qty_clarification_question(payload: dict) -> str:
     trivial quantity. We deliberately do NOT ship the draft card with a
     placeholder qty=1 — an editable card reading "buy 1 share" is one
     mis-click from activating a wrong-sized order; echoing the trigger in
-    prose gives the same validation without that footgun."""
+    prose gives the same validation without that footgun.
+
+    Output is formatted on separate lines (Entry / Exit bullets, then a
+    blank line, then the question) so the user sees a clean readback —
+    the previous one-liner glued Entry and Exit onto a " · "-joined
+    run-on that read as a wall of text.
+    """
     sym = ""
     for s in (payload.get("steps") or []):
         if not isinstance(s, dict):
@@ -827,10 +833,10 @@ def _qty_clarification_question(payload: dict) -> str:
             sym = (s.get("config") or {}).get("symbol", "")
             break
     # The draft's one-line description already reads back trigger + action
-    # ("When RSI(14) < 30, buy ...") — echo it so the user sees what we
-    # understood before they commit to a size. Strip the placeholder
-    # quantity ("buy 1 shares of INFY" → "buy INFY") so the echo doesn't
-    # contradict the very question we're about to ask.
+    # ("Entry: When RSI(14) < 30 · Exit: MACD line < signal") — echo it so
+    # the user sees what we understood before they commit to a size.
+    # Strip the placeholder quantity ("buy 1 shares of INFY" → "buy INFY")
+    # so the echo doesn't contradict the very question we're about to ask.
     readback = str(payload.get("description") or "").strip().rstrip(".")
     readback = re.sub(
         r"\b(buy|sell)\s+\d+\s+(?:shares?|units?|lots?)\s+of\s+",
@@ -840,17 +846,45 @@ def _qty_clarification_question(payload: dict) -> str:
         r"\b(buy|sell)\s+\d+\s+([A-Z][A-Z0-9&\-]{1,14})\b",
         r"\1 \2", readback, flags=re.IGNORECASE,
     )
-    lead = f"Got the setup — {readback}. " if readback else ""
+
+    # Split the description back into its Entry / Exit halves when the
+    # canonical builder shape is present so we can render them on their
+    # own bulleted lines. Defensive: if the split fails (unknown shape,
+    # missing readback), fall back to a single "Setup" bullet.
+    entry_text = ""
+    exit_text = ""
+    if readback:
+        # The builder emits "Entry: <…> · Exit: <…>" — match both halves.
+        m = re.match(
+            r"^\s*Entry\s*:\s*(?P<entry>.+?)(?:\s*·\s*Exit\s*:\s*(?P<exit>.+))?\s*$",
+            readback, flags=re.IGNORECASE,
+        )
+        if m:
+            entry_text = (m.group("entry") or "").strip()
+            exit_text = (m.group("exit") or "").strip()
+
+    if entry_text or exit_text:
+        bullets: list[str] = ["Got the setup:"]
+        if entry_text:
+            bullets.append(f"- **Entry** — {entry_text}")
+        if exit_text:
+            bullets.append(f"- **Exit** — {exit_text}")
+        lead = "\n".join(bullets) + "\n\n"
+    elif readback:
+        lead = f"Got the setup:\n- {readback}\n\n"
+    else:
+        lead = ""
+
     if sym:
         return (
-            f"{lead}How many shares of {sym} should the agent buy per fire? "
-            "(I won't default to 1 — set the real size or give me a "
-            "rupee budget like ₹10,000.)"
+            f"{lead}How many shares of {sym} per fire? "
+            f"(Set a size or give me a rupee budget like ₹10,000 — "
+            f"I won't default to 1.)"
         )
     return (
-        f"{lead}How many shares should the agent buy per fire? "
-        "(I won't default to 1 — set the real size or give me a "
-        "rupee budget like ₹10,000.)"
+        f"{lead}How many shares per fire? "
+        f"(Set a size or give me a rupee budget like ₹10,000 — "
+        f"I won't default to 1.)"
     )
 
 

@@ -18,12 +18,16 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { StepIcon } from "@/components/agent-panel/step-icon";
 import { RefChipPicker } from "@/components/agent-panel/RefChipPicker";
+import { ConditionBuilder } from "@/components/agent-panel/ConditionBuilder";
+import { useDslSchema } from "@/components/agent-panel/use-dsl-schema";
 import {
   jsonSchemaToZod,
   type FormField,
 } from "@/lib/json-schema-to-zod";
 import { validateRefsInString } from "@/lib/refs";
 import type {
+  DslNode,
+  DslSchema,
   ErrorBody,
   Step,
   StepTypeDef,
@@ -107,6 +111,20 @@ export function StepConfigDrawer({
     [workflow.steps, step.step_index],
   );
   const hasWebhookTrigger = workflow.steps[0]?.step_type === "trigger.webhook";
+
+  // DSL schema for the visual ConditionBuilder — loads in the background. For a
+  // compound step (trigger.compound / trigger.exit_compound / condition.compound)
+  // the `entry` config field renders as the tree builder instead of raw JSON;
+  // until the schema loads (or for any other step) it falls back to the JSON
+  // object editor.
+  const dslSchemaState = useDslSchema();
+  const dslSchema: DslSchema | null =
+    dslSchemaState.status === "ready" ? dslSchemaState.schema : null;
+  const treeField = dslSchema
+    ? dslSchema.tree_fields[catalogEntry.step_type] ?? null
+    : null;
+  const treeFieldName = treeField?.field ?? null;
+  const treeFieldMode: "entry" | "exit" = treeField?.mode ?? "entry";
 
   const handleSubmit = form.handleSubmit(async (values) => {
     if (!conversion.ok) return;
@@ -243,6 +261,9 @@ export function StepConfigDrawer({
                 error={extractFieldError(form.formState.errors, field.name)}
                 priorSteps={priorSteps}
                 hasWebhookTrigger={hasWebhookTrigger}
+                dslSchema={dslSchema}
+                treeFieldName={treeFieldName}
+                treeFieldMode={treeFieldMode}
               />
             ))}
           </div>
@@ -281,6 +302,11 @@ type FieldRowProps = {
   error?: string;
   priorSteps: Step[];
   hasWebhookTrigger: boolean;
+  /** DSL schema for rendering the ConditionBuilder on the compound-tree field. */
+  dslSchema: DslSchema | null;
+  /** The config field name that holds the compound tree (e.g. "entry"), if any. */
+  treeFieldName: string | null;
+  treeFieldMode: "entry" | "exit";
 };
 
 function FormFieldRow({
@@ -290,8 +316,14 @@ function FormFieldRow({
   error,
   priorSteps,
   hasWebhookTrigger,
+  dslSchema,
+  treeFieldName,
+  treeFieldMode,
 }: FieldRowProps): React.ReactElement {
   const fieldId = `field-${field.name}`;
+  const isTreeField = Boolean(
+    dslSchema && treeFieldName && field.name === treeFieldName,
+  );
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
@@ -301,24 +333,33 @@ function FormFieldRow({
             <span aria-hidden="true" className="ml-1 text-destructive">*</span>
           )}
         </Label>
-        {field.kind !== "boolean" && field.default !== undefined && (
+        {field.kind !== "boolean" && field.default !== undefined && !isTreeField && (
           <span className="text-[10px] text-muted-foreground">
             default: {String(field.default)}
           </span>
         )}
       </div>
 
-      {renderControl({
-        field,
-        fieldId,
-        value,
-        onChange,
-        priorSteps,
-        hasWebhookTrigger,
-        invalid: Boolean(error),
-      })}
+      {isTreeField && dslSchema ? (
+        <ConditionBuilder
+          value={(value as DslNode | null | undefined) ?? null}
+          onChange={(node) => onChange(node)}
+          mode={treeFieldMode}
+          schema={dslSchema}
+        />
+      ) : (
+        renderControl({
+          field,
+          fieldId,
+          value,
+          onChange,
+          priorSteps,
+          hasWebhookTrigger,
+          invalid: Boolean(error),
+        })
+      )}
 
-      {field.description && !error && (
+      {field.description && !error && !isTreeField && (
         <p className="text-[11px] text-muted-foreground">{field.description}</p>
       )}
       {error && (

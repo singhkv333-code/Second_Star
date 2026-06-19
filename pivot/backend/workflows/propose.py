@@ -92,10 +92,33 @@ class WorkflowDraft(BaseModel):
 
 def _build_catalog_summary() -> str:
     """Compact catalog dump for the system prompt. One line per step
-    type with its required config keys — keeps token cost low."""
+    type with its required config keys — keeps token cost low.
+
+    Indicator-bearing step types (``trigger.indicator``, plus compound
+    triggers that wrap an indicator node in their tree) also advertise
+    the optional ``timeframe`` field so prompts like "...on weekly bars"
+    actually produce ``timeframe:"weekly"`` instead of silently dropping
+    it. The default stays ``daily`` — adding the hint does not change
+    behaviour for prompts that don't mention a timeframe.
+    """
     lines: list[str] = []
+    # step_types that accept the optional `timeframe` field on the
+    # indicator/compound trigger config (or inside the compound tree's
+    # IndicatorNode leaves). Listing them explicitly keeps the hint
+    # local to where it's meaningful instead of polluting every line.
+    _TIMEFRAME_AWARE = {
+        "trigger.indicator",
+        "trigger.compound",
+        "trigger.exit_compound",
+        "condition.compound",
+    }
     for step_type in sorted(STEP_REGISTRY.keys()):
         defn = STEP_REGISTRY[step_type]
+        # Never advertise a deprecated/collapsed id to the planner — it should
+        # only emit the parameterized replacements (action.set_protective,
+        # action.squareoff, fetch.price_reference, fetch.rolling_extreme).
+        if getattr(defn, "deprecated", False):
+            continue
         try:
             schema = defn.config_model.model_json_schema()
             required = sorted(schema.get("required", []))
@@ -107,7 +130,18 @@ def _build_catalog_summary() -> str:
         except Exception:
             req_summary = "(config schema unavailable)"
         marker = "TRIGGER" if defn.trigger_only else defn.category
-        lines.append(f"  - {step_type}  [{marker}]  required: {req_summary}")
+        suffix = ""
+        if step_type in _TIMEFRAME_AWARE:
+            # The indicator leaf carries an OPTIONAL timeframe; default
+            # daily. The LLM must propagate the user's stated bar size.
+            suffix = (
+                "   optional: timeframe?: \"daily\" | \"weekly\" "
+                "(default daily; honor user phrases like "
+                "'on weekly bars' / 'weekly RSI')"
+            )
+        lines.append(
+            f"  - {step_type}  [{marker}]  required: {req_summary}{suffix}"
+        )
     return "\n".join(lines)
 
 
@@ -148,6 +182,7 @@ Rules:
   - Order placement that mentions confirmation / approval / "ask me first" → action.place_order with requires_approval=true.
   - "notify me" / "alert me" → notify.message at the end.
   - If the user's intent is ambiguous, prefer the SIMPLER 2-3 step workflow over inventing fields.
+  - Indicator timeframe: trigger.indicator / trigger.compound / trigger.exit_compound / condition.compound accept an optional `timeframe: "daily" | "weekly"`. Default is `daily`. If the user says "weekly RSI", "on weekly bars", "weekly chart", "W/F-close", etc., set `timeframe: "weekly"` on the indicator config (or on every IndicatorNode leaf inside a compound tree). Do NOT invent a non-default timeframe when the user did not ask for it.
 
 INSTRUMENT SELECTION FOR THEMATIC / DIRECTIONAL REQUESTS (HARD RULES — getting this wrong is a correctness failure):
 
@@ -253,6 +288,61 @@ async def resolve_polymarket_event_descriptions(raw: dict[str, Any]) -> None:
         step["config"] = cfg
 
 
+def _ensure_step_labels(draft: WorkflowDraft) -> None:
+    """In-place: every step gets a human label from the registry.
+
+    The frontend's WorkflowDraftCard falls back to the raw ``step_type``
+    string ("trigger.compound", "action.place_order") when ``label`` is
+    null or empty. That leaks engineering ids into the chat surface.
+
+    This helper authoritatively backfills ``step.label`` from
+    ``STEP_REGISTRY[step.step_type].label`` whenever the LLM/mock path
+    left it falsy. Defensive: skips step_types not in the registry
+    (the validator will already have rejected those, but if a future
+    caller invokes this on an unvalidated draft we don't want to crash
+    here).
+    """
+    for step in draft.steps:
+        if step.label:
+            continue
+        defn = STEP_REGISTRY.get(step.step_type)
+        if defn is None:
+            continue
+        step.label = defn.label
+
+
+# Deprecated/collapsed step_type → (replacement, discriminator config).
+_DEPRECATED_STEP_NORMALIZERS: dict[str, tuple[str, dict[str, Any]]] = {
+    "action.set_stoploss": ("action.set_protective", {"kind": "stoploss"}),
+    "action.set_takeprofit": ("action.set_protective", {"kind": "takeprofit"}),
+    "action.squareoff_all": ("action.squareoff", {"scope": "all"}),
+    "action.squareoff_symbol": ("action.squareoff", {"scope": "symbol"}),
+    "action.squareoff_all_intraday": ("action.squareoff", {"scope": "intraday"}),
+    "fetch.day_open": ("fetch.price_reference", {"reference": "day_open"}),
+    "fetch.prior_close": ("fetch.price_reference", {"reference": "prior_close"}),
+    "fetch.rolling_high": ("fetch.rolling_extreme", {"side": "high"}),
+    "fetch.rolling_low": ("fetch.rolling_extreme", {"side": "low"}),
+}
+
+
+def _normalize_deprecated_steps(draft: WorkflowDraft) -> None:
+    """In-place: rewrite any deprecated/collapsed step_type the planner emitted
+    to its parameterized replacement, injecting the discriminator field so the
+    new config model validates. Idempotent — steps already on the new shape are
+    left untouched. The legacy ids still execute via their alias, but freshly
+    proposed drafts should use the slim catalog."""
+    for step in draft.steps:
+        mapping = _DEPRECATED_STEP_NORMALIZERS.get(step.step_type)
+        if mapping is None:
+            continue
+        new_type, discriminator = mapping
+        cfg = dict(step.config or {})
+        for key, val in discriminator.items():
+            cfg.setdefault(key, val)
+        step.step_type = new_type
+        step.config = cfg
+
+
 def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
     """Parse the LLM's JSON output into WorkflowDraft AND validate every
     step config against the registry's Pydantic model.
@@ -278,6 +368,11 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
 
     if not draft.steps:
         raise ProposalValidationError("draft must contain at least one step")
+
+    # Upgrade any deprecated/collapsed step_type to its parameterized
+    # replacement BEFORE per-step config validation (the new config models
+    # require the discriminator the normalizer injects).
+    _normalize_deprecated_steps(draft)
 
     prev_was_trigger = False
     for idx, step in enumerate(draft.steps):
@@ -350,6 +445,10 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
     if non_fatal:
         draft.warnings.extend(d.message for d in non_fatal)
         draft.diagnostics = [d.model_dump() for d in non_fatal]
+
+    # Backfill any missing human labels from the registry so the chat
+    # card never falls back to the raw step_type id.
+    _ensure_step_labels(draft)
 
     return draft
 

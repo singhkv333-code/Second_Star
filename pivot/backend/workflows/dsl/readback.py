@@ -75,12 +75,13 @@ def tree_to_english(tree) -> str:
 
 def _render(node, *, depth: int) -> str:
     if isinstance(node, IndicatorNode):
-        base = f"{node.indicator.upper()}({node.period})"
+        base = _render_indicator_paren(node)
         if node.component:
             phrase = _COMPONENT_PHRASES.get(node.component.lower(), node.component)
             base = f"{phrase} {base}"
         suffix = _offset_phrase(node.offset)
-        return f"{base} of {node.symbol}{suffix}"
+        tf_suffix = _timeframe_phrase(node.timeframe)
+        return f"{base} of {node.symbol}{tf_suffix}{suffix}"
     if isinstance(node, PriceNode):
         basis_phrase = "" if node.basis == "close" else f" {node.basis}"
         suffix = _offset_phrase(node.offset)
@@ -191,6 +192,51 @@ def _offset_phrase(offset: int) -> str:
     if offset == 1:
         return " (1 bar ago)"
     return f" ({offset} bars ago)"
+
+
+def _timeframe_phrase(timeframe: str) -> str:
+    """Render the bar-timeframe suffix. Daily is the default and stays
+    silent (so the existing readbacks ``RSI(14) of TCS < 30`` are
+    unchanged). Weekly is disclosed inline so the user can SEE that
+    "RSI < 30" is being checked on weekly closes, not daily.
+    """
+    if not timeframe or timeframe == "daily":
+        return ""
+    if timeframe == "weekly":
+        return " on weekly bars"
+    return f" on {timeframe} bars"
+
+
+def _render_indicator_paren(node: IndicatorNode) -> str:
+    """Render the bracketed parameter list for an indicator leaf.
+
+    Most indicators surface a single ``period`` so they render as
+    ``RSI(14)``. MACD is the special case: the live computation uses
+    ``(fast=12, slow=period, signal=9)`` (see
+    ``backend.services.backtest_indicators._macd_hist``) — printing a
+    bare ``MACD(12)`` is doubly misleading when:
+
+      a) ``period`` is the SLOW EMA (defaults to 26), not the fast one,
+         so ``MACD(12)`` reads like fast=12 when it's actually slow.
+      b) A ``component`` is set (``macd`` line vs ``signal`` line) —
+         two readbacks side-by-side ("line MACD(12) < signal MACD(12)")
+         hide that signal is a different series with its own EMA.
+
+    When the indicator is MACD we therefore disclose the full
+    ``(fast, slow, signal)`` triplet using the actual values the
+    compute path uses. For every other indicator we keep the simple
+    single-period form so the existing readbacks (and tests) are
+    unchanged.
+    """
+    if node.indicator.lower() == "macd":
+        # Mirror backtest_indicators._macd_hist: slow EMA is clamped to
+        # at least 13 so MACD(12) on a fast-but-too-short slow still
+        # computes sensibly. Signal is fixed at 9 by convention.
+        fast = 12
+        slow = max(int(node.period), 13)
+        signal = 9
+        return f"MACD({fast},{slow},{signal})"
+    return f"{node.indicator.upper()}({node.period})"
 
 
 def _render_position(node: PositionNode) -> str:

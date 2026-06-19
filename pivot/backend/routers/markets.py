@@ -122,6 +122,20 @@ class OhlcResponse(BaseModel):
     bars: list[OhlcBar]
 
 
+class MetricPoint(BaseModel):
+    t: datetime    # timestamp
+    v: float       # metric value (PE multiple, EV/EBITDA multiple, …)
+
+
+class MetricSeriesResponse(BaseModel):
+    symbol: str
+    metric: str            # "pe" | "ev_ebitda"
+    range: str
+    available: bool        # false → caller shows an honest empty state
+    points: list[MetricPoint]
+    source: str            # "moneycontrol" | "yfinance" | "none"
+
+
 # ── Indices endpoint (dashboard) ─────────────────────────────────────
 
 
@@ -356,6 +370,10 @@ def _read_cached_kite_tick(symbol: str) -> StockQuote | None:
     source_typed: Literal["kite_ws", "kite_rest"] = (
         "kite_rest" if source == "kite_rest" else "kite_ws"
     )
+    # The Kite tick feed doesn't carry a 52-week range, so the live path used
+    # to drop it (→ empty 52w bar on the stock page). Backfill from a 12h
+    # cache computed off yfinance.
+    w52_high, w52_low = _cached_52w(symbol)
     last_updated = datetime.fromtimestamp(int(ts), tz=timezone.utc)
     return StockQuote(
         symbol=symbol,
@@ -371,8 +389,8 @@ def _read_cached_kite_tick(symbol: str) -> StockQuote | None:
         low=_or_zero(data.get("low")),
         prev_close=round(prev_close_f, 2),
         volume=_or_zero(data.get("volume")),
-        w52_high=None,
-        w52_low=None,
+        w52_high=w52_high,
+        w52_low=w52_low,
         market_cap=None,
         pe_ratio=None,
         last_updated=last_updated,
@@ -609,6 +627,219 @@ def _safe_float(v: object) -> float | None:
 
 def _is_nan(v: float) -> bool:
     return v != v  # NaN is the only float that isn't equal to itself
+
+
+# ── 52-week range backfill (for the live Kite-tick path) ─────────────
+
+
+_52W_TTL_S = 43_200  # 12h — the range barely moves intraday
+
+
+def _cached_52w(symbol: str) -> tuple[float | None, float | None]:
+    """Return (high, low) 52-week range, cached in Redis for 12h.
+
+    Computed from yfinance `info`, falling back to the 1-year high/low of the
+    daily bars. Returns (None, None) on any failure — the caller renders "—".
+    """
+    key = f"q52:{symbol.upper()}"
+    try:
+        raw = redis_client.get(key)
+        if raw is not None:
+            if isinstance(raw, (bytes, bytearray)):
+                raw = raw.decode()
+            d = json.loads(raw)
+            return d.get("high"), d.get("low")
+    except Exception:
+        pass
+
+    hi: float | None = None
+    lo: float | None = None
+    try:
+        from backend.market.yfinance_service import resolve_symbol
+        t = yf.Ticker(resolve_symbol(symbol))
+        info = t.info or {}
+        hi = _safe_float(info.get("fiftyTwoWeekHigh"))
+        lo = _safe_float(info.get("fiftyTwoWeekLow"))
+        if hi is None or lo is None:
+            h = t.history(period="1y")
+            if not h.empty:
+                hi = round(float(h["High"].max()), 2)
+                lo = round(float(h["Low"].min()), 2)
+    except Exception:
+        pass
+
+    if hi is not None and lo is not None:
+        try:
+            redis_client.setex(key, _52W_TTL_S, json.dumps({"high": hi, "low": lo}))
+        except Exception:
+            pass
+    return hi, lo
+
+
+# ── Metric series (PE / EV-EBITDA over time, for the chart toggle) ────
+
+
+from datetime import date as _date  # noqa: E402
+
+
+def _to_date(v: object) -> _date | None:
+    if isinstance(v, _date) and not isinstance(v, datetime):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, str):
+        try:
+            return datetime.fromisoformat(v[:10]).date()
+        except ValueError:
+            return None
+    return None
+
+
+def _value_asof(steps: list[tuple[_date, float]], d: _date) -> float | None:
+    """`steps` sorted ascending by date. Return the value effective on/just
+    before `d`; for dates before the first step, flat-extrapolate the earliest
+    value backward so the chart stays continuous."""
+    val: float | None = None
+    for sd, v in steps:
+        if sd <= d:
+            val = v
+        else:
+            break
+    if val is None and steps:
+        val = steps[0][1]
+    return val
+
+
+def _eps_steps(sym: str) -> tuple[list[tuple[_date, float]], str]:
+    """Annual basic-EPS steps (ascending), MC-primary then yfinance."""
+    from backend.market import financials_db as fdb
+    try:
+        rows = fdb.get_fundamental_history(sym, "eps_basic", limit=12)
+    except Exception:
+        rows = []
+    steps: list[tuple[_date, float]] = []
+    for r in rows:
+        if r.value_numeric is None:
+            continue
+        d = _to_date(r.availability_date) or _to_date(r.period_end)
+        if d is not None:
+            steps.append((d, float(r.value_numeric)))
+    if steps:
+        steps.sort(key=lambda s: s[0])
+        return steps, "moneycontrol"
+
+    # yfinance fallback
+    from backend.market import yfinance_fundamentals as yff
+    f = yff.fetch_fundamentals(sym)
+    for p in (f.get("history", {}).get("eps_basic") or []):
+        d = _to_date(p.get("period_end"))
+        v = p.get("value")
+        if d is not None and v is not None:
+            steps.append((d, float(v)))
+    steps.sort(key=lambda s: s[0])
+    return steps, ("yfinance" if steps else "none")
+
+
+def _pe_series(sym: str, prices: list[tuple[datetime, float]]) -> tuple[list[MetricPoint], str]:
+    steps, source = _eps_steps(sym)
+    if not steps:
+        return [], "none"
+    pts: list[MetricPoint] = []
+    for ts, close in prices:
+        d = ts.date() if isinstance(ts, datetime) else _to_date(ts)
+        if d is None:
+            continue
+        eps = _value_asof(steps, d)
+        if eps and eps > 0:
+            pts.append(MetricPoint(t=ts, v=round(close / eps, 2)))
+    return pts, (source if pts else "none")
+
+
+def _ev_ebitda_series(sym: str, prices: list[tuple[datetime, float]]) -> tuple[list[MetricPoint], str]:
+    from backend.market import yfinance_fundamentals as yff
+    f = yff.fetch_fundamentals(sym)
+    shares = f.get("shares")
+    ebitda_hist = f.get("history", {}).get("ebitda") or []
+    debt_hist = f.get("history", {}).get("total_debt") or []
+    cash_hist = f.get("history", {}).get("cash") or []
+    if not shares or not ebitda_hist:
+        return [], "none"
+
+    ebitda_steps: list[tuple[_date, float]] = []
+    for p in ebitda_hist:
+        d = _to_date(p.get("period_end"))
+        if d is not None and p.get("value") is not None:
+            ebitda_steps.append((d, float(p["value"])))  # ₹ Cr
+    ebitda_steps.sort(key=lambda s: s[0])
+
+    cash_by: dict[_date, float] = {}
+    for p in cash_hist:
+        d = _to_date(p.get("period_end"))
+        if d is not None and p.get("value") is not None:
+            cash_by[d] = float(p["value"])
+    netdebt_steps: list[tuple[_date, float]] = []
+    for p in debt_hist:
+        d = _to_date(p.get("period_end"))
+        if d is not None and p.get("value") is not None:
+            netdebt_steps.append((d, float(p["value"]) - cash_by.get(d, 0.0)))  # ₹ Cr
+    netdebt_steps.sort(key=lambda s: s[0])
+
+    pts: list[MetricPoint] = []
+    for ts, close in prices:
+        d = ts.date() if isinstance(ts, datetime) else _to_date(ts)
+        if d is None:
+            continue
+        ebitda = _value_asof(ebitda_steps, d)
+        if not ebitda or ebitda <= 0:
+            continue
+        netdebt = _value_asof(netdebt_steps, d) or 0.0
+        mcap_cr = (close * shares) / 1e7
+        ev_cr = mcap_cr + netdebt
+        pts.append(MetricPoint(t=ts, v=round(ev_cr / ebitda, 2)))
+
+    # Defense-in-depth against any residual unit mismatch: a real EV/EBITDA
+    # sits well under ~120x. If the median is absurd, the inputs are bad —
+    # show nothing rather than a fabricated curve.
+    if pts:
+        import statistics
+        if statistics.median(p.v for p in pts) > 120:
+            return [], "none"
+    return pts, ("yfinance" if pts else "none")
+
+
+@router.get(
+    "/metric-series/{symbol}",
+    response_model=MetricSeriesResponse,
+    summary="Time series of a valuation metric (PE / EV-EBITDA) for the chart toggle",
+)
+def get_metric_series(
+    symbol: str,
+    metric: Literal["pe", "ev_ebitda"] = Query("pe"),
+    range: _RangeLiteral = Query("5Y"),
+    exchange: str = Query("NSE", pattern="^(NSE|BSE)$"),
+    _user_id: int = Depends(require_user),
+) -> MetricSeriesResponse:
+    sym = symbol.upper().strip()
+    try:
+        spark = get_sparkline(sym, range=range, exchange=exchange, _user_id=_user_id)
+        prices = [(p.t, p.v) for p in spark.points]
+    except Exception:
+        prices = []
+    if not prices:
+        return MetricSeriesResponse(
+            symbol=sym, metric=metric, range=range,
+            available=False, points=[], source="none",
+        )
+
+    if metric == "pe":
+        pts, source = _pe_series(sym, prices)
+    else:
+        pts, source = _ev_ebitda_series(sym, prices)
+
+    return MetricSeriesResponse(
+        symbol=sym, metric=metric, range=range,
+        available=bool(pts), points=pts, source=source,
+    )
 
 
 # Suppress unused-import warning for `Session` — required by FastAPI's DI

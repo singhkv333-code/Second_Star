@@ -45,6 +45,7 @@ from backend.routers.markets import router as markets_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.backtest_alias import router as backtest_alias_router
 from backend.routers.financials import router as financials_router
+from backend.routers.companies import router as companies_router
 from backend.routers.quotes import router as quotes_router
 from backend.routers.portfolio_perf import router as portfolio_perf_router
 from backend.routers.paper import router as paper_router
@@ -111,6 +112,7 @@ app.include_router(news_router)
 app.include_router(conversations_router)
 app.include_router(workflows_router)
 app.include_router(financials_router)
+app.include_router(companies_router)
 app.include_router(runs_router)
 app.include_router(approvals_router)
 app.include_router(webhooks_router)

@@ -112,7 +112,7 @@ describe("StepTypePicker", () => {
     expect(screen.queryByTestId("step-picker-bucket-needs-setup")).toBeNull();
   });
 
-  it("after a place_order step, set_stoploss/set_takeprofit go to Recommended", () => {
+  it("after a place_order step, set_protective goes to Recommended", () => {
     const priorSteps: Step[] = [
       mkStep(0, "trigger.schedule"),
       mkStep(1, "action.place_order"),
@@ -127,16 +127,16 @@ describe("StepTypePicker", () => {
         onClose={() => {}}
       />,
     );
-    // action.place_order produces position_open → set_stoploss requires
+    // action.place_order produces position_open → set_protective requires
     // position_open → should appear in Recommended.
     const bucketRec = screen.getByTestId("step-picker-bucket-recommended");
     expect(bucketRec).toBeInTheDocument();
 
-    const stopItem = screen.getByTestId("step-picker-item-action.set_stoploss");
+    const stopItem = screen.getByTestId("step-picker-item-action.set_protective");
     expect(stopItem).toBeInTheDocument();
   });
 
-  it("without a prior position producer, set_stoploss goes to Needs setup", () => {
+  it("without a prior position producer, set_protective goes to Needs setup", () => {
     const priorSteps: Step[] = [
       mkStep(0, "trigger.schedule"),
     ];
@@ -150,11 +150,11 @@ describe("StepTypePicker", () => {
         onClose={() => {}}
       />,
     );
-    // No prior position producer — set_stoploss must be in Needs setup.
+    // No prior position producer — set_protective must be in Needs setup.
     const needsBucket = screen.getByTestId("step-picker-bucket-needs-setup");
     expect(needsBucket).toBeInTheDocument();
 
-    const stopItem = screen.getByTestId("step-picker-item-action.set_stoploss");
+    const stopItem = screen.getByTestId("step-picker-item-action.set_protective");
     expect(stopItem).toBeInTheDocument();
     // The warn text should be visible on the row (overrides description).
     expect(stopItem.textContent).toContain("needs a position");
@@ -173,13 +173,13 @@ describe("StepTypePicker", () => {
         onClose={() => {}}
       />,
     );
-    // Even though set_stoploss is in Needs setup, clicking it should fire onSelect.
+    // Even though set_protective is in Needs setup, clicking it should fire onSelect.
     await userEvent.click(
-      screen.getByTestId("step-picker-item-action.set_stoploss"),
+      screen.getByTestId("step-picker-item-action.set_protective"),
     );
     expect(onSelect).toHaveBeenCalled();
     const arg = onSelect.mock.calls[0]?.[0] as { step_type?: string };
-    expect(arg?.step_type).toBe("action.set_stoploss");
+    expect(arg?.step_type).toBe("action.set_protective");
   });
 
   // ── Search ──────────────────────────────────────────────────────────────

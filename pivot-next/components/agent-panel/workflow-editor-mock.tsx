@@ -70,13 +70,30 @@ export type WorkflowEditorMockProps = {
   /** The workflow to render. Mutations persist via PATCH /api/workflows/{id}. */
   initialWorkflow: Workflow;
   catalog: StepTypeCatalog;
+  /**
+   * When set, the editor is CONTROLLED by this value — changes pushed from
+   * chat (amended drafts) arrive here and re-render the editor without
+   * remounting. Only used for unsaved drafts. Undefined = uncontrolled (the
+   * default, same as today for saved workflows and the demo).
+   */
+  controlledWorkflow?: Workflow;
+  /**
+   * Called when the user edits the controlled draft inside the editor so the
+   * caller can keep its state in sync. Only called when `controlledWorkflow`
+   * is set.
+   */
+  onControlledWorkflowChange?: (draft: Workflow | null) => void;
 };
 
 export function WorkflowEditorMock({
   initialWorkflow,
   catalog,
+  controlledWorkflow,
+  onControlledWorkflowChange,
 }: WorkflowEditorMockProps): React.ReactElement {
-  const [workflow, setWorkflow] = useState<Workflow>(initialWorkflow);
+  const [workflow, setWorkflow] = useState<Workflow>(
+    controlledWorkflow ?? initialWorkflow,
+  );
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [pickerInsertIndex, setPickerInsertIndex] = useState<number | null>(null);
   const [actionState, setActionState] = useState<ActionState>("idle");
@@ -98,6 +115,33 @@ export function WorkflowEditorMock({
     return map;
   });
   const lintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Controlled-draft sync: when the parent pushes a new version of the draft
+  // (e.g. chat amended it), update local state so the editor re-renders.
+  // We skip this if the user is actively editing (editingStepId is set) to
+  // avoid clobbering mid-edit; the next chat turn will still carry the latest
+  // user-visible state because the FE reads activeEditorDraft from context.
+  const prevControlledRef = useRef<Workflow | undefined>(controlledWorkflow);
+  useEffect(() => {
+    if (!controlledWorkflow) return;
+    if (controlledWorkflow === prevControlledRef.current) return;
+    prevControlledRef.current = controlledWorkflow;
+    // Only apply if not mid-step-edit (preserve user's in-progress edits).
+    if (editingStepId) return;
+    setWorkflow(controlledWorkflow);
+    scheduleLint(controlledWorkflow.steps);
+  // editingStepId intentionally NOT in deps — we only want to recheck when
+  // controlledWorkflow itself changes from outside.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlledWorkflow]);
+
+  // Notify caller whenever local workflow state changes (user edits).
+  const prevLocalRef = useRef<Workflow>(workflow);
+  useEffect(() => {
+    if (workflow === prevLocalRef.current) return;
+    prevLocalRef.current = workflow;
+    onControlledWorkflowChange?.(workflow);
+  }, [workflow, onControlledWorkflowChange]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),

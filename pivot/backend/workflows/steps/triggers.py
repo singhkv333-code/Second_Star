@@ -68,7 +68,7 @@ async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=True,
     config_model=TriggerPriceConfig,
     output_schema=None,
-    group="Price & indicators",
+    group="Price, indicators & exits",
 )
 async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the watcher (backend/workflows/scheduler.py:_poll_watch_triggers)
@@ -91,7 +91,7 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=True,
     config_model=TriggerIndicatorConfig,
     output_schema=None,
-    group="Price & indicators",
+    group="Price, indicators & exits",
 )
 async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: same reasoning as trigger.price. The watcher fires the
@@ -114,7 +114,7 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=True,
     config_model=TriggerExpiryDayConfig,
     output_schema=None,
-    group="Options & expiry",
+    group="Events & external",
 )
 async def execute_trigger_expiry_day(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the option watcher in scheduler.py fires this trigger
@@ -138,7 +138,7 @@ async def execute_trigger_expiry_day(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=True,
     config_model=TriggerCompoundConfig,
     output_schema=None,
-    group="Price & indicators",
+    group="Price, indicators & exits",
 )
 async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the watcher (backend/workflows/scheduler.py) evaluates
@@ -163,7 +163,7 @@ async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=True,
     config_model=TriggerExitCompoundConfig,
     output_schema=None,
-    group="Positions & exits",
+    group="Price, indicators & exits",
 )
 async def execute_trigger_exit_compound(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the scheduler's watcher
@@ -186,7 +186,7 @@ async def execute_trigger_exit_compound(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=0,
     trigger_only=True,
     config_model=TriggerEventConfig,
-    group="Events & news",
+    group="Events & external",
     output_schema={
         "type": "object",
         "properties": {
@@ -246,7 +246,7 @@ async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=True,
     config_model=TriggerManualConfig,
     output_schema=None,
-    group="External & manual",
+    group="Events & external",
 )
 async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the user clicked Run now. The run row carries
@@ -266,7 +266,7 @@ async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=0,
     trigger_only=True,
     config_model=TriggerPolymarketConfig,
-    group="Events & news",
+    group="Events & external",
     output_schema={
         "type": "object",
         "properties": {
@@ -330,7 +330,7 @@ async def execute_trigger_market_relative_time(ctx: Any) -> Optional[dict[str, A
     trigger_only=True,
     config_model=TriggerIpoOpenConfig,
     output_schema=None,
-    group="Events & news",
+    group="Events & external",
 )
 async def execute_trigger_ipo_open(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the IPO open watcher (``backend/workflows/scheduler.py
@@ -353,7 +353,7 @@ async def execute_trigger_ipo_open(ctx: Any) -> Optional[dict[str, Any]]:
     trigger_only=True,
     config_model=TriggerWebhookConfig,
     output_schema=None,
-    group="External & manual",
+    group="Events & external",
 )
 async def execute_trigger_webhook(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op at execute time. The webhook router writes the inbound

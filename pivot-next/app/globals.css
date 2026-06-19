@@ -760,11 +760,14 @@
 }
 
 /* AgentPanel (right-side workflow editor) — full screen at <lg so it
-   doesn't shoulder against the content. Desktop keeps the resizable
-   drawer. Override the inline `width` set by React with !important.
-   On non-desktop the panel also drops below the top header so the
-   logo + account menu + mobile-nav trigger stay reachable while an
-   agent is open (lets the user tap the pivot logo to return to chat). */
+   doesn't shoulder against the content. Desktop uses a resizable drawer
+   (width driven by React state + localStorage). Override the inline
+   `width` set by React with !important for mobile/tablet.
+   On non-desktop the panel drops below the top header so the logo +
+   account menu + mobile-nav trigger stay reachable while an agent is
+   open (lets the user tap the pivot logo to return to chat).
+   The panel is NON-MODAL on desktop (no overlay dimming); chat stays
+   fully visible and interactive while the editor is open. */
 @media (max-width: 1023.98px) {
   .agent-panel-shell {
     width: 100vw !important;
@@ -773,9 +776,8 @@
     border-left: none !important;
     top: var(--header-h, 56px) !important;
   }
-  /* Drop the scrim below the header too, so the top bar (logo + account +
-     mobile-nav) stays bright and tappable instead of being dimmed/blocked
-     while an agent is open. */
+  /* The backdrop is transparent (pointer-events-none) on desktop; on
+     mobile we still drop it below the header for consistency. */
   .agent-panel-backdrop {
     top: var(--header-h, 56px) !important;
   }

@@ -176,8 +176,17 @@ def _validate_steps(
     # advisory and surface via the GET response's `diagnostics` field.
     # No ambient state at the router boundary — ambient is a per-run
     # engine concept; the editor is reasoning about the workflow shape
-    # in isolation here.
-    lint_diags = lint_workflow(steps, ambient=None)
+    # in isolation here. Pass `step_names` from each step's caller-supplied
+    # label so diagnostics read as `Step N ("Buy the dip")` instead of
+    # leaking the raw step_type id.
+    step_names: dict[int, str] = {}
+    for idx, step in enumerate(steps):
+        raw_label = step.get("label")
+        if isinstance(raw_label, str) and raw_label.strip():
+            step_names[idx] = raw_label.strip()
+    lint_diags = lint_workflow(
+        steps, ambient=None, step_names=step_names or None,
+    )
     lint_errors = [d for d in lint_diags if d.severity == "error"]
     if lint_errors:
         first = lint_errors[0]
@@ -240,7 +249,18 @@ def _to_workflow_out(wf: Workflow) -> WorkflowOut:
         }
         for s in ordered_steps
     ]
-    diagnostics = [d.model_dump() for d in lint_workflow(lint_input, ambient=None)]
+    # Build step_names from the persisted labels so already-saved workflows
+    # surface friendly diagnostic text on GET (no raw step_type ids).
+    step_names: dict[int, str] = {}
+    for idx, s in enumerate(ordered_steps):
+        if isinstance(s.label, str) and s.label.strip():
+            step_names[idx] = s.label.strip()
+    diagnostics = [
+        d.model_dump()
+        for d in lint_workflow(
+            lint_input, ambient=None, step_names=step_names or None,
+        )
+    ]
     return WorkflowOut(
         id=str(wf.id),
         name=str(wf.name),
@@ -368,8 +388,188 @@ def lint_workflow_endpoint(
         if body.ambient is not None
         else None
     )
-    diagnostics = lint_workflow(body.steps, ambient=ambient)
+    # Carry through any per-step labels the editor supplies so diagnostics
+    # come back human-readable (e.g. `Step 3 ("Buy the dip")` instead of
+    # `step 3 (trigger.exit_compound)`).
+    step_names: dict[int, str] = {}
+    for idx, step in enumerate(body.steps):
+        raw_label = step.get("label")
+        if isinstance(raw_label, str) and raw_label.strip():
+            step_names[idx] = raw_label.strip()
+    diagnostics = lint_workflow(
+        body.steps, ambient=ambient, step_names=step_names or None,
+    )
     return _LintWorkflowResponse(diagnostics=diagnostics)
+
+
+# ── /dsl/schema + /dsl/describe — read-only ConditionBuilder helpers ──
+#
+# Metadata + english readback for the visual condition/tree builder that
+# edits the compound DSL trees (trigger.compound / trigger.exit_compound /
+# condition.compound). Read-only: full-workflow validation stays with
+# POST /api/workflows/lint. Neither endpoint 500s on bad input — an invalid
+# tree comes back 200 with {"english": "", "error": "..."} so the builder
+# surfaces the message inline.
+
+# Operator + position-field vocabularies (ordered; the FE renders them
+# verbatim and the contract test pins the order).
+_DSL_OPERATORS: list[tuple[str, str]] = [
+    (">", "is above"),
+    ("<", "is below"),
+    (">=", "is at or above"),
+    ("<=", "is at or below"),
+    ("==", "equals"),
+    ("crosses_above", "crosses above"),
+    ("crosses_below", "crosses below"),
+]
+_DSL_POSITION_FIELDS: list[tuple[str, str]] = [
+    ("entry_price", "Entry price"),
+    ("unrealised_pct", "Unrealised P&L %"),
+    ("unrealised_abs", "Unrealised P&L ₹"),
+    ("bars_held", "Bars held"),
+    ("peak_unrealised_pct", "Peak unrealised %"),
+    ("drawdown_from_peak_pct", "Drawdown from peak %"),
+]
+
+
+class _DslIndicatorEntry(BaseModel):
+    id: str
+    label: str
+    default_period: int
+    multi_output: bool
+    components: list[str]
+
+
+class _DslLabeled(BaseModel):
+    id: str
+    label: str
+
+
+class _DslTreeField(BaseModel):
+    field: str
+    mode: str  # "entry" | "exit"
+
+
+class _DslSchemaResponse(BaseModel):
+    indicators: list[_DslIndicatorEntry]
+    operators: list[_DslLabeled]
+    operand_kinds: list[str]
+    price_bases: list[str]
+    position_fields: list[_DslLabeled]
+    logic_ops: list[str]
+    timeframes: list[str]
+    tree_fields: dict[str, _DslTreeField]
+
+
+def _dsl_indicator_entries() -> list[_DslIndicatorEntry]:
+    """Build the indicator picker list from the live indicator registry so
+    a newly-registered indicator shows up without editing this endpoint.
+    Aliases (bb/bollinger) collapse to their canonical spec.key."""
+    from backend.services.backtest_indicators import (
+        _REGISTRY,
+        allowed_components,
+        supported_indicators,
+    )
+
+    seen: set[str] = set()
+    out: list[_DslIndicatorEntry] = []
+    for key in supported_indicators():
+        spec = _REGISTRY[key]
+        if spec.key in seen:
+            continue
+        seen.add(spec.key)
+        comps = list(allowed_components(spec.key))
+        out.append(
+            _DslIndicatorEntry(
+                id=spec.key,
+                label=spec.label,
+                default_period=spec.default_period,
+                multi_output=bool(comps),
+                components=comps,
+            )
+        )
+    return out
+
+
+@router.get(
+    "/workflows/dsl/schema",
+    response_model=_DslSchemaResponse,
+    summary="DSL builder metadata (indicators, operators, operand kinds…)",
+    description=(
+        "Read-only vocabularies the visual ConditionBuilder uses to render "
+        "operand pickers for compound DSL trees. Indicators come from the "
+        "live backtest_indicators registry; the rest are static. "
+        "`tree_fields` maps each compound step_type to the config field that "
+        "holds its tree and whether position leaves are allowed (mode=exit)."
+    ),
+)
+def get_dsl_schema(
+    _user_id: int = Depends(require_user),
+) -> _DslSchemaResponse:
+    return _DslSchemaResponse(
+        indicators=_dsl_indicator_entries(),
+        operators=[_DslLabeled(id=i, label=lbl) for i, lbl in _DSL_OPERATORS],
+        operand_kinds=["indicator", "price", "constant", "position"],
+        price_bases=["close", "open", "high", "low"],
+        position_fields=[
+            _DslLabeled(id=i, label=lbl) for i, lbl in _DSL_POSITION_FIELDS
+        ],
+        logic_ops=["and", "or"],
+        timeframes=["daily", "weekly"],
+        # All three compound steps store the tree under config['entry'];
+        # only the exit trigger allows position-leaf operands.
+        tree_fields={
+            "trigger.compound": _DslTreeField(field="entry", mode="entry"),
+            "trigger.exit_compound": _DslTreeField(field="entry", mode="exit"),
+            "condition.compound": _DslTreeField(field="entry", mode="entry"),
+        },
+    )
+
+
+class _DescribeDslRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tree: dict[str, object] = Field(default_factory=dict)
+    mode: str = "entry"  # "entry" | "exit"
+
+
+class _DescribeDslResponse(BaseModel):
+    english: str
+    error: Optional[str] = None
+
+
+@router.post(
+    "/workflows/dsl/describe",
+    response_model=_DescribeDslResponse,
+    summary="English readback of a DSL condition tree",
+    description=(
+        "Validates a single DSL tree (structural + semantic, with position "
+        "leaves gated by `mode`) and returns a one-line english sentence for "
+        "the builder's live readback. NEVER 500s — an invalid tree returns "
+        "200 with english='' and a human error string."
+    ),
+)
+def describe_dsl_tree(
+    body: _DescribeDslRequest,
+    _user_id: int = Depends(require_user),
+) -> _DescribeDslResponse:
+    from pydantic import TypeAdapter
+
+    from backend.workflows.dsl.readback import tree_to_english
+    from backend.workflows.dsl.schema import Tree, normalize_tree_aliases
+    from backend.workflows.dsl.validators import (
+        DSLValidationError,
+        semantic_validate,
+    )
+
+    try:
+        parsed = TypeAdapter(Tree).validate_python(
+            normalize_tree_aliases(body.tree)
+        )
+        semantic_validate(parsed, allow_position=(body.mode == "exit"))
+        english = tree_to_english(parsed)
+    except (ValidationError, DSLValidationError, ValueError) as exc:
+        return _DescribeDslResponse(english="", error=str(exc))
+    return _DescribeDslResponse(english=english, error=None)
 
 
 # ── propose_workflow as a direct REST endpoint (Day 6 #38) ────────────

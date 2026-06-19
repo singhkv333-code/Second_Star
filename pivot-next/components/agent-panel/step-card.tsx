@@ -174,33 +174,33 @@ function DiagnosticChips({
   return (
     <ul
       aria-label="Step diagnostics"
-      className="ml-7 flex flex-col gap-1"
+      className="ml-7 flex flex-col gap-1.5"
       data-step-card-noclick
       onClick={(e) => e.stopPropagation()}
     >
       {diagnostics.map((d, i) => (
-        <li key={i} className="flex items-start gap-1.5">
+        <li key={i} className="flex items-start gap-2">
           {d.severity === "error" && (
             <AlertCircle
-              className="mt-px h-3 w-3 shrink-0 text-rose-500"
+              className="mt-0.5 h-4 w-4 shrink-0 text-rose-500"
               aria-hidden="true"
             />
           )}
           {d.severity === "warning" && (
             <AlertCircle
-              className="mt-px h-3 w-3 shrink-0 text-amber-500"
+              className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
               aria-hidden="true"
             />
           )}
           {d.severity === "info" && (
             <Info
-              className="mt-px h-3 w-3 shrink-0 text-sky-500"
+              className="mt-0.5 h-4 w-4 shrink-0 text-sky-500"
               aria-hidden="true"
             />
           )}
           <span
             className={cn(
-              "text-[11px] leading-snug",
+              "text-xs leading-snug",
               d.severity === "error" && "text-rose-700 dark:text-rose-300",
               d.severity === "warning" && "text-amber-700 dark:text-amber-300",
               d.severity === "info" && "text-sky-700 dark:text-sky-300",

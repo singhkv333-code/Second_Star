@@ -47,6 +47,15 @@ class ChatRequest(BaseModel):
     # excerpt here. We weave it into the current user message so the LLM
     # knows precisely what is being replied to. None / empty = no quote.
     quoted_text: Optional[str] = None
+    # "Chat edits the draft open in the editor": when the user has an
+    # unsaved workflow draft open in the editor panel, the FE attaches
+    # the current on-screen draft here so chat amendments base off
+    # exactly what the user sees — not whatever happens to be in Redis.
+    # Same shape as workflow_draft_card / propose_workflow output
+    # (name, description, steps:[{step_type,label,config}], ...).
+    # None / absent = legacy Redis active_draft flow, byte-for-byte
+    # unchanged.
+    editor_draft: Optional[dict] = None
 
 
 # ---- Helpers -----------------------------------------------------------
@@ -444,6 +453,7 @@ async def chat(
         # session boundary signal. None would re-hydrate from Redis.
         history_override=history,
         mode_override=request.mode,
+        editor_draft=request.editor_draft,
     )
 
     if turn.sanitised:
@@ -586,6 +596,7 @@ async def chat_stream(
                 llm_msg, conv_id, ctx,
                 history_override=history,  # always honour FE-sent window
                 mode_override=request.mode,
+                editor_draft=request.editor_draft,
             ):
                 # Hoist nested-tool render hints up to top level so the
                 # FE consumes the same shape as POST /chat. We only need

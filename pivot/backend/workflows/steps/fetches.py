@@ -25,9 +25,11 @@ from backend.workflows.schemas import (
     FetchIntradayPnLConfig,
     FetchNewsConfig,
     FetchPortfolioConfig,
+    FetchPriceReferenceConfig,
     FetchPriorCloseConfig,
     FetchQuoteConfig,
     FetchRelativeThresholdConfig,
+    FetchRollingExtremeConfig,
     FetchRollingHighConfig,
     FetchRollingLowConfig,
     FetchSpreadZScoreConfig,
@@ -54,7 +56,7 @@ class NotYetAvailableError(RuntimeError):
     max_retries=3,
     trigger_only=False,
     config_model=FetchQuoteConfig,
-    group="Market data",
+    group="Quotes & price levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -149,7 +151,7 @@ async def execute_fetch_quote(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=3,
     trigger_only=False,
     config_model=FetchIndicatorConfig,
-    group="Indicators & levels",
+    group="Indicators",
     output_schema={
         "type": "object",
         "properties": {
@@ -226,7 +228,7 @@ async def execute_fetch_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=3,
     trigger_only=False,
     config_model=FetchFundamentalConfig,
-    group="Fundamentals",
+    group="Research & screens",
     output_schema={
         "type": "object",
         "properties": {
@@ -455,7 +457,7 @@ async def execute_fetch_intraday_pnl(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=3,
     trigger_only=False,
     config_model=FetchNewsConfig,
-    group="News",
+    group="Research & screens",
     output_schema={
         "type": "object",
         "properties": {
@@ -670,7 +672,8 @@ def _resolve_day_anchor(
     max_retries=3,
     trigger_only=False,
     config_model=FetchDayOpenConfig,
-    group="Market data",
+    group="Quotes & price levels",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -706,7 +709,8 @@ async def execute_fetch_day_open(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=3,
     trigger_only=False,
     config_model=FetchPriorCloseConfig,
-    group="Market data",
+    group="Quotes & price levels",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -751,7 +755,8 @@ async def execute_fetch_prior_close(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=3,
     trigger_only=False,
     config_model=FetchRollingHighConfig,
-    group="Indicators & levels",
+    group="Quotes & price levels",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -798,7 +803,8 @@ async def execute_fetch_rolling_high(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=3,
     trigger_only=False,
     config_model=FetchRollingLowConfig,
-    group="Indicators & levels",
+    group="Quotes & price levels",
+    deprecated=True,
     output_schema={
         "type": "object",
         "properties": {
@@ -832,6 +838,91 @@ async def execute_fetch_rolling_low(ctx: Any) -> Optional[dict[str, Any]]:
     }
 
 
+def _fetch_proxy_ctx(ctx: Any, drop: str) -> Any:
+    """Build a thin proxy whose ``config`` drops the discriminator key, so the
+    legacy fetch executors (which read ctx.config directly) run unchanged."""
+    cfg = {k: v for k, v in ctx.config.items() if k != drop}
+
+    class _Ctx:
+        pass
+
+    proxy = _Ctx()
+    for attr in (
+        "db", "run", "step", "workflow", "client_request_id",
+        "attempts", "config",
+    ):
+        if hasattr(ctx, attr):
+            setattr(proxy, attr, getattr(ctx, attr))
+    proxy.config = cfg
+    return proxy
+
+
+@register_step(
+    step_type="fetch.price_reference",
+    category="fetch",
+    label="Day-anchored price level",
+    description=(
+        "Pull a day-anchored price — today's open or a recent session's "
+        "close — to compare current price against."
+    ),
+    icon="sunrise",
+    max_retries=3,
+    trigger_only=False,
+    config_model=FetchPriceReferenceConfig,
+    group="Quotes & price levels",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "value": {"type": "number"},
+            "session_date": {"type": "string"},
+            "sessions_back": {"type": "integer"},
+        },
+        "required": ["value"],
+    },
+)
+async def execute_fetch_price_reference(ctx: Any) -> Optional[dict[str, Any]]:
+    """Collapsed replacement for fetch.day_open + fetch.prior_close —
+    dispatches on ``reference`` into the existing executors so the
+    _resolve_day_anchor logic is not duplicated."""
+    reference = str(ctx.config.get("reference", "day_open")).lower()
+    proxy = _fetch_proxy_ctx(ctx, drop="reference")
+    if reference == "prior_close":
+        return await execute_fetch_prior_close(proxy)
+    return await execute_fetch_day_open(proxy)
+
+
+@register_step(
+    step_type="fetch.rolling_extreme",
+    category="fetch",
+    label="Recent N-day high / low",
+    description=(
+        "The highest high or lowest low over the last N daily bars — the "
+        "recent peak or trough (optionally × a multiplier)."
+    ),
+    icon="trending-up",
+    max_retries=3,
+    trigger_only=False,
+    config_model=FetchRollingExtremeConfig,
+    group="Quotes & price levels",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "value": {"type": "number"},
+            "lookback": {"type": "integer"},
+        },
+        "required": ["value"],
+    },
+)
+async def execute_fetch_rolling_extreme(ctx: Any) -> Optional[dict[str, Any]]:
+    """Collapsed replacement for fetch.rolling_high + fetch.rolling_low —
+    dispatches on ``side`` into the existing executors."""
+    side = str(ctx.config.get("side", "high")).lower()
+    proxy = _fetch_proxy_ctx(ctx, drop="side")
+    if side == "low":
+        return await execute_fetch_rolling_low(proxy)
+    return await execute_fetch_rolling_high(proxy)
+
+
 @register_step(
     step_type="fetch.spread_z_score",
     category="fetch",
@@ -844,7 +935,7 @@ async def execute_fetch_rolling_low(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=3,
     trigger_only=False,
     config_model=FetchSpreadZScoreConfig,
-    group="Indicators & levels",
+    group="Quotes & price levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -917,7 +1008,7 @@ async def execute_fetch_spread_z_score(
     max_retries=3,
     trigger_only=False,
     config_model=FetchRelativeThresholdConfig,
-    group="Indicators & levels",
+    group="Quotes & price levels",
     output_schema={
         "type": "object",
         "properties": {
@@ -1014,7 +1105,7 @@ async def execute_fetch_relative_threshold(
     max_retries=1,
     trigger_only=False,
     config_model=FetchScreenerConfig,
-    group="Stock screens",
+    group="Research & screens",
     output_schema={
         "type": "object",
         "properties": {
@@ -1088,7 +1179,7 @@ async def execute_fetch_screener(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=1,
     trigger_only=False,
     config_model=FetchTopMoversConfig,
-    group="Stock screens",
+    group="Research & screens",
     output_schema={
         "type": "object",
         "properties": {

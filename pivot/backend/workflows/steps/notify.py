@@ -64,7 +64,7 @@ def _try_delegate_notify(
     max_retries=2,
     trigger_only=False,
     config_model=NotifyMessageConfig,
-    group="Notify",
+    group="Notifications",
     output_schema={
         "type": "object",
         "properties": {
@@ -126,7 +126,7 @@ async def execute_notify_message(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=2,
     trigger_only=False,
     config_model=NotifyLogConfig,
-    group="Notify",
+    group="Notifications",
     output_schema={
         "type": "object",
         "properties": {"log": {"type": "string"}},

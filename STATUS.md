@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-18 (frontend-lead) — Stock profile page improvements
+
+- **`lib/api.ts`**: Fixed `StockQuote` field names (`week_52_high`/`week_52_low` → `w52_high`/`w52_low`, added `prev_close`); added optional `source` to `FinancialsLatestValue`; added `searchCompanies` + `CompanySearchResult`/`CompanySearchResponse`; added `getMetricSeries` + `MetricSeriesPoint`/`MetricSeriesResponse`.
+- **`components/CompanyAutosuggest.tsx`** (new): Debounced (~150ms) company search autosuggest with keyboard navigation (↑↓/Enter/Esc), outside-click close, and sector/fundamentals-dot in dropdown rows. Self-contained input + dropdown; integrates cleanly into any flex container.
+- **`components/AppShell.tsx`**: Global header search replaced with `CompanyAutosuggest` — typing a company name navigates to `/stock/{symbol}`.
+- **`components/StockDetailPage.tsx`**: (1) Compare box uses `CompanyAutosuggest` (no more free-text Enter submit); (2) Valuation block wires P/B, EV/Sales, EV/EBITDA from `financials` state instead of hardcoded "—"; (3) Prev Close uses `quote.prev_close`; (4) 52-week range uses `quote.w52_low`/`quote.w52_high`; (5) PE Ratio + EV/EBITDA metric selector now fetches `getMetricSeries` per ticker and plots absolute values (no normalize), with honest empty state when `available:false`.
+- **`tests/stock-detail-page.test.tsx`**: Updated `MOCK_QUOTE` to use renamed fields (`w52_high`, `w52_low`, `prev_close`). Pre-existing 6 test failures (missing testids in component) unchanged.
+- TypeScript: `pnpm typecheck` clean (exit 0). No new lint errors introduced.
+
+---
+
 ## 2026-06-17 (reviewer) — Adversarial review: compat engine + catalog rename + picker buckets
 
 ### Review scope
