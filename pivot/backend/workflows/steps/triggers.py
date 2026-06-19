@@ -27,6 +27,7 @@ from backend.workflows.schemas import (
     TriggerManualConfig,
     TriggerMarketRelativeTimeConfig,
     TriggerPolymarketConfig,
+    TriggerScheduledMacroConfig,
     TriggerPriceConfig,
     TriggerScheduleConfig,
     TriggerWebhookConfig,
@@ -251,6 +252,46 @@ async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
 async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the user clicked Run now. The run row carries
     `triggered_by='manual'`."""
+    return None
+
+
+@register_step(
+    step_type="trigger.scheduled_macro",
+    category="trigger",
+    label="On a scheduled macro event",
+    description=(
+        "Fire on a known-date macro release once its OUTCOME is verified "
+        "against the official source — e.g. 'when RBI cuts the repo rate' "
+        "or 'when US CPI prints above 3%'."
+    ),
+    icon="calendar-check",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerScheduledMacroConfig,
+    group="Events & external",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string"},
+            "expected_outcome": {"type": "string"},
+            "decision": {"type": ["string", "null"]},
+            "matched": {"type": "boolean"},
+            "tier": {"type": ["string", "null"]},
+            "confidence": {"type": ["number", "null"]},
+            "evidence": {"type": ["string", "null"]},
+        },
+        "required": ["kind", "expected_outcome"],
+    },
+)
+async def execute_trigger_scheduled_macro(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the macro watcher (``backend/workflows/scheduler.py
+    :_poll_scheduled_macro_triggers``) opens the verify window around the
+    calendar date, runs ``macro_events.verifier.verify_macro_outcome``,
+    and fires this trigger out-of-band via ``fire_external_event`` only on
+    a confident outcome match. By the time the engine reaches this
+    executor the run row already carries ``triggered_by='event_alert'``
+    and ``run.context['scheduled_macro']`` holds the verification
+    snapshot. Same pattern as trigger.event / trigger.polymarket."""
     return None
 
 

@@ -119,6 +119,17 @@ class Settings(BaseSettings):
     # query is negligible.
     polymarket_ws_reconcile_interval_s: int = 30
 
+    # --- Scheduled macro-event triggers (trigger.scheduled_macro) -------------
+    # Gates registration of the macro watcher poll loop
+    # (_poll_scheduled_macro_triggers). Independent of news_events_enabled:
+    # the verifier only needs the RSS adapter + (optionally) the
+    # prediction-market client, both of which import fine with the master
+    # news flag off. Default off so dev/tests don't arm the loop.
+    macro_events_enabled: bool = False
+    # Minimum verifier confidence to fire (overridable per-step via the
+    # trigger config's own min_confidence; this is the global floor).
+    macro_verifier_min_confidence: float = 0.85
+
     # --- Paper trading (simulated broker) -------------------------------------
     # When True, orders from chat (/orders/confirm, /orders/gtt) and from
     # workflow action.* steps route through the PaperBroker (backend/paper/)

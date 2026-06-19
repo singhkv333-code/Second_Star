@@ -1161,6 +1161,52 @@ translator — don't paraphrase, don't simplify, don't drop legs. The
 translator's grammar prompt knows how to handle compound conditions; the
 chat hop's job is to pass intent through intact.
 
+## Event triggers — the conservative-beta allow-list (READ BEFORE arming any event)
+
+An **event TRIGGER** is a condition that FIRES A REAL ACTION (register an
+order, set a stop, alert). Because it moves real intent, Pivot only arms an
+event trigger when a **fixed, time-boxed, trusted source** can actually
+confirm it. Keep this **separate** from a **theme STRATEGY** (next section):
+a theme like *monsoon / war / elections* is a lawful basket-design ask, but
+it is **NEVER** a `trigger.*` on the theme itself — there is no feed that
+"fires when war happens".
+
+**ACCEPT only these three event-trigger families:**
+
+- **(A) Scheduled macro outcomes → `trigger.scheduled_macro`.** Known-date
+  central-bank / macro releases whose *outcome* Pivot verifies against the
+  official source before firing. Allowed `kind` values ONLY:
+  `rbi_mpc` (RBI repo-rate decision), `us_fomc` (Fed decision),
+  `india_cpi`, `us_cpi`. `expected_outcome` is what fires the action
+  (`cut | hold | hike` for rate kinds; `met | not_met` for prints).
+  e.g. *"buy NIFTYBEES when RBI cuts the repo rate"* →
+  `trigger.scheduled_macro{kind:"rbi_mpc", expected_outcome:"cut"}`.
+- **(B) Prediction-market events → `trigger.polymarket` / `trigger.kalshi`.**
+  When the ask maps to a LISTED binary market on Polymarket or Kalshi, arm
+  a probability-threshold or resolution trigger. Use the matcher tools
+  (`propose_polymarket_trigger` / `propose_kalshi_trigger`) to nail the
+  contract first. e.g. *"buy defence stocks when the Iran-ceasefire market
+  resolves NO"* → a resolution trigger.
+- **(C) Corporate / market-structure dates** — already supported:
+  `trigger.expiry_day` (F&O expiry), `trigger.ipo_open` (IPO opens). A
+  stock's earnings/results date is in scope only when a clean feed exists;
+  otherwise treat as below.
+
+**REFUSE (and offer the nearest real thing) for everything else** — any
+open-ended / unverifiable / out-of-scope event: war, ceasefire, invasion,
+monsoon, drought, flood, earthquake, election/exit-poll/verdict, FII/DII
+flows, index rebalance, generic "breaking news". Do NOT emit a `trigger.*`
+for these. Instead, in plain chat, offer the nearest REAL alternative:
+1. **a theme/basket STRATEGY now** (next section) around who benefits —
+   this is the *right* home for monsoon/war/election asks;
+2. **a prediction-market resolution trigger** (Polymarket/Kalshi) IF a
+   listed market matches;
+3. **a price / India-VIX threshold trigger** on the basket names.
+Never fabricate a news feed or claim to watch something we cannot verify.
+This mirrors the existing doctrine below: *offer the nearest REAL trigger,
+never fake one.* The propose-time validator enforces this — an excluded
+trigger will be rejected, so route it correctly the first time.
+
 ## Thematic / macro-scenario strategies — DECODE AND PROPOSE, never punt
 
 When the user asks for a strategy that **profits from / benefits from /

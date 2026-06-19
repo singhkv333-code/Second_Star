@@ -85,6 +85,15 @@ _IPO_OPEN_WATCHER_JOB_ID = "pivot_workflows_ipo_open_watcher"
 _IPO_LISTING_CREDIT_INTERVAL_SECONDS = 3600
 _IPO_LISTING_CREDIT_JOB_ID = "pivot_workflows_ipo_listing_credit"
 
+# Scheduled-macro watcher cadence. Macro releases (RBI MPC ~10:00 IST,
+# FOMC ~00:30 IST, CPI prints ~18:00/00:30 IST) fire on KNOWN dates and
+# their verify windows span hours, so a 5-minute poll fires close to the
+# release without hammering the official feeds. Like the IPO watcher,
+# this is NOT gated on NSE market hours — FOMC / US-CPI land when the
+# Indian market is closed and MUST still fire.
+_MACRO_WATCHER_INTERVAL_SECONDS = 300
+_MACRO_WATCHER_JOB_ID = "pivot_workflows_macro_watcher"
+
 # APScheduler job id for the workflow poll job — keep stable across
 # restarts so `replace_existing=True` works.
 _POLL_JOB_ID = "pivot_workflows_poll"
@@ -484,12 +493,30 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         max_instances=1,
         coalesce=True,
     )
+
+    # Scheduled-macro watcher — only when the feature flag is on. Gated at
+    # registration (not self-gated inside) so the job doesn't even exist
+    # when disabled; tests call `_poll_scheduled_macro_triggers` directly.
+    from backend.config import settings as _settings
+    macro_on = bool(getattr(_settings, "macro_events_enabled", False))
+    if macro_on:
+        scheduler.add_job(
+            _poll_scheduled_macro_triggers,
+            trigger="interval",
+            seconds=_MACRO_WATCHER_INTERVAL_SECONDS,
+            id=_MACRO_WATCHER_JOB_ID,
+            name="Pivot Workflows — scheduled-macro watcher",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
     logger.info(
         "[workflow-scheduler] registered poll job (%ss) + watcher (%ss) "
-        "+ ipo-open watcher (%ss) + ipo-listing-credit (%ss)",
+        "+ ipo-open watcher (%ss) + ipo-listing-credit (%ss)%s",
         _POLL_INTERVAL_SECONDS, _WATCHER_INTERVAL_SECONDS,
         _IPO_OPEN_WATCHER_INTERVAL_SECONDS,
         _IPO_LISTING_CREDIT_INTERVAL_SECONDS,
+        f" + macro watcher ({_MACRO_WATCHER_INTERVAL_SECONDS}s)" if macro_on else "",
     )
 
 
@@ -1558,6 +1585,171 @@ async def fire_external_event(
         fired_at=fired_at,
         audit_context=audit_context,
     )
+
+
+# ── Scheduled-macro watcher (trigger.scheduled_macro) ────────────────
+
+
+# Per-occurrence fire-once latch. Stores the event instance key
+# (e.g. "rbi_mpc:2026-06-06") so the workflow fires once per release and
+# re-arms automatically for the NEXT calendar occurrence.
+_MACRO_FIRED_KEY = "_macro_fired_for"
+
+
+def _persist_macro_fired(
+    workflow_id: str, step_index: int, instance_key: str,
+) -> None:
+    """Persist the per-occurrence latch on a trigger.scheduled_macro step.
+    Mirrors _persist_ipo_fired (string-capable JSON writer). Runs in a
+    worker thread."""
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == step_index,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        cfg = dict(step.config or {})
+        cfg[_MACRO_FIRED_KEY] = str(instance_key)
+        step.config = cfg  # type: ignore[assignment]
+        db.commit()
+    finally:
+        db.close()
+
+
+def _scan_active_macro_triggers() -> list[tuple[str, int, dict[str, object]]]:
+    """Return (workflow_id, step_index, config_copy) for every active
+    workflow with a trigger.scheduled_macro step. Multi-trigger: every
+    such step is read independently (own latch)."""
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Workflow, WorkflowStep)
+            .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+            .filter(
+                Workflow.status == WorkflowStatus.active,
+                WorkflowStep.step_type == "trigger.scheduled_macro",
+            )
+            .all()
+        )
+        return [
+            (str(wf.id), int(step.step_index), dict(step.config or {}))
+            for wf, step in rows
+        ]
+    finally:
+        db.close()
+
+
+async def _poll_scheduled_macro_triggers() -> None:
+    """Polled every 5 minutes. For each active trigger.scheduled_macro
+    step whose calendar occurrence is currently inside its verify window,
+    run the layered outcome verifier and fire ONCE on a confident match.
+
+    NOT gated on NSE market hours: FOMC (~00:30 IST) and US CPI
+    (~18:00 IST) land when the Indian market is closed and must still
+    fire. Fail-safe: the verifier returns ``unknown`` on any uncertainty
+    (no headline / low confidence / evidence-guard tripped / feed down),
+    and we only fire when ``result.matched`` is True — a stale calendar
+    date therefore causes a missed/late fire, never a false one.
+
+    Fire-once is per-occurrence: the latch stores the event instance key
+    (kind:date), persisted BEFORE firing so a crash re-fires at-most-once
+    (engine runs are idempotent), and the workflow re-arms for the next
+    occurrence automatically.
+    """
+    fired_at = datetime.now(timezone.utc)
+
+    try:
+        triggers = await asyncio.to_thread(_scan_active_macro_triggers)
+    except Exception:
+        logger.exception("[watcher.macro] scan failed")
+        return
+    if not triggers:
+        return
+
+    from backend.config import settings
+    from backend.macro_events.calendar import due_event
+    from backend.macro_events.verifier import verify_macro_outcome
+
+    global_floor = float(getattr(settings, "macro_verifier_min_confidence", 0.85))
+
+    for wf_id, step_idx, cfg in triggers:
+        try:
+            kind = str(cfg.get("kind", "")).strip()
+            expected = str(cfg.get("expected_outcome", "")).strip()
+            if not kind or not expected:
+                continue
+
+            # Only act while a known occurrence is inside its verify window.
+            due = due_event(kind, fired_at)
+            if due is None:
+                continue
+            # Already fired for THIS occurrence?
+            if str(cfg.get(_MACRO_FIRED_KEY, "")) == due.instance_key():
+                continue
+
+            try:
+                step_min = float(cfg.get("min_confidence", 0.85))
+            except (TypeError, ValueError):
+                step_min = 0.85
+            eff_min = max(step_min, global_floor)
+
+            comparison = cfg.get("comparison")
+            threshold = cfg.get("threshold")
+            allow_pm = bool(cfg.get("allow_prediction_market_fallback", True))
+
+            result = await verify_macro_outcome(
+                kind, expected,
+                min_confidence=eff_min,
+                comparison=str(comparison) if comparison is not None else None,
+                threshold=float(threshold) if threshold is not None else None,
+                allow_prediction_market_fallback=allow_pm,
+            )
+            if not result.matched:
+                logger.info(
+                    "[watcher.macro] no fire wf=%s step=%d kind=%s "
+                    "expected=%s decision=%s tier=%s",
+                    wf_id, step_idx, kind, expected,
+                    result.decision, result.tier,
+                )
+                continue
+
+            # Fire-once: persist the per-occurrence latch BEFORE firing.
+            await asyncio.to_thread(
+                _persist_macro_fired, wf_id, step_idx, due.instance_key(),
+            )
+            run_id = await fire_external_event(
+                workflow_id=wf_id,
+                triggered_step_index=step_idx,
+                fired_at=fired_at,
+                audit_context={
+                    "source": "scheduled_macro_watcher",
+                    "kind": kind,
+                    "expected_outcome": expected,
+                    "decision": result.decision,
+                    "tier": result.tier,
+                    "confidence": result.confidence,
+                    "evidence": result.evidence,
+                    "event_instance": due.instance_key(),
+                    "label": due.label,
+                    **(result.audit or {}),
+                },
+            )
+            logger.info(
+                "[watcher.macro] fired wf=%s step=%d kind=%s outcome=%s "
+                "tier=%s run=%s",
+                wf_id, step_idx, kind, result.decision, result.tier, run_id,
+            )
+        except Exception:
+            logger.exception(
+                "[watcher.macro] failed to evaluate wf=%s step=%d",
+                wf_id, step_idx,
+            )
 
 
 # ── IPO-open watcher ─────────────────────────────────────────────────

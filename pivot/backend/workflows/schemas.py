@@ -267,6 +267,101 @@ class TriggerEventConfig(_Strict):
     )
 
 
+class TriggerScheduledMacroConfig(_Strict):
+    """Calendar-armed, outcome-verified macro-event trigger (beta).
+
+    Fires when a KNOWN-DATE macro release (RBI MPC / FOMC decision, India
+    or US CPI print) produces the ``expected_outcome`` — verified against
+    the official source (RBI/Fed RSS, a CPI news feed) before firing, with
+    a prediction-market resolution fallback. The scheduler's
+    ``_poll_scheduled_macro_triggers`` loop (un-gated by market hours)
+    opens the verify window around the calendar date, calls
+    ``backend.macro_events.verifier.verify_macro_outcome``, and fires
+    out-of-band via ``fire_external_event`` only on a confident match.
+
+    Allow-listed ``kind`` values are kept in lock-step with
+    ``backend.workflows.propose._ALLOWED_MACRO_KINDS`` and the
+    ``backend.macro_events`` calendar / source-of-truth tables.
+
+    For the CPI (print) kinds, the outcome is judged numerically: the
+    verifier extracts the reported figure and compares it to
+    ``threshold`` using ``comparison`` (met / not_met). Rate kinds
+    (rbi_mpc, us_fomc) ignore comparison/threshold and judge the
+    cut/hold/hike decision directly.
+    """
+    kind: Literal["rbi_mpc", "us_fomc", "india_cpi", "us_cpi"] = Field(
+        ...,
+        description=(
+            "Which scheduled macro event to watch. rbi_mpc = RBI repo-rate "
+            "decision; us_fomc = Fed decision; india_cpi / us_cpi = "
+            "inflation prints."
+        ),
+    )
+    expected_outcome: Literal["cut", "hold", "hike", "met", "not_met"] = Field(
+        ...,
+        description=(
+            "What fires the downstream action. Rate kinds: 'cut' | 'hold' "
+            "| 'hike'. Print kinds (CPI): 'met' | 'not_met' (whether the "
+            "reported figure satisfies comparison vs threshold)."
+        ),
+    )
+    min_confidence: float = Field(
+        default=0.85, ge=0.7, le=1.0,
+        description=(
+            "Minimum verifier confidence to fire. 0.85 mirrors the "
+            "news-classifier threshold; the evidence-quote-must-be-in-"
+            "source guard runs regardless."
+        ),
+    )
+    allow_prediction_market_fallback: bool = Field(
+        default=True,
+        description=(
+            "When the official source is inconclusive (no headline, low "
+            "confidence), fall back to a correlated Polymarket/Kalshi "
+            "market resolving for the outcome. Conservative: only a "
+            "clearly-resolved market confirms."
+        ),
+    )
+    comparison: Optional[Literal[">", "<", ">=", "<="]] = Field(
+        default=None,
+        description=(
+            "CPI kinds only: how to compare the reported figure to "
+            "`threshold`. e.g. '>' with threshold 5.0 → 'met' when CPI "
+            "prints above 5%."
+        ),
+    )
+    threshold: Optional[float] = Field(
+        default=None,
+        description="CPI kinds only: the percentage level for `comparison`.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_outcome_per_kind(self) -> "TriggerScheduledMacroConfig":
+        rate_kinds = {"rbi_mpc", "us_fomc"}
+        print_kinds = {"india_cpi", "us_cpi"}
+        if self.kind in rate_kinds:
+            if self.expected_outcome not in {"cut", "hold", "hike"}:
+                raise ValueError(
+                    f"trigger.scheduled_macro: kind={self.kind!r} requires "
+                    f"expected_outcome in cut|hold|hike (got "
+                    f"{self.expected_outcome!r})"
+                )
+        elif self.kind in print_kinds:
+            if self.expected_outcome not in {"met", "not_met"}:
+                raise ValueError(
+                    f"trigger.scheduled_macro: kind={self.kind!r} requires "
+                    f"expected_outcome in met|not_met (got "
+                    f"{self.expected_outcome!r})"
+                )
+            if self.comparison is None or self.threshold is None:
+                raise ValueError(
+                    f"trigger.scheduled_macro: CPI kind={self.kind!r} "
+                    f"requires both comparison and threshold so the print "
+                    f"can be judged met/not_met"
+                )
+        return self
+
+
 class TriggerPolymarketConfig(_Strict):
     """Polymarket prediction-market trigger — two modes.
 

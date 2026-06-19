@@ -32,6 +32,8 @@ EXPECTED_STEP_TYPES: dict[str, str] = {
     "trigger.compound": "trigger",
     # Slice-4 — Polymarket prediction-market trigger (threshold OR resolution)
     "trigger.polymarket": "trigger",
+    # Event-trigger beta — calendar-armed, outcome-verified macro trigger
+    "trigger.scheduled_macro": "trigger",
     # Phase-D6 — exit-tree compound trigger (entry with position-state leaves)
     "trigger.exit_compound": "trigger",
     # P2 — IPO open-day reminder watcher (upcoming -> open edge)
@@ -195,7 +197,7 @@ def test_max_retries_match_invariant_3(
     for st in (
         "trigger.schedule", "trigger.price", "trigger.indicator",
         "trigger.event", "trigger.manual", "trigger.webhook",
-        "trigger.polymarket",
+        "trigger.polymarket", "trigger.scheduled_macro",
     ):
         assert by_type[st]["max_retries"] == 0, st
         assert by_type[st]["trigger_only"] is True, st

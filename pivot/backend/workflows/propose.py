@@ -343,6 +343,106 @@ def _normalize_deprecated_steps(draft: WorkflowDraft) -> None:
         step.config = cfg
 
 
+# ── Event-trigger allow-list (conservative beta) ─────────────────────
+#
+# Pivot's beta accepts only a small set of VERIFIABLE event triggers.
+# An event trigger is a condition that FIRES A REAL ACTION, so it must
+# be backed by a fixed, time-boxed, trusted source we can actually
+# check (RBI/Fed RSS, a listed Polymarket/Kalshi market, an exchange
+# feed). Anything open-ended ("if war breaks out", "good monsoon",
+# "election verdict") has no such feed — we refuse to TRIGGER on it and
+# steer the user to the nearest real alternative (a theme/basket
+# STRATEGY, a prediction-market resolution trigger, or a price/VIX
+# trigger). This is the authoritative gate: even if the system prompt
+# fails to steer the model, an excluded trigger never validates and so
+# never persists.
+#
+# IMPORTANT — keep the two ideas separate: this gate constrains event
+# TRIGGERS only. Pivot's separate ability to DESIGN A STRATEGY around a
+# theme (monsoon/elections/war → a basket of beneficiaries) is
+# untouched; those flow through action.allocate_* / fetch.screener, not
+# through a trigger.* step.
+
+# Allow-listed `kind` values for the calendar-armed macro trigger
+# (trigger.scheduled_macro, registered in Slice 3). Unknown kinds are
+# rejected so the planner can't invent an unverifiable macro event.
+_ALLOWED_MACRO_KINDS = {"rbi_mpc", "us_fomc", "india_cpi", "us_cpi"}
+
+# Substring markers that mark a `trigger.event` ask as open-ended /
+# unverifiable / explicitly-out-of-scope for the beta. Matched against
+# the lower-cased event_description + keywords. A false reject is cheap
+# (it just routes the planner to a clearer alternative); a false accept
+# would arm a real order on a feed we cannot confirm.
+_UNVERIFIABLE_EVENT_MARKERS = (
+    # geopolitical / conflict
+    "war", "ceasefire", "invasion", "invade", "missile", "airstrike",
+    "military", "conflict", "attack",
+    # weather / disaster
+    "monsoon", "drought", "rainfall", "el nino", "el niño", "flood",
+    "earthquake", "cyclone", "hurricane", "disaster", "pandemic",
+    # politics
+    "election", "exit poll", "poll result", "verdict", "coalition",
+    # explicitly-excluded market-structure (per beta scope)
+    "fii flow", "dii flow", "fii/dii", "net flow", "net-flow",
+    "index rebalance", "rebalance", "reshuffle", "reconstitution",
+)
+
+_REFUSAL_ALTERNATIVE = (
+    "Do NOT emit any trigger.* step for this. Instead reply in plain "
+    "chat and offer the user the nearest REAL alternative: (1) build a "
+    "theme/basket STRATEGY now around who actually benefits from the "
+    "view (action.allocate_notional / fetch.screener — NOT a trigger), "
+    "(2) a prediction-market resolution trigger (trigger.polymarket or "
+    "trigger.kalshi) IF a listed binary market matches the ask, or "
+    "(3) a price / India-VIX threshold trigger (trigger.price). Never "
+    "fabricate a news feed or claim to watch something we cannot verify."
+)
+
+
+def validate_trigger_allowlist(draft: WorkflowDraft) -> None:
+    """Enforce the conservative-beta event-trigger allow-list in place.
+
+    Raises :class:`ProposalValidationError` (with planner-actionable
+    guidance) when a draft carries an out-of-scope or unverifiable
+    event trigger. Non-event triggers (price/indicator/schedule/…) and
+    allow-listed event triggers pass untouched.
+    """
+    for idx, step in enumerate(draft.steps):
+        st = step.step_type
+        cfg = step.config or {}
+
+        if st == "trigger.scheduled_macro":
+            kind = str(cfg.get("kind", "")).strip().lower()
+            if kind not in _ALLOWED_MACRO_KINDS:
+                raise ProposalValidationError(
+                    f"step {idx} (trigger.scheduled_macro): kind "
+                    f"{kind!r} is not a supported macro event in this "
+                    f"beta. Allowed kinds: "
+                    f"{', '.join(sorted(_ALLOWED_MACRO_KINDS))}. "
+                    f"{_REFUSAL_ALTERNATIVE}"
+                )
+
+        elif st == "trigger.event":
+            hay = " ".join([
+                str(cfg.get("event_description", "")),
+                " ".join(
+                    str(k) for k in (cfg.get("keywords") or [])
+                    if isinstance(k, str)
+                ),
+            ]).lower()
+            hit = next(
+                (m for m in _UNVERIFIABLE_EVENT_MARKERS if m in hay), None,
+            )
+            if hit is not None:
+                raise ProposalValidationError(
+                    f"step {idx} (trigger.event): '{hit}' is not a "
+                    f"verifiable event trigger in this beta — there is no "
+                    f"fixed, time-boxed feed Pivot can check to confirm "
+                    f"it, so it must not fire a real order. "
+                    f"{_REFUSAL_ALTERNATIVE}"
+                )
+
+
 def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
     """Parse the LLM's JSON output into WorkflowDraft AND validate every
     step config against the registry's Pydantic model.
@@ -420,6 +520,14 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
                 f"{field}: {first.get('msg', 'unknown')}"
             ) from e
         prev_was_trigger = is_trigger
+
+    # Conservative-beta event-trigger allow-list. Runs after per-step
+    # registry validation (so configs are already Pydantic-valid) and
+    # before the lint pass. Rejects out-of-scope / unverifiable event
+    # triggers with planner-actionable guidance; the LLM retry path can
+    # self-correct, and a persistent failure surfaces to the user as a
+    # "here's the nearest real thing" message rather than a fake feed.
+    validate_trigger_allowlist(draft)
 
     # Cross-step lint pass (capability / refs / structural). Runs after
     # the per-step registry validation above so the linter sees a draft
