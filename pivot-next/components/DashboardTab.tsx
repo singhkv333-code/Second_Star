@@ -50,6 +50,11 @@ type DashboardTabProps = {
   /** Forwarded from ChatDemo: true once the user has sent ≥1 message.
    * AppShell uses this to hide the Active Agents rail. */
   onChatActiveChange?: (active: boolean) => void;
+  /**
+   * Called when a chat turn yields a new or amended workflow_draft_card.
+   * AppShell uses this to push the draft into the bound editor.
+   */
+  onDraftFromChat?: (draft: WorkflowT) => void;
 };
 
 type MeState =
@@ -198,6 +203,7 @@ export function DashboardTab({
   onOpenWorkflow,
   onOpenCalendar,
   onChatActiveChange,
+  onDraftFromChat,
 }: DashboardTabProps): React.ReactElement {
   const [me, setMe] = useState<MeState>({ kind: "loading" });
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
@@ -373,6 +379,7 @@ export function DashboardTab({
         onActiveChange={onChatActiveChange}
         demoSeed={demoSeed}
         onDemoSeedConsumed={() => setDemoSeed(undefined)}
+        onDraftFromChat={onDraftFromChat}
       />
     </div>
   );

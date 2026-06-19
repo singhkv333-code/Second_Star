@@ -58,12 +58,13 @@ def _try_delegate_notify(
 @register_step(
     step_type="notify.message",
     category="notify",
-    label="Send message",
-    description="Send an email, SMS, or push notification",
+    label="Send a notification",
+    description="Send a push notification (email / SMS coming later).",
     icon="send",
     max_retries=2,
     trigger_only=False,
     config_model=NotifyMessageConfig,
+    group="Notifications",
     output_schema={
         "type": "object",
         "properties": {
@@ -119,12 +120,13 @@ async def execute_notify_message(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="notify.log",
     category="notify",
-    label="Log message",
-    description="Append a line to the run log (no external side effect)",
+    label="Add a run note",
+    description="Write a line into this run's log — no external message.",
     icon="file-text",
     max_retries=2,
     trigger_only=False,
     config_model=NotifyLogConfig,
+    group="Notifications",
     output_schema={
         "type": "object",
         "properties": {"log": {"type": "string"}},
@@ -145,12 +147,13 @@ async def execute_notify_log(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="wait.approval",
     category="notify",
-    label="Wait for approval",
-    description="Pause the run until you approve or reject in the UI",
+    label="Pause for my approval",
+    description="Pause the run until you approve or reject it in the app.",
     icon="hand",
     max_retries=0,
     trigger_only=False,
     config_model=WaitApprovalConfig,
+    group="Approvals",
     output_schema={
         "type": "object",
         "properties": {

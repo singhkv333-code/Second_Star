@@ -19,7 +19,7 @@
  * transcript fills the pane with the composer pinned at the bottom.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart2,
@@ -55,11 +55,15 @@ import {
   type KiteOAuthResult,
 } from "@/components/KiteCredentialsPanel";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
+import {
+  ActiveDraftContext,
+} from "@/components/agent-panel/active-draft-context";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { DashboardTab } from "@/components/DashboardTab";
+import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -219,6 +223,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [active, setActive] = useState<TabKey>(DEFAULT_TAB);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(undefined);
+  // Shared active-draft state: the workflow currently open in the editor
+  // (unsaved only — id "" or "local-…", status "draft").
+  const [activeEditorDraft, setActiveEditorDraft] = useState<Workflow | null>(null);
   // The AgentPanel renders as a modal overlay at a fixed width (matched to
   // the Backtest sheet via CSS clamp inside AgentPanel) — no width state or
   // side-by-side padding to track here.
@@ -432,6 +439,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   }, [pathname, router]);
 
   const openWorkflow = useCallback((workflow: Workflow): void => {
+    const isUnsaved = !workflow.id || workflow.id === "" || workflow.id.startsWith("local-");
+    if (isUnsaved && workflow.status === "draft") {
+      setActiveEditorDraft(workflow);
+    }
     setPanelWorkflow(workflow);
     setPanelOpen(true);
   }, []);
@@ -542,11 +553,22 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     };
   }, [goTab, startNewChat]);
 
+  // True when the panel is open and actively bound to an unsaved draft.
+  const panelOpenWithDraft = panelOpen && activeEditorDraft !== null;
+
+  // Context value — memoized so consumers only re-render when these change.
+  const activeDraftCtx = useMemo(
+    () => ({ activeEditorDraft, setActiveEditorDraft, panelOpenWithDraft }),
+    [activeEditorDraft, panelOpenWithDraft],
+  );
+
   return (
+    <ActiveDraftContext.Provider value={activeDraftCtx}>
     <div
       className="app-shell-root flex h-screen flex-col bg-background"
       style={{ ["--paper-banner-h" as string]: tradingMode === "paper" ? "30px" : "0px" }}
     >
+
       {/* Sticky top header */}
       <TopHeader
         theme={theme}
@@ -631,6 +653,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   onOpenWorkflow={openWorkflow}
                   onOpenCalendar={() => goTab("calendar")}
                   onChatActiveChange={setChatActive}
+                  onDraftFromChat={(draft) => {
+                    setActiveEditorDraft(draft);
+                  }}
                 />
               </div>
             </div>
@@ -687,8 +712,13 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
       <AgentPanel
         open={panelOpen}
-        onOpenChange={setPanelOpen}
+        onOpenChange={(next) => {
+          setPanelOpen(next);
+          if (!next) setActiveEditorDraft(null);
+        }}
         initialWorkflow={panelWorkflow}
+        activeEditorDraft={activeEditorDraft}
+        onActiveEditorDraftChange={setActiveEditorDraft}
       />
 
       <KiteCredentialsPanel
@@ -711,6 +741,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenChange={setShortcutsOpen}
       />
     </div>
+    </ActiveDraftContext.Provider>
   );
 }
 
@@ -741,11 +772,7 @@ function TopHeader({
   onBrandClick: () => void;
   onOpenShortcuts: () => void;
 }): React.ReactElement {
-  // Local state drives the custom Lucide-X clear control. The native
-  // browser "search" input renders its own (blue, ugly) clear button
-  // — we hide that via the global-search-input class and render our
-  // own only when the field has text.
-  const [searchValue, setSearchValue] = useState("");
+  const router = useRouter();
   return (
     <header
       className="top-header relative flex shrink-0 items-center gap-3 px-3 lg:gap-6 lg:px-5"
@@ -843,6 +870,7 @@ function TopHeader({
           border: "1px solid var(--glass-border)",
           borderRadius: "var(--radius-pill)",
           transition: "border-color 0.2s var(--ease-quartr)",
+          position: "relative",
         }}
       >
         <Search
@@ -852,51 +880,11 @@ function TopHeader({
           style={{ color: "var(--text-tertiary)" }}
           aria-hidden={true}
         />
-        <input
-          type="search"
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
+        <CompanyAutosuggest
           placeholder="Search stocks, strategies, conversations…"
-          aria-label="Global search"
-          data-testid="global-search"
-          className="global-search-input flex-1 outline-none"
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "var(--text-primary)",
-            fontFamily: "var(--font-ui)",
-            fontSize: 13,
-          }}
+          onSelect={(symbol) => router.push(`/stock/${symbol}`)}
+          inputDataTestId="global-search"
         />
-        {searchValue.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setSearchValue("")}
-            aria-label="Clear search"
-            className="inline-flex shrink-0 items-center justify-center"
-            style={{
-              width: 20,
-              height: 20,
-              background: "transparent",
-              border: "none",
-              borderRadius: "999px",
-              color: "var(--text-tertiary)",
-              cursor: "pointer",
-              padding: 0,
-              transition: "color 0.18s var(--ease-quartr), background-color 0.18s var(--ease-quartr)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--text-primary)";
-              e.currentTarget.style.background = "var(--surface-hover)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--text-tertiary)";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            <X size={14} strokeWidth={2} aria-hidden="true" />
-          </button>
-        )}
       </div>
 
       {/* Right cluster — metric stack + account menu */}

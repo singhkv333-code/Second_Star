@@ -53,6 +53,15 @@ _ALWAYS_INCLUDE: frozenset[str] = frozenset({
     "propose_threshold_order",
     "propose_basket_allocation",
     "propose_holding_action",
+    # Workstream B: the DB-driven equity+gold builder. Always in scope (like
+    # propose_basket_allocation) so a thoughtful-portfolio ask reaches the
+    # builder even when the basket regex doesn't fire — the model then chooses
+    # a named weighting scheme + a fundamentals gate instead of a bare 1/N
+    # macro. `ask_user_dynamic` is DELIBERATELY *not* here: it is gated behind
+    # the basket/strategy intent rule so it can never fire on non-strategy
+    # turns (avoids the over-asking failure mode; plan §2c "don't ask on
+    # reflex"). The builder's own skip-entirely gate handles confident asks.
+    "build_strategy",
     # `find_tool` is the lazy-load escape hatch when no keyword rule
     # surfaces the right tool. The schema itself is tiny (one string +
     # one int), so the cost of unconditional inclusion is negligible
@@ -299,6 +308,12 @@ _RULES: list[_Rule] = [
         r"|\bwhen\s+(rsi|sma|ema|price|the\s+price)",
         "propose_workflow",
         "propose_dsl_workflow",
+        # Under-specified agent ask ("make me an agent that buys options in
+        # RELIANCE" — action verb, no trigger, no size) → the deterministic
+        # clarify_card. Its own gate (should_ask_agent) self-filters: it
+        # returns no card when a trigger/size is present (the every-<day> / if-
+        # <rsi> branches above), so co-surfacing it here is safe.
+        "ask_agent_clarify",
     ),
 
     # ── Order-card quantity/price amendments ──────────────────────
@@ -334,6 +349,37 @@ _RULES: list[_Rule] = [
         r"\s*\d",
         "create_dip_buy", "calculate_dip_price", "get_live_price",
         "propose_workflow", "propose_dsl_workflow",
+    ),
+
+    # ── Broad MARKET OVERVIEW intent ───────────────────────────────
+    # "tell me about the market today", "how's the market", "market
+    # update / overview / wrap", "what are the markets doing", "how did
+    # the market do today" — these mean the BROAD market (indices +
+    # breadth), NOT a single stock and NOT a clarification.
+    #
+    # WHY this rule is load-bearing: `select_tool_names` UNIONS every
+    # matching rule, and before this existed "tell me about the market
+    # today" matched ONLY the single-stock analysis rule below — so it
+    # got a toolset with get_live_price + fundamentals but NO
+    # get_index_level / get_top_movers. With the overview tools missing,
+    # the model non-deterministically either tried get_live_price (which
+    # failed → the "give me an NSE ticker" message) or asked "Nifty /
+    # Sensex or a specific stock?". Surfacing the index+movers+status
+    # tools here makes the overview chain available EVERY time, so the
+    # answer is deterministic. (See the matching directive in system.md.)
+    _r(
+        # overview verb/noun sitting near the word market(s)
+        r"\b(?:tell\s+me\s+about|how(?:'s|\s+is|\s+are|\s+did)|"
+        r"what(?:'s|\s+is|\s+are|\s+happened|\s+happening)|state\s+of|"
+        r"recap\s+of|overview\s+of|update\s+on|summary\s+of)\b"
+        r"[^.?!]{0,24}\bmarkets?\b"
+        # market(s) immediately followed by an overview noun / time word
+        r"|\bmarkets?\b\s*(?:today|now|update|overview|wrap|recap|summary|"
+        r"round[- ]?up|this\s+(?:morning|week)|doing|looking)\b"
+        # bare "the market today?" / "markets today" / "the markets?"
+        r"|^\s*(?:the\s+)?markets?(?:\s+today)?\s*\??\s*$",
+        "get_index_level", "get_top_movers", "get_market_status",
+        "get_symbol_news",
     ),
 
     # ── Live price / quote / OHLC ──────────────────────────────────
@@ -434,7 +480,9 @@ _RULES: list[_Rule] = [
         r"|\bwhat\s+do\s+you\s+think\s+(?:about|of)\b"
         r"|\byour\s+(?:view|take|opinion|read|thoughts?)\s+on\b"
         r"|\bthoughts?\s+on\b"
-        r"|\btell\s+me\s+about\b"
+        # "tell me about <X>" is single-stock — but NOT "tell me about the
+        # market(s)", which the broad market-overview rule above owns.
+        r"|\btell\s+me\s+about\b(?!\s+(?:the\s+|all\s+)?markets?\b)"
         r"|\b(?:is|should\s+i\s+(?:buy|consider|look\s+at))\s+\w+\s+a?\s*"
         r"(?:buy|good|worth|investment)\b",
         "get_price_history", "get_52wk_range", "get_indicator",
@@ -593,13 +641,36 @@ _RULES: list[_Rule] = [
     # often picks propose_workflow instead. Surfacing a basket-shaped
     # rule with the right tool family puts the macro front-and-center
     # and pulls in the supporting screener/order tools.
+    #
+    # Workstreams A & B: this is ALSO the entry point for the DB-driven
+    # builder (build_strategy) + dynamic clarifying questions
+    # (ask_user_dynamic). The regex now also catches the thoughtful-
+    # portfolio framings ("build me a long-term portfolio", "a balanced
+    # basket of quality stocks", "invest ₹2L for the long run", "design
+    # a strategy") that should get a named weighting scheme + a
+    # fundamentals gate rather than a bare equal-weight macro. We co-
+    # surface screen_fundamentals + fetch_fundamentals so the DB
+    # selection gate is always reachable from the basket path (plan §3b:
+    # the fundamentals tools were never wired into the basket path).
     _r(
         r"\bbasket\s+of\b"
-        r"|\b(?:invest|allocate|put|deploy|split)\b.{0,40}\b(?:across|equally|weighted)\b"
+        r"|\b(?:invest|allocate|put|deploy|split)\b.{0,40}\b(?:across|equally|weighted|portfolio|long[\s-]?term|long\s+run)\b"
         r"|\btop\s+\d+\s+(?:[a-z_]+\s+)?stocks?\b"
         r"|\bequal\s+weight(?:age)?\b|\bmcap[- ]weighted\b|\bmarket[- ]cap\s+weighted\b"
-        r"|\bsector\s+(?:basket|allocation)\b",
+        r"|\brisk[\s-]?parity\b|\bmin(?:imum)?[\s-]?variance\b|\bblack[\s-]?litterman\b"
+        r"|\bsector\s+(?:basket|allocation)\b"
+        # Thoughtful-portfolio / strategy-builder framings.
+        r"|\b(?:build|make|create|design|construct|put\s+together|give\s+me)\b"
+        r"[^.]{0,40}\b(?:portfolio|basket|strateg(?:y|ies)|allocation)\b"
+        r"|\b(?:portfolio|basket)\b[^.]{0,30}\b(?:of\s+(?:quality|value|growth|dividend|good)\s+stocks?|for\s+(?:the\s+)?long)\b",
         "propose_basket_allocation",
+        # Workstreams A & B — DB-driven builder + dynamic questions.
+        "build_strategy",
+        "ask_user_dynamic",
+        # Co-surface the fundamentals-DB tools so the selection gate
+        # (F-score / Magic-Formula / multi-factor) is always reachable.
+        "screen_fundamentals",
+        "fetch_fundamentals",
         "place_basket_order",
         "get_live_price",
     ),

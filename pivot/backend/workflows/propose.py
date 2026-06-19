@@ -61,12 +61,20 @@ class WorkflowDraft(BaseModel):
     phrases (*"end of the month"*, *"next Friday"*) to ISO YYYY-MM-DD
     before emitting; the editor surfaces the field so the user can
     override.
+
+    ``diagnostics`` carries the serialized output of
+    :func:`backend.workflows.compat.lint_workflow` — only the non-fatal
+    (``warning`` / ``info``) findings end up here; ``error``-severity
+    diagnostics are raised as :class:`ProposalValidationError` before
+    the draft is returned. The FE editor dispatches on ``code`` to
+    render inline hints next to the offending step.
     """
     name: str
     description: Optional[str] = None
     steps: list[DraftStep]
     rationale: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
     valid_until: Optional[str] = Field(
         default=None,
         description=(
@@ -84,10 +92,33 @@ class WorkflowDraft(BaseModel):
 
 def _build_catalog_summary() -> str:
     """Compact catalog dump for the system prompt. One line per step
-    type with its required config keys — keeps token cost low."""
+    type with its required config keys — keeps token cost low.
+
+    Indicator-bearing step types (``trigger.indicator``, plus compound
+    triggers that wrap an indicator node in their tree) also advertise
+    the optional ``timeframe`` field so prompts like "...on weekly bars"
+    actually produce ``timeframe:"weekly"`` instead of silently dropping
+    it. The default stays ``daily`` — adding the hint does not change
+    behaviour for prompts that don't mention a timeframe.
+    """
     lines: list[str] = []
+    # step_types that accept the optional `timeframe` field on the
+    # indicator/compound trigger config (or inside the compound tree's
+    # IndicatorNode leaves). Listing them explicitly keeps the hint
+    # local to where it's meaningful instead of polluting every line.
+    _TIMEFRAME_AWARE = {
+        "trigger.indicator",
+        "trigger.compound",
+        "trigger.exit_compound",
+        "condition.compound",
+    }
     for step_type in sorted(STEP_REGISTRY.keys()):
         defn = STEP_REGISTRY[step_type]
+        # Never advertise a deprecated/collapsed id to the planner — it should
+        # only emit the parameterized replacements (action.set_protective,
+        # action.squareoff, fetch.price_reference, fetch.rolling_extreme).
+        if getattr(defn, "deprecated", False):
+            continue
         try:
             schema = defn.config_model.model_json_schema()
             required = sorted(schema.get("required", []))
@@ -99,7 +130,18 @@ def _build_catalog_summary() -> str:
         except Exception:
             req_summary = "(config schema unavailable)"
         marker = "TRIGGER" if defn.trigger_only else defn.category
-        lines.append(f"  - {step_type}  [{marker}]  required: {req_summary}")
+        suffix = ""
+        if step_type in _TIMEFRAME_AWARE:
+            # The indicator leaf carries an OPTIONAL timeframe; default
+            # daily. The LLM must propagate the user's stated bar size.
+            suffix = (
+                "   optional: timeframe?: \"daily\" | \"weekly\" "
+                "(default daily; honor user phrases like "
+                "'on weekly bars' / 'weekly RSI')"
+            )
+        lines.append(
+            f"  - {step_type}  [{marker}]  required: {req_summary}{suffix}"
+        )
     return "\n".join(lines)
 
 
@@ -129,7 +171,7 @@ Output ONLY valid JSON matching this schema (no prose, no markdown fences):
       "config": {{ "cron": "55 15 * * 1-5", "timezone": "Asia/Kolkata" }}
     }}
   ],
-  "rationale": "1-2 sentences explaining why these steps map to the user's request"
+  "rationale": "3-6 sentences explaining (a) why these instruments are the right beneficiaries of the user's stated view, (b) how each step maps to the request, (c) the material risks this carries, (d) what this automation is NOT (e.g. 'not market-neutral', 'not a true hedge'). Never a one-liner. Never generic."
 }}
 
 Rules:
@@ -140,6 +182,32 @@ Rules:
   - Order placement that mentions confirmation / approval / "ask me first" → action.place_order with requires_approval=true.
   - "notify me" / "alert me" → notify.message at the end.
   - If the user's intent is ambiguous, prefer the SIMPLER 2-3 step workflow over inventing fields.
+  - Indicator timeframe: trigger.indicator / trigger.compound / trigger.exit_compound / condition.compound accept an optional `timeframe: "daily" | "weekly"`. Default is `daily`. If the user says "weekly RSI", "on weekly bars", "weekly chart", "W/F-close", etc., set `timeframe: "weekly"` on the indicator config (or on every IndicatorNode leaf inside a compound tree). Do NOT invent a non-default timeframe when the user did not ask for it.
+
+INSTRUMENT SELECTION FOR THEMATIC / DIRECTIONAL REQUESTS (HARD RULES — getting this wrong is a correctness failure):
+
+  1. When the user expresses a THEMATIC view ("profits from rising oil", "benefits from a weaker rupee", "plays the AI boom") DO NOT pick a single arbitrary stock. Pick a small BASKET (3-5 names) of the actual beneficiaries and prefer the basket macro shape (action.allocate_notional over a fetch.screener) when the catalog supports it. A single-name SIP into one arbitrary ticker is almost always wrong for a thematic ask.
+
+  2. You must reason about WHO ACTUALLY BENEFITS from the move the user describes — this is not the same as "stocks in the same sector". The most important Indian examples to internalize:
+
+       - "Profits from RISING crude / oil prices" → UPSTREAM PRODUCERS who sell crude they pull out of the ground: ONGC, OIL India (Oil India Ltd). Optionally Reliance (integrated; upstream exposure partially offset by refining). Cairn / Vedanta has crude exposure too.
+         EXPLICITLY WRONG for this view: IOC, BPCL, HPCL. These are refiners / oil MARKETING companies; their gross refining margins COMPRESS when crude rises because retail fuel prices are politically administered and they can't pass through the cost in real time. Picking IOC for "profits from rising oil" is a textbook backwards trade.
+
+       - "Profits from FALLING crude / oil prices" → flip it: refiners/marketers (IOC, BPCL, HPCL) and heavy crude-input consumers (paints: ASIANPAINT/BERGEPAINT; aviation: INDIGO; tyres) benefit. Upstream producers (ONGC, OIL India) suffer.
+
+       - "Benefits from a WEAKER rupee" (USD/INR up) → IT exporters (TCS, INFY, HCLTECH, WIPRO), pharma exporters (SUNPHARMA, DRREDDY), some auto exporters. NOT importers, NOT oil marketers (their import bill rises).
+
+       - "Benefits from RBI rate CUTS" → rate-sensitive: NBFCs, housing finance, autos, real estate. NOT banks straightforwardly (NIMs compress).
+
+       - "Benefits from gold rising" → gold financiers (MUTHOOTFIN, MANAPPURAM) and gold jewellers/ETFs; NOT generic "metals" stocks.
+
+     If the user's thematic view falls outside these and you are not confident in WHO benefits, say so in the rationale and pick the most defensible small basket plus a clear caveat — never fabricate confidence.
+
+  3. RISK-NEUTRAL / HEDGED / MARKET-NEUTRAL constraints. If the user says "risk neutral", "hedged", "market neutral", "delta neutral", "pair trade", "long-short", or any equivalent: a long-only SIP / long-only basket is NOT a hedge and is NOT risk-neutral. You MUST either:
+       (a) propose a structurally hedged shape — e.g. a long basket of the beneficiaries paired with a short on a broad index (NIFTY/BANKNIFTY) or a paired short of the natural anti-beneficiary, OR an options-defined-risk structure if the catalog supports option steps, OR
+       (b) if the catalog cannot express a clean hedge for this view, emit the closest LONG-ONLY directional draft AND state plainly in the rationale: "This automation is NOT market-neutral — it has full equity beta. A true neutral version would require <pair leg / index short / option structure> which this workflow does not include." Do not silently ship a long-only structure under a hedge ask.
+
+  4. HONESTY OVER FAKE SUCCESS. Never describe a long-only weekly SIP as "risk-neutral" or "a hedge". Never claim the workflow "profits from X" if the instruments you chose actually suffer from X. If you cannot honestly map the user's intent into the catalog, prefer a shorter, simpler draft with a forthright rationale over a polished draft that overstates what was built.
 """
 
 
@@ -220,6 +288,61 @@ async def resolve_polymarket_event_descriptions(raw: dict[str, Any]) -> None:
         step["config"] = cfg
 
 
+def _ensure_step_labels(draft: WorkflowDraft) -> None:
+    """In-place: every step gets a human label from the registry.
+
+    The frontend's WorkflowDraftCard falls back to the raw ``step_type``
+    string ("trigger.compound", "action.place_order") when ``label`` is
+    null or empty. That leaks engineering ids into the chat surface.
+
+    This helper authoritatively backfills ``step.label`` from
+    ``STEP_REGISTRY[step.step_type].label`` whenever the LLM/mock path
+    left it falsy. Defensive: skips step_types not in the registry
+    (the validator will already have rejected those, but if a future
+    caller invokes this on an unvalidated draft we don't want to crash
+    here).
+    """
+    for step in draft.steps:
+        if step.label:
+            continue
+        defn = STEP_REGISTRY.get(step.step_type)
+        if defn is None:
+            continue
+        step.label = defn.label
+
+
+# Deprecated/collapsed step_type → (replacement, discriminator config).
+_DEPRECATED_STEP_NORMALIZERS: dict[str, tuple[str, dict[str, Any]]] = {
+    "action.set_stoploss": ("action.set_protective", {"kind": "stoploss"}),
+    "action.set_takeprofit": ("action.set_protective", {"kind": "takeprofit"}),
+    "action.squareoff_all": ("action.squareoff", {"scope": "all"}),
+    "action.squareoff_symbol": ("action.squareoff", {"scope": "symbol"}),
+    "action.squareoff_all_intraday": ("action.squareoff", {"scope": "intraday"}),
+    "fetch.day_open": ("fetch.price_reference", {"reference": "day_open"}),
+    "fetch.prior_close": ("fetch.price_reference", {"reference": "prior_close"}),
+    "fetch.rolling_high": ("fetch.rolling_extreme", {"side": "high"}),
+    "fetch.rolling_low": ("fetch.rolling_extreme", {"side": "low"}),
+}
+
+
+def _normalize_deprecated_steps(draft: WorkflowDraft) -> None:
+    """In-place: rewrite any deprecated/collapsed step_type the planner emitted
+    to its parameterized replacement, injecting the discriminator field so the
+    new config model validates. Idempotent — steps already on the new shape are
+    left untouched. The legacy ids still execute via their alias, but freshly
+    proposed drafts should use the slim catalog."""
+    for step in draft.steps:
+        mapping = _DEPRECATED_STEP_NORMALIZERS.get(step.step_type)
+        if mapping is None:
+            continue
+        new_type, discriminator = mapping
+        cfg = dict(step.config or {})
+        for key, val in discriminator.items():
+            cfg.setdefault(key, val)
+        step.step_type = new_type
+        step.config = cfg
+
+
 def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
     """Parse the LLM's JSON output into WorkflowDraft AND validate every
     step config against the registry's Pydantic model.
@@ -245,6 +368,11 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
 
     if not draft.steps:
         raise ProposalValidationError("draft must contain at least one step")
+
+    # Upgrade any deprecated/collapsed step_type to its parameterized
+    # replacement BEFORE per-step config validation (the new config models
+    # require the discriminator the normalizer injects).
+    _normalize_deprecated_steps(draft)
 
     prev_was_trigger = False
     for idx, step in enumerate(draft.steps):
@@ -293,6 +421,35 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
             ) from e
         prev_was_trigger = is_trigger
 
+    # Cross-step lint pass (capability / refs / structural). Runs after
+    # the per-step registry validation above so the linter sees a draft
+    # whose individual configs are already Pydantic-valid. ``error``
+    # diagnostics rejoin the same hard-failure mechanism the per-step
+    # loop uses (ProposalValidationError) so the LLM retry path can
+    # self-correct on them; ``warning`` / ``info`` findings are surfaced
+    # non-fatally via ``draft.warnings`` + ``draft.diagnostics`` for the
+    # FE editor to render inline.
+    from backend.workflows.compat import lint_workflow
+    lint_steps = [
+        {"step_type": s.step_type, "config": s.config or {}}
+        for s in draft.steps
+    ]
+    lint_diags = lint_workflow(lint_steps)
+    fatal = [d for d in lint_diags if d.severity == "error"]
+    if fatal:
+        first = fatal[0]
+        raise ProposalValidationError(
+            f"step {first.step_index} lint: {first.code}: {first.message}"
+        )
+    non_fatal = [d for d in lint_diags if d.severity != "error"]
+    if non_fatal:
+        draft.warnings.extend(d.message for d in non_fatal)
+        draft.diagnostics = [d.model_dump() for d in non_fatal]
+
+    # Backfill any missing human labels from the registry so the chat
+    # card never falls back to the raw step_type id.
+    _ensure_step_labels(draft)
+
     return draft
 
 
@@ -339,15 +496,44 @@ Hard constraints:
   - No branching, no loops, no sub-workflows.
   - All inter-step references use {{ context.<idx>.<dotted.path> }}.
 
-Your job (this hop): write a SHORT plan in plain English (4-8 lines)
-describing each step you'd emit and why. Do NOT emit JSON yet. Do not
-list step types you're unsure about — say "needs clarification" if a
-required field can't be inferred from the user's request.
+Your job (this hop): write a plan in plain English (8-14 lines) that
+explicitly REASONS ABOUT THE INSTRUMENT CHOICE before listing steps.
+The plan MUST cover, in order:
+
+  1. What is the user actually expressing a view ON? (a price move,
+     a macro event, a stock, a basket, a theme). State it in one line.
+  2. WHO is the natural beneficiary of that view? Reason about the
+     economics — for a thematic / macro view, who actually MAKES MORE
+     MONEY when the user's described move happens?
+       - "Profits from RISING crude/oil" → UPSTREAM PRODUCERS like
+         ONGC, OIL India (they sell crude they pull out of the ground).
+         NOT IOC/BPCL/HPCL — those are refiners/marketers whose
+         margins COMPRESS when crude rises because retail fuel prices
+         are politically administered.
+       - "Profits from FALLING crude" → flip: refiners/marketers and
+         heavy crude consumers (paints, aviation, tyres) benefit.
+       - "Weaker rupee" → IT/pharma exporters.
+       - "RBI rate cuts" → rate-sensitive NBFCs, autos, real estate.
+       - For any thematic ask, prefer a small BASKET (3-5 names) of
+         the actual beneficiaries over a single arbitrary stock.
+  3. Did the user impose a RISK constraint (risk-neutral, hedged,
+     market-neutral, delta-neutral, defined-risk, pair, long-short)?
+     If yes, a long-only structure is NOT a hedge. Either propose a
+     hedged shape (long basket + short index leg / paired short / a
+     defined-risk option structure if catalog supports it) OR state
+     plainly in the plan: "This will be long-only directional; the
+     catalog can't express a true neutral version for this view."
+  4. Now list each step you'd emit (step_type + 1-line why).
+  5. If a REQUIRED field (quantity, threshold, schedule time) can't
+     be inferred, write "needs clarification: <field>" rather than
+     defaulting.
 
 If the user's strategy genuinely doesn't fit the linear-single-trigger
 shape (e.g. "buy Monday and sell Tuesday" needs two agents), say so
 explicitly so the next hop can surface a clarification rather than
 fabricate an invalid draft.
+
+Do NOT emit JSON yet. The next hop transcribes your plan into JSON.
 """
 
 
@@ -363,10 +549,26 @@ markdown fences):
   "steps": [
     { "step_type": "...", "label": "...", "config": { ... } }
   ],
-  "rationale": "1-2 sentences explaining the mapping"
+  "rationale": "3-6 sentences. MUST cover (a) why these specific instruments are the right beneficiaries of the user's stated view (cite the economic mechanism: who makes more money when the move happens); (b) how each step maps to the request; (c) the material risks this carries; (d) what this automation is NOT (explicitly call out if it is not market-neutral / not a true hedge / single-stock concentration / weekly SIP rather than tactical entry). NEVER a one-liner. NEVER generic boilerplate."
 }
 
 You may ONLY use step_types from the catalog the planner referenced.
+
+INSTRUMENT-SELECTION GUARDRAILS (hard rules):
+
+  - "Profits from RISING crude/oil" → producers (ONGC, OIL India),
+    NOT refiners/marketers (IOC, BPCL, HPCL). Picking IOC for
+    rising-oil is wrong: their margins compress when crude rises.
+  - "Profits from FALLING crude" → refiners + heavy crude consumers.
+  - Thematic asks → small basket (3-5 names), not one arbitrary stock.
+  - "Risk-neutral" / "hedged" / "market-neutral" → propose a hedged
+    shape OR state explicitly in the rationale that this draft is
+    NOT neutral. Never silently ship a long-only SIP under a hedge
+    label.
+
+Follow the planner's instrument list. If the planner picked the wrong
+beneficiaries (e.g. listed IOC for "profits from rising oil"), CORRECT
+the basket in your JSON and explain the correction in the rationale.
 """
 
 
@@ -394,7 +596,12 @@ async def _call_llm_for_plan(user_intent: str) -> str:
             LLMMessage(role="system", content=system),
             LLMMessage(role="user", content=user_intent),
         ],
-        max_output_tokens=900,
+        # Raised from 900 → 2000 on 2026-06-18: the planner now reasons
+        # explicitly about instrument selection (producers vs refiners,
+        # hedge-vs-long-only) before listing steps, which needs the
+        # headroom. Truncation here was silently capping the rationale
+        # downstream and producing thin one-line summaries.
+        max_output_tokens=2000,
         reasoning_effort="medium",
         temperature=0.2,
     )
@@ -451,7 +658,11 @@ async def _call_llm_for_draft(
     client = get_llm_client()
     response = await client.complete(
         messages=messages,
-        max_output_tokens=1500,
+        # Raised from 1500 → 4000 on 2026-06-18: the rationale field is
+        # now a 3-6 sentence honest summary (instruments, risks, what
+        # this is NOT) rather than a one-liner. 1500 was clipping the
+        # rationale mid-sentence for any non-trivial basket draft.
+        max_output_tokens=4000,
         reasoning_effort="minimal",
         temperature=0.2,
         response_format="json_object",

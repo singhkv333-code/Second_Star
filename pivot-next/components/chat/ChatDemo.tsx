@@ -7,7 +7,6 @@
  * SSE events: start | tool_start | tool_done | delta | replace | error | done.
  * When `done` arrives its raw_data/_render_hint drives the final card kind,
  * identical to the former non-streaming POST /chat dispatch.
- * Bare NSE tickers → renders StockSnapshotCard (no API call).
  *
  * Conversation ID is derived per-user from the backend (u{user_id} format).
  * Client carries rolling history so backend has context.
@@ -20,21 +19,23 @@ import {
   Bot,
   Check,
   Copy,
+  CornerUpLeft,
   RotateCw,
   Square,
   Workflow as WorkflowIcon,
   LineChart,
+  X,
   Zap,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   WorkflowDraftCard,
   draftToWorkflow,
   type WorkflowDraft,
 } from "@/components/chat/WorkflowDraftCard";
-import { StockSnapshotCard } from "@/components/chat/StockSnapshotCard";
 import {
   IndicatorBacktestCard,
   type IndicatorBacktestPayload,
@@ -60,7 +61,10 @@ import { OptionChainCard } from "@/components/chat/OptionChainCard";
 import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
 import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCard";
 import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
-import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload } from "@/lib/types";
+import { ClarifyCard } from "@/components/chat/ClarifyCard";
+import { StrategyBuilderCard } from "@/components/chat/StrategyBuilderCard";
+import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
+import { useActiveDraft } from "@/components/agent-panel/active-draft-context";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -125,6 +129,17 @@ async function* streamChat(
   signal: AbortSignal,
   conversationId: string,
   mode: ChatMode,
+  /** When the user replied-by-selecting a snippet of a prior assistant
+   * answer, the highlighted excerpt is sent here so the backend can
+   * thread it into the prompt as the thing being replied to. */
+  quotedText: string | null,
+  /**
+   * The unsaved draft currently open in the editor (if any). Sent to
+   * the backend so it amends exactly what the user sees, not its own
+   * Redis copy. Absent when the editor is closed or showing a saved
+   * workflow — in that case the backend falls back to its Redis state.
+   */
+  editorDraft?: WorkflowDraft | null,
 ): AsyncGenerator<SseEvent> {
   const base =
     (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
@@ -158,6 +173,12 @@ async function* streamChat(
       // Backtest below the composer, we pass that intent to the
       // backend deterministically. Null = classifier decides.
       mode,
+      // Reply-by-selecting: the highlighted excerpt the user is
+      // replying to. Omitted entirely when there's no active quote.
+      ...(quotedText ? { quoted_text: quotedText } : {}),
+      // Editor-draft sync: when the editor is open on an unsaved draft,
+      // send it so the backend amends exactly what the user sees.
+      ...(editorDraft ? { editor_draft: editorDraft } : {}),
     }),
     cache: "no-store",
     signal,
@@ -222,146 +243,6 @@ async function* streamChat(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Quick "show me X" ticker shortcut. Now CASE-INSENSITIVE — "RELIANCE",
- * "Reliance", and "reliance" all open the snapshot card. Previously
- * the bare-ticker regex only accepted uppercase, which surprised users
- * who expected case-insensitive ticker recognition (PDF report:
- * "stock widget triggers only when I type the ticker in CAPS").
- *
- * Accepted shapes:
- *   1. bare ticker (case-insensitive): "RELIANCE", "Reliance", "reliance"
- *   2. snapshot phrase: "show me reliance", "what about TCS?", "INFY snapshot"
- *   3. with leading $: "$RELIANCE"
- *
- * Common-name aliases (zomato → ETERNAL after the IPO rebrand) are
- * resolved here so users don't see "no quote available for ZOMATO.NSE".
- *
- * If no phrase pattern matches we fall through to the LLM.
- */
-
-/** Common-name → NSE-ticker aliases. Lowercased keys. */
-const TICKER_ALIASES: Record<string, string> = {
-  zomato: "ETERNAL",
-  // Eternal Limited (formerly Zomato) — listed under ETERNAL on NSE
-  // since the 2025 rebrand. Without this, the user typing "zomato"
-  // gets a "no quote" error (PDF report).
-  swiggy: "SWIGGY",
-  paytm: "PAYTM",
-  hdfc: "HDFCBANK",       // most-asked HDFC variant
-  icici: "ICICIBANK",
-  sbi: "SBIN",
-  hul: "HINDUNILVR",
-  "tata steel": "TATASTEEL",
-  "tata motors": "TATAMOTORS",
-  "tata power": "TATAPOWER",
-  "bajaj finance": "BAJFINANCE",
-  reliance: "RELIANCE",
-  infy: "INFY",
-  infosys: "INFY",
-  tcs: "TCS",
-};
-
-function resolveTickerAlias(raw: string): string {
-  const k = raw.trim().toLowerCase();
-  return TICKER_ALIASES[k] ?? raw.toUpperCase();
-}
-
-function extractTicker(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
-  // Strip a trailing "?" so "Reliance?" still snapshots.
-  const noQ = trimmed.replace(/\?+$/, "").trim();
-
-  // Never short-circuit an options / F&O / chain intent into a local stock
-  // snapshot — those must reach the backend (e.g. "show me the NIFTY option
-  // chain" was matching "show" then capturing "me" → bogus ME.NSE snapshot).
-  if (/\b(option|options|chain|future|futures|straddle|strangle|condor|butterfly|expiry|greeks?|call\s+option|put\s+option)\b/i.test(noQ)) {
-    return null;
-  }
-
-  // Bare ticker. Two acceptance branches so we don't snapshot common
-  // English words ("something", "anything") just because they look
-  // like tickers:
-  //   1. ALL-UPPERCASE — a deliberate ticker keystroke ("RELIANCE").
-  //   2. Alias hit — case-insensitive match against the alias map
-  //      ("Reliance", "zomato", "hdfc"). Mixed case without an
-  //      alias entry falls through to the LLM.
-  // M&M / L&T / BAJAJ-AUTO survive because they're uppercase or
-  // already aliased.
-  if (/^[A-Z][A-Z0-9&\-_]{1,14}$/.test(noQ)) {
-    const upper = noQ.toUpperCase();
-    if (STOPWORDS.has(upper)) return null;
-    return upper;
-  }
-  if (/^[A-Za-z][A-Za-z0-9&\- _]{1,19}$/.test(noQ)) {
-    const lower = noQ.toLowerCase();
-    if (TICKER_ALIASES[lower]) return TICKER_ALIASES[lower] ?? null;
-  }
-
-  // $RELIANCE
-  const dollarMatch = /^\$([A-Za-z]{2,15})\b/.exec(noQ);
-  if (dollarMatch) {
-    const sym = dollarMatch[1] ?? null;
-    if (!sym || STOPWORDS.has(sym.toUpperCase())) return null;
-    return resolveTickerAlias(sym);
-  }
-
-  // Phrase patterns: require an explicit verb cue AND a short total
-  // message length. Snapshot intents are phrases ("show me INFY",
-  // "TCS quote"), workflow descriptions are sentences. Without this
-  // length gate, a phrase like "...sells if price decreases..." inside
-  // a long workflow description would match `/(\w)\s+price/` and
-  // mis-route to the snapshot card with the conjunction as the
-  // ticker (e.g. "no quote available for IF.NSE").
-  if (noQ.length > 40) return null;
-
-  const lower = noQ.toLowerCase();
-  const phrasePatterns = [
-    /^(?:show me|show us|show|what about|how(?:'s| is| about)|tell me (?:more )?about|price of|quote for|snapshot of|chart for)\s+(?:the\s+)?([a-z]{2,15})\b/,
-    /^([a-z]{2,15})\s+(?:snapshot|quote|price|chart)\s*\??\s*$/,
-  ];
-  for (const re of phrasePatterns) {
-    const m = re.exec(lower);
-    if (m) {
-      const raw = m[1];
-      if (!raw) continue;
-      const candidate = raw.toUpperCase();
-      if (STOPWORDS.has(candidate)) continue;
-      return resolveTickerAlias(raw);
-    }
-  }
-  return null;
-}
-
-/** Words that look like tickers but are clearly conversational filler.
- *  Expanded with the cases reported in the PDF: "ALL" (treated as a
- *  ticker on the exit-positions confirmation), "INTRADAY", and several
- *  short follow-up replies that should never become snapshot cards. */
-const STOPWORDS = new Set([
-  // Greetings / acknowledgements
-  "HI", "HELLO", "HEY", "OK", "OKAY", "YES", "NO", "PLEASE", "THANKS", "BYE",
-  "SURE", "MAYBE", "FINE",
-  // Pronouns / fillers that get captured after a verb ("show ME …",
-  // "tell US …") — these are never tickers.
-  "ME", "MY", "US", "WE", "IT", "ITS", "OUR", "YOU", "YOUR", "THEM", "THIS",
-  "THAT", "THESE", "THOSE",
-  // Question words
-  "WHAT", "WHEN", "WHY", "WHO", "HOW", "WHICH", "WHERE",
-  // Conjunctions / prepositions (caught when message slips past length gate)
-  "IF", "AT", "ON", "IN", "BY", "AS", "IS", "OF", "TO", "OR", "AND", "BUT",
-  "FOR", "WITH", "FROM", "THE", "AN", "BE",
-  // Verb-ish words that look like tickers
-  "SHOW", "TELL", "BUY", "SELL", "RUN", "GET", "SET", "ADD", "EDIT",
-  // Quantifiers / scope words that surfaced as fake tickers in PDF
-  "ALL", "NONE", "ANY", "EVERY", "EACH", "BOTH",
-  // Order-type / scope qualifiers (PDF: "INTRADAY only" turned into a ticker)
-  "INTRADAY", "DELIVERY", "MIS", "CNC", "MARKET", "LIMIT", "GTT", "SL",
-  // Acknowledgement / clarification answers
-  "DONE", "GOT", "GOTIT", "ACTIVATE", "CONFIRM", "PROCEED", "CANCEL",
-]);
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -643,14 +524,13 @@ function StreamingStatusBar({
 
 
 type Message =
-  | { kind: "user"; text: string; timestamp?: string }
+  | { kind: "user"; text: string; timestamp?: string; quote?: string }
   | { kind: "assistant"; text: string }
   /** Transient streaming bubble — replaced by a final kind on `done`.
    * `startedAt` is the unix-ms timestamp when the bubble was created;
    * the `StreamingStatusBar` reads it to render an elapsed counter. */
   | { kind: "streaming"; text: string; tools: ToolPill[]; startedAt: number }
   | { kind: "draft"; draft: WorkflowDraft; intro: string }
-  | { kind: "snapshot"; symbol: string; intro: string }
   | { kind: "indicator_backtest"; payload: IndicatorBacktestPayload; intro: string }
   | { kind: "financial_backtest"; payload: FinancialBacktestPayload; intro: string }
   | { kind: "logic_card"; card: LogicCard; intro: string }
@@ -661,6 +541,13 @@ type Message =
   | { kind: "option_chain"; payload: OptionChainPayload; intro: string }
   | { kind: "option_strategy"; payload: OptionStrategyPayload; intro: string }
   | { kind: "portfolio_greeks"; payload: PortfolioGreeksPayload; intro: string }
+  | { kind: "clarify"; card: ClarifyCardData; intro: string }
+  /**
+   * Summary card appended after the last clarify answer in local-paging mode.
+   * Displays the recorded choices before the backend's built strategy card arrives.
+   */
+  | { kind: "clarify_summary"; answers: ClarifyAnswerRecord[] }
+  | { kind: "strategy_builder"; card: StrategyBuilderCardData; intro: string }
   | { kind: "live_run"; runId: string; workflowName: string; workflowId: string }
   | { kind: "error"; message: string };
 
@@ -697,6 +584,12 @@ type ChatDemoProps = {
   /** Called after a `demoSeed` has been consumed so parent can clear it
    * (same pattern as `onPrefillConsumed`). */
   onDemoSeedConsumed?: () => void;
+  /**
+   * Called whenever a chat turn yields a workflow_draft_card (new OR
+   * amended). AppShell uses this to push the draft into the bound editor
+   * without needing the user to click "Open in editor" again.
+   */
+  onDraftFromChat?: (draft: Workflow) => void;
 };
 
 export type ChatDemoSeed = {
@@ -738,10 +631,23 @@ export function ChatDemo({
   onActiveChange,
   demoSeed,
   onDemoSeedConsumed,
+  onDraftFromChat,
 }: ChatDemoProps): React.ReactElement {
+  // Read the active draft context so we can attach editor_draft on outgoing
+  // requests when the panel is open on an unsaved draft.
+  const { activeEditorDraft, panelOpenWithDraft } = useActiveDraft();
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  // Reply-by-selecting state. `reply` is the snippet the user committed
+  // to reply to (shown as a quote chip above the composer + sent with
+  // the next message). `selectionReply` is the transient floating
+  // "Reply" button that appears while text is highlighted inside an
+  // assistant message — committing it sets `reply`.
+  const [reply, setReply] = useState<string | null>(null);
+  const [selectionReply, setSelectionReply] = useState<
+    { text: string; left: number; top: number } | null
+  >(null);
   // Mode pill state. null = auto (classifier decides). Toggled from
   // the pills below the composer. Persists across turns so the user
   // can stay "in agent mode" while iterating on a workflow.
@@ -761,6 +667,103 @@ export function ChatDemo({
    *  can cancel the SSE stream mid-response. Cleared in submit()'s
    *  finally block. */
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Index of the active clarify message in `messages`. Used to UPDATE the
+   * same message in-place when a clarify answer returns another clarify card
+   * (deduplication — the user sees a single card that paged locally, not a
+   * stacked new card per answer). Reset to -1 when the flow ends.
+   */
+  const clarifyMsgIdxRef = useRef<number>(-1);
+  // Ref to the floating "Reply" button so the document mousedown
+  // dismiss-handler can tell a button click from a click elsewhere.
+  const selBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // Reply-by-selecting: surface a floating "Reply" button whenever the
+  // user highlights text inside an assistant message (marked with
+  // `data-reply-source`). Mirrors the Claude / ChatGPT gesture. The
+  // button is positioned just above the selection's bounding box.
+  useEffect(() => {
+    // mouseup only ever SHOWS the button (when a fresh, valid in-source
+    // selection exists). It never hides — hiding is owned by mousedown
+    // below. This is deliberate: a parent re-render can collapse the
+    // live selection a frame later, and we must NOT let that yank the
+    // button away before the user can click it. The excerpt is captured
+    // into state here, so the click no longer depends on the selection
+    // still being alive.
+    const computeFromSelection = (): void => {
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+      const text = sel.toString().trim();
+      if (!text) return;
+      // Both ends of the selection must live inside an assistant message
+      // body — never the composer, a user bubble, or a card.
+      const inSource = (node: Node | null): boolean => {
+        const el =
+          node && node.nodeType === Node.ELEMENT_NODE
+            ? (node as Element)
+            : node?.parentElement ?? null;
+        return !!el?.closest("[data-reply-source]");
+      };
+      if (!inSource(sel.anchorNode) || !inSource(sel.focusNode)) return;
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      if (!rect || (rect.width === 0 && rect.height === 0)) return;
+      setSelectionReply({
+        text,
+        left: rect.left + rect.width / 2,
+        top: rect.top,
+      });
+    };
+
+    // Any mousedown that isn't on the button dismisses it (starting a new
+    // selection, clicking the composer, etc.). A mousedown ON the button
+    // is its own commit path — leave it alone.
+    const onDocMouseDown = (e: MouseEvent): void => {
+      const t = e.target as Node | null;
+      if (selBtnRef.current && t && selBtnRef.current.contains(t)) return;
+      setSelectionReply(null);
+    };
+
+    // A scroll detaches the fixed-position button from the text it points
+    // at — just dismiss it.
+    const onScroll = (): void => setSelectionReply(null);
+    const scrollEl = scrollRef.current;
+    document.addEventListener("mouseup", computeFromSelection);
+    document.addEventListener("mousedown", onDocMouseDown);
+    scrollEl?.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      document.removeEventListener("mouseup", computeFromSelection);
+      document.removeEventListener("mousedown", onDocMouseDown);
+      scrollEl?.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  /** Commit the highlighted excerpt into the composer's reply chip, then
+   * dismiss the button and refocus the textarea. Reads the LIVE selection
+   * first (still intact at mousedown time) and falls back to the text we
+   * captured when the button appeared — so it never depends on the
+   * selection surviving the click, which it doesn't in a webview. */
+  const commitSelectionReply = (): void => {
+    // Prefer the text captured when the button appeared — the live
+    // selection may already have been collapsed by a re-render. Fall
+    // back to the live selection only if we somehow have no stored text.
+    const stored = selectionReply?.text || "";
+    const live =
+      (typeof window !== "undefined"
+        ? window.getSelection()?.toString().trim()
+        : "") || "";
+    const text = stored || live;
+    if (!text) return;
+    setReply(text);
+    setSelectionReply(null);
+    try {
+      window.getSelection()?.removeAllRanges();
+    } catch {
+      /* ignore */
+    }
+    // Focus after the current event settles so the webview doesn't
+    // swallow it while the selection is being torn down.
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  };
 
   // Consume prefill once when it arrives. With `prefillAutoSubmit`, the
   // prefill is sent through the chat pipeline immediately (dashboard
@@ -930,6 +933,15 @@ export function ChatDemo({
           _render_hint: "workflow_draft_card",
         };
         finalMessage = { kind: "draft", draft, intro: data.response ?? "" };
+        // Notify parent so the bound editor re-renders with the new draft.
+        onDraftFromChat?.(draftToWorkflow(draft));
+        // Toast only when the editor was already open on this draft (amendment).
+        if (panelOpenWithDraft) {
+          toast("Chat updated the agent", {
+            description: "The editor reflects the latest changes from this conversation.",
+            duration: 3000,
+          });
+        }
       } else {
         finalMessage = { kind: "assistant", text: data.response ?? "" };
       }
@@ -993,73 +1005,96 @@ export function ChatDemo({
         payload: rawData as unknown as PortfolioGreeksPayload,
         intro: data.response ?? "",
       };
+    } else if (hint === "clarify_card" && rawData) {
+      // raw_data = { _render_hint: "clarify_card", clarify: <ClarifyCard> }.
+      const clarify = (rawData as { clarify?: ClarifyCardData }).clarify;
+      if (clarify && Array.isArray(clarify.questions)) {
+        finalMessage = {
+          kind: "clarify",
+          card: clarify,
+          intro: data.response ?? "",
+        };
+      } else {
+        finalMessage = { kind: "assistant", text: data.response ?? "" };
+      }
+    } else if (hint === "strategy_builder_card" && rawData) {
+      // The StrategyBuilderCard fields are spread at the top level of raw_data
+      // alongside the render hint (mirrors the executor's
+      // `{ "_render_hint": ..., **card.model_dump() }`).
+      const card = rawData as unknown as StrategyBuilderCardData;
+      if (Array.isArray(card.constituents)) {
+        finalMessage = {
+          kind: "strategy_builder",
+          card,
+          intro: data.response ?? "",
+        };
+      } else {
+        finalMessage = { kind: "assistant", text: data.response ?? "" };
+      }
     } else {
       finalMessage = { kind: "assistant", text: data.response ?? "" };
     }
 
     setMessages((prev) => {
       const next = [...prev];
+      // Clarify deduplication: when the backend returns another clarify card
+      // AND we already have an active clarify message in the thread, update it
+      // in place and discard the streaming bubble at streamingIdx.
+      // This prevents stacked cards when local paging drives per-answer requests.
+      if (finalMessage.kind === "clarify") {
+        const existingClarifyIdx = clarifyMsgIdxRef.current;
+        if (existingClarifyIdx >= 0 && existingClarifyIdx < next.length && next[existingClarifyIdx]?.kind === "clarify") {
+          // Update the existing clarify card in place.
+          next[existingClarifyIdx] = finalMessage;
+          // Remove the streaming bubble that was appended for this answer.
+          next.splice(streamingIdx, 1);
+          return next;
+        } else {
+          // First clarify card — record its position for future deduplication.
+          clarifyMsgIdxRef.current = streamingIdx;
+        }
+      } else {
+        // Non-clarify final message: the flow is done, reset clarify tracking.
+        clarifyMsgIdxRef.current = -1;
+      }
       next[streamingIdx] = finalMessage;
       return next;
     });
   }
 
-  const submit = async (text: string, modeOverride?: ChatMode): Promise<void> => {
+  const submit = async (
+    text: string,
+    modeOverride?: ChatMode,
+    quotedText?: string | null,
+    opts?: { silent?: boolean },
+  ): Promise<void> => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
-    setMessages((prev) => [
-      ...prev,
-      { kind: "user", text: trimmed, timestamp: new Date().toISOString() },
-    ]);
-    setIntent("");
+    // Snapshot the quoted excerpt (if any) for this turn.
+    const quote = (quotedText ?? "").trim() || null;
 
-    // Bare ticker shortcut — no API call. SKIP the shortcut when the
-    // last assistant turn ended with a clarification ask: a one-word
-    // reply ("ALL", "yes", "intraday only") is the answer to that
-    // question, not a snapshot request. Without this gate the user's
-    // "ALL" reply to "do you want all positions or intraday only?"
-    // got rendered as a `no quote available for ALL.NSE` error
-    // (PDF report).
-    const lastAssistant = [...historyRef.current]
-      .reverse()
-      .find((m) => m.role === "assistant");
-    const lookedLikeClarification =
-      !!lastAssistant &&
-      /\?\s*$|please (?:share|specify|provide|confirm|reply|answer)|\bwhich\b|\bhow many\b|\b(all|intraday)\b/i
-        .test(lastAssistant.content.trim().slice(-300));
-
-    const ticker = lookedLikeClarification ? null : extractTicker(trimmed);
-    if (ticker) {
+    // Silent turns (the batched clarify-card answer sent on completion) sync to
+    // the backend WITHOUT appending a user bubble — the sliding card and the
+    // "Your choices" summary are the visible record, not a raw answer payload.
+    if (!opts?.silent) {
       setMessages((prev) => [
         ...prev,
         {
-          kind: "snapshot",
-          symbol: ticker,
-          intro: `Here's a quick snapshot for ${ticker} — price, day range, and the basics are below.`,
+          kind: "user",
+          text: trimmed,
+          timestamp: new Date().toISOString(),
+          ...(quote ? { quote } : {}),
         },
       ]);
-      // CRITICAL: seed the rolling history with synthetic turns so the
-      // BACKEND knows the user just looked at this ticker. Without this,
-      // typing "zomato" → snapshot → "buy 10 shares" sends an empty
-      // context to /chat and the LLM asks "which stock?". The user
-      // saw the ETERNAL card a turn ago — context resolution should
-      // be obvious. We fake the assistant turn the FE rendered locally
-      // so the LLM sees a coherent transcript.
-      historyRef.current = [
-        ...historyRef.current,
-        { role: "user" as const, content: trimmed },
-        {
-          role: "assistant" as const,
-          content: (
-            `Here's a quick snapshot for ${ticker}. ` +
-            `(Most recently mentioned ticker: ${ticker}.)`
-          ),
-        },
-      ].slice(-20);
-      return;
     }
+    setIntent("");
 
+    // NOTE: the old "bare ticker → local StockSnapshotCard (no API call)"
+    // shortcut was removed. Every turn — including a lone ticker like
+    // "TCS" — now goes through the LLM via /chat/stream, so routing,
+    // grounding, and the answer are consistent and never hardwired
+    // behind the model's back.
     setLoading(true);
 
     // Index of the streaming bubble we're about to append.
@@ -1087,6 +1122,25 @@ export function ChatDemo({
       // set inside the setter above — wait one tick for the flush.
       await Promise.resolve();
 
+      // Build the editor_draft payload: only include it when the panel is
+      // open and bound to an unsaved draft — converts Workflow → WorkflowDraft
+      // shape so the backend contract is satisfied.
+      const editorDraft: WorkflowDraft | null =
+        panelOpenWithDraft && activeEditorDraft
+          ? {
+              name: activeEditorDraft.name,
+              description: activeEditorDraft.description ?? "",
+              steps: activeEditorDraft.steps.map((s) => ({
+                step_type: s.step_type,
+                label: s.label,
+                config: s.config,
+              })),
+              rationale: "",
+              warnings: [],
+              _render_hint: "workflow_draft_card",
+            }
+          : null;
+
       const gen = streamChat(
         trimmed,
         historyRef.current,
@@ -1097,6 +1151,8 @@ export function ChatDemo({
         // wins over the mode state, which may not have flushed yet this
         // tick — the prefill path calls setMode(mode) AND passes it here.
         modeOverride ?? mode,
+        quote,
+        editorDraft,
       );
 
       for await (const event of gen) {
@@ -1223,6 +1279,14 @@ export function ChatDemo({
     );
   };
 
+  /** Send the composer's contents, consuming the active reply quote (if
+   * any) so it rides along with this one message and is then cleared. */
+  const submitComposer = (): void => {
+    const q = reply;
+    setReply(null);
+    void submit(intent, undefined, q);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter sends; Shift+Enter inserts a newline (Cmd/Ctrl+Enter still sends
     // too). `isComposing` guards IME input — critical for Hinglish/Devanagari
@@ -1233,7 +1297,7 @@ export function ChatDemo({
       !e.nativeEvent.isComposing
     ) {
       e.preventDefault();
-      void submit(intent);
+      submitComposer();
     }
   };
 
@@ -1308,6 +1372,7 @@ export function ChatDemo({
                 <UserBubble
                   key={idx}
                   text={msg.text}
+                  quote={msg.quote}
                   timestamp={msg.timestamp}
                   onRetry={() => void submit(msg.text)}
                 />
@@ -1405,24 +1470,6 @@ export function ChatDemo({
                     <AssistantBubble text={msg.text} onRetry={onRetryAssistant}>
                       <AssistantMessage text={msg.text} />
                     </AssistantBubble>
-                  </div>
-                </div>
-              );
-            }
-            if (msg.kind === "snapshot") {
-              return (
-                <div key={idx} className="flex flex-col gap-2">
-                  {msg.intro && (
-                    <div className="flex justify-start">
-                      <div className="flex w-full items-start">
-                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
-                          <AssistantMessage text={msg.intro} />
-                        </AssistantBubble>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex justify-start">
-                    <StockSnapshotCard symbol={msg.symbol} />
                   </div>
                 </div>
               );
@@ -1631,6 +1678,75 @@ export function ChatDemo({
                 </div>
               );
             }
+            if (msg.kind === "clarify") {
+              // In local-paging mode this is the single card for the whole flow.
+              // In one-at-a-time mode multiple cards may exist; only the last is active.
+              const isLatestClarify = !messages
+                .slice(idx + 1)
+                .some((m) => m.kind === "clarify" || m.kind === "strategy_builder" || m.kind === "clarify_summary");
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <ClarifyCard
+                      card={msg.card}
+                      disabled={loading || !isLatestClarify}
+                      onSendMessage={(text) => void submit(text)}
+                      onFlowComplete={(answers) => {
+                        // Local paging is done. Render the "Your choices" summary
+                        // immediately, then submit ALL answers as a single batch
+                        // (silent — no raw payload bubble) so the backend folds
+                        // them in one turn and builds the draft. One round-trip,
+                        // no per-question cursor race.
+                        setMessages((prev) => [
+                          ...prev,
+                          { kind: "clarify_summary", answers },
+                        ]);
+                        const batch = JSON.stringify({
+                          _clarify_answers: answers.map((a) => ({
+                            slot: a.slot,
+                            value: a.value,
+                            label: a.label,
+                          })),
+                        });
+                        void submit(batch, undefined, null, { silent: true });
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            }
+            if (msg.kind === "clarify_summary") {
+              return (
+                <ClarifySummaryBubble key={idx} answers={msg.answers} />
+              );
+            }
+            if (msg.kind === "strategy_builder") {
+              return (
+                <div key={idx} className="flex flex-col gap-2">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <StrategyBuilderCard card={msg.card} />
+                  </div>
+                </div>
+              );
+            }
             // error
             return (
               <div key={idx} className="flex justify-start">
@@ -1708,13 +1824,58 @@ export function ChatDemo({
           value={intent}
           onChange={setIntent}
           onKeyDown={handleKeyDown}
-          onSubmit={() => void submit(intent)}
+          onSubmit={submitComposer}
           onStop={stop}
           loading={loading}
           mode={mode}
           onModeChange={setMode}
+          reply={reply}
+          onClearReply={() => setReply(null)}
         />
       </div>
+
+      {/* Floating "Reply" affordance — appears above any text selection
+          made inside an assistant message (Claude / ChatGPT gesture).
+          `onMouseDown preventDefault` keeps the selection alive long
+          enough for the click handler to read it. */}
+      {selectionReply && (
+        <button
+          ref={selBtnRef}
+          type="button"
+          // Commit on mousedown — it fires BEFORE the click collapses the
+          // selection, and preventDefault stops the highlight from being
+          // cleared / focus from being stolen. onClick is too late: by
+          // then the selection (and our button state) is already gone.
+          onMouseDown={(e) => {
+            e.preventDefault();
+            commitSelectionReply();
+          }}
+          data-testid="selection-reply-btn"
+          className="inline-flex items-center"
+          style={{
+            position: "fixed",
+            left: selectionReply.left,
+            top: Math.max(8, selectionReply.top - 44),
+            transform: "translateX(-50%)",
+            zIndex: 60,
+            gap: 6,
+            padding: "7px 12px",
+            borderRadius: "var(--radius-pill)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
+            color: "var(--text-primary)",
+            fontFamily: "var(--font-ui)",
+            fontSize: 12.5,
+            fontWeight: 500,
+            cursor: "pointer",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.28)",
+            transition: "opacity 0.12s var(--ease-quartr)",
+          }}
+        >
+          <CornerUpLeft size={13} strokeWidth={2} aria-hidden={true} />
+          <span>Reply</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -1776,10 +1937,14 @@ function fmtBubbleDate(iso?: string): string {
 
 function UserBubble({
   text,
+  quote,
   timestamp,
   onRetry,
 }: {
   text: string;
+  /** When set, the excerpt this message was a reply-by-selecting to.
+   * Rendered as a quote block above the user's text. */
+  quote?: string;
   timestamp?: string;
   onRetry: () => void;
 }): React.ReactElement {
@@ -1840,6 +2005,40 @@ function UserBubble({
       className="flex flex-col items-end"
       style={{ marginBottom: 4 }}
     >
+      {quote && (
+        <div
+          className="flex items-start"
+          style={{
+            maxWidth: "78%",
+            marginBottom: 6,
+            gap: 7,
+            paddingLeft: 10,
+            borderLeft: "2px solid var(--glass-border)",
+            color: "var(--text-tertiary)",
+            fontSize: 13,
+            lineHeight: 1.45,
+            fontFamily: "var(--font-ui)",
+          }}
+        >
+          <CornerUpLeft
+            size={13}
+            strokeWidth={2}
+            aria-hidden={true}
+            style={{ marginTop: 3, flexShrink: 0, opacity: 0.8 }}
+          />
+          <span
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              wordBreak: "break-word",
+            }}
+          >
+            {quote}
+          </span>
+        </div>
+      )}
       <div
         onClick={isPhone ? () => setTappedOpen((v) => !v) : undefined}
         className="whitespace-pre-wrap"
@@ -2022,6 +2221,56 @@ function AssistantBubble({
   );
 }
 
+// ---------------------------------------------------------------------------
+// ClarifySummaryBubble — compact "Your choices" confirmation rendered after
+// the last clarify answer in local-paging mode. Styled as a quiet assistant-
+// side reply so it reads naturally between the question card and the built
+// strategy card.
+// ---------------------------------------------------------------------------
+
+function ClarifySummaryBubble({
+  answers,
+}: {
+  answers: ClarifyAnswerRecord[];
+}): React.ReactElement {
+  return (
+    <div
+      data-testid="clarify-summary"
+      className="flex justify-start"
+      style={{
+        animation: "draftCardIn-quartr 300ms cubic-bezier(0.22, 1, 0.36, 1) both",
+      }}
+    >
+      <div
+        className="max-w-[420px] rounded-2xl border border-border/40 bg-muted/40 px-4 py-3"
+        role="status"
+        aria-label="Your choices summary"
+      >
+        <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Your choices
+        </p>
+        <ul className="flex flex-col gap-1.5">
+          {answers.map((a, i) => (
+            <li key={i} className="flex items-baseline gap-2 text-[12.5px] leading-snug">
+              <span className="shrink-0 font-medium text-foreground/70">
+                {a.prompt.replace(/[?:]$/, "")}
+              </span>
+              <span className="text-muted-foreground/60">·</span>
+              <span className="font-semibold text-foreground">
+                {a.label === "skip" || a.value === "skip" ? (
+                  <em className="not-italic text-muted-foreground">Default</em>
+                ) : (
+                  a.label
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 function ActionIconButton({
   children,
   label,
@@ -2073,6 +2322,8 @@ function ChatComposer({
   loading,
   mode,
   onModeChange,
+  reply,
+  onClearReply,
 }: {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -2085,6 +2336,10 @@ function ChatComposer({
   loading: boolean;
   mode: ChatMode;
   onModeChange: (m: ChatMode) => void;
+  /** Active reply-by-selecting excerpt, shown as a dismissible quote
+   * chip above the input. Null when there's no pending reply. */
+  reply: string | null;
+  onClearReply: () => void;
 }): React.ReactElement {
   // The right-side button is in one of three states:
   //   • idle     — empty input, button is dim, disabled
@@ -2128,6 +2383,90 @@ function ChatComposer({
 
   return (
     <div className="space-y-1.5 sm:space-y-3" data-testid="chat-composer">
+      {/* Reply-by-selecting quote chip — the excerpt the user picked
+          from an assistant message. Sits just above the pill (Claude /
+          ChatGPT pattern) with a dismiss button. */}
+      {reply && (
+        <div
+          data-testid="composer-reply-chip"
+          className="flex items-start"
+          style={{
+            gap: 9,
+            padding: "9px 12px",
+            borderRadius: "var(--radius-lg, 12px)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
+          }}
+        >
+          <CornerUpLeft
+            size={14}
+            strokeWidth={2}
+            aria-hidden={true}
+            style={{
+              marginTop: 2,
+              flexShrink: 0,
+              color: "var(--text-tertiary)",
+            }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.02em",
+                textTransform: "uppercase",
+                color: "var(--text-tertiary)",
+                marginBottom: 2,
+                fontFamily: "var(--font-ui)",
+              }}
+            >
+              Replying to
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                lineHeight: 1.45,
+                color: "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                wordBreak: "break-word",
+              }}
+            >
+              {reply}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClearReply}
+            aria-label="Clear reply"
+            title="Clear reply"
+            className="inline-flex items-center justify-center"
+            style={{
+              width: 24,
+              height: 24,
+              flexShrink: 0,
+              background: "transparent",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--text-tertiary)",
+              cursor: "pointer",
+              transition: "color 0.18s var(--ease-quartr)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--text-primary)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--text-tertiary)";
+            }}
+          >
+            <X size={15} strokeWidth={2} aria-hidden={true} />
+          </button>
+        </div>
+      )}
+
       {/* ChatGPT-style single-line composer pill. The textarea sits at
           exactly one line of content height and grows via the autosize
           effect when the user types past one line; outer padding gives

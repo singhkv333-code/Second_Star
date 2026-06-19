@@ -102,6 +102,69 @@ function whyInvalid(
   return `unknown namespace "${parts[0] ?? ""}"`;
 }
 
+// ---------------------------------------------------------------------------
+// Config-level helpers (used by StepTypePicker capability mirror + lint wiring)
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively collect all `{{ ... }}` ref expressions from every string leaf
+ * in a step config object (or a plain string). Returns the inner namespaces
+ * trimmed, with duplicates removed.
+ *
+ * Works on arbitrarily nested objects/arrays — the config's JSON Schema allows
+ * nested structures (e.g. `legs`, `condition`) so we must recurse.
+ */
+export function extractRefsFromConfig(
+  config: Record<string, unknown> | unknown,
+): string[] {
+  const seen = new Set<string>();
+
+  function walk(value: unknown): void {
+    if (typeof value === "string") {
+      for (const ref of extractRefs(value)) {
+        seen.add(ref);
+      }
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        walk(item);
+      }
+    } else if (value !== null && typeof value === "object") {
+      for (const v of Object.values(value as Record<string, unknown>)) {
+        walk(v);
+      }
+    }
+  }
+
+  walk(config);
+  return [...seen];
+}
+
+/**
+ * Return the set of prior step indices referenced by a step's config.
+ *
+ * Only `context.<N>.*` refs contribute — `context.webhook_payload.*`,
+ * `workflow.*`, and `now` are namespace refs and don't point at step indices.
+ *
+ * The picker's client capability mirror uses this to understand which prior
+ * steps' outputs the step under edit actually consumes, so it can highlight
+ * the right buckets even before the debounced /lint call fires.
+ */
+export function referencedStepIndices(
+  config: Record<string, unknown>,
+): Set<number> {
+  const indices = new Set<number>();
+  for (const ref of extractRefsFromConfig(config)) {
+    const parts = ref.split(".");
+    if (parts[0] === "context" && parts[1] && parts[1] !== "webhook_payload") {
+      const idx = Number(parts[1]);
+      if (Number.isInteger(idx) && idx >= 0) {
+        indices.add(idx);
+      }
+    }
+  }
+  return indices;
+}
+
 /**
  * Build the suggestion list for the chip picker, given the steps that come
  * BEFORE the step currently being edited and whether a webhook trigger

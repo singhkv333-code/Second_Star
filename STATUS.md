@@ -4,6 +4,96 @@
 
 ---
 
+## 2026-06-18 (frontend-lead) — Stock profile page improvements
+
+- **`lib/api.ts`**: Fixed `StockQuote` field names (`week_52_high`/`week_52_low` → `w52_high`/`w52_low`, added `prev_close`); added optional `source` to `FinancialsLatestValue`; added `searchCompanies` + `CompanySearchResult`/`CompanySearchResponse`; added `getMetricSeries` + `MetricSeriesPoint`/`MetricSeriesResponse`.
+- **`components/CompanyAutosuggest.tsx`** (new): Debounced (~150ms) company search autosuggest with keyboard navigation (↑↓/Enter/Esc), outside-click close, and sector/fundamentals-dot in dropdown rows. Self-contained input + dropdown; integrates cleanly into any flex container.
+- **`components/AppShell.tsx`**: Global header search replaced with `CompanyAutosuggest` — typing a company name navigates to `/stock/{symbol}`.
+- **`components/StockDetailPage.tsx`**: (1) Compare box uses `CompanyAutosuggest` (no more free-text Enter submit); (2) Valuation block wires P/B, EV/Sales, EV/EBITDA from `financials` state instead of hardcoded "—"; (3) Prev Close uses `quote.prev_close`; (4) 52-week range uses `quote.w52_low`/`quote.w52_high`; (5) PE Ratio + EV/EBITDA metric selector now fetches `getMetricSeries` per ticker and plots absolute values (no normalize), with honest empty state when `available:false`.
+- **`tests/stock-detail-page.test.tsx`**: Updated `MOCK_QUOTE` to use renamed fields (`w52_high`, `w52_low`, `prev_close`). Pre-existing 6 test failures (missing testids in component) unchanged.
+- TypeScript: `pnpm typecheck` clean (exit 0). No new lint errors introduced.
+
+---
+
+## 2026-06-17 (reviewer) — Adversarial review: compat engine + catalog rename + picker buckets
+
+### Review scope
+Three grouped commits on the `Eventtriggers` branch:
+1. Backend: `compat.py` (lint engine), `registry.py` (+group/compat), all step decorators renamed + grouped, `/lint` endpoint, `_validate_steps` lint pass, `WorkflowOut.diagnostics`
+2. Frontend: `lib/types.ts` (`StepCompat`, `Diagnostic`, extended `StepTypeDef`), `lib/api.ts` (`lintWorkflow()`), `lib/mock-catalog.ts` (group+compat ported), `lib/step-compat.ts` (client mirror), `StepTypePicker.tsx` (bucket rendering), `step-card.tsx` (diagnostic chips), `workflow-editor-mock.tsx` (scheduleLint + delete/duplicate)
+
+### What passed
+- Circular-import guard: `compat.py` imports `registry` lazily inside `lint_workflow()` only; `registry.get_catalog()` imports `catalog_compat` lazily at call time. Verified clean import (`python3 -c "from backend.workflows.compat import lint_workflow"`).
+- Spec fidelity: 10-step spot-check against HTML STEPS object — all labels, groups, and produces/requires/consumes match verbatim.
+- Capability rules: 10-rule spot-check against HTML spec — all pass (including `NEEDS_POS`, `NEEDS_ORD`, `NEEDS_SYMS`, `NEEDS_BOOL` translations).
+- Warning-only semantics: `requires position` steps emit `severity="warning"`, never block create/update/activate. Tested `squareoff_symbol` without prior position → warning, no error.
+- Ambient satisfaction: `AmbientState(held_symbols=["RELIANCE"])` clears the `needs_position` warning on `exit_compound` + `squareoff_all`. Tested live.
+- Branch-reset: trigger at mid-list resets state; multi-branch pattern (schedule→buy→exit_compound→squareoff) warns on position requirement (correct — position is ambient after buy branch fires). Never hard-errors.
+- Ref checks: forward reference (step 1 refs step 2) → `ref_forward` error. `webhook_payload` ref with `trigger.schedule` → `ref_bad_path` error. Both correct.
+- TypeScript: `tsc --noEmit` — zero errors. 9/9 StepTypePicker tests pass.
+- Backend compat tests: 19/19 pass. The one other failure (`test_active_draft_cached_when_propose_workflow_succeeds`) is a pre-existing `_StubStore` missing `get_pending_resolution` — not introduced by this diff.
+- `catalog_compat()`: `code` field correctly NOT exposed in the catalog endpoint output (lint artefact stays server-side).
+- Route ordering: `POST /api/workflows/lint` (exact) registered before `GET /api/workflows/{workflow_id}` (parameterized). FastAPI matches exact paths first — no conflict.
+
+### Findings
+
+**BLOCKER — contract drift: `POST /api/workflows/lint` and `WorkflowOut.diagnostics` not documented in `docs/API_CONTRACT.md`.**
+Two additive changes to the public surface shipped without a doc update. Per §12 of API_CONTRACT.md: "Any change requires a PR that updates this doc BEFORE the implementation PR lands." The endpoint exists and works; the contract just doesn't reflect it yet. Backend-lead must add `POST /api/workflows/lint` (§5.x or new §8.x) and the `diagnostics` field on the workflow shape (§3) before this branch merges.
+
+**MAJOR — `Workflow` FE type missing `diagnostics` field.**
+`pivot/backend/schemas.py::WorkflowOut` now emits `diagnostics: list[dict]` on every `GET /api/workflows/{id}`, `POST /api/workflows`, `PATCH /api/workflows/{id}`, and `POST /api/workflows/{id}/activate` response. The FE `Workflow` type (`pivot-next/lib/types.ts:25`) does not include `diagnostics`. At runtime this is silent (TypeScript discards extra keys) and the editor correctly reads diagnostics from the separate `lintWorkflow()` call — but the on-load diagnostics from the server are never consumed. Fix: add `diagnostics?: Diagnostic[]` to the `Workflow` type and wire `workflow.diagnostics` into the editor's initial `diagnosticsMap` on load, avoiding a redundant network call.
+
+**MAJOR — `Diagnostic.code` in `lib/types.ts` missing two backend codes.**
+`pivot/backend/workflows/compat.py::DiagnosticCode` includes `"needs_symbols"` and `"needs_boolean"`. The FE `Diagnostic.code` union (`lib/types.ts:230-240`) only lists 9 codes; `needs_symbols` and `needs_boolean` are absent. The `| string` tail prevents a crash, but the editor can't dispatch on these codes to show the correct chip colour or icon without them in the union. Fix: add `| "needs_symbols" | "needs_boolean"` to the FE `Diagnostic.code` union.
+
+**MINOR — `Diagnostic.field` / `Diagnostic.suggested_fix` serialize as `null` on the wire, but FE type expects `?: string` (not `?: string | null`).**
+`Diagnostic.model_dump()` always emits `"field": null` and `"suggested_fix": null` when absent. The FE type has `field?: string` which TypeScript allows `null` through at runtime, but strict null-checking would flag it. Fix: either use `model_dump(exclude_none=True)` on the backend, or change the FE type to `field?: string | null`.
+
+**MINOR — `api.ts::getStepTypes()` error-swallow on fallback.**
+When the backend returns an error, `getStepTypes()` now silently returns `{ data: MOCK_CATALOG }` (line ~475). Any caller doing `if (isError(result))` will miss the fallback because the returned shape looks like a success. The mock catalog is from December 2026 and won't match a newly deployed backend catalog — mismatch risks. Minor because the fallback is intentional offline behavior, but the silent swallow should be logged at `console.warn`.
+
+### Edge cases generated for leads
+1. What happens when a workflow is saved with `condition.boolean` (needs `data:news`) and then `fetch.news` is deleted? The next `GET /api/workflows/{id}` should return a `needs_boolean` warning diagnostic at the `condition.boolean` step. Test: save, delete fetch.news, GET — assert diagnostic.
+2. What happens if `scheduleLint` fires while `handleDuplicateStep` is mid-flight (step index rebased)? The 250ms debounce runs with the new step list, but the old `diagnosticsMap` stays visible until lint resolves. On fast duplicate-spam the stale map may show diagnostics on wrong step indices. Consider clearing `diagnosticsMap` immediately on structural edits (before debounce fires).
+3. What happens when `lintWorkflow()` returns an error (backend down)? The editor swallows it (`if (isError(result)) return`). The `diagnosticsMap` retains stale diagnostics from the prior lint call. Add a UI indicator or clear stale diagnostics on error so the user doesn't see phantom warnings.
+
+### Demo readiness: 7 / 14 steps operational (unchanged from prior session — no new demo-path code in this PR)
+
+### Next-session assignments
+- **Backend-lead:** Update `docs/API_CONTRACT.md` — add `POST /api/workflows/lint` endpoint spec (request/response/errors) and add `diagnostics?: Diagnostic[]` to the §3 workflow shape. Both required before merge.
+- **Frontend-lead:** (a) Add `diagnostics?: Diagnostic[]` to `Workflow` type; wire on-load diagnostics into `diagnosticsMap`; (b) Add `needs_symbols` and `needs_boolean` to FE `Diagnostic.code` union; (c) Change `field` and `suggested_fix` to `string | null` or use `exclude_none` on backend.
+- **Both leads:** Acknowledge the `diagnostics` field addition to `WorkflowOut` per API_CONTRACT.md §12 before this branch merges.
+
+---
+
+## 2026-06-17 (frontend-lead) — StepTypePicker: three-bucket capability mirror
+
+- **`lib/step-compat.ts`** (new pure helper): `accumulateCaps(steps, catalogMap)` mirrors the HTML simulator's `accumulate()` — walks prior steps, consume-first-then-produce per step. `classifyStepType(def, accumulated, prevCat)` mirrors `classify()` — evaluates each `requires` entry against `compat.any_of`, marks "needs-setup" on first unmet (no ambient-state assumption in the picker), applies action-after-condition / condition-after-fetch heuristics for "recommended". `partitionIntoBuckets(visibleDefs, priorSteps, catalogMap)` drives the three-bucket split.
+- **`components/agent-panel/StepTypePicker.tsx`**: added optional `steps?: Step[]` prop (default `[]`); added bucket rendering — three labelled `BucketSection` components (Recommended green, Available slate, Needs setup amber). At trigger slot all triggers collapse into a single "Recommended" bucket. Within each bucket, `groupBySubgroup()` builds `(category, group)` sub-group entries in catalog order, rendered as `CommandGroup` with heading. Group `data-testid` is now `step-picker-group-{bucketKey}-{categoryId}` to be unique when a category spans multiple buckets. Needs-setup rows remain clickable (hybrid strictness), show the first unmet `warn` instead of the description. Bucket header has a coloured dot + count badge.
+- **`components/agent-panel/workflow-editor-mock.tsx`**: pass `steps={workflow.steps}` to `StepTypePicker`.
+- **`tests/agent-panel/step-type-picker.test.tsx`**: updated count assertions to be dynamic (catalog-driven); replaced group testId assertions to use `getAllByTestId` + `endsWith`; added 5 new tests: trigger-slot all-recommended, set_stoploss→recommended after place_order, set_stoploss→needs-setup without prior position, needs-setup items remain clickable.
+- `tsc --noEmit`: zero errors. `next lint` on touched files: zero errors. 9/9 step-type-picker tests pass.
+
+---
+
+## 2026-06-17 (frontend-lead) — Workflow Editor productionize: lint wiring + delete/duplicate + diagnostic chips
+
+- **`components/agent-panel/workflow-editor-mock.tsx`**: wired `onDelete` / `onDuplicate` via `handleDeleteStep` / `handleDuplicateStep` (`useCallback`, both re-index and schedule lint). Added `scheduleLint` — 250ms debounced call to `POST /api/workflows/lint`, result stored as `Map<step_index, Diagnostic[]>`. Lint fires on mount, add-step, config-save, delete, duplicate, and reorder. `handleDragEnd` enforces the structural invariant: non-trigger cannot land at slot 0, trigger at slot 0 cannot be dragged out — snap-back via early return + `toast.warning`; all other reorders are permissive (lint surfaces warnings). Diagnostics passed down through `SortableStepRow` to `StepCard`.
+- **`components/agent-panel/step-card.tsx`**: added `diagnostics?: Diagnostic[]` prop. Card now renders a `DiagnosticChips` section below the main row when diagnostics are present. `DiagnosticChips` mirrors `CritiqueBlock` from `OptionStrategyCard`: `AlertCircle` rose/amber, `Info` sky for the three severities, `suggested_fix` appended inline when present. Card border colour shifts: error → `border-destructive/50`, warning → `border-amber-400/50` (dragging state takes priority). Layout switched to `flex-col gap-2` to accommodate the chip area.
+- `tsc --noEmit`: zero errors in touched files. Two pre-existing errors in StepTypePicker.tsx and step-compat.ts (neither touched).
+
+---
+
+## 2026-06-17 (frontend-lead) — Workflow Editor foundation: types + api + mock-catalog + refs
+
+- **`lib/types.ts`**: added `StepCompat` type (the `any_of / ambient / label / warn` requirement shape) and extended `StepTypeDef` with `group?: string` and `compat?: { produces, requires: StepCompat[], consumes }`. Added `Diagnostic` type matching the backend `compat.py` shape — fields: `step_index`, `severity` ("error"|"warning"|"info"), `code` (7 named codes + open string for forward-compat), `message`, optional `field`, optional `suggested_fix`.
+- **`lib/api.ts`**: switched catalog default from "mock" to "real" (`stepTypesSource = "real"`). Updated `getStepTypes()` to fall back to `MOCK_CATALOG` gracefully when the real endpoint returns an error (offline/dev stays usable). Added `LintWorkflowRequest` type and `lintWorkflow(steps, ambient?) -> ApiResult<{diagnostics: Diagnostic[]}>` hitting `POST /api/workflows/lint`. Imported `Diagnostic` from types.
+- **`lib/mock-catalog.ts`**: updated all 24 existing step types with `group` and `compat` blocks ported verbatim from `WORKFLOW_EDITOR_PLAN.html` STEPS object. Extended mock to include 12 additional steps from the 49-step catalog (new exits, option strategy, IPO, screener, movers, intraday P&L, etc.) so offline parity is closer to the full backend. Bumped `catalog_version` to `2026-06-17T00:00:00Z`.
+- **`lib/refs.ts`**: added `extractRefsFromConfig(config)` (recurses into nested objects/arrays, returns deduplicated ref expressions) and `referencedStepIndices(config)` (returns a `Set<number>` of prior step indices the config references) — needed by the StepTypePicker capability mirror to classify candidates without waiting for the debounced `/lint` call.
+- `tsc --noEmit` clean (zero errors). `eslint` on the four changed files: zero errors. All pre-existing lint errors in other files are unchanged.
+
+---
+
 ## Day 15 — 2026-06-02 (frontend-lead) — IPO P1 frontend
 
 - **pivot-next IPO P1**: `lib/types.ts` — added `IpoSubscription`, `IpoSubscriptionResponse`; updated `IpoLockedFields.subscription` from `string|null` to `IpoSubscription|null`; added `listing_date: string|null`. `lib/api.ts` — added `getIpoSubscription(symbol)` via `requestLegacy`. `IpoApplicationCard.tsx` — structured subscription block (per-category "RII 2.1× · NII 0.8× · QIB 1.4×" + as-of + Refresh button, only when open), RHP prospectus link, allotment/registrar fallback ("check with your broker / registrar"), listing date in locked grid, contextual oversubscription note at lots stepper, GMP chip (only when `payload.gmp` present — absent in v1). `tsc --noEmit` clean; per-file lint clean.

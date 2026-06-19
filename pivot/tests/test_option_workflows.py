@@ -141,7 +141,11 @@ def test_option_metrics_against_mock_chain(db):
 
 
 def test_new_steps_registered_in_catalog():
-    from backend.workflows.registry import STEP_REGISTRY, get_catalog
+    from backend.workflows.registry import (
+        CATALOG_VERSION,
+        STEP_REGISTRY,
+        get_catalog,
+    )
 
     catalog = get_catalog()
     types = {s["step_type"] for s in catalog["step_types"]}
@@ -149,7 +153,10 @@ def test_new_steps_registered_in_catalog():
     assert "action.place_option_strategy" in types
     assert STEP_REGISTRY["trigger.expiry_day"].trigger_only is True
     assert STEP_REGISTRY["action.place_option_strategy"].max_retries == 1
-    assert catalog["catalog_version"] == "2026-06-04T12:00:00Z"
+    # Track the constant rather than hard-pinning a date string — the
+    # catalog version legitimately bumps whenever any registered step
+    # type changes (e.g. the 2026-06-17 +group/+compat metadata pass).
+    assert catalog["catalog_version"] == CATALOG_VERSION
 
 
 # ── action.place_option_strategy executor ────────────────────────────

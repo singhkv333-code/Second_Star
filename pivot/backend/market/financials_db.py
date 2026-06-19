@@ -54,6 +54,10 @@ FIELD_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
             "Net Sales/Income from operations",
             "Income from Operations",
             "Total Revenue",
+            # Banks file their top line under these — without them every
+            # bank's P&L (HDFC, etc.) came back empty.
+            "Total Income",
+            "Total Interest Earned",
         ),
     ),
     "net_profit": (
@@ -64,6 +68,10 @@ FIELD_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
             "Profit/Loss For The Period",
             "Net Profit After Tax",
             "Profit/(Loss) for the Period",
+            # Bank label variants.
+            "Net Profit / Loss for The Year",
+            "Net Profit/Loss for The Year",
+            "Net Profit / Loss After EI & Prior Year Items",
         ),
     ),
     "operating_profit": (
@@ -85,7 +93,7 @@ FIELD_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "interest_expense": (
         "profit_loss",
-        ("Finance Costs", "Interest", "Finance Cost"),
+        ("Finance Costs", "Interest", "Finance Cost", "Interest Expended"),
     ),
     # --- Balance Sheet ---
     "total_debt": (
@@ -341,6 +349,120 @@ def get_company(symbol_or_sc_id: str, *, session: Session | None = None) -> Comp
             s.close()
 
 
+@dataclass(frozen=True)
+class CompanyHit:
+    """A single autosuggest result. `symbol` is the navigable trading symbol
+    (prefer NSE, fall back to the generic ticker)."""
+    sc_id: str
+    symbol: str
+    name: str
+    sector: str | None
+    has_fundamentals: bool
+
+
+def search_companies(
+    q: str,
+    *,
+    limit: int = 10,
+    session: Session | None = None,
+) -> list[CompanyHit]:
+    """Fuzzy company lookup for the FE autosuggest dropdown.
+
+    Searches `mc.companies` (the only equity universe we have) by name,
+    trading symbol, or sc_id. Only rows that carry a navigable symbol
+    (nse_symbol or ticker) are returned, since the stock page routes on the
+    symbol. Prefix matches rank above substring matches; ties break on name.
+    `has_fundamentals` flags whether we hold any statement data for the row.
+    """
+    q = (q or "").strip()
+    if not q:
+        return []
+    limit = max(1, min(int(limit), 50))
+    owns = session is None
+    s = session or _session()
+    try:
+        qu = q.upper()
+        # Over-fetch so the per-symbol dedup below can still return `limit`
+        # clean rows after collapsing the messy duplicates MC carries (the
+        # same trading symbol under several sc_ids / name spellings).
+        rows = s.execute(
+            text(
+                """
+                SELECT sc_id,
+                       company_name,
+                       COALESCE(nse_symbol, ticker, sc_id) AS symbol,
+                       sector
+                FROM mc.companies
+                WHERE upper(company_name) LIKE :prefix
+                   OR upper(company_name) LIKE :substr
+                   OR upper(nse_symbol) LIKE :prefix
+                   OR upper(ticker) LIKE :prefix
+                ORDER BY
+                  CASE
+                    WHEN upper(nse_symbol) = :exact OR upper(ticker) = :exact THEN 0
+                    WHEN upper(company_name) LIKE :prefix THEN 1
+                    WHEN upper(nse_symbol) LIKE :prefix OR upper(ticker) LIKE :prefix THEN 2
+                    ELSE 3
+                  END,
+                  length(company_name),
+                  company_name
+                LIMIT :scan
+                """
+            ),
+            {
+                "exact": qu,
+                "prefix": f"{qu}%",
+                "substr": f"%{qu}%",
+                "scan": min(limit * 5, 200),
+            },
+        ).fetchall()
+        if not rows:
+            return []
+
+        # One round-trip to flag which of the hits actually have statement data.
+        sc_ids = [r[0] for r in rows]
+        have = {
+            row[0]
+            for row in s.execute(
+                text(
+                    "SELECT DISTINCT sc_id FROM mc.statement_lines "
+                    "WHERE sc_id = ANY(:ids)"
+                ),
+                {"ids": sc_ids},
+            ).fetchall()
+        }
+
+        # Promote rows that actually carry statement data ahead of the ETF /
+        # shell-company noise MC mixes in (stable — keeps the SQL rank within
+        # each group).
+        ordered = sorted(rows, key=lambda r: 0 if r[0] in have else 1)
+
+        out: list[CompanyHit] = []
+        seen: set[str] = set()
+        for r in ordered:
+            if not r[2]:
+                continue
+            sym = str(r[2]).upper()
+            if sym in seen:
+                continue
+            seen.add(sym)
+            out.append(
+                CompanyHit(
+                    sc_id=r[0],
+                    symbol=sym,
+                    name=r[1],
+                    sector=r[3],
+                    has_fundamentals=r[0] in have,
+                )
+            )
+            if len(out) >= limit:
+                break
+        return out
+    finally:
+        if owns:
+            s.close()
+
+
 def get_fundamental(
     symbol_or_sc_id: str,
     field: str,
@@ -499,36 +621,49 @@ def get_fundamental_history(
         sc_id = resolve_symbol(symbol_or_sc_id, session=s)
         if sc_id is None:
             return []
-        # Over-fetch then dedupe. The list_position trick gives us
-        # synonym-priority ordering so the preferred name wins on a tie.
-        rows = s.execute(
-            text(
-                """
-                SELECT DISTINCT ON (period_end)
-                       line_item, basis, period_label, period_end,
-                       availability_date, value_numeric, value_text, unit
-                FROM mc.statement_lines
-                WHERE sc_id = :sc
-                  AND statement = :stmt
-                  AND basis = :basis
-                  AND line_item = ANY(:items)
-                  AND value_numeric IS NOT NULL
-                  AND period_end IS NOT NULL
-                  AND (:as_of IS NULL OR availability_date <= :as_of)
-                ORDER BY period_end DESC,
-                         array_position(CAST(:items AS text[]), line_item)
-                LIMIT :lim
-                """
-            ),
-            {
-                "sc": sc_id,
-                "stmt": statement,
-                "basis": basis,
-                "items": list(synonyms),
-                "as_of": as_of_date,
-                "lim": limit,
-            },
-        ).fetchall()
+        # Try the requested basis first, then fall back to the other one —
+        # mirrors `_get_line_item_value`. Without this, a company that only
+        # files standalone statements (e.g. TCS — ~3,285 names in this DB
+        # have no consolidated rows) returns an EMPTY history for the
+        # default consolidated basis, so the FE renders all-"—" P&L and
+        # Financials tables even though the data is present standalone.
+        rows = []
+        for active_basis in (
+            basis,
+            "standalone" if basis == "consolidated" else "consolidated",
+        ):
+            # Over-fetch then dedupe. The list_position trick gives us
+            # synonym-priority ordering so the preferred name wins on a tie.
+            rows = s.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (period_end)
+                           line_item, basis, period_label, period_end,
+                           availability_date, value_numeric, value_text, unit
+                    FROM mc.statement_lines
+                    WHERE sc_id = :sc
+                      AND statement = :stmt
+                      AND basis = :basis
+                      AND line_item = ANY(:items)
+                      AND value_numeric IS NOT NULL
+                      AND period_end IS NOT NULL
+                      AND (:as_of IS NULL OR availability_date <= :as_of)
+                    ORDER BY period_end DESC,
+                             array_position(CAST(:items AS text[]), line_item)
+                    LIMIT :lim
+                    """
+                ),
+                {
+                    "sc": sc_id,
+                    "stmt": statement,
+                    "basis": active_basis,
+                    "items": list(synonyms),
+                    "as_of": as_of_date,
+                    "lim": limit,
+                },
+            ).fetchall()
+            if rows:
+                break
         return [
             FundamentalValue(
                 sc_id=sc_id,

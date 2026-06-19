@@ -45,8 +45,66 @@ Anything outside these four shapes goes through full `propose_workflow`.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
+
+logger = logging.getLogger(__name__)
+
+
+# ── Shared rationale builder ───────────────────────────────────────
+#
+# Every macro emits a draft with a `rationale` field. Historically those
+# were one-liners ("Trigger fires when RSI(14) < 30; market buy for 10
+# INFY.") which looked like capability theater — the user couldn't tell
+# WHY the macro picked these instruments, what risks the structure
+# carries, or what the automation explicitly is NOT. The user can no
+# longer accept that quality bar (see propose.py system prompt — same
+# rationale contract on the LLM side).
+#
+# `_compose_rationale` standardises the 3-6 sentence shape across all
+# four macros: WHAT (one line on the trigger/action), WHY (instrument
+# selection + economic mechanism if known), RISK (the failure modes the
+# user is on the hook for), NOT (what this draft is explicitly not — a
+# hedge, market-neutral, intraday, position-sized, etc.). Each call site
+# supplies the four parts; this helper joins them with consistent
+# punctuation so the FE card always reads the same way.
+
+
+def _compose_rationale(
+    *,
+    what: str,
+    why: str,
+    risk: str,
+    not_this: str,
+) -> str:
+    """Join the four rationale parts into a single string.
+
+    Each part should be a complete sentence (or a short clause) — the
+    helper does not add periods. We never want empty parts: a missing
+    `risk` line, in particular, is how thin one-liner rationales used
+    to slip through. Callers MUST pass something for each part; if a
+    macro genuinely has no specific risk to call out, it should still
+    write "This is a register-not-execute automation; you confirm in
+    your broker app before any fill." rather than an empty string.
+    """
+    parts = [what, why, risk, not_this]
+    cleaned = [str(p).strip() for p in parts if str(p).strip()]
+    if len(cleaned) < 4:
+        # A thin rationale is a regression we want to catch in dev — but it must
+        # never 500 a live build. Log loudly, backfill the missing risk/caveat
+        # with the register-not-execute boilerplate, and ship what we have.
+        logger.warning(
+            "_compose_rationale: only %d/4 parts supplied (what=%r why=%r "
+            "risk=%r not_this=%r) — backfilling boilerplate",
+            len(cleaned), bool(what), bool(why), bool(risk), bool(not_this),
+        )
+        if not cleaned:
+            cleaned = [
+                "This is a register-not-execute automation; you confirm and "
+                "place any order in your own broker app. Analysis, not advice."
+            ]
+    return " ".join(cleaned)
 
 
 # Day-of-week vocabulary — accepts both short and long forms.
@@ -188,12 +246,37 @@ def hydrate_scheduled_order(
             },
         })
 
-    rationale = (
-        f"{dow_label.capitalize()} at {hour.zfill(2)}:{minute.zfill(2)} "
-        f"IST, place a market {side_low} for {size_label} of {sym}."
+    what = (
+        f"Schedule trigger fires {dow_label} at "
+        f"{hour.zfill(2)}:{minute.zfill(2)} IST and places a market "
+        f"{side_low} for {size_label} of {sym}."
+        + (f" Then arms a {sl_pct:g}% stop-loss on the position." if sl_pct is not None else "")
     )
-    if sl_pct is not None:
-        rationale += f" Apply a {sl_pct:g}% stop-loss after the fill."
+    why = (
+        f"You asked for a {dow_label} cadence into {sym}; a single-"
+        f"instrument scheduled order is the most literal mapping. "
+        f"Market orders accept whatever quote prevails at fire time "
+        f"in exchange for guaranteed fills."
+    )
+    risk = (
+        f"This is single-stock concentration risk — every fire goes "
+        f"into {sym} alone, so an earnings shock, sectoral news, or "
+        f"a gap on the cron tick can materially move the average price."
+        + (
+            f" The {sl_pct:g}% stop-loss caps single-fire downside but "
+            "won't protect overnight gaps."
+            if sl_pct is not None else ""
+        )
+    )
+    not_this = (
+        "This is NOT a hedged or market-neutral structure and NOT a "
+        "tactical entry — it averages in regardless of trend or "
+        "valuation. Pivot registers the order; you confirm and place "
+        "it in your broker app."
+    )
+    rationale = _compose_rationale(
+        what=what, why=why, risk=risk, not_this=not_this,
+    )
 
     return {
         "name": name[:60],
@@ -329,6 +412,68 @@ def hydrate_threshold_order(
     if sl_pct is not None:
         name = f"{name} +{sl_pct:g}% SL"
 
+    # Side-specific economic framing for the WHY clause. Buying on an
+    # RSI dip is a mean-reversion bet; selling on an RSI surge or
+    # price breakout is the opposite. Honest about which it is.
+    if trigger_kind == "indicator" and indicator == "rsi":
+        if side_low == "buy" and operator in ("<", "crosses_below"):
+            why = (
+                f"Buying {sym} when RSI({indicator_period or 14}) "
+                f"{operator} {float(threshold):g} is a mean-reversion "
+                f"setup — you are betting the recent sell-off has "
+                f"overshot and that price snaps back. It is NOT a "
+                f"trend-following entry."
+            )
+        elif side_low == "sell" and operator in (">", "crosses_above"):
+            why = (
+                f"Selling {sym} when RSI({indicator_period or 14}) "
+                f"{operator} {float(threshold):g} is a momentum-fade "
+                f"setup — you are taking profit (or shorting) on the "
+                f"assumption the rally is exhausted."
+            )
+        else:
+            why = (
+                f"{indicator.upper() if indicator else ''} threshold of "
+                f"{float(threshold):g} on {sym} maps your stated "
+                f"trigger directly to the indicator step."
+            )
+    elif trigger_kind == "price":
+        why = (
+            f"A price threshold of ₹{float(threshold):g} on {sym} is a "
+            f"clean breakout / breakdown rule — it fires once, on the "
+            f"first tick that satisfies the operator, with no smoothing."
+        )
+    else:
+        why = (
+            f"The {trigger_label} trigger maps your stated condition "
+            f"on {sym} directly into a catalog step type."
+        )
+    what = (
+        f"When {trigger_label}, the workflow places a market "
+        f"{side_low} for {size_label} of {sym}."
+        + (f" A {sl_pct:g}% stop-loss arms after the fill." if sl_pct else "")
+    )
+    risk = (
+        f"Single-stock concentration in {sym}: the trigger can fire "
+        f"on a stale or anomalous tick, and a market order fills at "
+        f"whatever quote prevails. Indicator-based triggers can chop "
+        f"in sideways tape (multiple fires near the threshold)."
+        + (
+            f" The {sl_pct:g}% stop is on the registered position, not "
+            "on overnight gaps."
+            if sl_pct else ""
+        )
+    )
+    not_this = (
+        "This is NOT a hedged or market-neutral structure and NOT a "
+        "backtested edge — Pivot registers the order; you confirm and "
+        "place it in your broker app, and you carry the directional "
+        "risk after the fill."
+    )
+    rationale = _compose_rationale(
+        what=what, why=why, risk=risk, not_this=not_this,
+    )
+
     return {
         "name": name[:60],
         "description": (
@@ -336,11 +481,7 @@ def hydrate_threshold_order(
             f"{trigger_label}."
         ),
         "steps": steps,
-        "rationale": (
-            f"Trigger fires when {trigger_label}; market {side_low} for "
-            f"{size_label} of {sym}."
-            + (f" {sl_pct:g}% stop-loss after fill." if sl_pct else "")
-        ),
+        "rationale": rationale,
         "warnings": [],
         "_render_hint": "workflow_draft_card",
     }
@@ -510,19 +651,98 @@ def hydrate_basket_allocation(
         f"{limit} {sector} stocks."
     )
 
+    # Sector-specific WHY framing. The energy sector lumps upstream
+    # producers (ONGC, OIL India) and downstream refiners/marketers
+    # (IOC, BPCL, HPCL) into the same bucket — but they move in
+    # OPPOSITE directions for a crude-price view. Call this out so the
+    # rendered card stays honest about what a top-N-by-mcap energy
+    # screen actually picks up.
+    sector_warnings: list[str] = []
+    if sector == "energy":
+        why_sector = (
+            f"Top {limit} energy names by market cap on NSE mixes "
+            f"upstream producers (ONGC, OIL India) — whose revenue "
+            f"RISES when crude rises — with downstream refiners and "
+            f"oil marketing companies (IOC, BPCL, HPCL) — whose gross "
+            f"refining margins COMPRESS when crude rises because "
+            f"retail fuel prices are politically administered. If your "
+            f"underlying view is directional on crude, this basket is "
+            f"NOT the right shape — ask Pivot for a producers-only or "
+            f"refiners-only basket instead."
+        )
+        sector_warnings.append(
+            "Energy basket: this mcap-sorted screen includes BOTH "
+            "upstream producers (benefit when crude rises) AND "
+            "refiners/OMCs (benefit when crude falls). For a "
+            "directional crude view, request a producers-only or "
+            "refiners-only basket explicitly."
+        )
+    elif sector in ("metals", "steel"):
+        why_sector = (
+            f"Top {limit} {sector} names by market cap captures the "
+            f"liquid large-cap exposure to the {sector} cycle — these "
+            f"names tend to co-move with global commodity prices and "
+            f"with the broader Nifty Metal index."
+        )
+    elif sector == "it":
+        why_sector = (
+            f"Top {limit} IT names by market cap is dominated by "
+            f"export-led services revenue (USD billings, INR cost "
+            f"base) — the basket has structural rupee-depreciation "
+            f"beta on top of generic equity beta."
+        )
+    elif sector in ("private_bank", "psu_bank", "banking"):
+        why_sector = (
+            f"Top {limit} {sector} names by market cap captures the "
+            f"credit-cycle and NIM exposure of the banking system; "
+            f"public-sector banks carry sovereign-credit overhang that "
+            f"private banks don't."
+        )
+    else:
+        why_sector = (
+            f"Top {limit} {sector} names by market cap captures the "
+            f"liquid large-cap representation of the sector; mcap "
+            f"sorting biases toward the most-traded constituents and "
+            f"away from microcaps."
+        )
+
+    what = (
+        f"Schedule fires {dow_label} at {hour.zfill(2)}:"
+        f"{minute.zfill(2)} IST."
+        + (
+            f" The workflow gates on {index_symbol} "
+            f"{gap_condition.replace('_',' ')} relative to the prior "
+            f"close so it only fires on the requested market context."
+            if gap_condition else ""
+        )
+        + f" It then screens the {sector} sector top {limit} by market "
+        f"cap and allocates ₹{int(total_inr):,} across them "
+        f"{'equally per name' if strategy == 'equal' else 'mcap-weighted'}."
+    )
+    risk = (
+        f"Basket {side} risk: every fire commits ₹{int(total_inr):,} of "
+        f"capital to {sector} names at market — fills happen at "
+        f"prevailing quotes. Sector-concentrated baskets carry "
+        f"common-factor risk: one piece of sector news moves the whole "
+        f"basket together. Mcap weighting amplifies the top 1-2 names; "
+        f"equal weighting amplifies the smaller, less-liquid ones."
+    )
+    not_this = (
+        "This is NOT a hedged or market-neutral structure — it is a "
+        "long-only sector tilt with full equity beta. Pivot registers "
+        "each leg as an individual order; you confirm and place each "
+        "one in your broker app."
+    )
+    rationale = _compose_rationale(
+        what=what, why=why_sector, risk=risk, not_this=not_this,
+    )
+
     return {
         "name": name[:60],
         "description": " ".join(desc_bits),
         "steps": steps,
-        "rationale": (
-            f"Schedule fires {dow_label} at {hour.zfill(2)}:"
-            f"{minute.zfill(2)} IST."
-            + (f" Gates on {index_symbol} {gap_condition.replace('_',' ')}."
-               if gap_condition else "")
-            + f" Screens {sector} sector top {limit} by market cap and "
-            f"allocates ₹{int(total_inr):,} {strategy}."
-        ),
-        "warnings": [],
+        "rationale": rationale,
+        "warnings": sector_warnings,
         "_render_hint": "workflow_draft_card",
     }
 
@@ -711,17 +931,69 @@ def hydrate_holding_action(
             f"Manually-triggered: {action_desc}. Fires only when you "
             "click Run now."
         )
-        rationale = (
-            "No automatic trigger requested; the workflow is set up to "
-            f"run on demand and {action_desc}."
+        what = (
+            "No automatic trigger is wired; the workflow runs on demand "
+            f"when you click Run now from the agent panel, and then "
+            f"{action_desc}."
+        )
+        why = (
+            "You described a one-shot action rather than an arming "
+            "condition, so trigger.manual is the most faithful mapping "
+            "— the agent stays dormant until you explicitly fire it."
+        )
+        risk = (
+            f"Because there is no automatic trigger, this won't react "
+            f"to the market on your behalf — if {sym} moves while you "
+            f"aren't watching, the action does not fire until you "
+            f"click Run."
         )
     else:
         name = f"{sym}: {action_kind.replace('_', ' ')} on {trigger_label}"
         description = f"When {trigger_label}, {action_desc}."
-        rationale = (
-            f"Trigger fires when {trigger_label}; the workflow then "
+        what = (
+            f"Trigger fires when {trigger_label} and the workflow then "
             f"{action_desc}."
         )
+        if action_kind == "sell":
+            why = (
+                f"You asked to exit {sym} on a specific condition; the "
+                f"workflow fetches your current holding so the order "
+                f"size matches what you actually own (no over-sell, "
+                f"no leftover position)."
+            )
+            risk = (
+                f"Market-order exit at the trigger tick: the fill is "
+                f"at whatever quote prevails, which on a fast move can "
+                f"be materially worse than the trigger threshold. Stale "
+                f"or anomalous ticks can also fire the trigger early."
+            )
+        else:  # set_stoploss
+            why = (
+                f"You asked to protect the {sym} position on a "
+                f"specific condition; action.set_stoploss arms the "
+                f"protective order on top of the existing holding."
+                + (
+                    " Trailing mode raises the stop as the position "
+                    "makes new highs (backtest-modeled; see warnings "
+                    "for live behavior)."
+                    if trailing else ""
+                )
+            )
+            risk = (
+                f"Stop-loss orders do not protect overnight gaps and "
+                f"can slip materially on fast moves — the actual exit "
+                f"price can be worse than the trigger price. The stop "
+                f"can also be hit by a brief intraday spike that "
+                f"otherwise would have recovered."
+            )
+    not_this = (
+        "Pivot registers the order; you confirm and place it in your "
+        "broker app. This is not advice, not a hedge, and not "
+        "guaranteed-fill execution."
+    )
+    rationale = _compose_rationale(
+        what=what, why=why, risk=risk, not_this=not_this,
+    )
     # Deterministic disclosure for trailing stops. The trailing ratchet is
     # fully modeled in BACKTESTS, but the live executor places the initial
     # stop at N% below the current price and does NOT yet re-ratchet on new
@@ -928,11 +1200,29 @@ def build_ipo_reminder_draft(
         f"{bid_label}, {category}) and pushes a reminder. Pivot does "
         f"NOT apply — you place the bid yourself by 5 PM on {close_date}."
     )
-    rationale = (
-        f"Listens for the {sym} IPO to flip to 'open' in the live NSE "
-        f"feed. On the open edge, writes an intent_armed row and pushes "
-        f"the open-day handoff text. No broker call — Pivot's verb is "
-        f"'arm' / 'remind', never 'apply'."
+    rationale = _compose_rationale(
+        what=(
+            f"Listens for the {sym} IPO to flip to 'open' on the live "
+            f"NSE feed; on the open edge, writes an intent_armed row "
+            f"and pushes the open-day handoff text."
+        ),
+        why=(
+            f"IPO subscription mechanics require a manual UPI mandate "
+            f"that Pivot can't authorise on your behalf; the right "
+            f"shape is a reminder + intent rather than an order."
+        ),
+        risk=(
+            f"IPO allocations are uncertain (oversubscription, "
+            f"category caps) and listings can open materially below "
+            f"the issue price; this automation does not protect against "
+            f"either."
+        ),
+        not_this=(
+            f"This is NOT an order placement and NOT a broker call — "
+            f"Pivot's verb is 'arm' and 'remind', never 'apply'. You "
+            f"must place the bid and approve the UPI mandate yourself "
+            f"in your broker app by 5 PM on close day."
+        ),
     )
 
     draft: dict[str, Any] = {

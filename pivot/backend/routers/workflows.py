@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
@@ -64,6 +64,11 @@ from backend.schemas import (
     WorkflowOut,
     WorkflowPatch,
     WorkflowSummary,
+)
+from backend.workflows.compat import (
+    AmbientState,
+    Diagnostic,
+    lint_workflow,
 )
 from backend.workflows.engine import WorkflowEngine
 from backend.workflows.registry import STEP_REGISTRY, get_catalog
@@ -165,6 +170,36 @@ def _validate_steps(
                 },
             )
 
+    # Final pass: share the single-source-of-truth linter so create /
+    # update / activate never drift from the editor's /lint endpoint.
+    # ONLY severity=="error" diagnostics block; warnings + info are
+    # advisory and surface via the GET response's `diagnostics` field.
+    # No ambient state at the router boundary — ambient is a per-run
+    # engine concept; the editor is reasoning about the workflow shape
+    # in isolation here. Pass `step_names` from each step's caller-supplied
+    # label so diagnostics read as `Step N ("Buy the dip")` instead of
+    # leaking the raw step_type id.
+    step_names: dict[int, str] = {}
+    for idx, step in enumerate(steps):
+        raw_label = step.get("label")
+        if isinstance(raw_label, str) and raw_label.strip():
+            step_names[idx] = raw_label.strip()
+    lint_diags = lint_workflow(
+        steps, ambient=None, step_names=step_names or None,
+    )
+    lint_errors = [d for d in lint_diags if d.severity == "error"]
+    if lint_errors:
+        first = lint_errors[0]
+        raise validation_error(
+            f"step {first.step_index} {first.code}: {first.message}",
+            details={
+                "step_index": first.step_index,
+                "field": first.field,
+                "reason": first.code,
+                "diagnostics": [d.model_dump() for d in lint_errors],
+            },
+        )
+
 
 def _workflow_for_user(
     db: Session, user_id: int, workflow_id: str,
@@ -201,7 +236,31 @@ def _replace_steps(
 
 
 def _to_workflow_out(wf: Workflow) -> WorkflowOut:
-    """Build the canonical WorkflowOut shape with steps[]."""
+    """Build the canonical WorkflowOut shape with steps[] + diagnostics[].
+
+    Diagnostics are the full lint result (errors + warnings + info) so
+    already-saved workflows surface advisories on GET without a separate
+    /lint round-trip. Never raises — lint_workflow is pure + defensive."""
+    ordered_steps = sorted(wf.steps, key=lambda s: int(s.step_index))
+    lint_input = [
+        {
+            "step_type": str(s.step_type),
+            "config": dict(s.config or {}),
+        }
+        for s in ordered_steps
+    ]
+    # Build step_names from the persisted labels so already-saved workflows
+    # surface friendly diagnostic text on GET (no raw step_type ids).
+    step_names: dict[int, str] = {}
+    for idx, s in enumerate(ordered_steps):
+        if isinstance(s.label, str) and s.label.strip():
+            step_names[idx] = s.label.strip()
+    diagnostics = [
+        d.model_dump()
+        for d in lint_workflow(
+            lint_input, ambient=None, step_names=step_names or None,
+        )
+    ]
     return WorkflowOut(
         id=str(wf.id),
         name=str(wf.name),
@@ -225,8 +284,9 @@ def _to_workflow_out(wf: Workflow) -> WorkflowOut:
                 config=dict(s.config or {}),
                 next_run_at=s.next_run_at,
             )
-            for s in sorted(wf.steps, key=lambda s: int(s.step_index))
+            for s in ordered_steps
         ],
+        diagnostics=diagnostics,
     )
 
 
@@ -266,6 +326,250 @@ def get_step_types(
 ) -> StepTypeCatalogResponse:
     catalog = get_catalog()
     return StepTypeCatalogResponse.model_validate(catalog)
+
+
+# ── /lint — editor-facing lint endpoint (shares lint_workflow) ────────
+
+
+class _LintAmbientIn(BaseModel):
+    """Per-call ambient state passed by the editor (mirrors
+    `backend.workflows.compat.AmbientState`). Defaults are permissive-
+    unknown so callers can omit it."""
+    model_config = ConfigDict(extra="forbid")
+
+    held_symbols: list[str] = Field(default_factory=list)
+    has_pending_orders: bool = False
+
+
+class _LintWorkflowRequest(BaseModel):
+    """Body for ``POST /api/workflows/lint``.
+
+    `steps` is the same shape the create/update path uses (list of
+    `{step_type, config, label?}` dicts). `ambient` is optional —
+    when present, capability checks that could be satisfied by an
+    open position or a pending order in the user's book stop firing.
+    The endpoint is PURE: no DB writes, no DB reads, no LLM, no
+    network — it just calls `lint_workflow` and returns the result.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    steps: list[dict[str, object]] = Field(default_factory=list)
+    ambient: Optional[_LintAmbientIn] = None
+
+
+class _LintWorkflowResponse(BaseModel):
+    """Response is the lint result, 1:1 with `compat.Diagnostic`."""
+    diagnostics: list[Diagnostic]
+
+
+@router.post(
+    "/workflows/lint",
+    response_model=_LintWorkflowResponse,
+    summary="Lint a workflow draft (errors + warnings + info)",
+    description=(
+        "Runs the single-source-of-truth `lint_workflow` over the supplied "
+        "steps and returns the diagnostics the editor surfaces inline. "
+        "Pure (no DB writes, no scheduling side-effects) so it can be "
+        "called on every edit — the FE debounces at ~250ms. The same "
+        "function is invoked at create/update/activate, where ONLY "
+        "`severity=='error'` diagnostics block; warnings and info are "
+        "advisory."
+    ),
+)
+def lint_workflow_endpoint(
+    body: _LintWorkflowRequest,
+    _user_id: int = Depends(require_user),
+) -> _LintWorkflowResponse:
+    ambient = (
+        AmbientState(
+            held_symbols=body.ambient.held_symbols,
+            has_pending_orders=body.ambient.has_pending_orders,
+        )
+        if body.ambient is not None
+        else None
+    )
+    # Carry through any per-step labels the editor supplies so diagnostics
+    # come back human-readable (e.g. `Step 3 ("Buy the dip")` instead of
+    # `step 3 (trigger.exit_compound)`).
+    step_names: dict[int, str] = {}
+    for idx, step in enumerate(body.steps):
+        raw_label = step.get("label")
+        if isinstance(raw_label, str) and raw_label.strip():
+            step_names[idx] = raw_label.strip()
+    diagnostics = lint_workflow(
+        body.steps, ambient=ambient, step_names=step_names or None,
+    )
+    return _LintWorkflowResponse(diagnostics=diagnostics)
+
+
+# ── /dsl/schema + /dsl/describe — read-only ConditionBuilder helpers ──
+#
+# Metadata + english readback for the visual condition/tree builder that
+# edits the compound DSL trees (trigger.compound / trigger.exit_compound /
+# condition.compound). Read-only: full-workflow validation stays with
+# POST /api/workflows/lint. Neither endpoint 500s on bad input — an invalid
+# tree comes back 200 with {"english": "", "error": "..."} so the builder
+# surfaces the message inline.
+
+# Operator + position-field vocabularies (ordered; the FE renders them
+# verbatim and the contract test pins the order).
+_DSL_OPERATORS: list[tuple[str, str]] = [
+    (">", "is above"),
+    ("<", "is below"),
+    (">=", "is at or above"),
+    ("<=", "is at or below"),
+    ("==", "equals"),
+    ("crosses_above", "crosses above"),
+    ("crosses_below", "crosses below"),
+]
+_DSL_POSITION_FIELDS: list[tuple[str, str]] = [
+    ("entry_price", "Entry price"),
+    ("unrealised_pct", "Unrealised P&L %"),
+    ("unrealised_abs", "Unrealised P&L ₹"),
+    ("bars_held", "Bars held"),
+    ("peak_unrealised_pct", "Peak unrealised %"),
+    ("drawdown_from_peak_pct", "Drawdown from peak %"),
+]
+
+
+class _DslIndicatorEntry(BaseModel):
+    id: str
+    label: str
+    default_period: int
+    multi_output: bool
+    components: list[str]
+
+
+class _DslLabeled(BaseModel):
+    id: str
+    label: str
+
+
+class _DslTreeField(BaseModel):
+    field: str
+    mode: str  # "entry" | "exit"
+
+
+class _DslSchemaResponse(BaseModel):
+    indicators: list[_DslIndicatorEntry]
+    operators: list[_DslLabeled]
+    operand_kinds: list[str]
+    price_bases: list[str]
+    position_fields: list[_DslLabeled]
+    logic_ops: list[str]
+    timeframes: list[str]
+    tree_fields: dict[str, _DslTreeField]
+
+
+def _dsl_indicator_entries() -> list[_DslIndicatorEntry]:
+    """Build the indicator picker list from the live indicator registry so
+    a newly-registered indicator shows up without editing this endpoint.
+    Aliases (bb/bollinger) collapse to their canonical spec.key."""
+    from backend.services.backtest_indicators import (
+        _REGISTRY,
+        allowed_components,
+        supported_indicators,
+    )
+
+    seen: set[str] = set()
+    out: list[_DslIndicatorEntry] = []
+    for key in supported_indicators():
+        spec = _REGISTRY[key]
+        if spec.key in seen:
+            continue
+        seen.add(spec.key)
+        comps = list(allowed_components(spec.key))
+        out.append(
+            _DslIndicatorEntry(
+                id=spec.key,
+                label=spec.label,
+                default_period=spec.default_period,
+                multi_output=bool(comps),
+                components=comps,
+            )
+        )
+    return out
+
+
+@router.get(
+    "/workflows/dsl/schema",
+    response_model=_DslSchemaResponse,
+    summary="DSL builder metadata (indicators, operators, operand kinds…)",
+    description=(
+        "Read-only vocabularies the visual ConditionBuilder uses to render "
+        "operand pickers for compound DSL trees. Indicators come from the "
+        "live backtest_indicators registry; the rest are static. "
+        "`tree_fields` maps each compound step_type to the config field that "
+        "holds its tree and whether position leaves are allowed (mode=exit)."
+    ),
+)
+def get_dsl_schema(
+    _user_id: int = Depends(require_user),
+) -> _DslSchemaResponse:
+    return _DslSchemaResponse(
+        indicators=_dsl_indicator_entries(),
+        operators=[_DslLabeled(id=i, label=lbl) for i, lbl in _DSL_OPERATORS],
+        operand_kinds=["indicator", "price", "constant", "position"],
+        price_bases=["close", "open", "high", "low"],
+        position_fields=[
+            _DslLabeled(id=i, label=lbl) for i, lbl in _DSL_POSITION_FIELDS
+        ],
+        logic_ops=["and", "or"],
+        timeframes=["daily", "weekly"],
+        # All three compound steps store the tree under config['entry'];
+        # only the exit trigger allows position-leaf operands.
+        tree_fields={
+            "trigger.compound": _DslTreeField(field="entry", mode="entry"),
+            "trigger.exit_compound": _DslTreeField(field="entry", mode="exit"),
+            "condition.compound": _DslTreeField(field="entry", mode="entry"),
+        },
+    )
+
+
+class _DescribeDslRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tree: dict[str, object] = Field(default_factory=dict)
+    mode: str = "entry"  # "entry" | "exit"
+
+
+class _DescribeDslResponse(BaseModel):
+    english: str
+    error: Optional[str] = None
+
+
+@router.post(
+    "/workflows/dsl/describe",
+    response_model=_DescribeDslResponse,
+    summary="English readback of a DSL condition tree",
+    description=(
+        "Validates a single DSL tree (structural + semantic, with position "
+        "leaves gated by `mode`) and returns a one-line english sentence for "
+        "the builder's live readback. NEVER 500s — an invalid tree returns "
+        "200 with english='' and a human error string."
+    ),
+)
+def describe_dsl_tree(
+    body: _DescribeDslRequest,
+    _user_id: int = Depends(require_user),
+) -> _DescribeDslResponse:
+    from pydantic import TypeAdapter
+
+    from backend.workflows.dsl.readback import tree_to_english
+    from backend.workflows.dsl.schema import Tree, normalize_tree_aliases
+    from backend.workflows.dsl.validators import (
+        DSLValidationError,
+        semantic_validate,
+    )
+
+    try:
+        parsed = TypeAdapter(Tree).validate_python(
+            normalize_tree_aliases(body.tree)
+        )
+        semantic_validate(parsed, allow_position=(body.mode == "exit"))
+        english = tree_to_english(parsed)
+    except (ValidationError, DSLValidationError, ValueError) as exc:
+        return _DescribeDslResponse(english="", error=str(exc))
+    return _DescribeDslResponse(english=english, error=None)
 
 
 # ── propose_workflow as a direct REST endpoint (Day 6 #38) ────────────
@@ -641,9 +945,6 @@ async def run_workflow(
 # ── Workflow draft backtest ───────────────────────────────────────────
 
 
-from pydantic import BaseModel, Field as _PField
-
-
 class _BacktestDraftRequest(BaseModel):
     """Body for ``POST /api/workflows/backtest-draft``.
 
@@ -651,10 +952,10 @@ class _BacktestDraftRequest(BaseModel):
     ``propose_workflow``. Period defaults to 5y to match the
     indicator-backtest UX. Name is purely cosmetic — used in the
     summary string of the result."""
-    name: str = _PField(default="Workflow")
+    name: str = Field(default="Workflow")
     description: str | None = None
-    steps: list[dict] = _PField(default_factory=list)
-    period: str = _PField(
+    steps: list[dict] = Field(default_factory=list)
+    period: str = Field(
         default="5y",
         description=(
             "yfinance period: 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, max."

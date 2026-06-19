@@ -22,6 +22,7 @@ import type {
   Approval,
   ApprovalDecisionRequest,
   CreateWorkflowRequest,
+  Diagnostic,
   ErrorBody,
   IpoApplicationsListResponse,
   IpoCalendarResponse,
@@ -45,6 +46,7 @@ import type {
   WorkflowSummary,
 } from "@/lib/types";
 import { isError } from "@/lib/types";
+import type { DslNode, DslSchema, DslDescribeResult } from "@/lib/types";
 import { getTradingMode } from "@/lib/trading-mode";
 
 // ---------------------------------------------------------------------------
@@ -73,12 +75,14 @@ export function setAuthTokenProvider(provider: AuthTokenProvider): void {
 }
 
 type StepTypesSource = "mock" | "real";
-let stepTypesSource: StepTypesSource = "mock";
+// Default to "real" — the backend now ships GET /api/step-types with compat + group.
+// Tests and offline dev can call setStepTypesSource("mock") to pin to the inline catalog.
+let stepTypesSource: StepTypesSource = "real";
 
 /**
- * Toggle between the inline mock catalog (Day 1-4) and the real
- * `GET /api/step-types` endpoint (Day 5+). Frontend switches to "real"
- * once the backend ships its catalog response.
+ * Toggle between the inline mock catalog and the real `GET /api/step-types`
+ * endpoint. Defaults to "real" since the backend ships compat + group now.
+ * Call setStepTypesSource("mock") in tests or offline dev.
  */
 export function setStepTypesSource(source: StepTypesSource): void {
   stepTypesSource = source;
@@ -87,10 +91,9 @@ export function setStepTypesSource(source: StepTypesSource): void {
 /**
  * Single global toggle that switches every Day 2 mock surface (catalog,
  * run stream, …) between in-memory simulators and live backend wires.
- * Day 5 default flips to "real" once the engine + WS land.
  */
 export type BackendSource = "mock" | "real";
-let backendSource: BackendSource = "mock";
+let backendSource: BackendSource = "real";
 
 export function setBackendSource(source: BackendSource): void {
   backendSource = source;
@@ -461,17 +464,127 @@ export function getStepTypes(opts?: {
     return Promise.resolve({ data: MOCK_CATALOG });
   }
 
+  // Real endpoint — gracefully fall back to the mock when the backend is
+  // unreachable or returns an error (offline dev / unit tests).
   return request<StepTypeCatalog>("/step-types").then((result) => {
     if (!("error" in result)) {
       cachedCatalog = { fetchedAt: now, data: result.data };
+      return result;
     }
-    return result;
+    // Backend returned an error — fall back to the mock catalog so the editor
+    // stays usable. The error is swallowed (the mock is a faithful mirror of the
+    // real shape) but we warn so a developer notices the catalog may be stale
+    // relative to a freshly-deployed backend.
+    console.warn(
+      "getStepTypes: backend /step-types returned an error; falling back to the " +
+        `mock catalog (version ${MOCK_CATALOG.catalog_version}). Error:`,
+      result.error,
+    );
+    cachedCatalog = { fetchedAt: now, data: MOCK_CATALOG };
+    return { data: MOCK_CATALOG };
   });
 }
 
 /** Test helper — clears the in-memory catalog cache. */
 export function _clearCatalogCache(): void {
   cachedCatalog = null;
+}
+
+// ---------------------------------------------------------------------------
+// Workflow lint — POST /api/workflows/lint
+// ---------------------------------------------------------------------------
+
+/**
+ * Request body for `POST /api/workflows/lint`.
+ * Steps are the minimal shape the linter needs — no `id` or `step_index`
+ * required; the engine assigns indices from the array order.
+ */
+export type LintWorkflowRequest = {
+  steps: Array<{
+    step_type: string;
+    label?: string | null;
+    config: Record<string, unknown>;
+  }>;
+  /**
+   * Ambient state — tells the linter what the engine knows about the user's
+   * live book so position/order requirements don't false-positive.
+   */
+  ambient?: {
+    /** Symbols the user currently holds (satisfied "position" requirements). */
+    held_symbols?: string[];
+    /** True when the user has resting orders (satisfies "pending_orders"). */
+    has_pending_orders?: boolean;
+  };
+};
+
+/**
+ * `POST /api/workflows/lint`
+ *
+ * Runs three passes — structural → ref type-check → capability — and returns
+ * a list of `Diagnostic` objects sorted by (step_index, severity). Errors
+ * block activation; warnings and info never do.
+ *
+ * The frontend calls this on a ~250 ms debounce after every edit so the
+ * authoritative backend rules (ref-type mismatches, unknown step types) are
+ * always reflected. The picker's client-side capability mirror is only for
+ * instant bucket classification before the debounce fires.
+ */
+export function lintWorkflow(
+  steps: LintWorkflowRequest["steps"],
+  ambient?: LintWorkflowRequest["ambient"],
+): Promise<ApiResult<{ diagnostics: Diagnostic[] }>> {
+  const body: LintWorkflowRequest = ambient ? { steps, ambient } : { steps };
+  return request<{ diagnostics: Diagnostic[] }>("/workflows/lint", {
+    method: "POST",
+    body,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DSL condition-tree builder helpers (ConditionBuilder)
+//   GET  /api/workflows/dsl/schema    — operand-picker metadata (cached)
+//   POST /api/workflows/dsl/describe  — english readback of one tree
+// ---------------------------------------------------------------------------
+
+// The schema is static per backend deploy, so cache the first success for the
+// session (the use-dsl-schema hook calls this on every editor mount). Errors
+// are never cached.
+let _dslSchemaCache: DslSchema | null = null;
+
+// Builder helpers degrade gracefully: `request` throws on network/parse
+// failure, but the ConditionBuilder must never crash the editor over a
+// transient backend hiccup — it just loses the live readback / falls back to
+// the JSON hatch. So both helpers swallow throws into the error envelope.
+function _dslNetworkError(e: unknown): ErrorBody {
+  return {
+    code: "internal_error",
+    message: e instanceof Error ? e.message : "DSL request failed",
+  };
+}
+
+export async function getDslSchema(): Promise<ApiResult<DslSchema>> {
+  if (_dslSchemaCache) return { data: _dslSchemaCache };
+  try {
+    const result = await request<DslSchema>("/workflows/dsl/schema");
+    if (!isError(result)) _dslSchemaCache = result.data;
+    return result;
+  } catch (e) {
+    return { error: _dslNetworkError(e) };
+  }
+}
+
+export async function describeDsl(
+  tree: DslNode,
+  mode: "entry" | "exit",
+): Promise<ApiResult<DslDescribeResult>> {
+  try {
+    return await request<DslDescribeResult>("/workflows/dsl/describe", {
+      method: "POST",
+      body: { tree, mode },
+    });
+  } catch (e) {
+    return { error: _dslNetworkError(e) };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -603,6 +716,8 @@ export type FinancialsLatestValue = {
   line_item: string;
   unit: string | null;
   basis: string;
+  /** Which data source produced this field. Present when the yfinance fallback is used. */
+  source?: "moneycontrol" | "yfinance";
 };
 
 export type FinancialsHistoryPoint = {
@@ -779,9 +894,14 @@ export type StockQuote = {
   open: number;
   high: number;
   low: number;
-  close: number;
-  week_52_high: number;
-  week_52_low: number;
+  /** Most-recent daily close (previous session). Use for "Prev Close" display. */
+  prev_close: number;
+  /** @deprecated Backend returns `prev_close`; `close` is no longer present. */
+  close?: number;
+  /** 52-week high price. */
+  w52_high: number;
+  /** 52-week low price. */
+  w52_low: number;
   volume: number;
   market_cap: number | null;
   pe_ratio: number | null;
@@ -857,6 +977,63 @@ export function getOhlc(
   return request<OhlcResponse>(
     `/markets/ohlc/${encodeURIComponent(symbol)}`,
     { query: exchange ? { range, exchange } : { range } },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Company search — `GET /api/companies/search?q=<str>&limit=10`
+// Returns a ranked list of symbols matching the query for use in search
+// autosuggest dropdowns. Sector and has_fundamentals let the UI surface
+// richer context inline.
+// ---------------------------------------------------------------------------
+
+export type CompanySearchResult = {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  has_fundamentals: boolean;
+};
+
+export type CompanySearchResponse = {
+  results: CompanySearchResult[];
+};
+
+/** `GET /api/companies/search?q=<str>&limit=10` — ranked symbol search. */
+export function searchCompanies(
+  q: string,
+  limit = 10,
+): Promise<ApiResult<CompanySearchResponse>> {
+  return request<CompanySearchResponse>("/companies/search", {
+    query: { q, limit },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Metric series — `GET /api/markets/metric-series/{symbol}?metric=pe|ev_ebitda&range=…`
+// Returns a time-series of the requested fundamental metric for the chart.
+// `available:false` + empty `points` when the data cannot be computed.
+// ---------------------------------------------------------------------------
+
+export type MetricSeriesPoint = { t: string; v: number };
+
+export type MetricSeriesResponse = {
+  symbol: string;
+  metric: "pe" | "ev_ebitda";
+  range: string;
+  available: boolean;
+  points: MetricSeriesPoint[];
+  source: string;
+};
+
+/** `GET /api/markets/metric-series/{symbol}?metric=pe|ev_ebitda&range=…` — fundamental metric series. */
+export function getMetricSeries(
+  symbol: string,
+  metric: "pe" | "ev_ebitda",
+  range: SparklineRange,
+): Promise<ApiResult<MetricSeriesResponse>> {
+  return request<MetricSeriesResponse>(
+    `/markets/metric-series/${encodeURIComponent(symbol)}`,
+    { query: { metric, range } },
   );
 }
 

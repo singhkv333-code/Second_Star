@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import type {
+  Diagnostic,
   Step,
   StepTypeCatalog,
   StepTypeDef,
@@ -36,6 +37,7 @@ import { findStepType } from "@/lib/mock-catalog";
 import {
   activateWorkflow,
   createWorkflow,
+  lintWorkflow,
   pauseWorkflow,
   runWorkflow,
   updateWorkflow,
@@ -46,6 +48,8 @@ import { StepTypePicker } from "@/components/agent-panel/StepTypePicker";
 import { RunHistory } from "@/components/agent-panel/RunHistory";
 import { RunView } from "@/components/agent-panel/RunView";
 import { defaultConfigFromSchema } from "@/lib/json-schema-to-zod";
+
+const LINT_DEBOUNCE_MS = 250;
 
 let stepIdCounter = 0;
 const newStepId = (): string => {
@@ -66,13 +70,30 @@ export type WorkflowEditorMockProps = {
   /** The workflow to render. Mutations persist via PATCH /api/workflows/{id}. */
   initialWorkflow: Workflow;
   catalog: StepTypeCatalog;
+  /**
+   * When set, the editor is CONTROLLED by this value — changes pushed from
+   * chat (amended drafts) arrive here and re-render the editor without
+   * remounting. Only used for unsaved drafts. Undefined = uncontrolled (the
+   * default, same as today for saved workflows and the demo).
+   */
+  controlledWorkflow?: Workflow;
+  /**
+   * Called when the user edits the controlled draft inside the editor so the
+   * caller can keep its state in sync. Only called when `controlledWorkflow`
+   * is set.
+   */
+  onControlledWorkflowChange?: (draft: Workflow | null) => void;
 };
 
 export function WorkflowEditorMock({
   initialWorkflow,
   catalog,
+  controlledWorkflow,
+  onControlledWorkflowChange,
 }: WorkflowEditorMockProps): React.ReactElement {
-  const [workflow, setWorkflow] = useState<Workflow>(initialWorkflow);
+  const [workflow, setWorkflow] = useState<Workflow>(
+    controlledWorkflow ?? initialWorkflow,
+  );
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [pickerInsertIndex, setPickerInsertIndex] = useState<number | null>(null);
   const [actionState, setActionState] = useState<ActionState>("idle");
@@ -80,6 +101,47 @@ export function WorkflowEditorMock({
   // null = editor, string = run id being viewed in RunView
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
   const [showRunHistory, setShowRunHistory] = useState(false);
+  // Diagnostics keyed by step_index (authoritative from debounced /lint call).
+  // Seeded from the server-computed `workflow.diagnostics` so a pre-loaded
+  // workflow renders its advisories instantly, before the mount-time lint
+  // reconciles them.
+  const [diagnosticsMap, setDiagnosticsMap] = useState<Map<number, Diagnostic[]>>(() => {
+    const map = new Map<number, Diagnostic[]>();
+    for (const d of initialWorkflow.diagnostics ?? []) {
+      const bucket = map.get(d.step_index) ?? [];
+      bucket.push(d);
+      map.set(d.step_index, bucket);
+    }
+    return map;
+  });
+  const lintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Controlled-draft sync: when the parent pushes a new version of the draft
+  // (e.g. chat amended it), update local state so the editor re-renders.
+  // We skip this if the user is actively editing (editingStepId is set) to
+  // avoid clobbering mid-edit; the next chat turn will still carry the latest
+  // user-visible state because the FE reads activeEditorDraft from context.
+  const prevControlledRef = useRef<Workflow | undefined>(controlledWorkflow);
+  useEffect(() => {
+    if (!controlledWorkflow) return;
+    if (controlledWorkflow === prevControlledRef.current) return;
+    prevControlledRef.current = controlledWorkflow;
+    // Only apply if not mid-step-edit (preserve user's in-progress edits).
+    if (editingStepId) return;
+    setWorkflow(controlledWorkflow);
+    scheduleLint(controlledWorkflow.steps);
+  // editingStepId intentionally NOT in deps — we only want to recheck when
+  // controlledWorkflow itself changes from outside.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlledWorkflow]);
+
+  // Notify caller whenever local workflow state changes (user edits).
+  const prevLocalRef = useRef<Workflow>(workflow);
+  useEffect(() => {
+    if (workflow === prevLocalRef.current) return;
+    prevLocalRef.current = workflow;
+    onControlledWorkflowChange?.(workflow);
+  }, [workflow, onControlledWorkflowChange]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -88,16 +150,103 @@ export function WorkflowEditorMock({
     }),
   );
 
+  // ---------------------------------------------------------------------------
+  // Debounced lint — fires ~250ms after any step change. Keyed by step_index.
+  // ---------------------------------------------------------------------------
+
+  const scheduleLint = useCallback((steps: Step[]): void => {
+    if (lintTimerRef.current !== null) {
+      clearTimeout(lintTimerRef.current);
+    }
+    lintTimerRef.current = setTimeout(() => {
+      const lintSteps = steps.map((s) => ({
+        step_type: s.step_type,
+        label: s.label,
+        config: s.config,
+      }));
+      void lintWorkflow(lintSteps).then((result) => {
+        if (isError(result)) return; // lint errors are best-effort; don't surface UI noise
+        const map = new Map<number, Diagnostic[]>();
+        for (const d of result.data.diagnostics) {
+          const bucket = map.get(d.step_index) ?? [];
+          bucket.push(d);
+          map.set(d.step_index, bucket);
+        }
+        setDiagnosticsMap(map);
+      });
+    }, LINT_DEBOUNCE_MS);
+  }, []);
+
+  // Run lint on mount (so a pre-loaded workflow shows its diagnostics immediately).
+  useEffect(() => {
+    scheduleLint(workflow.steps);
+    return () => {
+      if (lintTimerRef.current !== null) clearTimeout(lintTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Step mutations — delete and duplicate. Both re-index and schedule lint.
+  // ---------------------------------------------------------------------------
+
+  const handleDeleteStep = useCallback((step: Step): void => {
+    setWorkflow((w) => {
+      const next = w.steps
+        .filter((s) => s.id !== step.id)
+        .map((s, idx) => ({ ...s, step_index: idx }));
+      scheduleLint(next);
+      return { ...w, steps: next };
+    });
+  }, [scheduleLint]);
+
+  const handleDuplicateStep = useCallback((step: Step): void => {
+    setWorkflow((w) => {
+      const srcIdx = w.steps.findIndex((s) => s.id === step.id);
+      if (srcIdx < 0) return w;
+      const clone: Step = {
+        ...step,
+        id: newStepId(),
+        step_index: srcIdx + 1,
+      };
+      const next = [...w.steps];
+      next.splice(srcIdx + 1, 0, clone);
+      const renumbered = next.map((s, idx) => ({ ...s, step_index: idx }));
+      scheduleLint(renumbered);
+      return { ...w, steps: renumbered };
+    });
+  }, [scheduleLint]);
+
   const handleDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = workflow.steps.findIndex((s) => s.id === active.id);
     const newIndex = workflow.steps.findIndex((s) => s.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+
+    const draggedStep = workflow.steps[oldIndex];
+    if (!draggedStep) return;
+    const draggedEntry = findStepType(catalog, draggedStep.step_type);
+
+    // Structural invariant: triggers must stay at slot 0; non-triggers must not
+    // land in slot 0. Snap back silently if the move would violate this.
+    const wouldBeTriggerSlot = newIndex === 0;
+    const isTrigger = draggedEntry?.trigger_only ?? draggedEntry?.category === "trigger";
+    if (wouldBeTriggerSlot && !isTrigger) {
+      toast.warning("Non-trigger steps cannot be placed at position 1 — move cancelled.");
+      return;
+    }
+    if (!wouldBeTriggerSlot && isTrigger && oldIndex === 0) {
+      toast.warning("The trigger must remain at position 1 — move cancelled.");
+      return;
+    }
+
     const reordered = arrayMove(workflow.steps, oldIndex, newIndex).map(
       (s, idx) => ({ ...s, step_index: idx }),
     );
     setWorkflow((w) => ({ ...w, steps: reordered }));
+    // Lint will surface any remaining sequence warnings on the new order.
+    scheduleLint(reordered);
   };
 
   const status = STATUS_COPY[workflow.status];
@@ -112,12 +261,13 @@ export function WorkflowEditorMock({
     config: Record<string, unknown>,
   ): { error?: undefined } => {
     if (!editingStep) return {};
-    setWorkflow((w) => ({
-      ...w,
-      steps: w.steps.map((s) =>
+    setWorkflow((w) => {
+      const next = w.steps.map((s) =>
         s.id === editingStep.id ? { ...s, config } : s,
-      ),
-    }));
+      );
+      scheduleLint(next);
+      return { ...w, steps: next };
+    });
     return {};
   };
 
@@ -134,6 +284,7 @@ export function WorkflowEditorMock({
       next.splice(insertAt, 0, newStep);
       // Renumber.
       const renumbered = next.map((s, idx) => ({ ...s, step_index: idx }));
+      scheduleLint(renumbered);
       return { ...w, steps: renumbered };
     });
   };
@@ -448,7 +599,10 @@ export function WorkflowEditorMock({
                     <SortableStepRow
                       step={step}
                       catalogEntry={findStepType(catalog, step.step_type)}
+                      diagnostics={diagnosticsMap.get(step.step_index)}
                       onConfigure={() => setEditingStepId(step.id)}
+                      onDelete={handleDeleteStep}
+                      onDuplicate={handleDuplicateStep}
                     />
                     {/* Connector only between steps — never trailing past the
                         last one, since the Add button is pinned to the bottom. */}
@@ -493,6 +647,7 @@ export function WorkflowEditorMock({
         <StepTypePicker
           open
           insertIndex={pickerInsertIndex}
+          steps={workflow.steps}
           catalog={catalog}
           onSelect={(def) => handleAddStep(pickerInsertIndex, def)}
           onClose={() => setPickerInsertIndex(null)}
@@ -532,11 +687,17 @@ function FlowConnector({
 function SortableStepRow({
   step,
   catalogEntry,
+  diagnostics,
   onConfigure,
+  onDelete,
+  onDuplicate,
 }: {
   step: Step;
   catalogEntry: ReturnType<typeof findStepType>;
+  diagnostics: Diagnostic[] | undefined;
   onConfigure: (step: Step) => void;
+  onDelete: (step: Step) => void;
+  onDuplicate: (step: Step) => void;
 }): React.ReactElement {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: step.id });
@@ -554,7 +715,10 @@ function SortableStepRow({
         catalogEntry={catalogEntry}
         isDragging={isDragging}
         dragHandleProps={{ ...attributes, ...listeners }}
+        diagnostics={diagnostics}
         onConfigure={onConfigure}
+        onDelete={onDelete}
+        onDuplicate={onDuplicate}
       />
     </div>
   );

@@ -35,7 +35,15 @@ from pydantic import BaseModel
 # ISO-8601 instant string (matches API_CONTRACT.md §8.1).
 # 2026-06-04: F&O P3 — +trigger.expiry_day, +action.place_option_strategy,
 # +option_metric/option_greek/dte DSL leaves in trigger.compound trees.
-CATALOG_VERSION = "2026-06-04T12:00:00Z"
+# 2026-06-17: +compat/group metadata — each step now emits a `group` label
+# (set via register_step(group=...)) and a `compat` block sourced from
+# backend.workflows.compat.catalog_compat (produces/requires/consumes).
+# 2026-06-18: catalog regroup (17 group taxonomy) + 4 new collapsed steps
+# (action.squareoff, action.set_protective, fetch.price_reference,
+# fetch.rolling_extreme) + 6 legacy step types marked deprecated=True so
+# they remain executable for persisted/active workflows but disappear from
+# the picker.
+CATALOG_VERSION = "2026-06-18T00:00:00Z"
 
 
 # Categories listed in the order the picker should render them.
@@ -73,6 +81,20 @@ class StepDefinition:
     # config_model. We compute on registration so any Pydantic schema
     # error blows up at import time, not at request time.
     config_schema: dict[str, Any] = field(default_factory=dict)
+    # Optional sub-grouping label inside a category — used by the FE
+    # picker to cluster e.g. "Price triggers" vs "Indicator triggers"
+    # under the same "Triggers" category. Defaults to "" so existing
+    # @register_step calls keep working before the catalog-relabel pass
+    # populates groups.
+    group: str = ""
+    # Soft-retire a step type. Deprecated steps STAY in STEP_REGISTRY so
+    # persisted/active workflows that still reference them validate +
+    # execute, BUT they are excluded from `get_catalog()` so the FE
+    # picker no longer offers them. Replacement step types (e.g.
+    # `action.squareoff` for the three squareoff_* families) are
+    # registered alongside; a `_normalize_deprecated_steps` pass in
+    # `propose.py` rewrites freshly-proposed drafts to the new shape.
+    deprecated: bool = False
 
 
 STEP_REGISTRY: dict[str, StepDefinition] = {}
@@ -106,6 +128,8 @@ def register_step(
     trigger_only: bool,
     config_model: type[BaseModel],
     output_schema: Optional[dict[str, Any]] = None,
+    group: str = "",
+    deprecated: bool = False,
 ) -> Callable[[StepExecutor], StepExecutor]:
     """Decorator that registers a step type and returns the executor.
 
@@ -138,6 +162,8 @@ def register_step(
             output_schema=output_schema,
             executor=fn,
             config_schema=config_schema,
+            group=group,
+            deprecated=deprecated,
         )
         return fn
 
@@ -169,9 +195,18 @@ def get_catalog() -> dict[str, Any]:
     # registry.py directly still see a populated registry.
     import backend.workflows  # noqa: F401
 
+    # Lazy import — compat.lint_workflow lazy-imports this module, so a
+    # top-level import would cycle. catalog_compat itself is pure.
+    from backend.workflows.compat import catalog_compat
+
     category_order = {c["id"]: i for i, c in enumerate(CATEGORIES)}
+    # Deprecated step types stay in STEP_REGISTRY (so persisted/active
+    # workflows continue to validate + execute on the alias) but are
+    # HIDDEN from the catalog — the FE picker no longer surfaces them,
+    # and propose.py normalises freshly-built drafts onto the new
+    # collapsed step_type before validation.
     sorted_defs = sorted(
-        STEP_REGISTRY.values(),
+        (d for d in STEP_REGISTRY.values() if not d.deprecated),
         key=lambda d: (category_order.get(d.category, 999), d.step_type),
     )
 
@@ -182,6 +217,7 @@ def get_catalog() -> dict[str, Any]:
             {
                 "step_type": d.step_type,
                 "category": d.category,
+                "group": d.group,
                 "label": d.label,
                 "description": d.description,
                 "icon": d.icon,
@@ -189,6 +225,7 @@ def get_catalog() -> dict[str, Any]:
                 "trigger_only": d.trigger_only,
                 "config_schema": d.config_schema,
                 "output_schema": d.output_schema,
+                "compat": catalog_compat(d.step_type),
             }
             for d in sorted_defs
         ],

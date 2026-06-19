@@ -57,14 +57,17 @@ import {
   getStockQuote,
   getSparkline,
   getFinancials,
+  getMetricSeries,
   type StockQuote,
   type SparklineRange,
   type SparklineResponse,
   type FinancialsResponse,
   type FinancialsHistoryPoint,
+  type MetricSeriesResponse,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
+import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,11 +121,17 @@ function inrOrDash(n: number | null | undefined): string {
 
 function fmtCr(n: number | null): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  // Input is rupees. 1 Cr = 1e7, 1 K Cr (thousand crore) = 1e10,
-  // 1 L Cr (lakh crore) = 1e12.
-  if (n >= 1e12) return `₹${(n / 1e12).toFixed(2)} L Cr`;
-  if (n >= 1e10) return `₹${(n / 1e10).toFixed(2)} K Cr`;
-  if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
+  // `n` is in rupees. Indian scale: 1 Cr = 1e7, 1 thousand-Cr = 1e10,
+  // 1 lakh-Cr = 1e12. (The K-Cr branch previously used 1e9 — a 10×
+  // overstatement that made e.g. a ₹48,057 Cr net profit render as
+  // "₹480.57 K Cr" instead of "₹4.81 K Cr".) Work on |n| so losses
+  // and negative cash-flows format with a leading minus instead of
+  // falling through to the raw-rupee INR path.
+  const sign = n < 0 ? "−" : "";
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return `${sign}₹${(abs / 1e12).toFixed(2)} L Cr`;
+  if (abs >= 1e10) return `${sign}₹${(abs / 1e10).toFixed(2)} K Cr`;
+  if (abs >= 1e7) return `${sign}₹${(abs / 1e7).toFixed(2)} Cr`;
   return INR.format(n);
 }
 
@@ -166,10 +175,13 @@ function GrowwTooltip({
   active,
   payload,
   label,
+  isMetric,
 }: {
   active?: boolean;
   payload?: TooltipEntry[];
   label?: string;
+  /** When true, formats values as plain numbers (no ₹ prefix) for PE / EV metrics. */
+  isMetric?: boolean;
 }): React.ReactElement | null {
   // Drop the synthetic "__selValue" series — it only exists to paint the
   // drag-selection shaded Area and must not show as a tooltip row.
@@ -201,7 +213,11 @@ function GrowwTooltip({
       </div>
       {rows.map((entry, i) => {
         const v = Number(entry.value);
-        const formatted = Number.isNaN(v) ? String(entry.value ?? "") : `₹${v.toFixed(1)}`;
+        const formatted = Number.isNaN(v)
+          ? String(entry.value ?? "")
+          : isMetric
+            ? v.toFixed(2)
+            : `₹${v.toFixed(1)}`;
         return (
           <div
             key={i}
@@ -399,7 +415,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         {/* Left column — Overview + Statistics merged */}
         <div className="flex min-h-0 flex-col">
           {quoteState.kind === "ok" && (
-            <MergedOverviewCard quote={quoteState.quote} />
+            <MergedOverviewCard quote={quoteState.quote} financials={financials} />
           )}
         </div>
 
@@ -732,7 +748,13 @@ const COMPANY_PROFILES: Record<string, CompanyProfile> = {
  *  Statistics" header is intentionally dropped — the three stat
  *  columns sit beneath the facts table as a continuation of the same
  *  block. */
-function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElement {
+function MergedOverviewCard({
+  quote,
+  financials,
+}: {
+  quote: StockQuote;
+  financials: FinancialsResponse | null;
+}): React.ReactElement {
   // 52-week high/low and the day high/low now live in the Performance range
   // bars below, so they're dropped from these columns (no duplication, and no
   // "₹NaN" when a source omits the 52-week figures).
@@ -740,15 +762,26 @@ function MergedOverviewCard({ quote }: { quote: StockQuote }): React.ReactElemen
     { label: "Market Cap", value: fmtCr(quote.market_cap) },
     { label: "Volume", value: quote.volume.toLocaleString("en-IN") },
   ];
+
+  // Valuation ratios: P/E from the live quote; P/B, EV/Sales, EV/EBITDA from
+  // the financials snapshot (Moneycontrol / yfinance fallback). Render "—"
+  // when the field is absent — never fabricate.
+  const fmtRatio = (v: number | null | undefined): string =>
+    v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : "—";
+
+  const pbValue = financials?.latest?.price_to_book?.value ?? null;
+  const evEbitdaValue = financials?.latest?.ev_to_ebitda?.value ?? null;
+  const evSalesValue = financials?.latest?.ev_to_sales?.value ?? null;
+
   const valuation: { label: string; value: string }[] = [
     { label: "P/E", value: quote.pe_ratio !== null ? quote.pe_ratio.toFixed(1) : "—" },
-    { label: "P/B", value: "—" },
-    { label: "EV/Sales", value: "—" },
-    { label: "EV/EBITDA", value: "—" },
+    { label: "P/B", value: fmtRatio(pbValue) },
+    { label: "EV/Sales", value: fmtRatio(evSalesValue) },
+    { label: "EV/EBITDA", value: fmtRatio(evEbitdaValue) },
   ];
   const day: { label: string; value: string }[] = [
     { label: "Open", value: inrOrDash(quote.open) },
-    { label: "Prev Close", value: inrOrDash(quote.close) },
+    { label: "Prev Close", value: inrOrDash(quote.prev_close) },
   ];
 
   return (
@@ -1017,9 +1050,9 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
   const dayValid =
     Number.isFinite(quote.low) && Number.isFinite(quote.high) && quote.high > quote.low;
   const yearValid =
-    Number.isFinite(quote.week_52_low) &&
-    Number.isFinite(quote.week_52_high) &&
-    quote.week_52_high > quote.week_52_low;
+    Number.isFinite(quote.w52_low) &&
+    Number.isFinite(quote.w52_high) &&
+    quote.w52_high > quote.w52_low;
 
   if (!dayValid && !yearValid) return null;
 
@@ -1061,8 +1094,8 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
           <RangeBar
             lowLabel="52 week low"
             highLabel="52 week high"
-            low={quote.week_52_low}
-            high={quote.week_52_high}
+            low={quote.w52_low}
+            high={quote.w52_high}
             current={quote.ltp}
           />
         </div>
@@ -1103,7 +1136,6 @@ function ChartCard({
   onRemovePeer: (s: string) => void;
   primaryQuote: StockQuote | null;
 }): React.ReactElement {
-  const [searchValue, setSearchValue] = useState("");
   const [metric, setMetric] = useState<Metric>("Price");
   // Min/Max date filters (ISO yyyy-mm-dd from native <input type="date">).
   const [minDate, setMinDate] = useState<string>("");
@@ -1120,6 +1152,53 @@ function ChartCard({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [expanded]);
+
+  // ── Metric series (PE Ratio / EV/EBITDA) ─────────────────────────────
+  // Fetched per-ticker when a fundamental metric is selected. In Price
+  // mode this state is empty and unused — the parent-supplied `series`
+  // prop is used instead.
+  type MetricEntry = {
+    symbol: string;
+    state:
+      | { kind: "loading" }
+      | { kind: "unavailable" }
+      | { kind: "ok"; points: MetricSeriesResponse["points"] };
+  };
+  const [metricSeries, setMetricSeries] = useState<MetricEntry[]>([]);
+
+  const isMetricMode = metric === "PE Ratio" || metric === "EV/EBITDA";
+
+  useEffect(() => {
+    if (!isMetricMode) {
+      setMetricSeries([]);
+      return;
+    }
+    const metricKey = metric === "PE Ratio" ? "pe" : "ev_ebitda";
+    let cancelled = false;
+    setMetricSeries(tickers.map((s) => ({ symbol: s, state: { kind: "loading" } })));
+    Promise.all(
+      tickers.map(async (sym) => {
+        const res = await getMetricSeries(sym, metricKey, range).catch(() => null);
+        if (cancelled) return null;
+        if (!res || isError(res)) {
+          return { symbol: sym, state: { kind: "unavailable" as const } } as MetricEntry;
+        }
+        if (!res.data.available || res.data.points.length === 0) {
+          return { symbol: sym, state: { kind: "unavailable" as const } } as MetricEntry;
+        }
+        return {
+          symbol: sym,
+          state: { kind: "ok" as const, points: res.data.points },
+        } as MetricEntry;
+      }),
+    ).then((items) => {
+      if (cancelled) return;
+      setMetricSeries(items.filter((i): i is MetricEntry => i !== null));
+    });
+    return () => { cancelled = true; };
+  // isMetricMode is derived from metric so not included separately
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metric, tickers, range]);
 
   // ── Drag-to-select range state ────────────────────────────────────────
   // Tracks a click-and-drag selection band on the chart. `startIdx` /
@@ -1253,12 +1332,51 @@ function ChartCard({
     return { rows, baseline };
   }, [series, minDate, maxDate]);
 
-  const handleSearchSubmit = (e: React.FormEvent): void => {
-    e.preventDefault();
-    if (!searchValue.trim()) return;
-    onAddPeer(searchValue);
-    setSearchValue("");
-  };
+  // Metric-mode chart rows — absolute values, no normalisation. Only computed
+  // when metric is "PE Ratio" or "EV/EBITDA". Master timeline = primary ticker.
+  const metricChartData = useMemo(() => {
+    if (!isMetricMode) return null;
+    const okEntries = metricSeries.filter(
+      (e): e is MetricEntry & { state: { kind: "ok"; points: MetricSeriesResponse["points"] } } =>
+        e.state.kind === "ok",
+    );
+    if (okEntries.length === 0) return null;
+    const primary = okEntries[0]!;
+    const primaryPoints = primary.state.points;
+    const symMap = new Map<string, Map<string, number>>();
+    okEntries.forEach((e) => {
+      const m = new Map<string, number>();
+      e.state.points.forEach((p) => m.set(p.t, p.v));
+      symMap.set(e.symbol, m);
+    });
+    const rows = primaryPoints.map((pt) => {
+      const row: Record<string, string | number | null> = { t: pt.t };
+      okEntries.forEach((e) => {
+        const v = symMap.get(e.symbol)?.get(pt.t);
+        row[e.symbol] = v !== undefined ? v : null;
+      });
+      return row;
+    });
+    return rows;
+  }, [isMetricMode, metricSeries]);
+
+  // Tickers actually visible in the current mode:
+  // - Price: all tickers that have an ok sparkline series
+  // - Metric: only tickers that have ok metric data
+  const visibleTickers = useMemo(() => {
+    if (!isMetricMode) return tickers;
+    return metricSeries
+      .filter((e) => e.state.kind === "ok")
+      .map((e) => e.symbol);
+  }, [isMetricMode, metricSeries, tickers]);
+
+  // Active chart rows — metric data in metric mode, price data otherwise.
+  // Wrapped in useMemo so the reference is stable and doesn't bust downstream
+  // useMemo hooks that take it as a dependency.
+  const activeBaseRows = useMemo(
+    () => (isMetricMode ? (metricChartData ?? []) : chartData.rows),
+    [isMetricMode, metricChartData, chartData.rows],
+  );
 
   // Map ticker → palette color for chips + lines
   const colorFor = (sym: string): string => {
@@ -1292,29 +1410,44 @@ function ChartCard({
       });
   }, [series, range]);
 
-  const earliestDate = chartData.rows[0]?.t as string | undefined;
-  const latestDate = chartData.rows[chartData.rows.length - 1]?.t as string | undefined;
+  const earliestDate = activeBaseRows[0]?.t as string | undefined;
+  const latestDate = activeBaseRows[activeBaseRows.length - 1]?.t as string | undefined;
 
   // Last numeric value per ticker — used to render the price-tag labels
   // pinned to the right edge of the chart (Fiscal.ai pattern).
+  // In metric mode, reads from metricSeries; in price mode, from series.
   const endValues = useMemo(() => {
     const map = new Map<string, number | null>();
-    series.forEach((s) => {
-      if (s.state.kind !== "ok") {
-        map.set(s.symbol, null);
-        return;
-      }
-      const last = s.state.data.points[s.state.data.points.length - 1]?.v ?? null;
-      map.set(s.symbol, last);
-    });
+    if (isMetricMode) {
+      metricSeries.forEach((e) => {
+        if (e.state.kind !== "ok") {
+          map.set(e.symbol, null);
+          return;
+        }
+        const last = e.state.points[e.state.points.length - 1]?.v ?? null;
+        map.set(e.symbol, last);
+      });
+    } else {
+      series.forEach((s) => {
+        if (s.state.kind !== "ok") {
+          map.set(s.symbol, null);
+          return;
+        }
+        const last = s.state.data.points[s.state.data.points.length - 1]?.v ?? null;
+        map.set(s.symbol, last);
+      });
+    }
     return map;
-  }, [series]);
+  }, [isMetricMode, metricSeries, series]);
 
   // ── Derived selection metrics ─────────────────────────────────────────
   // Normalise indices so left-to-right and right-to-left drags both work.
   // Uses the raw primary-series prices (not normalised-to-100 chart values)
   // so the absolute delta is in real ₹.
+  // Disabled in metric mode (delta in PE units wouldn't render correctly
+  // with the existing ₹-formatted pill).
   const selectionInfo = useMemo(() => {
+    if (isMetricMode) return null;
     if (!drag || drag.startIdx === drag.endIdx) return null;
     const lo = Math.min(drag.startIdx, drag.endIdx);
     const hi = Math.max(drag.startIdx, drag.endIdx);
@@ -1335,8 +1468,8 @@ function ChartCard({
       // Find the raw point whose `t` matches the row label. The rows are
       // filtered by date window so we match by label string, then fall
       // back to index position if no exact match is found.
-      const startT = chartData.rows[lo]?.t as string | undefined;
-      const endT = chartData.rows[hi]?.t as string | undefined;
+      const startT = activeBaseRows[lo]?.t as string | undefined;
+      const endT = activeBaseRows[hi]?.t as string | undefined;
       const startRaw = rawPoints.find((p) => p.t === startT) ?? rawPoints[lo];
       const endRaw = rawPoints.find((p) => p.t === endT) ?? rawPoints[hi];
       if (startRaw && endRaw && startRaw.v !== 0) {
@@ -1346,33 +1479,33 @@ function ChartCard({
     }
 
     return { lo, hi, loLabel, hiLabel, deltaAbs, deltaPct };
-  }, [drag, series, chartData.rows]);
+  }, [isMetricMode, drag, series, activeBaseRows]);
 
   // Pill position: horizontally centred on the selection midpoint,
   // capped to keep the pill inside the chart wrapper (1–94%).
   const pillLeftPct = useMemo(() => {
-    if (!selectionInfo || chartData.rows.length === 0) return null;
+    if (!selectionInfo || activeBaseRows.length === 0) return null;
     const { lo, hi } = selectionInfo;
-    const midFrac = ((lo + hi) / 2) / (chartData.rows.length - 1);
+    const midFrac = ((lo + hi) / 2) / (activeBaseRows.length - 1);
     return Math.max(1, Math.min(94, midFrac * 100));
-  }, [selectionInfo, chartData.rows.length]);
+  }, [selectionInfo, activeBaseRows.length]);
 
-  // Composed rows: chartData.rows with __selValue merged in.
-  // __selValue = primary ticker's normalised value within [lo, hi], else null.
+  // Composed rows: activeBaseRows with __selValue merged in (price mode only).
+  // __selValue = primary ticker's value within [lo, hi], else null.
   // Merging into the same array guarantees x-axis alignment with the Line series.
   const composedRows = useMemo(() => {
     const primaryKey = tickers[0];
-    if (!primaryKey || chartData.rows.length === 0) return chartData.rows;
+    if (!primaryKey || activeBaseRows.length === 0) return activeBaseRows;
     const lo = selectionInfo?.lo ?? -1;
     const hi = selectionInfo?.hi ?? -1;
-    return chartData.rows.map((row, i) => ({
+    return activeBaseRows.map((row, i) => ({
       ...row,
       __selValue:
         selectionInfo && i >= lo && i <= hi
           ? (row[primaryKey] as number | null) ?? null
           : null,
     }));
-  }, [chartData.rows, selectionInfo, tickers]);
+  }, [activeBaseRows, selectionInfo, tickers]);
 
   return (
     <>
@@ -1427,8 +1560,7 @@ function ChartCard({
           padding: "16px 18px 12px",
         }}
       >
-        <form
-          onSubmit={handleSearchSubmit}
+        <div
           className="flex items-center"
           style={{
             gap: 8,
@@ -1439,6 +1571,7 @@ function ChartCard({
             background: "var(--bg-base)",
             border: "1px solid var(--glass-border)",
             borderRadius: "var(--radius-md)",
+            position: "relative",
           }}
         >
           <Search
@@ -1456,25 +1589,15 @@ function ChartCard({
               onRemove={() => onRemovePeer(sym)}
             />
           ))}
-          <input
-            type="text"
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value.toUpperCase())}
-            placeholder={tickers.length === 1 ? "Compare to…" : ""}
-            aria-label="Add ticker to comparison"
-            data-testid="compare-search"
-            className="flex-1 outline-none"
-            style={{
-              minWidth: 80,
-              background: "transparent",
-              border: "none",
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-ui)",
-              fontSize: 13,
-              letterSpacing: "-0.005em",
-            }}
-          />
-        </form>
+          {/* Only render the autosuggest when there's room for another ticker */}
+          {tickers.length < COMPARE_PALETTE.length && (
+            <CompanyAutosuggest
+              placeholder={tickers.length === 1 ? "Compare to…" : ""}
+              onSelect={(sym) => onAddPeer(sym)}
+              inputDataTestId="compare-search"
+            />
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
@@ -1587,7 +1710,27 @@ function ChartCard({
           padding: "0 18px",
         }}
       >
-        {chartData.rows.length === 0 ? (
+        {/* Metric-mode: primary unavailable empty state */}
+        {isMetricMode &&
+          metricSeries.length > 0 &&
+          metricSeries[0]?.state.kind === "unavailable" ? (
+          <div
+            className="flex items-center justify-center"
+            style={{
+              height: "100%",
+              fontFamily: "var(--font-ui)",
+              fontSize: 13,
+              color: "var(--text-tertiary)",
+              textAlign: "center",
+              padding: "0 24px",
+            }}
+            data-testid="metric-unavailable"
+          >
+            {metric} history isn&apos;t available for {tickers[0] ?? "this symbol"}
+          </div>
+        ) : isMetricMode && metricSeries.some((e) => e.state.kind === "loading") ? (
+          <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
+        ) : !isMetricMode && chartData.rows.length === 0 ? (
           <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -1620,7 +1763,7 @@ function ChartCard({
                 width={0}
               />
               <Tooltip
-                content={<GrowwTooltip />}
+                content={<GrowwTooltip isMetric={isMetricMode} />}
                 cursor={{
                   stroke: "var(--text-tertiary)",
                   strokeWidth: 1,
@@ -1628,11 +1771,10 @@ function ChartCard({
                   opacity: 0.5,
                 }}
               />
-              {/* Drag-selection shading — Area rendered BEFORE the Line
-                  series so the line draws on top of the fill. __selValue
-                  is merged into composedRows (null outside [lo, hi]) so
-                  the fill follows the primary curve and x-alignment is
-                  guaranteed — no separate data prop needed. */}
+              {/* Drag-selection shading (price mode only) — Area rendered
+                  BEFORE the Line series so the line draws on top. __selValue
+                  is merged into composedRows (null outside [lo, hi]) so the
+                  fill follows the primary curve and x-alignment is guaranteed. */}
               {selectionInfo && (
                 <Area
                   dataKey="__selValue"
@@ -1682,7 +1824,7 @@ function ChartCard({
                   ifOverflow="hidden"
                 />
               )}
-              {tickers.map((sym) => (
+              {visibleTickers.map((sym) => (
                 <Line
                   key={sym}
                   type="linear"
@@ -1709,11 +1851,9 @@ function ChartCard({
           </ResponsiveContainer>
         )}
 
-        {/* Range-selection floating pill — shows absolute Δ + % for the
-            dragged band. Positioned above the chart area, horizontally
-            centred on the selection midpoint, and kept within bounds.
-            Visible live during drag (Groww-style) and after finalisation.
-            Hidden only when selectionInfo is null (< 2 points, too narrow). */}
+        {/* Range-selection floating pill — price mode only. Shows absolute
+            Δ + % for the dragged band. Hidden in metric mode since delta
+            units are non-₹. */}
         {selectionInfo && pillLeftPct !== null && (
           <div
             aria-live="polite"
@@ -1770,11 +1910,9 @@ function ChartCard({
           </div>
         )}
 
-        {/* End-label price tags — one per ticker, pinned to top-right
-            stack. Stacked rather than precisely y-positioned because
-            Recharts' coordinate API is awkward to access from outside;
-            the stack reads cleanly as a "current price" legend. */}
-        {chartData.rows.length > 0 && tickers.length > 0 && (
+        {/* End-label value tags — one per visible ticker, pinned to top-right.
+            In price mode shows live LTP; in metric mode shows the raw value. */}
+        {activeBaseRows.length > 0 && visibleTickers.length > 0 && (
           <div
             className="flex flex-col items-end"
             style={{
@@ -1785,13 +1923,12 @@ function ChartCard({
               pointerEvents: "none",
             }}
           >
-            {tickers.map((sym) => {
+            {visibleTickers.map((sym) => {
               const v = endValues.get(sym);
               if (v == null) return null;
-              const peerSymbol =
-                sym === primaryQuote?.symbol ? primaryQuote.symbol : sym;
-              const peerLtp =
-                sym === primaryQuote?.symbol
+              const peerLtp = isMetricMode
+                ? null
+                : sym === primaryQuote?.symbol
                   ? primaryQuote.ltp
                   : peerQuotes[sym]?.ltp ?? null;
               return (
@@ -1809,9 +1946,9 @@ function ChartCard({
                     fontWeight: 600,
                     whiteSpace: "nowrap",
                   }}
-                  aria-label={`${peerSymbol} latest price`}
+                  aria-label={`${sym} latest ${isMetricMode ? metric : "price"}`}
                 >
-                  {peerLtp !== null ? INR.format(peerLtp) : `${v.toFixed(2)}`}
+                  {peerLtp !== null ? INR.format(peerLtp) : v.toFixed(2)}
                 </span>
               );
             })}
@@ -1819,8 +1956,8 @@ function ChartCard({
         )}
       </div>
 
-      {/* ── Footer summary box, separated by a single hairline ───────── */}
-      {earliestDate && latestDate && summaries.length > 0 && (
+      {/* ── Footer summary box (price mode only), separated by a hairline ── */}
+      {!isMetricMode && earliestDate && latestDate && summaries.length > 0 && (
         <div
           style={{
             marginTop: 14,
@@ -2844,6 +2981,18 @@ const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decima
   { key: "net_profit_margin", label: "Net Margin",  suffix: "%", decimals: 2 },
 ];
 
+/** Honest provenance label for a set of financial values — yfinance-filled
+ *  metrics must not read "Moneycontrol". */
+function sourceLabel(sources: (string | null | undefined)[]): string {
+  const set = new Set(sources.filter(Boolean));
+  const mc = set.has("moneycontrol");
+  const yf = set.has("yfinance");
+  if (mc && yf) return "Moneycontrol + yfinance";
+  if (yf) return "yfinance";
+  if (mc) return "Moneycontrol";
+  return "—";
+}
+
 function KeyMetricsStrip({
   financials,
 }: {
@@ -2857,6 +3006,9 @@ function KeyMetricsStrip({
     }
     return null;
   })();
+  const metricSource = sourceLabel(
+    _METRIC_TILES.map((t) => financials.latest[t.key]?.source),
+  );
 
   return (
     // Horizontal padding matches the Financial Performance panel below so the
@@ -2884,7 +3036,7 @@ function KeyMetricsStrip({
         </h2>
         {period && (
           <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-            As of {period} · Moneycontrol
+            As of {period} · {metricSource}
           </span>
         )}
       </div>

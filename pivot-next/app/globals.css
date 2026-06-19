@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&display=swap');
+/* Newsreader carries the `ital` axis so display italics render as true
+   italics (the landing-page "That's all" treatment), not synthetic
+   obliques. */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -107,6 +110,9 @@
     --font-mono:    'Inter', system-ui, sans-serif;
     --font-ui:      'Inter', system-ui, sans-serif;
     --font-serif:   'Newsreader', 'Times New Roman', Georgia, serif;
+    /* Numerals — prices, NAVs, P&L, levels all set in the machine face.
+       One token so the numeric voice can be swapped product-wide. */
+    --font-numeric: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
 
     /* Experiment slot — applied ONLY to the topbar Pivot wordmark and
        the chat greeting ("Good morning, …"). Swap this single value to
@@ -829,11 +835,14 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 }
 
 /* AgentPanel (right-side workflow editor) — full screen at <lg so it
-   doesn't shoulder against the content. Desktop keeps the resizable
-   drawer. Override the inline `width` set by React with !important.
-   On non-desktop the panel also drops below the top header so the
-   logo + account menu + mobile-nav trigger stay reachable while an
-   agent is open (lets the user tap the pivot logo to return to chat). */
+   doesn't shoulder against the content. Desktop uses a resizable drawer
+   (width driven by React state + localStorage). Override the inline
+   `width` set by React with !important for mobile/tablet.
+   On non-desktop the panel drops below the top header so the logo +
+   account menu + mobile-nav trigger stay reachable while an agent is
+   open (lets the user tap the pivot logo to return to chat).
+   The panel is NON-MODAL on desktop (no overlay dimming); chat stays
+   fully visible and interactive while the editor is open. */
 @media (max-width: 1023.98px) {
   .agent-panel-shell {
     width: 100vw !important;
@@ -842,9 +851,8 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     border-left: none !important;
     top: var(--header-h, 56px) !important;
   }
-  /* Drop the scrim below the header too, so the top bar (logo + account +
-     mobile-nav) stays bright and tappable instead of being dimmed/blocked
-     while an agent is open. */
+  /* The backdrop is transparent (pointer-events-none) on desktop; on
+     mobile we still drop it below the header for consistency. */
   .agent-panel-backdrop {
     top: var(--header-h, 56px) !important;
   }
@@ -1149,4 +1157,88 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     width: 26px !important;
     height: 26px !important;
   }
+}
+
+/* ─── DS motion & patterns (components/ds) ─────────────────────────── */
+
+/* Marquee — the ticker tape. Track holds two copies of its content and
+   translates exactly half its own width, so the loop is seamless at any
+   content length. Pause on hover so figures stay readable. */
+@keyframes ds-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.ds-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: ds-marquee var(--ds-marquee-duration, 36s) linear infinite;
+}
+.ds-marquee:hover .ds-marquee-track { animation-play-state: paused; }
+
+/* Chain flow — the pulse that travels a workflow connector. */
+@keyframes ds-flow {
+  0%   { left: 0%;   opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+.ds-flow-dot {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ds-flow 2.8s var(--ease-tw) infinite;
+}
+
+/* Node arming — each chain block breathes once as the pulse arrives. */
+@keyframes ds-node-arm {
+  0%, 100% { border-color: var(--glass-border); }
+  50%      { border-color: var(--glass-border-focus); }
+}
+
+/* Candles — bodies grow from the baseline on independent periods so
+   the cluster reads as a live tape, not a synchronized wave. */
+@keyframes ds-candle {
+  0%, 100% { transform: scaleY(0.45); }
+  50%      { transform: scaleY(1); }
+}
+
+/* Scan — a soft horizontal band sweeping down a tile. */
+@keyframes ds-scan {
+  0%   { top: -12%; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 104%; opacity: 0; }
+}
+
+/* Drift — a dot-grid background slowly crawling diagonally. */
+@keyframes ds-drift {
+  from { background-position: 0 0; }
+  to   { background-position: 56px 56px; }
+}
+
+/* Cross pulse — Vercel-style "+" registration marks breathing. */
+@keyframes ds-cross {
+  0%, 100% { opacity: 0.18; transform: scale(0.9); }
+  50%      { opacity: 0.7;  transform: scale(1); }
+}
+
+/* Rise — staggered section/element reveal (pair with animation-delay). */
+@keyframes ds-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ds-rise { animation: ds-rise 640ms var(--ease-quartr) both; }
+
+/* Draw — SVG line draws itself in (set pathLength=1 on the path). */
+@keyframes ds-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+.ds-draw {
+  stroke-dasharray: 1;
+  animation: ds-draw 1.6s var(--ease-quartr) forwards;
 }

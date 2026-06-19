@@ -1435,3 +1435,189 @@ class SkipIfConfig(_Strict):
         ...,
         description="A numeric/market/position-style condition payload",
     )
+
+
+# ── Collapsed step configs (2026-06-18) ──────────────────────────────
+#
+# These four configs collapse near-duplicate step families into one
+# parameterised step apiece. The legacy step_types (action.set_stoploss /
+# set_takeprofit, action.squareoff_all / squareoff_symbol /
+# squareoff_all_intraday, fetch.day_open / prior_close, fetch.rolling_high
+# / rolling_low) stay registered + executable so already-saved workflows
+# keep running on the alias; freshly-proposed drafts get normalised by
+# `propose._normalize_deprecated_steps` BEFORE validation so new drafts
+# arrive on the collapsed shape.
+#
+# Each config uses a single string discriminator (literal-typed). We do
+# NOT use Pydantic v2's `Discriminator(...)` machinery because the four
+# replaced families share enough config fields that a single flat schema
+# is cleaner — and the executor dispatches on the discriminator at run
+# time, falling through to the same shared helpers the old executors used.
+
+
+class ActionSquareoffConfig(_Strict):
+    """Exit positions — replaces ``action.squareoff_all`` (scope='all'),
+    ``action.squareoff_symbol`` (scope='symbol') and
+    ``action.squareoff_all_intraday`` (scope='intraday').
+
+    The ``symbol`` field is required when ``scope='symbol'`` (validator
+    below). ``product`` is honoured only by the per-symbol path; the
+    all/intraday paths are scope-determined."""
+
+    scope: Literal["all", "symbol", "intraday"] = Field(
+        ...,
+        description=(
+            "Which positions to flatten. 'all' = every open lot (CNC + "
+            "MIS). 'symbol' = a single tradingsymbol (the `symbol` "
+            "field). 'intraday' = MIS only."
+        ),
+    )
+    symbol: Optional[str] = Field(
+        default=None,
+        description=(
+            "Required when scope='symbol'. Ignored for 'all' / "
+            "'intraday' scopes."
+        ),
+    )
+    product: Literal["MIS", "CNC"] = Field(
+        default="MIS",
+        description=(
+            "Product to filter on when scope='symbol'. Default MIS — "
+            "matches the legacy action.squareoff_symbol default."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _symbol_required_when_scope_symbol(self) -> "ActionSquareoffConfig":
+        if self.scope == "symbol" and not (self.symbol and self.symbol.strip()):
+            raise ValueError(
+                "action.squareoff: 'symbol' is required when scope='symbol'"
+            )
+        return self
+
+
+class ActionSetProtectiveConfig(_Strict):
+    """Set a protective sell (stop-loss OR take-profit) — replaces
+    ``action.set_stoploss`` (kind='stoploss') and
+    ``action.set_takeprofit`` (kind='takeprofit').
+
+    Field semantics mirror the two replaced configs verbatim:
+      - ``trigger_price`` (absolute) XOR ``trigger_offset_pct`` (% from
+        the preceding fill — direction depends on ``kind``).
+      - ``quantity`` defaults to the current holding when None.
+      - ``trailing`` is honoured by the backtester; live executor places
+        the initial GTT and ignores the flag.
+    """
+
+    kind: Literal["stoploss", "takeprofit"] = Field(
+        ...,
+        description=(
+            "Direction of the protective sell. 'stoploss' = sell when "
+            "price drops to the trigger (% BELOW entry). 'takeprofit' "
+            "= sell when price reaches the trigger (% ABOVE entry)."
+        ),
+    )
+    symbol: str
+    trigger_price: Optional[FloatOrRef] = None
+    trigger_offset_pct: Optional[float] = Field(
+        default=None,
+        gt=0,
+        le=200,
+        description=(
+            "Offset (%) from the preceding action.place_order entry. "
+            "Below entry for kind='stoploss'; above entry for "
+            "kind='takeprofit'. Stop-loss caps at 50% in practice; "
+            "we allow 200 to share the validator with takeprofit."
+        ),
+    )
+    quantity: Optional[IntOrRef] = None
+    trailing: bool = Field(
+        default=False,
+        description=(
+            "Trailing protective stop (backtest-only today). Only "
+            "meaningful when kind='stoploss' AND trigger_offset_pct "
+            "is set."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one_trigger(self) -> "ActionSetProtectiveConfig":
+        has_price = self.trigger_price is not None
+        has_pct = self.trigger_offset_pct is not None
+        if has_price and has_pct:
+            raise ValueError(
+                "specify either trigger_price or trigger_offset_pct, "
+                "not both"
+            )
+        if not has_price and not has_pct:
+            raise ValueError(
+                "must specify trigger_price or trigger_offset_pct"
+            )
+        # Stop-loss tightens the % cap (the old schema's gt=0/le=50).
+        if (
+            self.kind == "stoploss"
+            and self.trigger_offset_pct is not None
+            and self.trigger_offset_pct > 50
+        ):
+            raise ValueError(
+                "stop-loss trigger_offset_pct must be ≤ 50"
+            )
+        return self
+
+
+class FetchPriceReferenceConfig(_Strict):
+    """Fetch a day-anchored price level — replaces ``fetch.day_open``
+    (reference='day_open') and ``fetch.prior_close``
+    (reference='prior_close').
+
+    ``sessions_back`` is honoured only when ``reference='prior_close'``
+    (mirrors the legacy FetchPriorCloseConfig default of 1)."""
+
+    reference: Literal["day_open", "prior_close"] = Field(
+        ...,
+        description=(
+            "Which day-anchored level to pull. 'day_open' = today's "
+            "opening print. 'prior_close' = a recent session's close "
+            "(`sessions_back` controls how many sessions back)."
+        ),
+    )
+    symbol: str
+    exchange: Literal["NSE", "BSE"] = "NSE"
+    sessions_back: int = Field(
+        default=1, ge=1, le=10,
+        description=(
+            "How many trading sessions to look back. Honoured only "
+            "when reference='prior_close'. 1 = previous trading day."
+        ),
+    )
+
+
+class FetchRollingExtremeConfig(_Strict):
+    """Fetch the rolling N-day high OR low — replaces
+    ``fetch.rolling_high`` (side='high') and ``fetch.rolling_low``
+    (side='low')."""
+
+    side: Literal["high", "low"] = Field(
+        ...,
+        description=(
+            "Which extreme to pull across the lookback window. "
+            "'high' = highest HIGH. 'low' = lowest LOW."
+        ),
+    )
+    symbol: str
+    lookback: int = Field(
+        default=20, ge=2, le=500,
+        description=(
+            "Number of trading days the rolling window spans. 20 = "
+            "one trading month, 252 = one year."
+        ),
+    )
+    multiplier: float = Field(
+        default=1.0, ge=0.1, le=5.0,
+        description=(
+            "Multiplier applied to the rolling-extreme value. 0.9 = "
+            "'10% below the recent high'; 1.10 = '10% above the "
+            "recent low'."
+        ),
+    )
+    exchange: Literal["NSE", "BSE"] = "NSE"

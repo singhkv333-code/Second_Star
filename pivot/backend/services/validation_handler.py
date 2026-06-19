@@ -93,6 +93,12 @@ def ask_user_tool_def() -> ToolDef:
             "focused question containing real text — do NOT pass an empty "
             "string. Do not call this for greetings, definitions, or topics "
             "where you can answer directly.\n\n"
+            "NEVER use this to clarify a STRATEGY / BASKET / PORTFOLIO build — "
+            "those use `ask_user_dynamic` (a grounded multi-question card). In "
+            "particular, NEVER ask the user to pick a weighting scheme or a "
+            "selection gate, and never echo internal enum names (equal / "
+            "market-cap / risk-parity / min-variance / black-litterman / "
+            "factor / f-score / magic-formula) in a question.\n\n"
             "ALWAYS set `default_on_yes` when the question is a yes/no "
             "confirmation (single-option suggestion or disambiguation with "
             "an obvious pick) — that value is what a bare 'yes' next turn "
@@ -500,6 +506,45 @@ async def execute_with_completeness(
             latency_ms=int((time.monotonic() - started) * 1000),
         )
 
+    # ASK_USER_DYNAMIC intercept (Workstream A — synthetic). Unlike ASK_USER
+    # (one shallow free-text question), this runs the VOI clarify engine
+    # server-side and either pauses the turn with a generated clarify_card or —
+    # when the skip-entirely gate fires / nothing clears τ_q — returns a normal
+    # success marker so the chat loop builds directly instead of asking. We run
+    # it through the executor here (rather than letting it fall to the generic
+    # `execute` path) so the engine's `needs_clarification` marker maps onto a
+    # paused turn exactly like ASK_USER does.
+    # ask_agent_clarify (automation/agent builds) takes the SAME paused-turn
+    # path — a deterministic clarify_card whose answers resume into
+    # propose_workflow (vs ask_user_dynamic's build_strategy). Both map their
+    # needs_clarification marker onto a paused turn exactly like ASK_USER.
+    if tool_name in ("ask_user_dynamic", "ask_agent_clarify"):
+        if tool_name == "ask_agent_clarify":
+            from backend.agents.tool_executor import _ask_agent_clarify as _clarify_exec
+        else:
+            from backend.agents.tool_executor import _ask_user_dynamic as _clarify_exec
+        result = await _clarify_exec(
+            {**args}, kite_token, db, user_id,
+        )
+        latency = int((time.monotonic() - started) * 1000)
+        if result.get("needs_clarification"):
+            return GuardedToolResult(
+                name=tool_name, args=args,
+                needs_clarification=True,
+                question=str(result.get("question") or "").strip(),
+                data=result.get("data") or {},
+                latency_ms=latency,
+            )
+        # No card worth asking: surface a benign success so the agentic loop
+        # takes another hop and calls build_strategy directly. The marker data
+        # never renders (it carries no _render_hint widget).
+        return GuardedToolResult(
+            name=tool_name, args=args,
+            success=True,
+            data=result.get("data") or {},
+            latency_ms=latency,
+        )
+
     # Look up the schema for the chosen tool.
     schema = _schema_for_tool(tool_name)
     description = _description_for_tool(tool_name) or ""
@@ -773,7 +818,13 @@ def _qty_clarification_question(payload: dict) -> str:
     trivial quantity. We deliberately do NOT ship the draft card with a
     placeholder qty=1 — an editable card reading "buy 1 share" is one
     mis-click from activating a wrong-sized order; echoing the trigger in
-    prose gives the same validation without that footgun."""
+    prose gives the same validation without that footgun.
+
+    Output is formatted on separate lines (Entry / Exit bullets, then a
+    blank line, then the question) so the user sees a clean readback —
+    the previous one-liner glued Entry and Exit onto a " · "-joined
+    run-on that read as a wall of text.
+    """
     sym = ""
     for s in (payload.get("steps") or []):
         if not isinstance(s, dict):
@@ -782,10 +833,10 @@ def _qty_clarification_question(payload: dict) -> str:
             sym = (s.get("config") or {}).get("symbol", "")
             break
     # The draft's one-line description already reads back trigger + action
-    # ("When RSI(14) < 30, buy ...") — echo it so the user sees what we
-    # understood before they commit to a size. Strip the placeholder
-    # quantity ("buy 1 shares of INFY" → "buy INFY") so the echo doesn't
-    # contradict the very question we're about to ask.
+    # ("Entry: When RSI(14) < 30 · Exit: MACD line < signal") — echo it so
+    # the user sees what we understood before they commit to a size.
+    # Strip the placeholder quantity ("buy 1 shares of INFY" → "buy INFY")
+    # so the echo doesn't contradict the very question we're about to ask.
     readback = str(payload.get("description") or "").strip().rstrip(".")
     readback = re.sub(
         r"\b(buy|sell)\s+\d+\s+(?:shares?|units?|lots?)\s+of\s+",
@@ -795,17 +846,45 @@ def _qty_clarification_question(payload: dict) -> str:
         r"\b(buy|sell)\s+\d+\s+([A-Z][A-Z0-9&\-]{1,14})\b",
         r"\1 \2", readback, flags=re.IGNORECASE,
     )
-    lead = f"Got the setup — {readback}. " if readback else ""
+
+    # Split the description back into its Entry / Exit halves when the
+    # canonical builder shape is present so we can render them on their
+    # own bulleted lines. Defensive: if the split fails (unknown shape,
+    # missing readback), fall back to a single "Setup" bullet.
+    entry_text = ""
+    exit_text = ""
+    if readback:
+        # The builder emits "Entry: <…> · Exit: <…>" — match both halves.
+        m = re.match(
+            r"^\s*Entry\s*:\s*(?P<entry>.+?)(?:\s*·\s*Exit\s*:\s*(?P<exit>.+))?\s*$",
+            readback, flags=re.IGNORECASE,
+        )
+        if m:
+            entry_text = (m.group("entry") or "").strip()
+            exit_text = (m.group("exit") or "").strip()
+
+    if entry_text or exit_text:
+        bullets: list[str] = ["Got the setup:"]
+        if entry_text:
+            bullets.append(f"- **Entry** — {entry_text}")
+        if exit_text:
+            bullets.append(f"- **Exit** — {exit_text}")
+        lead = "\n".join(bullets) + "\n\n"
+    elif readback:
+        lead = f"Got the setup:\n- {readback}\n\n"
+    else:
+        lead = ""
+
     if sym:
         return (
-            f"{lead}How many shares of {sym} should the agent buy per fire? "
-            "(I won't default to 1 — set the real size or give me a "
-            "rupee budget like ₹10,000.)"
+            f"{lead}How many shares of {sym} per fire? "
+            f"(Set a size or give me a rupee budget like ₹10,000 — "
+            f"I won't default to 1.)"
         )
     return (
-        f"{lead}How many shares should the agent buy per fire? "
-        "(I won't default to 1 — set the real size or give me a "
-        "rupee budget like ₹10,000.)"
+        f"{lead}How many shares per fire? "
+        f"(Set a size or give me a rupee budget like ₹10,000 — "
+        f"I won't default to 1.)"
     )
 
 

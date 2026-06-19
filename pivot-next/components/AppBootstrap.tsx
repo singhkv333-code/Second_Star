@@ -25,8 +25,9 @@ import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 
 const TOKEN_KEY = "pivot_jwt";
 
-// Routes that render without the auth gate (public marketing pages).
-const PUBLIC_ROUTES = ["/waitlist"];
+/** Routes that render without the auth gate: the /design showcase and the
+ *  public marketing pages (e.g. /waitlist). */
+const UNGATED_PATHS = ["/design", "/waitlist"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 
@@ -36,9 +37,9 @@ export function AppBootstrap({
   children: React.ReactNode;
 }): React.ReactElement {
   const pathname = usePathname();
-  const isPublic =
+  const ungated =
     pathname != null &&
-    PUBLIC_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+    UNGATED_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const [phase, setPhase] = useState<Phase>("loading");
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export function AppBootstrap({
     setPhase(stored ? "ready" : "needs-auth");
   }, []);
 
-  if (isPublic) return <>{children}</>;
+  if (ungated) return <>{children}</>;
   if (phase === "loading") return <BootstrapSplash />;
   if (phase === "needs-auth") {
     return <SignInPrompt onToken={() => setPhase("ready")} />;

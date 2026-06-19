@@ -1720,8 +1720,49 @@ tool("propose_basket_allocation",
          "total_inr": {"type": "number", "minimum": 1},
          "side": {"type": "string", "enum": ["buy", "sell"], "default": "buy"},
          "strategy": {
-             "type": "string", "enum": ["equal", "mcap_weighted"],
+             "type": "string",
+             # Backward-compatible: the legacy values ("equal", "mcap_weighted")
+             # still validate and behave exactly as before. The new schemes
+             # (Workstream B, plan §3b) let the model name a real weighting
+             # rule instead of collapsing to bare 1/N — `risk_parity` (ERC) is
+             # the smart default, `min_variance` for capital preservation,
+             # `black_litterman` to fold a chat view into the mcap prior,
+             # `factor` for quality/value/momentum tilts.
+             "enum": [
+                 "equal", "mcap_weighted",
+                 "risk_parity", "min_variance", "black_litterman", "factor",
+             ],
              "default": "equal",
+             "description": "INTERNAL weighting scheme — YOU (the builder) pick "
+                            "it from the user's risk/view/horizon; the user is "
+                            "NEVER asked to choose one. Do NOT echo these enum "
+                            "names back to the user as a question (no 'equal, "
+                            "mcap, risk-parity, min-variance, black-litterman or "
+                            "factor?'). risk_parity is the smart default; "
+                            "min_variance for capital preservation; "
+                            "black_litterman to fold a stated view into the "
+                            "mcap prior; factor for a quality/value/momentum "
+                            "tilt; equal only for <=4 names.",
+         },
+         "selection_gate": {
+             "type": "string",
+             # Fundamentals-DB selection gate (plan §3a Step 1). Names HOW the
+             # constituents were chosen so the basket is never "top mcap" alone:
+             # `fscore` (Piotroski), `magic_formula` (ROC × earnings-yield),
+             # `multifactor` (quality+value). `none` only for pure
+             # price/technical baskets — still drops fundamentally broken names.
+             "enum": ["fscore", "magic_formula", "multifactor", "none"],
+             "description": "INTERNAL fundamentals gate used to pick "
+                            "constituents — YOU choose it; the user is NEVER "
+                            "asked to pick a gate, and these enum names are NOT "
+                            "surfaced to the user as a question. Prefer a real "
+                            "gate over 'none' for equity baskets.",
+         },
+         "sector_cap": {
+             "type": "number", "minimum": 1, "maximum": 100,
+             "description": "Single-sector weight ceiling (% of the basket) so "
+                            "it can't collapse into one sector. ~30-35% is the "
+                            "default band; omit to let the server enforce ~32%.",
          },
          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
          "schedule_time_ist": {
@@ -1743,6 +1784,185 @@ tool("propose_basket_allocation",
          "requires_approval": {"type": "boolean"},
      },
      ["sector", "total_inr"])
+
+
+# ── STRATEGY BUILDER + DYNAMIC CLARIFYING QUESTIONS (Workstreams A & B) ───────
+#
+# These two tools replace "bland-by-construction" baskets with a DB-driven
+# builder and a value-of-information question engine. The LLM does NOT author
+# the basket weights/constituents or the clarifying questions field-by-field —
+# it passes the REQUEST CONTEXT (and, for the builder, the filled slot-state)
+# and the backend engines (services/clarify_engine.py + services/
+# strategy_builder.py) do the construction. See docs/plans/
+# STRATEGY_BUILDER_AND_QUESTIONS_PLAN.md §2-3 and services/strategy_contracts.py
+# (the single source of truth for the wire shapes / render hints).
+
+tool("ask_user_dynamic",
+     "Ask the user dynamically-generated, VOI-ranked clarifying questions "
+     "BEFORE building a strategy/basket when the request is under-specified "
+     "AND clarifying would materially change what gets built (high value of "
+     "information). You do NOT author the questions — pass the REQUEST CONTEXT "
+     "and the backend generates a ranked, MECE, grounded ≤5-question 'N of M' "
+     "card (a clarify_card). Use this INSTEAD of ASK_USER for strategy/basket "
+     "asks: ASK_USER is one shallow free-text question; this is the structured "
+     "multi-question elicitation. Do NOT call it on reflex — if the request is "
+     "already specific (named the view, risk, capital, instruments), skip it "
+     "and call build_strategy directly. The backend's skip-entirely gate will "
+     "also return no card when nothing is worth asking; in that case proceed "
+     "to build_strategy. NEVER invent a fixed questionnaire — questions are "
+     "generated per request. This is the ONLY way to clarify a strategy/basket "
+     "build: do NOT ask in prose and do NOT call ASK_USER for one. The card "
+     "asks about the user's GOALS (capital, horizon, risk comfort, what to "
+     "include) — it NEVER asks the user to pick a weighting scheme or a "
+     "selection gate; those internal enums are the builder's choice and are "
+     "never surfaced.",
+     {
+         "request": {
+             "type": "string",
+             "description": "The user's strategy/basket request, verbatim or "
+                            "lightly normalised. The engine infers which slots "
+                            "are unknown+decision-relevant from this.",
+         },
+         # Optional hints the model already parsed from the request. The engine
+         # treats anything present here as 'specified' (so it won't ask about
+         # it) and otherwise infers from `request`. All optional — never block
+         # the call on these.
+         "theme": {
+             "type": "string",
+             "description": "Optional thematic/sector tilt the user named "
+                            "('quality compounders', 'rate-cut beneficiaries', "
+                            "'IT', 'defence').",
+         },
+         "capital_inr": {
+             "type": "number", "minimum": 0,
+             "description": "Optional investable capital in ₹ if the user "
+                            "stated it.",
+         },
+     },
+     ["request"])
+
+
+tool("ask_agent_clarify",
+     "Ask ONE-CLICK structured clarifying questions BEFORE building an "
+     "AUTOMATION / AGENT when the request named an instrument but left the "
+     "KIND of automation open — i.e. there is an action verb (buy/sell/SIP/"
+     "alert) but NO trigger (when/every/if/at open/at close/RSI<n) and NO "
+     "size (n shares/lots/₹n). Example: 'make me an agent that buys options "
+     "in RELIANCE', 'build an agent for TCS'. The backend generates a short "
+     "grounded clarify_card (action-kind + size) the user taps. This is the "
+     "ONLY way to clarify an under-specified agent build: do NOT ask in prose "
+     "and do NOT call ASK_USER for one. Do NOT call it when a trigger or size "
+     "is already present (build the draft directly via propose_workflow / the "
+     "macro), and do NOT call it for strategy/basket asks (use "
+     "ask_user_dynamic for those). The backend's gate returns no card when "
+     "the ask is specific enough to build — in that case proceed to "
+     "propose_workflow.",
+     {
+         "request": {
+             "type": "string",
+             "description": "The user's automation/agent request, verbatim or "
+                            "lightly normalised. The engine infers the named "
+                            "symbol + whether it's an options or equity agent.",
+         },
+         "symbol": {
+             "type": "string",
+             "description": "Optional NSE ticker the agent is about "
+                            "(RELIANCE, TCS). The engine also extracts it from "
+                            "`request`; pass it when obvious.",
+         },
+     },
+     ["request"])
+
+
+tool("build_strategy",
+     "Build a DB-driven EQUITY + GOLD basket/strategy: pick a named WEIGHTING "
+     "SCHEME (never bare equal-weight unless ≤4 names), gate constituents on "
+     "the fundamentals DB (F-score / Magic-Formula / multi-factor), enforce a "
+     "sector cap + correlation check, map any stated view to a tilt, and add a "
+     "gold (SGB + ETF) sleeve when conservative / long-horizon / rupee-hedge "
+     "intent earns it. PREFER over propose_basket_allocation for "
+     "strategy/portfolio asks that want a thoughtful structure ('build me a "
+     "long-term portfolio', 'a balanced basket of quality stocks', 'invest ₹2L "
+     "for the long run'). You pass the filled SLOT-STATE (the same shape "
+     "ask_user_dynamic fills); the backend runs the §3a construction pipeline "
+     "and returns an editable, register-not-execute strategy_builder_card with "
+     "a rationale + the not-advice disclaimer. Skipped slots take stated "
+     "defaults — never block the build to chase a missing slot. Register-not-"
+     "execute: the card registers an idea; the user places orders in their own "
+     "broker app. options/hedge sleeves are NOT built this phase (equity+gold "
+     "only). The weighting-scheme names (equal/mcap/risk-parity/min-variance/"
+     "black-litterman/factor) and selection-gate names (fscore/magic-formula/"
+     "multifactor) are INTERNAL build levers YOU pick — NEVER ask the user to "
+     "choose one and NEVER echo these enum names in a question. For an "
+     "UNDER-SPECIFIED ask (no view/risk/horizon/capital) call ask_user_dynamic "
+     "FIRST, not this tool directly.",
+     {
+         "request": {
+             "type": "string",
+             "description": "The user's request, verbatim — drives universe "
+                            "construction and the rationale.",
+         },
+         # The slot-state (services/strategy_contracts.SlotState). Every field
+         # is optional with a sensible default so an under-specified call still
+         # builds (the card surfaces '(assumed …)' for any defaulted slot).
+         "view": {
+             "type": "object",
+             "description": "The user's market view.",
+             "properties": {
+                 "direction": {"type": "string",
+                               "enum": ["bull", "bear", "neutral", "none"]},
+                 "target": {"type": "string",
+                            "enum": ["stock", "sector", "index", "market"]},
+                 "conviction": {"type": "string",
+                                "enum": ["low", "medium", "high"]},
+             },
+         },
+         "risk": {
+             "type": "string",
+             "enum": ["conservative", "balanced", "aggressive"],
+             "description": "User's risk appetite. INTERNALLY this drives the "
+                            "weighting-scheme rule (risk-parity / min-variance "
+                            "/ Black-Litterman / factor) and the gold ballast % "
+                            "— but the weighting scheme and the selection gate "
+                            "are the BUILDER's choice, never the user's. Do NOT "
+                            "ask the user to pick a weighting scheme or a gate, "
+                            "and do NOT surface those internal enum names in a "
+                            "question.",
+         },
+         "horizon": {
+             "type": "string",
+             "enum": ["tactical", "medium", "long"],
+             "description": "tactical <1y · medium 1-5y · long 5y+.",
+         },
+         "capital_inr": {
+             "type": "number", "minimum": 0,
+             "description": "Investable capital in ₹. Gates #names + sizing; "
+                            "omit to size in percentages.",
+         },
+         "asset_prefs": {
+             "type": "object",
+             "description": "Which asset classes the user will / won't hold "
+                            "plus exclusions.",
+             "properties": {
+                 "allow": {"type": "array", "items": {
+                     "type": "string",
+                     "enum": ["equity", "etf_mf", "options", "gold"]}},
+                 "deny": {"type": "array", "items": {
+                     "type": "string",
+                     "enum": ["equity", "etf_mf", "options", "gold"]}},
+                 "exclusions": {"type": "array", "items": {"type": "string"},
+                                "description": "Sectors, 'PSU', 'ESG' themes, "
+                                               "or named tickers to carve out."},
+             },
+         },
+         "theme": {
+             "type": "string",
+             "description": "Optional thematic tilt ('quality compounders', "
+                            "'rate-cut beneficiaries') resolved against the "
+                            "thematic map.",
+         },
+     },
+     ["request"])
 
 
 tool("propose_holding_action",
