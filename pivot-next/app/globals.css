@@ -257,6 +257,58 @@
   .quartr-no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
 }
 
+/* Borderless range slider — flat track + clean thumb, no native outline.
+   Kept UNLAYERED on purpose: unlayered author styles win the cascade over
+   @layer base, which the native widget would otherwise re-assert. */
+input[type="range"].payoff-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].payoff-slider:focus { outline: none; }
+input[type="range"].payoff-slider::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: var(--glass-border-hover);
+}
+input[type="range"].payoff-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: var(--glass-border-hover);
+}
+input[type="range"].payoff-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px;
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: hsl(var(--primary));
+}
+input[type="range"].payoff-slider::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: hsl(var(--primary));
+}
+
 /* Phone safety net: stop fixed-width children from leaking horizontal
    scroll out of the chat surface. Only target the chat scroll region —
    `main` already nests its own scroll panes per tab, so clamping it here
@@ -304,6 +356,14 @@
 @keyframes agentPanelIn-quartr {
   from { opacity: 0.4; transform: translateX(100%); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Panel fade-in (in place) — used when one drawer hands off to another that
+   occupies the same slot (e.g. "Know more" → Apply), so the new panel
+   cross-fades over the old one instead of sliding in from the edge. */
+@keyframes panelFadeIn-quartr {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* ─── P&L heatmap (Active Agents header) ─────────────────────────── */
@@ -809,6 +869,20 @@
     width: 50vw !important;
     max-width: 50vw !important;
     border-left: 1px solid var(--glass-border) !important;
+  }
+}
+
+/* Full-screen content overlays (Option Strategy builder, Option Chain) — fill
+   the content area only. Full width below lg (the nav is a slide-in drawer);
+   inset past the 240px inline sidebar at lg+ so the nav stays visible. The top
+   inset (header height) is set inline on the element. */
+.content-overlay {
+  left: 0;
+}
+@media (min-width: 1024px) {
+  .content-overlay {
+    left: 240px;
+    border-left: 1px solid var(--glass-border);
   }
 }
 

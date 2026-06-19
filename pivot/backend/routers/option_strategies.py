@@ -82,7 +82,111 @@ class OptionStrategyRegisterRequest(BaseModel):
     conversation_id: Optional[str] = None
 
 
+class OptionStrategyComputeRequest(BaseModel):
+    """Body for POST /option-strategies/compute — a *preview* recompute used
+    by the interactive strategy builder. Same structural inputs as register,
+    but NOTHING is persisted: the server resolves the legs against the live
+    chain and returns the full ``option_strategy_card`` payload (fresh
+    payoff/Greeks/margin/critique) so the builder can render it live as the
+    user adds/removes legs, edits strikes, changes expiry or lots."""
+    underlying: str = Field(..., min_length=1, max_length=40)
+    expiry: str = Field(..., description="ISO date — must exist in the master")
+    template: str = Field("custom", max_length=40)
+    qty_lots: int = Field(1, ge=1, le=100)
+    legs: list[StrategyLegIn] = Field(..., min_length=1, max_length=6)
+
+
 # ── Endpoints ────────────────────────────────────────────────────────
+
+
+@router.post("/option-strategies/compute")
+async def compute_option_strategy(
+    req: OptionStrategyComputeRequest,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id),
+) -> dict:
+    """Preview-recompute a (possibly user-edited) structure against the live
+    chain WITHOUT persisting. Mirrors the register re-resolution exactly so
+    the numbers the builder shows are the numbers register will compute."""
+    try:
+        payload = resolve_strategy(
+            db,
+            req.underlying,
+            req.template,
+            expiry=req.expiry,
+            qty_lots=req.qty_lots,
+            explicit_legs=[leg.model_dump() for leg in req.legs],
+        )
+    except StrategyResolutionError as exc:
+        return {"success": False, "payload": None, "error": str(exc)}
+
+    payload["_render_hint"] = "option_strategy_card"
+    payload.setdefault("candidates", [])
+    return {"success": True, "payload": payload, "error": None}
+
+
+@router.get("/option-strategies/chain")
+async def option_strategy_chain(
+    underlying: str,
+    expiry: Optional[str] = None,
+    width: int = 12,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id),
+) -> dict:
+    """Trimmed option-chain slice for the builder's strike/expiry pickers:
+    the listed expiries plus, for each strike in the ATM-centred slice, the
+    CE/PE mid, IV and delta. Reuses the same ``get_chain`` the resolver runs
+    on, so a strike shown here is guaranteed quotable by /compute."""
+    from backend.market.option_chain import get_chain
+
+    chain = get_chain(db, underlying, expiry, width=max(1, min(int(width), 25)))
+    if chain is None:
+        return {
+            "success": False,
+            "chain": None,
+            "error": (
+                f"No option chain for '{underlying.upper()}' — unknown "
+                "underlying/expiry or instrument master not refreshed."
+            ),
+        }
+
+    def _slim(side: Optional[dict]) -> Optional[dict]:
+        if not side or side.get("mid") is None:
+            return None
+        return {
+            "mid": side.get("mid"),
+            "iv": side.get("iv"),
+            "delta": side.get("delta"),
+            "oi": side.get("oi"),
+            "iv_status": side.get("iv_status"),
+        }
+
+    rows = [
+        {
+            "strike": float(r["strike"]),
+            "ce": _slim(r.get("ce")),
+            "pe": _slim(r.get("pe")),
+        }
+        for r in chain.get("rows", [])
+    ]
+    return {
+        "success": True,
+        "chain": {
+            "underlying": chain["underlying"],
+            "segment": chain["segment"],
+            "exchange": chain["exchange"],
+            "spot": chain.get("spot"),
+            "forward": chain.get("forward"),
+            "expiry": chain["expiry"],
+            "expiries": chain.get("expiries", []),
+            "atm_strike": chain.get("atm_strike"),
+            "lot_size": chain.get("lot_size"),
+            "expected_move": chain.get("expected_move"),
+            "research_only": bool(chain.get("research_only")),
+            "rows": rows,
+        },
+        "error": None,
+    }
 
 
 @router.post("/option-strategies")

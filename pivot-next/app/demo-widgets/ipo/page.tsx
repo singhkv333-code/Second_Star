@@ -19,6 +19,8 @@ import { useState } from "react";
 
 import { IpoListCard } from "@/components/chat/IpoListCard";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
+import { IpoApplicationPanel } from "@/components/chat/IpoApplicationPanel";
+import { IpoDetailPanel, type IpoCompanyInfo } from "@/components/chat/IpoDetailPanel";
 import { IpoListedCard } from "@/components/chat/IpoListedCard";
 import type {
   IpoListPayload,
@@ -340,6 +342,93 @@ const APP_BY_SYMBOL: Record<string, IpoApplicationPayload> = {
   COBALT: APP_CLOSED,
 };
 
+/**
+ * Mock qualitative company profiles for the "Know more" drawer. In production
+ * these come from the backend; here they're hand-written per demo symbol.
+ */
+const INFO_BY_SYMBOL: Record<string, IpoCompanyInfo> = {
+  AURORA: {
+    about:
+      "Aurora Renewables develops and operates utility-scale solar and wind farms across western and southern India, selling power under long-term PPAs to state distribution companies and large industrial buyers.",
+    founder: "Rohan Mehta",
+    foundedYear: 2011,
+    strengths: [
+      "4.2 GW operational capacity with a contracted pipeline through 2030",
+      "Long-dated PPAs give predictable, inflation-linked cash flows",
+      "Falling module costs have lifted project IRRs over the last three years",
+    ],
+    risks: [
+      "High leverage — net debt is ~3.8× EBITDA",
+      "Receivable delays from state discoms can strain working capital",
+      "Policy and tariff changes could compress future project returns",
+    ],
+  },
+  MERIDIAN: {
+    about:
+      "Meridian Pharma is a mid-cap formulations maker focused on chronic-therapy generics for the domestic market, with a growing US ANDA pipeline and three USFDA-approved plants.",
+    founder: "Dr. Anjali Rao",
+    foundedYear: 2004,
+    strengths: [
+      "Diversified across cardiac, diabetic and CNS therapies",
+      "Backward-integrated API manufacturing protects margins",
+      "Consistent 18%+ ROCE over the past five years",
+    ],
+    risks: [
+      "USFDA observations at one plant remain unresolved",
+      "Pricing pressure in the US generics market",
+      "Single-molecule concentration in the top revenue line",
+    ],
+  },
+  VELOCITY: {
+    about:
+      "Velocity Logistics runs an asset-light, tech-enabled trucking and last-mile network for e-commerce and FMCG clients, with a marketplace matching shippers to a fleet of partner carriers.",
+    founder: "Karan Shah",
+    foundedYear: 2016,
+    strengths: [
+      "Asset-light model scales without heavy capex",
+      "Sticky enterprise contracts with marquee e-commerce clients",
+      "Proprietary routing software improves fleet utilisation",
+    ],
+    risks: [
+      "Thin margins typical of the logistics sector",
+      "Customer concentration — top 3 clients are ~55% of revenue",
+      "Fuel-price and driver-availability volatility",
+    ],
+  },
+  SAFFRON: {
+    about:
+      "Saffron Foods is a packaged-foods company making ready-to-cook and ready-to-eat regional Indian meals, distributed through modern trade, quick-commerce and its own D2C channel.",
+    founder: "Priya Nair",
+    foundedYear: 2018,
+    strengths: [
+      "Fast-growing D2C and quick-commerce revenue mix",
+      "Strong brand recall in the regional-cuisine segment",
+      "High repeat-purchase rates among urban customers",
+    ],
+    risks: [
+      "Yet to turn profitable — heavy marketing spend",
+      "Crowded packaged-foods category with large incumbents",
+      "Raw-material (agri) cost inflation",
+    ],
+  },
+  COBALT: {
+    about:
+      "Cobalt Industries manufactures specialty chemicals and battery-grade materials, supplying domestic EV and electronics makers as well as export markets in Europe and Southeast Asia.",
+    founder: "Vikram Desai",
+    foundedYear: 2009,
+    strengths: [
+      "Exposure to the fast-growing EV battery-materials supply chain",
+      "Long-term offtake agreements with two large cell manufacturers",
+      "Healthy balance sheet with low net debt",
+    ],
+    risks: [
+      "Commodity-linked input prices can swing margins sharply",
+      "Customer demand tied to the pace of EV adoption",
+      "Environmental-compliance and capex requirements are rising",
+    ],
+  },
+};
+
 // ---------------------------------------------------------------------------
 // IpoListedCard payloads
 // ---------------------------------------------------------------------------
@@ -475,6 +564,17 @@ export default function IpoWidgetSandbox(): React.ReactElement {
   // Local stand-in for the chat round-trip: which IPO's application card to show.
   const [appliedSymbol, setAppliedSymbol] = useState<string | null>(null);
   const appliedPayload = appliedSymbol ? APP_BY_SYMBOL[appliedSymbol] ?? null : null;
+  // "slide" when the editor opens directly from Apply; "fade" when it hands off
+  // from the "Know more" drawer (same slot → cross-fade, no re-slide).
+  const [applyEntrance, setApplyEntrance] = useState<"slide" | "fade">("slide");
+  // During a hand-off the details drawer's scrim stays up, so the editor
+  // suppresses its own scrim to avoid two stacking (which darkens = flicker).
+  const [applySuppressBackdrop, setApplySuppressBackdrop] = useState(false);
+
+  // "Know more" details sidebar — independent of the apply editor.
+  const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
+  const detailPayload = detailSymbol ? APP_BY_SYMBOL[detailSymbol] ?? null : null;
+  const detailInfo = detailSymbol ? INFO_BY_SYMBOL[detailSymbol] ?? null : null;
 
   return (
     <div
@@ -507,67 +607,86 @@ export default function IpoWidgetSandbox(): React.ReactElement {
         </p>
       </header>
 
-      <Section title="IpoListCard → Apply (live local round-trip)">
-        <Variant label="Populated — click Apply to render its application card →">
+      <Section title="IpoListCard → Apply (opens side panel, like editor / backtest)">
+        <Variant label="Populated — click Apply to slide in the application panel →">
           <IpoListCard
             payload={LIST_POPULATED}
             onSelectIpo={(sym) => {
               noop(`apply for the ${sym} IPO`);
+              setApplyEntrance("slide");
+              setApplySuppressBackdrop(false);
               setAppliedSymbol(sym);
             }}
             onRemindIpo={(sym) => noop(`set up open-day reminders for the ${sym} IPO`)}
+            onKnowMore={(sym) => {
+              noop(`know more about the ${sym} IPO`);
+              setDetailSymbol(sym);
+            }}
           />
         </Variant>
-        <Variant
-          label={
-            appliedSymbol
-              ? `Applied: ${appliedSymbol} → ipo_application_card`
-              : "Application card (click Apply on the left)"
-          }
-        >
-          {appliedPayload ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => setAppliedSymbol(null)}
-                style={{
-                  alignSelf: "flex-start",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "var(--text-secondary, #6b7280)",
-                  background: "transparent",
-                  border: "1px solid var(--glass-border, #e5e7eb)",
-                  borderRadius: 8,
-                  padding: "4px 10px",
-                  cursor: "pointer",
-                }}
-              >
-                ← Clear
-              </button>
-              <IpoApplicationCard payload={appliedPayload} onSetupReminders={noop} />
-            </div>
-          ) : (
-            <div
-              style={{
-                width: 440,
-                minHeight: 200,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
-                padding: 24,
-                fontSize: 12.5,
-                color: "var(--text-secondary, #9ca3af)",
-                border: "1px dashed var(--glass-border, #d1d5db)",
-                borderRadius: 24,
-              }}
-            >
-              Click <strong style={{ margin: "0 4px" }}>Apply</strong> on any open/upcoming
-              row to render its application card here — mirroring the real chat round-trip.
-            </div>
-          )}
+        <Variant label="Behaviour">
+          <div
+            style={{
+              width: 440,
+              minHeight: 120,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              textAlign: "center",
+              padding: 24,
+              fontSize: 12.5,
+              lineHeight: 1.6,
+              color: "var(--text-secondary, #9ca3af)",
+              border: "1px dashed var(--glass-border, #d1d5db)",
+              borderRadius: 24,
+            }}
+          >
+            <strong style={{ margin: "0 4px" }}>Apply</strong> opens the apply
+            editor directly. <strong style={{ margin: "0 4px" }}>Know more</strong>{" "}
+            opens a read-only details drawer whose bottom <strong style={{ margin: "0 4px" }}>Apply →</strong>{" "}
+            hands off to that same editor. Both match the agent editor / backtest
+            width. Close with X, the scrim, or Esc.
+          </div>
         </Variant>
       </Section>
+
+      {/* "Know more" details drawer — rendered BEFORE the apply editor so that,
+          during a hand-off, the editor (later in the DOM, same z-index) paints
+          on top and cross-fades over the still-present details drawer. */}
+      <IpoDetailPanel
+        open={detailSymbol !== null}
+        onOpenChange={(o) => {
+          if (!o) setDetailSymbol(null);
+        }}
+        payload={detailPayload}
+        info={detailInfo}
+        onApply={(sym) => {
+          // Hand off: fade the editor in on top of the details drawer while the
+          // drawer's scrim stays up (editor suppresses its own to avoid a
+          // doubled/darkened flicker). Once the fade finishes, drop the drawer
+          // and enable the editor's scrim in the SAME commit — a seamless swap
+          // of identical scrims, so the background never flickers.
+          setApplyEntrance("fade");
+          setApplySuppressBackdrop(true);
+          setAppliedSymbol(sym);
+          window.setTimeout(() => {
+            setDetailSymbol(null);
+            setApplySuppressBackdrop(false);
+          }, 240);
+        }}
+      />
+
+      {/* Right-side application drawer — same shell/width as editor & backtest. */}
+      <IpoApplicationPanel
+        open={appliedSymbol !== null}
+        onOpenChange={(o) => {
+          if (!o) setAppliedSymbol(null);
+        }}
+        payload={appliedPayload}
+        onSetupReminders={noop}
+        entrance={applyEntrance}
+        suppressBackdrop={applySuppressBackdrop}
+      />
 
       <Section title="IpoListCard — other states">
         <Variant label="Empty (feed reachable, 0 issues)">

@@ -617,14 +617,15 @@ export function WorkflowEditorMock({
             </SortableContext>
           </DndContext>
 
-          {/* Terminal node — pinned near the bottom of the scroll area via
-              mt-auto so it sits low regardless of step count, yet collapses
-              and scrolls naturally once the steps overflow the viewport. */}
+          {/* Terminal node — sits one connector-height (mt-7, matching the
+              28px FlowConnector) below the last step so the gap stays
+              consistent with the pipeline rhythm instead of collapsing to
+              zero when the steps overflow. The column scrolls naturally. */}
           <button
             type="button"
             onClick={() => setPickerInsertIndex(workflow.steps.length)}
             data-testid="add-step-button"
-            className="mt-auto flex h-12 w-full shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
+            className="mt-7 flex h-12 w-full shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}

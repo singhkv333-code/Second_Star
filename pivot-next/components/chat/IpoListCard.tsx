@@ -4,15 +4,13 @@
  * IpoListCard — inline chat card rendered when the chatbot's
  * `list_upcoming_ipos` tool returns `_render_hint: "ipo_list_card"`.
  *
- * States:
- *  - unreachable: shows the note honestly, no rows.
- *  - empty (source reachable, count 0): empty state with the note.
- *  - populated: sorted list of rows (open → upcoming → closed, then by open_date).
+ * Design mirrors WorkflowDraftCard: same max-w, padding, tile rows,
+ * shadow, and entry animation.
  *
- * Per-row actions:
- *  - "Apply" button → onSelectIpo(symbol)  [open/upcoming only]
- *  - "Remind" link  → onRemindIpo(symbol)  [open/upcoming only]
- *  - Closed rows: muted, no Apply.
+ * States:
+ *  - unreachable: feed error, no rows.
+ *  - empty: reachable but nothing open/upcoming.
+ *  - populated: open → upcoming, closed filtered out.
  */
 
 import { BellRing, CalendarX, WifiOff } from "lucide-react";
@@ -29,10 +27,12 @@ export type IpoListCardProps = {
   onSelectIpo: (symbol: string) => void;
   /** Triggers a new chat turn: "set up open-day reminders for the X IPO". */
   onRemindIpo: (symbol: string) => void;
+  /** Opens the read-only details sidebar for the X IPO ("Know more"). */
+  onKnowMore?: (symbol: string) => void;
 };
 
 // ---------------------------------------------------------------------------
-// Sorting
+// Helpers
 // ---------------------------------------------------------------------------
 
 const STATUS_ORDER: Record<IpoListItem["status"], number> = {
@@ -42,25 +42,21 @@ const STATUS_ORDER: Record<IpoListItem["status"], number> = {
 };
 
 function sortIpos(ipos: IpoListItem[]): IpoListItem[] {
-  return [...ipos].sort((a, b) => {
-    const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-    if (statusDiff !== 0) return statusDiff;
-    // Within same status: sort by open_date ascending (nulls last)
-    if (!a.open_date && !b.open_date) return 0;
-    if (!a.open_date) return 1;
-    if (!b.open_date) return -1;
-    return a.open_date.localeCompare(b.open_date);
-  });
+  return [...ipos]
+    .filter((ipo) => ipo.status !== "closed")
+    .sort((a, b) => {
+      const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      if (statusDiff !== 0) return statusDiff;
+      if (!a.open_date && !b.open_date) return 0;
+      if (!a.open_date) return 1;
+      if (!b.open_date) return -1;
+      return a.open_date.localeCompare(b.open_date);
+    });
 }
-
-// ---------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------
 
 function formatDate(dateStr: string | null): string | null {
   if (!dateStr) return null;
   try {
-    // dateStr may be ISO or a raw NSE date string; parse best-effort
     const d = new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`);
     if (isNaN(d.getTime())) return dateStr;
     return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -69,57 +65,31 @@ function formatDate(dateStr: string | null): string | null {
   }
 }
 
-function StatusBadge({ status }: { status: IpoListItem["status"] }): React.ReactElement {
-  const map = {
-    open: { label: "Open", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
-    upcoming: { label: "Upcoming", cls: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" },
-    closed: { label: "Closed", cls: "bg-slate-100 text-slate-500 dark:bg-slate-500/15 dark:text-slate-400" },
-  };
-  const { label, cls } = map[status];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium tracking-tight",
-        cls,
-      )}
-    >
-      {label}
-    </span>
-  );
+function statusLabel(status: IpoListItem["status"]): string {
+  return status === "open" ? "Open" : status === "upcoming" ? "Upcoming" : "Closed";
 }
 
-function TypeChip({ type }: { type: IpoListItem["type"] }): React.ReactElement {
-  const map = {
-    mainboard: { label: "Mainboard", cls: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300" },
-    sme: { label: "SME", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" },
-  };
-  const { label, cls } = map[type];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium tracking-tight",
-        cls,
-      )}
-    >
-      {label}
-    </span>
-  );
+function typeLabel(type: IpoListItem["type"]): string {
+  return type === "sme" ? "SME" : "Mainboard";
 }
 
 // ---------------------------------------------------------------------------
-// Row
+// Row — tile-style, matches DraftStepRow visual language
 // ---------------------------------------------------------------------------
 
 function IpoRow({
   ipo,
   onSelectIpo,
   onRemindIpo,
+  onKnowMore,
+  index,
 }: {
   ipo: IpoListItem;
   onSelectIpo: (symbol: string) => void;
   onRemindIpo: (symbol: string) => void;
+  onKnowMore?: (symbol: string) => void;
+  index: number;
 }): React.ReactElement {
-  const isClosed = ipo.status === "closed";
   const openLabel = formatDate(ipo.open_date);
   const closeLabel = formatDate(ipo.close_date);
   const dateRange =
@@ -129,32 +99,27 @@ function IpoRow({
 
   return (
     <div
-      className={cn(
-        "flex flex-col gap-2 px-4 py-3 border-b border-border/40 last:border-0",
-        isClosed && "opacity-60",
-      )}
+      className="flex flex-col gap-2 border-b border-border/40 py-3 last:border-0"
+      style={{
+        animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
+        animationDelay: `${index * 50}ms`,
+      }}
     >
-      {/* Top row: name + chips */}
+      {/* Name + type · status */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-0.5 min-w-0">
-          <span
-            className={cn(
-              "text-[12.5px] font-semibold tracking-tight leading-tight truncate",
-              isClosed ? "text-muted-foreground" : "text-foreground",
-            )}
-          >
+          <span className="text-[12.5px] font-semibold tracking-tight leading-tight truncate text-foreground">
             {ipo.name}
           </span>
           <span className="text-[10.5px] text-muted-foreground">{ipo.symbol}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <TypeChip type={ipo.type} />
-          <StatusBadge status={ipo.status} />
-        </div>
+        <span className="shrink-0 pt-0.5 text-[11px] font-medium text-foreground/60">
+          {typeLabel(ipo.type)} · {statusLabel(ipo.status)}
+        </span>
       </div>
 
-      {/* Details row */}
-      <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+      {/* Financial details */}
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
         {ipo.price_band && (
           <span>
             <span className="font-medium text-foreground/80">Band</span>{" "}
@@ -181,34 +146,45 @@ function IpoRow({
         )}
       </div>
 
-      {/* Actions row */}
-      {!isClosed && (
-        <div className="flex items-center gap-2">
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onSelectIpo(ipo.symbol)}
+          aria-label={`Apply for ${ipo.name} IPO`}
+          className={cn(
+            "inline-flex h-7 items-center rounded-full bg-primary px-3 text-[11.5px] font-medium text-primary-foreground",
+            "transition-all hover:bg-primary/90 active:scale-[0.97]",
+          )}
+        >
+          Apply
+        </button>
+        {onKnowMore && (
           <button
             type="button"
-            onClick={() => onSelectIpo(ipo.symbol)}
-            aria-label={`Apply for ${ipo.name} IPO`}
+            onClick={() => onKnowMore(ipo.symbol)}
+            aria-label={`Know more about ${ipo.name} IPO`}
             className={cn(
-              "inline-flex h-7 items-center gap-1 rounded-full bg-primary px-3 text-[11.5px] font-medium text-primary-foreground",
-              "transition-all hover:bg-primary/90 active:scale-[0.97]",
-            )}
-          >
-            Apply
-          </button>
-          <button
-            type="button"
-            onClick={() => onRemindIpo(ipo.symbol)}
-            aria-label={`Set up reminders for ${ipo.name} IPO`}
-            className={cn(
-              "inline-flex h-7 items-center gap-1 rounded-md border border-border/60 px-2.5 text-[11px] text-muted-foreground",
+              "inline-flex h-7 items-center rounded-full border border-border/60 px-3 text-[11px] font-medium text-foreground/75",
               "transition-colors hover:bg-muted hover:text-foreground",
             )}
           >
-            <BellRing className="h-3 w-3 shrink-0" aria-hidden="true" />
-            Remind
+            Know more
           </button>
-        </div>
-      )}
+        )}
+        <button
+          type="button"
+          onClick={() => onRemindIpo(ipo.symbol)}
+          aria-label={`Set up reminders for ${ipo.name} IPO`}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-full border border-border/60 px-2.5 text-[11px] font-medium text-foreground/75",
+            "transition-colors hover:bg-muted hover:text-foreground",
+          )}
+        >
+          <BellRing className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Remind
+        </button>
+      </div>
     </div>
   );
 }
@@ -221,10 +197,11 @@ export function IpoListCard({
   payload,
   onSelectIpo,
   onRemindIpo,
+  onKnowMore,
 }: IpoListCardProps): React.ReactElement {
   const isUnreachable = payload.source === "unreachable";
-  const isEmpty = !isUnreachable && payload.count === 0;
-  const sorted = isUnreachable || isEmpty ? [] : sortIpos(payload.ipos);
+  const sorted = isUnreachable ? [] : sortIpos(payload.ipos);
+  const isEmpty = !isUnreachable && sorted.length === 0;
 
   return (
     <div
@@ -232,88 +209,81 @@ export function IpoListCard({
       role="region"
       aria-label="IPO list"
       className={cn(
-        "my-2 w-full max-w-[520px] overflow-hidden rounded-3xl border border-border/50 bg-card",
+        // Fixed 388px at sm+ so the sparse empty/unreachable states match the
+        // populated card exactly (shrink-to-fit would otherwise narrow them);
+        // full-width below sm for the mobile chat column.
+        "mb-2 mt-1 w-full sm:w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
+        "transition-all duration-500 ease-out",
       )}
       style={{
         animation: "draftCardIn-quartr 360ms cubic-bezier(0.22, 1, 0.36, 1) both",
       }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 px-5 pt-4 pb-4">
+        {/* Header — IPOs chip + count, mirrors WorkflowDraftCard header row */}
+        <div className="flex items-center justify-between gap-2">
           <span className="inline-flex items-center rounded-md bg-violet-100 px-2 py-0.5 text-[10.5px] font-medium tracking-tight text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
             IPOs
           </span>
-          {!isUnreachable && (
-            <span className="text-[11.5px] font-medium text-foreground">
-              {payload.count} {payload.count === 1 ? "issue" : "issues"}
+          {isUnreachable ? (
+            <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground">
+              <WifiOff className="h-3 w-3 shrink-0" aria-hidden="true" />
+              Feed unreachable
+            </span>
+          ) : (
+            <span className="text-[10.5px] font-medium text-muted-foreground">
+              {sorted.length} {sorted.length === 1 ? "issue" : "issues"}
             </span>
           )}
         </div>
+
+        {/* Unreachable state */}
         {isUnreachable && (
-          <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground">
-            <WifiOff className="h-3 w-3 shrink-0" aria-hidden="true" />
-            Feed unreachable
-          </span>
+          <div role="status" className="flex flex-col items-center gap-2 py-6 text-center">
+            <WifiOff className="h-8 w-8 text-muted-foreground/40" aria-hidden="true" />
+            <p className="text-[12.5px] font-medium text-muted-foreground">
+              Live IPO feed unreachable
+            </p>
+            {payload.note && (
+              <p className="text-[11px] text-muted-foreground/70 max-w-[280px] leading-relaxed">
+                {payload.note}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Empty state */}
+        {isEmpty && (
+          <div role="status" className="flex flex-col items-center gap-2 py-6 text-center">
+            <CalendarX className="h-8 w-8 text-muted-foreground/40" aria-hidden="true" />
+            <p className="text-[12.5px] font-medium text-muted-foreground">
+              No IPOs open or upcoming right now
+            </p>
+            {payload.note && (
+              <p className="text-[11px] text-muted-foreground/70 max-w-[280px] leading-relaxed">
+                {payload.note}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Populated — tile list, same gap as WorkflowDraftCard step list */}
+        {!isUnreachable && !isEmpty && (
+          <div className="flex flex-col">
+            {sorted.map((ipo, idx) => (
+              <IpoRow
+                key={ipo.symbol}
+                ipo={ipo}
+                index={idx}
+                onSelectIpo={onSelectIpo}
+                onRemindIpo={onRemindIpo}
+                onKnowMore={onKnowMore}
+              />
+            ))}
+          </div>
         )}
       </div>
-
-      {/* Unreachable state */}
-      {isUnreachable && (
-        <div
-          role="status"
-          className="flex flex-col items-center gap-2 px-6 py-8 text-center"
-        >
-          <WifiOff
-            className="h-8 w-8 text-muted-foreground/40"
-            aria-hidden="true"
-          />
-          <p className="text-[12.5px] font-medium text-muted-foreground">
-            Live IPO feed unreachable
-          </p>
-          {payload.note && (
-            <p className="text-[11px] text-muted-foreground/70 max-w-[300px] leading-relaxed">
-              {payload.note}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Empty-but-reachable state */}
-      {isEmpty && (
-        <div
-          role="status"
-          className="flex flex-col items-center gap-2 px-6 py-8 text-center"
-        >
-          <CalendarX
-            className="h-8 w-8 text-muted-foreground/40"
-            aria-hidden="true"
-          />
-          <p className="text-[12.5px] font-medium text-muted-foreground">
-            No IPOs open or upcoming right now
-          </p>
-          {payload.note && (
-            <p className="text-[11px] text-muted-foreground/70 max-w-[300px] leading-relaxed">
-              {payload.note}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Populated list */}
-      {!isUnreachable && !isEmpty && (
-        <div>
-          {sorted.map((ipo) => (
-            <IpoRow
-              key={ipo.symbol}
-              ipo={ipo}
-              onSelectIpo={onSelectIpo}
-              onRemindIpo={onRemindIpo}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
