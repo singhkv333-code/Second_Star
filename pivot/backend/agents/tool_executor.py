@@ -1490,9 +1490,11 @@ async def _screen_fundamentals(a, kt, db, uid):
 
 
 async def _fetch_fundamentals(a, kt, db, uid):
-    from backend.services.analysis_chat_tools import fetch_fundamentals
+    from backend.services.analysis_chat_tools import (
+        fetch_fundamentals, public_fundamentals_view,
+    )
     return {"success": True,
-            "data": fetch_fundamentals(str(a.get("symbol", ""))),
+            "data": public_fundamentals_view(fetch_fundamentals(str(a.get("symbol", "")))),
             "logiccard": None}
 
 

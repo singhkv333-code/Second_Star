@@ -8875,6 +8875,30 @@ _SYMBOL_STOPWORDS: frozenset[str] = frozenset({
 })
 
 
+_MARKET_NOUNS = {
+    "market", "markets", "nifty", "sensex", "banknifty", "index", "indices",
+    "stocks", "economy", "sector", "sectors", "today", "the",
+}
+
+
+def _looks_like_named_company(user_message: str) -> Optional[str]:
+    """Return a multi-word Proper-Noun company name the user typed, else None.
+
+    Used to tell a genuine "named a company that didn't resolve" case apart
+    from a broad market ask on the live-price failure path, so we can give an
+    honest message instead of a misleading "feed momentarily unavailable".
+    """
+    if not user_message:
+        return None
+    cands = re.findall(
+        r"\b([A-Z][A-Za-z&.\-]+(?:\s+[A-Z][A-Za-z&.\-]+){1,3})", user_message)
+    for c in cands:
+        if any(w.lower() in _MARKET_NOUNS for w in c.split()):
+            continue
+        return c.strip()
+    return None
+
+
 def _extract_user_symbol(user_message: str) -> Optional[str]:
     """Best-effort: pull the NSE ticker the user actually referenced.
 
@@ -9073,11 +9097,25 @@ def _format_recoverable_failure_question(
         # fallback still covers the indices). Treat a no-symbol failure as
         # a transient feed issue, not a user error.
         if sym is None:
+            # Two very different cases land here: (a) a broad market ask with
+            # no ticker ("how's the market"), and (b) the user named a company
+            # by NAME that didn't resolve to a fetchable symbol ("tell me about
+            # Snehaa Organics"). Claiming a transient "feed momentarily
+            # unavailable, try again" is dishonest for (b) — the name simply
+            # isn't a listed symbol we can pull. Give an honest message that
+            # covers both without promising a retry will fix it.
+            named = _looks_like_named_company(user_message)
+            if named:
+                return (
+                    f"I couldn't find live market data for **{named}** — it may "
+                    "be unlisted, delisted, a very small/SME name, or the name "
+                    "may be slightly off. If it's listed, send its exact NSE "
+                    "ticker (e.g. RELIANCE) and I'll pull the details."
+                )
             return (
-                "I couldn't pull the live market level just now — the "
-                "quote feed is momentarily unavailable. Give it a few "
-                "seconds and try again, or name a specific stock or index "
-                "(e.g. NIFTY, RELIANCE) if you wanted one in particular."
+                "I couldn't pull a live market level just now. If you meant a "
+                "specific stock or index, send its exact NSE ticker or name "
+                "(e.g. NIFTY, RELIANCE) and I'll fetch it."
             )
         return (
             f"I couldn't pull price data for `{sym}` just now — double-"
@@ -9312,8 +9350,9 @@ def _fno_mandated_tables(raw_data: dict) -> str:
 
         # Suggest flow → candidate comparison table (≥2 rows).
         if candidates:
+            from backend.services.option_strategies import humanize_strategy_key
             primary = {
-                "label": summ.get("template", "primary"),
+                "label": humanize_strategy_key(summ.get("template")) or "Suggested",
                 "pop": computed.get("pop"),
                 "max_loss": computed.get("max_loss"),
                 "max_profit": computed.get("max_profit"),
@@ -9327,7 +9366,7 @@ def _fno_mandated_tables(raw_data: dict) -> str:
                 mp = c.get("max_profit")
                 pop = c.get("pop")
                 cmp_tbl.append(
-                    f"| {c.get('label') or c.get('template', '')} "
+                    f"| {c.get('label') or humanize_strategy_key(c.get('template', ''))} "
                     f"| {'uncapped' if ml is None else _fmt_inr(ml)} "
                     f"| {'uncapped' if mp is None else _fmt_inr(mp)} "
                     f"| {f'{pop:.0%}' if pop is not None else '—'} "

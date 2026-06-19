@@ -210,6 +210,27 @@ _NEWS_CACHE_TTL_S = 60 * 60  # 1 hour
 # ── Fundamentals ──────────────────────────────────────────────────────────
 
 
+# Internal plumbing keys that must never reach the LLM / user. fetch_fundamentals
+# carries these for routing/provenance; the tool boundary strips them.
+_INTERNAL_FUND_KEYS = {
+    "sc_id", "enriched", "enrichment_source", "source", "resolved", "basis",
+}
+_SUMMARY_MAX = 480
+
+
+def public_fundamentals_view(d: dict[str, Any]) -> dict[str, Any]:
+    """LLM/user-facing projection of a fetch_fundamentals dict: drop internal
+    identifiers and clip the business summary so it stays a tight 2-3 lines."""
+    if not isinstance(d, dict):
+        return d
+    out = {k: v for k, v in d.items() if k not in _INTERNAL_FUND_KEYS}
+    bs = out.get("business_summary")
+    if isinstance(bs, str) and len(bs) > _SUMMARY_MAX:
+        cut = bs[:_SUMMARY_MAX].rsplit(" ", 1)[0].rstrip(" ,;.")
+        out["business_summary"] = cut + "…"
+    return out
+
+
 def _apply_enrichment(out: dict[str, Any]) -> None:
     """Merge yfinance-derived company profile into a fundamentals snapshot.
 
