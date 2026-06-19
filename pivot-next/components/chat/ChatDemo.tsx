@@ -58,6 +58,7 @@ import { IpoListCard } from "@/components/chat/IpoListCard";
 import { IpoListedCard } from "@/components/chat/IpoListedCard";
 import { OptionChainCard } from "@/components/chat/OptionChainCard";
 import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
+import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCard";
 import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
 import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload } from "@/lib/types";
 
@@ -2243,6 +2244,8 @@ function ChatComposer({
             </button>
           );
         })}
+        {/* Dummy entry point — opens the full-screen option chain (mock data). */}
+        <OptionChainLauncherCard variant="pill" />
       </div>
     </div>
   );

@@ -29,6 +29,9 @@ import type {
   IpoRegisterResponse,
   IpoSubscriptionResponse,
   IpoWithdrawResponse,
+  OptionStrategyComputeRequest,
+  OptionStrategyComputeResponse,
+  OptionChainSliceResponse,
   OptionStrategyRegisterRequest,
   OptionStrategyRegisterResponse,
   Paginated,
@@ -1622,6 +1625,32 @@ export function withdrawOptionStrategy(
     `/option-strategies/${encodeURIComponent(id)}/withdraw`,
     { method: "POST" },
   );
+}
+
+/** `POST /option-strategies/compute` — non-persisting recompute for the
+ *  interactive strategy builder (fresh payoff/Greeks/margin/critique). */
+export function computeOptionStrategy(
+  body: OptionStrategyComputeRequest,
+): Promise<ApiResult<OptionStrategyComputeResponse>> {
+  return requestLegacy<OptionStrategyComputeResponse>(
+    "/option-strategies/compute",
+    { method: "POST", body },
+  );
+}
+
+/** `GET /option-strategies/chain` — trimmed chain for strike/expiry pickers. */
+export function getOptionChainSlice(params: {
+  underlying: string;
+  expiry?: string;
+  width?: number;
+}): Promise<ApiResult<OptionChainSliceResponse>> {
+  return requestLegacy<OptionChainSliceResponse>("/option-strategies/chain", {
+    query: {
+      underlying: params.underlying,
+      ...(params.expiry ? { expiry: params.expiry } : {}),
+      ...(params.width ? { width: String(params.width) } : {}),
+    },
+  });
 }
 
 /** `GET /users/option-strategies` — list this user's option strategies. */

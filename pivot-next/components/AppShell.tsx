@@ -435,7 +435,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   }, [openWorkflow]);
 
   return (
-    <div className="app-shell-root flex h-screen flex-col bg-background">
+    <div
+      className="app-shell-root flex h-screen flex-col bg-background"
+      style={{ ["--paper-banner-h" as string]: tradingMode === "paper" ? "30px" : "0px" }}
+    >
       {/* Sticky top header */}
       <TopHeader
         theme={theme}

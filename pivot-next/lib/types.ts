@@ -655,6 +655,9 @@ export type OptionStrategyPayload = {
   computed: {
     net_premium: number;
     payoff: { s: number; pnl: number }[];
+    /** Theoretical "today" (T+0) mark-to-market P&L curve — the smooth
+     *  pre-expiry value line drawn over the kinked expiry payoff. */
+    payoff_now?: { s: number; pnl: number }[];
     breakevens: number[];
     max_loss: number | null;
     max_profit: number | null;
@@ -745,5 +748,61 @@ export type OptionStrategyRegisterResponse = {
     margin_estimate: number;
     created_at: string;
   } | null;
+  error?: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// F&O — Option Strategy builder: live preview-recompute + chain pickers
+// ---------------------------------------------------------------------------
+
+/** Body for POST /option-strategies/compute — a non-persisting recompute. */
+export type OptionStrategyComputeRequest = {
+  underlying: string;
+  expiry: string;
+  template?: string;
+  qty_lots: number;
+  legs: { option_type: "CE" | "PE"; side: "BUY" | "SELL"; strike: number }[];
+};
+
+export type OptionStrategyComputeResponse = {
+  success: boolean;
+  /** Full card payload (locked/editable/computed/validation/critique). */
+  payload: OptionStrategyPayload | null;
+  error?: string | null;
+};
+
+/** One side of a strike in the trimmed builder chain. */
+export type OptionChainSliceSide = {
+  mid: number;
+  iv: number | null;
+  delta: number | null;
+  oi: number | null;
+  iv_status?: IvStatus;
+} | null;
+
+export type OptionChainSliceRow = {
+  strike: number;
+  ce: OptionChainSliceSide;
+  pe: OptionChainSliceSide;
+};
+
+export type OptionChainSlice = {
+  underlying: string;
+  segment: string;
+  exchange: string;
+  spot: number | null;
+  forward: number | null;
+  expiry: string;
+  expiries: { expiry: string; kind: "weekly" | "monthly" }[];
+  atm_strike: number | null;
+  lot_size: number | null;
+  expected_move?: { low: number; high: number; abs: number; pct: number } | null;
+  research_only: boolean;
+  rows: OptionChainSliceRow[];
+};
+
+export type OptionChainSliceResponse = {
+  success: boolean;
+  chain: OptionChainSlice | null;
   error?: string | null;
 };

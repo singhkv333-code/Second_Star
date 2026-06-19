@@ -453,6 +453,32 @@ def resolve_strategy(
     for l in legs:
         pnl += _leg_expiry_pnl(grid, l, lot_value)
 
+    # ── Theoretical "today" (T+0) curve — the smooth mark-to-market P&L the
+    # position would show if exited NOW at each underlying, vs. the kinked
+    # expiry payoff. Black-76 per leg at the live IV and current T, summed
+    # signed (+BUY/−SELL) and offset by the entry net premium. Degenerates to
+    # the expiry line as T→0. (This is the blue curve serious platforms draw.)
+    from backend.market.greeks.black76 import black76_price
+
+    now_pnl = np.zeros_like(grid)
+    atm_row_iv = next((r for r in rows if r["strike"] == atm), None)
+    _atm_iv_seed = None
+    if atm_row_iv:
+        for _s in ("CE", "PE"):
+            _q = _side_quote(atm_row_iv, _s)
+            if _is_quotable(_q) and _q.get("iv"):
+                _atm_iv_seed = float(_q["iv"])
+                break
+    for l in legs:
+        iv = l.get("iv") or _atm_iv_seed or 0.2
+        flag = 1 if l["option_type"] == "CE" else -1
+        sign = 1.0 if l["side"] == "BUY" else -1.0
+        price_now = black76_price(grid, l["strike"], float(iv), T, r=_RISK_FREE, flag=flag)
+        now_pnl += sign * np.asarray(price_now, dtype=float) * lot_value
+    # +net_premium: a debit position (net_premium<0) starts below zero by the
+    # premium paid; a credit position starts above. Mirrors the expiry math.
+    now_pnl = now_pnl + float(net_premium)
+
     econ_grid = np.linspace(0.0, F + span, _PAYOFF_POINTS)
     econ_pnl = np.zeros_like(econ_grid)
     for l in legs:
@@ -557,6 +583,10 @@ def resolve_strategy(
             "payoff": [
                 {"s": round(float(s), 2), "pnl": round(float(p), 2)}
                 for s, p in zip(grid, pnl)
+            ],
+            "payoff_now": [
+                {"s": round(float(s), 2), "pnl": round(float(p), 2)}
+                for s, p in zip(grid, now_pnl)
             ],
             "breakevens": _breakevens(grid, pnl),
             "max_loss": max_loss,
