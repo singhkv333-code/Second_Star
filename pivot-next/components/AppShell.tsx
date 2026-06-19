@@ -48,6 +48,8 @@ import {
   X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
+import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { CHORD_NAV_MAP } from "@/lib/shortcuts";
 import {
   KiteCredentialsPanel,
   type KiteOAuthResult,
@@ -242,6 +244,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [chatResetKey, setChatResetKey] = useState(0);
   // Mobile (<lg) only — controls the slide-in sidebar drawer.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Keyboard shortcuts panel (opened via Ctrl/⌘+/ or the account menu).
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Desktop-only collapse of the inline sidebar (Ctrl/⌘+B). On mobile the
+  // sidebar is a drawer driven by `mobileNavOpen`, so collapse is ignored.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(true);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Hash + theme init
@@ -434,6 +442,106 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     openWorkflow(result.data);
   }, [openWorkflow]);
 
+  // Track the lg breakpoint so the sidebar-collapse hotkey only takes effect
+  // on desktop (mobile keeps the drawer reachable via the hamburger).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = (): void => setIsDesktop(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // Global keyboard shortcuts. Cmd+K (command palette) and the chat composer
+  // keys live in their own components; everything else documented in the
+  // shortcuts panel is wired here. A pending "G" arms the navigation chord
+  // (G then C/P/A/S/L) for a short window.
+  useEffect(() => {
+    let gPending = false;
+    let gTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearChord = (): void => {
+      gPending = false;
+      if (gTimer) {
+        clearTimeout(gTimer);
+        gTimer = null;
+      }
+    };
+    const isTyping = (): boolean => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        el.isContentEditable
+      );
+    };
+
+    const onKey = (e: KeyboardEvent): void => {
+      const mod = e.metaKey || e.ctrlKey;
+
+      // Modifier combos fire from anywhere (including while typing).
+      if (mod && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === "/") {
+          e.preventDefault();
+          setShortcutsOpen((o) => !o);
+          return;
+        }
+        if (k === "b") {
+          e.preventDefault();
+          setSidebarCollapsed((c) => !c);
+          return;
+        }
+        if (e.shiftKey && k === "o") {
+          e.preventDefault();
+          startNewChat();
+          return;
+        }
+        return;
+      }
+      if (mod || e.altKey) return;
+
+      // Bare keys are ignored while the user is typing in a field.
+      if (isTyping()) {
+        clearChord();
+        return;
+      }
+
+      const k = e.key.toLowerCase();
+      if (gPending) {
+        const tab = CHORD_NAV_MAP[k];
+        clearChord();
+        if (tab) {
+          e.preventDefault();
+          goTab(tab as TabKey);
+        }
+        return;
+      }
+      if (k === "g") {
+        gPending = true;
+        if (gTimer) clearTimeout(gTimer);
+        gTimer = setTimeout(() => {
+          gPending = false;
+        }, 1200);
+        return;
+      }
+      if (k === "/") {
+        // Jump focus into the chat composer (ChatDemo listens for this).
+        e.preventDefault();
+        window.dispatchEvent(new Event("pivot:focus-composer"));
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      clearChord();
+    };
+  }, [goTab, startNewChat]);
+
   return (
     <div
       className="app-shell-root flex h-screen flex-col bg-background"
@@ -450,6 +558,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenKite={() => setKitePanelOpen(true)}
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onBrandClick={() => goTab("chat")}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
       />
 
       {/* Paper-mode banner — full-width, unmissable, on every page. Sits
@@ -471,15 +580,19 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           overlay (dark scrim + white panel) on top of this body, so we no
           longer reserve side-by-side padding for it. */}
       <div className="flex flex-1 min-h-0">
-        {/* Left sidebar — inline at lg+, slide-in drawer below */}
-        <Sidebar
-          active={active}
-          onTabChange={goTab}
-          onNewChat={startNewChat}
-          conversations={conversations}
-          mobileOpen={mobileNavOpen}
-          onMobileClose={() => setMobileNavOpen(false)}
-        />
+        {/* Left sidebar — inline at lg+, slide-in drawer below. Collapsed
+            away on desktop via Ctrl/⌘+B; always mounted on mobile so the
+            drawer + hamburger keep working. */}
+        {(!sidebarCollapsed || !isDesktop) && (
+          <Sidebar
+            active={active}
+            onTabChange={goTab}
+            onNewChat={startNewChat}
+            conversations={conversations}
+            mobileOpen={mobileNavOpen}
+            onMobileClose={() => setMobileNavOpen(false)}
+          />
+        )}
 
         {/* Center pane — flex column so the chat tab (which hosts both
             the dashboard intro and the chat surface) can size its
@@ -592,6 +705,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onNavigate={goTab}
         onOpenConversation={() => goTab("chat")}
       />
+
+      <KeyboardShortcutsModal
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+      />
     </div>
   );
 }
@@ -610,6 +728,7 @@ function TopHeader({
   onOpenKite,
   onOpenMobileNav,
   onBrandClick,
+  onOpenShortcuts,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -620,6 +739,7 @@ function TopHeader({
   onOpenKite: () => void;
   onOpenMobileNav: () => void;
   onBrandClick: () => void;
+  onOpenShortcuts: () => void;
 }): React.ReactElement {
   // Local state drives the custom Lucide-X clear control. The native
   // browser "search" input renders its own (blue, ugly) clear button
@@ -789,6 +909,7 @@ function TopHeader({
           onChooseTradingMode={onChooseTradingMode}
           initial={accountInitial}
           onOpenKite={onOpenKite}
+          onOpenShortcuts={onOpenShortcuts}
         />
       </div>
     </header>
@@ -810,6 +931,7 @@ function AccountMenu({
   onChooseTradingMode,
   initial,
   onOpenKite,
+  onOpenShortcuts,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -817,6 +939,7 @@ function AccountMenu({
   onChooseTradingMode: (m: TradingMode) => void;
   initial: string;
   onOpenKite: () => void;
+  onOpenShortcuts: () => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1037,6 +1160,7 @@ function AccountMenu({
                   onClick={() => {
                     setHelpOpen(false);
                     setOpen(false);
+                    onOpenShortcuts();
                   }}
                 />
               </div>
