@@ -55,6 +55,30 @@ FinancialsSessionLocal = sessionmaker(
 )
 
 
+# Separate read-only engine for the yfinance-enriched `pivot_enrich` DB
+# (enrich.company_profile / enrich.v_company_enriched). Logically distinct from
+# both pivot_db and financials; built by scripts/enrich_company_profiles.py.
+# Disabled (None) when ENRICH_DSN is unset so the app runs without it.
+if settings.app_env == "test" or not settings.enrich_dsn:
+    enrich_engine = None
+    EnrichSessionLocal = None
+else:
+    enrich_engine = create_engine(
+        settings.enrich_dsn,
+        poolclass=QueuePool,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=False,
+        pool_recycle=900,
+        echo=False,
+    )
+    EnrichSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=enrich_engine,
+    )
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -71,6 +95,22 @@ def get_db():
 def get_financials_db():
     """FastAPI dependency: yields a read-only session against the financials DB."""
     db = FinancialsSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_enrich_db():
+    """FastAPI dependency: yields a read-only session against the pivot_enrich DB.
+
+    Yields None when ENRICH_DSN is unset (feature disabled) so callers can
+    degrade gracefully rather than crash.
+    """
+    if EnrichSessionLocal is None:
+        yield None
+        return
+    db = EnrichSessionLocal()
     try:
         yield db
     finally:
