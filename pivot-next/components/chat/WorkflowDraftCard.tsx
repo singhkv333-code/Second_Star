@@ -39,6 +39,10 @@ import {
 } from "@/components/chat/IndicatorBacktestCard";
 import { NewsStepRow } from "@/components/chat/steps/NewsStepRow";
 import { IpoStepRow } from "@/components/chat/steps/IpoStepRow";
+import {
+  MacroEventStepRow,
+  type MacroStepConfig,
+} from "@/components/chat/steps/MacroEventStepRow";
 import type { NewsStepConfig } from "@/lib/news-types";
 
 // ---------------------------------------------------------------------------
@@ -675,6 +679,27 @@ function DraftStepRow({
           step={{
             step_type: step.step_type as "fetch.news" | "trigger.event",
             config: step.config as NewsStepConfig,
+            label: step.label,
+          }}
+        />
+      </li>
+    );
+  }
+
+  // Scheduled-macro trigger gets its own rich row.
+  if (step.step_type === "trigger.scheduled_macro") {
+    return (
+      <li
+        style={{
+          animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
+          animationDelay: `${index * 50}ms`,
+          listStyle: "none",
+        }}
+      >
+        <MacroEventStepRow
+          step={{
+            step_type: "trigger.scheduled_macro",
+            config: step.config as MacroStepConfig,
             label: step.label,
           }}
         />
