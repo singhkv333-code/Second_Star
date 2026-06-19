@@ -472,6 +472,86 @@ class TriggerPolymarketConfig(_Strict):
         return self
 
 
+class TriggerKalshiConfig(_Strict):
+    """Kalshi prediction-market trigger — two modes (parallel to
+    ``TriggerPolymarketConfig``).
+
+    ``mode='threshold'`` fires when the watched side's probability
+    crosses ``threshold`` in ``direction``. ``mode='resolution'`` fires
+    when the Kalshi market officially settles for ``resolve_on``.
+
+    Token identity:
+      Kalshi has ONE ``market_id`` (ticker) per binary market and no
+      per-side CLOB token. ``token_id`` carries the synthesized per-side
+      asset id ``f"{ticker}:{side}"`` the REST worker subscribes on —
+      keep the ``token_id`` field name (not ``asset_id``) so the planner
+      prompt + the propose-time resolver reuse the Polymarket wording
+      with only the venue swapped. The matcher
+      (``parsing/kalshi_match.match_event_to_kalshi_contract``) resolves
+      both; the planner should call ``propose_kalshi_trigger`` /
+      ``propose_workflow`` with the resolved ids inline.
+
+    Firing path:
+      The Kalshi REST poll worker
+      (``news_events/workers/kalshi_rest_worker.py``) drives the SAME
+      venue-agnostic evaluator the Polymarket WS path uses; on a cross /
+      settlement it calls ``fire_external_event``.
+    """
+    market_id: str = Field(
+        ..., min_length=1, max_length=128,
+        description="Kalshi market ticker (e.g. 'KXFEDDECISION-26JAN-H'). "
+        "Resolved by the matcher; do not invent.",
+    )
+    token_id: str = Field(
+        ..., min_length=1, max_length=256,
+        description="Synthesized per-side asset id '<ticker>:<YES|NO>' the "
+        "worker subscribes on. Pulled from the matched side.",
+    )
+    side: Literal["YES", "NO"] = Field(
+        default="YES",
+        description="Which side of the binary market. The worker keys on "
+        "token_id; this is audit/UI.",
+    )
+    mode: Literal["threshold", "resolution"] = Field(
+        default="threshold",
+        description="'threshold' fires on probability cross; 'resolution' "
+        "fires when the market settles.",
+    )
+    threshold: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Side probability at which to fire, 0..1. REQUIRED when "
+        "mode='threshold'. Ignored when mode='resolution'.",
+    )
+    direction: Literal["above", "below"] = Field(
+        default="above",
+        description="'above' fires when the probability rises through "
+        "threshold; 'below' when it falls through. Ignored on resolution.",
+    )
+    resolve_on: Literal["YES", "NO", "ANY"] = Field(
+        default="YES",
+        description="Which winner fires on mode='resolution'. Default YES.",
+    )
+    question: Optional[str] = Field(
+        default=None, max_length=500,
+        description="Human-readable Kalshi market title. Audit/UI only.",
+    )
+    event_description: Optional[str] = Field(
+        default=None, max_length=2_000,
+        description="OPTIONAL escape hatch — the user's free-text ask. When "
+        "market_id/token_id are missing but this is set, propose.py "
+        "resolves it to a contract at propose time (matcher confidence "
+        "≥ 0.85; else it raises so the LLM calls propose_kalshi_trigger).",
+    )
+
+    @model_validator(mode="after")
+    def _validate_mode_requires(self) -> "TriggerKalshiConfig":
+        if self.mode == "threshold" and self.threshold is None:
+            raise ValueError(
+                "trigger.kalshi: threshold is required when mode='threshold'"
+            )
+        return self
+
+
 class TriggerManualConfig(_Strict):
     """Manual trigger has no config; user clicks Run now."""
     pass

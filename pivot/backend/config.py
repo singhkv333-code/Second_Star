@@ -119,6 +119,22 @@ class Settings(BaseSettings):
     # query is negligible.
     polymarket_ws_reconcile_interval_s: int = 30
 
+    # --- Kalshi prediction-market trigger (trigger.kalshi) --------------------
+    # Sub-flag: boots a REST poll worker (asyncio task, NOT an APScheduler
+    # job) that drives the SAME venue-agnostic prediction-market evaluator
+    # the Polymarket path uses, firing active trigger.kalshi workflow steps
+    # via fire_external_event. Kalshi public market-data reads need no auth;
+    # the WS channel needs RSA-signed auth, so REST polling is the beta path.
+    # Master news_events flag must also be on. Default off.
+    kalshi_rest_enabled: bool = False
+    # How often the worker reconciles registrations + polls watched market
+    # prices. Kalshi unauth reads are generous (~20 req/s) and we batch by
+    # ticker, so 30s is brisk and well under any rate cap.
+    kalshi_rest_reconcile_interval_s: int = 30
+    # Public market-data base URL. The `.elections.` host is current
+    # canonical; api.kalshi.com is an alias.
+    kalshi_api_base_url: str = "https://api.elections.kalshi.com/trade-api/v2"
+
     # --- Scheduled macro-event triggers (trigger.scheduled_macro) -------------
     # Gates registration of the macro watcher poll loop
     # (_poll_scheduled_macro_triggers). Independent of news_events_enabled:

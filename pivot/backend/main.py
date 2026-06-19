@@ -330,6 +330,17 @@ async def startup():
                     )
 
                     start_polymarket_ws_worker()
+
+                # Kalshi prediction-market trigger. Long-lived asyncio
+                # task that polls the keyless Kalshi REST market-data API
+                # and drives the SAME evaluator. Idempotent + no-ops when
+                # no active trigger.kalshi steps exist.
+                if settings.kalshi_rest_enabled:
+                    from backend.news_events.workers.kalshi_rest_worker import (
+                        start_kalshi_rest_worker,
+                    )
+
+                    start_kalshi_rest_worker()
         logger.info(
             f"[{format_ist(now_ist())}] "
             f"Pivot backend started. Scheduler running on IST."

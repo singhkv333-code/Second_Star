@@ -288,6 +288,49 @@ async def resolve_polymarket_event_descriptions(raw: dict[str, Any]) -> None:
         step["config"] = cfg
 
 
+async def resolve_kalshi_event_descriptions(raw: dict[str, Any]) -> None:
+    """In-place resolve ``trigger.kalshi`` steps carrying only the
+    ``event_description`` escape hatch — the Kalshi sibling of
+    :func:`resolve_polymarket_event_descriptions`.
+
+    market_id + token_id already set → skip. event_description set + matcher
+    confidence ≥ 0.85 → fill market_id/token_id/side/question inline. Below
+    confidence → raise so the LLM calls ``propose_kalshi_trigger`` first.
+    """
+    steps = (raw or {}).get("steps") or []
+    if not isinstance(steps, list):
+        return
+    for idx, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        if step.get("step_type") != "trigger.kalshi":
+            continue
+        cfg = step.get("config") or {}
+        if cfg.get("market_id") and cfg.get("token_id"):
+            continue
+        desc = str(cfg.get("event_description") or "").strip()
+        if not desc:
+            continue
+        from backend.news_events.parsing.kalshi_match import (
+            match_event_to_kalshi_contract,
+        )
+        match = await match_event_to_kalshi_contract(desc)
+        if not match.matched or match.confidence < 0.85:
+            raise ProposalValidationError(
+                f"step {idx} (trigger.kalshi): kalshi contract ambiguous "
+                f"(matcher confidence {match.confidence:.2f} < 0.85). Call "
+                f"propose_kalshi_trigger first to nail the contract with the "
+                f"user, then emit this workflow with market_id + token_id + "
+                f"side inline on the trigger.kalshi step."
+            )
+        cfg["market_id"] = match.market_id
+        cfg["token_id"] = match.token_id
+        cfg["side"] = match.side or "YES"
+        if match.question and not cfg.get("question"):
+            cfg["question"] = match.question
+        step["config"] = cfg
+
+
 def _ensure_step_labels(draft: WorkflowDraft) -> None:
     """In-place: every step gets a human label from the registry.
 
@@ -829,6 +872,7 @@ async def _propose_via_llm(user_intent: str) -> WorkflowDraft:
     try:
         parsed = _extract_json(raw)
         await resolve_polymarket_event_descriptions(parsed)
+        await resolve_kalshi_event_descriptions(parsed)
         return validate_draft_against_registry(parsed)
     except ProposalValidationError as e:
         logger.info("propose_workflow LLM retry: %s", e)
@@ -841,6 +885,7 @@ async def _propose_via_llm(user_intent: str) -> WorkflowDraft:
         )
         retry_parsed = _extract_json(retry_raw)
         await resolve_polymarket_event_descriptions(retry_parsed)
+        await resolve_kalshi_event_descriptions(retry_parsed)
         return validate_draft_against_registry(retry_parsed)
 
 

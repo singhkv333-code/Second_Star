@@ -26,6 +26,7 @@ from backend.workflows.schemas import (
     TriggerIpoOpenConfig,
     TriggerManualConfig,
     TriggerMarketRelativeTimeConfig,
+    TriggerKalshiConfig,
     TriggerPolymarketConfig,
     TriggerScheduledMacroConfig,
     TriggerPriceConfig,
@@ -334,6 +335,43 @@ async def execute_trigger_polymarket(ctx: Any) -> Optional[dict[str, Any]]:
     exists purely so the engine can advance to step N+1 without
     needing a special trigger-step skip path.
     """
+    return None
+
+
+@register_step(
+    step_type="trigger.kalshi",
+    category="trigger",
+    label="On a Kalshi market",
+    description=(
+        "Fire when a Kalshi prediction market crosses a probability you "
+        "set, or settles."
+    ),
+    icon="trending-up",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerKalshiConfig,
+    group="Events & external",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "market_id": {"type": "string"},
+            "token_id": {"type": "string"},
+            "side": {"type": "string"},
+            "mode": {"type": "string"},
+            "fired_at_price": {"type": ["number", "null"]},
+            "fired_on_resolution_winner": {"type": ["string", "null"]},
+        },
+        "required": ["market_id", "token_id", "side", "mode"],
+    },
+)
+async def execute_trigger_kalshi(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the Kalshi REST poll worker
+    (``backend/news_events/workers/kalshi_rest_worker.py``) drives the
+    shared prediction-market evaluator and fires this trigger out-of-band
+    via ``fire_external_event``. By the time the engine reaches this
+    executor the run row already carries ``triggered_by='event_alert'``
+    and ``run.context['kalshi']`` holds the firing snapshot. Same pattern
+    as trigger.polymarket."""
     return None
 
 

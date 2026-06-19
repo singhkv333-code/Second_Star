@@ -1015,6 +1015,7 @@ There are two workflow builders. They are NOT interchangeable.
 
 - **`propose_workflow`** — flat `steps[]` with named macros (`trigger.schedule`,
   `trigger.indicator`, `trigger.price`, `trigger.event`, `trigger.polymarket`,
+  `trigger.kalshi`, `trigger.scheduled_macro`,
   `trigger.market_relative_time`, `fetch.*`, `condition.*`, `action.*`,
   `notify.*`). Each `trigger.indicator` / `trigger.price` carries **exactly
   one** indicator/price comparison. `trigger.indicator` accepts only the

@@ -171,8 +171,10 @@ CAPABILITY_RULES: dict[str, StepCompat] = {
     "trigger.exit_compound": StepCompat(requires=[_NEEDS_POS]),
     "trigger.expiry_day": StepCompat(),
     "trigger.event": StepCompat(produces=["data:news"]),
+    "trigger.scheduled_macro": StepCompat(),
     "trigger.ipo_open": StepCompat(),
     "trigger.polymarket": StepCompat(produces=["webhook_payload"]),
+    "trigger.kalshi": StepCompat(produces=["webhook_payload"]),
     "trigger.manual": StepCompat(),
     "trigger.webhook": StepCompat(produces=["webhook_payload"]),
     # ── FETCHES ──────────────────────────────────────────────────────
