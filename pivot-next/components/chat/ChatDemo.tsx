@@ -2227,8 +2227,10 @@ function ChatComposer({
       </div>
 
       {/* Mode pills — Automation / Agent / Backtest (extras kept). Quartr-styled
-          so they read as a quiet row rather than glassy chips. */}
-      <div className="flex items-center justify-center" style={{ gap: 8 }}>
+          so they read as a quiet row rather than glassy chips. On phone the row
+          scrolls horizontally (the four chips overflow a ~360px width); on sm+
+          it stays a static centered row. */}
+      <div className="composer-modes flex items-center justify-start gap-2 overflow-x-auto px-0.5 sm:justify-center sm:overflow-x-visible sm:px-0">
         {MODES.map((m) => {
           const Icon = m.icon;
           const isActive = mode === m.id;
@@ -2241,7 +2243,7 @@ function ChatComposer({
               data-active={isActive}
               aria-pressed={isActive}
               title={m.description}
-              className="inline-flex items-center"
+              className="inline-flex shrink-0 items-center"
               style={{
                 // Borderless mode pills — same active treatment as the
                 // sidebar nav: subtle elevated bg + ink text. No border.
@@ -2273,7 +2275,9 @@ function ChatComposer({
           );
         })}
         {/* Dummy entry point — opens the full-screen option chain (mock data). */}
-        <OptionChainLauncherCard variant="pill" />
+        <span className="shrink-0">
+          <OptionChainLauncherCard variant="pill" />
+        </span>
       </div>
     </div>
   );

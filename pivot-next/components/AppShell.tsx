@@ -944,6 +944,9 @@ function AccountMenu({
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(false);
+  // Phone + tablet (below the lg desktop breakpoint) have no physical
+  // keyboard, so the keyboard-shortcuts entry is hidden there.
+  const [hideShortcuts, setHideShortcuts] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const helpCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -953,6 +956,15 @@ function AccountMenu({
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(max-width: 639px)");
     const sync = (): void => setIsNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const sync = (): void => setHideShortcuts(mq.matches);
     sync();
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
@@ -1146,23 +1158,27 @@ function AccountMenu({
                     setOpen(false);
                   }}
                 />
-                <div
-                  aria-hidden={true}
-                  style={{
-                    height: 1,
-                    background: "var(--glass-border)",
-                    margin: "4px 6px",
-                  }}
-                />
-                <MenuItem
-                  icon={Keyboard}
-                  label="Keyboard shortcuts"
-                  onClick={() => {
-                    setHelpOpen(false);
-                    setOpen(false);
-                    onOpenShortcuts();
-                  }}
-                />
+                {!hideShortcuts && (
+                  <>
+                    <div
+                      aria-hidden={true}
+                      style={{
+                        height: 1,
+                        background: "var(--glass-border)",
+                        margin: "4px 6px",
+                      }}
+                    />
+                    <MenuItem
+                      icon={Keyboard}
+                      label="Keyboard shortcuts"
+                      onClick={() => {
+                        setHelpOpen(false);
+                        setOpen(false);
+                        onOpenShortcuts();
+                      }}
+                    />
+                  </>
+                )}
               </div>
             )}
           </div>

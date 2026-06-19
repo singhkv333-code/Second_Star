@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Sigma, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -59,23 +59,53 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
   const [expiry, setExpiry] = useState(EXPIRIES[1]!);
   const [greeksOn, setGreeksOn] = useState(false);
   const [basket, setBasket] = useState<BasketLeg[]>([]);
+  // Phone gets a redesigned, horizontally-scrollable chain (Groww/Sensibull
+  // style): the core CE·Strike·PE columns fit the viewport; turning Greeks on
+  // widens the row and scrolls sideways instead of crushing every column.
+  const [isPhone, setIsPhone] = useState(false);
+  // Touch has no hover, so Buy/Sell can't be hover-only — tapping a row opens
+  // a compact action bar beneath it (desktop keeps the hover B/S controls).
+  const [selStrike, setSelStrike] = useState<number | null>(null);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639.98px)");
+    const sync = (): void => setIsPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const rows = useMemo(() => buildChain(spot, 50, 9), [spot, expiry]);
   const atm = Math.round(spot / 50) * 50;
   const maxOi = useMemo(() => Math.max(...rows.flatMap((r) => [r.ce.oi, r.pe.oi]), 1), [rows]);
   if (!open) return null;
   const addLeg = (strike: number, type: OptType, side: Side, ltp: number): void => setBasket((p) => [...p, { strike, type, side, ltp }]);
   const dayDown = DAY_CHG_PCT < 0;
-  // Greeks-on columns are fully fluid (minmax(0,…fr)) so all 17 columns fit the
-  // width with NO horizontal scroll; greeks-off keeps a roomier core.
+
+  // Column templates. Desktop keeps the original fluid grid. Phone uses fixed
+  // widths in Greeks mode so the row has a deterministic intrinsic width that
+  // scrolls horizontally with every row aligned; in the default (no-Greeks)
+  // mode the core fits the viewport via minmax(px,1fr).
   const Gf = "minmax(0,0.72fr) minmax(0,0.72fr) minmax(0,0.82fr) minmax(0,0.72fr) minmax(0,0.62fr) minmax(0,0.58fr)";
   const coreTight = "minmax(0,1.3fr) minmax(0,1.28fr) minmax(0,0.8fr) minmax(0,1.28fr) minmax(0,1.3fr)";
   const coreWide = "minmax(120px,1.1fr) 120px 96px 120px minmax(120px,1.1fr)";
-  const cols = greeksOn ? `${Gf} ${coreTight} ${Gf.split(" ").reverse().join(" ")}` : coreWide;
+  const gPhone = "46px 46px 52px 46px 44px 44px";
+  const corePhoneCompact = "minmax(60px,1fr) minmax(56px,1fr) 52px minmax(56px,1fr) minmax(60px,1fr)";
+  const corePhoneGreeks = "70px 66px 56px 66px 70px";
+  let cols: string;
+  if (isPhone) {
+    cols = greeksOn
+      ? `${gPhone} ${corePhoneGreeks} ${gPhone.split(" ").reverse().join(" ")}`
+      : corePhoneCompact;
+  } else {
+    cols = greeksOn ? `${Gf} ${coreTight} ${Gf.split(" ").reverse().join(" ")}` : coreWide;
+  }
+  // When the row is wider than the viewport (phone + Greeks) let the table size
+  // to its content so all rows share one width and scroll together.
+  const scrollWide = isPhone && greeksOn;
   return (
     <ContentOverlay open={open} onClose={onClose} label="Option chain">
       <div className="flex h-full w-full flex-col bg-background">
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 px-6 py-3.5 lg:px-9">
-          <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-3 py-3 sm:px-6 sm:py-3.5 lg:gap-4 lg:px-9">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 sm:gap-x-3">
             <button type="button" className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 py-1.5 text-[13px] font-semibold tracking-tight text-foreground transition-colors hover:bg-muted/60">
               {underlying}
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
@@ -86,16 +116,16 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
               </select>
               <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
             </span>
-            <div className="ml-1 flex items-baseline gap-2">
-              <span className="text-[18px] font-semibold leading-none tracking-tight tabular-nums text-foreground">{spot.toLocaleString("en-IN")}</span>
-              <span className="text-[12px] font-medium tabular-nums" style={{ color: lossColor(DAY_CHG_PCT) }}>{dayDown ? "−" : "+"}{Math.abs(DAY_CHG_ABS).toFixed(2)} ({pct(DAY_CHG_PCT)})</span>
+            <div className="ml-0.5 flex items-baseline gap-1.5 sm:ml-1 sm:gap-2">
+              <span className="text-[15px] font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-[18px]">{spot.toLocaleString("en-IN")}</span>
+              <span className="text-[11.5px] font-medium tabular-nums sm:text-[12px]" style={{ color: lossColor(DAY_CHG_PCT) }}>{dayDown ? "−" : "+"}{Math.abs(DAY_CHG_ABS).toFixed(2)} ({pct(DAY_CHG_PCT)})</span>
             </div>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close option chain" onClick={onClose} className="rounded-full"><X className="h-4 w-4" aria-hidden="true" /></Button>
+          <Button variant="ghost" size="icon" aria-label="Close option chain" onClick={onClose} className="shrink-0 rounded-full"><X className="h-4 w-4" aria-hidden="true" /></Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <div>
-            <div className="sticky top-0 z-10 grid items-center gap-x-2 border-b border-border/50 bg-background/95 px-6 py-2.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 backdrop-blur lg:px-9" style={{ gridTemplateColumns: cols }}>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-auto">
+          <div className={scrollWide ? "w-max min-w-full" : undefined}>
+            <div className="sticky top-0 z-10 grid items-center gap-x-2 border-b border-border/50 bg-background/95 px-3 py-2.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 backdrop-blur sm:px-6 lg:px-9" style={{ gridTemplateColumns: cols }}>
               {greeksOn && <Th r>Rho</Th>}
               {greeksOn && <Th r>Vega</Th>}
               {greeksOn && <Th r>Gamma</Th>}
@@ -124,7 +154,7 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
                 <div key={r.strike}>
                   {isAtm && (
                     <div className="relative flex items-center justify-center py-2">
-                      <div className="absolute inset-x-6 h-px bg-gradient-to-r from-transparent via-foreground/25 to-transparent lg:inset-x-9" />
+                      <div className="absolute inset-x-3 h-px bg-gradient-to-r from-transparent via-foreground/25 to-transparent sm:inset-x-6 lg:inset-x-9" />
                       <span className="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-[11px] font-medium tabular-nums text-foreground shadow-sm">
                         <span className="h-1.5 w-1.5 rounded-full" style={{ background: lossColor(DAY_CHG_PCT) }} aria-hidden="true" />
                         {spot.toLocaleString("en-IN")}
@@ -133,7 +163,7 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
                       </span>
                     </div>
                   )}
-                  <div className={cn("group relative grid items-center gap-x-2 px-6 py-2.5 text-[12px] tabular-nums transition-colors lg:px-9", isAtm ? "bg-amber-50/60 dark:bg-amber-400/[0.06]" : "hover:bg-muted/40")} style={{ gridTemplateColumns: cols }}>
+                  <div onClick={isPhone ? () => setSelStrike((s) => (s === r.strike ? null : r.strike)) : undefined} className={cn("group relative grid items-center gap-x-2 px-3 py-2.5 text-[12px] tabular-nums transition-colors sm:px-6 lg:px-9", isPhone && "cursor-pointer select-none", isAtm ? "bg-amber-50/60 dark:bg-amber-400/[0.06]" : "hover:bg-muted/40")} style={{ gridTemplateColumns: cols }}>
                     {greeksOn && <Td r muted>{r.ce.rho.toFixed(2)}</Td>}
                     {greeksOn && <Td r muted>{r.ce.vega.toFixed(2)}</Td>}
                     {greeksOn && <Td r muted>{r.ce.gamma.toFixed(4)}</Td>}
@@ -154,6 +184,18 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
                     {greeksOn && <Td r muted>{r.pe.vega.toFixed(2)}</Td>}
                     {greeksOn && <Td r muted>{r.pe.rho.toFixed(2)}</Td>}
                   </div>
+                  {isPhone && selStrike === r.strike && (
+                    <div className="flex flex-wrap items-center gap-1.5 border-b border-border/50 bg-muted/40 px-3 py-2">
+                      <span className="mr-auto text-[11px] font-semibold tabular-nums text-foreground">
+                        {r.strike.toLocaleString("en-IN")}
+                        {isAtm && <span className="ml-1 text-[9px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">ATM</span>}
+                      </span>
+                      <PhoneAct label="Buy CE" tone="profit" onClick={() => { addLeg(r.strike, "CE", "BUY", r.ce.ltp); setSelStrike(null); }} />
+                      <PhoneAct label="Sell CE" tone="loss" onClick={() => { addLeg(r.strike, "CE", "SELL", r.ce.ltp); setSelStrike(null); }} />
+                      <PhoneAct label="Buy PE" tone="profit" onClick={() => { addLeg(r.strike, "PE", "BUY", r.pe.ltp); setSelStrike(null); }} />
+                      <PhoneAct label="Sell PE" tone="loss" onClick={() => { addLeg(r.strike, "PE", "SELL", r.pe.ltp); setSelStrike(null); }} />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -188,6 +230,19 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
   );
 }
 
+function PhoneAct({ label, tone, onClick }: { label: string; tone: "profit" | "loss"; onClick: () => void }): React.ReactElement {
+  const c = tone === "profit" ? "var(--color-profit)" : "var(--color-loss)";
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm active:scale-[0.97]"
+      style={{ background: c }}
+    >
+      {label}
+    </button>
+  );
+}
 function Th({ children, r, c }: { children: React.ReactNode; r?: boolean; c?: boolean }): React.ReactElement {
   return <span className={cn("min-w-0 truncate whitespace-nowrap", r && "text-right", c && "text-center", !r && !c && "text-left")}>{children}</span>;
 }
