@@ -150,6 +150,28 @@ _RULES: list[_Rule] = [
         "get_price_history",
     ),
 
+    # ── Single-stock PROFILE: sector / industry / business / promoter ──
+    # "what sector is X in", "which industry does X belong to", "what does
+    # X do", "company profile of X", "promoter holding of X", "who are the
+    # promoters of X", "shareholding / holding pattern of X". These are
+    # answered by fetch_fundamentals' enrichment fields (sector, industry,
+    # business_summary, promoter_holding_pct) — without a rule they fell to a
+    # toolset lacking fetch_fundamentals and the model declined.
+    _r(
+        r"\bwhat\s+(?:sector|industry)\b"
+        r"|\b(?:sector|industry)\s+(?:of|for|is|does|that)\b"
+        r"|\bwhich\s+(?:sector|industry)\b"
+        r"|\bwhat\s+does\s+\w+\s+(?:do|make|produce|sell)\b"
+        r"|\b(?:company\s+)?profile\s+(?:of|for)\b"
+        r"|\bwhat\s+(?:is|does)\s+\w+\s+(?:company|business)\b"
+        r"|\bpromoter(?:s)?\s+(?:holding|stake|ownership)\b"
+        r"|\b(?:holding|stake)\s+of\s+(?:the\s+)?promoters?\b"
+        r"|\bwho\s+(?:are|is|owns)\s+(?:the\s+)?promoters?\b"
+        r"|\bpromoter\s+holding\b"
+        r"|\b(?:share\s*holding|holding\s+pattern|ownership\s+pattern)\b",
+        "fetch_fundamentals", "get_symbol_news", "get_live_price",
+    ),
+
     # ── Company-specific news ────────────────────────────────────────
     _r(
         r"\b(?:recent|latest|any)\s+news\s+(?:on|about|for)?\s*\w+"
