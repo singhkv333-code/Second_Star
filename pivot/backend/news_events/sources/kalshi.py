@@ -198,15 +198,29 @@ async def get_market(ticker: str) -> Optional[KalshiSnapshot]:
 async def get_markets(tickers: list[str]) -> dict[str, KalshiSnapshot]:
     """Batch-fetch many markets in one call (rate-limit friendly).
     Returns {ticker -> snapshot} for those that parsed. Never raises."""
-    tks = [t.strip() for t in (tickers or []) if t and t.strip()]
+    tks = sorted({t.strip() for t in (tickers or []) if t and t.strip()})
     if not tks:
         return {}
-    params = {"tickers": ",".join(sorted(set(tks))), "limit": 1000}
+    if len(tks) > 1000:
+        # The endpoint caps at 1000 per call; we don't paginate in beta.
+        # Log the truncation rather than silently dropping watched markets.
+        logger.warning(
+            "[news_events.kalshi] get_markets watching %d tickers > 1000 "
+            "page cap; the tail will not be polled this tick", len(tks),
+        )
+        tks = tks[:1000]
+    params = {"tickers": ",".join(tks), "limit": 1000}
     try:
         async with _client() as client:
             resp = await client.get(f"{_base_url()}/markets", params=params)
     except httpx.HTTPError as exc:
         logger.warning("[news_events.kalshi] get_markets network error err=%s", exc)
+        return {}
+    if resp.status_code == 429:
+        # Rate-limited. Return empty → the worker skips this tick and
+        # retries after its (≥10s) interval — no hammering, no backoff loop.
+        logger.warning("[news_events.kalshi] get_markets rate-limited (429); "
+                       "skipping tick")
         return {}
     if resp.status_code != 200:
         logger.info("[news_events.kalshi] get_markets status=%s", resp.status_code)

@@ -76,7 +76,11 @@ _TABLE: dict[str, SourceOfTruth] = {
             "cpi", "consumer price", "retail inflation", "inflation",
         ),
         decision_kind="print",
-        pm_fallback_query="India CPI inflation",
+        # No PM fallback for CPI: a generic prediction-market query can't
+        # confirm the user's specific numeric threshold (met/not_met), so
+        # falling back would risk firing on the wrong comparison. Print
+        # kinds verify ONLY off the official figure.
+        pm_fallback_query=None,
         notes="Official figure is MOSPI; we read a Google-News CPI RSS "
         "query (MOSPI has no machine feed). Numeric figure compared to "
         "the user's threshold.",
@@ -89,7 +93,8 @@ _TABLE: dict[str, SourceOfTruth] = {
             "cpi", "consumer price", "inflation",
         ),
         decision_kind="print",
-        pm_fallback_query="US CPI inflation",
+        # See india_cpi: no PM fallback for numeric-threshold print kinds.
+        pm_fallback_query=None,
         notes="Official figure is BLS; we read a Google-News CPI RSS "
         "query (no clean BLS feed). Numeric figure compared to the "
         "user's threshold.",

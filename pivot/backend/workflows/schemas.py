@@ -543,6 +543,18 @@ class TriggerKalshiConfig(_Strict):
         "≥ 0.85; else it raises so the LLM calls propose_kalshi_trigger).",
     )
 
+    @field_validator("token_id")
+    @classmethod
+    def _validate_token_format(cls, v: str) -> str:
+        import re
+        if not re.match(r"^[^:]+:(YES|NO)$", v):
+            raise ValueError(
+                "trigger.kalshi: token_id must be '<ticker>:YES' or "
+                "'<ticker>:NO' (the synthesized per-side asset id the "
+                "matcher produces)"
+            )
+        return v
+
     @model_validator(mode="after")
     def _validate_mode_requires(self) -> "TriggerKalshiConfig":
         if self.mode == "threshold" and self.threshold is None:

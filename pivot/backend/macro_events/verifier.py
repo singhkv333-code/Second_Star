@@ -78,19 +78,41 @@ _PRINT_SYSTEM = (
 )
 
 
+# TOPIC keywords the evidence quote MUST mention, so a quote can't pass by
+# merely containing the bare decision verb ("cuts to growth forecasts" has
+# "cut" but no rate topic → rejected). Deliberately the SUBJECT of the
+# decision (rate/repo/policy), NOT the verb — the verb is what the LLM's
+# `decision` field already asserts; the evidence proves it's about the rate.
+_RATE_CONTEXT: tuple[str, ...] = (
+    "rate", "repo", "policy", "basis", "bps", "monetary", "interest",
+)
+_PRINT_CONTEXT: tuple[str, ...] = ("cpi", "inflation", "percent", "price", "%")
+
+
 def _norm(text: str) -> str:
     """Lower-case + collapse whitespace for the evidence-substring guard."""
     return re.sub(r"\s+", " ", (text or "").lower()).strip()
 
 
-def _evidence_supported(evidence: str, source_text: str) -> bool:
-    """The model's evidence quote must appear verbatim (whitespace- and
-    case-insensitive) in the fetched source text. Empty evidence fails.
-    This is the primary anti-hallucination defence."""
+def _evidence_supported(
+    evidence: str, source_text: str, context_keywords: tuple[str, ...],
+) -> bool:
+    """The model's evidence quote must (1) be a non-trivial phrase
+    (≥ 12 chars — not a single ambiguous word), (2) appear in the fetched
+    source text on WORD BOUNDARIES (so 'cut' can't match inside
+    'cutting'), and (3) actually mention a decision/context keyword (so a
+    real-but-unrelated sentence can't satisfy the guard). This is the
+    primary anti-hallucination defence — it fails closed."""
     ev = _norm(evidence)
-    if len(ev) < 4:  # too short to be meaningful evidence
+    if len(ev) < 12:  # an isolated word is not evidence of a decision
         return False
-    return ev in _norm(source_text)
+    if not any(k in ev for k in context_keywords):
+        return False
+    # Lookarounds (not \b) so a phrase ending in punctuation like "3.4%"
+    # still anchors correctly, while "cut" still can't match in "cutting".
+    return bool(
+        re.search(r"(?<!\w)" + re.escape(ev) + r"(?!\w)", _norm(source_text))
+    )
 
 
 async def _default_rss_fetch(source_id: str, feed_url: str) -> list:
@@ -141,13 +163,17 @@ def _parse_json(raw: str) -> Optional[dict[str, Any]]:
 
 
 def _matched_items(items: list, keywords: tuple[str, ...]) -> list:
-    """Filter RSS items to those whose title/summary contain a keyword,
+    """Filter RSS items to those whose title/summary contain a keyword on
+    WORD BOUNDARIES (so 'mpc' doesn't match inside another token),
     newest-first. Items are ``FetchedItem`` (title/summary/url)."""
     out = []
+    patterns = [
+        re.compile(r"(?<!\w)" + re.escape(k) + r"(?!\w)") for k in keywords
+    ]
     for it in items:
         hay = ((getattr(it, "title", "") or "") + " "
                + (getattr(it, "summary", "") or "")).lower()
-        if any(k in hay for k in keywords):
+        if any(p.search(hay) for p in patterns):
             out.append(it)
     return out
 
@@ -223,10 +249,12 @@ async def _verify_official(
         confidence = 0.0
     evidence = str(parsed.get("evidence", "") or "")
 
-    # Anti-hallucination gate: evidence must be verbatim in the source.
-    if not _evidence_supported(evidence, source_text):
+    # Anti-hallucination gate: evidence must be a real, on-topic phrase
+    # found verbatim (on word boundaries) in the source.
+    ctx = _RATE_CONTEXT if sot.decision_kind == "rate" else _PRINT_CONTEXT
+    if not _evidence_supported(evidence, source_text, ctx):
         return OutcomeResult.unknown(
-            reason="evidence quote not found in source text (guard tripped)",
+            reason="evidence quote not found / off-topic (guard tripped)",
             tier="llm",
         )
 

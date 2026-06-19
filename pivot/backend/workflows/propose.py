@@ -407,9 +407,12 @@ def _normalize_deprecated_steps(draft: WorkflowDraft) -> None:
 # through a trigger.* step.
 
 # Allow-listed `kind` values for the calendar-armed macro trigger
-# (trigger.scheduled_macro, registered in Slice 3). Unknown kinds are
-# rejected so the planner can't invent an unverifiable macro event.
-_ALLOWED_MACRO_KINDS = {"rbi_mpc", "us_fomc", "india_cpi", "us_cpi"}
+# (trigger.scheduled_macro). Derived from the macro source-of-truth table
+# so this gate, the calendar, and the verifier can never drift apart —
+# adding a kind there automatically allows it here.
+from backend.macro_events.source_of_truth import all_kinds as _macro_all_kinds
+
+_ALLOWED_MACRO_KINDS = frozenset(_macro_all_kinds())
 
 # Substring markers that mark a `trigger.event` ask as open-ended /
 # unverifiable / explicitly-out-of-scope for the beta. Matched against

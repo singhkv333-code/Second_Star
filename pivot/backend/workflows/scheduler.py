@@ -1622,6 +1622,32 @@ def _persist_macro_fired(
         db.close()
 
 
+def _clear_macro_fired(workflow_id: str, step_index: int) -> None:
+    """Remove the per-occurrence latch. Called when a fire was persisted
+    but ``fire_external_event`` did NOT create a run (e.g. the workflow
+    was paused/deactivated in the tiny window between persist and fire),
+    so the occurrence stays re-armable instead of being silently skipped
+    forever."""
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == step_index,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        cfg = dict(step.config or {})
+        if cfg.pop(_MACRO_FIRED_KEY, None) is not None:
+            step.config = cfg  # type: ignore[assignment]
+            db.commit()
+    finally:
+        db.close()
+
+
 def _scan_active_macro_triggers() -> list[tuple[str, int, dict[str, object]]]:
     """Return (workflow_id, step_index, config_copy) for every active
     workflow with a trigger.scheduled_macro step. Multi-trigger: every
@@ -1713,13 +1739,15 @@ async def _poll_scheduled_macro_triggers() -> None:
             if not result.matched:
                 logger.info(
                     "[watcher.macro] no fire wf=%s step=%d kind=%s "
-                    "expected=%s decision=%s tier=%s",
+                    "expected=%s decision=%s tier=%s reason=%s",
                     wf_id, step_idx, kind, expected,
                     result.decision, result.tier,
+                    (result.audit or {}).get("reason", ""),
                 )
                 continue
 
-            # Fire-once: persist the per-occurrence latch BEFORE firing.
+            # Fire-once: persist the per-occurrence latch BEFORE firing
+            # (at-most-once — a real order must never double-register).
             await asyncio.to_thread(
                 _persist_macro_fired, wf_id, step_idx, due.instance_key(),
             )
@@ -1740,6 +1768,16 @@ async def _poll_scheduled_macro_triggers() -> None:
                     **(result.audit or {}),
                 },
             )
+            if run_id is None:
+                # The fire didn't create a run (workflow paused/deactivated
+                # in the persist→fire window). Re-arm so the occurrence
+                # isn't silently lost.
+                await asyncio.to_thread(_clear_macro_fired, wf_id, step_idx)
+                logger.info(
+                    "[watcher.macro] fire produced no run wf=%s step=%d — "
+                    "latch cleared, will retry", wf_id, step_idx,
+                )
+                continue
             logger.info(
                 "[watcher.macro] fired wf=%s step=%d kind=%s outcome=%s "
                 "tier=%s run=%s",

@@ -90,6 +90,41 @@ async def test_evidence_guard_rejects_fabricated_quote() -> None:
     assert res.decision == "unknown"
 
 
+async def test_evidence_guard_rejects_offtopic_decision_word() -> None:
+    """LLM 'confirms' a cut, and its evidence quote IS in the source, but
+    the quote is about an unrelated 'cut' (to growth forecasts) — the
+    on-topic context-keyword + word-boundary guard must reject it."""
+    headline = ("MPC keeps the repo rate unchanged at 6.50% even as it "
+                "flags cuts to global growth forecasts")
+    res = await verify_macro_outcome(
+        "rbi_mpc", "cut",
+        rss_fetch=_rss([_item(headline)]),
+        llm_complete=_llm({
+            "decision": "cut", "confidence": 0.95,
+            # verbatim in source, but about growth forecasts, not the rate:
+            "evidence": "cuts to global growth forecasts",
+        }),
+        pm_search=_pm([]),
+    )
+    assert res.matched is False
+    assert res.decision == "unknown"
+
+
+async def test_evidence_guard_rejects_subword_match() -> None:
+    """A bare 'cut' inside 'cutting' must not satisfy the guard (too short
+    + word-boundary)."""
+    headline = "RBI is cutting through red tape; repo rate held at 6.50%"
+    res = await verify_macro_outcome(
+        "rbi_mpc", "cut",
+        rss_fetch=_rss([_item(headline)]),
+        llm_complete=_llm({
+            "decision": "cut", "confidence": 0.95, "evidence": "cut",
+        }),
+        pm_search=_pm([]),
+    )
+    assert res.matched is False
+
+
 async def test_low_confidence_does_not_fire() -> None:
     headline = "RBI cuts repo rate by 25 bps"
     res = await verify_macro_outcome(
