@@ -350,9 +350,89 @@ _PRETTY_FIELD_NAMES: dict[str, str] = {
     "side": "buy or sell",
     "exchange": "exchange (NSE / BSE)",
     "user_intent": "what you want the agent to do",
-    "interval": "timeframe (1m / 5m / 15m / 30m / 1h / daily / weekly / monthly)",
-    "timeframe": "timeframe (1m / 5m / 15m / 30m / 1h / daily / weekly / monthly)",
+    "interval": "timeframe",
+    "timeframe": "timeframe",
 }
+
+
+# ── Discrete-choice clarification → option WIDGET ───────────────────────────
+# Questions that are a choice between a small fixed set render as clickable
+# chips (a clarify_card), like claude.ai's question widget — NOT plain text.
+# Free-value asks (quantity, price, notional, dates) deliberately stay text:
+# there's nothing to enumerate. Two sources of options:
+#   1. _CLARIFY_OPTION_REGISTRY — fields with no schema enum but a known choice
+#      set (timeframe/interval).
+#   2. a field's schema `enum` (side, operator, indicator, sizing_mode, …) —
+#      turned into chips automatically.
+_CLARIFY_OPTION_REGISTRY: dict[str, list[tuple[str, str]]] = {
+    "interval": [
+        ("1m", "1-minute"), ("5m", "5-minute"), ("15m", "15-minute"),
+        ("30m", "30-minute"), ("1h", "Hourly"), ("1d", "Daily"),
+        ("1wk", "Weekly"), ("1mo", "Monthly"),
+    ],
+}
+_CLARIFY_OPTION_REGISTRY["timeframe"] = _CLARIFY_OPTION_REGISTRY["interval"]
+
+# Nicer human labels for common enum values so the chips read well.
+_ENUM_OPTION_LABELS: dict[str, str] = {
+    "buy": "Buy", "sell": "Sell",
+    "rsi": "RSI", "sma": "SMA", "ema": "EMA", "wma": "WMA", "macd": "MACD",
+    "<": "Falls below", ">": "Rises above",
+    "crosses_above": "Crosses above", "crosses_below": "Crosses below",
+    "fixed": "Fixed quantity", "pct_equity": "% of equity",
+    "vol_target": "Volatility target", "atr_risk": "ATR-based risk",
+    "indicator": "Technical indicator", "price": "Price level",
+    "NSE": "NSE", "BSE": "BSE",
+}
+
+
+def _clarify_options_for(mf: Optional[MissingField]) -> Optional[list[dict]]:
+    """Option chips for a discrete-choice missing field, or ``None`` when the
+    field is a free value (quantity/price/date) that should stay plain text."""
+    if mf is None:
+        return None
+    reg = _CLARIFY_OPTION_REGISTRY.get(mf.field_name)
+    if reg:
+        return [{"id": v, "label": lbl} for v, lbl in reg]
+    if mf.enum:
+        return [
+            {"id": str(v), "label": _ENUM_OPTION_LABELS.get(str(v), str(v))}
+            for v in mf.enum
+        ]
+    return None
+
+
+def _clarify_card_payload(mf: MissingField, prompt: str,
+                          options: list[dict]) -> dict:
+    """A single-question ``clarify_card`` the FE renders as clickable chips.
+
+    Exactly ONE question → the FE runs one-at-a-time mode, so a chip click
+    posts the option id as the next chat message, which the deterministic
+    PendingToolCall resume splices into the saved tool call. ``free_text`` keeps
+    typed answers (e.g. '15-minute') working through the same resume path.
+    """
+    return {
+        "_render_hint": "clarify_card",
+        # Discriminator: this is a SINGLE-FIELD completeness widget resumed via
+        # the deterministic PendingToolCall path — NOT the strategy N-of-M
+        # flow. chat_service._maybe_set_clarify_state skips it on this tag so it
+        # doesn't hijack the next reply into the strategy builder.
+        "_clarify_kind": "field",
+        "clarify": {
+            "session_slot_state": {},
+            "total": 1,
+            "index": 0,
+            "questions": [{
+                "id": f"q_{mf.field_name}",
+                "slot": mf.field_name,
+                "prompt": prompt,
+                "voi": 1.0,
+                "options": options,
+                "free_text": True,
+                "skippable": False,
+            }],
+        },
+    }
 
 
 # Strip "(e.g. ...)" / "(matches ...)" / parentheticals that read as
@@ -643,10 +723,21 @@ async def execute_with_completeness(
             # we only auto-resume on single-field cases — the others
             # need the LLM to figure out which value goes where.
             single_missing = report.missing[0] if len(report.missing) == 1 else None
+            # Discrete-choice asks (timeframe, side, indicator, sizing, …)
+            # render as an option WIDGET; free-value asks (quantity/price) stay
+            # text. A 1-question clarify_card → FE one-at-a-time → the chip click
+            # posts the option id, which the PendingToolCall resume splices in.
+            clarify_data: dict[str, Any] = {}
+            _opts = _clarify_options_for(single_missing)
+            if single_missing is not None and _opts:
+                clarify_data = _clarify_card_payload(
+                    single_missing, question, _opts,
+                )
             return GuardedToolResult(
                 name=tool_name, args=args,
                 needs_clarification=True,
                 question=question,
+                data=clarify_data,
                 latency_ms=int((time.monotonic() - started) * 1000),
                 missing_field=single_missing,
             )

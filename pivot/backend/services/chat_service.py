@@ -3967,6 +3967,12 @@ class ChatService:
         (no generator re-run). Cleared on a non-clarify clarification or by TTL.
         """
         data = guarded.data if isinstance(guarded.data, dict) else {}
+        # A single-field completeness widget (timeframe/side/…) tags itself
+        # '_clarify_kind=field' and resumes via the deterministic PendingToolCall
+        # path — it must NOT set a strategy ClarifyState, or the chip click would
+        # route into the strategy builder instead of splicing the tool arg.
+        if data.get("_clarify_kind") == "field":
+            return
         card = data.get("clarify") if data.get("_render_hint") == "clarify_card" else None
         if not isinstance(card, dict):
             return
