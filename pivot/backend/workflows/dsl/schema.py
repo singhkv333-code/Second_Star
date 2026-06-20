@@ -47,11 +47,14 @@ from typing import Annotated, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     field_validator,
     model_validator,
 )
+
+from backend.core.data.intervals import normalize_interval as _normalize_interval
 
 
 # ── Strict base — same rationale as workflows/schemas.py:_Strict ─────
@@ -158,14 +161,19 @@ class IndicatorNode(_Strict):
     symbol: str = Field(..., min_length=1, max_length=32)
     period: int = Field(..., ge=1, le=5000)
     exchange: str = Field(default="NSE", min_length=1, max_length=8)
-    timeframe: Literal["daily", "weekly"] = Field(
-        default="daily",
+    timeframe: Annotated[str, BeforeValidator(_normalize_interval)] = Field(
+        default="1d",
         description=(
-            "Bar timeframe the indicator is computed on. 'weekly' "
-            "resamples daily bars to W-FRI weekly closes (period counts "
-            "WEEKLY bars — RSI(14, weekly) needs ≥14 weeks of history). "
-            "Accessors that cannot serve weekly bars resolve the leaf "
-            "to UNKNOWN rather than silently downgrading to daily."
+            "Bar timeframe the indicator is computed on. Canonical set: "
+            "1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo; legacy aliases "
+            "'daily'/'weekly'/'day'/'week'/'60m'/'60minute' etc. are "
+            "normalized at validation time (default '1d'). 'period' is "
+            "always counted in BARS of the chosen interval — RSI(14, 15m) "
+            "needs ≥14 fifteen-minute bars; RSI(14, weekly) needs ≥14 "
+            "weekly bars. Intraday timeframes fetch native intraday bars "
+            "(via Kite where available, yfinance otherwise) rather than "
+            "resampling daily. Accessors that cannot serve an interval "
+            "resolve the leaf to UNKNOWN rather than silently downgrading."
         ),
     )
     component: Optional[str] = Field(

@@ -43,6 +43,11 @@ from backend.core.data.historical import (
     get_close_series,
     get_ohlcv,
 )
+from backend.core.data.intervals import (
+    default_period_for,
+    is_intraday,
+    normalize_interval,
+)
 from backend.core.indicators import momentum_indicators as mom
 from backend.core.indicators import trend_indicators as trend
 from backend.core.indicators import volatility_indicators as vol_ind
@@ -112,14 +117,19 @@ def get_indicator(
     indicator: str,
     period: int = 14,
     history_period: str = "6mo",
+    interval: str = "1d",
 ) -> dict[str, Any]:
     """Compute a single technical indicator for an NSE-listed ticker.
 
     Use for: "what's RELIANCE's RSI", "TCS 50-day SMA", "INFY MACD".
     `indicator` is keyed against a small alias table (rsi/sma/ema/macd/
     adx/supertrend/atr/bollinger/obv/vwap/cci/mfi/etc.). `period` is
-    passed through where applicable; ignored for indicators with
-    composite parameters (MACD/Bollinger/Supertrend use defaults).
+    counted in BARS of the chosen `interval` (RSI(14) on 15m = 14 fifteen-
+    minute bars), and is passed through where applicable; ignored for
+    indicators with composite parameters (MACD/Bollinger/Supertrend use
+    defaults). When `interval` is intraday and the caller did not override
+    `history_period`, the lookback is widened to the source's full rolling
+    window for that interval (e.g. 60d for 15m) — never silently downgraded.
     """
     sym = _normalise_symbol(symbol)
     key = (indicator or "").strip().lower()
@@ -130,8 +140,13 @@ def get_indicator(
             + ", ".join(sorted(_INDICATOR_TABLE.keys())),
             symbol=sym, indicator=indicator,
         )
+    norm_interval = normalize_interval(interval)
+    # Intraday with default lookback → grab the full rolling window for
+    # that interval, so e.g. RSI(14) on 15m has enough bars to settle.
+    if is_intraday(norm_interval) and history_period == "6mo":
+        history_period = default_period_for(norm_interval)
     try:
-        df = get_ohlcv(sym, period=history_period)
+        df = get_ohlcv(sym, period=history_period, interval=norm_interval)
     except DataUnavailableError as e:
         return _err(f"no data for {sym}: {e}", symbol=sym)
     except Exception as e:
@@ -152,6 +167,7 @@ def get_indicator(
 
     result = dict(result)
     result["symbol"] = sym
+    result["interval"] = norm_interval
     return result
 
 
@@ -159,19 +175,21 @@ def get_multiple_indicators(
     symbol: str,
     indicators: list[str],
     history_period: str = "6mo",
+    interval: str = "1d",
 ) -> dict[str, Any]:
     """Compute several indicators for one ticker in a single call.
 
     Use for: "give me RSI, MACD, and Bollinger for ETERNAL". Saves a
-    chat round-trip vs calling get_indicator three times.
+    chat round-trip vs calling get_indicator three times. All indicators
+    are computed on the same ``interval`` (period counts BARS of it).
     """
     sym = _normalise_symbol(symbol)
     if not indicators:
         return _err("indicators list is empty", symbol=sym)
-    results: dict[str, Any] = {"symbol": sym, "indicators": {}}
+    results: dict[str, Any] = {"symbol": sym, "indicators": {}, "interval": interval}
     for ind in indicators:
         results["indicators"][ind] = get_indicator(
-            sym, ind, history_period=history_period,
+            sym, ind, history_period=history_period, interval=interval,
         )
     return results
 

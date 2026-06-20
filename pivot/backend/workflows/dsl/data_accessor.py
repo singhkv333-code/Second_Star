@@ -269,11 +269,19 @@ class LiveDataAccessor:
         offset: int = 0,
         timeframe: str = "daily",
     ) -> Optional[float]:
+        from backend.core.data.intervals import (
+            default_period_for, is_intraday, normalize_interval,
+        )
         comp_key = component.lower() if component else None
-        tf = (timeframe or "daily").lower()
+        tf = normalize_interval(timeframe)
+        # Legacy daily/weekly branches keyed on the historical short labels
+        # so the cache key + branch shape stays identical for those paths.
+        legacy_label = (
+            "weekly" if tf == "1wk" else ("daily" if tf == "1d" else tf)
+        )
         cache_key = (
             "indicator", symbol.upper(), indicator.lower(),
-            int(period), exchange.upper(), comp_key, int(offset), tf,
+            int(period), exchange.upper(), comp_key, int(offset), legacy_label,
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
@@ -291,17 +299,32 @@ class LiveDataAccessor:
             self._call_cache[cache_key] = None
             return None
 
+        intraday = is_intraday(tf)
         # Weekly bars need ×5 the daily lookback so a period-N weekly
         # indicator clears the same min-history guard in WEEKLY bars.
-        eff_period = int(period or 0) * (5 if tf == "weekly" else 1)
+        # Intraday paths fetch native bars at the requested interval, so
+        # the eff_period multiplier only applies to the daily-resample
+        # weekly branch.
+        eff_period = int(period or 0) * (5 if tf == "1wk" else 1)
         try:
-            # P0 parity: window sized to the indicator period + offset (was a
-            # hardcoded "6mo" that silently starved any period > ~120 live).
-            bars = get_historical_ohlcv(
-                symbol,
-                period=period_for_indicator(eff_period, offset=int(offset)),
-                interval="1d",
-            ) or []
+            if intraday:
+                # Intraday: pull the full rolling window the source serves
+                # at the requested interval (e.g. 60d of 15-min bars), then
+                # compute the indicator on those native bars. Never resample
+                # daily — that would silently change the timeframe semantics.
+                bars = get_historical_ohlcv(
+                    symbol,
+                    period=default_period_for(tf, has_kite=True),
+                    interval=tf,
+                ) or []
+            else:
+                # P0 parity: window sized to the indicator period + offset (was a
+                # hardcoded "6mo" that silently starved any period > ~120 live).
+                bars = get_historical_ohlcv(
+                    symbol,
+                    period=period_for_indicator(eff_period, offset=int(offset)),
+                    interval="1d",
+                ) or []
         except Exception as exc:  # noqa: BLE001
             logger.info(
                 "[dsl.data_accessor] historical fetch failed for %s: %s",
@@ -310,13 +333,22 @@ class LiveDataAccessor:
             self._call_cache[cache_key] = None
             return None
 
-        if tf == "weekly":
+        if tf == "1wk":
             df = resample_daily_bars_to_weekly(bars)
             if df is None or len(df) < max(int(period or 0) + 5, 20) + int(offset):
                 # Honest UNKNOWN — not enough WEEKLY bars; never serve a
                 # daily value under a weekly label.
                 self._call_cache[cache_key] = None
                 return None
+        elif intraday:
+            # Same minimum-history guard applied to native intraday bars —
+            # 'period' is counted in BARS of the chosen interval. If the
+            # source returned nothing (e.g. yfinance can't serve 3m/10m and
+            # there's no Kite session), the leaf resolves UNKNOWN honestly.
+            if len(bars) < max(int(period or 0) + 5, 20) + int(offset):
+                self._call_cache[cache_key] = None
+                return None
+            df = pd.DataFrame(bars)
         else:
             # Same minimum-history guard the watcher's
             # _compute_indicator_sync uses. Below this floor the indicator

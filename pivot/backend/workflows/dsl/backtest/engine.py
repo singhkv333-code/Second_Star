@@ -95,6 +95,7 @@ def run_backtest(
 
     loaded = load_bars(
         tree, start=request.start_date, end=request.end_date, fetcher=fetcher,
+        interval=request.interval,
     )
 
     primary_key = (request.primary_symbol, request.exchange)
@@ -485,7 +486,15 @@ def _size_position(st: _SimState, entry_idx: int, price: float) -> int:
         )
         if len(rets) < 2:
             return fallback
-        ann_vol = float(rets.std(ddof=1)) * (252.0 ** 0.5)
+        # Annualisation factor in BARS of the request's interval — daily
+        # stays 252, weekly 52, monthly 12, intraday = 252 × bars/session.
+        # The hardcoded 252**0.5 mis-stated vol for non-daily backtests.
+        # ``getattr`` keeps the unit-test stub (SimpleNamespace request) and
+        # any legacy caller without the new field working — they fall back
+        # to daily.
+        from backend.core.data.intervals import bars_per_year
+        _bpy = bars_per_year(getattr(st.request, "interval", "1d"))
+        ann_vol = float(rets.std(ddof=1)) * (_bpy ** 0.5)
         if ann_vol <= 1e-9:
             return 0
         notional = min(equity * (sizing.target_vol / ann_vol), equity)

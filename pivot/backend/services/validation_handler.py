@@ -298,6 +298,42 @@ class GuardedToolResult:
 
 import re as _re
 
+# Tools whose indicator timeframe is REQUIRED and must be the user's choice.
+# The model tends to guess "daily" when the user never named a timeframe; for
+# these tools we drop a guessed interval (below) so the completeness gate asks
+# and the reply resumes deterministically — honouring the "always ask the
+# interval" product rule without trusting the LLM to omit the field.
+_INTERVAL_GATED_TOOLS: frozenset[str] = frozenset({
+    "get_indicator",
+    "get_multiple_indicators",
+    "backtest_dsl_tree",
+    "propose_threshold_order",
+    "propose_dsl_workflow",
+})
+
+# Explicit timeframe mentions in the user's own words. Deliberately specific to
+# avoid false positives — "50-day SMA" must NOT count as naming a timeframe
+# (it's a period, not an interval), so bare "day" after a number is excluded;
+# only "daily"/"weekly"/"<n>min"/"<n>h"/"hourly"/"on the X chart"/etc. count.
+_INTERVAL_MENTION_RE = _re.compile(
+    r"""(?ix)
+    \b(?:
+        daily | weekly | monthly | intraday | hourly |
+        end[\s-]?of[\s-]?day | eod |
+        \d{1,3}\s*-?\s*(?:m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b |
+        (?:1m|3m|5m|10m|15m|30m|60m|1h|1d|1wk|1mo) |
+        on\s+the\s+[\w-]+\s+chart |
+        [\w-]+\s+timeframe |
+        [\w-]+\s+bars
+    )\b
+    """
+)
+
+
+def _message_names_interval(text: str) -> bool:
+    """True when the user's message explicitly names a bar timeframe."""
+    return bool(text) and bool(_INTERVAL_MENTION_RE.search(text))
+
 # Field-name → user-friendly label. Used when the schema's `description`
 # is too schema-explainer-y to leak into a chat reply (e.g. propose_workflow's
 # `name` field carries "Short workflow title (e.g. 'Weekly NIFTYBEES buy')."
@@ -314,6 +350,8 @@ _PRETTY_FIELD_NAMES: dict[str, str] = {
     "side": "buy or sell",
     "exchange": "exchange (NSE / BSE)",
     "user_intent": "what you want the agent to do",
+    "interval": "timeframe (1m / 5m / 15m / 30m / 1h / daily / weekly / monthly)",
+    "timeframe": "timeframe (1m / 5m / 15m / 30m / 1h / daily / weekly / monthly)",
 }
 
 
@@ -382,7 +420,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
 
     # Type hints we don't surface — they read as schema-explainer
     # noise to a chat user ("what's the trigger condition? (object)").
-    _NOISE_HINTS = {"value", "object", "list of value", "yes/no"}
+    _NOISE_HINTS = {"value", "object", "list of value", "yes/no", "text"}
 
     def _hint(m: MissingField) -> str:
         if not m.type_hint or m.type_hint in _NOISE_HINTS:
@@ -544,6 +582,26 @@ async def execute_with_completeness(
             data=result.get("data") or {},
             latency_ms=latency,
         )
+
+    # Interval gate (always-ask rule). For indicator/backtest tools the
+    # timeframe is REQUIRED and must be the user's choice. The model often
+    # guesses 'daily' when the user never named a timeframe, which would
+    # silently skip the ask. So when the user's message does NOT name a
+    # timeframe, drop any guessed interval here — the completeness check then
+    # asks "which timeframe?" and the reply resumes deterministically. On the
+    # resume turn the user_message IS their answer (e.g. "15-minute"), which
+    # names an interval, so the spliced value is kept and the tool runs.
+    _tf_named = _message_names_interval(user_message)
+    if tool_name in _INTERVAL_GATED_TOOLS and not _tf_named:
+        if "interval" in args or "timeframe" in args:
+            args = {k: v for k, v in args.items()
+                    if k not in ("interval", "timeframe")}
+    # propose_workflow buries the timeframe inside its step tree, so we can't
+    # strip a top-level arg. Pass the "did the user name a timeframe?" signal
+    # down as a private flag; the handler raises-to-ask if it builds an
+    # indicator trigger without one.
+    if tool_name == "propose_workflow":
+        args = {**args, "_user_named_timeframe": _tf_named}
 
     # Look up the schema for the chosen tool.
     schema = _schema_for_tool(tool_name)

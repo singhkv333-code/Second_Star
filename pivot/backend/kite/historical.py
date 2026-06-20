@@ -18,6 +18,11 @@ from typing import Optional
 
 from backend.brokers.sessions import get_active_kite_session
 from backend.cache import get_redis
+from backend.core.data.intervals import (
+    kite_lookback_days,
+    normalize_interval,
+    to_kite,
+)
 from backend.database import SessionLocal
 from backend.kite.auth import (
     KITE_MOCK_MODE,
@@ -148,11 +153,38 @@ def get_kite_historical(
     if KITE_MOCK_MODE:
         return None
 
-    if period not in _PERIOD_MAP:
-        logger.warning("kite_historical: unknown period %r — using 1y", period)
-        period = "1y"
-    span, default_interval = _PERIOD_MAP[period]
-    use_interval = interval or default_interval
+    # Resolve the lookback span. Accept the legacy _PERIOD_MAP keys plus the
+    # bare 'Nd' day-spans that default_period_for() emits for intraday
+    # intervals (e.g. '60d', '200d') — those aren't _PERIOD_MAP keys but are a
+    # valid lookback request, so parse them instead of warning + defaulting.
+    if period in _PERIOD_MAP:
+        span, default_interval = _PERIOD_MAP[period]
+    else:
+        _p = (period or "").strip().lower()
+        if _p.endswith("d") and _p[:-1].isdigit():
+            span, default_interval = timedelta(days=int(_p[:-1])), "day"
+        else:
+            logger.warning("kite_historical: unknown period %r — using 1y", period)
+            span, default_interval = _PERIOD_MAP["1y"]
+
+    # Resolve interval. If the caller passed an explicit canonical interval,
+    # normalise and translate to Kite's string; if Kite cannot serve it
+    # (e.g. '1mo'), return None so the caller falls back honestly. When no
+    # interval is given, keep the legacy period-keyed default unchanged.
+    if interval is not None:
+        canonical = normalize_interval(interval)
+        kite_interval = to_kite(canonical)
+        if kite_interval is None:
+            return None
+        use_interval = kite_interval
+        # Clamp the lookback span to Kite's OWN per-interval cap (not the
+        # cross-source max) so an intraday request never asks Kite for more
+        # days than it will actually serve.
+        cap_days = kite_lookback_days(canonical)
+        if cap_days is not None:
+            span = min(span, timedelta(days=cap_days))
+    else:
+        use_interval = default_interval
 
     # Cache hit?
     cache_key_str = (

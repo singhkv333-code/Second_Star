@@ -286,19 +286,56 @@ def _parse_period(period: Optional[str], start_date: Optional[str],
 # ---------------------------------------------------------------------------
 # Data fetching
 # ---------------------------------------------------------------------------
-def _fetch_ohlcv(symbol: str, start: date, end: date) -> pd.DataFrame:
-    """Daily OHLCV for the inclusive [start, end] window with lowercase
-    columns [open, high, low, close, volume]."""
+def _fetch_ohlcv(
+    symbol: str, start: date, end: date, *, interval: str = "1d",
+) -> pd.DataFrame:
+    """OHLCV for the inclusive [start, end] window at ``interval`` with
+    lowercase columns [open, high, low, close, volume].
+
+    Daily (``interval='1d'``) is unchanged. For intraday intervals the
+    canonical value is mapped via ``to_yfinance`` (returns ``None`` if
+    yfinance can't serve it — honest empty raise rather than silently
+    downgrading to a different timeframe) and the start date is clamped
+    to yfinance's rolling intraday cap so the request stays valid.
+    """
+    from backend.core.data.intervals import (
+        max_lookback_days,
+        normalize_interval,
+        to_yfinance,
+    )
+
+    norm = normalize_interval(interval)
+    yf_interval = to_yfinance(norm)
+    if yf_interval is None:
+        # Honest boundary — yfinance doesn't serve 3m / 10m; refuse rather
+        # than silently downgrade. Engine surfaces the error.
+        raise ValueError(
+            f"yfinance cannot serve interval {norm!r} for {symbol}"
+        )
+
     resolved = resolve_symbol(symbol)
     yf_end = end + timedelta(days=1)
+
+    # Clamp the start date for intraday so we stay inside yfinance's rolling
+    # window (e.g. 60d for 15m bars). yfinance rejects any intraday range
+    # WIDER than the cap, and ``yf_end`` is the exclusive end + 1 day, so we
+    # measure the window from ``yf_end`` and leave a 1-day margin to keep the
+    # span strictly under the cap. Daily/weekly/monthly are unbounded and
+    # unchanged.
+    fetch_start = start
+    cap_days = max_lookback_days(norm, has_kite=False)
+    if cap_days is not None:
+        earliest = yf_end - timedelta(days=int(cap_days) - 1)
+        if fetch_start < earliest:
+            fetch_start = earliest
     df = yf.Ticker(resolved).history(
-        start=start.isoformat(), end=yf_end.isoformat(),
-        interval="1d", auto_adjust=True,
+        start=fetch_start.isoformat(), end=yf_end.isoformat(),
+        interval=yf_interval, auto_adjust=True,
     )
     if (df is None or df.empty) and resolved.endswith(".NS"):
         df = yf.Ticker(resolved[:-3]).history(
-            start=start.isoformat(), end=yf_end.isoformat(),
-            interval="1d", auto_adjust=True,
+            start=fetch_start.isoformat(), end=yf_end.isoformat(),
+            interval=yf_interval, auto_adjust=True,
         )
     if df is None or df.empty:
         raise ValueError(f"No historical data for {symbol} ({resolved})")

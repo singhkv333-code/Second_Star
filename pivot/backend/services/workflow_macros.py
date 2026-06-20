@@ -305,13 +305,16 @@ def hydrate_threshold_order(
     threshold: float,
     indicator: Optional[Literal["rsi", "sma", "ema"]] = None,
     indicator_period: Optional[int] = None,
+    timeframe: Optional[str] = None,
     sl_pct: Optional[float] = None,
     requires_approval: bool = False,
 ) -> dict[str, Any]:
     """'buy 10 INFY when RSI < 30' / 'sell 5 RELIANCE when price > 2800'.
 
     Yields trigger.{indicator|price} → action.place_order, plus
-    action.set_stoploss when sl_pct is given.
+    action.set_stoploss when sl_pct is given. For indicator triggers the
+    ``timeframe`` (bar interval) is REQUIRED — like ``quantity`` it must be
+    the user's choice, never a silent daily default.
     """
     if quantity is not None and notional_inr is not None:
         raise ValueError(
@@ -341,6 +344,19 @@ def hydrate_threshold_order(
                 "threshold_order: indicator required when "
                 "trigger_kind='indicator'"
             )
+        # Timeframe is never a silent default (same rule as quantity). If the
+        # user didn't name one, the chat loop has already stripped any guessed
+        # value — raise so the LLM asks 'which timeframe?' before building.
+        if not timeframe:
+            raise ValueError(
+                "threshold_order: timeframe (bar interval) is required for an "
+                "indicator trigger. Call ASK_USER first: ask the user 'Which "
+                "timeframe — 1m / 5m / 15m / 30m / 1h / daily / weekly / "
+                "monthly?'. Do NOT default to daily — the indicator period "
+                "counts BARS of the chosen interval."
+            )
+        from backend.core.data.intervals import normalize_interval
+        tf = normalize_interval(timeframe)
         period = indicator_period or {"rsi": 14, "sma": 50, "ema": 50}[indicator]
         trigger_step = {
             "step_type": "trigger.indicator",
@@ -354,6 +370,7 @@ def hydrate_threshold_order(
                 "period": int(period),
                 "operator": operator,
                 "value": float(threshold),
+                "timeframe": tf,
             },
         }
         trigger_label = (

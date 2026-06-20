@@ -41,6 +41,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
+from backend.core.data.intervals import normalize_interval
 from backend.workflows.dsl.data_accessor import DataAccessor
 from backend.workflows.dsl.schema import (
     AggregateNode,
@@ -141,16 +142,26 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
             component=node.component,
             offset=node.offset + _additional_offset(),
         )
-        tf = (getattr(node, "timeframe", None) or "daily").lower()
-        if tf != "daily":
-            # Honest-boundary rule: an accessor that doesn't support the
-            # timeframe kwarg CANNOT serve weekly bars — resolve to
-            # UNKNOWN (None) instead of silently downgrading to daily.
+        # ``timeframe`` is normalised at the schema layer to a canonical
+        # interval string (``'1d'`` / ``'1wk'`` / ``'15m'`` / ...).
+        # Treat the daily default as silent so legacy accessors whose
+        # ``get_indicator`` has no ``timeframe`` kwarg keep working
+        # unchanged. For any non-daily interval, pass the kwarg through;
+        # an accessor that doesn't accept it cannot serve that interval,
+        # so resolve to UNKNOWN (None) rather than silently downgrading.
+        tf = normalize_interval(getattr(node, "timeframe", None))
+        if tf != "1d":
             try:
                 return accessor.get_indicator(timeframe=tf, **_ind_kw)
             except TypeError:
                 return None
-        return accessor.get_indicator(**_ind_kw)
+        try:
+            return accessor.get_indicator(timeframe=tf, **_ind_kw)
+        except TypeError:
+            # Legacy accessor without ``timeframe`` kwarg — fall back to
+            # the original signature. Safe only for the daily default,
+            # which is what callers were getting before the refactor.
+            return accessor.get_indicator(**_ind_kw)
     if isinstance(node, VolumeNode):
         return accessor.get_volume(
             symbol=node.symbol,

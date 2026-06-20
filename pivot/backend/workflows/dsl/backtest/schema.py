@@ -9,7 +9,9 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
+
+from backend.core.data.intervals import normalize_interval
 
 
 class _Strict(BaseModel):
@@ -213,6 +215,20 @@ class BacktestRequest(_Strict):
         description=(
             "Persist the result to dsl_backtest_runs so it can be "
             "fetched later via GET /api/backtest/dsl/runs/{id}."
+        ),
+    )
+    interval: Annotated[str, BeforeValidator(normalize_interval)] = Field(
+        default="1d",
+        description=(
+            "Bar interval the backtest runs on. Canonical set: "
+            "1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo; legacy aliases "
+            "'daily'/'weekly'/'day'/'week'/'60m'/'60minute' etc. are "
+            "normalized at validation time (default '1d'). The whole "
+            "engine — bar loader, indicator periods, vol annualisation — "
+            "is counted in BARS of this interval. Intraday intervals "
+            "have shallow rolling lookbacks (yfinance: 1m→7d, 5/15/30m→60d, "
+            "1h→730d) and the caller is expected to clamp the date "
+            "window accordingly."
         ),
     )
 

@@ -113,6 +113,7 @@ class BacktestDataAccessor:
         exchange: str = "NSE",
         component: Optional[str] = None,
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
         """Value of ``indicator(period)`` at bar ``as_of_idx - offset``.
 
@@ -123,7 +124,16 @@ class BacktestDataAccessor:
         ``None`` keeps the default series. ``offset > 0`` reads bars in
         the past — still inside the no-lookahead envelope because we
         never reach beyond ``as_of_idx``.
+
+        ``timeframe`` is accepted (and normalized) so intraday / weekly
+        DSL nodes no longer raise TypeError → UNKNOWN here; the backtest
+        bars are already loaded at the run's chosen interval, so 'period'
+        is implicitly counted in BARS of those bars. We do not refetch.
         """
+        # Normalize for forward compat; the value is informational here
+        # since the loaded backtest series is already at the run interval.
+        from backend.core.data.intervals import normalize_interval
+        _ = normalize_interval(timeframe)
         df = self._df_for(symbol, exchange)
         if df is None:
             return None
