@@ -39,7 +39,30 @@ class Settings(BaseSettings):
     kite_api_secret: str = ""
     # Phase 0: token encryption at rest. Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Used for ALL broker secrets at rest (kite/dhan/fyers access+refresh+api
+    # secret+totp). Named kite_* for env back-compat; broker_token_enc_key is an
+    # accepted alias below.
     kite_token_enc_key: str = ""
+
+    # --- Multi-broker onboarding (brokers/) -----------------------------------
+    # Dhan is the "clean unattended" broker: a 12-month app api key+secret lets
+    # the backend silently mint a fresh daily access token (with the user's TOTP)
+    # — no daily human re-login. Leave blank to keep the Dhan connector in mock
+    # mode. partner_* are for the Dhan OAuth "Login with Dhan" partner flow.
+    dhan_api_key: str = ""
+    dhan_api_secret: str = ""
+    dhan_partner_id: str = ""
+    dhan_partner_secret: str = ""
+    # Alias accepted from env; falls back to kite_token_enc_key when unset.
+    broker_token_enc_key: str = ""
+
+    # Server-side auto-execution master flag. When False, workflow-triggered
+    # orders are PREPARED (register-not-execute) but not fired by the server.
+    # Going live for OTHER users requires NSE/BSE algo-provider empanelment;
+    # the account owner's own account is a legitimate self-developed algo and
+    # is gated by broker_auto_exec_user_ids (comma-separated user ids).
+    auto_execute_enabled: bool = False
+    broker_auto_exec_user_ids: str = ""
 
     # AI
     openai_api_key: str = ""
@@ -164,6 +187,23 @@ class Settings(BaseSettings):
     @property
     def allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",")]
+
+    @property
+    def token_enc_key(self) -> str:
+        """The Fernet key for at-rest broker secrets. Prefers the broker_*
+        alias, falls back to the legacy kite_* env name."""
+        return (self.broker_token_enc_key or self.kite_token_enc_key or "").strip()
+
+    @property
+    def auto_exec_user_ids(self) -> set[int]:
+        """User ids allowed to run server-side auto-execution (own-account
+        pilot) before NSE/BSE empanelment broadens it."""
+        out: set[int] = set()
+        for part in (self.broker_auto_exec_user_ids or "").split(","):
+            part = part.strip()
+            if part.isdigit():
+                out.add(int(part))
+        return out
 
     class Config:
         env_file = _ENV_FILE
