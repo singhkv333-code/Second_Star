@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from backend.brokers.base import BrokerConnector
 from backend.brokers.dhan import DhanConnector
+from backend.brokers.fyers import FyersConnector
 from backend.brokers.kite import KiteConnector
 
 # Instantiate each connector exactly once. Stateless, so a module-level
@@ -19,10 +20,11 @@ from backend.brokers.kite import KiteConnector
 _CONNECTORS: dict[str, BrokerConnector] = {
     "kite": KiteConnector(),
     "dhan": DhanConnector(),
+    "fyers": FyersConnector(),
 }
 
 # Stable display/order for the FE broker picker.
-SUPPORTED_BROKERS: list[str] = ["kite", "dhan"]
+SUPPORTED_BROKERS: list[str] = ["kite", "dhan", "fyers"]
 
 
 def get_connector(broker: str) -> BrokerConnector:

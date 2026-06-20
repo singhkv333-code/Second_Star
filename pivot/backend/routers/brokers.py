@@ -143,6 +143,10 @@ def _broker_entry(connector, session: BrokerSession | None) -> dict:
             info["persistence_kind"], "value", info["persistence_kind"]
         )),
         "supports_unattended": info["supports_unattended"],
+        # supports_oauth is a BrokerInfo field (default False) the FE uses to
+        # classify OAuth brokers (Kite, later Fyers). Read off the instance so
+        # it surfaces even before the dataclass field lands in every build.
+        "supports_oauth": bool(getattr(connector.info, "supports_oauth", False)),
         "needs_api_key": info["needs_api_key"],
         "accent": info["accent"],
         "blurb": info["blurb"],
@@ -170,7 +174,14 @@ class CredentialsBody(BaseModel):
     client_id: str | None = None
     pin: str | None = None
     totp_secret: str | None = None
+    # Kite advanced "stay connected" opt-in: the user's Kite account password,
+    # stored ENCRYPTED (never logged) and used only to replay the daily login.
+    password: str | None = None
     access_token: str | None = None
+    # Fyers OAuth code / refresh-token paste path.
+    auth_code: str | None = None
+    refresh_token: str | None = None
+    fy_id: str | None = None
     auto_login_opt_in: bool = False
 
 
@@ -323,6 +334,7 @@ def _handle_broker_callback(
     status: str | None,
     token_id: str | None,
     db: Session,
+    auth_code: str | None = None,
 ):
     """Public callback hit by the broker after the user logs in. No auth header
     is available, so the caller is identified via the signed state JWT we issued
@@ -352,6 +364,8 @@ def _handle_broker_callback(
         payload["request_token"] = request_token
     if token_id:
         payload["tokenId"] = token_id
+    if auth_code:  # Fyers OAuth redirect (?auth_code=… or ?code=…)
+        payload["auth_code"] = auth_code
     try:
         connector.complete_auth(db, user.id, payload)
     except Exception as exc:
@@ -370,10 +384,15 @@ def broker_callback(
     state: str | None = Query(None),
     status: str | None = Query(None),
     tokenId: str | None = Query(None),
+    auth_code: str | None = Query(None),
+    code: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Broker OAuth redirect target (canonical path under /brokers/{broker})."""
-    return _handle_broker_callback(broker, request_token, state, status, tokenId, db)
+    return _handle_broker_callback(
+        broker, request_token, state, status, tokenId, db,
+        auth_code=auth_code or code,
+    )
 
 
 @callback_alias_router.get("/callback")
@@ -382,9 +401,14 @@ def broker_callback_alias(
     state: str | None = Query(None),
     status: str | None = Query(None),
     tokenId: str | None = Query(None),
+    auth_code: str | None = Query(None),
+    code: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Same as GET /brokers/{broker}/callback. Mounted at /callback for OAuth
     brokers (Kite) whose configured Redirect URL is ``<host>/callback``. The
     broker is identified from the signed state JWT."""
-    return _handle_broker_callback(None, request_token, state, status, tokenId, db)
+    return _handle_broker_callback(
+        None, request_token, state, status, tokenId, db,
+        auth_code=auth_code or code,
+    )

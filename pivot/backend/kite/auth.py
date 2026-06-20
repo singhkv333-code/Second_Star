@@ -116,6 +116,131 @@ def generate_totp(totp_secret: str) -> str:
     return totp.now()
 
 
+# Kite web-login (the same flow the browser performs) — used ONLY for the
+# opt-in unattended TOTP login replay. Endpoints are stable & documented across
+# the community (kite.zerodha.com is the web client's own backend).
+_KITE_WEB_LOGIN = "https://kite.zerodha.com/api/login"
+_KITE_WEB_TWOFA = "https://kite.zerodha.com/api/twofa"
+_KITE_WEB_TIMEOUT = 12  # seconds
+
+
+def totp_login(kite_user_id: str, password: str, totp_secret: str) -> str:
+    """Replay the Kite web-login flow to mint a fresh ``request_token`` with no
+    manual step — the engine behind the opt-in "stay connected" path.
+
+    Steps (all on one cookie-bearing ``requests.Session``):
+      1. POST /api/login  {user_id, password}            -> data.request_id
+      2. POST /api/twofa  {user_id, request_id, twofa_value=<current TOTP>,
+                           twofa_type="totp"}             -> sets the auth cookie
+      3. GET  /connect/login?api_key=...&v=3 (follow redirects) -> the final
+         redirected URL (or a Location header) carries ?request_token=...
+
+    Returns the ``request_token`` string; the caller exchanges it for an
+    access_token via :func:`exchange_request_token`. Raises
+    :class:`backend.brokers.base.NeedsManualLogin` with a clear, secret-free
+    message on any failure. NEVER logs ``password`` or ``totp_secret``.
+    """
+    # Imported here (and from base lazily) to keep auth.py importable in mock
+    # mode / minimal installs that don't carry ``requests``.
+    from backend.brokers.base import NeedsManualLogin
+
+    try:
+        import requests  # type: ignore
+    except ImportError as exc:  # pragma: no cover - exercised only sans requests
+        raise RuntimeError(
+            "the `requests` package is required for Kite TOTP auto-login; "
+            "run `pip install requests`"
+        ) from exc
+
+    from urllib.parse import urlparse, parse_qs
+
+    if not (kite_user_id and password and totp_secret):
+        raise NeedsManualLogin(
+            "Kite auto-login is missing stored credentials — reconnect and "
+            "re-enable 'stay connected'."
+        )
+
+    api_key = settings.kite_api_key
+    if not api_key:
+        raise NeedsManualLogin(
+            "Kite API key is not configured on the server; auto-login is "
+            "unavailable. Reconnect from the app."
+        )
+
+    sess = requests.Session()
+    try:
+        # 1) password step → request_id
+        r1 = sess.post(
+            _KITE_WEB_LOGIN,
+            data={"user_id": kite_user_id, "password": password},
+            timeout=_KITE_WEB_TIMEOUT,
+        )
+        r1.raise_for_status()
+        request_id = (r1.json().get("data") or {}).get("request_id")
+        if not request_id:
+            raise NeedsManualLogin(
+                "Kite rejected the stored login (no 2FA challenge returned). "
+                "Re-check your Kite user id / password and reconnect."
+            )
+
+        # 2) TOTP 2FA step (sets the session auth cookie)
+        r2 = sess.post(
+            _KITE_WEB_TWOFA,
+            data={
+                "user_id": kite_user_id,
+                "request_id": request_id,
+                "twofa_value": generate_totp(totp_secret),
+                "twofa_type": "totp",
+            },
+            timeout=_KITE_WEB_TIMEOUT,
+        )
+        r2.raise_for_status()
+
+        # 3) hit the connect login → Kite 302s to the redirect URL carrying the
+        #    request_token. Capture it from the final URL or any Location header.
+        r3 = sess.get(
+            "https://kite.zerodha.com/connect/login",
+            params={"api_key": api_key, "v": "3"},
+            timeout=_KITE_WEB_TIMEOUT,
+            allow_redirects=True,
+        )
+
+        def _extract(url: str) -> Optional[str]:
+            if not url:
+                return None
+            qs = parse_qs(urlparse(url).query)
+            tok = qs.get("request_token")
+            return tok[0] if tok else None
+
+        request_token = _extract(r3.url)
+        if not request_token:
+            # Fall back to scanning the redirect chain's Location headers.
+            for hop in r3.history:
+                loc = hop.headers.get("Location", "")
+                request_token = _extract(loc)
+                if request_token:
+                    break
+        if not request_token:
+            request_token = _extract(r3.headers.get("Location", ""))
+
+        if not request_token:
+            raise NeedsManualLogin(
+                "Kite auto-login completed 2FA but no request_token came back "
+                "(the app may need re-authorising). Reconnect from the app."
+            )
+        return request_token
+    except NeedsManualLogin:
+        raise
+    except Exception as exc:  # network / HTTP / parse — surface as a re-login.
+        # Deliberately do NOT include credentials or the raw response body.
+        raise NeedsManualLogin(
+            f"Kite auto-login failed ({type(exc).__name__}). Reconnect from "
+            "the app and re-enable 'stay connected'."
+        ) from exc
+    finally:
+        sess.close()
+
+
 def get_login_url() -> str:
     """Returns Kite login URL for the user to authenticate."""
     if KITE_MOCK_MODE:

@@ -66,6 +66,7 @@ class BrokerInfo:
     accent: str = "#000000"         # brand colour for the card
     blurb: str = ""                 # one line shown under the name
     tags: list[str] = field(default_factory=list)  # e.g. ["Full automation", "No daily login"]
+    supports_oauth: bool = False    # hosted login redirect (Kite, Fyers); Dhan = False
 
 
 class BrokerConnector(abc.ABC):

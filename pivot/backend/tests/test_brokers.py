@@ -72,7 +72,7 @@ def test_registry_get_connector_unknown_raises_valueerror():
 
 
 def test_registry_supported_brokers_list():
-    assert registry.SUPPORTED_BROKERS == ["kite", "dhan"]
+    assert registry.SUPPORTED_BROKERS == ["kite", "dhan", "fyers"]
 
 
 def test_registry_is_supported():

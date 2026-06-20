@@ -1294,6 +1294,10 @@ export type Broker = {
   persistence_kind: BrokerPersistenceKind;
   /** True when the broker can run fully unattended (server-refreshed token). */
   supports_unattended: boolean;
+  /** True when the broker uses a hosted OAuth login (Kite, Fyers). Preferred
+   *  over the id heuristic when deciding the OAuth-vs-api-key connect flow.
+   *  Optional for forward-compat with payloads that predate the field. */
+  supports_oauth?: boolean;
   /** True when connecting needs a typed API key/secret (Dhan, Kite-advanced). */
   needs_api_key: boolean;
   /** Brand accent (hex), used as a thin tasteful accent — never a full wash. */
@@ -1326,6 +1330,9 @@ export type BrokerCredentialsRequest = {
   client_id?: string;
   pin?: string;
   totp_secret?: string;
+  /** Kite advanced "stay connected" path: the user's Kite account password.
+   *  Sent only over the credentials POST; stored encrypted server-side. */
+  password?: string;
   auto_login_opt_in?: boolean;
 };
 

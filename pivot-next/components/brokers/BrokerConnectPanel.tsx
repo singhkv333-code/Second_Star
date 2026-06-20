@@ -56,6 +56,19 @@ export type BrokerOAuthResult =
   | { kind: "error"; reason: string };
 
 /**
+ * Connect flow for a broker, preferring the server's `supports_oauth` flag over
+ * the id heuristic in `connectKind`. When the backend says a broker is OAuth
+ * (Kite today, Fyers later) we route to the OAuth flow even if it also accepts
+ * an API key for the advanced path. Falls back to `connectKind` (id heuristic)
+ * for older payloads that omit the flag.
+ */
+function resolveConnectKind(broker: Broker): "oauth" | "api_key" | "mock" {
+  if (broker.status.mock_mode && !broker.status.connected) return "mock";
+  if (broker.supports_oauth) return "oauth";
+  return connectKind(broker);
+}
+
+/**
  * BrokerConnectPanelBody — the full connect/manage flow for one broker, WITHOUT
  * a dialog wrapper. Embedded by BrokerOnboarding, which already owns the
  * surrounding dialog (nesting a second one would be wrong). Mount with
@@ -73,7 +86,7 @@ export function BrokerConnectPanelBody({
   /** Close the surrounding surface after a fully-live connection. */
   onClose: () => void;
 }): React.ReactElement {
-  const kind = connectKind(broker);
+  const kind = resolveConnectKind(broker);
   const connected = broker.status.connected;
 
   return (
@@ -248,17 +261,13 @@ function OAuthFlow({
           >
             <p style={{ ...subtleNote, margin: 0 }}>
               {broker.name}&apos;s tokens expire daily. To keep your automations
-              running unattended, store your API credentials so Pivot can refresh
-              the token for you.
+              running unattended, store your login + TOTP secret so Pivot can
+              replay the login and refresh the token for you each morning.
             </p>
 
-            {/* Deep-links straight to the broker's setup pages. */}
+            {/* Deep-link straight to the TOTP setup page (the one input the
+                user can't otherwise find). */}
             <div className="flex flex-wrap gap-2">
-              <DeepLinkButton
-                href={broker.deep_links.app_create}
-                label={`Open ${broker.name} → create API app`}
-                accent={broker.accent}
-              />
               <DeepLinkButton
                 href={broker.deep_links.totp_setup}
                 label={`Open ${broker.name} → enable TOTP`}
@@ -266,13 +275,10 @@ function OAuthFlow({
               />
             </div>
 
-            <CredentialsForm
+            <KiteAutoLoginForm
               broker={broker}
-              autoLoginOptIn
-              submitLabel="Save & enable auto-login"
               onStatusChange={onStatusChange}
               onClose={onClose}
-              showTotp
             />
 
             <EncryptedWarning />
@@ -392,7 +398,136 @@ function MockFlow({
 }
 
 // ---------------------------------------------------------------------------
-// Shared credentials form — used by both the Kite advanced path and Dhan.
+// Kite advanced auto-login form — Kite user id + password + TOTP secret.
+//
+// Distinct from CredentialsForm (which collects app-level api_key/secret for
+// Dhan): the gray "stay connected" path replays the user's own Kite web-login,
+// so it needs their account credentials. Posts {client_id, password,
+// totp_secret, auto_login_opt_in:true}; everything is stored ENCRYPTED
+// server-side and the password/TOTP are never echoed back.
+// ---------------------------------------------------------------------------
+
+function KiteAutoLoginForm({
+  broker,
+  onStatusChange,
+  onClose,
+}: {
+  broker: Broker;
+  onStatusChange: (brokerId: string, status: BrokerStatus) => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const [clientId, setClientId] = useState("");
+  const [password, setPassword] = useState("");
+  const [totpSecret, setTotpSecret] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canSubmit =
+    clientId.trim().length > 0 &&
+    password.trim().length > 0 &&
+    totpSecret.trim().length > 0 &&
+    !busy;
+
+  const submit = useCallback(async (): Promise<void> => {
+    if (!clientId.trim() || !password.trim() || !totpSecret.trim()) {
+      setErr("Kite user id, password, and TOTP secret are all required.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    const body: BrokerCredentialsRequest = {
+      client_id: clientId.trim(),
+      password: password.trim(),
+      totp_secret: totpSecret.trim(),
+      auto_login_opt_in: true,
+    };
+    const res = await setBrokerCredentials(broker.id, body);
+    setBusy(false);
+    if (isError(res)) {
+      setErr(res.error.message || "Couldn't enable auto-login.");
+      return;
+    }
+    onStatusChange(broker.id, res.data);
+    // Only auto-close once the first login actually went live; otherwise keep
+    // the form open so the user can fix what's wrong (e.g. bad TOTP secret).
+    if (res.data.connected) onClose();
+  }, [clientId, password, totpSecret, broker.id, onStatusChange, onClose]);
+
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <Field label="Kite user ID">
+        <Input
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          placeholder="e.g. AB1234"
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy}
+          data-testid={`broker-kite-userid-${broker.id}`}
+        />
+      </Field>
+
+      <Field label="Password">
+        <div className="relative">
+          <Input
+            type={showPassword ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={`Your ${broker.name} password`}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
+            className="pr-9"
+            data-testid={`broker-kite-password-${broker.id}`}
+          />
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute inset-y-0 right-0 flex items-center px-2"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+        </div>
+      </Field>
+
+      <Field label="TOTP secret">
+        <Input
+          value={totpSecret}
+          onChange={(e) => setTotpSecret(e.target.value)}
+          placeholder="The base32 key from your authenticator setup"
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy}
+          data-testid={`broker-kite-totp-${broker.id}`}
+        />
+      </Field>
+
+      {err && <Banner tone="error">{err}</Banner>}
+
+      <PrimaryButton
+        type="submit"
+        busy={busy}
+        busyLabel="Verifying login…"
+        disabled={!canSubmit}
+      >
+        Save &amp; enable auto-login
+      </PrimaryButton>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared credentials form — used by the Dhan api-key flow.
 // ---------------------------------------------------------------------------
 
 function CredentialsForm({

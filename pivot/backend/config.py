@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     dhan_api_secret: str = ""
     dhan_partner_id: str = ""
     dhan_partner_secret: str = ""
+    # Fyers is the OAuth + 15-day refresh-token broker: a one-time hosted login
+    # mints an access + refresh token, and the refresh token silently re-mints
+    # the daily access token for ~2 weeks (no daily re-login). These are the
+    # app-level credentials from the Fyers API dashboard (myapi.fyers.in). The
+    # appIdHash sent to the auth endpoints is sha256(f"{fyers_app_id}:{fyers_secret_id}").
+    # Leave blank to keep the Fyers connector in mock mode.
+    fyers_app_id: str = ""
+    fyers_secret_id: str = ""
     # Alias accepted from env; falls back to kite_token_enc_key when unset.
     broker_token_enc_key: str = ""
 
