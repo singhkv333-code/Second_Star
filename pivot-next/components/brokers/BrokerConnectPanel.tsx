@@ -55,26 +55,11 @@ export type BrokerOAuthResult =
   | { kind: "connected" }
   | { kind: "error"; reason: string };
 
-/**
- * Connect flow for a broker, preferring the server's `supports_oauth` flag over
- * the id heuristic in `connectKind`. When the backend says a broker is OAuth
- * (Kite today, Fyers later) we route to the OAuth flow even if it also accepts
- * an API key for the advanced path. Falls back to `connectKind` (id heuristic)
- * for older payloads that omit the flag.
- */
+/** Connect flow for a broker. All capability logic (OAuth vs credential vs the
+ *  demo connect) lives in the shared `connectKind`, so the picker card and this
+ *  panel always agree on what to show. */
 function resolveConnectKind(broker: Broker): "oauth" | "api_key" | "mock" {
-  // Natural flow from the broker's capabilities.
-  const kind = broker.supports_oauth ? "oauth" : connectKind(broker);
-  // Only fall back to the demo "mock" connect when there is genuinely no real
-  // path: an OAuth broker (Kite/Fyers) whose APP-LEVEL credentials aren't
-  // configured (mock_mode). Credential brokers like Dhan take the user's OWN
-  // keys — no app-level config needed — so we ALWAYS show the real form, even
-  // when the backend reports mock_mode (which for Dhan just means "no partner
-  // OAuth app configured").
-  if (kind === "oauth" && broker.status.mock_mode && !broker.status.connected) {
-    return "mock";
-  }
-  return kind;
+  return connectKind(broker);
 }
 
 /**
@@ -355,7 +340,60 @@ function ApiKeyFlow({
         <EncryptedWarning compact />
         <DeepLinkButton href={broker.deep_links.docs} label="API docs" />
       </div>
+
+      {/* Dev convenience: when no app-level config exists, still let the user
+          reach the connected-state UI with demo data (real connect is above). */}
+      {broker.status.mock_mode && (
+        <DemoConnectLink
+          broker={broker}
+          onStatusChange={onStatusChange}
+          onClose={onClose}
+        />
+      )}
     </div>
+  );
+}
+
+// A subtle "explore with demo data" link shown under a real connect form when
+// the broker is in mock_mode (no app-level creds), so dev can reach the
+// connected-state UI without a real account.
+function DemoConnectLink({
+  broker,
+  onStatusChange,
+  onClose,
+}: {
+  broker: Broker;
+  onStatusChange: (brokerId: string, status: BrokerStatus) => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const [busy, setBusy] = useState(false);
+  const connect = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    const res = await connectBrokerMock(broker.id);
+    setBusy(false);
+    if (!isError(res)) {
+      onStatusChange(broker.id, res.data);
+      onClose();
+    }
+  }, [broker.id, onStatusChange, onClose]);
+  return (
+    <button
+      type="button"
+      onClick={() => void connect()}
+      disabled={busy}
+      style={{
+        alignSelf: "flex-start",
+        fontSize: 11.5,
+        color: "var(--text-tertiary)",
+        background: "none",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        textDecoration: "underline",
+      }}
+    >
+      {busy ? "Connecting…" : `No ${broker.name} account yet? Explore with demo data`}
+    </button>
   );
 }
 

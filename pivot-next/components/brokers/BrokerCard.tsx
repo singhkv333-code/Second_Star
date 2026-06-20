@@ -27,7 +27,7 @@ export function BrokerCard({
   primaryLabel: string;
   onPrimary: () => void;
 }): React.ReactElement {
-  const badge = connectionBadge(broker.status);
+  const badge = connectionBadge(broker);
   const connected = broker.status.connected;
   const dotColor =
     badge.tone === "connected"

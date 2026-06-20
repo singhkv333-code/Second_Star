@@ -4,11 +4,7 @@
  * badges, and copy from the same place.
  */
 
-import type {
-  Broker,
-  BrokerPersistenceKind,
-  BrokerStatus,
-} from "@/lib/types";
+import type { Broker, BrokerPersistenceKind } from "@/lib/types";
 
 export type ConnectionBadge = {
   label: string;
@@ -17,9 +13,12 @@ export type ConnectionBadge = {
 };
 
 /** Derive the small status pill shown on each broker card. */
-export function connectionBadge(status: BrokerStatus): ConnectionBadge {
-  if (status.connected) return { label: "Connected", tone: "connected" };
-  if (status.mock_mode) return { label: "Demo data", tone: "mock" };
+export function connectionBadge(broker: Broker): ConnectionBadge {
+  if (broker.status.connected) return { label: "Connected", tone: "connected" };
+  // "Demo data" only when there's genuinely no real path yet — an OAuth broker
+  // with no app-level credentials configured. Credential brokers (Dhan) can
+  // always connect with the user's OWN keys, so they read as "Not connected".
+  if (connectKind(broker) === "mock") return { label: "Demo data", tone: "mock" };
   return { label: "Not connected", tone: "idle" };
 }
 
@@ -80,19 +79,24 @@ export function effectivePersistence(broker: Broker): BrokerPersistenceKind {
  *   - "mock"      — dev stub connect (mock mode, nothing real to connect to).
  */
 export function connectKind(broker: Broker): "oauth" | "api_key" | "mock" {
-  if (broker.status.mock_mode && !broker.status.connected) return "mock";
-  // A broker can be both (Kite: OAuth primary + api-key advanced). The PRIMARY
-  // flow is OAuth unless the broker exclusively needs an api key.
-  if (!broker.needs_api_key) return "oauth";
-  // needs_api_key === true. If it also exposes an OAuth login the primary is
-  // still OAuth (Kite); otherwise it's a pure api-key broker (Dhan).
-  return broker.deep_links.login || brokerHasOauth(broker) ? "oauth" : "api_key";
+  // OAuth-capable brokers (Kite, Fyers) use the hosted login, which needs
+  // app-level credentials. Without them (mock_mode) there's nothing real to log
+  // into, so fall back to the demo "mock" connect.
+  const isOauth = brokerHasOauth(broker) || !broker.needs_api_key;
+  if (isOauth) {
+    return broker.status.mock_mode && !broker.status.connected ? "mock" : "oauth";
+  }
+  // Pure credential broker (Dhan): the user brings their OWN keys — no app-level
+  // config is required — so the real form is ALWAYS available, even when the
+  // backend reports mock_mode (which for Dhan just means "no partner app set").
+  return "api_key";
 }
 
 /** Heuristic: a broker offers OAuth when its id is a known hosted-login broker
  *  OR it advertises a login deep-link. Kite is OAuth-primary even though it
  *  also accepts API keys for the advanced auto-login path. */
 export function brokerHasOauth(broker: Broker): boolean {
+  if (broker.supports_oauth) return true;
   if (broker.id === "kite" || broker.id === "zerodha") return true;
   return Boolean(broker.deep_links.login);
 }
