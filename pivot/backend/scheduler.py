@@ -612,6 +612,7 @@ def refresh_broker_tokens():
     Module-level (NOT a closure) because the SQLAlchemy jobstore serializes
     callables by textual reference — a closure breaks scheduler.start().
     """
+    from backend.brokers.audit import record_audit
     from backend.brokers.base import NeedsManualLogin
     from backend.brokers.registry import get_connector
     from backend.database import SessionLocal
@@ -637,11 +638,20 @@ def refresh_broker_tokens():
             try:
                 get_connector(session.broker).mint_access_token(db, session)
                 refreshed += 1
-            except NeedsManualLogin:
+                record_audit(
+                    db, user_id=session.user_id, broker=session.broker,
+                    event_type="token_refresh", status="ok",
+                )
+            except NeedsManualLogin as exc:
                 # No unattended path — keep the session active so the UI can
                 # prompt a reconnect; just flag it. SIP / automations on this
                 # broker may fail until the user re-authenticates.
                 manual += 1
+                record_audit(
+                    db, user_id=session.user_id, broker=session.broker,
+                    event_type="token_refresh_failed",
+                    status="needs_manual_login", detail=str(exc),
+                )
                 logger.warning(
                     f"[{format_ist_short(now_ist())}] "
                     f"BrokerSession {session.id} ({session.broker}, user "
@@ -650,6 +660,11 @@ def refresh_broker_tokens():
                 )
             except Exception as e:  # noqa: BLE001
                 failed += 1
+                record_audit(
+                    db, user_id=session.user_id, broker=session.broker,
+                    event_type="token_refresh_failed",
+                    status="error", detail=str(e),
+                )
                 logger.error(
                     f"[{format_ist_short(now_ist())}] "
                     f"BrokerSession {session.id} ({session.broker}) token "

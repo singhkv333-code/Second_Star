@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 # backend.kite.orders.place_order / place_gtt_order stay the patchable
 # seam for tests and resolve dynamically at call time.
 from backend.kite import orders as _kite
+from backend.brokers.audit import record_audit
 from backend.brokers.registry import get_connector
 from backend.brokers.sessions import get_active_broker_session
 from backend.paper.accounts import get_or_create_account
@@ -95,6 +96,18 @@ def _wf_crid(
     repeats a symbol) so they don't collapse into one under-fill."""
     base = f"wf:{ctx.run.id}:{ctx.step.step_index}:{kind}:{symbol}"
     return f"{base}:{leg_key}" if leg_key is not None else base
+
+
+def is_auto_exec_allowed(uid: int) -> bool:
+    """True only when the server-side auto-execution master flag is on AND
+    this user is on the own-account pilot allow-list. Gates the UNATTENDED
+    (workflow/trigger) live path: unless both hold, a triggered order is
+    ARMED/REGISTERED rather than placed (register-not-execute, aligned with
+    SEBI's retail-algo posture). User-confirmed chat orders are NOT gated
+    by this."""
+    from backend.config import settings
+
+    return bool(settings.auto_execute_enabled) and int(uid) in settings.auto_exec_user_ids
 
 
 def _live_broker_session(db: Optional[Session], uid: int):
@@ -165,20 +178,62 @@ def submit_order(
     # exists so mock/dev still works. `access_token` is now ignored here.
     sess = _live_broker_session(db, uid)
     if sess is not None:
-        return get_connector(sess.broker).place_order(
-            sess,
-            tradingsymbol=symbol,
-            exchange=exchange,
-            transaction_type=side,
-            quantity=int(quantity),
-            order_type=ot,
-            price=price,
-            product=product,
-            trigger_price=trigger_price,
-            tag=tag,
-            variety=variety,
-            client_request_id=_wf_crid(ctx, side, symbol, leg_key),
+        crid = _wf_crid(ctx, side, symbol, leg_key)
+        # UNATTENDED gate: unless this user is on the auto-exec pilot, the
+        # triggered order is ARMED (register-not-execute), not placed.
+        if not is_auto_exec_allowed(uid):
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_intent", status="REGISTERED",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type=ot, price=price,
+                detail="auto-exec disabled for user",
+            )
+            db.commit()
+            return {
+                "order_id": None,
+                "status": "REGISTERED",
+                "message": (
+                    "Order armed — auto-execution not enabled "
+                    "(awaiting confirmation/empanelment)."
+                ),
+                "client_request_id": crid,
+            }
+        # Eligible: place via the connector, auditing success/failure.
+        try:
+            result = get_connector(sess.broker).place_order(
+                sess,
+                tradingsymbol=symbol,
+                exchange=exchange,
+                transaction_type=side,
+                quantity=int(quantity),
+                order_type=ot,
+                price=price,
+                product=product,
+                trigger_price=trigger_price,
+                tag=tag,
+                variety=variety,
+                client_request_id=crid,
+            )
+        except Exception as exc:
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_failed", status="error",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type=ot, price=price, detail=str(exc),
+            )
+            db.commit()
+            raise
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type=ot, price=price,
+            order_id=result.get("order_id") if isinstance(result, dict) else None,
+            status=result.get("status") if isinstance(result, dict) else None,
         )
+        db.commit()
+        return result
     return _kite.place_order(
         access_token="mock_token",
         tradingsymbol=symbol,
@@ -230,16 +285,62 @@ def submit_gtt(
     # fall back to the kite mock helper when no session exists.
     sess = _live_broker_session(db, uid)
     if sess is not None:
-        return get_connector(sess.broker).place_gtt(
-            sess,
-            tradingsymbol=symbol,
-            exchange=exchange,
-            transaction_type=side,
-            quantity=int(quantity),
-            trigger_price=trigger_price,
-            limit_price=limit_price,
-            last_price=last_price if last_price is not None else limit_price,
+        crid = _wf_crid(ctx, "GTT", symbol)
+        # UNATTENDED gate: arm (register-not-execute) unless on the pilot.
+        if not is_auto_exec_allowed(uid):
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_intent", status="REGISTERED",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type="GTT", price=limit_price,
+                detail="auto-exec disabled for user",
+            )
+            db.commit()
+            return {
+                "order_id": None,
+                "status": "REGISTERED",
+                "message": (
+                    "Order armed — auto-execution not enabled "
+                    "(awaiting confirmation/empanelment)."
+                ),
+                "client_request_id": crid,
+            }
+        # Eligible: place via the connector, auditing success/failure.
+        try:
+            result = get_connector(sess.broker).place_gtt(
+                sess,
+                tradingsymbol=symbol,
+                exchange=exchange,
+                transaction_type=side,
+                quantity=int(quantity),
+                trigger_price=trigger_price,
+                limit_price=limit_price,
+                last_price=last_price if last_price is not None else limit_price,
+            )
+        except Exception as exc:
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_failed", status="error",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type="GTT", price=limit_price, detail=str(exc),
+            )
+            db.commit()
+            raise
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type="GTT", price=limit_price,
+            order_id=(
+                str(result.get("trigger_id") or result.get("order_id"))
+                if isinstance(result, dict)
+                and (result.get("trigger_id") or result.get("order_id")) is not None
+                else None
+            ),
+            status=result.get("status") if isinstance(result, dict) else None,
         )
+        db.commit()
+        return result
     return _kite.place_gtt_order(
         access_token="mock_token",
         tradingsymbol=symbol,
@@ -305,9 +406,10 @@ def submit_order_for_user(
     # Live path: resolve this user's active broker session and route the
     # order through its connector. Falls back to the kite mock helper when
     # no session exists. `access_token` is now ignored on the live path.
+    # User-CONFIRMED (chat): NOT auto-exec gated — but audit the placement.
     sess = _live_broker_session(db, uid)
     if sess is not None:
-        return get_connector(sess.broker).place_order(
+        result = get_connector(sess.broker).place_order(
             sess,
             tradingsymbol=symbol,
             exchange=exchange,
@@ -321,6 +423,16 @@ def submit_order_for_user(
             variety=variety,
             client_request_id=client_request_id,
         )
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type=ot, price=price,
+            order_id=result.get("order_id") if isinstance(result, dict) else None,
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return result
     return _kite.place_order(
         access_token="mock_token",
         tradingsymbol=symbol,
@@ -373,9 +485,10 @@ def submit_gtt_for_user(
         )
     # Live path: route the GTT through the active broker's connector;
     # fall back to the kite mock helper when no session exists.
+    # User-CONFIRMED (chat): NOT auto-exec gated — but audit the placement.
     sess = _live_broker_session(db, uid)
     if sess is not None:
-        return get_connector(sess.broker).place_gtt(
+        result = get_connector(sess.broker).place_gtt(
             sess,
             tradingsymbol=symbol,
             exchange=exchange,
@@ -385,6 +498,21 @@ def submit_gtt_for_user(
             limit_price=limit_price,
             last_price=last_price if last_price is not None else limit_price,
         )
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type="GTT", price=limit_price,
+            order_id=(
+                str(result.get("trigger_id") or result.get("order_id"))
+                if isinstance(result, dict)
+                and (result.get("trigger_id") or result.get("order_id")) is not None
+                else None
+            ),
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return result
     return _kite.place_gtt_order(
         access_token="mock_token",
         tradingsymbol=symbol,

@@ -149,6 +149,37 @@ class BrokerSession(Base):
     )
 
 
+class BrokerAudit(Base):
+    """Append-only audit trail for broker-side order/token events.
+
+    Written by ``backend/brokers/audit.py::record_audit`` from the order
+    routing layer (auto-exec gating: ``order_intent``/``order_placed``/
+    ``order_failed``) and the scheduler's daily token sweep
+    (``token_refresh``/``token_refresh_failed``). Deliberately FK-light
+    (``user_id`` nullable, no relationship) so an audit write never
+    couples to a session/order lifecycle and never breaks the order it is
+    recording. ``detail`` carries a free-form JSON/string note."""
+    __tablename__ = "broker_audit"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True,
+    )
+    broker = Column(String(20), nullable=True)
+    event_type = Column(String(40), nullable=False, index=True)
+    symbol = Column(String(64), nullable=True)
+    side = Column(String(8), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    order_type = Column(String(16), nullable=True)
+    price = Column(Float, nullable=True)
+    order_id = Column(String(64), nullable=True)
+    status = Column(String(32), nullable=True)
+    detail = Column(Text, nullable=True)  # JSON/string
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), index=True,
+    )
+
+
 class StrategyStatus(str, enum.Enum):
     active = "active"
     paused = "paused"
