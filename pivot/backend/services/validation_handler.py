@@ -334,6 +334,33 @@ def _message_names_interval(text: str) -> bool:
     """True when the user's message explicitly names a bar timeframe."""
     return bool(text) and bool(_INTERVAL_MENTION_RE.search(text))
 
+
+# A concrete interval token in the user's text → canonical interval. "intraday"
+# is deliberately excluded (ambiguous — it should still ask which one).
+_INTERVAL_TOKEN_RE = _re.compile(
+    r"""(?ix)\b(
+        monthly | weekly | daily | hourly |
+        \d{1,3}\s*-?\s*(?:minutes?|mins?|m|hours?|hrs?|h) |
+        1m|3m|5m|10m|15m|30m|60m|1h|1d|1wk|1mo
+    )\b"""
+)
+
+
+def _extract_interval_from_text(text: str) -> Optional[str]:
+    """The canonical interval the user explicitly named, or ``None``.
+
+    Used to FILL an interval the model forgot to pass so we never re-ask a
+    timeframe the user already gave (a misguiding question). Returns None for
+    ambiguous mentions like 'intraday' so those still prompt for specifics.
+    """
+    if not text:
+        return None
+    m = _INTERVAL_TOKEN_RE.search(text)
+    if not m:
+        return None
+    from backend.core.data.intervals import normalize_interval
+    return normalize_interval(m.group(1))
+
 # Field-name → user-friendly label. Used when the schema's `description`
 # is too schema-explainer-y to leak into a chat reply (e.g. propose_workflow's
 # `name` field carries "Short workflow title (e.g. 'Weekly NIFTYBEES buy')."
@@ -672,10 +699,20 @@ async def execute_with_completeness(
     # resume turn the user_message IS their answer (e.g. "15-minute"), which
     # names an interval, so the spliced value is kept and the tool runs.
     _tf_named = _message_names_interval(user_message)
-    if tool_name in _INTERVAL_GATED_TOOLS and not _tf_named:
-        if "interval" in args or "timeframe" in args:
-            args = {k: v for k, v in args.items()
-                    if k not in ("interval", "timeframe")}
+    if tool_name in _INTERVAL_GATED_TOOLS:
+        if not _tf_named:
+            # User didn't name a timeframe — drop any value the model guessed
+            # so the completeness gate asks (and the reply resumes).
+            if "interval" in args or "timeframe" in args:
+                args = {k: v for k, v in args.items()
+                        if k not in ("interval", "timeframe")}
+        elif "interval" not in args and "timeframe" not in args:
+            # User DID name a timeframe but the model dropped it. Extract and
+            # inject it so we don't ask a redundant, misguiding question
+            # ("which timeframe?" right after they said "on the daily").
+            _iv = _extract_interval_from_text(user_message)
+            if _iv:
+                args = {**args, "interval": _iv, "timeframe": _iv}
     # propose_workflow buries the timeframe inside its step tree, so we can't
     # strip a top-level arg. Pass the "did the user name a timeframe?" signal
     # down as a private flag; the handler raises-to-ask if it builds an
