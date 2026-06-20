@@ -97,6 +97,24 @@ def _wf_crid(
     return f"{base}:{leg_key}" if leg_key is not None else base
 
 
+def _live_broker_session(db: Optional[Session], uid: int):
+    """Resolve the user's active broker session for the LIVE order path,
+    defensively. Returns None (caller falls back to the Kite mock helper) when
+    there is no usable db — e.g. a workflow stub passes ``db=None`` — or the
+    lookup raises. Mirrors ``should_use_paper``'s resilience so a missing db
+    routes to mock instead of crashing the order."""
+    if db is None:
+        return None
+    try:
+        return get_active_broker_session(db, uid)
+    except Exception:
+        logger.warning(
+            "live broker-session lookup failed for user %s; using mock path",
+            uid, exc_info=True,
+        )
+        return None
+
+
 # ── workflow action sites ────────────────────────────────────────────────
 
 def submit_order(
@@ -145,7 +163,7 @@ def submit_order(
     # Live path: resolve the user's active broker session and route through
     # its connector. Falls back to the kite mock helper when no session
     # exists so mock/dev still works. `access_token` is now ignored here.
-    sess = get_active_broker_session(db, uid)
+    sess = _live_broker_session(db, uid)
     if sess is not None:
         return get_connector(sess.broker).place_order(
             sess,
@@ -210,7 +228,7 @@ def submit_gtt(
         )
     # Live path: route the GTT through the active broker's connector;
     # fall back to the kite mock helper when no session exists.
-    sess = get_active_broker_session(db, uid)
+    sess = _live_broker_session(db, uid)
     if sess is not None:
         return get_connector(sess.broker).place_gtt(
             sess,
@@ -287,7 +305,7 @@ def submit_order_for_user(
     # Live path: resolve this user's active broker session and route the
     # order through its connector. Falls back to the kite mock helper when
     # no session exists. `access_token` is now ignored on the live path.
-    sess = get_active_broker_session(db, uid)
+    sess = _live_broker_session(db, uid)
     if sess is not None:
         return get_connector(sess.broker).place_order(
             sess,
@@ -355,7 +373,7 @@ def submit_gtt_for_user(
         )
     # Live path: route the GTT through the active broker's connector;
     # fall back to the kite mock helper when no session exists.
-    sess = get_active_broker_session(db, uid)
+    sess = _live_broker_session(db, uid)
     if sess is not None:
         return get_connector(sess.broker).place_gtt(
             sess,
