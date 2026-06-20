@@ -21,6 +21,14 @@ import type {
   ApiResult,
   Approval,
   ApprovalDecisionRequest,
+  Broker,
+  BrokerAutomationRequest,
+  BrokerCredentialsRequest,
+  BrokerDisconnectResponse,
+  BrokerHoldingsResponse,
+  BrokerLoginUrl,
+  BrokersResponse,
+  BrokerStatus,
   CreateWorkflowRequest,
   Diagnostic,
   ErrorBody,
@@ -1038,98 +1046,88 @@ export function getMetricSeries(
 }
 
 // ---------------------------------------------------------------------------
-// Kite credentials — runtime API key/secret injection.
-// Backed by /kite/credentials (GET masked status, POST set, DELETE clear).
-// Both fields are required by Kite Connect policy.
+// Multi-broker onboarding — /brokers router (bare-mounted, NO /api prefix,
+// same host as the legacy /kite router). Use requestLegacy so the trailing
+// `/api` is stripped from the base; the JWT Bearer header is sent exactly as
+// every other legacy call does (via the shared authTokenProvider). Supersedes
+// the old Kite-only getKiteStatus()/getKiteLoginUrl()/credentials helpers.
 // ---------------------------------------------------------------------------
 
-export type KiteCredentialsStatus = {
-  mock_mode: boolean;
-  has_api_key: boolean;
-  has_api_secret: boolean;
-  api_key_masked: string;
-};
-
-export function getKiteCredentials(): Promise<ApiResult<KiteCredentialsStatus>> {
-  return requestLegacy<KiteCredentialsStatus>("/kite/credentials");
+/** `GET /brokers` — the broker catalog + per-broker live status. */
+export function listBrokers(): Promise<ApiResult<BrokersResponse>> {
+  return requestLegacy<BrokersResponse>("/brokers");
 }
 
-export function setKiteCredentials(
-  api_key: string,
-  api_secret: string,
-): Promise<ApiResult<KiteCredentialsStatus>> {
-  return requestLegacy<KiteCredentialsStatus>("/kite/credentials", {
-    method: "POST",
-    body: { api_key, api_secret },
-  });
+/**
+ * `GET /brokers/{broker}/login_url` — hosted-OAuth login URL for brokers that
+ * support it (e.g. kite). `login_url` is null in mock mode. The caller then
+ * does `window.location.href = login_url`; after the broker redirects back,
+ * the backend bounces the browser to the FE with `?broker=connected` (or
+ * `?broker=error&reason=…`), handled in AppShell.
+ */
+export function getBrokerLoginUrl(
+  broker: string,
+): Promise<ApiResult<BrokerLoginUrl>> {
+  return requestLegacy<BrokerLoginUrl>(
+    `/brokers/${encodeURIComponent(broker)}/login_url`,
+  );
 }
 
-export function clearKiteCredentials(): Promise<ApiResult<KiteCredentialsStatus>> {
-  return requestLegacy<KiteCredentialsStatus>("/kite/credentials", {
-    method: "DELETE",
-  });
+/** `POST /brokers/{broker}/connect-mock` — dev-only stub connect (mock mode). */
+export function connectBrokerMock(
+  broker: string,
+): Promise<ApiResult<BrokerStatus>> {
+  return requestLegacy<BrokerStatus>(
+    `/brokers/${encodeURIComponent(broker)}/connect-mock`,
+    { method: "POST" },
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Kite OAuth — login URL + connection status
-// ---------------------------------------------------------------------------
-
-export type KiteLoginUrl = {
-  mock_mode: boolean;
-  login_url: string | null;
-  state: string;
-};
-
-export type KiteStatus = {
-  connected: boolean;
-  mock_mode: boolean;
-  kite_user_id: string | null;
-  login_time: string | null;
-  expires_at?: string | null;
-};
-
-export function getKiteLoginUrl(): Promise<ApiResult<KiteLoginUrl>> {
-  return requestLegacy<KiteLoginUrl>("/kite/login_url");
+/**
+ * `POST /brokers/{broker}/credentials` — api-key connect (Dhan) or Kite's
+ * advanced auto-login opt-in. Pass only the fields the broker needs; set
+ * `auto_login_opt_in: true` to store the (encrypted) credentials for
+ * server-side token refresh.
+ */
+export function setBrokerCredentials(
+  broker: string,
+  body: BrokerCredentialsRequest,
+): Promise<ApiResult<BrokerStatus>> {
+  return requestLegacy<BrokerStatus>(
+    `/brokers/${encodeURIComponent(broker)}/credentials`,
+    { method: "POST", body },
+  );
 }
 
-export function getKiteStatus(): Promise<ApiResult<KiteStatus>> {
-  return requestLegacy<KiteStatus>("/kite/status");
+/** `POST /brokers/{broker}/automation` — toggle unattended/auto-login. */
+export function setBrokerAutomation(
+  broker: string,
+  auto_login_opt_in: boolean,
+): Promise<ApiResult<BrokerStatus>> {
+  const body: BrokerAutomationRequest = { auto_login_opt_in };
+  return requestLegacy<BrokerStatus>(
+    `/brokers/${encodeURIComponent(broker)}/automation`,
+    { method: "POST", body },
+  );
 }
 
-export function disconnectKite(): Promise<ApiResult<KiteStatus>> {
-  return requestLegacy<KiteStatus>("/kite/session", { method: "DELETE" });
+/** `GET /brokers/{broker}/holdings` — connected-state holdings preview. */
+export function getBrokerHoldings(
+  broker: string,
+): Promise<ApiResult<BrokerHoldingsResponse>> {
+  return requestLegacy<BrokerHoldingsResponse>(
+    `/brokers/${encodeURIComponent(broker)}/holdings`,
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Kite end-to-end smoke test — place + cancel a known-safe order.
-// ---------------------------------------------------------------------------
-
-export type KiteTestOrderResult = {
-  order_id: string;
-  status: string;
-  variety: string;
-  message?: string;
-  regular_error?: string;
-};
-
-export type KiteCancelResult = {
-  order_id: string;
-  status: string;
-  variety?: string;
-};
-
-export function placeKiteTestOrder(): Promise<ApiResult<KiteTestOrderResult>> {
-  return requestLegacy<KiteTestOrderResult>("/kite/test-order", { method: "POST" });
-}
-
-export function cancelKiteTestOrder(
-  order_id: string,
-  variety: string,
-): Promise<ApiResult<KiteCancelResult>> {
-  return requestLegacy<KiteCancelResult>("/kite/test-order/cancel", {
-    method: "POST",
-    body: { order_id, variety },
-  });
+/** `DELETE /brokers/{broker}/session` — disconnect this broker session. */
+export function disconnectBroker(
+  broker: string,
+): Promise<ApiResult<BrokerDisconnectResponse>> {
+  return requestLegacy<BrokerDisconnectResponse>(
+    `/brokers/${encodeURIComponent(broker)}/session`,
+    { method: "DELETE" },
+  );
 }
 
 // ---------------------------------------------------------------------------

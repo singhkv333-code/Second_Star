@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Zerodha">
+  <title>Zerodha</title>
+  <!-- Zerodha alt mark: the Kite diamond inside a soft tile, using Zerodha reds (#F6461A / #DB342C). -->
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#FFF1ED"/>
+  <g transform="translate(9,15)">
+    <polygon fill="#F6461A" points="10,0 0,10 10,20 20,10 30,0 10,0"/>
+    <polygon fill="#DB342C" points="10,20 20,10 30,20 10,20"/>
+  </g>
+</svg>

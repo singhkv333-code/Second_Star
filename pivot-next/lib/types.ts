@@ -403,7 +403,9 @@ export type IpoSubscription = {
   shareholder: number | null;
   overall: number | null;
   /** ISO timestamp (IST) when the data was fetched from NSE. */
-  as_of?: string;
+  as_of?: string | null;
+  /** "nse" | "trendlyne" — which feed produced these multiples. */
+  source?: string;
 };
 
 /** Response from GET /ipo-subscription/{symbol}. */
@@ -428,6 +430,9 @@ export type IpoLockedFields = {
   listing_date: string | null;
   /** Structured per-category subscription data. Null until IPO is open and data is available. */
   subscription: IpoSubscription | null;
+  /** Trendlyne: allotment date + status for listing-soon IPOs. */
+  allotment_date?: string | null;
+  allotment_status?: string | null;
 };
 
 /** Editable fields that the user can change before registering intent. */
@@ -468,6 +473,8 @@ export type IpoApplicationPayload = {
   validation: IpoValidation;
   automatable: boolean;
   conversation_id: string | null;
+  /** Which feeds populated this card, e.g. ["nse","trendlyne"]. */
+  data_sources?: string[];
   disclaimer: string;
 };
 
@@ -595,6 +602,25 @@ export type IpoListItem = {
   issue_size: string | null;
   type: "mainboard" | "sme";
   status: "upcoming" | "open" | "closed";
+  /** Trendlyne enrichment (optional — present when the feed carries it). */
+  subscription?: IpoSubscriptionBreakdown | null;
+  rhp_url?: string | null;
+  allotment_date?: string | null;
+  allotment_status?: string | null;
+  market_cap_cr?: number | null;
+  min_investment?: number | null;
+  /** False for Trendlyne-only IPOs with no NSE symbol (can't register/automate). */
+  registerable?: boolean;
+  /** ["nse"] | ["trendlyne"] | ["nse","trendlyne"]. */
+  sources?: string[];
+};
+
+/** Trendlyne's raw subscription breakdown (times-subscribed multiples). */
+export type IpoSubscriptionBreakdown = {
+  total?: number | null;
+  retail?: number | null;
+  hni?: number | null;
+  qib?: number | null;
 };
 
 /**
@@ -605,7 +631,8 @@ export type IpoListPayload = {
   _render_hint: "ipo_list_card";
   count: number;
   ipos: IpoListItem[];
-  source: "nse" | "unreachable";
+  /** "nse" | "trendlyne" | "nse+trendlyne" | "unreachable". */
+  source: string;
   note: string | null;
 };
 
@@ -628,6 +655,10 @@ export type IpoListedPayload = {
   listing_date: string | null;
   current_price: number | null;
   listing_gain_pct: number | null;
+  /** Trendlyne: the listing-day pop (issue → first-day open), distinct from
+   *  the current return (listing_gain_pct above). */
+  listing_day_gain_pct?: number | null;
+  subscription?: IpoSubscriptionBreakdown | null;
   source: string;
   note: string | null;
 };
@@ -1185,3 +1216,138 @@ export type OptionChainSliceResponse = {
   chain: OptionChainSlice | null;
   error?: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// Multi-broker onboarding — GET /brokers + per-broker connect endpoints.
+//
+// Mirrors the backend's /brokers router (bare-mounted, no /api prefix, same as
+// the legacy /kite router). The FE consumes the snake_case wire directly,
+// matching every other payload in this file. Replaces the Kite-only types
+// (KiteStatus / KiteLoginUrl / KiteCredentialsStatus) in lib/api.ts.
+// ---------------------------------------------------------------------------
+
+/**
+ * How a broker holds its session once connected. These are the backend
+ * `PersistenceKind` enum *values* on the wire (pivot/backend/brokers/base.py),
+ * consumed verbatim — do NOT invent FE-only aliases here, or the display
+ * helpers (broker-ui.ts) silently fall through to the wrong copy:
+ *   - "daily_oauth"   — re-auth each day (Kite default OAuth access token).
+ *   - "api_key_mint"  — a long-lived API key mints a fresh daily token
+ *                       (Dhan PIN+TOTP) — unattended, no daily human step.
+ *   - "rolling_renew" — a 24h token rolled forward before expiry (Dhan
+ *                       RenewToken) — stays connected, no daily login.
+ *   - "refresh_token" — silent refresh token (Fyers ~15d) — unattended.
+ *   - "totp_login"    — opt-in: stored credentials replay the login (Kite
+ *                       advanced auto-login).
+ * `string` keeps the FE forward-compatible with kinds the backend adds later
+ * (the helpers degrade to the safe "daily login" copy for unknowns).
+ */
+export type BrokerPersistenceKind =
+  | "daily_oauth"
+  | "api_key_mint"
+  | "rolling_renew"
+  | "refresh_token"
+  | "totp_login"
+  | string;
+
+/** Deep-links the onboarding UI surfaces as one-click "go straight there"
+ *  buttons. All optional — only render a button when the link is present. */
+export type BrokerDeepLinks = {
+  /** Hosted OAuth login page (rare in the static catalog; usually fetched
+   *  fresh via GET /brokers/{id}/login_url). */
+  login?: string;
+  /** "Create an API app" page (Kite developer console). */
+  app_create?: string;
+  /** The page where the user copies their API key/secret (Dhan). */
+  api_key_page?: string;
+  /** TOTP / external-authenticator setup page. */
+  totp_setup?: string;
+  /** Broker API docs. */
+  docs?: string;
+};
+
+/** Live connection status for one broker, embedded in the catalog row and
+ *  returned standalone by every connect/automation/disconnect endpoint. */
+export type BrokerStatus = {
+  connected: boolean;
+  /** True when the backend has no real credentials and is serving stub data —
+   *  the picker shows a "Connect (mock)" affordance in this mode. */
+  mock_mode: boolean;
+  /** Broker-side user id once connected (e.g. Kite user id / Dhan client id). */
+  broker_user_id?: string | null;
+  /** Resolved persistence mode for THIS connection (may differ from the
+   *  catalog default once the user opts into auto-login). */
+  persistence_mode?: BrokerPersistenceKind | null;
+  /** True when the user enabled unattended/auto-login for this broker. */
+  auto_login_opt_in?: boolean | null;
+  /** ISO 8601 — when the current token/session expires. Null = no expiry. */
+  expires_at?: string | null;
+};
+
+/** One broker as described by GET /brokers. */
+export type Broker = {
+  /** Stable slug — "kite" | "dhan" | …; also the logo filename (/brokers/{id}.svg). */
+  id: string;
+  name: string;
+  /** Server-provided logo path; the UI falls back to /brokers/{id}.svg. */
+  logo: string;
+  persistence_kind: BrokerPersistenceKind;
+  /** True when the broker can run fully unattended (server-refreshed token). */
+  supports_unattended: boolean;
+  /** True when connecting needs a typed API key/secret (Dhan, Kite-advanced). */
+  needs_api_key: boolean;
+  /** Brand accent (hex), used as a thin tasteful accent — never a full wash. */
+  accent: string;
+  /** One-line value prop. */
+  blurb: string;
+  /** Short capability chips, e.g. ["No daily login", "Full automation"]. */
+  tags: string[];
+  deep_links: BrokerDeepLinks;
+  status: BrokerStatus;
+};
+
+/** Response of GET /brokers. */
+export type BrokersResponse = { brokers: Broker[] };
+
+/** Response of GET /brokers/{broker}/login_url (OAuth brokers, e.g. kite). */
+export type BrokerLoginUrl = {
+  mock_mode: boolean;
+  /** Null in mock mode or when the broker has no OAuth login. */
+  login_url: string | null;
+  state: string;
+};
+
+/** Body for POST /brokers/{broker}/credentials. Fields are broker-specific:
+ *  Dhan uses api_key/api_secret (+ optional client_id/pin/totp_secret); Kite's
+ *  advanced auto-login uses the same shape with auto_login_opt_in=true. */
+export type BrokerCredentialsRequest = {
+  api_key?: string;
+  api_secret?: string;
+  client_id?: string;
+  pin?: string;
+  totp_secret?: string;
+  auto_login_opt_in?: boolean;
+};
+
+/** Body for POST /brokers/{broker}/automation. */
+export type BrokerAutomationRequest = { auto_login_opt_in: boolean };
+
+/** One holding row from GET /brokers/{broker}/holdings. Kept loose — different
+ *  brokers expose slightly different fields; the preview renders what's there.
+ *  Mirrors the legacy Holding shape (Kite-derived) so the table stays familiar. */
+export type BrokerHolding = {
+  tradingsymbol: string;
+  exchange?: string;
+  quantity: number;
+  average_price?: number;
+  last_price?: number;
+  pnl?: number;
+  day_change?: number;
+  day_change_percentage?: number;
+};
+
+/** Response of GET /brokers/{broker}/holdings. */
+export type BrokerHoldingsResponse = { holdings: BrokerHolding[] };
+
+/** Response of DELETE /brokers/{broker}/session. */
+export type BrokerDisconnectResponse = { connected: false };
