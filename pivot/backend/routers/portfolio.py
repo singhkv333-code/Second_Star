@@ -42,8 +42,8 @@ def get_user_id(authorization: str = Header(None)) -> int:
 
 def get_kite_token(user_id: int, db: Session) -> str:
     user = db.query(User).filter(User.id == user_id).first()
-    if user and user.kite_session and user.kite_session.access_token:
-        return read_kite_access_token(user.kite_session) or "mock_token"
+    if user and user.active_broker_session and user.active_broker_session.access_token:
+        return read_kite_access_token(user.active_broker_session) or "mock_token"
     return "mock_token"
 
 

@@ -136,8 +136,8 @@ async def confirm_order(
     # Get user's Kite access token
     user = db.query(User).filter(User.id == user_id).first()
     kite_token = "mock_token"
-    if user and user.kite_session:
-        kite_token = read_kite_access_token(user.kite_session) or "mock_token"
+    if user and user.active_broker_session:
+        kite_token = read_kite_access_token(user.active_broker_session) or "mock_token"
 
     # Routes to the paper broker for accounts in mode='paper' (so the
     # confirmed order fills into the structured portfolio); falls back to
@@ -398,8 +398,8 @@ async def create_gtt_order(
         }
     user = db.query(User).filter(User.id == user_id).first()
     kite_token = (
-        read_kite_access_token(user.kite_session)
-        if user and user.kite_session
+        read_kite_access_token(user.active_broker_session)
+        if user and user.active_broker_session
         else "mock"
     ) or "mock"
     result = submit_gtt_for_user(

@@ -106,6 +106,53 @@ _REGISTRY: dict[str, SourceDef] = {
         "primary publishers it cites.",
     ),
 
+    # ── Macro-event verification sources (consumed on-demand) ─────
+    #
+    # These back ``trigger.scheduled_macro`` outcome verification
+    # (backend/macro_events/). They are read on demand by the verifier
+    # via ``get_source()`` + ``RSSAdapter`` — NOT polled by the firehose
+    # poller, so they carry ``enabled=False`` (the poller filters on
+    # ``enabled_sources()``; ``get_source()`` returns them regardless).
+    "fed_press_monetary": SourceDef(
+        source_id="fed_press_monetary",
+        display_name="US Federal Reserve — Monetary Press Releases",
+        feed_url="https://www.federalreserve.gov/feeds/press_monetary.xml",
+        tier="tier1",
+        poll_interval_seconds=900,
+        enabled=False,
+        notes="Official Fed monetary press-release feed. FOMC rate-"
+        "decision statements land here; read on-demand by the macro "
+        "verifier, not the firehose.",
+    ),
+    "google_news_india_cpi": SourceDef(
+        source_id="google_news_india_cpi",
+        display_name="Google News — India CPI / retail inflation",
+        feed_url=(
+            "https://news.google.com/rss/search?"
+            "q=India+CPI+OR+%22retail+inflation%22+when:7d"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        tier="tier2",
+        poll_interval_seconds=900,
+        enabled=False,
+        notes="MOSPI has no machine feed; the macro verifier reads this "
+        "keyword RSS to extract the India CPI figure. Verification-only.",
+    ),
+    "google_news_us_cpi": SourceDef(
+        source_id="google_news_us_cpi",
+        display_name="Google News — US CPI / inflation",
+        feed_url=(
+            "https://news.google.com/rss/search?"
+            "q=US+CPI+OR+%22consumer+price+index%22+inflation+when:7d"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        tier="tier2",
+        poll_interval_seconds=900,
+        enabled=False,
+        notes="No clean BLS feed; the macro verifier reads this keyword "
+        "RSS to extract the US CPI figure. Verification-only.",
+    ),
+
     # ── Phase 7 — Tier-A Telegram channels ────────────────────────
     #
     # Public Indian financial-press channels. Pushed in 1-3 s via

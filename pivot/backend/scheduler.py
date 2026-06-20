@@ -8,7 +8,7 @@ All log messages and confirmations include "IST" in time strings.
 Jobs registered:
   1. execute_due_sips        — 09:15 IST every trading weekday
   2. check_strategy_triggers — every 60s, 09:15-15:30 IST weekdays
-  3. refresh_kite_tokens     — 07:30 IST every weekday
+  3. refresh_broker_tokens   — 07:30 IST every weekday
   4. daily_market_summary    — 15:45 IST every weekday
 """
 
@@ -21,7 +21,7 @@ from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.triggers.cron import CronTrigger
 
 from backend.utils.time_utils import (
-    IST, now_ist, to_ist, format_ist, format_ist_short,
+    IST, now_ist, format_ist, format_ist_short,
     is_trading_day, next_monthly_execution,
     next_weekly_execution, next_daily_execution,
 )
@@ -106,14 +106,14 @@ def _register_jobs():
     )
 
     scheduler.add_job(
-        refresh_kite_tokens,
+        refresh_broker_tokens,
         trigger=CronTrigger(
             hour=7, minute=30, second=0,
             day_of_week="mon-fri",
             timezone=IST,
         ),
         id="refresh_kite_tokens",
-        name="Refresh Kite Tokens at 07:30 IST",
+        name="Refresh Broker Tokens at 07:30 IST",
         replace_existing=True,
     )
 
@@ -343,8 +343,8 @@ async def execute_due_sips():
 
                 user = db.query(User).filter(User.id == sip.user_id).first()
                 kite_token = (
-                    read_kite_access_token(user.kite_session)
-                    if user and user.kite_session
+                    read_kite_access_token(user.active_broker_session)
+                    if user and user.active_broker_session
                     else ""
                 ) or "mock_token"
 
@@ -595,48 +595,91 @@ async def check_strategy_triggers():
         db.close()
 
 
-# ── Job 3: Refresh Kite Tokens ───────────────────────────────────────────────
+# ── Job 3: Refresh Broker Tokens ─────────────────────────────────────────────
 
-async def refresh_kite_tokens():
+def refresh_broker_tokens():
     """
     Runs at 07:30 IST every weekday — before any order jobs.
-    Logs warnings for sessions whose tokens expire today.
+
+    For every active BrokerSession, attempt a silent token refresh via the
+    broker's connector (``mint_access_token``). Brokers with an unattended
+    path (Dhan rolling renew, Fyers refresh token, Kite opt-in TOTP) roll
+    forward with no human step; brokers without one raise
+    ``NeedsManualLogin`` — we log that the session needs a manual reconnect
+    (leaving it active so the UI can prompt the user) and move on. Never
+    lets one bad session kill the sweep.
+
+    Module-level (NOT a closure) because the SQLAlchemy jobstore serializes
+    callables by textual reference — a closure breaks scheduler.start().
     """
+    from backend.brokers.audit import record_audit
+    from backend.brokers.base import NeedsManualLogin
+    from backend.brokers.registry import get_connector
     from backend.database import SessionLocal
-    from backend.models import KiteSession
+    from backend.models import BrokerSession
 
     check_time = now_ist()
     logger.info(
-        f"[{format_ist_short(check_time)}] Kite token refresh check starting"
+        f"[{format_ist_short(check_time)}] Broker token refresh starting"
     )
 
     db = SessionLocal()
+    refreshed = 0
+    manual = 0
+    failed = 0
     try:
         sessions = (
-            db.query(KiteSession)
-            .filter(KiteSession.is_active == True)  # noqa: E712
+            db.query(BrokerSession)
+            .filter(BrokerSession.is_active == True)  # noqa: E712
             .all()
         )
-        expiring = []
 
         for session in sessions:
-            if session.token_expires_at:
-                expires_ist = to_ist(session.token_expires_at)
-                if expires_ist.date() <= check_time.date():
-                    expiring.append(session.user_id)
-
-        if expiring:
-            logger.warning(
-                f"[{format_ist_short(check_time)}] "
-                f"{len(expiring)} Kite token(s) expiring today — "
-                f"user IDs: {expiring}. SIP execution may fail."
-            )
-        else:
-            logger.info(
-                f"[{format_ist_short(check_time)}] "
-                f"All {len(sessions)} Kite token(s) valid"
-            )
-
+            try:
+                get_connector(session.broker).mint_access_token(db, session)
+                refreshed += 1
+                record_audit(
+                    db, user_id=session.user_id, broker=session.broker,
+                    event_type="token_refresh", status="ok",
+                )
+            except NeedsManualLogin as exc:
+                # No unattended path — keep the session active so the UI can
+                # prompt a reconnect; just flag it. SIP / automations on this
+                # broker may fail until the user re-authenticates.
+                manual += 1
+                record_audit(
+                    db, user_id=session.user_id, broker=session.broker,
+                    event_type="token_refresh_failed",
+                    status="needs_manual_login", detail=str(exc),
+                )
+                logger.warning(
+                    f"[{format_ist_short(now_ist())}] "
+                    f"BrokerSession {session.id} ({session.broker}, user "
+                    f"{session.user_id}) needs manual reconnect — no "
+                    f"unattended token refresh available."
+                )
+            except Exception as e:  # noqa: BLE001
+                failed += 1
+                record_audit(
+                    db, user_id=session.user_id, broker=session.broker,
+                    event_type="token_refresh_failed",
+                    status="error", detail=str(e),
+                )
+                logger.error(
+                    f"[{format_ist_short(now_ist())}] "
+                    f"BrokerSession {session.id} ({session.broker}) token "
+                    f"refresh failed: {e}"
+                )
+        db.commit()
+        logger.info(
+            f"[{format_ist_short(now_ist())}] "
+            f"Broker token refresh complete: {refreshed} refreshed, "
+            f"{manual} need manual reconnect, {failed} failed "
+            f"({len(sessions)} active session(s))"
+        )
+    except Exception:
+        db.rollback()
+        logger.exception("broker token refresh job failed")
     finally:
         db.close()
 

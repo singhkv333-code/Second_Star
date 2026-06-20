@@ -110,7 +110,7 @@ def get_cipher() -> TokenCipher | None:
     global _cipher_singleton, _cipher_loaded
     if _cipher_loaded:
         return _cipher_singleton
-    key = (settings.kite_token_enc_key or "").strip()
+    key = settings.token_enc_key
     if not key:
         logger.info(
             "KITE_TOKEN_ENC_KEY is empty; broker tokens will be stored in "

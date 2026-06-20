@@ -47,7 +47,9 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    kite_session = relationship("KiteSession", back_populates="user", uselist=False)
+    broker_sessions = relationship(
+        "BrokerSession", back_populates="user", cascade="all, delete-orphan",
+    )
     strategies = relationship("Strategy", back_populates="user")
     sip_schedules = relationship("SIPSchedule", back_populates="user")
     product_positions = relationship("ProductPosition", back_populates="user")
@@ -55,6 +57,24 @@ class User(Base):
     paper_account = relationship(
         "PaperAccount", back_populates="user", uselist=False,
     )
+
+    @property
+    def active_broker_session(self) -> "BrokerSession | None":
+        """The user's active trading-broker session (the one orders/portfolio
+        resolve through). Prefers the most-recently-updated active row so a
+        user who later connects Dhan trades on Dhan. Replaces the old
+        Kite-only ``kite_session`` accessor."""
+        active = [s for s in self.broker_sessions if s.is_active]
+        if not active:
+            return None
+
+        def _recency(s: "BrokerSession") -> tuple:
+            ts = s.updated_at or s.login_time or s.created_at
+            # (has_ts, epoch, id) avoids comparing None vs aware datetimes;
+            # id is a monotonic tiebreaker / fallback.
+            return (1, ts.timestamp(), s.id) if ts is not None else (0, 0.0, s.id)
+
+        return sorted(active, key=_recency, reverse=True)[0]
 
 
 class WatchlistItem(Base):
@@ -82,22 +102,82 @@ class WatchlistItem(Base):
     )
 
 
-class KiteSession(Base):
-    __tablename__ = "kite_sessions"
+class BrokerSession(Base):
+    """One connection per (user, broker). Generalizes the old Kite-only
+    ``kite_sessions`` table so a user can connect Zerodha Kite, Dhan, Fyers,
+    etc. Tokens and machine credentials are Fernet-encrypted at rest via
+    ``security.encryption.get_cipher()`` (read back through
+    ``read_kite_access_token`` / the connector layer).
+
+    Persistence model differs by broker — captured in ``persistence_mode``:
+      - ``daily_oauth``    Kite default: 6 AM expiry, user re-auths (or opts
+                           into ``totp_login`` below).
+      - ``api_key_mint``   Dhan: 12-month ``api_key``/``api_secret`` mint a
+                           fresh daily token unattended (the clean path).
+      - ``refresh_token``  Fyers: 15-day ``refresh_token`` silent refresh.
+      - ``totp_login``     gray opt-in: stored credentials + ``totp_secret``
+                           replay the login each morning (Kite only).
+    """
+    __tablename__ = "broker_sessions"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    access_token = Column(String(500), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    broker = Column(String(20), nullable=False, default="kite")  # kite|dhan|fyers
+    # Short-lived live token (decrypt via read_kite_access_token).
+    access_token = Column(String(500), nullable=True)
     request_token = Column(String(500), nullable=True)
-    kite_user_id = Column(String(50), nullable=True)
+    # Long-lived machine credentials for unattended re-mint (encrypted at rest).
+    refresh_token = Column(String(500), nullable=True)
+    api_key = Column(String(500), nullable=True)
+    api_secret = Column(String(500), nullable=True)
+    totp_secret = Column(String(200), nullable=True)
+    # Broker-side identity (kite_user_id / dhan client id / fyers id).
+    broker_user_id = Column(String(50), nullable=True)
     login_time = Column(DateTime(timezone=True), nullable=True)
     token_expires_at = Column(DateTime(timezone=True), nullable=True)
-    totp_secret = Column(String(100), nullable=True)
+    persistence_mode = Column(String(20), nullable=False, default="daily_oauth")
+    # Explicit opt-in to store credentials for unattended auto-login (gray path).
+    auto_login_opt_in = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    user = relationship("User", back_populates="kite_session")
+    user = relationship("User", back_populates="broker_sessions")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "broker", name="uq_broker_sessions_user_broker"),
+    )
+
+
+class BrokerAudit(Base):
+    """Append-only audit trail for broker-side order/token events.
+
+    Written by ``backend/brokers/audit.py::record_audit`` from the order
+    routing layer (auto-exec gating: ``order_intent``/``order_placed``/
+    ``order_failed``) and the scheduler's daily token sweep
+    (``token_refresh``/``token_refresh_failed``). Deliberately FK-light
+    (``user_id`` nullable, no relationship) so an audit write never
+    couples to a session/order lifecycle and never breaks the order it is
+    recording. ``detail`` carries a free-form JSON/string note."""
+    __tablename__ = "broker_audit"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True,
+    )
+    broker = Column(String(20), nullable=True)
+    event_type = Column(String(40), nullable=False, index=True)
+    symbol = Column(String(64), nullable=True)
+    side = Column(String(8), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    order_type = Column(String(16), nullable=True)
+    price = Column(Float, nullable=True)
+    order_id = Column(String(64), nullable=True)
+    status = Column(String(32), nullable=True)
+    detail = Column(Text, nullable=True)  # JSON/string
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), index=True,
+    )
 
 
 class StrategyStatus(str, enum.Enum):

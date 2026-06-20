@@ -267,6 +267,101 @@ class TriggerEventConfig(_Strict):
     )
 
 
+class TriggerScheduledMacroConfig(_Strict):
+    """Calendar-armed, outcome-verified macro-event trigger (beta).
+
+    Fires when a KNOWN-DATE macro release (RBI MPC / FOMC decision, India
+    or US CPI print) produces the ``expected_outcome`` — verified against
+    the official source (RBI/Fed RSS, a CPI news feed) before firing, with
+    a prediction-market resolution fallback. The scheduler's
+    ``_poll_scheduled_macro_triggers`` loop (un-gated by market hours)
+    opens the verify window around the calendar date, calls
+    ``backend.macro_events.verifier.verify_macro_outcome``, and fires
+    out-of-band via ``fire_external_event`` only on a confident match.
+
+    Allow-listed ``kind`` values are kept in lock-step with
+    ``backend.workflows.propose._ALLOWED_MACRO_KINDS`` and the
+    ``backend.macro_events`` calendar / source-of-truth tables.
+
+    For the CPI (print) kinds, the outcome is judged numerically: the
+    verifier extracts the reported figure and compares it to
+    ``threshold`` using ``comparison`` (met / not_met). Rate kinds
+    (rbi_mpc, us_fomc) ignore comparison/threshold and judge the
+    cut/hold/hike decision directly.
+    """
+    kind: Literal["rbi_mpc", "us_fomc", "india_cpi", "us_cpi"] = Field(
+        ...,
+        description=(
+            "Which scheduled macro event to watch. rbi_mpc = RBI repo-rate "
+            "decision; us_fomc = Fed decision; india_cpi / us_cpi = "
+            "inflation prints."
+        ),
+    )
+    expected_outcome: Literal["cut", "hold", "hike", "met", "not_met"] = Field(
+        ...,
+        description=(
+            "What fires the downstream action. Rate kinds: 'cut' | 'hold' "
+            "| 'hike'. Print kinds (CPI): 'met' | 'not_met' (whether the "
+            "reported figure satisfies comparison vs threshold)."
+        ),
+    )
+    min_confidence: float = Field(
+        default=0.85, ge=0.7, le=1.0,
+        description=(
+            "Minimum verifier confidence to fire. 0.85 mirrors the "
+            "news-classifier threshold; the evidence-quote-must-be-in-"
+            "source guard runs regardless."
+        ),
+    )
+    allow_prediction_market_fallback: bool = Field(
+        default=True,
+        description=(
+            "When the official source is inconclusive (no headline, low "
+            "confidence), fall back to a correlated Polymarket/Kalshi "
+            "market resolving for the outcome. Conservative: only a "
+            "clearly-resolved market confirms."
+        ),
+    )
+    comparison: Optional[Literal[">", "<", ">=", "<="]] = Field(
+        default=None,
+        description=(
+            "CPI kinds only: how to compare the reported figure to "
+            "`threshold`. e.g. '>' with threshold 5.0 → 'met' when CPI "
+            "prints above 5%."
+        ),
+    )
+    threshold: Optional[float] = Field(
+        default=None,
+        description="CPI kinds only: the percentage level for `comparison`.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_outcome_per_kind(self) -> "TriggerScheduledMacroConfig":
+        rate_kinds = {"rbi_mpc", "us_fomc"}
+        print_kinds = {"india_cpi", "us_cpi"}
+        if self.kind in rate_kinds:
+            if self.expected_outcome not in {"cut", "hold", "hike"}:
+                raise ValueError(
+                    f"trigger.scheduled_macro: kind={self.kind!r} requires "
+                    f"expected_outcome in cut|hold|hike (got "
+                    f"{self.expected_outcome!r})"
+                )
+        elif self.kind in print_kinds:
+            if self.expected_outcome not in {"met", "not_met"}:
+                raise ValueError(
+                    f"trigger.scheduled_macro: kind={self.kind!r} requires "
+                    f"expected_outcome in met|not_met (got "
+                    f"{self.expected_outcome!r})"
+                )
+            if self.comparison is None or self.threshold is None:
+                raise ValueError(
+                    f"trigger.scheduled_macro: CPI kind={self.kind!r} "
+                    f"requires both comparison and threshold so the print "
+                    f"can be judged met/not_met"
+                )
+        return self
+
+
 class TriggerPolymarketConfig(_Strict):
     """Polymarket prediction-market trigger — two modes.
 
@@ -373,6 +468,98 @@ class TriggerPolymarketConfig(_Strict):
             raise ValueError(
                 "trigger.polymarket: threshold is required when "
                 "mode='threshold'"
+            )
+        return self
+
+
+class TriggerKalshiConfig(_Strict):
+    """Kalshi prediction-market trigger — two modes (parallel to
+    ``TriggerPolymarketConfig``).
+
+    ``mode='threshold'`` fires when the watched side's probability
+    crosses ``threshold`` in ``direction``. ``mode='resolution'`` fires
+    when the Kalshi market officially settles for ``resolve_on``.
+
+    Token identity:
+      Kalshi has ONE ``market_id`` (ticker) per binary market and no
+      per-side CLOB token. ``token_id`` carries the synthesized per-side
+      asset id ``f"{ticker}:{side}"`` the REST worker subscribes on —
+      keep the ``token_id`` field name (not ``asset_id``) so the planner
+      prompt + the propose-time resolver reuse the Polymarket wording
+      with only the venue swapped. The matcher
+      (``parsing/kalshi_match.match_event_to_kalshi_contract``) resolves
+      both; the planner should call ``propose_kalshi_trigger`` /
+      ``propose_workflow`` with the resolved ids inline.
+
+    Firing path:
+      The Kalshi REST poll worker
+      (``news_events/workers/kalshi_rest_worker.py``) drives the SAME
+      venue-agnostic evaluator the Polymarket WS path uses; on a cross /
+      settlement it calls ``fire_external_event``.
+    """
+    market_id: str = Field(
+        ..., min_length=1, max_length=128,
+        description="Kalshi market ticker (e.g. 'KXFEDDECISION-26JAN-H'). "
+        "Resolved by the matcher; do not invent.",
+    )
+    token_id: str = Field(
+        ..., min_length=1, max_length=256,
+        description="Synthesized per-side asset id '<ticker>:<YES|NO>' the "
+        "worker subscribes on. Pulled from the matched side.",
+    )
+    side: Literal["YES", "NO"] = Field(
+        default="YES",
+        description="Which side of the binary market. The worker keys on "
+        "token_id; this is audit/UI.",
+    )
+    mode: Literal["threshold", "resolution"] = Field(
+        default="threshold",
+        description="'threshold' fires on probability cross; 'resolution' "
+        "fires when the market settles.",
+    )
+    threshold: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Side probability at which to fire, 0..1. REQUIRED when "
+        "mode='threshold'. Ignored when mode='resolution'.",
+    )
+    direction: Literal["above", "below"] = Field(
+        default="above",
+        description="'above' fires when the probability rises through "
+        "threshold; 'below' when it falls through. Ignored on resolution.",
+    )
+    resolve_on: Literal["YES", "NO", "ANY"] = Field(
+        default="YES",
+        description="Which winner fires on mode='resolution'. Default YES.",
+    )
+    question: Optional[str] = Field(
+        default=None, max_length=500,
+        description="Human-readable Kalshi market title. Audit/UI only.",
+    )
+    event_description: Optional[str] = Field(
+        default=None, max_length=2_000,
+        description="OPTIONAL escape hatch — the user's free-text ask. When "
+        "market_id/token_id are missing but this is set, propose.py "
+        "resolves it to a contract at propose time (matcher confidence "
+        "≥ 0.85; else it raises so the LLM calls propose_kalshi_trigger).",
+    )
+
+    @field_validator("token_id")
+    @classmethod
+    def _validate_token_format(cls, v: str) -> str:
+        import re
+        if not re.match(r"^[^:]+:(YES|NO)$", v):
+            raise ValueError(
+                "trigger.kalshi: token_id must be '<ticker>:YES' or "
+                "'<ticker>:NO' (the synthesized per-side asset id the "
+                "matcher produces)"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_mode_requires(self) -> "TriggerKalshiConfig":
+        if self.mode == "threshold" and self.threshold is None:
+            raise ValueError(
+                "trigger.kalshi: threshold is required when mode='threshold'"
             )
         return self
 

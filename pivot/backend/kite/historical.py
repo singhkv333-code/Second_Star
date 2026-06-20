@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from backend.brokers.sessions import get_active_kite_session
 from backend.cache import get_redis
 from backend.database import SessionLocal
 from backend.kite.auth import (
@@ -24,7 +25,6 @@ from backend.kite.auth import (
     read_kite_access_token,
 )
 from backend.kite.ticker import get_ticker_manager
-from backend.models import KiteSession
 
 logger = logging.getLogger(__name__)
 
@@ -169,22 +169,13 @@ def get_kite_historical(
     except Exception as exc:
         logger.debug("kite_historical cache read failed: %s", exc)
 
-    # Pull the active session. MUST filter is_active — an old inactive row
-    # can hold a stale/junk token, and ordering by updated_at NULLS LAST
-    # pushed the freshly-connected session (updated_at NULL on insert) to
-    # the bottom, so we were picking the dead token and Kite 401'd. Order
-    # by id DESC (newest row) which is robust to NULL timestamps.
+    # Pull the active Kite session (app-level, any user). The helper filters
+    # is_active + access_token NOT NULL and orders by id DESC / updated_at
+    # NULLS LAST — robust to a freshly-connected session whose updated_at is
+    # still NULL on insert (else we'd pick a dead token and Kite would 401).
     db = SessionLocal()
     try:
-        session = (
-            db.query(KiteSession)
-            .filter(
-                KiteSession.is_active.is_(True),
-                KiteSession.access_token.isnot(None),
-            )
-            .order_by(KiteSession.id.desc())
-            .first()
-        )
+        session = get_active_kite_session(db)
     finally:
         db.close()
 

@@ -775,12 +775,18 @@ tool("screen_fundamentals",
      defaults={"limit": 15})
 
 tool("fetch_fundamentals",
-     "Snapshot of ONE stock's fundamentals (P/E, ROE, ROCE, D/E, net margin, "
-     "EPS, book value, dividend payout) from the financials DB. Use for 'should "
-     "I buy X', 'what is X's PE/ROE', or one leg of a 'compare A vs B' (call "
-     "once per symbol). Returns null for any metric not populated (coverage is "
-     "sparse outside large caps) — if a value is null SAY it's unavailable, "
-     "NEVER invent it. Not a live-price tool (use get_live_price for price).",
+     "Snapshot of ONE stock's fundamentals AND company profile. Returns: P/E, "
+     "ROE, ROCE, D/E, net margin, EPS, book value, dividend payout (financials "
+     "DB); PLUS sector, industry, business_summary (what the company does), "
+     "promoter_holding_pct (promoter/insider stake — a proxy from yfinance, not "
+     "the exact SEBI filing), institution_holding_pct, website, and employees "
+     "(enrichment DB). Use for 'should I buy X', 'what is X's PE/ROE', 'what "
+     "sector/industry is X in', 'what does X do', 'who are the promoters of X / "
+     "promoter holding of X', 'tell me about X', or one leg of a 'compare A vs "
+     "B' (call once per symbol). Returns null for any metric not populated "
+     "(coverage is sparse outside large caps) — if a value is null SAY it's "
+     "unavailable, NEVER invent it. Note promoter_holding_pct is a proxy; "
+     "present it as approximate. Not a live-price tool (use get_live_price).",
      {"symbol": {"type": "string",
                  "description": "NSE ticker, uppercase. Infosys->INFY, Reliance->RELIANCE."}},
      ["symbol"])

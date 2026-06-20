@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     # (mc.companies, mc.statement_lines, mc.daily_prices). Maintained by
     # pivot-mc-scraper. Backend only reads — never writes.
     financials_dsn: str = "postgresql://pivot_user:pivot_password@localhost:5432/financials"
+    # Read-only DSN for the yfinance-enriched company profiles DB
+    # (enrich.company_profile / enrich.v_company_enriched: profile, sector,
+    # promoter-holding proxy, ticker). Separate DB `pivot_enrich`, built by
+    # scripts/enrich_company_profiles.py. Backend only reads. Join to
+    # mc.companies by sc_id or ticker. Empty string disables the read path.
+    enrich_dsn: str = ""
 
     # Redis
     redis_url: str
@@ -33,7 +39,38 @@ class Settings(BaseSettings):
     kite_api_secret: str = ""
     # Phase 0: token encryption at rest. Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Used for ALL broker secrets at rest (kite/dhan/fyers access+refresh+api
+    # secret+totp). Named kite_* for env back-compat; broker_token_enc_key is an
+    # accepted alias below.
     kite_token_enc_key: str = ""
+
+    # --- Multi-broker onboarding (brokers/) -----------------------------------
+    # Dhan is the "clean unattended" broker: a 12-month app api key+secret lets
+    # the backend silently mint a fresh daily access token (with the user's TOTP)
+    # — no daily human re-login. Leave blank to keep the Dhan connector in mock
+    # mode. partner_* are for the Dhan OAuth "Login with Dhan" partner flow.
+    dhan_api_key: str = ""
+    dhan_api_secret: str = ""
+    dhan_partner_id: str = ""
+    dhan_partner_secret: str = ""
+    # Fyers is the OAuth + 15-day refresh-token broker: a one-time hosted login
+    # mints an access + refresh token, and the refresh token silently re-mints
+    # the daily access token for ~2 weeks (no daily re-login). These are the
+    # app-level credentials from the Fyers API dashboard (myapi.fyers.in). The
+    # appIdHash sent to the auth endpoints is sha256(f"{fyers_app_id}:{fyers_secret_id}").
+    # Leave blank to keep the Fyers connector in mock mode.
+    fyers_app_id: str = ""
+    fyers_secret_id: str = ""
+    # Alias accepted from env; falls back to kite_token_enc_key when unset.
+    broker_token_enc_key: str = ""
+
+    # Server-side auto-execution master flag. When False, workflow-triggered
+    # orders are PREPARED (register-not-execute) but not fired by the server.
+    # Going live for OTHER users requires NSE/BSE algo-provider empanelment;
+    # the account owner's own account is a legitimate self-developed algo and
+    # is gated by broker_auto_exec_user_ids (comma-separated user ids).
+    auto_execute_enabled: bool = False
+    broker_auto_exec_user_ids: str = ""
 
     # AI
     openai_api_key: str = ""
@@ -119,6 +156,33 @@ class Settings(BaseSettings):
     # query is negligible.
     polymarket_ws_reconcile_interval_s: int = 30
 
+    # --- Kalshi prediction-market trigger (trigger.kalshi) --------------------
+    # Sub-flag: boots a REST poll worker (asyncio task, NOT an APScheduler
+    # job) that drives the SAME venue-agnostic prediction-market evaluator
+    # the Polymarket path uses, firing active trigger.kalshi workflow steps
+    # via fire_external_event. Kalshi public market-data reads need no auth;
+    # the WS channel needs RSA-signed auth, so REST polling is the beta path.
+    # Master news_events flag must also be on. Default off.
+    kalshi_rest_enabled: bool = False
+    # How often the worker reconciles registrations + polls watched market
+    # prices. Kalshi unauth reads are generous (~20 req/s) and we batch by
+    # ticker, so 30s is brisk and well under any rate cap.
+    kalshi_rest_reconcile_interval_s: int = 30
+    # Public market-data base URL. The `.elections.` host is current
+    # canonical; api.kalshi.com is an alias.
+    kalshi_api_base_url: str = "https://api.elections.kalshi.com/trade-api/v2"
+
+    # --- Scheduled macro-event triggers (trigger.scheduled_macro) -------------
+    # Gates registration of the macro watcher poll loop
+    # (_poll_scheduled_macro_triggers). Independent of news_events_enabled:
+    # the verifier only needs the RSS adapter + (optionally) the
+    # prediction-market client, both of which import fine with the master
+    # news flag off. Default off so dev/tests don't arm the loop.
+    macro_events_enabled: bool = False
+    # Minimum verifier confidence to fire (overridable per-step via the
+    # trigger config's own min_confidence; this is the global floor).
+    macro_verifier_min_confidence: float = 0.85
+
     # --- Paper trading (simulated broker) -------------------------------------
     # When True, orders from chat (/orders/confirm, /orders/gtt) and from
     # workflow action.* steps route through the PaperBroker (backend/paper/)
@@ -131,6 +195,23 @@ class Settings(BaseSettings):
     @property
     def allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",")]
+
+    @property
+    def token_enc_key(self) -> str:
+        """The Fernet key for at-rest broker secrets. Prefers the broker_*
+        alias, falls back to the legacy kite_* env name."""
+        return (self.broker_token_enc_key or self.kite_token_enc_key or "").strip()
+
+    @property
+    def auto_exec_user_ids(self) -> set[int]:
+        """User ids allowed to run server-side auto-execution (own-account
+        pilot) before NSE/BSE empanelment broadens it."""
+        out: set[int] = set()
+        for part in (self.broker_auto_exec_user_ids or "").split(","):
+            part = part.strip()
+            if part.isdigit():
+                out.add(int(part))
+        return out
 
     class Config:
         env_file = _ENV_FILE

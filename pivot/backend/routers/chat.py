@@ -111,8 +111,8 @@ def _last_user_message(messages: list) -> str:
 
 def _kite_token_for(db: Session, user_id: int) -> str:
     user = db.query(User).filter(User.id == user_id).first()
-    if user and getattr(user, "kite_session", None):
-        return read_kite_access_token(user.kite_session) or "mock_token"
+    if user and getattr(user, "active_broker_session", None):
+        return read_kite_access_token(user.active_broker_session) or "mock_token"
     return "mock_token"
 
 

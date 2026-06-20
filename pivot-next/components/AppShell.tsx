@@ -33,13 +33,13 @@ import {
   HelpCircle,
   Info,
   Keyboard,
-  KeyRound,
   LogOut,
   Menu,
   MessageSquare,
   Monitor,
   Moon,
   PieChart,
+  Plug,
   Plus,
   Search,
   Settings,
@@ -51,9 +51,9 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { CHORD_NAV_MAP } from "@/lib/shortcuts";
 import {
-  KiteCredentialsPanel,
-  type KiteOAuthResult,
-} from "@/components/KiteCredentialsPanel";
+  BrokerOnboarding,
+  type BrokerOAuthResult,
+} from "@/components/brokers";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import {
   ActiveDraftContext,
@@ -229,10 +229,14 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // The AgentPanel renders as a modal overlay at a fixed width (matched to
   // the Backtest sheet via CSS clamp inside AgentPanel) — no width state or
   // side-by-side padding to track here.
-  const [kitePanelOpen, setKitePanelOpen] = useState(false);
-  const [kiteOauthResult, setKiteOauthResult] = useState<KiteOAuthResult | null>(
-    null,
-  );
+  // Broker onboarding dialog (replaces the old Kite-only credentials panel).
+  // `brokerOauth` carries the broker id + outcome from an OAuth return trip so
+  // the dialog can deep-open onto that broker's connect panel with a banner.
+  const [brokerPanelOpen, setBrokerPanelOpen] = useState(false);
+  const [brokerOauth, setBrokerOauth] = useState<{
+    broker: string | null;
+    result: BrokerOAuthResult;
+  } | null>(null);
   const [metrics, setMetrics] = useState<MetricState>({ kind: "loading" });
   const [theme, setTheme] = useState<Theme>("system");
   // Global trading mode (real/live vs paper). Mirrors the persisted store so
@@ -314,24 +318,38 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       } catch { /* silent */ }
     })();
 
-    // Detect Kite OAuth return trip — `/kite/callback` redirects here with
-    // ?kite=connected or ?kite=error&reason=…. Auto-open the credentials
-    // panel with the outcome, then strip the params so refreshes don't
-    // re-surface old state.
+    // Detect a broker OAuth return trip — the backend bounces here with
+    // ?broker=connected (or ?broker=error&reason=…). We also honor the legacy
+    // ?kite=… param so old redirects / bookmarks don't break (mapped to the
+    // "kite" broker). Either way we auto-open the broker onboarding dialog onto
+    // that broker's panel with the outcome banner, then strip the params so a
+    // refresh doesn't re-surface stale state.
     try {
       const params = new URLSearchParams(window.location.search);
-      const kite = params.get("kite");
-      if (kite === "connected") {
-        setKiteOauthResult({ kind: "connected" });
-        setKitePanelOpen(true);
-      } else if (kite === "error") {
-        setKiteOauthResult({
-          kind: "error",
-          reason: params.get("reason") ?? "unknown",
+      const brokerParam = params.get("broker");
+      const kiteParam = params.get("kite"); // legacy fallback
+      const outcome = brokerParam ?? kiteParam;
+      // Which broker connected: `?broker=connected` has no id, so use the
+      // explicit `?broker_id=` if present, else infer "kite" from the legacy
+      // param, else null (the dialog still shows the picker + banner).
+      const brokerId = brokerParam
+        ? params.get("broker_id")
+        : kiteParam
+          ? "kite"
+          : null;
+      if (outcome === "connected") {
+        setBrokerOauth({ broker: brokerId, result: { kind: "connected" } });
+        setBrokerPanelOpen(true);
+      } else if (outcome === "error") {
+        setBrokerOauth({
+          broker: brokerId,
+          result: { kind: "error", reason: params.get("reason") ?? "unknown" },
         });
-        setKitePanelOpen(true);
+        setBrokerPanelOpen(true);
       }
-      if (kite) {
+      if (outcome) {
+        params.delete("broker");
+        params.delete("broker_id");
         params.delete("kite");
         params.delete("reason");
         const qs = params.toString();
@@ -577,7 +595,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onChooseTradingMode={chooseTradingMode}
         metrics={metrics}
         accountInitial={accountInitial}
-        onOpenKite={() => setKitePanelOpen(true)}
+        onOpenBroker={() => setBrokerPanelOpen(true)}
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onBrandClick={() => goTab("chat")}
         onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -721,13 +739,13 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onActiveEditorDraftChange={setActiveEditorDraft}
       />
 
-      <KiteCredentialsPanel
-        open={kitePanelOpen}
+      <BrokerOnboarding
+        open={brokerPanelOpen}
         onOpenChange={(next) => {
-          setKitePanelOpen(next);
-          if (!next) setKiteOauthResult(null);
+          setBrokerPanelOpen(next);
+          if (!next) setBrokerOauth(null);
         }}
-        oauthResult={kiteOauthResult}
+        oauth={brokerOauth}
       />
 
       <CommandPalette
@@ -756,7 +774,7 @@ function TopHeader({
   onChooseTradingMode,
   metrics,
   accountInitial,
-  onOpenKite,
+  onOpenBroker,
   onOpenMobileNav,
   onBrandClick,
   onOpenShortcuts,
@@ -767,7 +785,7 @@ function TopHeader({
   onChooseTradingMode: (m: TradingMode) => void;
   metrics: MetricState;
   accountInitial: string;
-  onOpenKite: () => void;
+  onOpenBroker: () => void;
   onOpenMobileNav: () => void;
   onBrandClick: () => void;
   onOpenShortcuts: () => void;
@@ -896,7 +914,7 @@ function TopHeader({
           tradingMode={tradingMode}
           onChooseTradingMode={onChooseTradingMode}
           initial={accountInitial}
-          onOpenKite={onOpenKite}
+          onOpenBroker={onOpenBroker}
           onOpenShortcuts={onOpenShortcuts}
         />
       </div>
@@ -918,7 +936,7 @@ function AccountMenu({
   tradingMode,
   onChooseTradingMode,
   initial,
-  onOpenKite,
+  onOpenBroker,
   onOpenShortcuts,
 }: {
   theme: Theme;
@@ -926,7 +944,7 @@ function AccountMenu({
   tradingMode: TradingMode;
   onChooseTradingMode: (m: TradingMode) => void;
   initial: string;
-  onOpenKite: () => void;
+  onOpenBroker: () => void;
   onOpenShortcuts: () => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
@@ -1055,13 +1073,13 @@ function AccountMenu({
           }}
         >
           <MenuItem
-            icon={KeyRound}
-            label="Kite credentials"
+            icon={Plug}
+            label="Brokers"
             onClick={() => {
               setOpen(false);
-              onOpenKite();
+              onOpenBroker();
             }}
-            testId="menu-kite-credentials"
+            testId="menu-brokers"
           />
           <MenuItem icon={Settings} label="Settings" onClick={() => setOpen(false)} />
           <div

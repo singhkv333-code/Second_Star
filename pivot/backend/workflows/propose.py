@@ -288,6 +288,49 @@ async def resolve_polymarket_event_descriptions(raw: dict[str, Any]) -> None:
         step["config"] = cfg
 
 
+async def resolve_kalshi_event_descriptions(raw: dict[str, Any]) -> None:
+    """In-place resolve ``trigger.kalshi`` steps carrying only the
+    ``event_description`` escape hatch — the Kalshi sibling of
+    :func:`resolve_polymarket_event_descriptions`.
+
+    market_id + token_id already set → skip. event_description set + matcher
+    confidence ≥ 0.85 → fill market_id/token_id/side/question inline. Below
+    confidence → raise so the LLM calls ``propose_kalshi_trigger`` first.
+    """
+    steps = (raw or {}).get("steps") or []
+    if not isinstance(steps, list):
+        return
+    for idx, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        if step.get("step_type") != "trigger.kalshi":
+            continue
+        cfg = step.get("config") or {}
+        if cfg.get("market_id") and cfg.get("token_id"):
+            continue
+        desc = str(cfg.get("event_description") or "").strip()
+        if not desc:
+            continue
+        from backend.news_events.parsing.kalshi_match import (
+            match_event_to_kalshi_contract,
+        )
+        match = await match_event_to_kalshi_contract(desc)
+        if not match.matched or match.confidence < 0.85:
+            raise ProposalValidationError(
+                f"step {idx} (trigger.kalshi): kalshi contract ambiguous "
+                f"(matcher confidence {match.confidence:.2f} < 0.85). Call "
+                f"propose_kalshi_trigger first to nail the contract with the "
+                f"user, then emit this workflow with market_id + token_id + "
+                f"side inline on the trigger.kalshi step."
+            )
+        cfg["market_id"] = match.market_id
+        cfg["token_id"] = match.token_id
+        cfg["side"] = match.side or "YES"
+        if match.question and not cfg.get("question"):
+            cfg["question"] = match.question
+        step["config"] = cfg
+
+
 def _ensure_step_labels(draft: WorkflowDraft) -> None:
     """In-place: every step gets a human label from the registry.
 
@@ -341,6 +384,109 @@ def _normalize_deprecated_steps(draft: WorkflowDraft) -> None:
             cfg.setdefault(key, val)
         step.step_type = new_type
         step.config = cfg
+
+
+# ── Event-trigger allow-list (conservative beta) ─────────────────────
+#
+# Pivot's beta accepts only a small set of VERIFIABLE event triggers.
+# An event trigger is a condition that FIRES A REAL ACTION, so it must
+# be backed by a fixed, time-boxed, trusted source we can actually
+# check (RBI/Fed RSS, a listed Polymarket/Kalshi market, an exchange
+# feed). Anything open-ended ("if war breaks out", "good monsoon",
+# "election verdict") has no such feed — we refuse to TRIGGER on it and
+# steer the user to the nearest real alternative (a theme/basket
+# STRATEGY, a prediction-market resolution trigger, or a price/VIX
+# trigger). This is the authoritative gate: even if the system prompt
+# fails to steer the model, an excluded trigger never validates and so
+# never persists.
+#
+# IMPORTANT — keep the two ideas separate: this gate constrains event
+# TRIGGERS only. Pivot's separate ability to DESIGN A STRATEGY around a
+# theme (monsoon/elections/war → a basket of beneficiaries) is
+# untouched; those flow through action.allocate_* / fetch.screener, not
+# through a trigger.* step.
+
+# Allow-listed `kind` values for the calendar-armed macro trigger
+# (trigger.scheduled_macro). Derived from the macro source-of-truth table
+# so this gate, the calendar, and the verifier can never drift apart —
+# adding a kind there automatically allows it here.
+from backend.macro_events.source_of_truth import all_kinds as _macro_all_kinds
+
+_ALLOWED_MACRO_KINDS = frozenset(_macro_all_kinds())
+
+# Substring markers that mark a `trigger.event` ask as open-ended /
+# unverifiable / explicitly-out-of-scope for the beta. Matched against
+# the lower-cased event_description + keywords. A false reject is cheap
+# (it just routes the planner to a clearer alternative); a false accept
+# would arm a real order on a feed we cannot confirm.
+_UNVERIFIABLE_EVENT_MARKERS = (
+    # geopolitical / conflict
+    "war", "ceasefire", "invasion", "invade", "missile", "airstrike",
+    "military", "conflict", "attack",
+    # weather / disaster
+    "monsoon", "drought", "rainfall", "el nino", "el niño", "flood",
+    "earthquake", "cyclone", "hurricane", "disaster", "pandemic",
+    # politics
+    "election", "exit poll", "poll result", "verdict", "coalition",
+    # explicitly-excluded market-structure (per beta scope)
+    "fii flow", "dii flow", "fii/dii", "net flow", "net-flow",
+    "index rebalance", "rebalance", "reshuffle", "reconstitution",
+)
+
+_REFUSAL_ALTERNATIVE = (
+    "Do NOT emit any trigger.* step for this. Instead reply in plain "
+    "chat and offer the user the nearest REAL alternative: (1) build a "
+    "theme/basket STRATEGY now around who actually benefits from the "
+    "view (action.allocate_notional / fetch.screener — NOT a trigger), "
+    "(2) a prediction-market resolution trigger (trigger.polymarket or "
+    "trigger.kalshi) IF a listed binary market matches the ask, or "
+    "(3) a price / India-VIX threshold trigger (trigger.price). Never "
+    "fabricate a news feed or claim to watch something we cannot verify."
+)
+
+
+def validate_trigger_allowlist(draft: WorkflowDraft) -> None:
+    """Enforce the conservative-beta event-trigger allow-list in place.
+
+    Raises :class:`ProposalValidationError` (with planner-actionable
+    guidance) when a draft carries an out-of-scope or unverifiable
+    event trigger. Non-event triggers (price/indicator/schedule/…) and
+    allow-listed event triggers pass untouched.
+    """
+    for idx, step in enumerate(draft.steps):
+        st = step.step_type
+        cfg = step.config or {}
+
+        if st == "trigger.scheduled_macro":
+            kind = str(cfg.get("kind", "")).strip().lower()
+            if kind not in _ALLOWED_MACRO_KINDS:
+                raise ProposalValidationError(
+                    f"step {idx} (trigger.scheduled_macro): kind "
+                    f"{kind!r} is not a supported macro event in this "
+                    f"beta. Allowed kinds: "
+                    f"{', '.join(sorted(_ALLOWED_MACRO_KINDS))}. "
+                    f"{_REFUSAL_ALTERNATIVE}"
+                )
+
+        elif st == "trigger.event":
+            hay = " ".join([
+                str(cfg.get("event_description", "")),
+                " ".join(
+                    str(k) for k in (cfg.get("keywords") or [])
+                    if isinstance(k, str)
+                ),
+            ]).lower()
+            hit = next(
+                (m for m in _UNVERIFIABLE_EVENT_MARKERS if m in hay), None,
+            )
+            if hit is not None:
+                raise ProposalValidationError(
+                    f"step {idx} (trigger.event): '{hit}' is not a "
+                    f"verifiable event trigger in this beta — there is no "
+                    f"fixed, time-boxed feed Pivot can check to confirm "
+                    f"it, so it must not fire a real order. "
+                    f"{_REFUSAL_ALTERNATIVE}"
+                )
 
 
 def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
@@ -420,6 +566,14 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
                 f"{field}: {first.get('msg', 'unknown')}"
             ) from e
         prev_was_trigger = is_trigger
+
+    # Conservative-beta event-trigger allow-list. Runs after per-step
+    # registry validation (so configs are already Pydantic-valid) and
+    # before the lint pass. Rejects out-of-scope / unverifiable event
+    # triggers with planner-actionable guidance; the LLM retry path can
+    # self-correct, and a persistent failure surfaces to the user as a
+    # "here's the nearest real thing" message rather than a fake feed.
+    validate_trigger_allowlist(draft)
 
     # Cross-step lint pass (capability / refs / structural). Runs after
     # the per-step registry validation above so the linter sees a draft
@@ -721,6 +875,7 @@ async def _propose_via_llm(user_intent: str) -> WorkflowDraft:
     try:
         parsed = _extract_json(raw)
         await resolve_polymarket_event_descriptions(parsed)
+        await resolve_kalshi_event_descriptions(parsed)
         return validate_draft_against_registry(parsed)
     except ProposalValidationError as e:
         logger.info("propose_workflow LLM retry: %s", e)
@@ -733,6 +888,7 @@ async def _propose_via_llm(user_intent: str) -> WorkflowDraft:
         )
         retry_parsed = _extract_json(retry_raw)
         await resolve_polymarket_event_descriptions(retry_parsed)
+        await resolve_kalshi_event_descriptions(retry_parsed)
         return validate_draft_against_registry(retry_parsed)
 
 
