@@ -170,9 +170,9 @@ def _kite_token_for_run(ctx: Any) -> str:
         .filter(User.id == int(ctx.workflow.user_id))
         .first()
     )
-    if user and user.kite_session and user.kite_session.access_token:
+    if user and user.active_broker_session and user.active_broker_session.access_token:
         from backend.kite.auth import read_kite_access_token
-        token = read_kite_access_token(user.kite_session)
+        token = read_kite_access_token(user.active_broker_session)
         if token:
             return token
     return "mock_token"

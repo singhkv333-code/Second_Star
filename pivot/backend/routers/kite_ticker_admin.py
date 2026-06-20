@@ -26,7 +26,7 @@ from backend.kite.auth import (
 )
 from backend.kite.portfolio import get_holdings
 from backend.kite.ticker import get_ticker_manager
-from backend.models import KiteSession
+from backend.models import BrokerSession
 from backend.routers._deps import require_user
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,13 @@ def ticker_start(
         return manager.status()
 
     session = (
-        db.query(KiteSession)
-        .filter(KiteSession.user_id == user_id, KiteSession.is_active.is_(True))
-        .order_by(KiteSession.updated_at.desc().nullslast(), KiteSession.id.desc())
+        db.query(BrokerSession)
+        .filter(
+            BrokerSession.user_id == user_id,
+            BrokerSession.broker == "kite",
+            BrokerSession.is_active.is_(True),
+        )
+        .order_by(BrokerSession.updated_at.desc().nullslast(), BrokerSession.id.desc())
         .first()
     )
     if session is None:

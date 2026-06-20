@@ -733,18 +733,11 @@ def _resolve_market_token() -> str:
     if KITE_MOCK_MODE:
         return "mock_token"
     try:
+        from backend.brokers.sessions import get_active_kite_session
         from backend.database import SessionLocal
-        from backend.models import KiteSession
         db = SessionLocal()
         try:
-            row = (
-                db.query(KiteSession)
-                .filter(KiteSession.is_active.is_(True))
-                # id DESC, not updated_at — a freshly-connected session has
-                # updated_at=NULL on insert and NULLS LAST would skip it.
-                .order_by(KiteSession.id.desc())
-                .first()
-            )
+            row = get_active_kite_session(db)
             tok = read_kite_access_token(row)
             if tok and not tok.startswith("mock_") and len(tok) >= 20:
                 return tok

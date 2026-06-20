@@ -13,12 +13,12 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from backend.brokers.sessions import get_active_kite_session
 from backend.kite.auth import (
     KITE_MOCK_MODE,
     get_authenticated_kite,
     read_kite_access_token,
 )
-from backend.models import KiteSession
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,7 @@ def get_system_kite(db: Session) -> Optional[object]:
     """Best-effort authenticated KiteConnect for background work."""
     if KITE_MOCK_MODE:
         return None
-    session = (
-        db.query(KiteSession)
-        .filter(KiteSession.is_active == True)  # noqa: E712
-        .order_by(KiteSession.id.desc())  # updated_at is nullable
-        .first()
-    )
+    session = get_active_kite_session(db)
     token = read_kite_access_token(session)
     if not token:
         logger.info("[kite-system] no active KiteSession; mock path engaged")

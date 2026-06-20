@@ -33,6 +33,8 @@ from sqlalchemy.orm import Session
 # backend.kite.orders.place_order / place_gtt_order stay the patchable
 # seam for tests and resolve dynamically at call time.
 from backend.kite import orders as _kite
+from backend.brokers.registry import get_connector
+from backend.brokers.sessions import get_active_broker_session
 from backend.paper.accounts import get_or_create_account
 from backend.paper.broker import PaperBroker
 
@@ -140,8 +142,27 @@ def submit_order(
             # natural key is account_id+workflow_id, not the label).
             label=getattr(ctx.workflow, "name", None),
         )
+    # Live path: resolve the user's active broker session and route through
+    # its connector. Falls back to the kite mock helper when no session
+    # exists so mock/dev still works. `access_token` is now ignored here.
+    sess = get_active_broker_session(db, uid)
+    if sess is not None:
+        return get_connector(sess.broker).place_order(
+            sess,
+            tradingsymbol=symbol,
+            exchange=exchange,
+            transaction_type=side,
+            quantity=int(quantity),
+            order_type=ot,
+            price=price,
+            product=product,
+            trigger_price=trigger_price,
+            tag=tag,
+            variety=variety,
+            client_request_id=_wf_crid(ctx, side, symbol, leg_key),
+        )
     return _kite.place_order(
-        access_token=access_token or "mock_token",
+        access_token="mock_token",
         tradingsymbol=symbol,
         exchange=exchange,
         transaction_type=side,
@@ -187,8 +208,22 @@ def submit_gtt(
             workflow_run_id=str(ctx.run.id),
             label=getattr(ctx.workflow, "name", None),
         )
+    # Live path: route the GTT through the active broker's connector;
+    # fall back to the kite mock helper when no session exists.
+    sess = get_active_broker_session(db, uid)
+    if sess is not None:
+        return get_connector(sess.broker).place_gtt(
+            sess,
+            tradingsymbol=symbol,
+            exchange=exchange,
+            transaction_type=side,
+            quantity=int(quantity),
+            trigger_price=trigger_price,
+            limit_price=limit_price,
+            last_price=last_price if last_price is not None else limit_price,
+        )
     return _kite.place_gtt_order(
-        access_token=access_token or "mock_token",
+        access_token="mock_token",
         tradingsymbol=symbol,
         exchange=exchange,
         transaction_type=side,
@@ -249,8 +284,27 @@ def submit_order_for_user(
             # phantom "SELL" idea.
             label=label or symbol,
         )
+    # Live path: resolve this user's active broker session and route the
+    # order through its connector. Falls back to the kite mock helper when
+    # no session exists. `access_token` is now ignored on the live path.
+    sess = get_active_broker_session(db, uid)
+    if sess is not None:
+        return get_connector(sess.broker).place_order(
+            sess,
+            tradingsymbol=symbol,
+            exchange=exchange,
+            transaction_type=side,
+            quantity=int(quantity),
+            order_type=ot,
+            price=price,
+            product=product,
+            trigger_price=trigger_price,
+            tag=tag,
+            variety=variety,
+            client_request_id=client_request_id,
+        )
     return _kite.place_order(
-        access_token=access_token or "mock_token",
+        access_token="mock_token",
         tradingsymbol=symbol,
         exchange=exchange,
         transaction_type=side,
@@ -299,8 +353,22 @@ def submit_gtt_for_user(
             conversation_id=conversation_id,
             label=label or symbol,
         )
+    # Live path: route the GTT through the active broker's connector;
+    # fall back to the kite mock helper when no session exists.
+    sess = get_active_broker_session(db, uid)
+    if sess is not None:
+        return get_connector(sess.broker).place_gtt(
+            sess,
+            tradingsymbol=symbol,
+            exchange=exchange,
+            transaction_type=side,
+            quantity=int(quantity),
+            trigger_price=trigger_price,
+            limit_price=limit_price,
+            last_price=last_price if last_price is not None else limit_price,
+        )
     return _kite.place_gtt_order(
-        access_token=access_token or "mock_token",
+        access_token="mock_token",
         tradingsymbol=symbol,
         exchange=exchange,
         transaction_type=side,

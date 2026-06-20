@@ -27,8 +27,8 @@ def _kite_token_for_user(user_id: int, db: Session) -> str:
     `'mock_token'` when no session is present so KITE_MOCK_MODE picks
     up the mock data path. Mirrors routers/portfolio.py."""
     user = db.query(User).filter(User.id == user_id).first()
-    if user and user.kite_session and user.kite_session.access_token:
-        return read_kite_access_token(user.kite_session) or "mock_token"
+    if user and user.active_broker_session and user.active_broker_session.access_token:
+        return read_kite_access_token(user.active_broker_session) or "mock_token"
     return "mock_token"
 
 

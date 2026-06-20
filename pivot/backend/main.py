@@ -30,7 +30,7 @@ from backend.routers.products import router as products_router
 from backend.routers.portfolio import router as portfolio_router
 from backend.routers.backtest import router as backtest_router
 from backend.routers.scheduler import router as scheduler_router
-from backend.routers.kite import router as kite_router, callback_alias_router as kite_callback_alias_router
+from backend.routers.brokers import router as brokers_router, callback_alias_router as brokers_callback_alias_router
 from backend.routers.compare import router as compare_router
 from backend.routers.expr_backtest import router as expr_backtest_router
 from backend.routers.pairs_backtest import router as pairs_backtest_router
@@ -90,8 +90,8 @@ app.include_router(products_router)
 app.include_router(portfolio_router)
 app.include_router(backtest_router)
 app.include_router(scheduler_router)
-app.include_router(kite_router)
-app.include_router(kite_callback_alias_router)
+app.include_router(brokers_router)
+app.include_router(brokers_callback_alias_router)
 app.include_router(compare_router)
 app.include_router(expr_backtest_router)
 app.include_router(pairs_backtest_router)
@@ -368,27 +368,22 @@ async def startup():
 
 
 def _maybe_autostart_kite_ticker() -> None:
-    """Best-effort: find the most recent active KiteSession and boot
-    the ticker under it. Silent when no real session exists or when
+    """Best-effort: find the most recent active broker session for Kite and
+    boot the ticker under it. Silent when no real session exists or when
     we're in mock mode."""
+    from backend.brokers.sessions import get_active_kite_session
     from backend.kite.auth import KITE_MOCK_MODE, read_kite_access_token
     from backend.kite.portfolio import get_holdings
     from backend.kite.ticker import get_ticker_manager
-    from backend.models import KiteSession
 
     if KITE_MOCK_MODE:
         logger.info("Kite ticker autostart: mock mode, skipping")
         return
     db = SessionLocal()
     try:
-        session = (
-            db.query(KiteSession)
-            .filter(KiteSession.is_active.is_(True))
-            .order_by(KiteSession.updated_at.desc().nullslast(), KiteSession.id.desc())
-            .first()
-        )
+        session = get_active_kite_session(db)
         if session is None:
-            logger.info("Kite ticker autostart: no active KiteSession")
+            logger.info("Kite ticker autostart: no active broker session")
             return
         token = read_kite_access_token(session)
         if not token or token.startswith("mock_"):
@@ -417,7 +412,7 @@ def _maybe_autostart_kite_ticker() -> None:
                 db.add(session)
                 db.commit()
                 logger.info(
-                    "Kite ticker autostart: stale token; KiteSession id=%s marked inactive — please re-auth.",
+                    "Kite ticker autostart: stale token; broker session id=%s marked inactive — please re-auth.",
                     session.id,
                 )
             except Exception as commit_err:
