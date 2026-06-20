@@ -1330,6 +1330,8 @@ export type BrokerCredentialsRequest = {
   client_id?: string;
   pin?: string;
   totp_secret?: string;
+  /** Dhan: a generated access token (kept alive server-side via RenewToken). */
+  access_token?: string;
   /** Kite advanced "stay connected" path: the user's Kite account password.
    *  Sent only over the credentials POST; stored encrypted server-side. */
   password?: string;

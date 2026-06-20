@@ -127,6 +127,21 @@ def test_dhan_place_order_mock_path_returns_mock_order_id():
     assert str(result["order_id"]).startswith("MOCK-DHAN-")
 
 
+# ── Dhan real (non-mock) credential connect ──────────────────────────────────
+def test_dhan_complete_auth_access_token_is_real_session(db):
+    # The onboarding form posts Client ID + access token to /credentials. That
+    # MUST create a REAL, active rolling_renew session (kept alive via
+    # RenewToken) — NOT a mock — distinct from the connect-mock dev shortcut.
+    user = _make_user(db, "dhan_real@pivot.com")
+    session = DhanConnector().complete_auth(
+        db, user.id, {"client_id": "1000000001", "access_token": "live-token-xyz"},
+    )
+    assert session.is_active is True
+    assert session.persistence_mode == "rolling_renew"
+    assert session.broker_user_id == "1000000001"
+    assert read_broker_access_token(session) == "live-token-xyz"
+
+
 # ── session crypto round-trip ─────────────────────────────────────────────────
 def test_upsert_broker_session_access_token_round_trips(db):
     user = _make_user(db, "roundtrip@pivot.com")

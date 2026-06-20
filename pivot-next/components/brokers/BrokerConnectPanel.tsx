@@ -63,9 +63,18 @@ export type BrokerOAuthResult =
  * for older payloads that omit the flag.
  */
 function resolveConnectKind(broker: Broker): "oauth" | "api_key" | "mock" {
-  if (broker.status.mock_mode && !broker.status.connected) return "mock";
-  if (broker.supports_oauth) return "oauth";
-  return connectKind(broker);
+  // Natural flow from the broker's capabilities.
+  const kind = broker.supports_oauth ? "oauth" : connectKind(broker);
+  // Only fall back to the demo "mock" connect when there is genuinely no real
+  // path: an OAuth broker (Kite/Fyers) whose APP-LEVEL credentials aren't
+  // configured (mock_mode). Credential brokers like Dhan take the user's OWN
+  // keys — no app-level config needed — so we ALWAYS show the real form, even
+  // when the backend reports mock_mode (which for Dhan just means "no partner
+  // OAuth app configured").
+  if (kind === "oauth" && broker.status.mock_mode && !broker.status.connected) {
+    return "mock";
+  }
+  return kind;
 }
 
 /**
@@ -319,7 +328,8 @@ function ApiKeyFlow({
           </span>
           <p style={{ ...subtleNote, margin: 0 }}>
             Open {broker.name}, go to <strong>Profile → Access {broker.name}HQ
-            APIs</strong>, switch to API-Key mode, and copy your key + secret.
+            APIs</strong>, generate your <strong>access token</strong>, and note
+            your <strong>Client ID</strong>.
           </p>
           <DeepLinkButton
             href={broker.deep_links.api_key_page}
@@ -332,16 +342,12 @@ function ApiKeyFlow({
 
       <div className="flex flex-col gap-2.5">
         <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>
-          Step 2 — paste them here
+          Step 2 — connect your account
         </span>
-        <CredentialsForm
+        <DhanConnectForm
           broker={broker}
-          autoLoginOptIn={false}
-          submitLabel={`Connect ${broker.name}`}
           onStatusChange={onStatusChange}
           onClose={onClose}
-          showAutomationToggle
-          showOptionalIdentity
         />
       </div>
 
@@ -530,79 +536,71 @@ function KiteAutoLoginForm({
 // Shared credentials form — used by the Dhan api-key flow.
 // ---------------------------------------------------------------------------
 
-function CredentialsForm({
+function DhanConnectForm({
   broker,
-  autoLoginOptIn,
-  submitLabel,
   onStatusChange,
   onClose,
-  showTotp = false,
-  showOptionalIdentity = false,
-  showAutomationToggle = false,
 }: {
   broker: Broker;
-  /** Fixed opt-in (Kite advanced path posts true). When showAutomationToggle is
-   *  set the user controls it instead and this is the initial value. */
-  autoLoginOptIn: boolean;
-  submitLabel: string;
   onStatusChange: (brokerId: string, status: BrokerStatus) => void;
   onClose: () => void;
-  showTotp?: boolean;
-  showOptionalIdentity?: boolean;
-  showAutomationToggle?: boolean;
 }): React.ReactElement {
-  const [apiKey, setApiKey] = useState("");
-  const [apiSecret, setApiSecret] = useState("");
   const [clientId, setClientId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
   const [pin, setPin] = useState("");
   const [totpSecret, setTotpSecret] = useState("");
-  const [showSecret, setShowSecret] = useState(false);
-  const [autoOn, setAutoOn] = useState(autoLoginOptIn);
+  const [unattended, setUnattended] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const canSubmit = apiKey.trim().length > 0 && apiSecret.trim().length > 0 && !busy;
+  // Two REAL paths: (1) paste a generated access token — we keep it alive via
+  // RenewToken; or (2) for true no-daily-login, Client ID + PIN + TOTP so we
+  // mint a fresh token each morning. The Client ID is always required.
+  const hasToken = accessToken.trim().length > 0;
+  const hasMint = pin.trim().length > 0 && totpSecret.trim().length > 0;
+  const canSubmit = clientId.trim().length > 0 && (hasToken || hasMint) && !busy;
 
   const submit = useCallback(async (): Promise<void> => {
-    if (!apiKey.trim() || !apiSecret.trim()) {
-      setErr("API key and secret are both required.");
+    if (!clientId.trim()) {
+      setErr(`Your ${broker.name} Client ID is required.`);
+      return;
+    }
+    if (!hasToken && !hasMint) {
+      setErr(
+        "Paste an access token, or turn on “Stay connected” and add your PIN + TOTP secret.",
+      );
       return;
     }
     setBusy(true);
     setErr(null);
     const body: BrokerCredentialsRequest = {
-      api_key: apiKey.trim(),
-      api_secret: apiSecret.trim(),
-      auto_login_opt_in: showAutomationToggle ? autoOn : autoLoginOptIn,
+      client_id: clientId.trim(),
+      auto_login_opt_in: unattended,
     };
-    if (showOptionalIdentity) {
-      if (clientId.trim()) body.client_id = clientId.trim();
-      if (pin.trim()) body.pin = pin.trim();
+    if (hasToken) body.access_token = accessToken.trim();
+    if (unattended && hasMint) {
+      body.pin = pin.trim();
+      body.totp_secret = totpSecret.trim();
     }
-    if (showTotp && totpSecret.trim()) body.totp_secret = totpSecret.trim();
-
     const res = await setBrokerCredentials(broker.id, body);
     setBusy(false);
     if (isError(res)) {
-      setErr(res.error.message || "Couldn't save credentials.");
+      setErr(res.error.message || "Couldn't connect.");
       return;
     }
     onStatusChange(broker.id, res.data);
-    // Only auto-close when the connection actually went live; otherwise keep
-    // the form open so the user can fix what's missing.
+    // Only auto-close when the connection actually went live.
     if (res.data.connected) onClose();
   }, [
-    apiKey,
-    apiSecret,
     clientId,
+    accessToken,
     pin,
     totpSecret,
-    autoOn,
-    autoLoginOptIn,
-    showAutomationToggle,
-    showOptionalIdentity,
-    showTotp,
+    unattended,
+    hasToken,
+    hasMint,
     broker.id,
+    broker.name,
     onStatusChange,
     onClose,
   ]);
@@ -615,113 +613,87 @@ function CredentialsForm({
         void submit();
       }}
     >
-      <Field label="API key">
+      <Field label={`${broker.name} Client ID`}>
         <Input
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={`Your ${broker.name} API key`}
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          placeholder="e.g. 1000000001"
           autoComplete="off"
           spellCheck={false}
           disabled={busy}
-          data-testid={`broker-api-key-${broker.id}`}
+          data-testid={`broker-client-id-${broker.id}`}
         />
       </Field>
 
-      <Field label="API secret">
-        <div className="relative">
-          <Input
-            type={showSecret ? "text" : "password"}
-            value={apiSecret}
-            onChange={(e) => setApiSecret(e.target.value)}
-            placeholder="Paste your API secret"
-            autoComplete="off"
-            spellCheck={false}
-            disabled={busy}
-            className="pr-9"
-            data-testid={`broker-api-secret-${broker.id}`}
-          />
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label={showSecret ? "Hide secret" : "Show secret"}
-            onClick={() => setShowSecret((v) => !v)}
-            className="absolute inset-y-0 right-0 flex items-center px-2"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
-        </div>
+      <Field label="Access token">
+        <Input
+          value={accessToken}
+          onChange={(e) => setAccessToken(e.target.value)}
+          placeholder="Paste the access token you generated"
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy}
+          data-testid={`broker-access-token-${broker.id}`}
+        />
       </Field>
 
-      {showOptionalIdentity && (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Client ID" optional>
-            <Input
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="Optional"
-              autoComplete="off"
-              spellCheck={false}
-              disabled={busy}
-            />
-          </Field>
-          <Field label="PIN" optional>
-            <Input
-              type="password"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              placeholder="Optional"
-              autoComplete="off"
-              disabled={busy}
-            />
-          </Field>
-        </div>
-      )}
-
-      {(showTotp || showOptionalIdentity) && (
-        <Field label="TOTP secret" optional>
-          <Input
-            value={totpSecret}
-            onChange={(e) => setTotpSecret(e.target.value)}
-            placeholder="For unattended re-login (optional)"
-            autoComplete="off"
-            spellCheck={false}
-            disabled={busy}
-          />
-        </Field>
-      )}
-
-      {showAutomationToggle && broker.supports_unattended && (
+      {broker.supports_unattended && (
         <div
-          className="flex items-start gap-3 p-3"
+          className="flex flex-col gap-3 p-3"
           style={{
             border: "1px solid var(--glass-border)",
             borderRadius: "var(--radius-sm)",
             background: "var(--bg-base)",
           }}
         >
-          <div className="min-w-0 flex-1">
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>
-              Stay connected — no daily login
-            </span>
-            <p style={{ ...subtleNote, margin: "2px 0 0" }}>
-              {persistenceBlurb(broker.persistence_kind)}
-            </p>
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>
+                Stay connected — no daily login
+              </span>
+              <p style={{ ...subtleNote, margin: "2px 0 0" }}>
+                {persistenceBlurb(broker.persistence_kind)}
+              </p>
+            </div>
+            <Switch
+              checked={unattended}
+              disabled={busy}
+              onCheckedChange={setUnattended}
+              aria-label="Stay connected with no daily login"
+              data-testid={`broker-unattended-${broker.id}`}
+            />
           </div>
-          <Switch
-            checked={autoOn}
-            disabled={busy}
-            onCheckedChange={setAutoOn}
-            aria-label="Stay connected with no daily login"
-            data-testid={`broker-credform-automation-${broker.id}`}
-          />
+          {unattended && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Trading PIN">
+                <Input
+                  type="password"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="Dhan PIN"
+                  autoComplete="off"
+                  disabled={busy}
+                />
+              </Field>
+              <Field label="TOTP secret">
+                <Input
+                  value={totpSecret}
+                  onChange={(e) => setTotpSecret(e.target.value)}
+                  placeholder="From your authenticator"
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={busy}
+                />
+              </Field>
+            </div>
+          )}
         </div>
       )}
 
       {err && <Banner tone="error">{err}</Banner>}
 
       <PrimaryButton type="submit" busy={busy} busyLabel="Connecting…" disabled={!canSubmit}>
-        {submitLabel}
+        {`Connect ${broker.name}`}
       </PrimaryButton>
     </form>
   );
