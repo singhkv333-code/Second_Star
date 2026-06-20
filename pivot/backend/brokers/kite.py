@@ -43,7 +43,7 @@ class KiteConnector(BrokerConnector):
         persistence_kind=PersistenceKind.daily_oauth,
         supports_unattended=False,  # only via the P2 opt-in TOTP login
         needs_api_key=False,        # pure OAuth; api_key/secret are app-level
-        accent="#387ED1",
+        accent="#F6461A",  # Kite logo red (matches /brokers/kite.svg)
         blurb="India's largest broker. One-click OAuth login.",
         tags=["OAuth login", "Daily re-login"],
     )

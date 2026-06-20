@@ -139,7 +139,7 @@ class DhanConnector(BrokerConnector):
         persistence_kind=PersistenceKind.rolling_renew,
         supports_unattended=True,
         needs_api_key=True,
-        accent="#1B72E8",
+        accent="#4575D9",  # Dhan brand royal blue (matches /brokers/dhan.svg)
         blurb="Stays connected with no daily login. Built for automation.",
         tags=["No daily login", "Full automation"],
     )

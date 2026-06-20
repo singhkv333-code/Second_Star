@@ -356,9 +356,11 @@ def _handle_broker_callback(
         connector.complete_auth(db, user.id, payload)
     except Exception as exc:
         return _frontend_redirect(
-            {"broker": "error", "reason": f"exchange_failed:{exc}"}
+            {"broker": "error", "reason": f"exchange_failed:{exc}", "broker_id": broker}
         )
-    return _frontend_redirect({"broker": "connected"})
+    # Echo broker_id so the FE deep-opens the exact broker (unambiguous once a
+    # second OAuth broker like Fyers ships).
+    return _frontend_redirect({"broker": "connected", "broker_id": broker})
 
 
 @router.get("/{broker}/callback")
