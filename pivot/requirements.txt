@@ -76,3 +76,10 @@ trafilatura==1.12.2
 # (Tier-A push transport per docs/news_events_phase7_*.md). Pin to a
 # 1.x release — Telethon 2.x has breaking API changes.
 telethon>=1.36,<2.0
+
+# Runtime deps the app imports but were previously absent here (the venv
+# failed to boot without asyncpg, and compare_performance crashed without
+# `ta`). Versions verified working against the live chat path.
+asyncpg==0.31.0          # backend/routers/expr_backtest.py
+openai>=1.40             # LLM client (Azure + OpenAI fallback)
+ta==0.11.0               # technical-analysis indicators (compare_performance)

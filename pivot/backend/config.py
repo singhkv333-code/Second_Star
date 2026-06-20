@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     # (mc.companies, mc.statement_lines, mc.daily_prices). Maintained by
     # pivot-mc-scraper. Backend only reads — never writes.
     financials_dsn: str = "postgresql://pivot_user:pivot_password@localhost:5432/financials"
+    # Read-only DSN for the yfinance-enriched company profiles DB
+    # (enrich.company_profile / enrich.v_company_enriched: profile, sector,
+    # promoter-holding proxy, ticker). Separate DB `pivot_enrich`, built by
+    # scripts/enrich_company_profiles.py. Backend only reads. Join to
+    # mc.companies by sc_id or ticker. Empty string disables the read path.
+    enrich_dsn: str = ""
 
     # Redis
     redis_url: str

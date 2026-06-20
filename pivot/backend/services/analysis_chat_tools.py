@@ -49,6 +49,7 @@ from typing import Any
 from backend.cache import redis_client
 from backend.database import FinancialsSessionLocal
 from backend.market import financials_db as fdb
+from backend.market import enrich_db
 
 
 logger = logging.getLogger(__name__)
@@ -149,11 +150,158 @@ def _yfinance_fundamentals(symbol: str) -> dict[str, Any]:
     return out
 
 
+_YF_PROFILE_CACHE_PREFIX = "profile_yf:"
+_YF_PROFILE_CACHE_TTL_S = 60 * 60 * 24  # 24h — profile/sector move very rarely
+
+
+def _yfinance_profile(symbol: str) -> dict[str, Any]:
+    """Fallback company profile from yfinance `.info` for names absent from
+    the enrich DB (e.g. listed large-caps whose ticker is NULL in
+    mc.companies, like ITC). Returns the same field shape `_apply_enrichment`
+    consumes (sector/industry/business_summary/promoter_holding_pct/...), or
+    {} on any error. Cached 24h. promoter_holding_pct is the heldPercentInsiders
+    proxy, consistent with the enrich DB.
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return {}
+    ckey = _YF_PROFILE_CACHE_PREFIX + sym
+    try:
+        raw = redis_client.get(ckey)
+        if raw:
+            return json.loads(raw)
+    except Exception:  # noqa: BLE001
+        pass
+    out: dict[str, Any] = {}
+    try:
+        import yfinance as yf
+        from backend.market.yfinance_service import resolve_symbol
+        yf_sym = resolve_symbol(sym)
+        if not yf_sym.endswith(".NS") and not yf_sym.startswith("^"):
+            yf_sym = f"{sym}.NS"
+        info = yf.Ticker(yf_sym).info or {}
+        ins = info.get("heldPercentInsiders")
+        inst = info.get("heldPercentInstitutions")
+        out = {
+            "sector": info.get("sectorDisp") or info.get("sector"),
+            "industry": info.get("industryDisp") or info.get("industry"),
+            "business_summary": info.get("longBusinessSummary"),
+            "website": info.get("website"),
+            "employees": info.get("fullTimeEmployees"),
+            "long_name": info.get("longName") or info.get("shortName"),
+            "promoter_holding_pct": round(ins * 100, 2) if isinstance(ins, (int, float)) else None,
+            "institution_holding_pct": round(inst * 100, 2) if isinstance(inst, (int, float)) else None,
+        }
+        out = {k: v for k, v in out.items() if v is not None}
+    except Exception as e:  # noqa: BLE001
+        logger.info("yfinance profile fallback failed for %s: %s", sym, str(e)[:120])
+        return {}
+    try:
+        redis_client.set(ckey, json.dumps(out), ex=_YF_PROFILE_CACHE_TTL_S)
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
 _NEWS_CACHE_PREFIX = "symbol_news:"
 _NEWS_CACHE_TTL_S = 60 * 60  # 1 hour
 
 
 # ── Fundamentals ──────────────────────────────────────────────────────────
+
+
+# Internal plumbing keys that must never reach the LLM / user. fetch_fundamentals
+# carries these for routing/provenance; the tool boundary strips them.
+_INTERNAL_FUND_KEYS = {
+    "sc_id", "enriched", "enrichment_source", "source", "resolved", "basis",
+}
+_SUMMARY_MAX = 480
+
+
+def public_fundamentals_view(d: dict[str, Any]) -> dict[str, Any]:
+    """LLM/user-facing projection of a fetch_fundamentals dict: drop internal
+    identifiers and clip the business summary so it stays a tight 2-3 lines."""
+    if not isinstance(d, dict):
+        return d
+    out = {k: v for k, v in d.items() if k not in _INTERNAL_FUND_KEYS}
+    bs = out.get("business_summary")
+    if isinstance(bs, str) and len(bs) > _SUMMARY_MAX:
+        cut = bs[:_SUMMARY_MAX].rsplit(" ", 1)[0].rstrip(" ,;.")
+        out["business_summary"] = cut + "…"
+    return out
+
+
+def _apply_enrichment(out: dict[str, Any]) -> None:
+    """Merge yfinance-derived company profile into a fundamentals snapshot.
+
+    Adds sector/industry, a business-summary profile, and a promoter-holding
+    proxy from the `pivot_enrich` DB (see backend/market/enrich_db.py). The
+    Moneycontrol `mc.companies.sector` column is empty in practice, so this is
+    where `sector` actually gets populated for the chat layer.
+
+    Additive and best-effort: never raises. Prefers the enrich DB; falls back
+    to a live cached yfinance profile for names absent from it. Existing
+    (DB-sourced) values win.
+    """
+    try:
+        rec = None
+        if enrich_db.is_enabled():
+            if out.get("sc_id"):
+                rec = enrich_db.get_by_sc_id(out["sc_id"])
+            if rec is None and out.get("symbol"):
+                rec = enrich_db.get_by_ticker(out["symbol"])
+        if rec is None:
+            # Not in the enrich DB (e.g. ticker is NULL in mc.companies, like
+            # ITC). Fall back to a live, cached yfinance profile so listed
+            # names still get sector/profile/promoter.
+            prof = _yfinance_profile(out.get("symbol", ""))
+            if prof:
+                if not out.get("sector") and prof.get("sector"):
+                    out["sector"] = prof["sector"]
+                if prof.get("industry"):
+                    out["industry"] = prof["industry"]
+                if prof.get("business_summary"):
+                    out["business_summary"] = prof["business_summary"]
+                if prof.get("website"):
+                    out["website"] = prof["website"]
+                if prof.get("employees") is not None:
+                    out["employees"] = prof["employees"]
+                if prof.get("promoter_holding_pct") is not None:
+                    out["promoter_holding_pct"] = prof["promoter_holding_pct"]
+                if prof.get("institution_holding_pct") is not None:
+                    out["institution_holding_pct"] = prof["institution_holding_pct"]
+                if prof.get("long_name"):
+                    out["long_name"] = prof["long_name"]
+                    if not out.get("name"):
+                        out["name"] = prof["long_name"]
+                out["enriched"] = True
+                out["enrichment_source"] = "yfinance_live"
+            return
+        out["enrichment_source"] = "enrich_db"
+        if not out.get("sector") and rec.sector:
+            out["sector"] = rec.sector
+        if rec.industry:
+            out["industry"] = rec.industry
+        if rec.long_business_summary:
+            out["business_summary"] = rec.long_business_summary
+        if rec.website:
+            out["website"] = rec.website
+        if rec.full_time_employees is not None:
+            out["employees"] = rec.full_time_employees
+        if rec.promoter_holding_pct is not None:
+            # Proxy for SEBI promoter holding (yfinance heldPercentInsiders).
+            out["promoter_holding_pct"] = rec.promoter_holding_pct
+        if rec.institution_holding_pct is not None:
+            out["institution_holding_pct"] = rec.institution_holding_pct
+        if not out.get("name") and (rec.long_name or rec.company_name):
+            out["name"] = rec.long_name or rec.company_name
+        # Moneycontrol display names are often truncated ("Asia Pack",
+        # "Reliance"); keep the clean yfinance long name for the digest.
+        if rec.long_name:
+            out["long_name"] = rec.long_name
+        out["enriched"] = True
+    except Exception as e:  # noqa: BLE001 — enrichment must never break analysis
+        logger.debug("enrichment merge failed for %s: %s", out.get("symbol"), e)
 
 
 def fetch_fundamentals(symbol: str, *, basis: str = "consolidated") -> dict:
@@ -213,9 +361,20 @@ def fetch_fundamentals(symbol: str, *, basis: str = "consolidated") -> dict:
                         out[bonus] = yf_fund[bonus]
                 out["available"] = sum(1 for k, _ in _METRICS if out.get(k) is not None)
                 out["source"] = "yfinance"
+                _apply_enrichment(out)
                 out["summary"] = _summarise(out)
                 out["note"] = (
                     "Not in the fundamentals DB; metrics sourced from yfinance."
+                )
+                return out
+            # Not in mc.companies and no yfinance fundamentals — the profile DB
+            # may still cover it (sector/profile/promoter), so try before giving up.
+            _apply_enrichment(out)
+            if out.get("enriched"):
+                out["summary"] = _summarise(out)
+                out["note"] = (
+                    "No fundamental metrics; company profile sourced from the "
+                    "enrichment DB (yfinance)."
                 )
                 return out
             out["summary"] = (
@@ -267,6 +426,9 @@ def fetch_fundamentals(symbol: str, *, basis: str = "consolidated") -> dict:
         out["source"] = (
             "moneycontrol+yfinance" if filled_from_yf else "moneycontrol"
         )
+        # Sector/industry/profile/promoter-holding from the enrichment DB.
+        # (mc.companies.sector is empty, so this is where sector comes from.)
+        _apply_enrichment(out)
         out["summary"] = _summarise(out)
         if available == 0:
             out["note"] = (
@@ -287,7 +449,16 @@ def fetch_fundamentals(symbol: str, *, basis: str = "consolidated") -> dict:
 
 def _summarise(d: dict) -> str:
     """One-line human digest of the populated metrics."""
-    name = d.get("name") or d.get("symbol")
+    name = d.get("long_name") or d.get("name") or d.get("symbol")
+    # Profile context (from the enrichment DB) leads the digest when present.
+    ctx: list[str] = []
+    if d.get("sector"):
+        sec = d["sector"]
+        if d.get("industry") and d["industry"] != sec:
+            sec = f"{sec} / {d['industry']}"
+        ctx.append(sec)
+    if d.get("promoter_holding_pct") is not None:
+        ctx.append(f"promoter ~{d['promoter_holding_pct']}%")
     parts: list[str] = []
     for key, _ in _METRICS:
         v = d.get(key)
@@ -298,9 +469,14 @@ def _summarise(d: dict) -> str:
             parts.append(f"{label} {v}%")
         else:
             parts.append(f"{label} {v}")
+    prefix = f"{name}"
+    if ctx:
+        prefix = f"{name} ({'; '.join(ctx)})"
     if not parts:
+        if ctx:
+            return f"{prefix}: no fundamental metrics available."
         return f"{name}: no fundamental metrics available."
-    return f"{name}: " + ", ".join(parts) + "."
+    return f"{prefix}: " + ", ".join(parts) + "."
 
 
 # ── News ──────────────────────────────────────────────────────────────────

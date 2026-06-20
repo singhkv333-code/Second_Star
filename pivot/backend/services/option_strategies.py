@@ -158,6 +158,22 @@ TEMPLATES: dict[str, StrategyTemplate] = {t.name: t for t in [
     ),
 ]}
 
+
+def humanize_strategy_key(key: str) -> str:
+    """Internal snake_case strategy key -> human label for user-facing text.
+
+    'bull_put_spread' -> 'Bull Put Spread (credit)'. Falls back to a
+    title-cased form for any key not in TEMPLATES so a raw identifier
+    never reaches the user.
+    """
+    if not key:
+        return ""
+    t = TEMPLATES.get(key)
+    if t:
+        return t.label
+    return key.replace("_", " ").title()
+
+
 # Suggest-flow ladder: view → ordered (conservative → aggressive)
 # candidate templates. The first entry is the DEFAULT the card opens on.
 VIEW_CANDIDATES: dict[str, tuple[str, ...]] = {
