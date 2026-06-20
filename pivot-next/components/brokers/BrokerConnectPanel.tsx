@@ -674,6 +674,10 @@ function DhanConnectForm({
           data-testid={`broker-access-token-${broker.id}`}
         />
       </Field>
+      <p style={{ ...subtleNote, marginTop: -4 }}>
+        Pivot keeps this alive automatically (rolling token) — no daily login,
+        and nothing else is stored.
+      </p>
 
       {broker.supports_unattended && (
         <div
@@ -687,10 +691,11 @@ function DhanConnectForm({
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>
-                Stay connected — no daily login
+                Auto-recover without re-login (optional)
               </span>
               <p style={{ ...subtleNote, margin: "2px 0 0" }}>
-                {persistenceBlurb(broker.persistence_kind)}
+                Your token above already stays connected. Add PIN + TOTP only so
+                Pivot can mint a fresh one automatically if that token ever lapses.
               </p>
             </div>
             <Switch
