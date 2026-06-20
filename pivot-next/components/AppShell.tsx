@@ -932,8 +932,9 @@ function AccountMenu({
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(false);
-  // Phone + tablet (below the lg desktop breakpoint) have no physical
-  // keyboard, so the keyboard-shortcuts entry is hidden there.
+  // Touch-primary devices (phone/tablet) have no physical keyboard, so the
+  // keyboard-shortcuts entry is hidden there. Keyed off pointer capability,
+  // not screen width — a narrow/windowed desktop still has a keyboard.
   const [hideShortcuts, setHideShortcuts] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const helpCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -951,7 +952,7 @@ function AccountMenu({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 1023px)");
+    const mq = window.matchMedia("(pointer: coarse)");
     const sync = (): void => setHideShortcuts(mq.matches);
     sync();
     mq.addEventListener("change", sync);

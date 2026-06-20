@@ -888,6 +888,27 @@ export function ChatDemo({
     el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_PX ? "auto" : "hidden";
   }, [intent]);
 
+  // One-time post-layout correction. On first mount the autosize above can
+  // measure scrollHeight before fonts/CSS settle and lock an empty textarea
+  // at TWO lines (~48px) — `intent` never changes, so the [intent] effect
+  // never re-runs to fix it. Recompute once the next frame + once fonts are
+  // ready so the resting composer is a single line.
+  useEffect(() => {
+    const fix = (): void => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      const next = Math.min(el.scrollHeight, MAX_TEXTAREA_PX);
+      el.style.height = `${next}px`;
+      el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_PX ? "auto" : "hidden";
+    };
+    const raf = requestAnimationFrame(fix);
+    if (typeof document !== "undefined" && document.fonts?.ready) {
+      void document.fonts.ready.then(fix);
+    }
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   // Auto-scroll to the bottom whenever messages change (new message,
   // streaming delta) — but only if the user hasn't scrolled away.
   useEffect(() => {
@@ -2510,6 +2531,10 @@ function ChatComposer({
             color: "var(--text-primary)",
             fontFamily: "var(--font-ui)",
             lineHeight: "24px",
+            // Explicit one-line starting height so the very first paint (before
+            // the autosize effect runs) is already a single line — no tall
+            // flash even on a slow/throttled load. Autosize grows it from here.
+            height: "24px",
             overflowY: "hidden",
             maxHeight: MAX_TEXTAREA_PX,
           }}
