@@ -9490,7 +9490,17 @@ def _ensure_widget_caption(
 
     # Synthesise per-widget caption.
     if render_hint == "workflow_draft_card":
-        skeleton = rd.get("propose_workflow") or rd
+        skeleton = rd.get("propose_workflow")
+        if not (isinstance(skeleton, dict) and skeleton.get("steps")):
+            # threshold/dsl/scheduled/basket/holding drafts are keyed by their
+            # OWN tool name, not 'propose_workflow' — find the draft skeleton
+            # under any key so they get the SAME param-rich caption ("when
+            # RSI(14) drops below 30, buy 10 INFY") instead of a generic line.
+            skeleton = next(
+                (v for v in rd.values()
+                 if isinstance(v, dict) and v.get("steps")),
+                rd,
+            )
         if isinstance(skeleton, dict) and skeleton.get("steps"):
             result = _workflow_skeleton_caption(skeleton)
         else:
