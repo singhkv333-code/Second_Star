@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { ArrowUpRight, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import { OptionChainFullScreen } from "@/components/chat/OptionChainFullScreen";
 
 export function OptionChainLauncherCard({
@@ -23,6 +24,7 @@ export function OptionChainLauncherCard({
   underlying?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  useExclusiveSidePanel("option-chain", open, () => setOpen(false));
 
   return (
     <>

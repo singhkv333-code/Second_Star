@@ -18,6 +18,7 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
 import type { IpoApplicationPayload } from "@/lib/types";
 
@@ -52,6 +53,7 @@ export function IpoApplicationPanel({
   suppressBackdrop = false,
 }: IpoApplicationPanelProps): React.ReactElement | null {
   const panelRef = useRef<HTMLElement | null>(null);
+  useExclusiveSidePanel("ipo-application", open, () => onOpenChange(false));
 
   // Esc-to-close, matching AgentPanel.
   useEffect(() => {
@@ -73,16 +75,11 @@ export function IpoApplicationPanel({
   return (
     <>
       {!suppressBackdrop && (
+        // NON-MODAL: transparent, click-through layer — no dark scrim. The chat
+        // stays visible and interactive; closing is via the X / Esc only.
         <div
           aria-hidden="true"
-          onClick={() => onOpenChange(false)}
-          className={cn(
-            "agent-panel-backdrop fixed inset-0 z-40 bg-black/60",
-            // On a handoff the previous drawer's scrim is already up, so skip
-            // the fade-in — the scrim swaps seamlessly (same opacity) instead
-            // of fading and briefly doubling/darkening.
-            !isFade && "animate-in fade-in-0",
-          )}
+          className="agent-panel-backdrop fixed inset-0 z-40 pointer-events-none"
           data-testid="ipo-application-panel-backdrop"
         />
       )}
@@ -90,7 +87,7 @@ export function IpoApplicationPanel({
         ref={panelRef}
         role="dialog"
         aria-label="Apply to IPO"
-        aria-modal="true"
+        aria-modal="false"
         style={{
           width: PANEL_WIDTH,
           maxWidth: "100%",

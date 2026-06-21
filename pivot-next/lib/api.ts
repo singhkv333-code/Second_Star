@@ -1146,6 +1146,42 @@ export function getMe(): Promise<ApiResult<UserProfile>> {
 }
 
 // ---------------------------------------------------------------------------
+// Feedback — bug reports (/feedback router, bare-mounted, NO /api prefix)
+// ---------------------------------------------------------------------------
+
+export type BugReportCategory = "bug" | "data" | "ui" | "performance" | "other";
+export type BugReportSeverity = "low" | "normal" | "high" | "critical";
+
+export type BugReportContext = {
+  page?: string;
+  tab?: string;
+  user_agent?: string;
+  app_version?: string;
+  viewport?: string;
+};
+
+export type BugReportInput = {
+  category: BugReportCategory;
+  severity: BugReportSeverity;
+  title: string;
+  description: string;
+  email?: string;
+  context?: BugReportContext;
+};
+
+export type BugReportAck = { ok: boolean; id: string };
+
+/** `POST /feedback` — submit a bug report from the Report-a-bug widget. */
+export function submitBugReport(
+  report: BugReportInput,
+): Promise<ApiResult<BugReportAck>> {
+  return requestLegacy<BugReportAck>("/feedback", {
+    method: "POST",
+    body: report,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Chat — propose workflow (Day 6 #38 backend endpoint)
 // ---------------------------------------------------------------------------
 

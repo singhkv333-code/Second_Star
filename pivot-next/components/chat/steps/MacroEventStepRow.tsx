@@ -18,7 +18,6 @@ import { CalendarCheck, ShieldCheck } from "lucide-react";
 
 const ACCENT = "#d97706"; // amber — distinct from the news teal
 const ACCENT_BG = "rgba(217, 119, 6, 0.10)";
-const ACCENT_BORDER = "rgba(217, 119, 6, 0.22)";
 
 type MacroKind = "rbi_mpc" | "us_fomc" | "india_cpi" | "us_cpi";
 
@@ -96,7 +95,7 @@ export function MacroEventStepRow({
         flexDirection: "column",
         gap: 10,
         padding: "12px 14px",
-        background: "var(--bg-primary)",
+        background: "var(--bg-base)",
         border: "1px solid var(--glass-border)",
         borderRadius: "var(--radius-md)",
         fontFamily: "var(--font-ui)",
@@ -136,10 +135,11 @@ export function MacroEventStepRow({
             fontSize: 10,
             fontWeight: 500,
             padding: "2px 7px",
-            borderRadius: "var(--radius-pill)",
+            // Rounded-rect (matches the "Agent" pill shape on the draft card),
+            // no border — just the tinted fill.
+            borderRadius: 6,
             background: ACCENT_BG,
             color: ACCENT,
-            border: `1px solid ${ACCENT_BORDER}`,
             flexShrink: 0,
           }}
         >

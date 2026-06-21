@@ -41,36 +41,22 @@ export function BrokerCard({
       data-testid={`broker-card-${broker.id}`}
       className="group relative flex flex-col overflow-hidden"
       style={{
-        background: "var(--bg-primary)",
+        background: "var(--bg-base)",
         border: "1px solid var(--glass-border)",
         borderRadius: "var(--radius-lg)",
         transition:
-          "border-color 0.25s var(--ease-quartr), box-shadow 0.25s var(--ease-quartr), transform 0.25s var(--ease-quartr)",
+          "border-color 0.25s var(--ease-quartr), box-shadow 0.25s var(--ease-quartr)",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = "var(--glass-border-hover)";
         e.currentTarget.style.boxShadow =
-          "0 1px 2px rgba(15,23,42,0.04), 0 14px 30px -22px rgba(15,23,42,0.22)";
+          "0 1px 2px rgba(15,23,42,0.04), 0 18px 36px -22px rgba(15,23,42,0.26)";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = "var(--glass-border)";
         e.currentTarget.style.boxShadow = "none";
       }}
     >
-      {/* Thin brand accent rule along the top edge — the only place the brand
-          color washes, and it's a 2px hairline, not a panel fill. */}
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          insetInline: 0,
-          top: 0,
-          height: 2,
-          background: broker.accent,
-          opacity: connected ? 1 : 0.55,
-        }}
-      />
-
       <div className="flex flex-1 flex-col gap-3.5 p-4 lg:p-5">
         {/* Header: logo + name/persistence, with the status pill top-right */}
         <div className="flex items-start gap-3">
@@ -79,7 +65,7 @@ export function BrokerCard({
             logo={broker.logo}
             name={broker.name}
             accent={broker.accent}
-            size={42}
+            size={44}
           />
           <div className="flex min-w-0 flex-1 flex-col">
             <span
@@ -150,7 +136,7 @@ export function BrokerCard({
                 <Check
                   size={10}
                   strokeWidth={2.5}
-                  style={{ color: broker.accent }}
+                  style={{ color: "var(--text-tertiary)" }}
                   aria-hidden
                 />
                 {tag}
@@ -167,8 +153,8 @@ export function BrokerCard({
             data-testid={`broker-card-cta-${broker.id}`}
             className="inline-flex w-full items-center justify-center gap-1.5"
             style={{
-              height: 38,
-              borderRadius: "var(--radius-sm)",
+              height: 42,
+              borderRadius: "var(--radius-md)",
               fontFamily: "var(--font-ui)",
               fontSize: 13,
               fontWeight: 600,
@@ -193,7 +179,10 @@ export function BrokerCard({
                 e.currentTarget.style.background = "var(--surface-active)";
                 e.currentTarget.style.borderColor = "var(--glass-border-hover)";
               } else {
-                e.currentTarget.style.opacity = "0.9";
+                // Subtle darken (text stays crisp) instead of fading the whole button.
+                const hov = "color-mix(in srgb, var(--text-primary) 86%, var(--bg-base))";
+                e.currentTarget.style.background = hov;
+                e.currentTarget.style.borderColor = hov;
               }
             }}
             onMouseLeave={(e) => {
@@ -201,7 +190,8 @@ export function BrokerCard({
                 e.currentTarget.style.background = "transparent";
                 e.currentTarget.style.borderColor = "var(--glass-border)";
               } else {
-                e.currentTarget.style.opacity = "1";
+                e.currentTarget.style.background = "var(--text-primary)";
+                e.currentTarget.style.borderColor = "var(--text-primary)";
               }
             }}
           >

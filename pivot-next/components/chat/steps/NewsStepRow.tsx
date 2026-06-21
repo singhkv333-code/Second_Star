@@ -71,7 +71,7 @@ export function NewsStepRow({ step, runOutput }: NewsStepRowProps): React.ReactE
         flexDirection: "column",
         gap: 10,
         padding: "12px 14px",
-        background: "var(--bg-primary)",
+        background: "var(--bg-base)",
         border: "1px solid var(--glass-border)",
         borderRadius: "var(--radius-md)",
         fontFamily: "var(--font-ui)",
@@ -111,10 +111,11 @@ export function NewsStepRow({ step, runOutput }: NewsStepRowProps): React.ReactE
             fontSize: 10,
             fontWeight: 500,
             padding: "2px 7px",
-            borderRadius: "var(--radius-pill)",
+            // Rounded-rect (matches the "Agent" pill shape on the draft card),
+            // no border — just the tinted fill.
+            borderRadius: 6,
             background: "rgba(33, 158, 188, 0.10)",
             color: "#219ebc",
-            border: "1px solid rgba(33, 158, 188, 0.22)",
             flexShrink: 0,
           }}
         >

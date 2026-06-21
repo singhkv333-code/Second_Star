@@ -795,6 +795,31 @@ export function ChatDemo({
     return () => window.removeEventListener("pivot:focus-composer", onFocus);
   }, []);
 
+  // "Edit with chat" entry point (dispatched from the Agents grid). Drops a
+  // pre-written amendment prompt for a saved agent into the composer WITHOUT
+  // auto-submitting, so the user can finish the sentence ("…raise the qty to
+  // 20") and send. Pins the mode to "agent" so the classifier routes the
+  // follow-up to the workflow tool rather than a generic answer.
+  useEffect(() => {
+    const onSeed = (e: Event): void => {
+      const detail = (e as CustomEvent<{ text?: string; mode?: ChatMode }>).detail;
+      if (!detail?.text) return;
+      setIntent(detail.text);
+      if (detail.mode !== undefined) setMode(detail.mode);
+      // Focus + move the caret to the end after the value settles so the
+      // user can keep typing where the seed left off.
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+      });
+    };
+    window.addEventListener("pivot:seed-composer", onSeed);
+    return () => window.removeEventListener("pivot:seed-composer", onSeed);
+  }, []);
+
   // Esc aborts an in-flight response (only armed while a stream is running,
   // so it never swallows Esc from dialogs/menus when the chat is idle).
   useEffect(() => {
@@ -2270,13 +2295,12 @@ function ClarifySummaryBubble({
         <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">
           Your choices
         </p>
-        <ul className="flex flex-col gap-1.5">
+        <ul className="flex flex-col gap-2">
           {answers.map((a, i) => (
-            <li key={i} className="flex items-baseline gap-2 text-[12.5px] leading-snug">
-              <span className="shrink-0 font-medium text-foreground/70">
+            <li key={i} className="flex flex-col gap-0.5 text-[12.5px] leading-snug">
+              <span className="font-medium text-foreground/70">
                 {a.prompt.replace(/[?:]$/, "")}
               </span>
-              <span className="text-muted-foreground/60">·</span>
               <span className="font-semibold text-foreground">
                 {a.label === "skip" || a.value === "skip" ? (
                   <em className="not-italic text-muted-foreground">Default</em>

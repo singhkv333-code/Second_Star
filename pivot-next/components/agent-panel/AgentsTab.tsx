@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import {
   AlertCircle,
   Bot,
+  MessageSquarePlus,
   RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,12 @@ const BRAND_GREEN = "#4CAF50";
 
 export type AgentsTabProps = {
   onOpenWorkflow: (workflow: Workflow) => void;
+  /**
+   * "Edit with chat" — hand the agent off to the chat surface with a
+   * pre-written amendment prompt. Optional so the tab still renders in
+   * isolation (tests / Storybook) without the chat wiring.
+   */
+  onEditWithChat?: (workflow: WorkflowSummary) => void;
 };
 
 type Filter = "all" | WorkflowStatus;
@@ -144,7 +151,7 @@ function deriveCadence(wf: WorkflowSummary): string {
 // AgentsTab
 // ---------------------------------------------------------------------------
 
-export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElement {
+export function AgentsTab({ onOpenWorkflow, onEditWithChat }: AgentsTabProps): React.ReactElement {
   const [filter, setFilter] = useState<Filter>("all");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [openingId, setOpeningId] = useState<string | null>(null);
@@ -286,6 +293,9 @@ export function AgentsTab({ onOpenWorkflow }: AgentsTabProps): React.ReactElemen
                 workflow={wf}
                 isOpening={openingId === wf.id}
                 onSelect={() => handleSelect(wf.id)}
+                onEditWithChat={
+                  onEditWithChat ? () => onEditWithChat(wf) : undefined
+                }
               />
             </div>
           ))}
@@ -310,10 +320,12 @@ function AgentMiniCard({
   workflow,
   isOpening,
   onSelect,
+  onEditWithChat,
 }: {
   workflow: WorkflowSummary;
   isOpening: boolean;
   onSelect: () => void;
+  onEditWithChat?: () => void;
 }): React.ReactElement {
   const category = deriveCategory(workflow);
   const universe = deriveUniverse(workflow);
@@ -370,6 +382,30 @@ function AgentMiniCard({
         <KvRow label="Universe" value={universe} />
         <KvRow label="Cadence" value={cadence} />
       </div>
+
+      {/* "Edit with chat" — hands this agent to the chat surface with a
+          pre-written amendment prompt. stopPropagation so it doesn't also
+          trigger the card-open click. */}
+      {onEditWithChat && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditWithChat();
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+          data-testid={`agent-edit-with-chat-${workflow.id}`}
+          aria-label={`Edit ${workflow.name} with chat`}
+          className={cn(
+            "inline-flex items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-[12px] font-medium text-foreground/80",
+            "transition-colors hover:border-border hover:bg-muted hover:text-foreground",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+          )}
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+          Edit with chat
+        </button>
+      )}
 
       {/* Hidden interaction sentinel — preserves the existing
           `agent-row-{id}` testid contract from the previous file-card

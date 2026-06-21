@@ -103,15 +103,8 @@ export function BrokerConnectedState({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Identity + persistence + expiry — a tidy 2-up fact grid. */}
-      <div
-        className="grid grid-cols-2 gap-px overflow-hidden"
-        style={{
-          background: "var(--glass-border)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-md)",
-        }}
-      >
+      {/* Identity + persistence + expiry — borderless, airy 2-up facts. */}
+      <div className="grid grid-cols-2 gap-x-8 gap-y-7 py-1">
         <Fact label="Account" value={status.broker_user_id || broker.name} />
         <Fact label="Persistence" value={persistenceLabel(persistence)} />
         <Fact
@@ -165,6 +158,9 @@ export function BrokerConnectedState({
             <p
               style={{
                 margin: "3px 0 0",
+                // Keep the copy clear of the toggle sitting at the top-right so
+                // no line ever runs directly beneath it.
+                paddingRight: 56,
                 fontSize: 11.5,
                 lineHeight: 1.5,
                 color: "var(--text-tertiary)",
@@ -254,7 +250,7 @@ export function BrokerConnectedState({
 
 function Fact({ label, value }: { label: string; value: string }): React.ReactElement {
   return (
-    <div style={{ background: "var(--bg-primary)", padding: "10px 12px" }}>
+    <div className="min-w-0">
       <div
         style={{
           fontSize: 10,
@@ -269,7 +265,7 @@ function Fact({ label, value }: { label: string; value: string }): React.ReactEl
       <div
         className="truncate"
         style={{
-          marginTop: 2,
+          marginTop: 4,
           fontSize: 13,
           fontWeight: 500,
           color: "var(--text-primary)",
