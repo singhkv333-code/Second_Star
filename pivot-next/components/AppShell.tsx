@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { ReportBugDialog } from "@/components/feedback/ReportBugDialog";
 import { CHORD_NAV_MAP } from "@/lib/shortcuts";
 import {
   BrokerOnboarding,
@@ -80,7 +81,7 @@ import {
   setAccountMode,
   type PortfolioSummary,
 } from "@/lib/api";
-import type { Workflow } from "@/lib/types";
+import type { Workflow, WorkflowSummary } from "@/lib/types";
 import { isError } from "@/lib/types";
 import {
   getTradingMode,
@@ -257,6 +258,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Keyboard shortcuts panel (opened via Ctrl/⌘+/ or the account menu).
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Report-a-bug widget (opened from the account menu's Help submenu).
+  const [reportBugOpen, setReportBugOpen] = useState(false);
   // Desktop-only collapse of the inline sidebar (Ctrl/⌘+B). On mobile the
   // sidebar is a drawer driven by `mobileNavOpen`, so collapse is ignored.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -471,6 +474,26 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     openWorkflow(result.data);
   }, [openWorkflow]);
 
+  // "Edit with chat" — jump to the chat surface and seed the composer with a
+  // pre-written amendment prompt for the chosen agent. The user finishes the
+  // sentence and sends; the agent tool returns an amended draft which opens
+  // the editor via the normal onDraftFromChat path. Mode is pinned to "agent"
+  // so the follow-up routes to the workflow tool.
+  const editWorkflowWithChat = useCallback((workflow: WorkflowSummary): void => {
+    const summary = workflow.description?.trim();
+    const text = summary
+      ? `Edit my agent “${workflow.name}” — it currently does: ${summary}. I'd like to `
+      : `Edit my agent “${workflow.name}”. I'd like to `;
+    goTab("chat");
+    // Wait a frame so the chat surface is the active pane before we drop the
+    // seed in and focus the composer.
+    requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("pivot:seed-composer", { detail: { text, mode: "agent" } }),
+      );
+    });
+  }, [goTab]);
+
   // Track the lg breakpoint so the sidebar-collapse hotkey only takes effect
   // on desktop (mobile keeps the drawer reachable via the hamburger).
   useEffect(() => {
@@ -599,6 +622,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onBrandClick={() => goTab("chat")}
         onOpenShortcuts={() => setShortcutsOpen(true)}
+        onReportBug={() => setReportBugOpen(true)}
       />
 
       {/* Paper-mode banner — full-width, unmissable, on every page. Sits
@@ -707,7 +731,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
-              {active === "agents" && <AgentsTab onOpenWorkflow={openWorkflow} />}
+              {active === "agents" && (
+                <AgentsTab
+                  onOpenWorkflow={openWorkflow}
+                  onEditWithChat={editWorkflowWithChat}
+                />
+              )}
             </div>
           )}
         </main>
@@ -758,6 +787,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         open={shortcutsOpen}
         onOpenChange={setShortcutsOpen}
       />
+
+      <ReportBugDialog
+        open={reportBugOpen}
+        onOpenChange={setReportBugOpen}
+        currentTab={active}
+      />
     </div>
     </ActiveDraftContext.Provider>
   );
@@ -778,6 +813,7 @@ function TopHeader({
   onOpenMobileNav,
   onBrandClick,
   onOpenShortcuts,
+  onReportBug,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -789,6 +825,7 @@ function TopHeader({
   onOpenMobileNav: () => void;
   onBrandClick: () => void;
   onOpenShortcuts: () => void;
+  onReportBug: () => void;
 }): React.ReactElement {
   const router = useRouter();
   return (
@@ -916,6 +953,7 @@ function TopHeader({
           initial={accountInitial}
           onOpenBroker={onOpenBroker}
           onOpenShortcuts={onOpenShortcuts}
+          onReportBug={onReportBug}
         />
       </div>
     </header>
@@ -938,6 +976,7 @@ function AccountMenu({
   initial,
   onOpenBroker,
   onOpenShortcuts,
+  onReportBug,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -946,6 +985,7 @@ function AccountMenu({
   initial: string;
   onOpenBroker: () => void;
   onOpenShortcuts: () => void;
+  onReportBug: () => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1085,12 +1125,15 @@ function AccountMenu({
           <div
             style={{ position: "relative" }}
             onMouseEnter={() => {
-              if (isNarrow) return;
+              // On touch (coarse pointer) a tap fires a synthetic mouseenter
+              // that would open the submenu, then onClick toggles it shut —
+              // so the menu never opens. Let click own it on touch devices.
+              if (isNarrow || hideShortcuts) return;
               cancelHelpClose();
               setHelpOpen(true);
             }}
             onMouseLeave={() => {
-              if (isNarrow) return;
+              if (isNarrow || hideShortcuts) return;
               scheduleHelpClose();
             }}
           >
@@ -1106,8 +1149,8 @@ function AccountMenu({
               <div
                 role="menu"
                 data-testid="account-menu-help-submenu"
-                onMouseEnter={isNarrow ? undefined : cancelHelpClose}
-                onMouseLeave={isNarrow ? undefined : scheduleHelpClose}
+                onMouseEnter={isNarrow || hideShortcuts ? undefined : cancelHelpClose}
+                onMouseLeave={isNarrow || hideShortcuts ? undefined : scheduleHelpClose}
                 style={
                   isNarrow
                     ? {
@@ -1163,6 +1206,7 @@ function AccountMenu({
                   onClick={() => {
                     setHelpOpen(false);
                     setOpen(false);
+                    onReportBug();
                   }}
                 />
                 {!hideShortcuts && (
