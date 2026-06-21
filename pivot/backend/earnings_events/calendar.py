@@ -123,6 +123,92 @@ def _coerce_dt(value: Any) -> Optional[datetime]:
     return dt
 
 
+def _resolve_earnings_listing(symbol: str) -> tuple[str, str]:
+    """Resolve a user symbol to a SINGLE authoritative yfinance ticker +
+    its exchange label, deterministically — the core of the tightened
+    resolution.
+
+    The bug this fixes: ``resolve_symbol`` blindly appends ``.NS`` to
+    every plain ticker (India-first), and the old fetcher then silently
+    fell back to the *bare* symbol when the ``.NS`` fetch came back empty.
+    For a stock dual-listed as both an NSE scrip and a US ADR (INFY, WIT,
+    …) that meant the calendar could read the NSE listing (EPS in ₹) while
+    the verifier read the ADR (EPS in $) — different currency and scale,
+    so a ``surprise_threshold_pct`` gate became unreliable.
+
+    Tightened contract: an Indian listing is AUTHORITATIVE and we never
+    cross currencies behind the user's back. International listings must
+    be opted into explicitly via an exchange hint, so an ADR is only ever
+    used when the user actually asked for it:
+
+      ``NSE:INFY`` / ``INFY.NS``            -> ("INFY.NS", "NSE")
+      ``BSE:INFY`` / ``INFY.BO`` / ``500209.BO`` -> (..., "BSE")
+      ``NASDAQ:AAPL`` / ``NYSE:IBM`` / ``AAPL.US`` -> ("AAPL", "US")
+      ``INFY`` (bare)                       -> ("INFY.NS", "NSE")  [India-first]
+
+    Returns ``(yf_ticker, exchange_label)`` where exchange_label is one of
+    ``NSE | BSE | US | INDEX``.
+    """
+    raw = (symbol or "").strip()
+    upper = raw.upper()
+
+    # Explicit exchange prefixes (EXCH:TICKER).
+    if ":" in upper:
+        prefix, _, rest = upper.partition(":")
+        rest = rest.strip()
+        if prefix in ("NSE", "NS"):
+            return f"{rest}.NS", "NSE"
+        if prefix in ("BSE", "BO"):
+            return f"{rest}.BO", "BSE"
+        if prefix in ("NASDAQ", "NYSE", "US", "AMEX"):
+            return rest, "US"
+
+    # Explicit suffixes.
+    if upper.endswith(".NS"):
+        return upper, "NSE"
+    if upper.endswith(".BO"):
+        return upper, "BSE"
+    if upper.endswith(".US"):
+        return upper[:-3], "US"
+    if upper.startswith("^"):
+        return upper, "INDEX"
+
+    # No hint → defer to the shared India-first resolver (handles index
+    # aliases + the curated NAME_TO_TICKER map, else appends .NS).
+    try:
+        from backend.market.yfinance_service import resolve_symbol
+        resolved = resolve_symbol(raw)
+    except Exception:  # noqa: BLE001
+        resolved = f"{upper}.NS"
+    ru = resolved.upper()
+    if ru.startswith("^"):
+        return resolved, "INDEX"
+    if ru.endswith(".BO"):
+        return resolved, "BSE"
+    # Anything else from the resolver is treated as an NSE scrip — it only
+    # ever emits .NS for equities, and we keep the listing INR-consistent.
+    if not ru.endswith(".NS"):
+        resolved = f"{ru}.NS"
+    return resolved, "NSE"
+
+
+def _fetch_yf_earnings_df(yf_mod: Any, ticker: str) -> Any:
+    """Single yfinance ``get_earnings_dates`` call for a concrete ticker.
+    Returns the DataFrame (possibly empty) or None on error."""
+    try:
+        t = yf_mod.Ticker(ticker)
+        get_dates = getattr(t, "get_earnings_dates", None)
+        if callable(get_dates):
+            return get_dates(limit=8)
+        return getattr(t, "earnings_dates", None)  # very old yfinance
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[earnings_calendar] yfinance fetch failed ticker=%s err=%s",
+            ticker, exc,
+        )
+        return None
+
+
 def _default_fetch_yfinance_rows(symbol: str) -> list[dict[str, Any]]:
     """Default :func:`fetch_earnings_rows` provider — yfinance.
 
@@ -131,58 +217,42 @@ def _default_fetch_yfinance_rows(symbol: str) -> list[dict[str, Any]]:
       ``{"report_date": datetime (UTC, aware),
          "eps_estimate": float | None,
          "reported_eps": float | None,
-         "surprise_pct": float | None}``
+         "surprise_pct": float | None,
+         "exchange": str}``
 
-    Indian tickers (INFY, TCS, …) are routed through
-    :func:`backend.market.yfinance_service.resolve_symbol` so they pick
-    up the ``.NS`` suffix yfinance needs. Any exception fails closed to
-    an empty list — the verifier will then surface ``unknown``.
+    Resolution is via :func:`_resolve_earnings_listing` — a single
+    authoritative listing per symbol, never crossing currencies. For an
+    Indian listing the only fallback is NSE→BSE (both ₹, so the numbers
+    stay comparable); we do NOT fall back to a US ADR. A transient empty
+    on the authoritative listing is retried ONCE before giving up. Any
+    exception fails closed to an empty list — the verifier surfaces
+    ``unknown`` and the scheduler simply re-checks on its next tick.
     """
-    try:
-        from backend.market.yfinance_service import resolve_symbol
-    except Exception:  # noqa: BLE001
-        def resolve_symbol(s: str) -> str:  # type: ignore[no-redef]
-            return s
-
     try:
         import yfinance as yf
     except Exception as exc:  # noqa: BLE001
         logger.warning("[earnings_calendar] yfinance import failed: %s", exc)
         return []
 
-    resolved = resolve_symbol(symbol)
-    rows: list[dict[str, Any]] = []
-    df = None
-    try:
-        ticker = yf.Ticker(resolved)
-        get_dates = getattr(ticker, "get_earnings_dates", None)
-        if callable(get_dates):
-            df = get_dates(limit=8)
-        else:  # very old yfinance — fall back to the attribute form
-            df = getattr(ticker, "earnings_dates", None)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "[earnings_calendar] yfinance fetch failed sym=%s err=%s",
-            resolved, exc,
-        )
-        df = None
+    resolved, exchange = _resolve_earnings_listing(symbol)
 
-    if df is None or getattr(df, "empty", True):
-        # Retry without the .NS suffix in case the resolver added it but
-        # the listing is on a US ADR / different exchange.
-        if resolved.endswith(".NS"):
-            bare = resolved[:-3]
-            try:
-                ticker = yf.Ticker(bare)
-                get_dates = getattr(ticker, "get_earnings_dates", None)
-                if callable(get_dates):
-                    df = get_dates(limit=8)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "[earnings_calendar] yfinance fallback failed sym=%s err=%s",
-                    bare, exc,
-                )
-                df = None
+    # Candidate chain — currency-consistent only. NSE→BSE keeps ₹; never
+    # an ADR. One retry of the primary absorbs a transient empty.
+    candidates: list[tuple[str, str]] = [(resolved, exchange)]
+    if exchange == "NSE":
+        candidates.append((resolved, exchange))  # retry primary once
+        bse = resolved[:-3] + ".BO" if resolved.endswith(".NS") else None
+        if bse:
+            candidates.append((bse, "BSE"))
+
+    df = None
+    used_exchange = exchange
+    for cand_ticker, cand_exchange in candidates:
+        df = _fetch_yf_earnings_df(yf, cand_ticker)
+        if df is not None and not getattr(df, "empty", True):
+            used_exchange = cand_exchange
+            resolved = cand_ticker
+            break
 
     if df is None or getattr(df, "empty", True):
         return []
@@ -207,6 +277,7 @@ def _default_fetch_yfinance_rows(symbol: str) -> list[dict[str, Any]]:
         or cols.get("surprise")
     )
 
+    rows: list[dict[str, Any]] = []
     try:
         for idx, row in df.iterrows():
             when = _coerce_dt(idx)
@@ -220,6 +291,7 @@ def _default_fetch_yfinance_rows(symbol: str) -> list[dict[str, Any]]:
                 "eps_estimate": eps_estimate,
                 "reported_eps": reported_eps,
                 "surprise_pct": surprise_pct,
+                "exchange": used_exchange,
             })
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -240,6 +312,7 @@ def _serialise_rows(rows: list[dict[str, Any]]) -> str:
             "eps_estimate": r.get("eps_estimate"),
             "reported_eps": r.get("reported_eps"),
             "surprise_pct": r.get("surprise_pct"),
+            "exchange": r.get("exchange"),
         })
     return json.dumps(payload)
 
@@ -271,6 +344,7 @@ def _deserialise_rows(raw: str) -> list[dict[str, Any]]:
             "eps_estimate": _coerce_float(entry.get("eps_estimate")),
             "reported_eps": _coerce_float(entry.get("reported_eps")),
             "surprise_pct": _coerce_float(entry.get("surprise_pct")),
+            "exchange": entry.get("exchange"),
         })
     return out
 

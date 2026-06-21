@@ -673,10 +673,15 @@ class TriggerEarningsConfig(_Strict):
     symbol: str = Field(
         ..., min_length=1, max_length=40,
         description=(
-            "Company ticker. Indian symbols are resolved to yfinance via "
-            "``backend.market.yfinance_service.resolve_symbol`` (INFY -> "
-            "INFY.NS); US ADRs work without the .NS suffix. Case is "
-            "normalised upstream."
+            "Company ticker. India-first and currency-consistent: a bare "
+            "ticker resolves to its NSE listing (INFY -> INFY.NS, judged "
+            "in ₹), and an Indian listing is authoritative — the resolver "
+            "never silently falls back to a USD ADR, so the reported vs "
+            "estimate comparison (and any surprise threshold) stays in one "
+            "currency. Explicit exchange hints are honoured: 'NSE:INFY' / "
+            "'INFY.NS' (NSE), 'BSE:INFY' / 'INFY.BO' (BSE), and "
+            "'NASDAQ:AAPL' / 'NYSE:IBM' / 'AAPL.US' to OPT IN to a US "
+            "listing. Case is normalised upstream."
         ),
     )
     metric: Literal["eps", "revenue"] = Field(
