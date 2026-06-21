@@ -237,6 +237,14 @@ class Settings(BaseSettings):
     # half-populated rows.
     earnings_verifier_min_confidence: float = 0.85
 
+    # --- Company logos (logo.dev) ---------------------------------------------
+    # Publishable token (pk_…) for img.logo.dev — safe to expose in the
+    # frontend, and the same token mc.companies.logo_url already embeds.
+    # Free tier REQUIRES the "Logos provided by Logo.dev" attribution link
+    # on any page that displays logos (rendered in the FE footer). Swap for
+    # a paid token (no attribution) or empty to disable derived logos.
+    logodev_publishable_token: str = "pk_X3WtLGU0RTuTq-o9GTLEsg"
+
     # --- Paper trading (simulated broker) -------------------------------------
     # When True, orders from chat (/orders/confirm, /orders/gtt) and from
     # workflow action.* steps route through the PaperBroker (backend/paper/)

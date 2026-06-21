@@ -68,6 +68,7 @@ import {
 import { isError } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -453,6 +454,27 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
       {quoteState.kind === "ok" && (
         <FinancialsPanel quote={quoteState.quote} financials={financials} />
       )}
+
+      {/* logo.dev attribution — required by their free tier wherever the
+          company logo is displayed. */}
+      <div
+        style={{
+          marginTop: 20,
+          fontSize: 10.5,
+          color: "var(--text-secondary)",
+          opacity: 0.7,
+        }}
+      >
+        Logos provided by{" "}
+        <a
+          href="https://logo.dev"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "inherit", textDecoration: "underline" }}
+        >
+          Logo.dev
+        </a>
+      </div>
     </div>
   );
 }
@@ -476,7 +498,6 @@ function Header({
 }): React.ReactElement {
   const displayLtp = liveLtp ?? quote.ltp;
   const positive = quote.change_pct >= 0;
-  const initial = quote.name.trim()[0]?.toUpperCase() ?? quote.symbol[0]?.toUpperCase() ?? "•";
   const hue = brandGlyphHue(quote.sector);
 
   return (
@@ -485,26 +506,15 @@ function Header({
       style={{ gap: 18 }}
       data-testid="quote-header"
     >
-      {/* Brand glyph + name + bookmark */}
+      {/* Brand logo (with monogram fallback) + name + bookmark */}
       <div className="flex items-center" style={{ gap: 14 }}>
-        <div
-          aria-hidden="true"
-          className="flex shrink-0 items-center justify-center"
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: "var(--radius-md)",
-            background: `${hue}22`, // 13% alpha tint
-            border: `1px solid ${hue}55`,
-            color: hue,
-            fontFamily: "var(--font-ui)",
-            fontSize: 24,
-            fontWeight: 600,
-            letterSpacing: "-0.02em",
-          }}
-        >
-          {initial}
-        </div>
+        <CompanyLogo
+          logoUrl={quote.logo_url}
+          name={quote.name}
+          symbol={quote.symbol}
+          hue={hue}
+          size={56}
+        />
         <div>
           <div className="flex items-center" style={{ gap: 8 }}>
             <h1

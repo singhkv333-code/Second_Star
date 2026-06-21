@@ -927,6 +927,8 @@ export type StockQuote = {
   market_cap: number | null;
   pe_ratio: number | null;
   sector: string | null;
+  /** Company logo URL (img.logo.dev), or null → render a monogram fallback. */
+  logo_url?: string | null;
   /** Phase 2: true when the quote came from Kite (WS or REST). */
   live?: boolean;
   /** Phase 2: which data source produced this quote. */
