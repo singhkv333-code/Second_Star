@@ -1581,3 +1581,135 @@ class OptionLeg(Base):
     )
 
     strategy = relationship("OptionStrategy", back_populates="legs")
+
+
+# ── Beta user-data tables (migration 0022_user_auth_beta) ────────────────────
+# Per-user data the beta launch needs beyond the existing conversations /
+# trade_logs / paper_* tables: a rolling chat-history SUMMARY, user settings,
+# an auth audit/login trail, and the token tables for the (deferred-send)
+# email-verify + password-reset flows. All are user-scoped.
+
+
+class ConversationSummary(Base):
+    """A rolling natural-language summary of one conversation.
+
+    Lets a returning user (and the agent) recall the gist of a long chat
+    without replaying every message. Refreshed as the conversation grows;
+    one row per conversation."""
+
+    __tablename__ = "conversation_summaries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(
+        String(36),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    summary = Column(Text, nullable=False, default="")
+    message_count = Column(Integer, nullable=False, default=0)
+    model = Column(String(64), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class UserSetting(Base):
+    """Per-user preferences (theme, trading mode, risk, notifications).
+
+    One row per user; ``settings`` is a free-form JSON blob so the FE can
+    evolve preference keys without a migration."""
+
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True,
+    )
+    settings = Column(JSON, nullable=False, default=dict)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AuthAudit(Base):
+    """Append-only auth/security trail: signup, login (success/fail), refresh,
+    logout, password-reset. Backs lockout analytics + a security review.
+
+    FK-light like ``broker_audit``: ``user_id`` is a nullable FK (a failed
+    login may not resolve to a user) with no relationship, so an audit write
+    can never break the auth flow it records."""
+
+    __tablename__ = "auth_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    email = Column(String(255), nullable=True, index=True)
+    event = Column(String(40), nullable=False)  # signup|login|login_failed|refresh|logout|...
+    success = Column(Boolean, nullable=False, default=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(512), nullable=True)
+    detail = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+        index=True,
+    )
+
+
+class EmailVerificationToken(Base):
+    """Single-use email-verification token (hash stored, never the raw token).
+
+    Created on signup / resend; consumed by /auth/verify-email. Sending is
+    deferred (EMAIL_ENABLED=false logs the link), but the table + flow exist
+    so it flips on with a provider only."""
+
+    __tablename__ = "email_verification_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    token_hash = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class PasswordResetToken(Base):
+    """Single-use password-reset token (hash stored, never the raw token).
+
+    Created by /auth/forgot-password; consumed by /auth/reset-password.
+    Deferred-send like email verification."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    token_hash = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
