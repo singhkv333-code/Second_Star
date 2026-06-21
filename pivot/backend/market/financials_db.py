@@ -360,6 +360,7 @@ class CompanyHit:
     name: str
     sector: str | None
     has_fundamentals: bool
+    logo_url: str | None = None
 
 
 def search_companies(
@@ -393,7 +394,8 @@ def search_companies(
                 SELECT sc_id,
                        company_name,
                        COALESCE(nse_symbol, ticker, sc_id) AS symbol,
-                       sector
+                       sector,
+                       logo_url
                 FROM mc.companies
                 WHERE upper(company_name) LIKE :prefix
                    OR upper(company_name) LIKE :substr
@@ -455,6 +457,7 @@ def search_companies(
                     name=r[1],
                     sector=r[3],
                     has_fundamentals=r[0] in have,
+                    logo_url=r[4],
                 )
             )
             if len(out) >= limit:

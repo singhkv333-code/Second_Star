@@ -23,11 +23,13 @@ export function CompanyLogo({
   logoUrl?: string | null;
   name: string;
   symbol: string;
-  /** Sector-derived colour for the monogram fallback (matches the old glyph). */
-  hue: string;
+  /** Sector-derived colour for the monogram fallback (matches the old glyph).
+   *  Optional — defaults to a neutral tint for list rows that don't compute one. */
+  hue?: string;
   size?: number;
 }): React.ReactElement {
   const [errored, setErrored] = useState(false);
+  const tint = hue ?? "var(--text-secondary)";
 
   const initial =
     name.trim()[0]?.toUpperCase() ?? symbol[0]?.toUpperCase() ?? "•";
@@ -46,9 +48,9 @@ export function CompanyLogo({
         className="flex shrink-0 items-center justify-center"
         style={{
           ...box,
-          background: `${hue}22`, // 13% alpha tint
-          border: `1px solid ${hue}55`,
-          color: hue,
+          background: hue ? `${hue}22` : "var(--surface-2, rgba(0,0,0,0.05))",
+          border: hue ? `1px solid ${hue}55` : "1px solid var(--border, rgba(0,0,0,0.08))",
+          color: tint,
           fontFamily: "var(--font-ui)",
           fontSize: Math.round(size * 0.43),
           fontWeight: 600,

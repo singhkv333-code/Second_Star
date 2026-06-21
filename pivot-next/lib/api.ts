@@ -1015,6 +1015,8 @@ export type CompanySearchResult = {
   name: string;
   sector: string | null;
   has_fundamentals: boolean;
+  /** Company logo URL (img.logo.dev), or null → render a monogram fallback. */
+  logo_url?: string | null;
 };
 
 export type CompanySearchResponse = {

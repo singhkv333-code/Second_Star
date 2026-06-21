@@ -1987,10 +1987,11 @@ function ChartCard({
           </div>
           <div className="flex flex-col" style={{ gap: 4 }}>
             {summaries.map((s) => {
-              const peerName =
+              const peerQuote =
                 s.symbol === primaryQuote?.symbol
-                  ? primaryQuote.name
-                  : peerQuotes[s.symbol]?.name ?? s.symbol;
+                  ? primaryQuote
+                  : peerQuotes[s.symbol];
+              const peerName = peerQuote?.name ?? s.symbol;
               const totalPos = s.totalChg !== null && s.totalChg >= 0;
               return (
                 <div
@@ -2007,6 +2008,12 @@ function ChartCard({
                       background: colorFor(s.symbol),
                       flexShrink: 0,
                     }}
+                  />
+                  <CompanyLogo
+                    logoUrl={peerQuote?.logo_url}
+                    name={peerName}
+                    symbol={s.symbol}
+                    size={18}
                   />
                   <span
                     style={{
