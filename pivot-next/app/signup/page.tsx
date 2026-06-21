@@ -5,7 +5,7 @@
  * on the right. Matches the login page layout exactly.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -123,7 +123,6 @@ function mapSignupError(status: number, message: string, retryAfter?: string | n
 
 export default function SignupPage(): React.ReactElement {
   const router = useRouter();
-  const nameRef = useRef<HTMLInputElement>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [watchedPassword, setWatchedPassword] = useState("");
 
@@ -142,11 +141,6 @@ export default function SignupPage(): React.ReactElement {
   useEffect(() => {
     setWatchedPassword(passwordValue ?? "");
   }, [passwordValue]);
-
-  // Autofocus first field
-  useEffect(() => {
-    nameRef.current?.focus();
-  }, []);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLFormElement>): void => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -226,15 +220,11 @@ export default function SignupPage(): React.ReactElement {
                 id="full_name"
                 type="text"
                 autoComplete="name"
+                autoFocus
                 placeholder="Arjun Sharma"
                 aria-invalid={!!errors.full_name}
                 aria-describedby={errors.full_name ? "name-error" : undefined}
                 {...register("full_name")}
-                ref={(el) => {
-                  const { ref: rhfRef } = register("full_name");
-                  if (typeof rhfRef === "function") rhfRef(el);
-                  (nameRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
-                }}
                 className="h-10"
                 style={{
                   background: "var(--bg-primary)",

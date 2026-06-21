@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-21 (frontend-lead) — Production login/signup + auth wiring
+
+- **`app/login/page.tsx`** (new): Split-screen login page — Newsreader serif wordmark and italic value-prop on the left panel; email+password form (zod/react-hook-form) on the right. Error mapping: 401 "Invalid email or password", 429 retry-after minutes, generic fallback. Spinner + disabled while submitting. Cmd+Enter submits. autoFocus on email field. Links to /signup.
+- **`app/signup/page.tsx`** (new): Split-screen signup page matching login layout. Form: full_name + email + password (with live 3-bar strength meter: length + letter + digit, mirrors backend rule) + confirm-password. Error mapping: 409/400 "That email is already registered". Links to /login.
+- **`lib/api.ts`**: Added typed auth helpers `storeToken(access, refresh?)`, `clearToken()`, `loginUser()`, `registerUser()`, `refreshAccess()`, `logoutUser()`. Updated 401 handler: attempts `refreshAccess()` once, retries original request on success; on failure calls `clearToken()` and redirects to `/login` (replaces blind `window.location.reload()`). Private `_tryRefresh()` function guards infinite loops via refresh-path check.
+- **`components/AppBootstrap.tsx`**: Added `/login` and `/signup` to `UNGATED_PATHS`. Unauthenticated phase now calls `router.replace("/login")` instead of rendering the `SignInPrompt` modal. Shows `BootstrapSplash` while the router navigates.
+- **`components/AppShell.tsx`**: Wired `logoutUser()` into the account menu "Log out" item — best-effort server revocation + `clearToken()` + `router.replace("/login")`. Threaded `onLogout` prop through `TopHeader` to `AccountMenu`.
+- TypeScript: `pnpm typecheck` clean (exit 0). No new lint errors in any touched file.
+
+---
+
 ## 2026-06-18 (frontend-lead) — Stock profile page improvements
 
 - **`lib/api.ts`**: Fixed `StockQuote` field names (`week_52_high`/`week_52_low` → `w52_high`/`w52_low`, added `prev_close`); added optional `source` to `FinancialsLatestValue`; added `searchCompanies` + `CompanySearchResult`/`CompanySearchResponse`; added `getMetricSeries` + `MetricSeriesPoint`/`MetricSeriesResponse`.

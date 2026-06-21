@@ -1260,7 +1260,6 @@ export async function refreshAccess(): Promise<ApiResult<AuthResponse>> {
  * Declared as a regular function so it is hoisted and available to
  * _doRequest which is defined earlier in this module.
  */
-// eslint-disable-next-line @typescript-eslint/no-use-before-define
 async function _tryRefresh(): Promise<boolean> {
   const result = await refreshAccess();
   return !("error" in result);

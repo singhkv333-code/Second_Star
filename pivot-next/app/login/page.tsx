@@ -5,7 +5,7 @@
  * Matches the Quartr/ink aesthetic established in globals.css and AppShell.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -49,7 +49,6 @@ function mapLoginError(status: number, message: string, retryAfter?: string | nu
 
 export default function LoginPage(): React.ReactElement {
   const router = useRouter();
-  const emailRef = useRef<HTMLInputElement>(null);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -59,11 +58,6 @@ export default function LoginPage(): React.ReactElement {
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
-
-  // Autofocus first field after mount
-  useEffect(() => {
-    emailRef.current?.focus();
-  }, []);
 
   // Cmd+Enter submits (handled via form keydown)
   const onKeyDown = (e: React.KeyboardEvent<HTMLFormElement>): void => {
@@ -135,16 +129,11 @@ export default function LoginPage(): React.ReactElement {
                 id="email"
                 type="email"
                 autoComplete="email"
+                autoFocus
                 placeholder="you@example.com"
                 aria-invalid={!!errors.email}
                 aria-describedby={errors.email ? "email-error" : undefined}
                 {...register("email")}
-                ref={(el) => {
-                  // Merge react-hook-form ref + our local ref for autofocus
-                  const { ref: rhfRef } = register("email");
-                  if (typeof rhfRef === "function") rhfRef(el);
-                  (emailRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
-                }}
                 className="h-10"
                 style={{
                   background: "var(--bg-primary)",
