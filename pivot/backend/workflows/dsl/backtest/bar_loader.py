@@ -77,13 +77,17 @@ def load_bars(
     start: date,
     end: date,
     fetcher=None,
+    interval: str = "1d",
 ) -> LoadedBars:
-    """Load daily OHLCV for every symbol referenced in ``tree``.
+    """Load OHLCV for every symbol referenced in ``tree`` at ``interval``.
 
     ``fetcher`` is the per-symbol fetch function. Defaults to
     ``backend.backtester.engine._fetch_ohlcv`` — pass a different
     callable in tests so we don't hit yfinance. Signature:
-    ``fetcher(symbol: str, start: date, end: date) -> pd.DataFrame``.
+    ``fetcher(symbol: str, start: date, end: date, *, interval: str=...) -> pd.DataFrame``.
+    A legacy fetcher that does NOT accept ``interval`` keeps working —
+    we fall back to a positional call so daily-only callers/tests are
+    unchanged.
 
     Raises ``ValueError`` if the tree references no market data
     (only constants), if the master calendar would be empty, or if
@@ -102,7 +106,11 @@ def load_bars(
 
     by_symbol: dict[SymbolKey, pd.DataFrame] = {}
     for sym, exch in keys:
-        df = fetcher(sym, start, end)
+        try:
+            df = fetcher(sym, start, end, interval=interval)
+        except TypeError:
+            # Legacy fetcher (tests / older code) without the kwarg.
+            df = fetcher(sym, start, end)
         if df is None or df.empty:
             raise ValueError(f"no bars returned for {sym}")
         # Defensive: lowercase column names + ensure expected cols.

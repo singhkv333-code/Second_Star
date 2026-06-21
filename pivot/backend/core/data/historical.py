@@ -17,6 +17,12 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from backend.core.data.intervals import (
+    CANONICAL_INTERVALS,
+    default_period_for,
+    is_intraday,
+    normalize_interval,
+)
 from backend.market.yfinance_service import fetch_price_history, resolve_symbol
 
 if TYPE_CHECKING:
@@ -26,8 +32,9 @@ logger = logging.getLogger(__name__)
 
 # Supported period values (maps to yfinance periods)
 VALID_PERIODS = {"5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max", "ytd"}
-# Supported interval values
-VALID_INTERVALS = {"1d", "1wk", "1mo"}
+# Supported interval values — full canonical set (minute…daily…monthly) plus
+# the legacy daily/weekly/monthly strings kept for explicit back-compat.
+VALID_INTERVALS = set(CANONICAL_INTERVALS) | {"1d", "1wk", "1mo"}
 
 # Arbitrary-window support. yfinance only accepts the fixed VALID_PERIODS
 # set, but users ask for 3y / 4y / 18mo / 9mo. We fetch the SMALLEST valid
@@ -119,15 +126,33 @@ def get_ohlcv(
             f"Invalid interval {interval!r}; must be one of {sorted(VALID_INTERVALS)}"
         )
 
-    # Resolve arbitrary windows (3y / 18mo / 9mo) to the smallest valid
-    # yfinance period that covers them; slice to the exact span after fetch.
-    # (Raises ValueError on a genuinely invalid period, preserving the
-    # prior contract.)
-    fetch_period, slice_days = _resolve_fetch_period(period)
+    # Normalise the interval up front (handles 'daily'/'weekly'/'60m'/etc).
+    canonical = normalize_interval(interval)
+    intraday = is_intraday(canonical)
 
-    # fetch_price_history returns list[dict] with keys: date, open, high, low, close, volume
-    # It handles .NS suffix resolution, caching, and fallback internally.
-    records = fetch_price_history(symbol, fetch_period, interval)
+    if intraday:
+        # Intraday: skip the daily _resolve_fetch_period ladder (it produces
+        # yfinance period strings like '1y'/'max' that are invalid alongside
+        # an intraday interval). Use default_period_for() when the caller
+        # didn't pin an explicit window; pass the period straight through to
+        # fetch_price_history, which now handles intraday clamping internally.
+        if not period or str(period).strip().lower() in {"1y", "default"}:
+            fetch_period = default_period_for(canonical)
+        else:
+            fetch_period = period
+        slice_days = None
+        records = fetch_price_history(symbol, fetch_period, canonical)
+    else:
+        # Resolve arbitrary windows (3y / 18mo / 9mo) to the smallest valid
+        # yfinance period that covers them; slice to the exact span after
+        # fetch. (Raises ValueError on a genuinely invalid period, preserving
+        # the prior contract.)
+        fetch_period, slice_days = _resolve_fetch_period(period)
+
+        # fetch_price_history returns list[dict] with keys: date, open, high,
+        # low, close, volume. It handles .NS suffix resolution, caching, and
+        # fallback internally.
+        records = fetch_price_history(symbol, fetch_period, canonical)
 
     if not records:
         raise DataUnavailableError(symbol, reason="no data returned from yfinance")
@@ -135,8 +160,10 @@ def get_ohlcv(
     # Convert to DataFrame
     df = pd.DataFrame(records)
 
-    # Parse date column to datetime and set as index
-    df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
+    # Parse date column to datetime and set as index. Use no explicit format
+    # so we accept BOTH 'YYYY-MM-DD' (daily/weekly/monthly) and
+    # 'YYYY-MM-DD HH:MM:SS' (intraday) stamps.
+    df["date"] = pd.to_datetime(df["date"])
     df.set_index("date", inplace=True)
 
     # Rename columns to standard capitalized form

@@ -15,6 +15,7 @@ from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from backend.core.data.intervals import normalize_interval as _normalize_interval
 from backend.services.backtest_indicators import (
     get_spec as _indicator_spec,
     supported_indicators as _supported_indicators,
@@ -200,11 +201,16 @@ class TriggerIndicatorConfig(_Strict):
     operator: Literal[">", "<", "crosses_above", "crosses_below"]
     value: float
     # Track C #4: honored by the live watcher (scheduler.
-    # _evaluate_indicator_trigger → _compute_indicator_sync). 'weekly'
-    # evaluates the indicator on W-FRI weekly closes — the field is
-    # REAL, not decorative; the engine resamples and sizes the lookback
-    # ×5 so RSI(14, weekly) has ≥14 weekly bars.
-    timeframe: Literal["daily", "weekly"] = "daily"
+    # _evaluate_indicator_trigger → _compute_indicator_sync). Canonical
+    # bar intervals: 1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo (legacy
+    # 'daily'/'weekly'/'day'/'week' aliases normalize via
+    # backend.core.data.intervals.normalize_interval; default '1d'). The
+    # field is REAL, not decorative — 'period' counts BARS of the chosen
+    # interval (RSI(14, weekly) needs ≥14 weekly bars, RSI(14, 15m)
+    # needs ≥14 fifteen-minute bars), so the engine sizes the lookback
+    # appropriately. Intraday intervals fetch native intraday bars
+    # (Kite primary, yfinance fallback) rather than resampling daily.
+    timeframe: Annotated[str, BeforeValidator(_normalize_interval)] = "1d"
 
 
 class TriggerEventConfig(_Strict):

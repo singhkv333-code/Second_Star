@@ -585,6 +585,35 @@ async def _generic_confirm(a, kt, db, uid):
     return {"success": True, "data": {"message": "Created", "args": a}, "logiccard": None}
 
 
+def _steps_have_indicator_trigger(steps) -> bool:
+    """True when a workflow draft's steps arm a technical-indicator trigger —
+    either a ``trigger.indicator`` step or a ``trigger.compound`` whose tree
+    contains an IndicatorNode. Used to enforce the always-ask-timeframe rule
+    on the general propose_workflow builder (the timeframe lives inside the
+    step tree, not a top-level arg)."""
+    if not isinstance(steps, list):
+        return False
+
+    def _tree_has_indicator(node) -> bool:
+        if isinstance(node, dict):
+            if node.get("type") == "indicator":
+                return True
+            return any(_tree_has_indicator(v) for v in node.values())
+        if isinstance(node, list):
+            return any(_tree_has_indicator(x) for x in node)
+        return False
+
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        st = step.get("step_type") or step.get("type")
+        if st == "trigger.indicator":
+            return True
+        if st == "trigger.compound" and _tree_has_indicator(step.get("config")):
+            return True
+    return False
+
+
 async def _propose_workflow(a, kt, db, uid):
     """Validate a workflow draft emitted by the chat hop.
 
@@ -611,6 +640,25 @@ async def _propose_workflow(a, kt, db, uid):
     )
 
     a = a or {}
+
+    # Always-ask the indicator timeframe. The chat layer sets this flag to
+    # False when the user's message didn't name a bar interval. If this draft
+    # arms an indicator trigger, refuse to build on a silent daily default —
+    # surface a clarification so the user picks a timeframe first. Default
+    # True so REST / legacy callers (no flag) are unaffected.
+    _tf_named = a.pop("_user_named_timeframe", True)
+    if not _tf_named and _steps_have_indicator_trigger(a.get("steps")):
+        return {
+            "success": False,
+            "error": (
+                "This trigger uses a technical indicator, which needs a "
+                "timeframe. Ask the user: 'Which timeframe — 1m / 5m / 15m / "
+                "30m / 1h / daily / weekly / monthly?' (the indicator period "
+                "counts BARS of the chosen interval). Do NOT default to daily."
+            ),
+            "data": {},
+            "logiccard": None,
+        }
 
     # New path — chat hop emits the structured draft directly.
     if isinstance(a.get("steps"), list):
@@ -1410,6 +1458,7 @@ async def _get_indicator(a, kt, db, uid):
         indicator=a.get("indicator", ""),
         period=int(a.get("period", 14)),
         history_period=a.get("history_period", "6mo"),
+        interval=a.get("interval", "1d"),
     )
     success = "error" not in data
     return {"success": success, "data": data, "logiccard": None}
@@ -1421,6 +1470,7 @@ async def _get_multiple_indicators(a, kt, db, uid):
         symbol=a.get("symbol", ""),
         indicators=a.get("indicators", []),
         history_period=a.get("history_period", "6mo"),
+        interval=a.get("interval", "1d"),
     )
     success = "error" not in data
     return {"success": success, "data": data, "logiccard": None}

@@ -415,6 +415,44 @@ def _patch_dsl_draft(prior: dict, fields: dict):
         return None
 
 
+def _tree_has_indicator(tree: Any) -> bool:
+    """True when a translated DSL tree (dict, pre-validation) contains at
+    least one IndicatorNode — i.e. the trigger is timeframe-sensitive."""
+    if isinstance(tree, dict):
+        if tree.get("type") == "indicator":
+            return True
+        return any(_tree_has_indicator(v) for v in tree.values())
+    if isinstance(tree, list):
+        return any(_tree_has_indicator(item) for item in tree)
+    return False
+
+
+def _apply_interval_to_indicators(tree: Any, interval: str) -> None:
+    """Walk a translated DSL tree (still a dict — pre-validation) and
+    set ``timeframe=interval`` on every IndicatorNode that doesn't have
+    one. The LLM grammar prompt doesn't yet know about non-daily
+    intervals, so the user's chat-level choice ('on 15-minute bars')
+    is plumbed in here rather than by re-prompting.
+
+    Daily (the default) is a no-op so already-persisted trees and the
+    existing eval suite are byte-for-byte unchanged.
+    """
+    if not interval or interval == "1d":
+        return
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "indicator" and not node.get("timeframe"):
+                node["timeframe"] = interval
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(tree)
+
+
 # ── backtest_dsl_tree ────────────────────────────────────────────────
 
 
@@ -429,6 +467,17 @@ async def backtest_dsl_tree(args: dict) -> dict:
       primary_symbol    — symbol the trade fires on (e.g. "TCS")
       start_date        — ISO date (optional; defaults to 3y ago)
       end_date          — ISO date (optional; defaults to today)
+      interval          — bar interval the backtest runs on
+                          (1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo;
+                          aliases 'daily'/'weekly'/'day' supported).
+                          Default '1d'. ASK the user if their prompt
+                          doesn't pin a timeframe — 'period' on every
+                          indicator is counted in BARS of this interval
+                          (RSI(14, 15m) ≠ RSI(14, daily)). Intraday
+                          intervals have shallow rolling windows
+                          (5/15/30m → ~60 days, 1m → ~7 days) and the
+                          handler clamps the start_date accordingly,
+                          surfacing a diagnostic when it does.
       exit_condition    — Optional NL EXIT condition. When set, the
                           tool translates it to a DSL exit tree and
                           overrides the declarative exit_kind/bars/pct.
@@ -444,6 +493,14 @@ async def backtest_dsl_tree(args: dict) -> dict:
     condition = (args.get("condition") or "").strip()
     primary = (args.get("primary_symbol") or "").strip().upper()
     exit_condition_text = (args.get("exit_condition") or "").strip()
+    # Normalize the interval up-front so every downstream branch (date
+    # clamping, payload assembly, diagnostics) sees the canonical form.
+    from backend.core.data.intervals import (
+        is_intraday as _is_intraday,
+        max_lookback_days as _max_lookback_days,
+        normalize_interval as _normalize_interval,
+    )
+    interval = _normalize_interval(args.get("interval"))
     if not condition:
         raise ValueError(
             "backtest_dsl_tree needs a 'condition' (natural-language "
@@ -485,6 +542,28 @@ async def backtest_dsl_tree(args: dict) -> dict:
         start_d = end_d - timedelta(days=365 * 3 + 2)
     if end_d <= start_d:
         end_d = start_d + timedelta(days=365)
+
+    # Honest intraday lookback clamp. yfinance keeps a rolling window
+    # for intraday bars (1m → 7d, 5/15/30m → 60d, 1h → 730d). If the
+    # caller asked for a longer window than the source can serve, move
+    # ``start_d`` up to today − cap and surface a diagnostic string so
+    # the UI can explain the truncation rather than silently shipping
+    # a backtest on fewer bars than requested.
+    interval_diagnostics: list[str] = []
+    if _is_intraday(interval):
+        cap = _max_lookback_days(interval, has_kite=False)
+        if cap is not None:
+            earliest = today - timedelta(days=int(cap))
+            if start_d < earliest:
+                old_start = start_d
+                start_d = earliest
+                interval_diagnostics.append(
+                    f"intraday {interval} data only available from "
+                    f"{earliest.isoformat()}; backtest window was clamped "
+                    f"(requested {old_start.isoformat()})"
+                )
+                if end_d <= start_d:
+                    end_d = min(today, start_d + timedelta(days=int(cap)))
 
     # Exit policy — exit_condition (NL) wins over declarative fields
     # so a chat prompt like "buy on RSI<30, sell on RSI>70" gets a
@@ -558,6 +637,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
         "sizing": sizing,
         "exit_policy": exit_policy,
         "save": False,
+        "interval": interval,
     }
     try:
         request = BacktestRequest.model_validate(payload)
@@ -749,10 +829,14 @@ async def backtest_dsl_tree(args: dict) -> dict:
         # a trades-list expansion.
         "tree_summary": result.tree_summary,
         "trades": rich_trades,
+        "interval": interval,
+        "interval_notes": interval_diagnostics,
         "diagnostics": {
             "bars_evaluated": result.diagnostics.bars_evaluated,
             "fire_bars": result.diagnostics.fire_bars,
             "unknown_value_bars": result.diagnostics.unknown_value_bars,
+            "interval": interval,
+            "interval_notes": interval_diagnostics,
         },
         "translation_meta": tx_meta,
         "exit_translation_meta": exit_tx_meta,
@@ -809,6 +893,11 @@ async def propose_dsl_workflow(args: dict) -> dict:
     label = (args.get("name") or "").strip() or f"{primary} compound trigger"
     action_kind = (args.get("action_kind") or "notify_only").lower()
     exit_condition_text = (args.get("exit_condition") or "").strip()
+    # User-specified bar interval flows onto every IndicatorNode in the
+    # translated entry/exit trees. Default '1d' keeps existing daily
+    # workflows byte-for-byte unchanged.
+    from backend.core.data.intervals import normalize_interval as _normalize_interval
+    interval = _normalize_interval(args.get("interval"))
     # Normalize "no exit" placeholders the LLM occasionally emits when
     # there isn't an exit condition. Without this, the translator tries
     # to translate the placeholder and produces a vacuous tree
@@ -975,6 +1064,26 @@ async def propose_dsl_workflow(args: dict) -> dict:
             f"could not translate condition into a DSL tree: {exc}"
         ) from None
 
+    # Always-ask the timeframe: if the user didn't name one (the chat loop
+    # strips a guessed `interval` for this tool when the message has no
+    # timeframe) and the entry tree actually uses an indicator, raise so the
+    # LLM asks — never build an indicator trigger on a silent daily default.
+    raw_interval = (args.get("interval") or "").strip()
+    if not raw_interval and _tree_has_indicator(tree):
+        raise ValueError(
+            "propose_dsl_workflow: timeframe (bar interval) is required for an "
+            "indicator condition. Call ASK_USER first: ask 'Which timeframe — "
+            "1m / 5m / 15m / 30m / 1h / daily / weekly / monthly?'. Do NOT "
+            "default to daily — the indicator period counts BARS of the "
+            "chosen interval."
+        )
+
+    # Overlay the user-specified interval on every IndicatorNode in the
+    # translated tree (the LLM grammar prompt doesn't know about it yet,
+    # so we patch the dict in-place). Non-daily defaults flow through
+    # to the live engine + readback (e.g. "RSI on 15m bars").
+    _apply_interval_to_indicators(tree, interval)
+
     # Validate the tree before we wrap it in a workflow step.
     from backend.workflows.dsl.schema import Tree
     from backend.workflows.dsl.validators import (
@@ -1024,6 +1133,9 @@ async def propose_dsl_workflow(args: dict) -> dict:
                     "exit translate failed (%s); used deterministic leaf for %r",
                     type(exc).__name__, exit_condition_text[:60],
                 )
+        # Overlay user-specified interval on indicator leaves in the
+        # exit tree too (same defence-in-depth as the entry tree above).
+        _apply_interval_to_indicators(exit_tree, interval)
         try:
             parsed_exit = TypeAdapter(Tree).validate_python(exit_tree)
             semantic_validate(parsed_exit, allow_position=True)
@@ -1032,6 +1144,7 @@ async def propose_dsl_workflow(args: dict) -> dict:
             fb = _deterministic_position_exit(exit_condition_text, force=True)
             if fb is not None and fb is not exit_tree:
                 try:
+                    _apply_interval_to_indicators(fb, interval)
                     parsed_exit = TypeAdapter(Tree).validate_python(fb)
                     semantic_validate(parsed_exit, allow_position=True)
                     exit_tree = fb

@@ -3967,6 +3967,12 @@ class ChatService:
         (no generator re-run). Cleared on a non-clarify clarification or by TTL.
         """
         data = guarded.data if isinstance(guarded.data, dict) else {}
+        # A single-field completeness widget (timeframe/side/…) tags itself
+        # '_clarify_kind=field' and resumes via the deterministic PendingToolCall
+        # path — it must NOT set a strategy ClarifyState, or the chip click would
+        # route into the strategy builder instead of splicing the tool arg.
+        if data.get("_clarify_kind") == "field":
+            return
         card = data.get("clarify") if data.get("_render_hint") == "clarify_card" else None
         if not isinstance(card, dict):
             return
@@ -9169,6 +9175,48 @@ def _vary_repeat_fallback(user_msg: str) -> str:
     )
 
 
+def _backtest_headline(rd: dict) -> str | None:
+    """Data-rich one-liner for a backtest widget: prefer the engine's own
+    ``summary_text``, else assemble the headline metrics (return / trades /
+    CAGR / max DD / Sharpe) from the result. ``None`` when nothing is present
+    so the caller keeps its generic line. Stops the chat punting EVERY number
+    to the chart."""
+    if not isinstance(rd, dict):
+        return None
+    # The engine already writes a rich sentence — use it verbatim.
+    for v in rd.values():
+        if isinstance(v, dict):
+            st = v.get("summary_text")
+            if isinstance(st, str) and len(st.strip()) > 30:
+                return st.strip()
+    # Otherwise build from the metrics dict (top-level or nested).
+    m = None
+    for v in [rd, *rd.values()]:
+        if isinstance(v, dict):
+            cand = v if "total_return_pct" in v else v.get("metrics")
+            if isinstance(cand, dict) and "total_return_pct" in cand:
+                m = cand
+                break
+    if not m:
+        return None
+    parts = [f"{m['total_return_pct']:+.1f}% total return"]
+    if m.get("n_trades") is not None:
+        parts.append(f"{m['n_trades']} trade(s)")
+    if m.get("cagr_pct") is not None:
+        parts.append(f"CAGR {m['cagr_pct']:+.1f}%")
+    if m.get("max_drawdown_pct") is not None:
+        parts.append(f"max drawdown {m['max_drawdown_pct']:.1f}%")
+    if m.get("sharpe") is not None:
+        try:
+            parts.append(f"Sharpe {float(m['sharpe']):.2f}")
+        except (TypeError, ValueError):
+            pass
+    return (
+        "Backtest result: " + ", ".join(parts)
+        + ". Equity curve, signals and the full metric set are charted below."
+    )
+
+
 def _tool_summary_line(tool_name: str, logiccard: dict | None) -> str:
     """One-liner used when the post-processor stripped the LLM's
     narration but a tool actually produced a card.
@@ -9484,18 +9532,28 @@ def _ensure_widget_caption(
 
     # Synthesise per-widget caption.
     if render_hint == "workflow_draft_card":
-        skeleton = rd.get("propose_workflow") or rd
+        skeleton = rd.get("propose_workflow")
+        if not (isinstance(skeleton, dict) and skeleton.get("steps")):
+            # threshold/dsl/scheduled/basket/holding drafts are keyed by their
+            # OWN tool name, not 'propose_workflow' — find the draft skeleton
+            # under any key so they get the SAME param-rich caption ("when
+            # RSI(14) drops below 30, buy 10 INFY") instead of a generic line.
+            skeleton = next(
+                (v for v in rd.values()
+                 if isinstance(v, dict) and v.get("steps")),
+                rd,
+            )
         if isinstance(skeleton, dict) and skeleton.get("steps"):
             result = _workflow_skeleton_caption(skeleton)
         else:
             result = _tool_summary_line("propose_workflow", None)
     elif render_hint == "indicator_backtest_chart":
-        result = (
+        result = _backtest_headline(rd) or (
             "Here's the backtest — equity curve, signals, and headline "
             "metrics are in the chart below."
         )
     elif render_hint == "financial_backtest_chart":
-        result = (
+        result = _backtest_headline(rd) or (
             "Here's the fundamentals backtest — performance vs. NIFTY and "
             "the rebalance trades are below."
         )

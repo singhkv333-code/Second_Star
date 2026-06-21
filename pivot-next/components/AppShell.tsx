@@ -78,6 +78,7 @@ import {
   getPortfolioSummary,
   getWorkflow,
   listConversations,
+  logoutUser,
   setAccountMode,
   type PortfolioSummary,
 } from "@/lib/api";
@@ -494,6 +495,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     });
   }, [goTab]);
 
+  // True when the panel is open and actively bound to an unsaved draft.
+  const panelOpenWithDraft = panelOpen && activeEditorDraft !== null;
+
+  // Context value — memoized so consumers only re-render when these change.
+  const activeDraftCtx = useMemo(
+    () => ({ activeEditorDraft, setActiveEditorDraft, panelOpenWithDraft }),
+    [activeEditorDraft, panelOpenWithDraft],
+  );
+
   // Track the lg breakpoint so the sidebar-collapse hotkey only takes effect
   // on desktop (mobile keeps the drawer reachable via the hamburger).
   useEffect(() => {
@@ -594,15 +604,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     };
   }, [goTab, startNewChat]);
 
-  // True when the panel is open and actively bound to an unsaved draft.
-  const panelOpenWithDraft = panelOpen && activeEditorDraft !== null;
-
-  // Context value — memoized so consumers only re-render when these change.
-  const activeDraftCtx = useMemo(
-    () => ({ activeEditorDraft, setActiveEditorDraft, panelOpenWithDraft }),
-    [activeEditorDraft, panelOpenWithDraft],
-  );
-
   return (
     <ActiveDraftContext.Provider value={activeDraftCtx}>
     <div
@@ -621,6 +622,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenBroker={() => setBrokerPanelOpen(true)}
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onBrandClick={() => goTab("chat")}
+        onLogout={async () => {
+          await logoutUser();
+          router.replace("/login");
+        }}
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onReportBug={() => setReportBugOpen(true)}
       />
@@ -812,6 +817,7 @@ function TopHeader({
   onOpenBroker,
   onOpenMobileNav,
   onBrandClick,
+  onLogout,
   onOpenShortcuts,
   onReportBug,
 }: {
@@ -824,6 +830,7 @@ function TopHeader({
   onOpenBroker: () => void;
   onOpenMobileNav: () => void;
   onBrandClick: () => void;
+  onLogout: () => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
 }): React.ReactElement {
@@ -952,6 +959,7 @@ function TopHeader({
           onChooseTradingMode={onChooseTradingMode}
           initial={accountInitial}
           onOpenBroker={onOpenBroker}
+          onLogout={onLogout}
           onOpenShortcuts={onOpenShortcuts}
           onReportBug={onReportBug}
         />
@@ -975,6 +983,7 @@ function AccountMenu({
   onChooseTradingMode,
   initial,
   onOpenBroker,
+  onLogout,
   onOpenShortcuts,
   onReportBug,
 }: {
@@ -984,6 +993,7 @@ function AccountMenu({
   onChooseTradingMode: (m: TradingMode) => void;
   initial: string;
   onOpenBroker: () => void;
+  onLogout: () => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
 }): React.ReactElement {
@@ -1233,7 +1243,15 @@ function AccountMenu({
               </div>
             )}
           </div>
-          <MenuItem icon={LogOut} label="Log out" onClick={() => setOpen(false)} />
+          <MenuItem
+            icon={LogOut}
+            label="Log out"
+            testId="menu-logout"
+            onClick={() => {
+              setOpen(false);
+              onLogout();
+            }}
+          />
 
           {/* Divider */}
           <div

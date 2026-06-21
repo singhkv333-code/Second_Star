@@ -88,17 +88,21 @@ def test_dsl_indicator_node_accepts_timeframe():
     from pydantic import TypeAdapter
     from backend.workflows.dsl.schema import Tree
 
+    # Storage is the canonical interval string (post-refactor): the
+    # schema's BeforeValidator normalises legacy spellings like
+    # 'weekly'/'daily' to '1wk'/'1d' so every downstream consumer sees
+    # one form.
     node = TypeAdapter(Tree).validate_python({
         "type": "indicator", "indicator": "rsi", "symbol": "GRASIM",
         "period": 14, "timeframe": "weekly",
     })
-    assert node.timeframe == "weekly"
-    # Default stays daily for old persisted trees.
+    assert node.timeframe == "1wk"
+    # Default stays daily for old persisted trees — now stored canonically.
     node2 = TypeAdapter(Tree).validate_python({
         "type": "indicator", "indicator": "rsi", "symbol": "GRASIM",
         "period": 14,
     })
-    assert node2.timeframe == "daily"
+    assert node2.timeframe == "1d"
 
 
 def test_evaluator_weekly_unknown_on_non_supporting_accessor():

@@ -639,33 +639,48 @@ tool("get_top_movers",
 # Bridges to /core/ (indicator vault + calculations + data layer).
 
 tool("get_indicator",
-     "Compute a single technical indicator on an NSE-listed ticker over "
-     "the last few months of daily candles. Use for: 'what's RELIANCE's "
-     "RSI', 'TCS 50-day SMA', 'INFY MACD'. The `indicator` arg accepts "
-     "rsi/sma/ema/wma/macd/adx/supertrend/atr/bollinger/donchian/keltner/"
-     "obv/vwap/cci/mfi/stoch/williams_r/aroon/trix/roc/historical_vol. "
-     "`period` is the lookback (e.g. 14 for RSI(14), 50 for SMA(50)). "
-     "Output includes current_value, signal (bullish/bearish/neutral), "
-     "and an interpretation string.",
+     "Compute a single technical indicator on an NSE-listed ticker at a "
+     "chosen bar `interval`. `interval` is REQUIRED: if the user named a "
+     "timeframe ('on the daily', 'weekly', '15-min', 'hourly') pass it; if "
+     "they did NOT, OMIT `interval` entirely — the platform asks the user "
+     "and resumes — do NOT guess daily yourself (see the timeframe "
+     "EXCEPTION in the system prompt). Use for: 'RELIANCE RSI on the "
+     "daily', 'TCS 50-day SMA weekly', 'INFY 15-min MACD'. The `indicator` "
+     "arg accepts rsi/sma/ema/wma/macd/adx/supertrend/atr/bollinger/"
+     "donchian/keltner/obv/vwap/cci/mfi/stoch/williams_r/aroon/trix/roc/"
+     "historical_vol. `period` is the lookback counted in BARS of the "
+     "chosen `interval` (e.g. 14 for RSI(14)). Output includes "
+     "current_value, signal (bullish/bearish/neutral), interpretation.",
      {
          "symbol":         {"type": "string"},
          "indicator":      {"type": "string"},
          "period":         {"type": "integer", "minimum": 2, "maximum": 250, "default": 14},
          "history_period": {"type": "string", "default": "6mo",
                             "description": "yfinance period: 1mo|3mo|6mo|1y|2y|5y"},
+         "interval":       {"type": "string",
+                            "description": "the bar interval / timeframe — "
+                                           "1m, 5m, 15m, 30m, 1h, daily, weekly, "
+                                           "or monthly (period counts BARS of it)"},
      },
-     ["symbol", "indicator"])
+     ["symbol", "indicator", "interval"])
 
 tool("get_multiple_indicators",
      "Compute several indicators for one ticker in a single call — saves "
      "round-trips when the user asks for multiple ('RSI and MACD for "
-     "INFY', 'show me Bollinger Bands and ATR for TCS').",
+     "INFY', 'show me Bollinger Bands and ATR for TCS'). All indicators "
+     "share one `interval`, which is REQUIRED: pass the timeframe the user "
+     "named, or OMIT it if they named none — the platform asks and resumes. "
+     "Do NOT guess daily (see the timeframe EXCEPTION in the system prompt).",
      {
          "symbol":         {"type": "string"},
          "indicators":     {"type": "array", "items": {"type": "string"}},
          "history_period": {"type": "string", "default": "6mo"},
+         "interval":       {"type": "string",
+                            "description": "the bar interval / timeframe — "
+                                           "1m, 5m, 15m, 30m, 1h, daily, weekly, "
+                                           "or monthly (period counts BARS of it)"},
      },
-     ["symbol", "indicators"])
+     ["symbol", "indicators", "interval"])
 
 tool("get_performance_metrics",
      "Risk-adjusted performance summary for one ticker over a period. "
@@ -1327,6 +1342,22 @@ tool("backtest_dsl_tree",
                  "the position is open."
              ),
          },
+         "interval": {
+             "type": "string",
+             "description": (
+                 "REQUIRED bar interval / timeframe to backtest on — "
+                 "1m, 5m, 15m, 30m, 1h, daily, weekly, or monthly. "
+                 "CRITICAL: 'period' on every indicator (RSI(14), "
+                 "SMA(50), ...) is counted in BARS of THIS interval — "
+                 "RSI(14) on 15m needs 14 fifteen-minute bars, not 14 "
+                 "days. If the user named a timeframe, pass it; if they "
+                 "did NOT, OMIT this field — the platform asks and "
+                 "resumes (do not guess daily). Intraday intervals have "
+                 "shallow yfinance windows (1m→7d, 5/15/30m→60d, "
+                 "1h→730d); the handler clamps an over-long start_date "
+                 "and surfaces a diagnostic."
+             ),
+         },
          "exit_kind": {
              "type": "string",
              "enum": ["n_day_hold", "stop_loss_pct"],
@@ -1378,7 +1409,7 @@ tool("backtest_dsl_tree",
          "atr_mult": {"type": "number", "description":
                       "atr_risk: stop distance in ATRs (default 2)."},
      },
-     ["condition", "primary_symbol"])
+     ["condition", "primary_symbol", "interval"])
 
 
 tool("backtest_pairs",
@@ -1588,6 +1619,23 @@ tool("propose_dsl_workflow",
                  "Scheduler auto-deactivates at 23:59 IST."
              ),
          },
+         "interval": {
+             "type": "string",
+             "enum": [
+                 "1m", "3m", "5m", "10m", "15m", "30m", "1h",
+                 "1d", "1wk", "1mo",
+             ],
+             "default": "1d",
+             "description": (
+                 "Bar interval the entry/exit indicators are computed "
+                 "on. 'period' on every indicator (RSI(14), SMA(50), "
+                 "...) is in BARS of THIS interval. If the user did "
+                 "not pin a timeframe, ASK them rather than guessing. "
+                 "Default '1d' keeps existing daily workflows unchanged. "
+                 "Flows onto every IndicatorNode in both the entry and "
+                 "the optional exit tree."
+             ),
+         },
      },
      ["condition", "primary_symbol"])
 
@@ -1694,7 +1742,15 @@ tool("propose_threshold_order",
              "description": "Required when trigger_kind='indicator'.",
          },
          "indicator_period": {"type": "integer", "minimum": 1, "maximum": 500,
-                              "description": "Default 14 for RSI, 50 for SMA/EMA."},
+                              "description": "Default 14 for RSI, 50 for SMA/EMA. "
+                                             "Counted in BARS of `timeframe`."},
+         "timeframe": {"type": "string",
+                       "description": "Bar interval the indicator trigger watches "
+                                      "— 1m, 5m, 15m, 30m, 1h, daily, weekly, or "
+                                      "monthly (REQUIRED for trigger_kind='indicator'). "
+                                      "Pass the timeframe the user named; if they "
+                                      "named none, OMIT it — the platform asks. Do "
+                                      "NOT guess daily."},
          "sl_pct": {"type": "number", "minimum": 0.1, "maximum": 50},
          "requires_approval": {"type": "boolean"},
          "valid_until": {

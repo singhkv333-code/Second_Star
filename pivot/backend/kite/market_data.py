@@ -7,6 +7,13 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 import yfinance as yf
+from backend.core.data.intervals import (
+    is_intraday,
+    max_lookback_days,
+    normalize_interval,
+    to_kite,
+    to_yfinance,
+)
 from backend.kite.auth import KITE_MOCK_MODE, get_authenticated_kite
 from backend.kite.mock_data import MOCK_QUOTE
 
@@ -24,25 +31,42 @@ def get_live_quote(access_token: str, instruments: list) -> dict:
     return kite.quote(instruments)
 
 
-def _kite_ohlcv_list(symbol: str, period: str) -> Optional[list]:
+def _kite_ohlcv_list(
+    symbol: str,
+    period: str,
+    interval: Optional[str] = None,
+) -> Optional[list]:
     """Kite historical as the same list-of-dicts shape get_historical_ohlcv
     returns. None when Kite is unavailable / can't resolve the symbol, so
     the caller falls back to yfinance. Indices (^-prefixed) are left to
-    yfinance — Kite indexes them under different instrument tokens."""
+    yfinance — Kite indexes them under different instrument tokens.
+
+    When ``interval`` is intraday, the full 'YYYY-MM-DD HH:MM:SS' stamp is
+    preserved (multiple bars per day) — only the daily path truncates to
+    a date-only string, preserving the legacy back-compat shape.
+    """
     if KITE_MOCK_MODE or symbol.startswith("^"):
         return None
     try:
         from backend.kite.historical import get_kite_historical
-        rows = get_kite_historical(symbol, period=period)
+        rows = get_kite_historical(symbol, period=period, interval=interval)
         if not rows:
             return None
+        intraday = bool(interval) and is_intraday(interval)
         out = []
         for r in rows:
             d = r.get("date")
-            # Kite returns "YYYY-MM-DD HH:MM:SS" (+tz); normalise to date.
-            d = str(d)[:10] if d is not None else None
+            # Kite returns "YYYY-MM-DD HH:MM:SS" (+tz). For daily we keep the
+            # legacy date-only slice; for intraday we keep the full timestamp
+            # so multiple bars per session don't collide.
+            if d is None:
+                d_out = None
+            elif intraday:
+                d_out = str(d)
+            else:
+                d_out = str(d)[:10]
             out.append({
-                "date": d,
+                "date": d_out,
                 "open": round(float(r["open"]), 2),
                 "high": round(float(r["high"]), 2),
                 "low": round(float(r["low"]), 2),
@@ -62,15 +86,28 @@ def get_historical_ohlcv(
 ) -> list:
     """
     Fetch historical OHLCV — Kite Connect FIRST (live, broker-grade, and
-    correctly dated), yfinance as the no-auth fallback. Daily bars only on
-    the Kite path; non-daily intervals go straight to yfinance.
+    correctly dated), yfinance as the no-auth fallback. Routes Kite for ANY
+    canonical interval Kite can serve (minute…day…week); only intervals Kite
+    can't serve (e.g. '1mo') skip straight to yfinance.
     symbol: NSE symbol like "INFY"; returns list of
     {date, open, high, low, close, volume}.
     """
-    if interval in ("1d", "day", "", None):
-        kite_rows = _kite_ohlcv_list(symbol, period)
+    canonical = normalize_interval(interval)
+    intraday = is_intraday(canonical)
+
+    # Kite first for any interval Kite can serve (not just daily).
+    if to_kite(canonical) is not None:
+        kite_rows = _kite_ohlcv_list(symbol, period, interval=canonical)
         if kite_rows:
             return kite_rows
+
+    # Fallback to yfinance. If yfinance can't serve this interval either
+    # (e.g. 3m/10m with no Kite session), return [] honestly rather than
+    # silently downgrading to the wrong timeframe.
+    yf_interval = to_yfinance(canonical)
+    if yf_interval is None:
+        return []
+
     try:
         # Resolve through the shared symbol mapper so index aliases work
         # (NIFTY→^NSEI, SENSEX→^BSESN, BANKNIFTY→^NSEBANK, RIL→RELIANCE.NS) —
@@ -84,13 +121,30 @@ def get_historical_ohlcv(
         if not ticker_symbol.startswith("^") and not ticker_symbol.endswith(".NS"):
             ticker_symbol = f"{ticker_symbol}.NS"
         ticker = yf.Ticker(ticker_symbol)
-        df = ticker.history(period=period, interval=interval)
+
+        # Intraday: clamp the period to yfinance's rolling cap and force a
+        # day-count period (yfinance rejects '1y'/'max'/'ytd' alongside an
+        # intraday interval).
+        fetch_period = period
+        if intraday:
+            cap_days = max_lookback_days(canonical, has_kite=False)
+            requested_days: Optional[int] = None
+            _p = (period or "").strip().lower()
+            if _p.endswith("d") and _p[:-1].isdigit():
+                requested_days = int(_p[:-1])
+            if cap_days is not None and (
+                requested_days is None or requested_days > cap_days
+            ):
+                fetch_period = f"{int(cap_days)}d"
+
+        df = ticker.history(period=fetch_period, interval=yf_interval)
         if df.empty:
             return []
+        fmt = "%Y-%m-%d %H:%M:%S" if intraday else "%Y-%m-%d"
         records = []
         for idx, row in df.iterrows():
             records.append({
-                "date": idx.strftime("%Y-%m-%d"),
+                "date": idx.strftime(fmt),
                 "open": round(float(row["Open"]), 2),
                 "high": round(float(row["High"]), 2),
                 "low": round(float(row["Low"]), 2),

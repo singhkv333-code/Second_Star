@@ -183,11 +183,15 @@ def run_pairs_backtest(
     hedge: str = "rolling",
     starting_capital: float = 1_000_000.0,
     num_trials: int = 1,
+    interval: str = "1d",
 ) -> dict:
     """Backtest a long/short pairs strategy on ``symbol_a`` vs ``symbol_b``.
 
     ``hedge``: ``"rolling"`` re-estimates β each day from the trailing window;
     ``"static"`` fixes β from the first ``lookback`` days (then trades the rest).
+    ``interval`` is the bar interval used for the spread series — default '1d'
+    (daily) preserves prior behaviour; aliases ('daily'/'60m'/...) are
+    normalized.
     Raises :class:`PairsError` on bad input / insufficient data.
     """
     if entry_z <= exit_z:
@@ -199,7 +203,17 @@ def run_pairs_backtest(
     if ca == cb:
         raise PairsError("A pair needs two different symbols.")
 
-    data = fetch_multi_symbol([symbol_a, symbol_b], period, "1d")
+    from backend.core.data.intervals import (
+        normalize_interval as _normalize_interval,
+        to_yfinance as _to_yfinance,
+    )
+    _norm = _normalize_interval(interval)
+    _yf_iv = _to_yfinance(_norm)
+    if _yf_iv is None:
+        raise PairsError(
+            f"yfinance cannot serve interval {_norm!r} for {ca}/{cb}"
+        )
+    data = fetch_multi_symbol([symbol_a, symbol_b], period, _yf_iv)
     rec_a, rec_b = data.get(ca, []), data.get(cb, [])
     if len(rec_a) != len(rec_b) or len(rec_a) < lookback + 30:
         raise PairsError(

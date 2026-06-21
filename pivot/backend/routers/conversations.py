@@ -218,6 +218,32 @@ def get_conversation(
 
 
 @router.get(
+    "/{conversation_id}/summary",
+    summary="A persisted natural-language summary of the conversation (the 'gist')",
+)
+async def get_conversation_summary(
+    conversation_id: str,
+    user_id: int = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Return (and lazily refresh) the chat-history summary. Ownership-gated:
+    404 if the conversation isn't the requesting user's."""
+    _own_conversation(db, conversation_id, user_id)  # 404 on cross-user
+    from backend.services.conversation_summary import ensure_summary, get_summary
+    row = await ensure_summary(db, conversation_id, user_id)
+    if row is None:
+        row = get_summary(db, conversation_id, user_id)
+    return {
+        "conversation_id": conversation_id,
+        "summary": row.summary if row else None,
+        "message_count": row.message_count if row else 0,
+        "updated_at": (
+            row.updated_at.isoformat() if row and row.updated_at else None
+        ),
+    }
+
+
+@router.get(
     "/{conversation_id}/messages",
     response_model=MessagesResponse,
     summary="Paginated message listing for one conversation",

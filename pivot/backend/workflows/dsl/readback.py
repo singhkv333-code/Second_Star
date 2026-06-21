@@ -194,16 +194,43 @@ def _offset_phrase(offset: int) -> str:
     return f" ({offset} bars ago)"
 
 
+_TIMEFRAME_PHRASES = {
+    # Canonical → human noun used inside "... on X bars". Daily is the
+    # silent default; legacy "daily"/"weekly"/"monthly" map to the same
+    # phrasing for back-compat with already-rendered english.
+    "1wk": "weekly",
+    "weekly": "weekly",
+    "1mo": "monthly",
+    "monthly": "monthly",
+    "1m": "1-minute",
+    "3m": "3-minute",
+    "5m": "5-minute",
+    "10m": "10-minute",
+    "15m": "15-minute",
+    "30m": "30-minute",
+    "1h": "hourly",
+}
+
+
 def _timeframe_phrase(timeframe: str) -> str:
     """Render the bar-timeframe suffix. Daily is the default and stays
     silent (so the existing readbacks ``RSI(14) of TCS < 30`` are
-    unchanged). Weekly is disclosed inline so the user can SEE that
-    "RSI < 30" is being checked on weekly closes, not daily.
+    unchanged). Non-daily intervals are disclosed inline so the user
+    can SEE that the indicator is being checked on a different cadence.
+
+    The schema normalises ``timeframe`` to a canonical interval string
+    (``'1d'``, ``'1wk'``, ``'15m'``, ...). We map those back to the
+    human-friendly nouns the chat surface used pre-refactor
+    (``'1wk'`` → "weekly", ``'1mo'`` → "monthly", intraday → "N-minute"
+    or "hourly"). Unknown/raw values fall through unchanged.
     """
-    if not timeframe or timeframe == "daily":
+    if not timeframe:
         return ""
-    if timeframe == "weekly":
-        return " on weekly bars"
+    if timeframe == "1d" or timeframe == "daily":
+        return ""
+    phrase = _TIMEFRAME_PHRASES.get(timeframe)
+    if phrase is not None:
+        return f" on {phrase} bars"
     return f" on {timeframe} bars"
 
 

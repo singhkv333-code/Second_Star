@@ -21,6 +21,12 @@ import pandas as pd
 import yfinance as yf
 
 from backend.cache import redis_client
+from backend.core.data.intervals import (
+    is_intraday,
+    max_lookback_days,
+    normalize_interval,
+    to_yfinance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +219,18 @@ def _cache_key(symbol: str, period: str, interval: str) -> str:
 def _records_from_df(df: pd.DataFrame) -> list[dict]:
     if df is None or df.empty:
         return []
+    # Intraday bars carry a real intraday time component on the index — keep
+    # the full 'YYYY-MM-DD HH:MM:SS' stamp so multiple bars per day don't
+    # collide. Daily/weekly/monthly continue to emit date-only for back-compat.
+    has_intraday = False
+    try:
+        for idx in df.index[:5]:
+            if getattr(idx, "hour", 0) or getattr(idx, "minute", 0) or getattr(idx, "second", 0):
+                has_intraday = True
+                break
+    except Exception:  # noqa: BLE001
+        has_intraday = False
+    fmt = "%Y-%m-%d %H:%M:%S" if has_intraday else "%Y-%m-%d"
     out = []
     for idx, row in df.iterrows():
         try:
@@ -223,7 +241,7 @@ def _records_from_df(df: pd.DataFrame) -> list[dict]:
             continue
         out.append(
             {
-                "date": idx.strftime("%Y-%m-%d"),
+                "date": idx.strftime(fmt),
                 "open": round(float(row.get("Open", close)), 4),
                 "high": round(float(row.get("High", close)), 4),
                 "low": round(float(row.get("Low", close)), 4),
@@ -245,21 +263,46 @@ def fetch_price_history(symbol: str, period: str, interval: str) -> list[dict]:
     if not symbol:
         return []
 
-    # Normalize the period string to a yfinance-valid period. RESPECT the
-    # caller's interval — only adopt the chart-oriented downsample
-    # (PERIOD_MAP's 1y→1wk / 5y→1mo) when the caller didn't specify one.
-    # get_ohlcv passes interval='1d' for return/Sharpe/volatility metrics
-    # and MUST get DAILY bars; the old unconditional override silently
-    # returned weekly (1y/2y) or monthly (5y) data, corrupting CAGR and
-    # overstating volatility by ~sqrt(5) (2026-05-29 audit). Chart callers
-    # (routers/compare.py) pass their own resolved interval, so they are
-    # unaffected.
-    _key = (period or "").strip().lower()
-    if _key in PERIOD_MAP:
-        mapped_period, mapped_interval = PERIOD_MAP[_key]
-        period = mapped_period
-        if not interval:
-            interval = mapped_interval
+    # Intraday path: bypass the chart-oriented PERIOD_MAP daily/weekly
+    # downsample entirely. Map the canonical interval to yfinance's string
+    # (None ⇒ yfinance can't serve this interval, e.g. 3m/10m) and clamp
+    # 'period' to yfinance's per-interval rolling cap so we don't request
+    # more days than the API will return. yfinance accepts an 'Nd' period
+    # alongside an intraday interval.
+    if interval and is_intraday(interval):
+        canonical = normalize_interval(interval)
+        yf_interval = to_yfinance(canonical)
+        if yf_interval is None:
+            return []
+        cap_days = max_lookback_days(canonical, has_kite=False)
+        # Resolve the caller's period to a day count where possible; if the
+        # resolved value would exceed the cap (or is a non-day string like
+        # '1y'/'max'/'ytd' that's invalid for intraday), replace with the cap.
+        requested_days: Optional[int] = None
+        _p = (period or "").strip().lower()
+        if _p.endswith("d") and _p[:-1].isdigit():
+            requested_days = int(_p[:-1])
+        if cap_days is not None and (
+            requested_days is None or requested_days > cap_days
+        ):
+            period = f"{int(cap_days)}d"
+        interval = yf_interval
+    else:
+        # Non-intraday: normalize the period string to a yfinance-valid period.
+        # RESPECT the caller's interval — only adopt the chart-oriented
+        # downsample (PERIOD_MAP's 1y→1wk / 5y→1mo) when the caller didn't
+        # specify one. get_ohlcv passes interval='1d' for return/Sharpe/
+        # volatility metrics and MUST get DAILY bars; the old unconditional
+        # override silently returned weekly (1y/2y) or monthly (5y) data,
+        # corrupting CAGR and overstating volatility by ~sqrt(5) (2026-05-29
+        # audit). Chart callers (routers/compare.py) pass their own resolved
+        # interval, so they are unaffected.
+        _key = (period or "").strip().lower()
+        if _key in PERIOD_MAP:
+            mapped_period, mapped_interval = PERIOD_MAP[_key]
+            period = mapped_period
+            if not interval:
+                interval = mapped_interval
 
     resolved = resolve_symbol(symbol)
     cache_key = _cache_key(resolved, period, interval)

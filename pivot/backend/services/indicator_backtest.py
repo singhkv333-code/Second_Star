@@ -88,6 +88,7 @@ def run_indicator_backtest(
     threshold: float = 50.0,
     period: str = "5y",
     exchange: str = "NSE",
+    interval: str = "1d",
 ) -> IndicatorBacktestResult:
     """Run the backtest. Raises ValueError on bad inputs / no data.
 
@@ -97,11 +98,21 @@ def run_indicator_backtest(
     Keltner-mid/Donchian-mid) the comparison is close-vs-indicator and
     the user-supplied ``threshold`` is treated as an additive bias on
     the indicator series (0 for plain price-cross signals).
+
+    ``interval`` is the bar interval the indicator runs on. Default
+    '1d' (daily) keeps existing callers unchanged. Aliases like
+    'daily'/'weekly'/'60m' are normalized. Intraday intervals are mapped
+    to the matching yfinance string and refuse honestly (empty raise)
+    when yfinance can't serve them — never silently downgrade.
     """
     sym = symbol.upper().strip()
     # [C4] shared resolver maps index aliases (NIFTY→^NSEI, …) and
     # shorthand (RIL→RELIANCE) to real yfinance tickers.
     from backend.market.yfinance_service import resolve_symbol
+    from backend.core.data.intervals import (
+        normalize_interval as _normalize_interval,
+        to_yfinance as _to_yfinance,
+    )
     yf_sym = resolve_symbol(sym)
 
     spec = _ind_spec(indicator)
@@ -116,7 +127,13 @@ def run_indicator_backtest(
         else (_ind_default_period(indicator) or 14)
     )
 
-    hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
+    _norm_interval = _normalize_interval(interval)
+    _yf_iv = _to_yfinance(_norm_interval)
+    if _yf_iv is None:
+        raise ValueError(
+            f"yfinance cannot serve interval {_norm_interval!r} for {sym}"
+        )
+    hist = yf.Ticker(yf_sym).history(period=period, interval=_yf_iv)
     if hist.empty or len(hist) < max(period_n * 2, 30):
         raise ValueError(
             f"insufficient data for {sym} over {period} (got {len(hist)} bars)"

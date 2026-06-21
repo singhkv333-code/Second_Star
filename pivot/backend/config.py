@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     app_version: str = "0.1.0"
+    # SECURITY: when true, unauthenticated /chat requests fall back to the
+    # default dev user (id 1). MUST stay false for beta/production — it
+    # disables auth on the chat surface. Opt in only for local dev.
+    dev_auth_bypass: bool = False
+    # Deferred-send email: when false, send_email() logs the link instead of
+    # sending. Flip to true once an email provider is configured.
+    email_enabled: bool = False
     # Phase 0: error reporting. Leave dsn blank to disable.
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0

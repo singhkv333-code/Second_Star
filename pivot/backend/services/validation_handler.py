@@ -298,6 +298,69 @@ class GuardedToolResult:
 
 import re as _re
 
+# Tools whose indicator timeframe is REQUIRED and must be the user's choice.
+# The model tends to guess "daily" when the user never named a timeframe; for
+# these tools we drop a guessed interval (below) so the completeness gate asks
+# and the reply resumes deterministically — honouring the "always ask the
+# interval" product rule without trusting the LLM to omit the field.
+_INTERVAL_GATED_TOOLS: frozenset[str] = frozenset({
+    "get_indicator",
+    "get_multiple_indicators",
+    "backtest_dsl_tree",
+    "propose_threshold_order",
+    "propose_dsl_workflow",
+})
+
+# Explicit timeframe mentions in the user's own words. Deliberately specific to
+# avoid false positives — "50-day SMA" must NOT count as naming a timeframe
+# (it's a period, not an interval), so bare "day" after a number is excluded;
+# only "daily"/"weekly"/"<n>min"/"<n>h"/"hourly"/"on the X chart"/etc. count.
+_INTERVAL_MENTION_RE = _re.compile(
+    r"""(?ix)
+    \b(?:
+        daily | weekly | monthly | intraday | hourly |
+        end[\s-]?of[\s-]?day | eod |
+        \d{1,3}\s*-?\s*(?:m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b |
+        (?:1m|3m|5m|10m|15m|30m|60m|1h|1d|1wk|1mo) |
+        on\s+the\s+[\w-]+\s+chart |
+        [\w-]+\s+timeframe |
+        [\w-]+\s+bars
+    )\b
+    """
+)
+
+
+def _message_names_interval(text: str) -> bool:
+    """True when the user's message explicitly names a bar timeframe."""
+    return bool(text) and bool(_INTERVAL_MENTION_RE.search(text))
+
+
+# A concrete interval token in the user's text → canonical interval. "intraday"
+# is deliberately excluded (ambiguous — it should still ask which one).
+_INTERVAL_TOKEN_RE = _re.compile(
+    r"""(?ix)\b(
+        monthly | weekly | daily | hourly |
+        \d{1,3}\s*-?\s*(?:minutes?|mins?|m|hours?|hrs?|h) |
+        1m|3m|5m|10m|15m|30m|60m|1h|1d|1wk|1mo
+    )\b"""
+)
+
+
+def _extract_interval_from_text(text: str) -> Optional[str]:
+    """The canonical interval the user explicitly named, or ``None``.
+
+    Used to FILL an interval the model forgot to pass so we never re-ask a
+    timeframe the user already gave (a misguiding question). Returns None for
+    ambiguous mentions like 'intraday' so those still prompt for specifics.
+    """
+    if not text:
+        return None
+    m = _INTERVAL_TOKEN_RE.search(text)
+    if not m:
+        return None
+    from backend.core.data.intervals import normalize_interval
+    return normalize_interval(m.group(1))
+
 # Field-name → user-friendly label. Used when the schema's `description`
 # is too schema-explainer-y to leak into a chat reply (e.g. propose_workflow's
 # `name` field carries "Short workflow title (e.g. 'Weekly NIFTYBEES buy')."
@@ -314,7 +377,89 @@ _PRETTY_FIELD_NAMES: dict[str, str] = {
     "side": "buy or sell",
     "exchange": "exchange (NSE / BSE)",
     "user_intent": "what you want the agent to do",
+    "interval": "timeframe",
+    "timeframe": "timeframe",
 }
+
+
+# ── Discrete-choice clarification → option WIDGET ───────────────────────────
+# Questions that are a choice between a small fixed set render as clickable
+# chips (a clarify_card), like claude.ai's question widget — NOT plain text.
+# Free-value asks (quantity, price, notional, dates) deliberately stay text:
+# there's nothing to enumerate. Two sources of options:
+#   1. _CLARIFY_OPTION_REGISTRY — fields with no schema enum but a known choice
+#      set (timeframe/interval).
+#   2. a field's schema `enum` (side, operator, indicator, sizing_mode, …) —
+#      turned into chips automatically.
+_CLARIFY_OPTION_REGISTRY: dict[str, list[tuple[str, str]]] = {
+    "interval": [
+        ("1m", "1-minute"), ("5m", "5-minute"), ("15m", "15-minute"),
+        ("30m", "30-minute"), ("1h", "Hourly"), ("1d", "Daily"),
+        ("1wk", "Weekly"), ("1mo", "Monthly"),
+    ],
+}
+_CLARIFY_OPTION_REGISTRY["timeframe"] = _CLARIFY_OPTION_REGISTRY["interval"]
+
+# Nicer human labels for common enum values so the chips read well.
+_ENUM_OPTION_LABELS: dict[str, str] = {
+    "buy": "Buy", "sell": "Sell",
+    "rsi": "RSI", "sma": "SMA", "ema": "EMA", "wma": "WMA", "macd": "MACD",
+    "<": "Falls below", ">": "Rises above",
+    "crosses_above": "Crosses above", "crosses_below": "Crosses below",
+    "fixed": "Fixed quantity", "pct_equity": "% of equity",
+    "vol_target": "Volatility target", "atr_risk": "ATR-based risk",
+    "indicator": "Technical indicator", "price": "Price level",
+    "NSE": "NSE", "BSE": "BSE",
+}
+
+
+def _clarify_options_for(mf: Optional[MissingField]) -> Optional[list[dict]]:
+    """Option chips for a discrete-choice missing field, or ``None`` when the
+    field is a free value (quantity/price/date) that should stay plain text."""
+    if mf is None:
+        return None
+    reg = _CLARIFY_OPTION_REGISTRY.get(mf.field_name)
+    if reg:
+        return [{"id": v, "label": lbl} for v, lbl in reg]
+    if mf.enum:
+        return [
+            {"id": str(v), "label": _ENUM_OPTION_LABELS.get(str(v), str(v))}
+            for v in mf.enum
+        ]
+    return None
+
+
+def _clarify_card_payload(mf: MissingField, prompt: str,
+                          options: list[dict]) -> dict:
+    """A single-question ``clarify_card`` the FE renders as clickable chips.
+
+    Exactly ONE question → the FE runs one-at-a-time mode, so a chip click
+    posts the option id as the next chat message, which the deterministic
+    PendingToolCall resume splices into the saved tool call. ``free_text`` keeps
+    typed answers (e.g. '15-minute') working through the same resume path.
+    """
+    return {
+        "_render_hint": "clarify_card",
+        # Discriminator: this is a SINGLE-FIELD completeness widget resumed via
+        # the deterministic PendingToolCall path — NOT the strategy N-of-M
+        # flow. chat_service._maybe_set_clarify_state skips it on this tag so it
+        # doesn't hijack the next reply into the strategy builder.
+        "_clarify_kind": "field",
+        "clarify": {
+            "session_slot_state": {},
+            "total": 1,
+            "index": 0,
+            "questions": [{
+                "id": f"q_{mf.field_name}",
+                "slot": mf.field_name,
+                "prompt": prompt,
+                "voi": 1.0,
+                "options": options,
+                "free_text": True,
+                "skippable": False,
+            }],
+        },
+    }
 
 
 # Strip "(e.g. ...)" / "(matches ...)" / parentheticals that read as
@@ -382,7 +527,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
 
     # Type hints we don't surface — they read as schema-explainer
     # noise to a chat user ("what's the trigger condition? (object)").
-    _NOISE_HINTS = {"value", "object", "list of value", "yes/no"}
+    _NOISE_HINTS = {"value", "object", "list of value", "yes/no", "text"}
 
     def _hint(m: MissingField) -> str:
         if not m.type_hint or m.type_hint in _NOISE_HINTS:
@@ -545,6 +690,36 @@ async def execute_with_completeness(
             latency_ms=latency,
         )
 
+    # Interval gate (always-ask rule). For indicator/backtest tools the
+    # timeframe is REQUIRED and must be the user's choice. The model often
+    # guesses 'daily' when the user never named a timeframe, which would
+    # silently skip the ask. So when the user's message does NOT name a
+    # timeframe, drop any guessed interval here — the completeness check then
+    # asks "which timeframe?" and the reply resumes deterministically. On the
+    # resume turn the user_message IS their answer (e.g. "15-minute"), which
+    # names an interval, so the spliced value is kept and the tool runs.
+    _tf_named = _message_names_interval(user_message)
+    if tool_name in _INTERVAL_GATED_TOOLS:
+        if not _tf_named:
+            # User didn't name a timeframe — drop any value the model guessed
+            # so the completeness gate asks (and the reply resumes).
+            if "interval" in args or "timeframe" in args:
+                args = {k: v for k, v in args.items()
+                        if k not in ("interval", "timeframe")}
+        elif "interval" not in args and "timeframe" not in args:
+            # User DID name a timeframe but the model dropped it. Extract and
+            # inject it so we don't ask a redundant, misguiding question
+            # ("which timeframe?" right after they said "on the daily").
+            _iv = _extract_interval_from_text(user_message)
+            if _iv:
+                args = {**args, "interval": _iv, "timeframe": _iv}
+    # propose_workflow buries the timeframe inside its step tree, so we can't
+    # strip a top-level arg. Pass the "did the user name a timeframe?" signal
+    # down as a private flag; the handler raises-to-ask if it builds an
+    # indicator trigger without one.
+    if tool_name == "propose_workflow":
+        args = {**args, "_user_named_timeframe": _tf_named}
+
     # Look up the schema for the chosen tool.
     schema = _schema_for_tool(tool_name)
     description = _description_for_tool(tool_name) or ""
@@ -585,10 +760,21 @@ async def execute_with_completeness(
             # we only auto-resume on single-field cases — the others
             # need the LLM to figure out which value goes where.
             single_missing = report.missing[0] if len(report.missing) == 1 else None
+            # Discrete-choice asks (timeframe, side, indicator, sizing, …)
+            # render as an option WIDGET; free-value asks (quantity/price) stay
+            # text. A 1-question clarify_card → FE one-at-a-time → the chip click
+            # posts the option id, which the PendingToolCall resume splices in.
+            clarify_data: dict[str, Any] = {}
+            _opts = _clarify_options_for(single_missing)
+            if single_missing is not None and _opts:
+                clarify_data = _clarify_card_payload(
+                    single_missing, question, _opts,
+                )
             return GuardedToolResult(
                 name=tool_name, args=args,
                 needs_clarification=True,
                 question=question,
+                data=clarify_data,
                 latency_ms=int((time.monotonic() - started) * 1000),
                 missing_field=single_missing,
             )

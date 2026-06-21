@@ -89,10 +89,13 @@ def _with_reply_context(message: str, quoted_text: Optional[str]) -> str:
 
 def _auth(authorization: str) -> int:
     if not authorization:
-        # In development mode fall back to the default dev user so the
-        # chat UI works without a login flow.
+        # Local-dev convenience ONLY: fall back to the default dev user so the
+        # chat UI works without a login flow. This is gated behind an explicit
+        # opt-in flag that defaults to FALSE — beta/production MUST require a
+        # real token (set dev_auth_bypass=false / leave unset). Without the
+        # gate, any unauthenticated request was silently treated as user 1.
         from backend.config import settings as _cfg
-        if getattr(_cfg, "app_env", "development") == "development":
+        if getattr(_cfg, "dev_auth_bypass", False):
             return 1
         raise HTTPException(401, "Missing token")
     token = authorization.replace("Bearer ", "")
@@ -117,9 +120,19 @@ def _kite_token_for(db: Session, user_id: int) -> str:
 
 
 def _conv_id(req: ChatRequest, user_id: int) -> str:
-    """Per-user conversation id. The client can override with an explicit one."""
-    if req.conversation_id:
-        return req.conversation_id
+    """Per-user Redis conversation key.
+
+    SECURITY: a client-supplied ``conversation_id`` is ALWAYS namespaced under
+    the AUTHENTICATED user id, so a forged value can never address another
+    user's chat state (history / pending tool calls / in-flight order drafts).
+    Before this, ``return req.conversation_id`` used the raw client value, so
+    User A could pass ``conversation_id="u2"`` and read User B's session — a
+    multi-tenant isolation breach. The store is keyed only by the value we
+    return here, so prefixing it is sufficient and fully isolates tenants.
+    """
+    base = (req.conversation_id or "").strip()
+    if base:
+        return f"u{user_id}::{base}"
     return f"u{user_id}"
 
 

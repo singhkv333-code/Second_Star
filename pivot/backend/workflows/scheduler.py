@@ -1285,23 +1285,41 @@ def _compute_indicator_sync(
     Track C #4: ``timeframe='weekly'`` evaluates on W-FRI weekly closes
     (daily series resampled via the shared helper in
     ``dsl.data_accessor``), with the lookback window sized ×5 so a
-    period-N weekly indicator has ≥N weekly bars. Insufficient WEEKLY
-    history returns None — never a silently-daily value."""
+    period-N weekly indicator has ≥N weekly bars. Intraday timeframes
+    (1m/3m/5m/10m/15m/30m/1h) fetch native intraday bars at the
+    requested interval (Kite primary, yfinance fallback) — 'period' is
+    counted in BARS of the chosen interval (RSI(14, 15m) = 14
+    fifteen-minute bars). The 60s watcher recomputes the latest closed
+    bar each poll, so intraday triggers evaluate on the most recent
+    completed bar of the chosen interval. Insufficient history (weekly
+    or intraday) returns None — never a silently-daily value."""
     import pandas as pd  # type: ignore[import-untyped]
 
+    from backend.core.data.intervals import (
+        default_period_for, is_intraday, normalize_interval,
+    )
     from backend.kite.market_data import get_historical_ohlcv, period_for_indicator
     from backend.services.backtest_indicators import latest_value
 
-    tf = (timeframe or "daily").lower()
+    tf = normalize_interval(timeframe)
+    intraday = is_intraday(tf)
     # P0 parity: size the window to the indicator period (was hardcoded "6mo",
     # which silently starved any period > ~120, e.g. a 200-EMA, → returned None
     # and the agent never fired live despite backtesting fine). Weekly needs
-    # ×5 the daily bars for the same indicator period.
-    eff_period = int(period or 0) * (5 if tf == "weekly" else 1)
-    bars = get_historical_ohlcv(
-        symbol, period=period_for_indicator(eff_period), interval="1d",
-    ) or []
-    if tf == "weekly":
+    # ×5 the daily bars for the same indicator period; intraday fetches the
+    # source's full rolling window at the native interval.
+    eff_period = int(period or 0) * (5 if tf == "1wk" else 1)
+    if intraday:
+        bars = get_historical_ohlcv(
+            symbol,
+            period=default_period_for(tf, has_kite=True),
+            interval=tf,
+        ) or []
+    else:
+        bars = get_historical_ohlcv(
+            symbol, period=period_for_indicator(eff_period), interval="1d",
+        ) or []
+    if tf == "1wk":
         from backend.workflows.dsl.data_accessor import (
             resample_daily_bars_to_weekly,
         )
