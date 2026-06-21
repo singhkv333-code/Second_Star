@@ -238,7 +238,13 @@ async def _validation_exception_handler(
     code and per-field details. Legacy routes keep FastAPI's default
     422 shape.
     """
-    errors = exc.errors()
+    # jsonable_encoder makes the error list JSON-safe: Pydantic v2 puts the
+    # raw exception object in `ctx` (e.g. {"error": ValueError(...)}) when a
+    # custom field_validator raises ValueError, which json.dumps cannot
+    # serialise — without this a weak-password / any ValueError validator
+    # returns 500 instead of 422.
+    from fastapi.encoders import jsonable_encoder
+    errors = jsonable_encoder(exc.errors())
     if not _is_api_v1(request):
         return JSONResponse(
             status_code=422, content={"detail": errors},
