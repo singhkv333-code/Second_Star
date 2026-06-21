@@ -209,7 +209,9 @@ class Settings(BaseSettings):
     kraken_api_base_url: str = "https://api.kraken.com/0/public"
     coingecko_api_base_url: str = "https://api.coingecko.com/api/v3"
     twelvedata_api_base_url: str = "https://api.twelvedata.com"
-    frankfurter_api_base_url: str = "https://api.frankfurter.app"
+    # api.frankfurter.app now 301-redirects to a non-JSON page; the live
+    # host is api.frankfurter.dev/v1 (accepts the same from/to params).
+    frankfurter_api_base_url: str = "https://api.frankfurter.dev/v1"
     # When True, backend.market.global_quotes.get_global_quote() returns a
     # deterministic synthetic price derived from a stable hash of the symbol
     # (no randomness, no wall-clock-dependent value) so dev + tests are
