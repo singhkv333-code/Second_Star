@@ -151,7 +151,7 @@ A workflow is a LINEAR ordered list of steps. The first step (step_index=0) MUST
 
 You may ONLY use step_types from this catalog. Inventing a step_type that isn't listed will fail validation.
 
-CATALOG (24 step types):
+CATALOG (registry-derived; do not invent additions):
 {catalog}
 
 Inter-step references use Mustache syntax. Allowed namespaces:
@@ -183,6 +183,23 @@ Rules:
   - "notify me" / "alert me" → notify.message at the end.
   - If the user's intent is ambiguous, prefer the SIMPLER 2-3 step workflow over inventing fields.
   - Indicator timeframe: trigger.indicator / trigger.compound / trigger.exit_compound / condition.compound accept an optional `timeframe: "daily" | "weekly"`. Default is `daily`. If the user says "weekly RSI", "on weekly bars", "weekly chart", "W/F-close", etc., set `timeframe: "weekly"` on the indicator config (or on every IndicatorNode leaf inside a compound tree). Do NOT invent a non-default timeframe when the user did not ask for it.
+
+EVENT / EXTERNAL TRIGGERS — pick the right one (these are wired and should NOT be refused):
+  - trigger.scheduled_macro — RBI / Fed / CPI calendar outcomes (allowed kinds only: rbi_mpc, us_fomc, india_cpi, us_cpi).
+  - trigger.polymarket / trigger.kalshi — listed prediction-market resolutions/thresholds.
+  - trigger.earnings — a NAMED company's quarterly EPS print vs the consensus estimate.
+       Fields: symbol (NSE ticker like INFY/TCS); metric: "eps" (revenue is roadmap-only, refuse politely if asked); condition: "beat" | "miss" | "meet"; optional surprise_threshold_pct (number, e.g. 5 for "beats by >=5%"); optional min_confidence (default 0.85).
+       USE for asks like "alert me when INFY beats earnings", "if TCS misses EPS estimate notify me", "ping me if RELIANCE beats by 5%". Source is the yfinance earnings calendar; scheduler opens a 48h verify window around the reported date and fires fail-safe (only when matched).
+  - trigger.global_price — USD-denominated CRYPTO / FOREX / global COMMODITY prices NOT served by Kite.
+       Fields: asset_class: "crypto" | "forex" | "commodity"; symbol: canonical upper-case (e.g. "BTC", "ETH", "EURUSD", "USDINR", "WTI", "BRENT", "XAUUSD", "XAGUSD"); operator: ">" | "<" | "crosses_above" | "crosses_below"; value: numeric threshold in the asset's quote currency; optional quote_currency.
+       USE for asks like "alert me when BTC crosses $100k", "tell me if USDINR goes above 87", "buy NIFTYBEES when WTI crude drops below 60".
+       DO NOT use for INR-denominated NSE / MCX assets — those (RELIANCE, NIFTYBEES, CRUDEOIL on MCX, GOLD/SILVER on MCX) use trigger.price (Kite-live). trigger.global_price is for assets Kite does NOT serve.
+       Crypto is 24/7; do not gate on NSE hours.
+
+WEBHOOK NOTIFICATION (notify.webhook) — a wired ACTION step that POSTs to a user-supplied URL.
+  Fields: url (MUST be https://; http:// is rejected by the schema); method ("POST" default, "PUT" allowed); optional headers (dict for "Authorization: Bearer ..." etc.); optional payload_template (opaque JSON pass-through; {{ context.<idx>.<field> }} refs resolve at fire-time); optional secret (turns on HMAC-SHA256; engine signs the body and ships the digest in X-Pivot-Signature header).
+  USE when the user says "POST to my webhook / endpoint", "ping my URL", "send it to https://my.example.com/...", "hit my callback". Pair with notify.message ONLY when the user explicitly wants both an external POST AND an in-app alert.
+  Never invent a URL — if missing, the planner should flag it as a clarification rather than fabricate.
 
 INSTRUMENT SELECTION FOR THEMATIC / DIRECTIONAL REQUESTS (HARD RULES — getting this wrong is a correctness failure):
 
@@ -639,11 +656,16 @@ language strategy description into a Pivot workflow plan.
 A Pivot workflow is a LINEAR ordered list of steps:
   step 0: exactly one trigger (trigger.schedule | trigger.price |
           trigger.indicator | trigger.event | trigger.manual |
-          trigger.webhook)
+          trigger.webhook | trigger.scheduled_macro |
+          trigger.polymarket | trigger.kalshi | trigger.earnings |
+          trigger.global_price | trigger.market_relative_time |
+          trigger.compound | trigger.expiry_day | trigger.ipo_open)
   step 1+: optional fetch.* (data the decision needs)
   step 2+: optional condition.* (gates continuation; halts if false)
   step N: action.* (the trade or watchlist update)
-  step N+1: optional notify.* (user-facing notification)
+  step N+1: optional notify.* (notify.message for in-app push, OR
+            notify.webhook for an HTTPS POST/PUT to a user-supplied URL
+            when the user said "POST to my webhook" / "ping my endpoint")
 
 Hard constraints:
   - Exactly ONE trigger, at step 0. No multi-trigger workflows.

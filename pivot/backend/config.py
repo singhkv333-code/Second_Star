@@ -190,6 +190,51 @@ class Settings(BaseSettings):
     # trigger config's own min_confidence; this is the global floor).
     macro_verifier_min_confidence: float = 0.85
 
+    # --- Global-price triggers (trigger.global_price) -------------------------
+    # Master flag for the trigger.global_price watcher poll loop
+    # (_poll_global_price_triggers in backend/workflows/scheduler.py). This
+    # trigger fires when a CRYPTO / FOREX / global USD-denominated COMMODITY
+    # price crosses a level — assets that Kite does NOT serve. INR-denominated
+    # NSE/MCX symbols (e.g. CRUDEOIL/GOLD/SILVER in INR) are still reachable
+    # through the existing trigger.price -> Kite path; this is the non-Kite
+    # complement. Default off so dev/tests don't arm the loop.
+    global_price_triggers_enabled: bool = False
+    # Twelve Data API key — primary forex/commodity provider. Leave blank to
+    # skip Twelve Data and use the free fallbacks (Frankfurter ECB for forex,
+    # yfinance futures for commodity). Crypto needs no key (Kraken public +
+    # CoinGecko public).
+    twelvedata_api_key: str = ""
+    # Provider base URLs (overridable for staging/test mirrors). None of these
+    # require auth except Twelve Data (which uses twelvedata_api_key above).
+    kraken_api_base_url: str = "https://api.kraken.com/0/public"
+    coingecko_api_base_url: str = "https://api.coingecko.com/api/v3"
+    twelvedata_api_base_url: str = "https://api.twelvedata.com"
+    frankfurter_api_base_url: str = "https://api.frankfurter.app"
+    # When True, backend.market.global_quotes.get_global_quote() returns a
+    # deterministic synthetic price derived from a stable hash of the symbol
+    # (no randomness, no wall-clock-dependent value) so dev + tests are
+    # reproducible without network. Honoured alongside the GLOBAL_QUOTES_MOCK
+    # env var.
+    global_quotes_mock: bool = False
+    # Poll interval (seconds) for _poll_global_price_triggers. Crypto markets
+    # are 24/7 so the loop is NOT gated on NSE market hours. 60s is brisk
+    # enough for retail alerts and well under any free-tier rate cap.
+    global_price_poll_seconds: int = 60
+
+    # --- Earnings-event triggers (trigger.earnings) ---------------------------
+    # Master flag for the trigger.earnings watcher poll loop
+    # (_poll_earnings_triggers in backend/workflows/scheduler.py). The trigger
+    # fires after a company's results are announced when reported EPS beats /
+    # misses / meets the consensus estimate. Source: yfinance earnings dates
+    # (Redis-cached ~12h). Default off so dev/tests don't arm the loop.
+    earnings_events_enabled: bool = False
+    # Minimum verifier confidence to fire (overridable per-step via the
+    # trigger config's own min_confidence; this is the global floor). Earnings
+    # numbers are REPORTED data (not an LLM guess) so confidence is ~1.0 when
+    # both reported + estimate are present — this floor mainly guards against
+    # half-populated rows.
+    earnings_verifier_min_confidence: float = 0.85
+
     # --- Paper trading (simulated broker) -------------------------------------
     # When True, orders from chat (/orders/confirm, /orders/gtt) and from
     # workflow action.* steps route through the PaperBroker (backend/paper/)
