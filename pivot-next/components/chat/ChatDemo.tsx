@@ -788,6 +788,27 @@ export function ChatDemo({
 
   }, [prefill, prefillAutoSubmit, prefillMode, onPrefillConsumed]);
 
+  // Global "/" shortcut (dispatched from AppShell) focuses the composer.
+  useEffect(() => {
+    const onFocus = (): void => textareaRef.current?.focus();
+    window.addEventListener("pivot:focus-composer", onFocus);
+    return () => window.removeEventListener("pivot:focus-composer", onFocus);
+  }, []);
+
+  // Esc aborts an in-flight response (only armed while a stream is running,
+  // so it never swallows Esc from dialogs/menus when the chat is idle).
+  useEffect(() => {
+    if (!loading) return;
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        stop();
+      }
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [loading]);
+
   // Offline demo playback — when `demoSeed` is set, push a canned
   // user → streaming → draft sequence and auto-open the editor panel.
   // No backend call. Used while the live LLM is disabled.
@@ -1267,7 +1288,14 @@ export function ChatDemo({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    // Enter sends; Shift+Enter inserts a newline (Cmd/Ctrl+Enter still sends
+    // too). `isComposing` guards IME input — critical for Hinglish/Devanagari
+    // typists mid-composition, where Enter commits the candidate, not the msg.
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.nativeEvent.isComposing
+    ) {
       e.preventDefault();
       submitComposer();
     }
