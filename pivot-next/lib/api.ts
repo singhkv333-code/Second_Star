@@ -213,20 +213,33 @@ async function _doRequest<T>(
   }
 
   if (!res.ok) {
-    // Token expired / invalid → wipe localStorage and bounce the user
-    // back through the AppBootstrap auth gate. Without this, every
-    // surface keeps retrying with a stale JWT and the UI shows
-    // generic "request failed" errors everywhere ("token problem
-    // that keeps coming up").
+    // Token expired / invalid → attempt refresh once, then redirect to /login.
     if (res.status === 401 && typeof window !== "undefined") {
-      try {
-        window.localStorage.removeItem("pivot_jwt");
-      } catch {
-        /* localStorage may be denied in some embeds; safe to ignore */
+      // Guard against infinite loop: if this 401 came from the refresh
+      // endpoint itself, just clear and redirect without retrying.
+      const isRefreshPath =
+        path === "/auth/refresh" || path.endsWith("/auth/refresh");
+      if (!isRefreshPath) {
+        try {
+          const refreshed = await _tryRefresh();
+          if (refreshed) {
+            // Retry the original request once with the new token.
+            return _doRequest<T>(base, path, options);
+          }
+        } catch {
+          // fall through to clearToken + redirect
+        }
       }
-      // Reload — AppBootstrap will detect the missing token and
-      // render SignInPrompt. One reload, not a polling loop.
-      window.location.reload();
+      clearToken();
+      window.location.href = "/login";
+      // Return a placeholder — the redirect will navigate away before
+      // the caller can act on this, but TypeScript needs a return value.
+      return {
+        error: {
+          code: "http_401",
+          message: "Session expired. Redirecting to login.",
+        },
+      };
     }
     // Two body shapes from this backend:
     //   - Canonical envelope (Agent System routes under /api/*):
@@ -1143,6 +1156,124 @@ export type UserProfile = {
 /** `GET /auth/me` — returns user profile for dashboard greeting. */
 export function getMe(): Promise<ApiResult<UserProfile>> {
   return requestLegacy<UserProfile>("/auth/me");
+}
+
+// ---------------------------------------------------------------------------
+// Auth — token storage + login/register/logout helpers
+// ---------------------------------------------------------------------------
+
+const TOKEN_KEY = "pivot_jwt";
+const REFRESH_KEY = "pivot_refresh";
+
+/** Store both access + refresh tokens. */
+export function storeToken(
+  accessToken: string,
+  refreshToken?: string,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TOKEN_KEY, accessToken);
+    if (refreshToken) {
+      window.localStorage.setItem(REFRESH_KEY, refreshToken);
+    }
+  } catch {
+    /* localStorage may be denied in some embeds */
+  }
+}
+
+/** Clear both access + refresh tokens (called on logout / 401 failure). */
+export function clearToken(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+type AuthResponse = {
+  access_token: string;
+  refresh_token: string;
+  user_id: string;
+  email: string;
+};
+
+/** `POST /auth/login` — exchange email+password for tokens. */
+export async function loginUser(credentials: {
+  email: string;
+  password: string;
+}): Promise<ApiResult<AuthResponse>> {
+  const result = await requestLegacy<AuthResponse>("/auth/login", {
+    method: "POST",
+    body: credentials,
+  });
+  if (!("error" in result)) {
+    storeToken(result.data.access_token, result.data.refresh_token);
+  }
+  return result;
+}
+
+/** `POST /auth/register` — create account + receive tokens. */
+export async function registerUser(body: {
+  email: string;
+  password: string;
+  full_name: string;
+}): Promise<ApiResult<AuthResponse>> {
+  const result = await requestLegacy<AuthResponse>("/auth/register", {
+    method: "POST",
+    body,
+  });
+  if (!("error" in result)) {
+    storeToken(result.data.access_token, result.data.refresh_token);
+  }
+  return result;
+}
+
+/** `POST /auth/refresh` — silently exchange refresh token for new access token. */
+export async function refreshAccess(): Promise<ApiResult<AuthResponse>> {
+  let refreshToken: string | null = null;
+  try {
+    refreshToken =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(REFRESH_KEY)
+        : null;
+  } catch {
+    refreshToken = null;
+  }
+  if (!refreshToken) {
+    return { error: { code: "no_refresh_token", message: "No refresh token." } };
+  }
+  const result = await requestLegacy<AuthResponse>("/auth/refresh", {
+    method: "POST",
+    body: { refresh_token: refreshToken },
+  });
+  if (!("error" in result)) {
+    storeToken(result.data.access_token, result.data.refresh_token);
+  }
+  return result;
+}
+
+/**
+ * Internal helper: attempt one silent refresh. Returns true when the new
+ * token was stored successfully. Called by the 401 handler in _doRequest.
+ * Declared as a regular function so it is hoisted and available to
+ * _doRequest which is defined earlier in this module.
+ */
+// eslint-disable-next-line @typescript-eslint/no-use-before-define
+async function _tryRefresh(): Promise<boolean> {
+  const result = await refreshAccess();
+  return !("error" in result);
+}
+
+/** `POST /auth/logout` — best-effort server-side session revocation. */
+export async function logoutUser(): Promise<void> {
+  try {
+    await requestLegacy("/auth/logout", { method: "POST" });
+  } catch {
+    /* best-effort — we clear local tokens regardless */
+  }
+  clearToken();
 }
 
 // ---------------------------------------------------------------------------

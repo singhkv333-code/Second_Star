@@ -1,20 +1,98 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 # ─── Auth Schemas ───────────────────────────────────────────────────
+#
+# Password policy and email normalisation live on the Pydantic models so
+# every entry point (REST handler, propose-bridge, test harness) shares
+# one source of truth. Anywhere a UserCreate / UserLogin is constructed
+# the same rules apply, so the API can't drift from the policy.
+
+
+def _normalize_email(value: str) -> str:
+    """Trim + lowercase the email. Applied via field_validator on
+    UserCreate / UserLogin so the DB only ever sees the canonical form
+    (and case-only duplicates can't sneak past the UNIQUE index)."""
+    if not isinstance(value, str):
+        # EmailStr will already have rejected non-strings, but be defensive
+        # so this helper is safe to reuse from other entry points.
+        return value
+    return value.strip().lower()
+
+
+def _validate_password_strength(value: str) -> str:
+    """Beta password policy: >=8 chars, at least one letter, at least one
+    digit. Kept narrow on purpose — long passphrases shouldn't be rejected
+    for missing punctuation. Raises ValueError with a single clear message
+    Pydantic surfaces as a 422 validation error."""
+    if not isinstance(value, str) or len(value) < 8:
+        raise ValueError(
+            "password must be at least 8 characters and contain a letter and a digit",
+        )
+    has_letter = any(c.isalpha() for c in value)
+    has_digit = any(c.isdigit() for c in value)
+    if not (has_letter and has_digit):
+        raise ValueError(
+            "password must be at least 8 characters and contain a letter and a digit",
+        )
+    return value
+
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, description="Minimum 8 characters")
+    password: str = Field(
+        min_length=8,
+        description="Minimum 8 characters; must contain a letter and a digit",
+    )
     full_name: Optional[str] = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email_field(cls, v: str) -> str:
+        return _normalize_email(v)
+
+    @field_validator("password")
+    @classmethod
+    def _validate_password_field(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email_field(cls, v: str) -> str:
+        return _normalize_email(v)
+
+
+class PasswordResetConfirm(BaseModel):
+    """Body for POST /auth/reset-password. Password strength enforced
+    identically to UserCreate so the policy can't be bypassed via reset."""
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(min_length=8)
+
+    @field_validator("new_password")
+    @classmethod
+    def _validate_password_field(cls, v: str) -> str:
+        return _validate_password_strength(v)
+
+
+class EmailVerifyRequest(BaseModel):
+    token: str = Field(..., min_length=1)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email_field(cls, v: str) -> str:
+        return _normalize_email(v)
 
 
 class TokenResponse(BaseModel):

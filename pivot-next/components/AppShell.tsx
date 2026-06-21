@@ -75,6 +75,7 @@ import {
   getPortfolioSummary,
   getWorkflow,
   listConversations,
+  logoutUser,
   setAccountMode,
   type PortfolioSummary,
 } from "@/lib/api";
@@ -490,6 +491,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenBroker={() => setBrokerPanelOpen(true)}
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onBrandClick={() => goTab("chat")}
+        onLogout={async () => {
+          await logoutUser();
+          router.replace("/login");
+        }}
       />
 
       {/* Paper-mode banner — full-width, unmissable, on every page. Sits
@@ -659,6 +664,7 @@ function TopHeader({
   onOpenBroker,
   onOpenMobileNav,
   onBrandClick,
+  onLogout,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -669,6 +675,7 @@ function TopHeader({
   onOpenBroker: () => void;
   onOpenMobileNav: () => void;
   onBrandClick: () => void;
+  onLogout: () => void;
 }): React.ReactElement {
   const router = useRouter();
   return (
@@ -795,6 +802,7 @@ function TopHeader({
           onChooseTradingMode={onChooseTradingMode}
           initial={accountInitial}
           onOpenBroker={onOpenBroker}
+          onLogout={onLogout}
         />
       </div>
     </header>
@@ -816,6 +824,7 @@ function AccountMenu({
   onChooseTradingMode,
   initial,
   onOpenBroker,
+  onLogout,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -823,6 +832,7 @@ function AccountMenu({
   onChooseTradingMode: (m: TradingMode) => void;
   initial: string;
   onOpenBroker: () => void;
+  onLogout: () => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1048,7 +1058,15 @@ function AccountMenu({
               </div>
             )}
           </div>
-          <MenuItem icon={LogOut} label="Log out" onClick={() => setOpen(false)} />
+          <MenuItem
+            icon={LogOut}
+            label="Log out"
+            testId="menu-logout"
+            onClick={() => {
+              setOpen(false);
+              onLogout();
+            }}
+          />
 
           {/* Divider */}
           <div

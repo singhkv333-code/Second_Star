@@ -1590,12 +1590,13 @@ class OptionLeg(Base):
 # email-verify + password-reset flows. All are user-scoped.
 
 
-class ConversationSummary(Base):
+class ChatSummary(Base):
     """A rolling natural-language summary of one conversation.
 
     Lets a returning user (and the agent) recall the gist of a long chat
     without replaying every message. Refreshed as the conversation grows;
-    one row per conversation."""
+    one row per conversation. (Named ChatSummary to avoid colliding with the
+    Pydantic list-preview DTO ``ConversationSummary`` in routers/conversations.py.)"""
 
     __tablename__ = "conversation_summaries"
 
