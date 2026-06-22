@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Sigma, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ type Greeks = { iv: number; delta: number; theta: number; gamma: number; vega: n
 type Quote = Greeks & { ltp: number; oi: number; oiChg: number; ltpChg: number };
 type ChainRow = { strike: number; ce: Quote; pe: Quote };
 type BasketLeg = { strike: number; type: OptType; side: Side; ltp: number };
+type View = "ltp" | "oi" | "greeks";
 
 const EXPIRIES = ["26 Jun", "3 Jul", "10 Jul", "31 Jul", "28 Aug"];
 const DAY_CHG_ABS = -196.2;
@@ -57,25 +58,65 @@ const lossColor = (n: number): string => (n >= 0 ? "var(--color-profit)" : "var(
 
 export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spot = 23971.8 }: { open: boolean; onClose: () => void; underlying?: string; spot?: number }): React.ReactElement | null {
   const [expiry, setExpiry] = useState(EXPIRIES[1]!);
-  const [greeksOn, setGreeksOn] = useState(false);
+  // One view at a time keeps each row scannable (Sensibull/Groww style):
+  // LTP (price + chg), OI (open interest + bars), or Greeks.
+  const [view, setView] = useState<View>("ltp");
+  // Laptop only — Groww-style Greeks toggle. OFF = combined chain (OI+LTP+IV);
+  // ON = the same chain with the five greek columns expanded inline on each
+  // side (wide, horizontally scrollable). Phone uses `view` instead.
+  const [laptopGreeks, setLaptopGreeks] = useState(false);
   const [basket, setBasket] = useState<BasketLeg[]>([]);
+  const [isPhone, setIsPhone] = useState(false);
+  // Touch has no hover, so Buy/Sell can't be hover-only — tapping a row opens
+  // a compact action bar beneath it (desktop keeps the hover B/S controls).
+  const [selStrike, setSelStrike] = useState<number | null>(null);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639.98px)");
+    const sync = (): void => setIsPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const rows = useMemo(() => buildChain(spot, 50, 9), [spot, expiry]);
   const atm = Math.round(spot / 50) * 50;
   const maxOi = useMemo(() => Math.max(...rows.flatMap((r) => [r.ce.oi, r.pe.oi]), 1), [rows]);
   if (!open) return null;
   const addLeg = (strike: number, type: OptType, side: Side, ltp: number): void => setBasket((p) => [...p, { strike, type, side, ltp }]);
   const dayDown = DAY_CHG_PCT < 0;
-  // Greeks-on columns are fully fluid (minmax(0,…fr)) so all 17 columns fit the
-  // width with NO horizontal scroll; greeks-off keeps a roomier core.
-  const Gf = "minmax(0,0.72fr) minmax(0,0.72fr) minmax(0,0.82fr) minmax(0,0.72fr) minmax(0,0.62fr) minmax(0,0.58fr)";
-  const coreTight = "minmax(0,1.3fr) minmax(0,1.28fr) minmax(0,0.8fr) minmax(0,1.28fr) minmax(0,1.3fr)";
-  const coreWide = "minmax(120px,1.1fr) 120px 96px 120px minmax(120px,1.1fr)";
-  const cols = greeksOn ? `${Gf} ${coreTight} ${Gf.split(" ").reverse().join(" ")}` : coreWide;
+
+  // Laptop: always the combined Groww-style chain (OI + LTP + IV on both
+  // sides). The Greeks toggle expands the five greek columns inline on each
+  // side rather than swapping to a separate table.
+  // Phone: one focused column set at a time via the LTP / OI / Greeks toggle.
+  const showChain = !isPhone && !laptopGreeks;
+  const showGreeksWide = !isPhone && laptopGreeks;
+  // Column template per view. LTP and OI fit a phone with no horizontal scroll;
+  // Greeks (phone) and the laptop greeks-expanded chain are intentionally wide
+  // and scroll sideways (fixed widths so every row aligns under the sticky
+  // header). The combined laptop chain stays fluid.
+  const cols = showGreeksWide
+    ? "repeat(5,76px) 32px 92px 120px 64px 92px 64px 120px 92px 32px repeat(5,76px)"
+    : showChain
+      ? "minmax(88px,0.82fr) minmax(108px,1.2fr) 60px 88px 60px minmax(108px,1.2fr) minmax(88px,0.82fr)"
+      : view === "ltp"
+        ? isPhone
+          ? "minmax(62px,1fr) 54px 42px minmax(62px,1fr)"
+          : "minmax(120px,1fr) 104px 88px minmax(120px,1fr)"
+        : view === "oi"
+          ? isPhone
+            ? "minmax(86px,1fr) 58px minmax(86px,1fr)"
+            : "minmax(150px,1fr) 104px minmax(150px,1fr)"
+          : isPhone
+            ? "48px 50px 52px 54px 48px 58px 48px 54px 52px 50px 48px"
+            : "repeat(5,minmax(0,1fr)) 88px repeat(5,minmax(0,1fr))";
+  // Wider-than-viewport tables (phone greeks, laptop greeks-expanded) size to
+  // their content so all rows share one width and scroll together.
+  const scrollWide = (isPhone && view === "greeks") || showGreeksWide;
   return (
     <ContentOverlay open={open} onClose={onClose} label="Option chain">
-      <div className="flex h-full w-full flex-col bg-background">
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 px-6 py-3.5 lg:px-9">
-          <div className="flex items-center gap-3">
+      <div className="relative flex h-full w-full flex-col bg-background">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-3 py-3 sm:px-6 sm:py-3.5 lg:gap-4 lg:px-9">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 sm:gap-x-3">
             <button type="button" className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 py-1.5 text-[13px] font-semibold tracking-tight text-foreground transition-colors hover:bg-muted/60">
               {underlying}
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
@@ -86,33 +127,105 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
               </select>
               <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
             </span>
-            <div className="ml-1 flex items-baseline gap-2">
-              <span className="text-[18px] font-semibold leading-none tracking-tight tabular-nums text-foreground">{spot.toLocaleString("en-IN")}</span>
-              <span className="text-[12px] font-medium tabular-nums" style={{ color: lossColor(DAY_CHG_PCT) }}>{dayDown ? "−" : "+"}{Math.abs(DAY_CHG_ABS).toFixed(2)} ({pct(DAY_CHG_PCT)})</span>
+            <div className="ml-0.5 flex items-baseline gap-1.5 sm:ml-1 sm:gap-2">
+              <span className="text-[15px] font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-[18px]">{spot.toLocaleString("en-IN")}</span>
+              <span className="text-[11.5px] font-medium tabular-nums sm:text-[12px]" style={{ color: lossColor(DAY_CHG_PCT) }}>{dayDown ? "−" : "+"}{Math.abs(DAY_CHG_ABS).toFixed(2)} ({pct(DAY_CHG_PCT)})</span>
             </div>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close option chain" onClick={onClose} className="rounded-full"><X className="h-4 w-4" aria-hidden="true" /></Button>
+          <Button variant="ghost" size="icon" aria-label="Close option chain" onClick={onClose} className="shrink-0 rounded-full"><X className="h-4 w-4" aria-hidden="true" /></Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <div>
-            <div className="sticky top-0 z-10 grid items-center gap-x-2 border-b border-border/50 bg-background/95 px-6 py-2.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 backdrop-blur lg:px-9" style={{ gridTemplateColumns: cols }}>
-              {greeksOn && <Th r>Rho</Th>}
-              {greeksOn && <Th r>Vega</Th>}
-              {greeksOn && <Th r>Gamma</Th>}
-              {greeksOn && <Th r>Theta</Th>}
-              {greeksOn && <Th r>Delta</Th>}
-              {greeksOn && <Th r>IV</Th>}
-              <Th>Call OI</Th>
-              <Th r>Call LTP</Th>
-              <Th c>Strike</Th>
-              <Th>Put LTP</Th>
-              <Th r>Put OI</Th>
-              {greeksOn && <Th r>IV</Th>}
-              {greeksOn && <Th r>Delta</Th>}
-              {greeksOn && <Th r>Theta</Th>}
-              {greeksOn && <Th r>Gamma</Th>}
-              {greeksOn && <Th r>Vega</Th>}
-              {greeksOn && <Th r>Rho</Th>}
+
+        {/* Phone view toggle — LTP / OI / Greeks (one column set at a time).
+            Laptop has no top toggle; it uses the floating Greeks switch below. */}
+        {isPhone && (
+          <div className="flex shrink-0 items-center justify-center border-b border-border/50 px-3 py-2 sm:px-6">
+            <div className="inline-flex items-center gap-0.5 rounded-full border border-border/60 bg-card p-0.5" role="tablist" aria-label="Option chain view">
+              {(["ltp", "oi", "greeks"] as View[]).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === v}
+                  onClick={() => setView(v)}
+                  className={cn(
+                    "rounded-full px-4 py-1 text-[12.5px] font-medium transition-colors sm:px-5",
+                    view === v ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {v === "ltp" ? "LTP" : v === "oi" ? "OI" : "Greeks"}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-auto">
+          <div className={scrollWide ? "w-max min-w-full" : undefined}>
+            <div className="sticky top-0 z-10 grid items-center gap-x-2 border-b border-border/50 bg-background/95 px-3 py-2.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 backdrop-blur sm:px-6 lg:px-9" style={{ gridTemplateColumns: cols }}>
+              {showChain && (
+                <>
+                  <Th>Call OI</Th>
+                  <Th r>Call LTP</Th>
+                  <Th c>IV</Th>
+                  <Th c>Strike</Th>
+                  <Th c>IV</Th>
+                  <Th>Put LTP</Th>
+                  <Th r>Put OI</Th>
+                </>
+              )}
+              {showGreeksWide && (
+                <>
+                  <Th r>Rho</Th>
+                  <Th r>Vega</Th>
+                  <Th r>Gamma</Th>
+                  <Th r>Theta</Th>
+                  <Th r>Delta</Th>
+                  <span aria-hidden="true" />
+                  <Th>Call OI</Th>
+                  <Th r>Call LTP</Th>
+                  <Th c>IV</Th>
+                  <Th c>Strike</Th>
+                  <Th c>IV</Th>
+                  <Th>Put LTP</Th>
+                  <Th r>Put OI</Th>
+                  <span aria-hidden="true" />
+                  <Th>Delta</Th>
+                  <Th>Theta</Th>
+                  <Th>Gamma</Th>
+                  <Th>Vega</Th>
+                  <Th>Rho</Th>
+                </>
+              )}
+              {isPhone && view === "ltp" && (
+                <>
+                  <Th r>Call LTP</Th>
+                  <Th c>Strike</Th>
+                  <Th c>IV</Th>
+                  <Th>Put LTP</Th>
+                </>
+              )}
+              {isPhone && view === "oi" && (
+                <>
+                  <Th>Call OI</Th>
+                  <Th c>Strike</Th>
+                  <Th r>Put OI</Th>
+                </>
+              )}
+              {isPhone && view === "greeks" && (
+                <>
+                  <Th r>IV</Th>
+                  <Th r>Delta</Th>
+                  <Th r>Theta</Th>
+                  <Th r>Gamma</Th>
+                  <Th r>Vega</Th>
+                  <Th c>Strike</Th>
+                  <Th>Vega</Th>
+                  <Th>Gamma</Th>
+                  <Th>Theta</Th>
+                  <Th>Delta</Th>
+                  <Th>IV</Th>
+                </>
+              )}
             </div>
             {rows.map((r) => {
               const isAtm = r.strike === atm;
@@ -120,11 +233,16 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
               const peW = (r.pe.oi / maxOi) * 100;
               const ceItm = r.strike < spot;
               const peItm = r.strike > spot;
+              const strikeCell = (
+                <div className="flex items-center justify-center">
+                  <span className={cn("font-semibold tracking-tight", isAtm ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{r.strike.toLocaleString("en-IN")}</span>
+                </div>
+              );
               return (
                 <div key={r.strike}>
                   {isAtm && (
                     <div className="relative flex items-center justify-center py-2">
-                      <div className="absolute inset-x-6 h-px bg-gradient-to-r from-transparent via-foreground/25 to-transparent lg:inset-x-9" />
+                      <div className="absolute inset-x-3 h-px bg-gradient-to-r from-transparent via-foreground/25 to-transparent sm:inset-x-6 lg:inset-x-9" />
                       <span className="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-[11px] font-medium tabular-nums text-foreground shadow-sm">
                         <span className="h-1.5 w-1.5 rounded-full" style={{ background: lossColor(DAY_CHG_PCT) }} aria-hidden="true" />
                         {spot.toLocaleString("en-IN")}
@@ -133,27 +251,84 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
                       </span>
                     </div>
                   )}
-                  <div className={cn("group relative grid items-center gap-x-2 px-6 py-2.5 text-[12px] tabular-nums transition-colors lg:px-9", isAtm ? "bg-amber-50/60 dark:bg-amber-400/[0.06]" : "hover:bg-muted/40")} style={{ gridTemplateColumns: cols }}>
-                    {greeksOn && <Td r muted>{r.ce.rho.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.ce.vega.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.ce.gamma.toFixed(4)}</Td>}
-                    {greeksOn && <Td r muted>{r.ce.theta.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.ce.delta.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.ce.iv.toFixed(2)}</Td>}
-                    <OiCell side="call" oi={r.ce.oi} oiChg={r.ce.oiChg} width={ceW} dim={!ceItm} />
-                    <PriceCell align="right" ltp={r.ce.ltp} chg={r.ce.ltpChg} onBuy={() => addLeg(r.strike, "CE", "BUY", r.ce.ltp)} onSell={() => addLeg(r.strike, "CE", "SELL", r.ce.ltp)} />
-                    <div className="flex items-center justify-center">
-                      <span className={cn("font-semibold tracking-tight", isAtm ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{r.strike.toLocaleString("en-IN")}</span>
-                    </div>
-                    <PriceCell align="left" ltp={r.pe.ltp} chg={r.pe.ltpChg} onBuy={() => addLeg(r.strike, "PE", "BUY", r.pe.ltp)} onSell={() => addLeg(r.strike, "PE", "SELL", r.pe.ltp)} />
-                    <OiCell side="put" oi={r.pe.oi} oiChg={r.pe.oiChg} width={peW} dim={!peItm} />
-                    {greeksOn && <Td r muted>{r.pe.iv.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.pe.delta.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.pe.theta.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.pe.gamma.toFixed(4)}</Td>}
-                    {greeksOn && <Td r muted>{r.pe.vega.toFixed(2)}</Td>}
-                    {greeksOn && <Td r muted>{r.pe.rho.toFixed(2)}</Td>}
+                  <div onClick={isPhone ? () => setSelStrike((s) => (s === r.strike ? null : r.strike)) : undefined} className={cn("group relative grid items-center gap-x-2 px-3 py-2.5 text-[12px] tabular-nums transition-colors sm:px-6 lg:px-9", isPhone && "cursor-pointer select-none", isAtm ? "bg-amber-50/60 dark:bg-amber-400/[0.06]" : "hover:bg-muted/40")} style={{ gridTemplateColumns: cols }}>
+                    {showChain && (
+                      <>
+                        <OiCell side="call" oi={r.ce.oi} oiChg={r.ce.oiChg} width={ceW} dim={!ceItm} />
+                        <PriceCell align="right" ltp={r.ce.ltp} chg={r.ce.ltpChg} onBuy={() => addLeg(r.strike, "CE", "BUY", r.ce.ltp)} onSell={() => addLeg(r.strike, "CE", "SELL", r.ce.ltp)} />
+                        <Td c muted>{r.ce.iv.toFixed(1)}</Td>
+                        {strikeCell}
+                        <Td c muted>{r.pe.iv.toFixed(1)}</Td>
+                        <PriceCell align="left" ltp={r.pe.ltp} chg={r.pe.ltpChg} onBuy={() => addLeg(r.strike, "PE", "BUY", r.pe.ltp)} onSell={() => addLeg(r.strike, "PE", "SELL", r.pe.ltp)} />
+                        <OiCell side="put" oi={r.pe.oi} oiChg={r.pe.oiChg} width={peW} dim={!peItm} />
+                      </>
+                    )}
+                    {showGreeksWide && (
+                      <>
+                        <Td r muted>{r.ce.rho.toFixed(2)}</Td>
+                        <Td r muted>{r.ce.vega.toFixed(2)}</Td>
+                        <Td r muted>{r.ce.gamma.toFixed(4)}</Td>
+                        <Td r muted>{r.ce.theta.toFixed(2)}</Td>
+                        <Td r muted>{r.ce.delta.toFixed(2)}</Td>
+                        <span aria-hidden="true" />
+                        <OiCell side="call" oi={r.ce.oi} oiChg={r.ce.oiChg} width={ceW} dim={!ceItm} />
+                        <PriceCell align="right" ltp={r.ce.ltp} chg={r.ce.ltpChg} onBuy={() => addLeg(r.strike, "CE", "BUY", r.ce.ltp)} onSell={() => addLeg(r.strike, "CE", "SELL", r.ce.ltp)} />
+                        <Td c muted>{r.ce.iv.toFixed(1)}</Td>
+                        {strikeCell}
+                        <Td c muted>{r.pe.iv.toFixed(1)}</Td>
+                        <PriceCell align="left" ltp={r.pe.ltp} chg={r.pe.ltpChg} onBuy={() => addLeg(r.strike, "PE", "BUY", r.pe.ltp)} onSell={() => addLeg(r.strike, "PE", "SELL", r.pe.ltp)} />
+                        <OiCell side="put" oi={r.pe.oi} oiChg={r.pe.oiChg} width={peW} dim={!peItm} />
+                        <span aria-hidden="true" />
+                        <Td muted>{r.pe.delta.toFixed(2)}</Td>
+                        <Td muted>{r.pe.theta.toFixed(2)}</Td>
+                        <Td muted>{r.pe.gamma.toFixed(4)}</Td>
+                        <Td muted>{r.pe.vega.toFixed(2)}</Td>
+                        <Td muted>{r.pe.rho.toFixed(2)}</Td>
+                      </>
+                    )}
+                    {isPhone && view === "ltp" && (
+                      <>
+                        <PriceCell align="right" ltp={r.ce.ltp} chg={r.ce.ltpChg} />
+                        {strikeCell}
+                        <Td c muted>{r.ce.iv.toFixed(1)}</Td>
+                        <PriceCell align="left" ltp={r.pe.ltp} chg={r.pe.ltpChg} />
+                      </>
+                    )}
+                    {isPhone && view === "oi" && (
+                      <>
+                        <OiCell side="call" oi={r.ce.oi} oiChg={r.ce.oiChg} width={ceW} dim={!ceItm} />
+                        {strikeCell}
+                        <OiCell side="put" oi={r.pe.oi} oiChg={r.pe.oiChg} width={peW} dim={!peItm} />
+                      </>
+                    )}
+                    {isPhone && view === "greeks" && (
+                      <>
+                        <Td r muted>{r.ce.iv.toFixed(1)}</Td>
+                        <Td r muted>{r.ce.delta.toFixed(2)}</Td>
+                        <Td r muted>{r.ce.theta.toFixed(2)}</Td>
+                        <Td r muted>{r.ce.gamma.toFixed(4)}</Td>
+                        <Td r muted>{r.ce.vega.toFixed(2)}</Td>
+                        {strikeCell}
+                        <Td muted>{r.pe.vega.toFixed(2)}</Td>
+                        <Td muted>{r.pe.gamma.toFixed(4)}</Td>
+                        <Td muted>{r.pe.theta.toFixed(2)}</Td>
+                        <Td muted>{r.pe.delta.toFixed(2)}</Td>
+                        <Td muted>{r.pe.iv.toFixed(1)}</Td>
+                      </>
+                    )}
                   </div>
+                  {isPhone && selStrike === r.strike && (
+                    <div className="flex flex-wrap items-center gap-1.5 border-b border-border/50 bg-muted/40 px-3 py-2">
+                      <span className="mr-auto text-[11px] font-semibold tabular-nums text-foreground">
+                        {r.strike.toLocaleString("en-IN")}
+                        {isAtm && <span className="ml-1 text-[9px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">ATM</span>}
+                      </span>
+                      <PhoneAct label="Buy CE" tone="profit" onClick={() => { addLeg(r.strike, "CE", "BUY", r.ce.ltp); setSelStrike(null); }} />
+                      <PhoneAct label="Sell CE" tone="loss" onClick={() => { addLeg(r.strike, "CE", "SELL", r.ce.ltp); setSelStrike(null); }} />
+                      <PhoneAct label="Buy PE" tone="profit" onClick={() => { addLeg(r.strike, "PE", "BUY", r.pe.ltp); setSelStrike(null); }} />
+                      <PhoneAct label="Sell PE" tone="loss" onClick={() => { addLeg(r.strike, "PE", "SELL", r.pe.ltp); setSelStrike(null); }} />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -180,19 +355,49 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
             </div>
           </div>
         )}
-        <div className="flex shrink-0 items-center justify-center gap-3 border-t border-border/50 px-6 py-3">
-          <Toggle on={greeksOn} onClick={() => setGreeksOn((v) => !v)} icon={<Sigma className="h-3.5 w-3.5" />} label="Greeks" />
-        </div>
+
+        {/* Laptop Greeks toggle — Groww-style floating switch. Expands the
+            greek columns inline rather than swapping the table. */}
+        {!isPhone && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={laptopGreeks}
+              onClick={() => setLaptopGreeks((g) => !g)}
+              className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/95 px-3.5 py-2 text-[12.5px] font-medium text-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted/60"
+            >
+              <Sigma className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+              Greeks
+              <span className={cn("relative inline-flex h-[18px] w-[30px] items-center rounded-full transition-colors", laptopGreeks ? "bg-primary" : "bg-muted-foreground/30")}>
+                <span className={cn("inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform", laptopGreeks ? "translate-x-[13px]" : "translate-x-[2px]")} />
+              </span>
+            </button>
+          </div>
+        )}
       </div>
     </ContentOverlay>
   );
 }
 
+function PhoneAct({ label, tone, onClick }: { label: string; tone: "profit" | "loss"; onClick: () => void }): React.ReactElement {
+  const c = tone === "profit" ? "var(--color-profit)" : "var(--color-loss)";
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm active:scale-[0.97]"
+      style={{ background: c }}
+    >
+      {label}
+    </button>
+  );
+}
 function Th({ children, r, c }: { children: React.ReactNode; r?: boolean; c?: boolean }): React.ReactElement {
   return <span className={cn("min-w-0 truncate whitespace-nowrap", r && "text-right", c && "text-center", !r && !c && "text-left")}>{children}</span>;
 }
-function Td({ children, r, muted }: { children: React.ReactNode; r?: boolean; muted?: boolean }): React.ReactElement {
-  return <span className={cn("min-w-0 truncate whitespace-nowrap", r ? "text-right" : "text-left", muted && "text-muted-foreground")}>{children}</span>;
+function Td({ children, r, c, muted }: { children: React.ReactNode; r?: boolean; c?: boolean; muted?: boolean }): React.ReactElement {
+  return <span className={cn("min-w-0 truncate whitespace-nowrap", c ? "text-center" : r ? "text-right" : "text-left", muted && "text-muted-foreground")}>{children}</span>;
 }
 function OiCell({ side, oi, oiChg, width, dim }: { side: "call" | "put"; oi: number; oiChg: number; width: number; dim?: boolean }): React.ReactElement {
   const isCall = side === "call";
@@ -209,16 +414,15 @@ function OiCell({ side, oi, oiChg, width, dim }: { side: "call" | "put"; oi: num
     </div>
   );
 }
-function PriceCell({ align, ltp, chg, onBuy, onSell }: { align: "left" | "right"; ltp: number; chg: number; onBuy: () => void; onSell: () => void }): React.ReactElement {
-  // B/S sit in the blank space BESIDE the LTP (never over it). They occupy a
-  // reserved slot (visibility toggled, not display) so the number never shifts,
-  // and they reveal on ROW hover — so both legs' controls appear together.
-  const bs = (
+function PriceCell({ align, ltp, chg, onBuy, onSell }: { align: "left" | "right"; ltp: number; chg: number; onBuy?: () => void; onSell?: () => void }): React.ReactElement {
+  // B/S sit in the blank space BESIDE the LTP (never over it) and reveal on ROW
+  // hover — laptop only, since phone uses the Buy CE/Sell CE tap actions instead.
+  const bs = onBuy && onSell ? (
     <div className="invisible flex items-center gap-1 transition-opacity group-hover:visible">
       <button type="button" onClick={onBuy} aria-label="Buy" className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[10px] font-bold text-white shadow-sm" style={{ background: "var(--color-profit)" }}>B</button>
       <button type="button" onClick={onSell} aria-label="Sell" className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[10px] font-bold text-white shadow-sm" style={{ background: "var(--color-loss)" }}>S</button>
     </div>
-  );
+  ) : null;
   const price = (
     <div className={cn("flex min-w-0 flex-col leading-tight", align === "right" ? "items-end text-right" : "items-start text-left")}>
       <span className="truncate text-[13px] font-semibold text-foreground">₹{ltp.toFixed(2)}</span>
@@ -229,16 +433,5 @@ function PriceCell({ align, ltp, chg, onBuy, onSell }: { align: "left" | "right"
     <div className={cn("flex items-center gap-1.5", align === "right" ? "justify-end" : "justify-start")}>
       {align === "right" ? (<>{bs}{price}</>) : (<>{price}{bs}</>)}
     </div>
-  );
-}
-function Toggle({ on, onClick, icon, label }: { on: boolean; onClick: () => void; icon: React.ReactNode; label: string }): React.ReactElement {
-  return (
-    <button type="button" onClick={onClick} aria-pressed={on} className={cn("inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium transition-colors", on ? "border-transparent bg-muted text-foreground" : "border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
-      {icon}
-      {label}
-      <span className={cn("ml-0.5 inline-flex h-4 w-7 items-center rounded-full p-0.5 transition-colors", on ? "bg-foreground" : "bg-muted-foreground/30")} aria-hidden="true">
-        <span className={cn("h-3 w-3 rounded-full bg-background transition-transform", on && "translate-x-3")} />
-      </span>
-    </button>
   );
 }

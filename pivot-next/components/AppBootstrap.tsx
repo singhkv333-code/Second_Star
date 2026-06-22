@@ -65,10 +65,16 @@ export function AppBootstrap({
       setPhase("ready");
     } else {
       setPhase("needs-auth");
-      // Redirect to /login instead of showing a modal gate.
-      router.replace("/login");
+      // Redirect to /login instead of showing a modal gate — but never
+      // bounce the auth pages themselves (/login, /signup, …). Without
+      // this guard, opening /signup with no token yet immediately
+      // redirects back to /login, so the account-creation form is
+      // unreachable.
+      if (!ungated) {
+        router.replace("/login");
+      }
     }
-  }, [router]);
+  }, [router, ungated]);
 
   if (ungated) return <>{children}</>;
   if (phase === "loading") return <BootstrapSplash />;

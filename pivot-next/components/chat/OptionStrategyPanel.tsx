@@ -190,6 +190,16 @@ export function OptionStrategyPanel({
   const [disclosureChecked, setDisclosureChecked] = useState(false);
   const [regState, setRegState] = useState<RegState>({ kind: "idle" });
   const [target, setTarget] = useState<number>(Math.round(locked.forward));
+  // Phone gets a shorter payoff chart so the slider + stats below stay within
+  // a thumb's reach without a long scroll (it also spans wider on phone).
+  const [isPhone, setIsPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639.98px)");
+    const sync = (): void => setIsPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   const lastSpec = useRef<string>(specKeyOf(payload.editable.legs, payload.editable.qty_lots, locked.expiry));
 
@@ -422,11 +432,14 @@ export function OptionStrategyPanel({
           />
         </div>
 
-        {/* Two-column workspace: builder (left) · analytics (right) */}
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* Two-column workspace: builder (left) · analytics (right).
+            On phone the two panes collapse into ONE natural scroll (the
+            workspace itself scrolls) so the full-height payoff chart is
+            reachable; on lg+ each pane scrolls independently. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
           {/* LEFT — builder + register */}
-          <div className="flex min-h-0 flex-col border-b border-border/40 lg:w-[480px] lg:shrink-0 lg:border-b-0 lg:border-r">
-            <div className="flex-1 overflow-y-auto px-5 py-4 lg:px-6">
+          <div className="flex shrink-0 flex-col border-b border-border/40 lg:min-h-0 lg:w-[480px] lg:border-b-0 lg:border-r">
+            <div className="px-5 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-6">
               <BuilderTab
                 legs={legs}
                 serverLegs={current.editable.legs}
@@ -533,7 +546,7 @@ export function OptionStrategyPanel({
           </div>
 
           {/* RIGHT — analytics tabs */}
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 flex-col lg:min-h-0 lg:flex-1">
             <div className="flex shrink-0 gap-6 border-b border-border/40 px-5 lg:px-7">
               {TABS.map((t) => (
                 <button
@@ -554,10 +567,10 @@ export function OptionStrategyPanel({
               ))}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 lg:px-7">
+            <div className="px-3 py-4 sm:px-5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-7">
             {tab === "payoff" && (
               <div className="flex flex-col gap-4">
-                <div>
+                <div className="-mx-3 sm:mx-0">
                   <PayoffChart
                     data={payoffData}
                     now={computed.payoff_now}
@@ -566,7 +579,7 @@ export function OptionStrategyPanel({
                     target={target}
                     sd={chain?.expected_move?.abs ?? null}
                     chain={chain}
-                    height={360}
+                    height={isPhone ? 268 : 360}
                   />
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-[10px] text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">

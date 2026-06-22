@@ -60,6 +60,7 @@ from backend.routers.admin_simulate import router as admin_simulate_router
 from backend.routers.backtest_dsl import router as backtest_dsl_router
 from backend.routers.options_admin import router as options_admin_router
 from backend.routers.option_strategies import router as option_strategies_router
+from backend.routers.feedback import router as feedback_router
 
 app = FastAPI(
     title="Pivot API",
@@ -130,6 +131,7 @@ app.include_router(backtest_dsl_router)
 app.include_router(options_admin_router)
 # F&O P1: option-strategy registration (bare-mounted like /ipo-applications).
 app.include_router(option_strategies_router)
+app.include_router(feedback_router)
 
 # ── News & Event Trigger subsystem (flag-gated) ──────────────────────
 # Entire subsystem is opt-in via `settings.news_events_enabled`. With

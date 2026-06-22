@@ -13,7 +13,6 @@
  */
 
 import { useMemo } from "react";
-import { Link2 } from "lucide-react";
 import { BrokerCard } from "./BrokerCard";
 import { connectKind } from "./broker-ui";
 import type { Broker } from "@/lib/types";
@@ -39,12 +38,11 @@ export function BrokerPicker({
     });
   }, [brokers]);
 
-  const connectedCount = brokers.filter((b) => b.status.connected).length;
-
   return (
     <section aria-label="Connect a broker" className="flex flex-col gap-4">
-      {/* Section header — quiet, informative. */}
-      <div className="flex items-start justify-between gap-4">
+      {/* Section header — quiet, informative. Right padding keeps the heading
+          clear of the dialog's absolute close button. */}
+      <div className="flex items-start justify-between gap-4 pe-9">
         <div>
           <h2
             style={{
@@ -71,22 +69,6 @@ export function BrokerPicker({
             registers orders for you to confirm — it never trades on its own.
           </p>
         </div>
-        {connectedCount > 0 && (
-          <span
-            className="inline-flex shrink-0 items-center gap-1.5"
-            style={{
-              padding: "4px 10px",
-              borderRadius: "var(--radius-pill)",
-              background: "color-mix(in srgb, var(--color-profit) 12%, transparent)",
-              color: "var(--color-profit)",
-              fontSize: 11.5,
-              fontWeight: 600,
-            }}
-          >
-            <Link2 size={12} strokeWidth={2.5} aria-hidden />
-            {connectedCount} connected
-          </span>
-        )}
       </div>
 
       {/* Card grid */}

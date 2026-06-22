@@ -593,7 +593,7 @@ export function WorkflowEditorMock({
               items={workflow.steps.map((s) => s.id)}
               strategy={verticalListSortingStrategy}
             >
-              <ol className="flex flex-col">
+              <ol className="flex shrink-0 flex-col">
                 {workflow.steps.map((step, i) => (
                   <li key={step.id} className="flex flex-col">
                     <SortableStepRow
@@ -617,15 +617,20 @@ export function WorkflowEditorMock({
             </SortableContext>
           </DndContext>
 
-          {/* Terminal node — sits one connector-height (mt-7, matching the
-              28px FlowConnector) below the last step so the gap stays
-              consistent with the pipeline rhythm instead of collapsing to
-              zero when the steps overflow. The column scrolls naturally. */}
+          {/* Flexible spacer — grows to pin the Add button to the bottom of
+              the panel while the steps don't fill the height, and collapses to
+              one connector-height (28px) once they overflow, so the button
+              then scrolls naturally at the end of the list. The ol and button
+              are shrink-0 so only this spacer flexes. */}
+          <div aria-hidden="true" className="min-h-7 flex-1" />
+
+          {/* Terminal node — pinned to the bottom until the list needs to
+              scroll, then sits one connector-height below the last step. */}
           <button
             type="button"
             onClick={() => setPickerInsertIndex(workflow.steps.length)}
             data-testid="add-step-button"
-            className="mt-7 flex h-12 w-full shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
+            className="flex h-12 w-full shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border/70 bg-background/40 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-background hover:text-foreground"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {workflow.steps.length === 0 ? "Add a trigger" : "Add step"}

@@ -150,7 +150,8 @@ _SKIPPABLE_STEPS = {
 
 # Steps that block backtesting entirely.
 _BLOCKING_STEPS_REASON = {
-    "trigger.event":   "trigger.event needs an historical event calendar we don't keep — try a schedule or indicator trigger.",
+    "trigger.event":          "Event trigger events cannot be backtested.",
+    "trigger.scheduled_macro": "Event trigger events cannot be backtested.",
     "trigger.webhook": "trigger.webhook can only fire from external traffic, so there's nothing historical to replay.",
     "trigger.manual":  "trigger.manual fires when you click 'Run now' — there's no historical signal to replay.",
     "fetch.news":      "fetch.news depends on real-time feed history we don't store.",

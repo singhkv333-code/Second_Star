@@ -23,6 +23,7 @@
 import { useState } from "react";
 import { AlertCircle, ArrowUpRight, ShieldAlert, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import type { OptionStrategyPayload } from "@/lib/types";
 import { OptionStrategyPanel } from "@/components/chat/OptionStrategyPanel";
 import { PayoffChart } from "@/components/chat/option-payoff-chart";
@@ -128,6 +129,7 @@ export type OptionStrategyCardProps = {
 export function OptionStrategyCard({ payload }: OptionStrategyCardProps): React.ReactElement {
   const { locked, computed, editable, critique } = payload;
   const [panelOpen, setPanelOpen] = useState(false);
+  useExclusiveSidePanel("option-strategy", panelOpen, () => setPanelOpen(false));
 
   const legCount = editable.legs.length;
 
