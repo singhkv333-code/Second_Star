@@ -57,15 +57,13 @@ def search_companies(
     _auth(authorization)
     hits = fdb.search_companies(q, limit=limit)
 
-    # The search SQL pulls the precomputed mc.companies.logo_url. For rows
-    # where it's null, fall back to the shared resolver (which also derives
-    # a logo from the enrichment-DB website) so popular tickers without a
-    # precomputed value still get a logo — same coverage as the detail page.
-    # get_logo_url is Redis-cached and fail-safe; the result set is small
-    # (<= limit), so this stays cheap on the autosuggest hot path.
+    # Resolve every row through the shared resolver, which keys off the
+    # company's REAL website domain (NOT the precomputed mc.companies.logo_url
+    # column — those were guessed from the name and frequently pointed at a
+    # different company's domain, e.g. Britannia -> bi.com). Redis-cached and
+    # fail-safe; the result set is small (<= limit) so the autosuggest hot
+    # path stays cheap after warm-up. Null -> FE renders a clean monogram.
     def _logo(h: "fdb.CompanyHit") -> Optional[str]:
-        if h.logo_url:
-            return h.logo_url
         try:
             from backend.market.company_logos import get_logo_url
             return get_logo_url(h.symbol)
