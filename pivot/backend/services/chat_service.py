@@ -5133,6 +5133,33 @@ class ChatService:
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
 
+        # F&O amendment scope: when the active draft is an OPTION strategy
+        # card and the user is AMENDING it ("increase max profit", "make it
+        # safer", "switch to a call spread"), keep the turn on the options
+        # surface and DROP the equity-basket builders. WHY: build_strategy
+        # (equity+gold basket) is in _ALWAYS_INCLUDE and its name is
+        # confusingly close to build_option_strategy, so on an option
+        # amendment the planner frequently fired build_strategy and emitted a
+        # stray "Diversified Equity Basket" under an options answer (~4/5 of
+        # the time on gpt-5.4-mini). The amendment HINT alone (re-emit
+        # build_option_strategy) didn't stop it — the wrong tool has to leave
+        # scope. Mirrors the hedge-turn strip (_HEDGE_STRIP_TOOLS). Gated on a
+        # DEPENDENT amendment that isn't a fresh independent intent, so a
+        # genuine new "build me a portfolio" ask is unaffected.
+        if selected_names is not None:
+            _active_opt = self.store.get_active_draft(conv_id)
+            if (_active_opt is not None
+                    and _active_opt.tool_name == "build_option_strategy"
+                    and _DEPENDENT_INTENT_RE.search(message)
+                    and not _INDEPENDENT_INTENT_RE.search(message)):
+                selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
+                    "build_strategy", "propose_basket_allocation",
+                })
+                trace.event(
+                    "tools.option_amendment_scope",
+                    dropped=["build_strategy", "propose_basket_allocation"],
+                )
+
         # WHY this strip exists: when an active draft was sitting in
         # cache at the start of this turn AND the user's message is
         # a short bare alphabetic token that isn't a recognized verb /
@@ -6982,6 +7009,33 @@ class ChatService:
 
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+
+        # F&O amendment scope: when the active draft is an OPTION strategy
+        # card and the user is AMENDING it ("increase max profit", "make it
+        # safer", "switch to a call spread"), keep the turn on the options
+        # surface and DROP the equity-basket builders. WHY: build_strategy
+        # (equity+gold basket) is in _ALWAYS_INCLUDE and its name is
+        # confusingly close to build_option_strategy, so on an option
+        # amendment the planner frequently fired build_strategy and emitted a
+        # stray "Diversified Equity Basket" under an options answer (~4/5 of
+        # the time on gpt-5.4-mini). The amendment HINT alone (re-emit
+        # build_option_strategy) didn't stop it — the wrong tool has to leave
+        # scope. Mirrors the hedge-turn strip (_HEDGE_STRIP_TOOLS). Gated on a
+        # DEPENDENT amendment that isn't a fresh independent intent, so a
+        # genuine new "build me a portfolio" ask is unaffected.
+        if selected_names is not None:
+            _active_opt = self.store.get_active_draft(conv_id)
+            if (_active_opt is not None
+                    and _active_opt.tool_name == "build_option_strategy"
+                    and _DEPENDENT_INTENT_RE.search(message)
+                    and not _INDEPENDENT_INTENT_RE.search(message)):
+                selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
+                    "build_strategy", "propose_basket_allocation",
+                })
+                trace.event(
+                    "tools.option_amendment_scope",
+                    dropped=["build_strategy", "propose_basket_allocation"],
+                )
 
         # Typo-continuation guard (mirror of non-streaming path).
         # See _is_bare_typo_continuation for full rationale.
