@@ -4076,7 +4076,18 @@ class ChatService:
         # turn -> {"_clarify_answers": [{slot, value, label}, ...]}. Fold them
         # all here and go straight to the build, instead of one cursor advance
         # per question. (Agent flow only; the portfolio clarify stays one-at-a-time.)
-        if is_agent and text.startswith("{") and "_clarify_answers" in text:
+        # NOTE: handled for BOTH the agent flow AND the portfolio/strategy
+        # flow. The FE pages every question client-side and submits them in
+        # one silent `_clarify_answers` batch on completion — for strategy
+        # builds too (build_tool=build_strategy). This used to be gated on
+        # `is_agent`, so a batched strategy clarify fell through to the
+        # one-at-a-time path: the JSON blob got mis-folded into the first
+        # slot, the cursor advanced, and the turn returned a "next question"
+        # (clarify_advance, tools=[]) that the FE — already showing "All set,
+        # building…" — never rendered. Result: the user answered everything
+        # and NO card was built. Folding the whole batch here for both flows
+        # sets build_now and goes straight to the builder.
+        if text.startswith("{") and "_clarify_answers" in text:
             try:
                 _payload = json.loads(text)
                 _batch = _payload.get("_clarify_answers")
@@ -4089,13 +4100,17 @@ class ChatService:
                         continue
                     _aq = _q_by_slot.get(str(_a.get("slot") or ""))
                     _aval = str(_a.get("value") or _a.get("label") or "")
-                    if _aq is not None and _aval:
-                        try:
+                    if _aq is None or not _aval:
+                        continue
+                    try:
+                        if is_agent:
                             agent_slots = normalize_agent_answer_into_slots(
                                 _aq.model_dump(), _aval, agent_slots,
                             )
-                        except Exception as e:
-                            logger.warning("clarify batch fold failed: %s", e)
+                        else:
+                            slots = normalize_answer_into_slots(_aq, _aval, slots)
+                    except Exception as e:
+                        logger.warning("clarify batch fold failed: %s", e)
                 # Every answer is folded — skip the single-answer path and build.
                 build_now = True
                 current = None
