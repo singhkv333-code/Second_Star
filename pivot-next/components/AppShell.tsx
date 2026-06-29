@@ -63,6 +63,7 @@ import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
+import { SettingsDialog } from "@/components/settings/SettingsTab";
 import { DashboardTab } from "@/components/DashboardTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
@@ -261,6 +262,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Report-a-bug widget (opened from the account menu's Help submenu).
   const [reportBugOpen, setReportBugOpen] = useState(false);
+  // Settings modal (opened from the account menu's "Settings" item).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Desktop-only collapse of the inline sidebar (Ctrl/⌘+B). On mobile the
   // sidebar is a drawer driven by `mobileNavOpen`, so collapse is ignored.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -620,6 +623,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         metrics={metrics}
         accountInitial={accountInitial}
         onOpenBroker={() => setBrokerPanelOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onBrandClick={() => goTab("chat")}
         onLogout={async () => {
@@ -798,6 +802,29 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenChange={setReportBugOpen}
         currentTab={active}
       />
+
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        theme={theme}
+        onChooseTheme={chooseTheme}
+        tradingMode={tradingMode}
+        onChooseTradingMode={chooseTradingMode}
+        onOpenBroker={() => {
+          // Close settings first so the broker dialog isn't stacked behind it.
+          setSettingsOpen(false);
+          setBrokerPanelOpen(true);
+        }}
+        onLogout={async () => {
+          setSettingsOpen(false);
+          await logoutUser();
+          router.replace("/login");
+        }}
+        onOpenShortcuts={() => {
+          setSettingsOpen(false);
+          setShortcutsOpen(true);
+        }}
+      />
     </div>
     </ActiveDraftContext.Provider>
   );
@@ -815,6 +842,7 @@ function TopHeader({
   metrics,
   accountInitial,
   onOpenBroker,
+  onOpenSettings,
   onOpenMobileNav,
   onBrandClick,
   onLogout,
@@ -828,6 +856,7 @@ function TopHeader({
   metrics: MetricState;
   accountInitial: string;
   onOpenBroker: () => void;
+  onOpenSettings: () => void;
   onOpenMobileNav: () => void;
   onBrandClick: () => void;
   onLogout: () => void;
@@ -959,6 +988,7 @@ function TopHeader({
           onChooseTradingMode={onChooseTradingMode}
           initial={accountInitial}
           onOpenBroker={onOpenBroker}
+          onOpenSettings={onOpenSettings}
           onLogout={onLogout}
           onOpenShortcuts={onOpenShortcuts}
           onReportBug={onReportBug}
@@ -983,6 +1013,7 @@ function AccountMenu({
   onChooseTradingMode,
   initial,
   onOpenBroker,
+  onOpenSettings,
   onLogout,
   onOpenShortcuts,
   onReportBug,
@@ -993,6 +1024,7 @@ function AccountMenu({
   onChooseTradingMode: (m: TradingMode) => void;
   initial: string;
   onOpenBroker: () => void;
+  onOpenSettings: () => void;
   onLogout: () => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
@@ -1131,7 +1163,15 @@ function AccountMenu({
             }}
             testId="menu-brokers"
           />
-          <MenuItem icon={Settings} label="Settings" onClick={() => setOpen(false)} />
+          <MenuItem
+            icon={Settings}
+            label="Settings"
+            testId="menu-settings"
+            onClick={() => {
+              setOpen(false);
+              onOpenSettings();
+            }}
+          />
           <div
             style={{ position: "relative" }}
             onMouseEnter={() => {
