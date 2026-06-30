@@ -1,600 +1,1060 @@
-// @ts-nocheck — exact 1:1 port from frontend-quartr/.../ScreenerPage.jsx;
-// type-checking is suppressed so the file matches the source verbatim.
 "use client";
-import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+// Screener tab. The STOCKS screen is fully LIVE (server-filtered/sorted via
+// lib/screenerApi) with a real search box + real company logos. The ETF /
+// Index / Mutual-Fund screens remain mock (screenerData.ts) and unchanged in
+// look — no live endpoints back them yet, so they stay client-filtered.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
-  STOCKS, SECTORS, MARKET_CAP_TIERS,
-  ETFS, ETF_CATEGORIES,
-  INDICES, INDEX_CATEGORIES,
-  MUTUAL_FUNDS, FUND_CATEGORIES,
-} from './screenerData';
+  SlidersHorizontal,
+  X,
+  Search,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Loader2,
+} from "lucide-react";
+import {
+  MARKET_CAP_TIERS,
+  ETFS,
+  ETF_CATEGORIES,
+  INDICES,
+  INDEX_CATEGORIES,
+  MUTUAL_FUNDS,
+  FUND_CATEGORIES,
+} from "./screenerData";
+import { CompanyLogo } from "@/components/CompanyLogo";
+import { isError } from "@/lib/types";
+import {
+  getScreenerStocks,
+  getScreenerSectors,
+  searchScreener,
+  type ScreenerStock,
+  type ScreenerSector,
+  type ScreenerSearchResult,
+  type ScreenerSortBy,
+  type ScreenerMcapTier,
+} from "@/lib/screenerApi";
 
-// ── Per-screen config ─────────────────────────────────────
-// Each screen declares its universe, table columns, preset chips, and the
-// filter inputs the rail should render.
-
-function fmtCr(v) {
-  if (v == null) return '—';
+// ── Formatters ───────────────────────────────────────────
+function fmtCr(v: number | null | undefined): string {
+  if (v == null) return "—";
   if (v >= 1e5) return `${(v / 1e5).toFixed(2)} L Cr`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(2)} K Cr`;
   return `${v.toFixed(0)} Cr`;
 }
-const fmtPct = (v) => v == null ? '—' : `${v.toFixed(2)}%`;
-const fmtPct1 = (v) => v == null ? '—' : `${v.toFixed(1)}%`;
-const fmtNum1 = (v) => v == null ? '—' : v.toFixed(1);
-const fmtNum2 = (v) => v == null ? '—' : v.toFixed(2);
-const fmtINR = (v) => v == null ? '—' : `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+const fmtPct = (v: number | null | undefined): string =>
+  v == null ? "—" : `${v.toFixed(2)}%`;
+const fmtPct1 = (v: number | null | undefined): string =>
+  v == null ? "—" : `${v.toFixed(1)}%`;
+const fmtNum1 = (v: number | null | undefined): string =>
+  v == null ? "—" : v.toFixed(1);
+const fmtINR = (v: number | null | undefined): string =>
+  v == null
+    ? "—"
+    : `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
-const STOCK_PRESETS = [
-  { id: 'all',        label: 'All',                       set: () => ({}) },
-  { id: 'large',      label: 'Large Cap',                 set: () => ({ mcap_min: 50000 }) },
-  { id: 'mid',        label: 'Mid Cap',                   set: () => ({ mcap_min: 10000, mcap_max: 50000 }) },
-  { id: 'small',      label: 'Small Cap',                 set: () => ({ mcap_max: 10000 }) },
-  { id: 'profitable', label: 'Profitable',                set: () => ({ roe_min: 12 }) },
-  { id: 'high_roe',   label: 'High ROE',                  set: () => ({ roe_min: 20 }) },
-  { id: 'cheap',      label: 'Cheap (P/E < 20)',          set: () => ({ pe_max: 20 }) },
-  { id: 'momentum',   label: 'Momentum (1Y > 20%)',       set: () => ({ ret_min: 20 }) },
-  { id: 'dividends',  label: 'Dividends',                 set: () => ({ dy_min: 2 }) },
-];
+// Sector-hued tint for the monogram fallback (mirrors the legacy BrandGlyph).
+function sectorHue(key: string | null | undefined): string {
+  if (!key) return "#94a3b8";
+  const s = String(key).toLowerCase();
+  if (s.includes("bank") || s.includes("financ") || s.includes("nbfc"))
+    return "#60a5fa";
+  if (s.includes("tech") || s.includes("it") || s.includes("software"))
+    return "#a78bfa";
+  if (s.includes("energy") || s.includes("oil")) return "#f97316";
+  if (s.includes("pharma") || s.includes("health")) return "#10b981";
+  if (s.includes("auto")) return "#facc15";
+  if (s.includes("fmcg") || s.includes("consumer")) return "#34d399";
+  if (s.includes("metal") || s.includes("steel")) return "#f472b6";
+  if (s.includes("telecom")) return "#22d3ee";
+  if (s.includes("cement")) return "#a8a29e";
+  if (s.includes("defence")) return "#fb7185";
+  if (s.includes("gold")) return "#eab308";
+  if (s.includes("debt")) return "#38bdf8";
+  return "#94a3b8";
+}
+
+// Pretty-print a canonical sector key when the /sectors label isn't to hand
+// (e.g. a search result that returns a raw key).
+function prettySector(key: string | null | undefined): string {
+  if (!key) return "—";
+  return key
+    .split("_")
+    .map((w) => (w.length > 0 ? w[0]!.toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+// ─────────────────────────────────────────────────────────
+// Mock-screen scaffolding (ETFs / Indices / Funds) — unchanged behaviour.
+// ─────────────────────────────────────────────────────────
+type Align = "left" | "right";
+type MockRow = Record<string, unknown>;
+type MockColumn = {
+  id: string;
+  label: string;
+  align: Align;
+  type: "ticker" | "ticker_plain" | "fund" | "text" | "pct" | "num";
+  fmt?: (v: number) => string;
+};
+type MockFilters = Record<string, string | string[]>;
+type MockPreset = { id: string; label: string; set: () => Partial<MockFilters> };
+type MockScreen = {
+  id: string;
+  label: string;
+  universe: MockRow[];
+  presets: MockPreset[];
+  columns: MockColumn[];
+  defaultSort: string;
+  filterShape: MockFilters;
+  filterFn: (row: MockRow, f: MockFilters) => boolean;
+};
 
 const ETF_PRESETS = [
-  { id: 'all',     label: 'All',                set: () => ({}) },
-  { id: 'broad',   label: 'Broad equity',       set: () => ({ categories: ['Equity — Broad'] }) },
-  { id: 'sector',  label: 'Sector',             set: () => ({ categories: ['Equity — Sector'] }) },
-  { id: 'debt',    label: 'Debt',               set: () => ({ categories: ['Debt'] }) },
-  { id: 'gold',    label: 'Gold',               set: () => ({ categories: ['Gold'] }) },
-  { id: 'cheap',   label: 'Low expense (< 0.20%)', set: () => ({ exp_max: 0.20 }) },
-  { id: 'large',   label: 'Large AUM (> ₹5K Cr)', set: () => ({ aum_min: 5000 }) },
+  { id: "all", label: "All", set: () => ({}) },
+  { id: "broad", label: "Broad equity", set: () => ({ categories: ["Equity — Broad"] }) },
+  { id: "sector", label: "Sector", set: () => ({ categories: ["Equity — Sector"] }) },
+  { id: "debt", label: "Debt", set: () => ({ categories: ["Debt"] }) },
+  { id: "gold", label: "Gold", set: () => ({ categories: ["Gold"] }) },
+  { id: "cheap", label: "Low expense (< 0.20%)", set: () => ({ exp_max: "0.20" }) },
+  { id: "large", label: "Large AUM (> ₹5K Cr)", set: () => ({ aum_min: "5000" }) },
 ];
 
 const INDEX_PRESETS = [
-  { id: 'all',     label: 'All',                set: () => ({}) },
-  { id: 'broad',   label: 'Broad',              set: () => ({ categories: ['Broad'] }) },
-  { id: 'sector',  label: 'Sector',             set: () => ({ categories: ['Sector'] }) },
-  { id: 'strat',   label: 'Strategy',           set: () => ({ categories: ['Strategy'] }) },
-  { id: 'gainers', label: 'Today\'s gainers',   set: () => ({ day_min: 0 }) },
-  { id: 'losers',  label: 'Today\'s losers',    set: () => ({ day_max: 0 }) },
+  { id: "all", label: "All", set: () => ({}) },
+  { id: "broad", label: "Broad", set: () => ({ categories: ["Broad"] }) },
+  { id: "sector", label: "Sector", set: () => ({ categories: ["Sector"] }) },
+  { id: "strat", label: "Strategy", set: () => ({ categories: ["Strategy"] }) },
+  { id: "gainers", label: "Today's gainers", set: () => ({ day_min: "0" }) },
+  { id: "losers", label: "Today's losers", set: () => ({ day_max: "0" }) },
 ];
 
 const FUND_PRESETS = [
-  { id: 'all',      label: 'All',                set: () => ({}) },
-  { id: 'equity',   label: 'Equity only',        set: () => ({ categories: FUND_CATEGORIES.filter((c) => c.startsWith('Equity')) }) },
-  { id: 'debt',     label: 'Debt only',          set: () => ({ categories: FUND_CATEGORIES.filter((c) => c.startsWith('Debt')) }) },
-  { id: 'elss',     label: 'ELSS',               set: () => ({ categories: ['ELSS'] }) },
-  { id: 'hybrid',   label: 'Hybrid',             set: () => ({ categories: ['Hybrid'] }) },
-  { id: 'cheap',    label: 'Low expense (< 1%)', set: () => ({ exp_max: 1.0 }) },
-  { id: 'top_5y',   label: '5Y CAGR > 20%',      set: () => ({ five_y_min: 20 }) },
+  { id: "all", label: "All", set: () => ({}) },
+  { id: "equity", label: "Equity only", set: () => ({ categories: FUND_CATEGORIES.filter((c) => c.startsWith("Equity")) }) },
+  { id: "debt", label: "Debt only", set: () => ({ categories: FUND_CATEGORIES.filter((c) => c.startsWith("Debt")) }) },
+  { id: "elss", label: "ELSS", set: () => ({ categories: ["ELSS"] }) },
+  { id: "hybrid", label: "Hybrid", set: () => ({ categories: ["Hybrid"] }) },
+  { id: "cheap", label: "Low expense (< 1%)", set: () => ({ exp_max: "1.0" }) },
+  { id: "top_5y", label: "5Y CAGR > 20%", set: () => ({ five_y_min: "20" }) },
 ];
 
-const SCREENS = {
-  stocks: {
-    id: 'stocks',
-    label: 'Stocks',
-    universe: STOCKS,
-    presets: STOCK_PRESETS,
-    columns: [
-      { id: 'ticker',         label: 'Symbol',     align: 'left',  type: 'ticker' },
-      { id: 'sector',         label: 'Sector',     align: 'left',  type: 'text' },
-      { id: 'last',           label: 'Last',       align: 'right', type: 'num',  fmt: fmtINR },
-      { id: 'day_change_pct', label: 'Day',        align: 'right', type: 'pct' },
-      { id: 'market_cap',     label: 'Mkt Cap',    align: 'right', type: 'num',  fmt: fmtCr },
-      { id: 'pe',             label: 'P/E',        align: 'right', type: 'num',  fmt: fmtNum1 },
-      { id: 'roe',            label: 'ROE',        align: 'right', type: 'num',  fmt: fmtPct1 },
-      { id: 'div_yield',      label: 'Div Yield',  align: 'right', type: 'num',  fmt: fmtPct },
-      { id: 'one_year_pct',   label: '1-Y Return', align: 'right', type: 'pct' },
-    ],
-    defaultSort: 'market_cap',
-    filterShape: {
-      sectors: [], mcap_min: '', mcap_max: '',
-      pe_max: '', roe_min: '', dy_min: '', ret_min: '',
-    },
-    filterFn: (row, f) => {
-      if (f.sectors.length > 0 && !f.sectors.includes(row.sector)) return false;
-      if (f.mcap_min !== '' && row.market_cap < +f.mcap_min) return false;
-      if (f.mcap_max !== '' && row.market_cap > +f.mcap_max) return false;
-      if (f.pe_max   !== '' && row.pe         > +f.pe_max)   return false;
-      if (f.roe_min  !== '' && row.roe        < +f.roe_min)  return false;
-      if (f.dy_min   !== '' && row.div_yield  < +f.dy_min)   return false;
-      if (f.ret_min  !== '' && row.one_year_pct < +f.ret_min) return false;
-      return true;
-    },
-  },
+const num = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
 
+// Mock-filter accessors — narrow Record index results (noUncheckedIndexedAccess).
+const fs = (f: MockFilters, key: string): string => {
+  const v = f[key];
+  return typeof v === "string" ? v : "";
+};
+const fa = (f: MockFilters, key: string): string[] => {
+  const v = f[key];
+  return Array.isArray(v) ? v : [];
+};
+
+const MOCK_SCREENS: Record<string, MockScreen> = {
   etfs: {
-    id: 'etfs',
-    label: 'ETFs',
-    universe: ETFS,
+    id: "etfs",
+    label: "ETFs",
+    universe: ETFS as MockRow[],
     presets: ETF_PRESETS,
     columns: [
-      { id: 'ticker',         label: 'Symbol',     align: 'left',  type: 'ticker' },
-      { id: 'category',       label: 'Category',   align: 'left',  type: 'text' },
-      { id: 'last',           label: 'NAV',        align: 'right', type: 'num',  fmt: fmtINR },
-      { id: 'day_change_pct', label: 'Day',        align: 'right', type: 'pct' },
-      { id: 'aum',            label: 'AUM',        align: 'right', type: 'num',  fmt: fmtCr },
-      { id: 'expense_ratio',  label: 'Expense',    align: 'right', type: 'num',  fmt: (v) => `${v.toFixed(2)}%` },
-      { id: 'tracking_error', label: 'Track Err.', align: 'right', type: 'num',  fmt: (v) => `${v.toFixed(2)}%` },
-      { id: 'one_year_pct',   label: '1-Y Return', align: 'right', type: 'pct' },
-      { id: 'three_year_pct', label: '3-Y Return', align: 'right', type: 'pct' },
+      { id: "ticker", label: "Symbol", align: "left", type: "ticker" },
+      { id: "category", label: "Category", align: "left", type: "text" },
+      { id: "last", label: "NAV", align: "right", type: "num", fmt: fmtINR },
+      { id: "day_change_pct", label: "Day", align: "right", type: "pct" },
+      { id: "aum", label: "AUM", align: "right", type: "num", fmt: fmtCr },
+      { id: "expense_ratio", label: "Expense", align: "right", type: "num", fmt: (v) => `${v.toFixed(2)}%` },
+      { id: "tracking_error", label: "Track Err.", align: "right", type: "num", fmt: (v) => `${v.toFixed(2)}%` },
+      { id: "one_year_pct", label: "1-Y Return", align: "right", type: "pct" },
+      { id: "three_year_pct", label: "3-Y Return", align: "right", type: "pct" },
     ],
-    defaultSort: 'aum',
-    filterShape: {
-      categories: [], aum_min: '', exp_max: '', ret_min: '',
-    },
+    defaultSort: "aum",
+    filterShape: { categories: [], aum_min: "", exp_max: "", ret_min: "" },
     filterFn: (row, f) => {
-      if (f.categories.length > 0 && !f.categories.includes(row.category)) return false;
-      if (f.aum_min !== '' && row.aum < +f.aum_min) return false;
-      if (f.exp_max !== '' && row.expense_ratio > +f.exp_max) return false;
-      if (f.ret_min !== '' && row.one_year_pct < +f.ret_min) return false;
+      const cats = fa(f, "categories");
+      if (cats.length > 0 && !cats.includes(String(row.category))) return false;
+      if (fs(f, "aum_min") !== "" && num(row.aum) < +fs(f, "aum_min")) return false;
+      if (fs(f, "exp_max") !== "" && num(row.expense_ratio) > +fs(f, "exp_max")) return false;
+      if (fs(f, "ret_min") !== "" && num(row.one_year_pct) < +fs(f, "ret_min")) return false;
       return true;
     },
   },
-
   indices: {
-    id: 'indices',
-    label: 'Indices',
-    universe: INDICES,
+    id: "indices",
+    label: "Indices",
+    universe: INDICES as MockRow[],
     presets: INDEX_PRESETS,
     columns: [
-      { id: 'ticker',         label: 'Index',      align: 'left',  type: 'ticker_plain' },
-      { id: 'category',       label: 'Category',   align: 'left',  type: 'text' },
-      { id: 'last',           label: 'Last',       align: 'right', type: 'num',  fmt: (v) => v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) },
-      { id: 'day_change_pct', label: 'Day',        align: 'right', type: 'pct' },
-      { id: 'one_year_pct',   label: '1-Y',        align: 'right', type: 'pct' },
-      { id: 'ytd_pct',        label: 'YTD',        align: 'right', type: 'pct' },
-      { id: 'pe',             label: 'P/E',        align: 'right', type: 'num',  fmt: fmtNum1 },
-      { id: 'dy',             label: 'Div Yield',  align: 'right', type: 'num',  fmt: fmtPct },
-      { id: 'members',        label: 'Members',    align: 'right', type: 'num',  fmt: (v) => v == null ? '—' : String(v) },
+      { id: "ticker", label: "Index", align: "left", type: "ticker_plain" },
+      { id: "category", label: "Category", align: "left", type: "text" },
+      { id: "last", label: "Last", align: "right", type: "num", fmt: (v) => v.toLocaleString("en-IN", { maximumFractionDigits: 2 }) },
+      { id: "day_change_pct", label: "Day", align: "right", type: "pct" },
+      { id: "one_year_pct", label: "1-Y", align: "right", type: "pct" },
+      { id: "ytd_pct", label: "YTD", align: "right", type: "pct" },
+      { id: "pe", label: "P/E", align: "right", type: "num", fmt: fmtNum1 },
+      { id: "dy", label: "Div Yield", align: "right", type: "num", fmt: fmtPct },
+      { id: "members", label: "Members", align: "right", type: "num", fmt: (v) => (v == null ? "—" : String(v)) },
     ],
-    defaultSort: 'one_year_pct',
-    filterShape: {
-      categories: [], day_min: '', day_max: '', ytd_min: '',
-    },
+    defaultSort: "one_year_pct",
+    filterShape: { categories: [], day_min: "", day_max: "", ytd_min: "" },
     filterFn: (row, f) => {
-      if (f.categories.length > 0 && !f.categories.includes(row.category)) return false;
-      if (f.day_min !== '' && row.day_change_pct < +f.day_min) return false;
-      if (f.day_max !== '' && row.day_change_pct > +f.day_max) return false;
-      if (f.ytd_min !== '' && row.ytd_pct < +f.ytd_min) return false;
+      const cats = fa(f, "categories");
+      if (cats.length > 0 && !cats.includes(String(row.category))) return false;
+      if (fs(f, "day_min") !== "" && num(row.day_change_pct) < +fs(f, "day_min")) return false;
+      if (fs(f, "day_max") !== "" && num(row.day_change_pct) > +fs(f, "day_max")) return false;
+      if (fs(f, "ytd_min") !== "" && num(row.ytd_pct) < +fs(f, "ytd_min")) return false;
       return true;
     },
   },
-
   funds: {
-    id: 'funds',
-    label: 'Mutual Funds',
-    universe: MUTUAL_FUNDS,
+    id: "funds",
+    label: "Mutual Funds",
+    universe: MUTUAL_FUNDS as MockRow[],
     presets: FUND_PRESETS,
     columns: [
-      { id: 'name',           label: 'Fund',       align: 'left',  type: 'fund' },
-      { id: 'category',       label: 'Category',   align: 'left',  type: 'text' },
-      { id: 'nav',            label: 'NAV',        align: 'right', type: 'num',  fmt: fmtINR },
-      { id: 'aum',            label: 'AUM',        align: 'right', type: 'num',  fmt: fmtCr },
-      { id: 'expense_ratio',  label: 'Expense',    align: 'right', type: 'num',  fmt: (v) => `${v.toFixed(2)}%` },
-      { id: 'one_year_pct',   label: '1-Y',        align: 'right', type: 'pct' },
-      { id: 'three_year_pct', label: '3-Y CAGR',   align: 'right', type: 'pct' },
-      { id: 'five_year_pct',  label: '5-Y CAGR',   align: 'right', type: 'pct' },
+      { id: "name", label: "Fund", align: "left", type: "fund" },
+      { id: "category", label: "Category", align: "left", type: "text" },
+      { id: "nav", label: "NAV", align: "right", type: "num", fmt: fmtINR },
+      { id: "aum", label: "AUM", align: "right", type: "num", fmt: fmtCr },
+      { id: "expense_ratio", label: "Expense", align: "right", type: "num", fmt: (v) => `${v.toFixed(2)}%` },
+      { id: "one_year_pct", label: "1-Y", align: "right", type: "pct" },
+      { id: "three_year_pct", label: "3-Y CAGR", align: "right", type: "pct" },
+      { id: "five_year_pct", label: "5-Y CAGR", align: "right", type: "pct" },
     ],
-    defaultSort: 'aum',
-    filterShape: {
-      categories: [], aum_min: '', exp_max: '', three_y_min: '', five_y_min: '',
-    },
+    defaultSort: "aum",
+    filterShape: { categories: [], aum_min: "", exp_max: "", three_y_min: "", five_y_min: "" },
     filterFn: (row, f) => {
-      if (f.categories.length > 0 && !f.categories.includes(row.category)) return false;
-      if (f.aum_min !== '' && row.aum < +f.aum_min) return false;
-      if (f.exp_max !== '' && row.expense_ratio > +f.exp_max) return false;
-      if (f.three_y_min !== '' && row.three_year_pct < +f.three_y_min) return false;
-      if (f.five_y_min !== '' && row.five_year_pct < +f.five_year_pct) return false;
+      const cats = fa(f, "categories");
+      if (cats.length > 0 && !cats.includes(String(row.category))) return false;
+      if (fs(f, "aum_min") !== "" && num(row.aum) < +fs(f, "aum_min")) return false;
+      if (fs(f, "exp_max") !== "" && num(row.expense_ratio) > +fs(f, "exp_max")) return false;
+      if (fs(f, "three_y_min") !== "" && num(row.three_year_pct) < +fs(f, "three_y_min")) return false;
+      if (fs(f, "five_y_min") !== "" && num(row.five_year_pct) < +fs(f, "five_y_min")) return false;
       return true;
     },
   },
 };
 
-const SCREEN_ORDER = ['stocks', 'etfs', 'indices', 'funds'];
+const SCREEN_ORDER = ["stocks", "etfs", "indices", "funds"] as const;
+type ScreenId = (typeof SCREEN_ORDER)[number];
+const SCREEN_LABELS: Record<ScreenId, string> = {
+  stocks: "Stocks",
+  etfs: "ETFs",
+  indices: "Indices",
+  funds: "Mutual Funds",
+};
+
+// ─────────────────────────────────────────────────────────
+// Stocks (LIVE) state shapes
+// ─────────────────────────────────────────────────────────
+type StockSort = { key: ScreenerSortBy; dir: 1 | -1 };
+
+type StockFilters = {
+  sector: string; // canonical key or "" for all
+  mcap_tier: ScreenerMcapTier | "";
+  pe_max: string;
+  roe_min: string;
+};
+
+const EMPTY_STOCK_FILTERS: StockFilters = {
+  sector: "",
+  mcap_tier: "",
+  pe_max: "",
+  roe_min: "",
+};
+
+const STOCK_PRESETS: {
+  id: string;
+  label: string;
+  set: () => Partial<StockFilters>;
+}[] = [
+  { id: "all", label: "All", set: () => ({}) },
+  { id: "large", label: "Large Cap", set: () => ({ mcap_tier: "large" }) },
+  { id: "mid", label: "Mid Cap", set: () => ({ mcap_tier: "mid" }) },
+  { id: "small", label: "Small Cap", set: () => ({ mcap_tier: "small" }) },
+  { id: "high_roe", label: "High ROE", set: () => ({ roe_min: "20" }) },
+  { id: "profitable", label: "Profitable", set: () => ({ roe_min: "12" }) },
+  { id: "cheap", label: "Cheap (P/E < 20)", set: () => ({ pe_max: "20" }) },
+];
 
 // ── Component ────────────────────────────────────────────
-export function ScreenerPage() {
-  const [screenId, setScreenId] = useState('stocks');
-  const screen = SCREENS[screenId];
-
-  const [filters, setFilters] = useState(() => ({ ...screen.filterShape }));
-  const [activePreset, setActivePreset] = useState('all');
-  const [sortKey, setSortKey] = useState(screen.defaultSort);
-  const [sortDir, setSortDir] = useState(-1);
-  // Mobile-only: the filter rail collapses behind a slider icon at <lg
-  // so the chips/table get the whole viewport until the user opts in.
-  // Desktop layout is unchanged — the rail is always visible in its
-  // 260px column and ignores this state.
+export function ScreenerPage(): React.ReactElement {
+  const [screenId, setScreenId] = useState<ScreenId>("stocks");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  const switchScreen = (id) => {
-    if (id === screenId) return;
-    const next = SCREENS[id];
-    setScreenId(id);
-    setFilters({ ...next.filterShape });
-    setActivePreset('all');
-    setSortKey(next.defaultSort);
-    setSortDir(-1);
-  };
-
-  const setFilter = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-    setActivePreset(null);
-  };
-  const toggleListItem = (key, value) => {
-    setFilters((prev) => {
-      const arr = prev[key] || [];
-      return {
-        ...prev,
-        [key]: arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value],
-      };
-    });
-    setActivePreset(null);
-  };
-  const reset = () => {
-    setFilters({ ...screen.filterShape });
-    setActivePreset('all');
-  };
-  const applyPreset = (p) => {
-    setFilters({ ...screen.filterShape, ...p.set() });
-    setActivePreset(p.id);
-  };
-
-  const results = useMemo(() => {
-    let rows = screen.universe.filter((r) => screen.filterFn(r, filters));
-    rows = rows.slice().sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      if (typeof av === 'string') return (av || '').localeCompare(bv || '') * sortDir;
-      return ((av ?? 0) - (bv ?? 0)) * sortDir;
-    });
-    return rows;
-  }, [screen, filters, sortKey, sortDir]);
-
-  const toggleSort = (key) => {
-    if (sortKey === key) setSortDir((d) => -d);
-    else { setSortKey(key); setSortDir(-1); }
-  };
-
-  const activeFilterCount = countActiveFilters(filters);
-
   return (
-    <div className="screener-root" style={{
-      flex: 1, minWidth: 0,
-      display: 'flex', flexDirection: 'column',
-      height: '100%', overflow: 'hidden',
-      background: 'var(--bg-base)',
-    }}>
-      {/* Title row */}
-      <div className="screener-title-row" style={{
-        padding: '24px 32px 14px',
-        display: 'flex', alignItems: 'center', gap: 16,
+    <div
+      className="screener-root"
+      style={{
+        flex: 1,
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        background: "var(--bg-base)",
+      }}
+    >
+      {screenId === "stocks" ? (
+        <StocksScreen
+          screenId={screenId}
+          onSwitchScreen={setScreenId}
+          mobileFiltersOpen={mobileFiltersOpen}
+          setMobileFiltersOpen={setMobileFiltersOpen}
+        />
+      ) : (
+        <MockScreenView
+          screenId={screenId}
+          onSwitchScreen={setScreenId}
+          mobileFiltersOpen={mobileFiltersOpen}
+          setMobileFiltersOpen={setMobileFiltersOpen}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// Shared chrome: title row + screen switch + mobile toggle
+// ─────────────────────────────────────────────────────────
+function TitleRow({
+  screenId,
+  onSwitchScreen,
+  subhead,
+  activeFilterCount,
+  mobileFiltersOpen,
+  setMobileFiltersOpen,
+}: {
+  screenId: ScreenId;
+  onSwitchScreen: (id: ScreenId) => void;
+  subhead: React.ReactNode;
+  activeFilterCount: number;
+  mobileFiltersOpen: boolean;
+  setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
+}): React.ReactElement {
+  return (
+    <div
+      className="screener-title-row"
+      style={{
+        padding: "24px 32px 14px",
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
         flexShrink: 0,
-      }}>
-        <div>
-          <h1 style={{
-            margin: 0,
-            fontFamily: 'var(--font-serif)',
-            fontWeight: 'var(--weight-display)',
-            fontSize: 22,
-            letterSpacing: '-0.025em',
-            color: 'var(--text-primary)',
-          }}>
-            Screener
-          </h1>
-          <div style={{
-            marginTop: 4,
-            fontSize: 12.5,
-            color: 'var(--text-tertiary)',
-          }}>
-            <span style={{ color: 'var(--text-primary)', fontWeight: 'var(--weight-medium)' }}>
-              {results.length}
-            </span>
-            {' '}of {screen.universe.length} {screen.label.toLowerCase()} match
-            {activeFilterCount > 0 && ` · ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} active`}
-          </div>
-        </div>
-
-        <div style={{ flex: 1 }} />
-
-        {/* Mobile-only filter toggle — opens the filter rail at <lg.
-            CSS in globals.css hides it on desktop where the rail is
-            permanently visible. The badge mirrors the activeFilterCount
-            shown in the subhead so users see at a glance whether
-            filters are applied without expanding the panel. */}
-        <button
-          type="button"
-          className="screener-filter-toggle"
-          onClick={() => setMobileFiltersOpen((o) => !o)}
-          aria-expanded={mobileFiltersOpen}
-          aria-controls="screener-filter-rail"
-          aria-label={mobileFiltersOpen ? 'Hide filters' : 'Show filters'}
+      }}
+    >
+      <div>
+        <h1
           style={{
-            position: 'relative',
-            width: 38, height: 38,
-            display: 'none', alignItems: 'center', justifyContent: 'center',
-            background: mobileFiltersOpen ? 'var(--surface-active)' : 'var(--bg-primary)',
-            border: '1px solid var(--glass-border)',
-            borderRadius: 'var(--radius-pill)',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-            transition: 'background-color 0.2s var(--ease-quartr), border-color 0.2s var(--ease-quartr)',
+            margin: 0,
+            fontFamily: "var(--font-serif)",
+            fontWeight: "var(--weight-display)" as React.CSSProperties["fontWeight"],
+            fontSize: 22,
+            letterSpacing: "-0.025em",
+            color: "var(--text-primary)",
           }}
         >
-          <SlidersHorizontal size={16} strokeWidth={2} aria-hidden="true" />
-          {activeFilterCount > 0 && (
-            <span
-              aria-hidden="true"
-              style={{
-                position: 'absolute', top: -2, right: -2,
-                minWidth: 16, height: 16, padding: '0 4px',
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                background: 'var(--text-primary)',
-                color: 'var(--bg-primary)',
-                borderRadius: 999,
-                fontFamily: 'var(--font-ui)',
-                fontSize: 10,
-                fontWeight: 'var(--weight-medium)',
-                lineHeight: 1,
-              }}
-            >
-              {activeFilterCount}
-            </span>
-          )}
-        </button>
-
-        {/* Screen-type switch (replaces the old search box) */}
-        <div style={{
-          display: 'inline-flex', gap: 2, padding: 3,
-          background: 'var(--bg-base)',
-          border: '1px solid var(--glass-border)',
-          borderRadius: 'var(--radius-pill)',
-        }}>
-          {SCREEN_ORDER.map((id) => {
-            const active = screenId === id;
-            return (
-              <button
-                key={id}
-                onClick={() => switchScreen(id)}
-                style={{
-                  padding: '6px 14px',
-                  border: 'none',
-                  borderRadius: 'var(--radius-pill)',
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 12,
-                  fontWeight: 'var(--weight-medium)',
-                  cursor: 'pointer',
-                  background: active ? 'var(--text-primary)' : 'transparent',
-                  color: active ? 'var(--bg-primary)' : 'var(--text-secondary)',
-                  transition: 'color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)',
-                }}
-              >
-                {SCREENS[id].label}
-              </button>
-            );
-          })}
+          Screener
+        </h1>
+        <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-tertiary)" }}>
+          {subhead}
         </div>
       </div>
 
-      {/* Watchlist — stocks-only, sits between the title row and preset
-          chips. Medium-sized horizontal cards: ticker + price + day Δ. */}
-      {screenId === 'stocks' && <WatchlistStrip />}
+      <div style={{ flex: 1 }} />
 
-      {/* Preset chips */}
-      <div className="screener-presets" style={{
-        padding: '0 32px 14px',
-        display: 'flex', flexWrap: 'wrap', gap: 6,
-        flexShrink: 0,
-      }}>
-        {screen.presets.map((p) => {
-          const active = activePreset === p.id;
+      <button
+        type="button"
+        className="screener-filter-toggle"
+        onClick={() => setMobileFiltersOpen((o) => !o)}
+        aria-expanded={mobileFiltersOpen}
+        aria-controls="screener-filter-rail"
+        aria-label={mobileFiltersOpen ? "Hide filters" : "Show filters"}
+        style={{
+          position: "relative",
+          width: 38,
+          height: 38,
+          display: "none",
+          alignItems: "center",
+          justifyContent: "center",
+          background: mobileFiltersOpen ? "var(--surface-active)" : "var(--bg-primary)",
+          border: "1px solid var(--glass-border)",
+          borderRadius: "var(--radius-pill)",
+          color: "var(--text-primary)",
+          cursor: "pointer",
+          transition:
+            "background-color 0.2s var(--ease-quartr), border-color 0.2s var(--ease-quartr)",
+        }}
+      >
+        <SlidersHorizontal size={16} strokeWidth={2} aria-hidden="true" />
+        {activeFilterCount > 0 && (
+          <span
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: -2,
+              right: -2,
+              minWidth: 16,
+              height: 16,
+              padding: "0 4px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--text-primary)",
+              color: "var(--bg-primary)",
+              borderRadius: 999,
+              fontFamily: "var(--font-ui)",
+              fontSize: 10,
+              fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+              lineHeight: 1,
+            }}
+          >
+            {activeFilterCount}
+          </span>
+        )}
+      </button>
+
+      <div
+        style={{
+          display: "inline-flex",
+          gap: 2,
+          padding: 3,
+          background: "var(--bg-base)",
+          border: "1px solid var(--glass-border)",
+          borderRadius: "var(--radius-pill)",
+        }}
+      >
+        {SCREEN_ORDER.map((id) => {
+          const active = screenId === id;
           return (
-            <button key={p.id} onClick={() => applyPreset(p)} style={{
-              padding: '6px 12px',
-              background: active ? 'var(--text-primary)' : 'transparent',
-              border: `1px solid ${active ? 'var(--text-primary)' : 'var(--glass-border)'}`,
-              borderRadius: 'var(--radius-pill)',
-              color: active ? 'var(--bg-primary)' : 'var(--text-secondary)',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 12,
-              fontWeight: 'var(--weight-medium)',
-              cursor: 'pointer',
-              transition: 'all 0.2s var(--ease-quartr)',
-            }}>{p.label}</button>
+            <button
+              key={id}
+              onClick={() => onSwitchScreen(id)}
+              style={{
+                padding: "6px 14px",
+                border: "none",
+                borderRadius: "var(--radius-pill)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+                cursor: "pointer",
+                background: active ? "var(--text-primary)" : "transparent",
+                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                transition:
+                  "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+              }}
+            >
+              {SCREEN_LABELS[id]}
+            </button>
           );
         })}
-      </div>
-
-      {/* Body */}
-      <div className="screener-body" style={{
-        flex: 1, minHeight: 0,
-        display: 'grid',
-        // Rail is a fixed 260px: its internals (the 3-up market-cap tier
-        // buttons + wrapping sector chips) need ~230px of content width, so
-        // narrowing it on laptops cramps/wraps them badly. Kept at the design
-        // width; the results table to its right absorbs the viewport delta.
-        gridTemplateColumns: '260px minmax(0, 1fr)',
-        gap: 16,
-        padding: '0 32px 24px',
-      }}>
-        {/* Mobile-only dim backdrop — tap to dismiss the filter sheet.
-            Only rendered while open; CSS hides it on desktop regardless. */}
-        {mobileFiltersOpen && (
-          <div
-            className="screener-filter-backdrop"
-            onClick={() => setMobileFiltersOpen(false)}
-            aria-hidden="true"
-          />
-        )}
-        <FilterRail
-          screenId={screenId}
-          filters={filters}
-          setFilter={setFilter}
-          toggleListItem={toggleListItem}
-          reset={reset}
-          mobileOpen={mobileFiltersOpen}
-          onMobileClose={() => setMobileFiltersOpen(false)}
-          resultCount={results.length}
-        />
-
-        <ResultsTable
-          columns={screen.columns}
-          rows={results}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onSort={toggleSort}
-        />
       </div>
     </div>
   );
 }
 
-// ── Watchlist strip ──────────────────────────────────────
-// Horizontal row of medium-sized stock cards sitting between the title
-// row and the preset chips. Each card surfaces ticker (mono), full last
-// price (₹), and day Δ — colored profit/loss. Pulls from the static
-// STOCKS universe so numbers stay consistent with the table below.
-const WATCHLIST_TICKERS = ['HDFCBANK', 'TCS', 'RELIANCE', 'INFY', 'ITC', 'SBIN'];
+// ─────────────────────────────────────────────────────────
+// LIVE Stocks screen
+// ─────────────────────────────────────────────────────────
+function StocksScreen({
+  screenId,
+  onSwitchScreen,
+  mobileFiltersOpen,
+  setMobileFiltersOpen,
+}: {
+  screenId: ScreenId;
+  onSwitchScreen: (id: ScreenId) => void;
+  mobileFiltersOpen: boolean;
+  setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
+}): React.ReactElement {
+  const [filters, setFilters] = useState<StockFilters>({ ...EMPTY_STOCK_FILTERS });
+  const [activePreset, setActivePreset] = useState<string | null>("all");
+  const [sort, setSort] = useState<StockSort>({ key: "market_cap_cr", dir: -1 });
 
-function WatchlistStrip() {
-  const items = useMemo(
-    () =>
-      WATCHLIST_TICKERS
-        .map((t) => STOCKS.find((s) => s.ticker === t))
-        .filter(Boolean),
+  const [rows, setRows] = useState<ScreenerStock[]>([]);
+  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [sectors, setSectors] = useState<ScreenerSector[]>([]);
+
+  // ── Load sectors once ──
+  useEffect(() => {
+    const ctrl = new AbortController();
+    getScreenerSectors(ctrl.signal).then((res) => {
+      if (ctrl.signal.aborted) return;
+      if (!isError(res)) setSectors(res.data.sectors);
+    });
+    return () => ctrl.abort();
+  }, []);
+
+  // ── Load stocks whenever filters/sort change (server-side) ──
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    setError(null);
+    getScreenerStocks(
+      {
+        sector: filters.sector || undefined,
+        mcap_tier: filters.mcap_tier || undefined,
+        pe_max: filters.pe_max !== "" ? Number(filters.pe_max) : undefined,
+        roe_min: filters.roe_min !== "" ? Number(filters.roe_min) : undefined,
+        sort_by: sort.key,
+        limit: 200,
+      },
+      ctrl.signal,
+    ).then((res) => {
+      if (ctrl.signal.aborted) return;
+      if (isError(res)) {
+        if (res.error.code === "aborted") return;
+        setError(res.error.message || "Could not load stocks.");
+        setRows([]);
+        setNote("");
+      } else {
+        setRows(res.data.results);
+        setNote(res.data.note || "");
+      }
+      setLoading(false);
+    });
+    return () => ctrl.abort();
+  }, [filters.sector, filters.mcap_tier, filters.pe_max, filters.roe_min, sort.key]);
+
+  // The backend only orders descending-natural per field (PE ascending). When
+  // the user flips a header to ascending we reverse client-side over the
+  // already-fetched, null-aware ordering — cheap and keeps null-last intact.
+  const displayRows = useMemo(() => {
+    if (sort.dir === -1) return rows;
+    // Ascending: keep the null group at the bottom, reverse only the valued head.
+    const valued = rows.filter((r) => sortValue(r, sort.key) != null);
+    const nulls = rows.filter((r) => sortValue(r, sort.key) == null);
+    return [...valued.slice().reverse(), ...nulls];
+  }, [rows, sort.dir, sort.key]);
+
+  const setFilter = useCallback(
+    <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+      setActivePreset(null);
+    },
     [],
   );
 
-  return (
-    <div className="screener-watchlist" style={{
-      padding: '0 32px 14px',
-      flexShrink: 0,
-      display: 'flex', flexDirection: 'column', gap: 8,
-    }}>
-      <div style={{
-        fontFamily: 'var(--font-display)',
-        fontWeight: 'var(--weight-display)',
-        fontSize: 13,
-        letterSpacing: '-0.01em',
-        color: 'var(--text-primary)',
-      }}>
-        Watchlist
-      </div>
+  const reset = useCallback(() => {
+    setFilters({ ...EMPTY_STOCK_FILTERS });
+    setActivePreset("all");
+  }, []);
 
-      <div className="screener-watchlist-cards" style={{
-        display: 'flex', gap: 10, flexWrap: 'wrap',
-      }}>
-        {items.map((s) => {
-          const pos = s.day_change_pct >= 0;
+  const applyPreset = useCallback(
+    (p: (typeof STOCK_PRESETS)[number]) => {
+      setFilters({ ...EMPTY_STOCK_FILTERS, ...p.set() });
+      setActivePreset(p.id);
+    },
+    [],
+  );
+
+  const toggleSort = useCallback((key: ScreenerSortBy) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === -1 ? 1 : -1 }
+        : { key, dir: -1 },
+    );
+  }, []);
+
+  const activeFilterCount =
+    (filters.sector ? 1 : 0) +
+    (filters.mcap_tier ? 1 : 0) +
+    (filters.pe_max !== "" ? 1 : 0) +
+    (filters.roe_min !== "" ? 1 : 0);
+
+  const sectorLabel = (key: string): string =>
+    sectors.find((s) => s.sector === key)?.label ?? prettySector(key);
+
+  const rail = (
+    <StockFilterRail
+      filters={filters}
+      setFilter={setFilter}
+      reset={reset}
+      sectors={sectors}
+      mobileOpen={mobileFiltersOpen}
+      onMobileClose={() => setMobileFiltersOpen(() => false)}
+      resultCount={rows.length}
+    />
+  );
+
+  return (
+    <>
+      <TitleRow
+        screenId={screenId}
+        onSwitchScreen={onSwitchScreen}
+        activeFilterCount={activeFilterCount}
+        mobileFiltersOpen={mobileFiltersOpen}
+        setMobileFiltersOpen={setMobileFiltersOpen}
+        subhead={
+          loading ? (
+            <span>Loading stocks…</span>
+          ) : error ? (
+            <span style={{ color: "var(--color-loss)" }}>Couldn&apos;t load stocks</span>
+          ) : (
+            <>
+              <span
+                style={{
+                  color: "var(--text-primary)",
+                  fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+                }}
+              >
+                {rows.length}
+              </span>{" "}
+              stock{rows.length === 1 ? "" : "s"} match
+              {activeFilterCount > 0 &&
+                ` · ${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} active`}
+            </>
+          )
+        }
+      />
+
+      {/* Prominent search across the FULL universe */}
+      <StockSearchBox
+        onPick={(hit) => {
+          // Selecting a search result narrows the rail to its sector so the
+          // table scopes to where that name lives (the grid is a curated
+          // subset; search explores everything).
+          if (hit.sector) setFilter("sector", hit.sector);
+        }}
+        sectorLabel={(key) => sectorLabel(key)}
+      />
+
+      {/* Preset chips */}
+      <div
+        className="screener-presets"
+        style={{
+          padding: "0 32px 14px",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+          flexShrink: 0,
+        }}
+      >
+        {STOCK_PRESETS.map((p) => {
+          const active = activePreset === p.id;
           return (
-            <div
-              key={s.ticker}
+            <button
+              key={p.id}
+              onClick={() => applyPreset(p)}
               style={{
-                minWidth: 160,
-                padding: '12px 14px',
-                background: 'var(--bg-secondary)',
-                border: 'none',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex', flexDirection: 'column', gap: 6,
-                cursor: 'default',
-                transition: 'background-color 0.2s var(--ease-quartr)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--bg-elevated)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--bg-secondary)';
+                padding: "6px 12px",
+                background: active ? "var(--text-primary)" : "transparent",
+                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
+                borderRadius: "var(--radius-pill)",
+                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+                cursor: "pointer",
+                transition: "all 0.2s var(--ease-quartr)",
               }}
             >
-              <div style={{
-                fontFamily: 'var(--font-ui)',
-                fontSize: 12,
-                fontWeight: 'var(--weight-medium)',
-                color: 'var(--text-primary)',
-              }}>
-                {s.ticker}
-              </div>
-              <div style={{
-                display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8,
-              }}>
-                <span style={{
-                  fontFamily: 'var(--font-display)',
-                  fontWeight: 'var(--weight-medium)',
-                  fontSize: 15,
-                  color: 'var(--text-primary)',
-                  fontVariantNumeric: 'tabular-nums',
-                  letterSpacing: '-0.01em',
-                }}>
-                  {fmtINR(s.last)}
-                </span>
-                <span style={{
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 11.5,
-                  fontWeight: 'var(--weight-medium)',
-                  color: pos ? 'var(--color-profit)' : 'var(--color-loss)',
-                  fontVariantNumeric: 'tabular-nums',
-                }}>
-                  {pos ? '+' : ''}{s.day_change_pct.toFixed(2)}%
-                </span>
-              </div>
-            </div>
+              {p.label}
+            </button>
           );
         })}
+      </div>
+
+      <div
+        className="screener-body"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "grid",
+          gridTemplateColumns: "260px minmax(0, 1fr)",
+          gap: 16,
+          padding: "0 32px 24px",
+        }}
+      >
+        {mobileFiltersOpen && (
+          <div
+            className="screener-filter-backdrop"
+            onClick={() => setMobileFiltersOpen(() => false)}
+            aria-hidden="true"
+          />
+        )}
+        {rail}
+
+        <StockResultsTable
+          rows={displayRows}
+          loading={loading}
+          error={error}
+          note={note}
+          sort={sort}
+          onSort={toggleSort}
+          sectorLabel={sectorLabel}
+          onResetFilters={reset}
+          hasFilters={activeFilterCount > 0}
+        />
+      </div>
+    </>
+  );
+}
+
+function sortValue(row: ScreenerStock, key: ScreenerSortBy): number | string | null {
+  if (key === "symbol") return row.symbol;
+  if (key === "name") return row.name;
+  if (key === "pe") return row.pe;
+  if (key === "roe") return row.roe;
+  return row.market_cap_cr;
+}
+
+// ── Stock search box (debounced, full universe) ───────────
+function StockSearchBox({
+  onPick,
+  sectorLabel,
+}: {
+  onPick: (hit: ScreenerSearchResult) => void;
+  sectorLabel: (key: string) => string;
+}): React.ReactElement {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<ScreenerSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+
+  // Debounced search.
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 1) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      searchScreener(term, 15, ctrl.signal).then((res) => {
+        if (ctrl.signal.aborted) return;
+        if (isError(res)) {
+          if (res.error.code !== "aborted") setResults([]);
+        } else {
+          setResults(res.data.results);
+        }
+        setSearching(false);
+      });
+    }, 220);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q]);
+
+  // Dismiss on outside click.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const pick = (hit: ScreenerSearchResult) => {
+    onPick(hit);
+    setQ("");
+    setResults([]);
+    setOpen(false);
+  };
+
+  const showDropdown = open && q.trim().length > 0;
+
+  return (
+    <div
+      className="screener-search"
+      style={{ padding: "0 32px 14px", flexShrink: 0 }}
+    >
+      <div ref={boxRef} style={{ position: "relative", maxWidth: 520 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "0 14px",
+            height: 40,
+            background: "var(--bg-primary)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-pill)",
+            transition: "border-color 0.2s var(--ease-quartr)",
+          }}
+        >
+          <Search size={16} strokeWidth={2} color="var(--text-tertiary)" aria-hidden="true" />
+          <input
+            type="text"
+            value={q}
+            placeholder="Search all stocks by name or symbol…"
+            onChange={(e) => {
+              setQ(e.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            aria-label="Search all stocks"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-ui)",
+              fontSize: 13.5,
+            }}
+          />
+          {searching ? (
+            <Loader2
+              size={15}
+              className="animate-spin"
+              color="var(--text-tertiary)"
+              aria-hidden="true"
+            />
+          ) : q.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQ("");
+                setResults([]);
+              }}
+              aria-label="Clear search"
+              style={{
+                display: "inline-flex",
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                color: "var(--text-tertiary)",
+              }}
+            >
+              <X size={15} strokeWidth={2} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+
+        {showDropdown && (
+          <div
+            role="listbox"
+            className="quartr-no-scrollbar"
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              left: 0,
+              right: 0,
+              zIndex: 20,
+              maxHeight: 340,
+              overflowY: "auto",
+              background: "var(--bg-elevated, var(--bg-primary))",
+              border: "1px solid var(--glass-border)",
+              borderRadius: "var(--radius-md)",
+              boxShadow: "0 12px 40px -8px rgba(0,0,0,0.35)",
+              padding: 6,
+            }}
+          >
+            {searching && results.length === 0 ? (
+              <div
+                style={{
+                  padding: "16px 12px",
+                  fontSize: 12.5,
+                  color: "var(--text-tertiary)",
+                  fontFamily: "var(--font-ui)",
+                }}
+              >
+                Searching…
+              </div>
+            ) : results.length === 0 ? (
+              <div
+                style={{
+                  padding: "16px 12px",
+                  fontSize: 12.5,
+                  color: "var(--text-tertiary)",
+                  fontFamily: "var(--font-ui)",
+                }}
+              >
+                No matches for &ldquo;{q.trim()}&rdquo;
+              </div>
+            ) : (
+              results.map((hit) => (
+                <button
+                  key={hit.symbol}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => pick(hit)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "8px 10px",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "var(--radius-sm)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <CompanyLogo
+                    logoUrl={hit.logo_url}
+                    name={hit.name}
+                    symbol={hit.symbol}
+                    hue={sectorHue(hit.sector)}
+                    size={32}
+                  />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "var(--font-ui)",
+                          fontSize: 13,
+                          fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        {hit.symbol}
+                      </span>
+                      {hit.has_fundamentals && (
+                        <span
+                          style={{
+                            fontSize: 9,
+                            color: "var(--text-tertiary)",
+                            fontFamily: "var(--font-mono)",
+                            letterSpacing: "0.06em",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          Fundamentals
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "var(--font-ui)",
+                        fontSize: 11.5,
+                        color: "var(--text-tertiary)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {hit.name}
+                      {hit.sector ? ` · ${sectorLabel(hit.sector)}` : ""}
+                    </div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Filter rail ──────────────────────────────────────────
-function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobileOpen, onMobileClose, resultCount }) {
-  // Portals need the DOM — only mount the sheet client-side.
+// ── Stock filter rail (single-select sector + mcap tier + valuation) ──
+type StockColumn = {
+  id: ScreenerSortBy | "div_yield" | "one_year_pct";
+  label: string;
+  align: Align;
+  sortable: boolean;
+};
+
+const STOCK_COLUMNS: StockColumn[] = [
+  { id: "symbol", label: "Symbol", align: "left", sortable: true },
+  { id: "market_cap_cr", label: "Mkt Cap", align: "right", sortable: true },
+  { id: "pe", label: "P/E", align: "right", sortable: true },
+  { id: "roe", label: "ROE", align: "right", sortable: true },
+  { id: "div_yield", label: "Div Yield", align: "right", sortable: false },
+  { id: "one_year_pct", label: "1-Y Return", align: "right", sortable: false },
+];
+
+function StockFilterRail({
+  filters,
+  setFilter,
+  reset,
+  sectors,
+  mobileOpen,
+  onMobileClose,
+  resultCount,
+}: {
+  filters: StockFilters;
+  setFilter: <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => void;
+  reset: () => void;
+  sectors: ScreenerSector[];
+  mobileOpen: boolean;
+  onMobileClose: () => void;
+  resultCount: number;
+}): React.ReactElement {
   const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => setMounted(true), []);
 
   const headerEl = (
-    <div className="screener-filter-header" style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    }}>
-      <div style={{
-        fontFamily: 'var(--font-display)',
-        fontWeight: 'var(--weight-display)',
-        fontSize: 15,
-        color: 'var(--text-primary)',
-        letterSpacing: '-0.01em',
-      }}>
+    <div
+      className="screener-filter-header"
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: "var(--weight-display)" as React.CSSProperties["fontWeight"],
+          fontSize: 15,
+          color: "var(--text-primary)",
+          letterSpacing: "-0.01em",
+        }}
+      >
         Filters
       </div>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-        <button onClick={reset} style={{
-          background: 'transparent',
-          border: 'none',
-          padding: 0,
-          cursor: 'pointer',
-          fontFamily: 'var(--font-ui)',
-          fontSize: 12,
-          color: 'var(--text-tertiary)',
-        }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={reset}
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            fontFamily: "var(--font-ui)",
+            fontSize: 12,
+            color: "var(--text-tertiary)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--text-primary)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--text-tertiary)";
+          }}
         >
           Reset
         </button>
-        {/* Mobile-only close — the sheet's dismiss affordance. CSS hides
-            it on the desktop in-grid rail. */}
         <button
           type="button"
           className="screener-filter-close"
           onClick={onMobileClose}
           aria-label="Hide filters"
           style={{
-            display: 'none',
-            width: 28, height: 28,
-            alignItems: 'center', justifyContent: 'center',
-            background: 'transparent',
-            border: 'none',
-            borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
+            display: "none",
+            width: 28,
+            height: 28,
+            alignItems: "center",
+            justifyContent: "center",
+            background: "transparent",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--text-secondary)",
+            cursor: "pointer",
           }}
         >
           <X size={16} strokeWidth={2} aria-hidden="true" />
@@ -605,165 +1065,112 @@ function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobil
 
   const groupsEl = (
     <>
-      {screenId === 'stocks' && (
-        <>
-          <FilterGroup label="Sector">
-            <ChipMulti
-              options={SECTORS}
-              selected={filters.sectors}
-              onToggle={(v) => toggleListItem('sectors', v)}
-            />
-          </FilterGroup>
+      <FilterGroup label="Sector">
+        {sectors.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+            Loading sectors…
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {sectors.map((s) => {
+              const active = filters.sector === s.sector;
+              return (
+                <ChipButton
+                  key={s.sector}
+                  active={active}
+                  onClick={() => setFilter("sector", active ? "" : s.sector)}
+                >
+                  {s.label}
+                  <span
+                    style={{
+                      marginLeft: 5,
+                      opacity: 0.6,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {s.count}
+                  </span>
+                </ChipButton>
+              );
+            })}
+          </div>
+        )}
+      </FilterGroup>
 
-          <FilterGroup label="Market cap (₹ Cr)">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              <NumInput value={filters.mcap_min} onChange={(v) => setFilter('mcap_min', v)} placeholder="Min" />
-              <NumInput value={filters.mcap_max} onChange={(v) => setFilter('mcap_max', v)} placeholder="Max" />
-            </div>
-            <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-              {MARKET_CAP_TIERS.map(([id, label, lo, hi]) => {
-                // Highlight the tier whose bounds match the current min/max,
-                // however they were set (chip click or typed), so the quick
-                // buttons read as a selected toggle rather than fire-and-forget.
-                const expMin = lo === 0 ? '' : lo;
-                const expMax = hi === Infinity ? '' : hi;
-                const active = String(filters.mcap_min) === String(expMin)
-                  && String(filters.mcap_max) === String(expMax);
-                return (
-                  <button key={id} onClick={() => {
-                    if (active) {
-                      // Clicking the already-selected tier toggles it off.
-                      setFilter('mcap_min', '');
-                      setFilter('mcap_max', '');
-                    } else {
-                      setFilter('mcap_min', expMin);
-                      setFilter('mcap_max', expMax);
-                    }
-                  }} style={{
-                    ...tierBtnStyle,
-                    background: active ? 'var(--text-primary)' : 'transparent',
-                    borderColor: active ? 'var(--text-primary)' : 'var(--glass-border)',
-                    color: active ? 'var(--bg-primary)' : 'var(--text-tertiary)',
-                  }}>
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </FilterGroup>
+      <FilterGroup label="Market cap">
+        <div style={{ display: "flex", gap: 4 }}>
+          {MARKET_CAP_TIERS.map((tierDef) => {
+            const id = String(tierDef[0]);
+            const label = String(tierDef[1]);
+            const tier = id as ScreenerMcapTier;
+            const active = filters.mcap_tier === tier;
+            return (
+              <button
+                key={id}
+                onClick={() => setFilter("mcap_tier", active ? "" : tier)}
+                style={{
+                  ...tierBtnStyle,
+                  background: active ? "var(--text-primary)" : "transparent",
+                  borderColor: active ? "var(--text-primary)" : "var(--glass-border)",
+                  color: active ? "var(--bg-primary)" : "var(--text-tertiary)",
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </FilterGroup>
 
-          <FilterGroup label="Valuation">
-            <Row label="Max P/E"><NumInput value={filters.pe_max} onChange={(v) => setFilter('pe_max', v)} placeholder="—" /></Row>
-          </FilterGroup>
+      <FilterGroup label="Valuation">
+        <Row label="Max P/E">
+          <NumInput
+            value={filters.pe_max}
+            onChange={(v) => setFilter("pe_max", v)}
+            placeholder="—"
+          />
+        </Row>
+      </FilterGroup>
 
-          <FilterGroup label="Quality">
-            <Row label="Min ROE %"><NumInput value={filters.roe_min} onChange={(v) => setFilter('roe_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
+      <FilterGroup label="Quality">
+        <Row label="Min ROE %">
+          <NumInput
+            value={filters.roe_min}
+            onChange={(v) => setFilter("roe_min", v)}
+            placeholder="—"
+          />
+        </Row>
+      </FilterGroup>
 
-          <FilterGroup label="Income">
-            <Row label="Min Div yield %"><NumInput value={filters.dy_min} onChange={(v) => setFilter('dy_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
-
-          <FilterGroup label="Momentum">
-            <Row label="Min 1-Y return %"><NumInput value={filters.ret_min} onChange={(v) => setFilter('ret_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
-        </>
-      )}
-
-      {screenId === 'etfs' && (
-        <>
-          <FilterGroup label="Category">
-            <ChipMulti
-              options={ETF_CATEGORIES}
-              selected={filters.categories}
-              onToggle={(v) => toggleListItem('categories', v)}
-            />
-          </FilterGroup>
-
-          <FilterGroup label="AUM (₹ Cr)">
-            <Row label="Min AUM"><NumInput value={filters.aum_min} onChange={(v) => setFilter('aum_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
-
-          <FilterGroup label="Cost">
-            <Row label="Max expense %"><NumInput value={filters.exp_max} onChange={(v) => setFilter('exp_max', v)} placeholder="—" /></Row>
-          </FilterGroup>
-
-          <FilterGroup label="Performance">
-            <Row label="Min 1-Y return %"><NumInput value={filters.ret_min} onChange={(v) => setFilter('ret_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
-        </>
-      )}
-
-      {screenId === 'indices' && (
-        <>
-          <FilterGroup label="Category">
-            <ChipMulti
-              options={INDEX_CATEGORIES}
-              selected={filters.categories}
-              onToggle={(v) => toggleListItem('categories', v)}
-            />
-          </FilterGroup>
-
-          <FilterGroup label="Today">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              <NumInput value={filters.day_min} onChange={(v) => setFilter('day_min', v)} placeholder="Min %" />
-              <NumInput value={filters.day_max} onChange={(v) => setFilter('day_max', v)} placeholder="Max %" />
-            </div>
-          </FilterGroup>
-
-          <FilterGroup label="Year-to-date">
-            <Row label="Min YTD %"><NumInput value={filters.ytd_min} onChange={(v) => setFilter('ytd_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
-        </>
-      )}
-
-      {screenId === 'funds' && (
-        <>
-          <FilterGroup label="Category">
-            <ChipMulti
-              options={FUND_CATEGORIES}
-              selected={filters.categories}
-              onToggle={(v) => toggleListItem('categories', v)}
-            />
-          </FilterGroup>
-
-          <FilterGroup label="AUM (₹ Cr)">
-            <Row label="Min AUM"><NumInput value={filters.aum_min} onChange={(v) => setFilter('aum_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
-
-          <FilterGroup label="Cost">
-            <Row label="Max expense %"><NumInput value={filters.exp_max} onChange={(v) => setFilter('exp_max', v)} placeholder="—" /></Row>
-          </FilterGroup>
-
-          <FilterGroup label="Performance">
-            <Row label="Min 3-Y CAGR %"><NumInput value={filters.three_y_min} onChange={(v) => setFilter('three_y_min', v)} placeholder="—" /></Row>
-            <Row label="Min 5-Y CAGR %"><NumInput value={filters.five_y_min} onChange={(v) => setFilter('five_y_min', v)} placeholder="—" /></Row>
-          </FilterGroup>
-        </>
-      )}
+      <div
+        style={{
+          fontSize: 10.5,
+          lineHeight: 1.5,
+          color: "var(--text-tertiary)",
+          marginTop: 2,
+        }}
+      >
+        Dividend yield and 1-year return aren&apos;t served on the screener grid
+        — use the company page for those.
+      </div>
     </>
   );
 
-  // Mobile: portal a bottom sheet to <body> so an ancestor `transform`
-  // can't trap position:fixed (the in-grid rail otherwise anchors mid-page
-  // and the scrim fails to cover the viewport). This is the same reason
-  // the agent editor renders its overlay at the root.
   if (mobileOpen && mounted) {
     return createPortal(
-      <div className="screener-sheet-overlay" role="dialog" aria-modal="true" aria-label="Filters">
+      <div
+        className="screener-sheet-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Filters"
+      >
         <div className="screener-filter-backdrop" onClick={onMobileClose} aria-hidden="true" />
         <aside className="screener-filter-sheet">
           <div className="screener-sheet-handle" aria-hidden="true" />
           {headerEl}
-          <div className="screener-sheet-body quartr-no-scrollbar">
-            {groupsEl}
-          </div>
-          <button
-            type="button"
-            className="screener-sheet-apply"
-            onClick={onMobileClose}
-          >
-            Show {resultCount} {resultCount === 1 ? 'result' : 'results'}
+          <div className="screener-sheet-body quartr-no-scrollbar">{groupsEl}</div>
+          <button type="button" className="screener-sheet-apply" onClick={onMobileClose}>
+            Show {resultCount} {resultCount === 1 ? "result" : "results"}
           </button>
         </aside>
       </div>,
@@ -771,22 +1178,20 @@ function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobil
     );
   }
 
-  // Desktop / collapsed: in-grid rail (CSS hides it at <lg).
   return (
     <aside
       id="screener-filter-rail"
       className="screener-filter-rail quartr-no-scrollbar"
       style={{
         minHeight: 0,
-        // Scroll inside its own column so the lower filters (Momentum …)
-        // are always reachable instead of being clipped by the page's
-        // overflow:hidden when the rail is taller than the viewport.
-        overflowY: 'auto',
-        background: 'var(--bg-primary)',
-        border: 'none',
-        borderRadius: 'var(--radius-md)',
+        overflowY: "auto",
+        background: "var(--bg-primary)",
+        border: "none",
+        borderRadius: "var(--radius-md)",
         padding: 16,
-        display: 'flex', flexDirection: 'column', gap: 13,
+        display: "flex",
+        flexDirection: "column",
+        gap: 13,
       }}
     >
       {headerEl}
@@ -795,45 +1200,669 @@ function FilterRail({ screenId, filters, setFilter, toggleListItem, reset, mobil
   );
 }
 
-// ── Brand glyph ──────────────────────────────────────────
-// A small rounded "logo" tile holding the first initial, tinted by
-// sector/category. Mirrors the larger glyph on the stock detail page so
-// the screener reads as the same product. We have no real logo art, so
-// this reserves a clean, consistent space where a logo would sit.
-function brandGlyphHue(key) {
-  if (!key) return '#94a3b8';
-  const s = String(key).toLowerCase();
-  if (s.includes('bank') || s.includes('financ') || s.includes('nbfc')) return '#60a5fa';
-  if (s.includes('tech') || s.includes('it') || s.includes('software')) return '#a78bfa';
-  if (s.includes('energy') || s.includes('oil')) return '#f97316';
-  if (s.includes('pharma') || s.includes('health')) return '#10b981';
-  if (s.includes('auto')) return '#facc15';
-  if (s.includes('fmcg') || s.includes('consumer')) return '#34d399';
-  if (s.includes('metal')) return '#f472b6';
-  if (s.includes('telecom')) return '#22d3ee';
-  if (s.includes('cement')) return '#a8a29e';
-  if (s.includes('gold')) return '#eab308';
-  if (s.includes('debt')) return '#38bdf8';
-  return '#94a3b8';
+// ── Stock results table ──────────────────────────────────
+function StockResultsTable({
+  rows,
+  loading,
+  error,
+  note,
+  sort,
+  onSort,
+  sectorLabel,
+  onResetFilters,
+  hasFilters,
+}: {
+  rows: ScreenerStock[];
+  loading: boolean;
+  error: string | null;
+  note: string;
+  sort: StockSort;
+  onSort: (key: ScreenerSortBy) => void;
+  sectorLabel: (key: string) => string;
+  onResetFilters: () => void;
+  hasFilters: boolean;
+}): React.ReactElement {
+  return (
+    <div
+      className="screener-results quartr-no-scrollbar"
+      style={{
+        minHeight: 0,
+        overflowY: "auto",
+        overflowX: "auto",
+        background: "var(--bg-base)",
+        border: "none",
+        borderRadius: "var(--radius-md)",
+      }}
+    >
+      <table
+        className="screener-table"
+        style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}
+      >
+        <thead style={{ position: "sticky", top: 0, background: "var(--bg-secondary)", zIndex: 1 }}>
+          <tr>
+            {STOCK_COLUMNS.map((c) => {
+              const active = c.sortable && sort.key === c.id;
+              return (
+                <th
+                  key={c.id}
+                  onClick={() => c.sortable && onSort(c.id as ScreenerSortBy)}
+                  style={{
+                    ...th,
+                    textAlign: c.align,
+                    color: active ? "var(--text-primary)" : "var(--text-tertiary)",
+                    cursor: c.sortable ? "pointer" : "default",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (c.sortable && !active) e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (c.sortable && !active) e.currentTarget.style.color = "var(--text-tertiary)";
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      flexDirection: c.align === "right" ? "row-reverse" : "row",
+                    }}
+                  >
+                    {c.sortable && (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          lineHeight: 0,
+                          opacity: active ? 1 : 0.45,
+                          transition: "opacity 0.15s var(--ease-quartr)",
+                        }}
+                      >
+                        {!active ? (
+                          <ChevronsUpDown size={13} strokeWidth={2.5} aria-hidden="true" />
+                        ) : sort.dir < 0 ? (
+                          <ChevronDown size={13} strokeWidth={2.75} aria-hidden="true" />
+                        ) : (
+                          <ChevronUp size={13} strokeWidth={2.75} aria-hidden="true" />
+                        )}
+                      </span>
+                    )}
+                    {c.label}
+                  </span>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <SkeletonRows cols={STOCK_COLUMNS.length} />
+          ) : error ? (
+            <tr>
+              <td
+                colSpan={STOCK_COLUMNS.length}
+                style={{ padding: "44px 18px", textAlign: "center" }}
+              >
+                <div style={{ color: "var(--color-loss)", fontSize: 13, marginBottom: 6 }}>
+                  {error}
+                </div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
+                  Check your connection and try again.
+                </div>
+              </td>
+            </tr>
+          ) : rows.length === 0 ? (
+            <tr>
+              <td
+                colSpan={STOCK_COLUMNS.length}
+                style={{ padding: "44px 18px", textAlign: "center" }}
+              >
+                <div style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 8 }}>
+                  Nothing matches your filters.
+                </div>
+                {hasFilters && (
+                  <button
+                    type="button"
+                    onClick={onResetFilters}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--glass-border)",
+                      borderRadius: "var(--radius-pill)",
+                      padding: "5px 14px",
+                      color: "var(--text-secondary)",
+                      fontFamily: "var(--font-ui)",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => (
+              <tr
+                key={row.symbol}
+                style={{ background: "transparent", transition: "background-color 0.15s var(--ease-quartr)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-secondary)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                {STOCK_COLUMNS.map((c) => (
+                  <td
+                    key={c.id}
+                    style={{
+                      ...td,
+                      textAlign: c.align,
+                      color: "var(--text-primary)",
+                      fontFamily: c.align === "right" ? "var(--font-mono)" : "var(--font-ui)",
+                    }}
+                  >
+                    {renderStockCell(row, c, sectorLabel)}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+
+      {!loading && !error && note && (
+        <div
+          style={{
+            padding: "12px 16px 18px",
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: "var(--text-tertiary)",
+            fontFamily: "var(--font-ui)",
+          }}
+        >
+          {note}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function BrandGlyph({ label, hueKey }) {
-  const initial = (label || '').trim()[0]?.toUpperCase() ?? '•';
-  const hue = brandGlyphHue(hueKey);
+function renderStockCell(
+  row: ScreenerStock,
+  c: StockColumn,
+  sectorLabel: (key: string) => string,
+): React.ReactNode {
+  switch (c.id) {
+    case "symbol":
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          <CompanyLogo
+            logoUrl={row.logo_url}
+            name={row.name}
+            symbol={row.symbol}
+            hue={sectorHue(row.sector)}
+            size={34}
+          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+            <span
+              style={{
+                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+                whiteSpace: "nowrap",
+              }}
+            >
+              {row.symbol}
+            </span>
+            <span
+              style={{
+                fontSize: 10.5,
+                color: "var(--text-tertiary)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                maxWidth: 220,
+              }}
+            >
+              {sectorLabel(row.sector)}
+            </span>
+          </div>
+        </div>
+      );
+    case "market_cap_cr":
+      return fmtCr(row.market_cap_cr);
+    case "pe":
+      return fmtNum1(row.pe);
+    case "roe":
+      return fmtPct1(row.roe);
+    case "div_yield":
+      return fmtPct(row.div_yield);
+    case "one_year_pct":
+      return fmtPct(row.one_year_pct);
+    default:
+      return "—";
+  }
+}
+
+function SkeletonRows({ cols }: { cols: number }): React.ReactElement {
+  return (
+    <>
+      {Array.from({ length: 10 }).map((_, i) => (
+        <tr key={i}>
+          {Array.from({ length: cols }).map((__, j) => (
+            <td key={j} style={{ ...td }}>
+              <div
+                className="screener-skeleton"
+                style={{
+                  height: j === 0 ? 34 : 12,
+                  width: j === 0 ? "70%" : "55%",
+                  marginLeft: j === 0 ? 0 : "auto",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg-secondary)",
+                }}
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// MOCK screen view (ETFs / Indices / Funds) — preserved behaviour
+// ─────────────────────────────────────────────────────────
+function MockScreenView({
+  screenId,
+  onSwitchScreen,
+  mobileFiltersOpen,
+  setMobileFiltersOpen,
+}: {
+  screenId: ScreenId;
+  onSwitchScreen: (id: ScreenId) => void;
+  mobileFiltersOpen: boolean;
+  setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
+}): React.ReactElement {
+  const screen = MOCK_SCREENS[screenId] ?? MOCK_SCREENS.etfs!;
+  const [filters, setFilters] = useState<MockFilters>(() => cloneFilters(screen.filterShape));
+  const [activePreset, setActivePreset] = useState<string | null>("all");
+  const [sortKey, setSortKey] = useState(screen.defaultSort);
+  const [sortDir, setSortDir] = useState<1 | -1>(-1);
+
+  // Reset filter/sort when the screen changes.
+  useEffect(() => {
+    setFilters(cloneFilters(screen.filterShape));
+    setActivePreset("all");
+    setSortKey(screen.defaultSort);
+    setSortDir(-1);
+  }, [screen]);
+
+  const setFilter = (key: string, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setActivePreset(null);
+  };
+  const toggleListItem = (key: string, value: string) => {
+    setFilters((prev) => {
+      const arr = fa(prev, key);
+      return {
+        ...prev,
+        [key]: arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value],
+      };
+    });
+    setActivePreset(null);
+  };
+  const reset = () => {
+    setFilters(cloneFilters(screen.filterShape));
+    setActivePreset("all");
+  };
+  const applyPreset = (p: MockPreset) => {
+    const merged: MockFilters = { ...cloneFilters(screen.filterShape) };
+    for (const [k, v] of Object.entries(p.set())) {
+      if (v !== undefined) merged[k] = v;
+    }
+    setFilters(merged);
+    setActivePreset(p.id);
+  };
+
+  const results = useMemo(() => {
+    const rows = screen.universe.filter((r) => screen.filterFn(r, filters));
+    return rows.slice().sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (typeof av === "string") return (av || "").localeCompare(String(bv ?? "")) * sortDir;
+      return ((num(av) ?? 0) - (num(bv) ?? 0)) * sortDir;
+    });
+  }, [screen, filters, sortKey, sortDir]);
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir((d) => (d === 1 ? -1 : 1));
+    else {
+      setSortKey(key);
+      setSortDir(-1);
+    }
+  };
+
+  const activeFilterCount = countMockFilters(filters);
+
+  return (
+    <>
+      <TitleRow
+        screenId={screenId}
+        onSwitchScreen={onSwitchScreen}
+        activeFilterCount={activeFilterCount}
+        mobileFiltersOpen={mobileFiltersOpen}
+        setMobileFiltersOpen={setMobileFiltersOpen}
+        subhead={
+          <>
+            <span
+              style={{
+                color: "var(--text-primary)",
+                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+              }}
+            >
+              {results.length}
+            </span>{" "}
+            of {screen.universe.length} {screen.label.toLowerCase()} match
+            {activeFilterCount > 0 &&
+              ` · ${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} active`}
+          </>
+        }
+      />
+
+      <div
+        className="screener-presets"
+        style={{ padding: "0 32px 14px", display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}
+      >
+        {screen.presets.map((p) => {
+          const active = activePreset === p.id;
+          return (
+            <button
+              key={p.id}
+              onClick={() => applyPreset(p)}
+              style={{
+                padding: "6px 12px",
+                background: active ? "var(--text-primary)" : "transparent",
+                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
+                borderRadius: "var(--radius-pill)",
+                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+                cursor: "pointer",
+                transition: "all 0.2s var(--ease-quartr)",
+              }}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        className="screener-body"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "grid",
+          gridTemplateColumns: "260px minmax(0, 1fr)",
+          gap: 16,
+          padding: "0 32px 24px",
+        }}
+      >
+        {mobileFiltersOpen && (
+          <div
+            className="screener-filter-backdrop"
+            onClick={() => setMobileFiltersOpen(() => false)}
+            aria-hidden="true"
+          />
+        )}
+        <MockFilterRail
+          screenId={screenId}
+          filters={filters}
+          setFilter={setFilter}
+          toggleListItem={toggleListItem}
+          reset={reset}
+          mobileOpen={mobileFiltersOpen}
+          onMobileClose={() => setMobileFiltersOpen(() => false)}
+          resultCount={results.length}
+        />
+        <MockResultsTable
+          columns={screen.columns}
+          rows={results}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSort={toggleSort}
+        />
+      </div>
+    </>
+  );
+}
+
+function cloneFilters(shape: MockFilters): MockFilters {
+  const out: MockFilters = {};
+  for (const [k, v] of Object.entries(shape)) out[k] = Array.isArray(v) ? [...v] : v;
+  return out;
+}
+
+function MockFilterRail({
+  screenId,
+  filters,
+  setFilter,
+  toggleListItem,
+  reset,
+  mobileOpen,
+  onMobileClose,
+  resultCount,
+}: {
+  screenId: ScreenId;
+  filters: MockFilters;
+  setFilter: (key: string, value: string) => void;
+  toggleListItem: (key: string, value: string) => void;
+  reset: () => void;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
+  resultCount: number;
+}): React.ReactElement {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const headerEl = (
+    <div
+      className="screener-filter-header"
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: "var(--weight-display)" as React.CSSProperties["fontWeight"],
+          fontSize: 15,
+          color: "var(--text-primary)",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        Filters
+      </div>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={reset}
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            fontFamily: "var(--font-ui)",
+            fontSize: 12,
+            color: "var(--text-tertiary)",
+          }}
+        >
+          Reset
+        </button>
+        <button
+          type="button"
+          className="screener-filter-close"
+          onClick={onMobileClose}
+          aria-label="Hide filters"
+          style={{
+            display: "none",
+            width: 28,
+            height: 28,
+            alignItems: "center",
+            justifyContent: "center",
+            background: "transparent",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--text-secondary)",
+            cursor: "pointer",
+          }}
+        >
+          <X size={16} strokeWidth={2} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+
+  const catFor: Record<string, string[]> = {
+    etfs: ETF_CATEGORIES,
+    indices: INDEX_CATEGORIES,
+    funds: FUND_CATEGORIES,
+  };
+
+  const groupsEl = (
+    <>
+      <FilterGroup label="Category">
+        <ChipMulti
+          options={catFor[screenId] ?? []}
+          selected={(filters.categories as string[]) ?? []}
+          onToggle={(v) => toggleListItem("categories", v)}
+        />
+      </FilterGroup>
+
+      {screenId === "etfs" && (
+        <>
+          <FilterGroup label="AUM (₹ Cr)">
+            <Row label="Min AUM">
+              <NumInput value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} placeholder="—" />
+            </Row>
+          </FilterGroup>
+          <FilterGroup label="Cost">
+            <Row label="Max expense %">
+              <NumInput value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} placeholder="—" />
+            </Row>
+          </FilterGroup>
+          <FilterGroup label="Performance">
+            <Row label="Min 1-Y return %">
+              <NumInput value={String(filters.ret_min)} onChange={(v) => setFilter("ret_min", v)} placeholder="—" />
+            </Row>
+          </FilterGroup>
+        </>
+      )}
+
+      {screenId === "indices" && (
+        <>
+          <FilterGroup label="Today">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              <NumInput value={String(filters.day_min)} onChange={(v) => setFilter("day_min", v)} placeholder="Min %" />
+              <NumInput value={String(filters.day_max)} onChange={(v) => setFilter("day_max", v)} placeholder="Max %" />
+            </div>
+          </FilterGroup>
+          <FilterGroup label="Year-to-date">
+            <Row label="Min YTD %">
+              <NumInput value={String(filters.ytd_min)} onChange={(v) => setFilter("ytd_min", v)} placeholder="—" />
+            </Row>
+          </FilterGroup>
+        </>
+      )}
+
+      {screenId === "funds" && (
+        <>
+          <FilterGroup label="AUM (₹ Cr)">
+            <Row label="Min AUM">
+              <NumInput value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} placeholder="—" />
+            </Row>
+          </FilterGroup>
+          <FilterGroup label="Cost">
+            <Row label="Max expense %">
+              <NumInput value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} placeholder="—" />
+            </Row>
+          </FilterGroup>
+          <FilterGroup label="Performance">
+            <Row label="Min 3-Y CAGR %">
+              <NumInput value={String(filters.three_y_min)} onChange={(v) => setFilter("three_y_min", v)} placeholder="—" />
+            </Row>
+            <Row label="Min 5-Y CAGR %">
+              <NumInput value={String(filters.five_y_min)} onChange={(v) => setFilter("five_y_min", v)} placeholder="—" />
+            </Row>
+          </FilterGroup>
+        </>
+      )}
+    </>
+  );
+
+  if (mobileOpen && mounted) {
+    return createPortal(
+      <div className="screener-sheet-overlay" role="dialog" aria-modal="true" aria-label="Filters">
+        <div className="screener-filter-backdrop" onClick={onMobileClose} aria-hidden="true" />
+        <aside className="screener-filter-sheet">
+          <div className="screener-sheet-handle" aria-hidden="true" />
+          {headerEl}
+          <div className="screener-sheet-body quartr-no-scrollbar">{groupsEl}</div>
+          <button type="button" className="screener-sheet-apply" onClick={onMobileClose}>
+            Show {resultCount} {resultCount === 1 ? "result" : "results"}
+          </button>
+        </aside>
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    <aside
+      id="screener-filter-rail"
+      className="screener-filter-rail quartr-no-scrollbar"
+      style={{
+        minHeight: 0,
+        overflowY: "auto",
+        background: "var(--bg-primary)",
+        border: "none",
+        borderRadius: "var(--radius-md)",
+        padding: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 13,
+      }}
+    >
+      {headerEl}
+      {groupsEl}
+    </aside>
+  );
+}
+
+// Monogram glyph for the mock screens (no real logos for ETFs/indices/funds).
+function BrandGlyph({
+  label,
+  hueKey,
+}: {
+  label: string;
+  hueKey: string | null | undefined;
+}): React.ReactElement {
+  const initial = (label || "").trim()[0]?.toUpperCase() ?? "•";
+  const hue = sectorHue(hueKey);
   return (
     <div
       aria-hidden="true"
       style={{
-        width: 34, height: 34, flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        borderRadius: 'var(--radius-sm)',
-        background: `${hue}22`,   // 13% alpha tint
-        border: 'none',
+        width: 34,
+        height: 34,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "var(--radius-sm)",
+        background: `${hue}22`,
+        border: "none",
         color: hue,
-        fontFamily: 'var(--font-ui)',
+        fontFamily: "var(--font-ui)",
         fontSize: 14,
-        fontWeight: 'var(--weight-medium)',
-        letterSpacing: '-0.02em',
+        fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+        letterSpacing: "-0.02em",
       }}
     >
       {initial}
@@ -841,53 +1870,73 @@ function BrandGlyph({ label, hueKey }) {
   );
 }
 
-// ── Results table ────────────────────────────────────────
-function ResultsTable({ columns, rows, sortKey, sortDir, onSort }) {
+function MockResultsTable({
+  columns,
+  rows,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  columns: MockColumn[];
+  rows: MockRow[];
+  sortKey: string;
+  sortDir: 1 | -1;
+  onSort: (key: string) => void;
+}): React.ReactElement {
   return (
-    <div className="screener-results quartr-no-scrollbar" style={{
-      minHeight: 0,
-      overflowY: 'auto',
-      overflowX: 'auto',
-      background: 'var(--bg-base)',
-      border: 'none',
-      borderRadius: 'var(--radius-md)',
-    }}>
-      <table className="screener-table" style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-ui)' }}>
-        <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', zIndex: 1 }}>
+    <div
+      className="screener-results quartr-no-scrollbar"
+      style={{
+        minHeight: 0,
+        overflowY: "auto",
+        overflowX: "auto",
+        background: "var(--bg-base)",
+        border: "none",
+        borderRadius: "var(--radius-md)",
+      }}
+    >
+      <table
+        className="screener-table"
+        style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}
+      >
+        <thead style={{ position: "sticky", top: 0, background: "var(--bg-secondary)", zIndex: 1 }}>
           <tr>
             {columns.map((c) => {
               const active = sortKey === c.id;
               return (
-                <th key={c.id}
+                <th
+                  key={c.id}
                   onClick={() => onSort(c.id)}
                   style={{
                     ...th,
                     textAlign: c.align,
-                    color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                    cursor: 'pointer',
+                    color: active ? "var(--text-primary)" : "var(--text-tertiary)",
+                    cursor: "pointer",
                   }}
-                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = 'var(--text-tertiary)'; }}
                 >
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                  }}>
-                    {/* Sort icon sits to the left of the label on every
-                        column. Active column shows its current direction;
-                        inactive columns keep a faint up/down chevron pair so
-                        every header reads as sortable. */}
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      lineHeight: 0,
-                      opacity: active ? 1 : 0.45,
-                      transition: 'opacity 0.15s var(--ease-quartr)',
-                    }}>
-                      {!active
-                        ? <ChevronsUpDown size={13} strokeWidth={2.5} aria-hidden="true" />
-                        : sortDir < 0
-                          ? <ChevronDown size={13} strokeWidth={2.75} aria-hidden="true" />
-                          : <ChevronUp size={13} strokeWidth={2.75} aria-hidden="true" />}
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      flexDirection: c.align === "right" ? "row-reverse" : "row",
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        lineHeight: 0,
+                        opacity: active ? 1 : 0.45,
+                      }}
+                    >
+                      {!active ? (
+                        <ChevronsUpDown size={13} strokeWidth={2.5} aria-hidden="true" />
+                      ) : sortDir < 0 ? (
+                        <ChevronDown size={13} strokeWidth={2.75} aria-hidden="true" />
+                      ) : (
+                        <ChevronUp size={13} strokeWidth={2.75} aria-hidden="true" />
+                      )}
                     </span>
                     {c.label}
                   </span>
@@ -899,123 +1948,162 @@ function ResultsTable({ columns, rows, sortKey, sortDir, onSort }) {
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} style={{
-                padding: '40px 18px',
-                textAlign: 'center',
-                color: 'var(--text-secondary)',
-                fontSize: 13,
-              }}>
+              <td
+                colSpan={columns.length}
+                style={{ padding: "40px 18px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}
+              >
                 Nothing matches your filters.
               </td>
             </tr>
-          ) : rows.map((row, i) => (
-            <tr key={row.ticker || row.name}
-              style={{
-                background: 'transparent',
-                transition: 'background-color 0.15s var(--ease-quartr)',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              {columns.map((c) => {
-                const v = row[c.id];
-                let cellColor = 'var(--text-primary)';
-                let display;
-
-                if (c.type === 'ticker') {
-                  display = (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <BrandGlyph label={row.ticker} hueKey={row.sector || row.category} />
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 'var(--weight-medium)' }}>{row.ticker}</span>
-                        {row.exch && (
-                          <span style={{
-                            fontSize: 9,
-                            color: 'var(--text-tertiary)',
-                            fontFamily: 'var(--font-mono)',
-                            letterSpacing: '0.06em',
-                          }}>{row.exch}</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                } else if (c.type === 'ticker_plain') {
-                  display = (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <BrandGlyph label={row.ticker} hueKey={row.category} />
-                      <span style={{ fontWeight: 'var(--weight-medium)' }}>{row.ticker}</span>
-                    </div>
-                  );
-                } else if (c.type === 'fund') {
-                  display = (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                      <BrandGlyph label={row.name} hueKey={row.category} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                        <span style={{
-                          fontWeight: 'var(--weight-medium)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}>
-                          {row.name}
-                        </span>
-                        <span style={{
-                          fontSize: 10.5,
-                          color: 'var(--text-tertiary)',
-                          fontFamily: 'var(--font-mono)',
-                          letterSpacing: '0.06em',
-                        }}>
-                          {row.ticker}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                } else if (c.type === 'text') {
-                  display = <span style={{ color: 'var(--text-secondary)' }}>{v ?? '—'}</span>;
-                } else if (c.type === 'pct') {
-                  if (v == null) {
-                    display = '—';
-                  } else {
-                    const isPos = v >= 0;
-                    cellColor = isPos ? 'var(--color-profit)' : 'var(--color-loss)';
-                    display = `${isPos ? '+' : ''}${v.toFixed(2)}%`;
-                  }
-                } else if (c.fmt) {
-                  display = c.fmt(v);
-                } else {
-                  display = v == null ? '—' : String(v);
-                }
-
-                return (
-                  <td key={c.id} style={{
-                    ...td,
-                    textAlign: c.align,
-                    color: cellColor,
-                    fontFamily: c.align === 'right' ? 'var(--font-mono)' : 'var(--font-ui)',
-                  }}>
-                    {display}
+          ) : (
+            rows.map((row) => (
+              <tr
+                key={String(row.ticker ?? row.name)}
+                style={{ background: "transparent", transition: "background-color 0.15s var(--ease-quartr)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-secondary)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                {columns.map((c) => (
+                  <td
+                    key={c.id}
+                    style={{
+                      ...td,
+                      textAlign: c.align,
+                      color: mockCellColor(row, c),
+                      fontFamily: c.align === "right" ? "var(--font-mono)" : "var(--font-ui)",
+                    }}
+                  >
+                    {renderMockCell(row, c)}
                   </td>
-                );
-              })}
-            </tr>
-          ))}
+                ))}
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>
   );
 }
 
-// ── Filter primitives ────────────────────────────────────
-function FilterGroup({ label, children }) {
+function mockCellColor(row: MockRow, c: MockColumn): string {
+  if (c.type === "pct") {
+    const v = row[c.id];
+    if (v == null) return "var(--text-primary)";
+    return num(v) >= 0 ? "var(--color-profit)" : "var(--color-loss)";
+  }
+  if (c.type === "text") return "var(--text-secondary)";
+  return "var(--text-primary)";
+}
+
+function renderMockCell(row: MockRow, c: MockColumn): React.ReactNode {
+  const v = row[c.id];
+  if (c.type === "ticker") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <BrandGlyph label={String(row.ticker)} hueKey={String(row.sector ?? row.category ?? "")} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"] }}>
+            {String(row.ticker)}
+          </span>
+          {row.exch != null && (
+            <span
+              style={{
+                fontSize: 9,
+                color: "var(--text-tertiary)",
+                fontFamily: "var(--font-mono)",
+                letterSpacing: "0.06em",
+              }}
+            >
+              {String(row.exch)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (c.type === "ticker_plain") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <BrandGlyph label={String(row.ticker)} hueKey={String(row.category ?? "")} />
+        <span style={{ fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"] }}>
+          {String(row.ticker)}
+        </span>
+      </div>
+    );
+  }
+  if (c.type === "fund") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+        <BrandGlyph label={String(row.name)} hueKey={String(row.category ?? "")} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+          <span
+            style={{
+              fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {String(row.name)}
+          </span>
+          <span
+            style={{
+              fontSize: 10.5,
+              color: "var(--text-tertiary)",
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.06em",
+            }}
+          >
+            {String(row.ticker)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+  if (c.type === "text") return <span>{v == null ? "—" : String(v)}</span>;
+  if (c.type === "pct") {
+    if (v == null) return "—";
+    const n = num(v);
+    return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+  }
+  if (c.fmt) return v == null ? "—" : c.fmt(num(v));
+  return v == null ? "—" : String(v);
+}
+
+function countMockFilters(f: MockFilters): number {
+  let n = 0;
+  for (const v of Object.values(f)) {
+    if (Array.isArray(v)) {
+      if (v.length > 0) n++;
+    } else if (v !== "" && v != null) n++;
+  }
+  if (f.day_min !== "" && f.day_max !== "") n--;
+  return Math.max(0, n);
+}
+
+// ── Filter primitives (shared) ────────────────────────────
+function FilterGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}): React.ReactElement {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{
-        fontSize: 10,
-        color: 'var(--text-tertiary)',
-        fontWeight: 'var(--weight-medium)',
-        letterSpacing: '0.08em',
-        textTransform: 'uppercase',
-      }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: "var(--text-tertiary)",
+          fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+        }}
+      >
         {label}
       </div>
       {children}
@@ -1023,138 +2111,154 @@ function FilterGroup({ label, children }) {
   );
 }
 
-function Row({ label, children }) {
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}): React.ReactElement {
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 80px',
-      alignItems: 'center',
-      gap: 10,
-    }}>
-      <span style={{
-        fontSize: 12,
-        color: 'var(--text-secondary)',
-      }}>{label}</span>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", alignItems: "center", gap: 10 }}>
+      <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{label}</span>
       {children}
     </div>
   );
 }
 
-function ChipMulti({ options, selected, onToggle }) {
+function ChipButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}): React.ReactElement {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-      {options.map((o) => {
-        const active = selected.includes(o);
-        return (
-          <button
-            key={o}
-            onClick={() => onToggle(o)}
-            style={{
-              padding: '5px 11px',
-              background: active ? 'var(--text-primary)' : 'var(--bg-base)',
-              border: `1px solid ${active ? 'var(--text-primary)' : 'var(--glass-border)'}`,
-              borderRadius: 'var(--radius-pill)',
-              color: active ? 'var(--bg-primary)' : 'var(--text-secondary)',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 11.5,
-              fontWeight: 'var(--weight-medium)',
-              cursor: 'pointer',
-              transition: 'all 0.2s var(--ease-quartr)',
-            }}
-            // Hover lift for unselected chips so the grid feels responsive
-            // rather than flat; selected chips stay solid black.
-            onMouseEnter={(e) => {
-              if (active) return;
-              e.currentTarget.style.borderColor = 'var(--glass-border-focus)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-              e.currentTarget.style.background = 'var(--bg-elevated)';
-            }}
-            onMouseLeave={(e) => {
-              if (active) return;
-              e.currentTarget.style.borderColor = 'var(--glass-border)';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-              e.currentTarget.style.background = 'var(--bg-base)';
-            }}
-          >{o}</button>
-        );
-      })}
+    <button
+      onClick={onClick}
+      style={{
+        padding: "5px 11px",
+        background: active ? "var(--text-primary)" : "var(--bg-base)",
+        border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
+        borderRadius: "var(--radius-pill)",
+        color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+        fontFamily: "var(--font-ui)",
+        fontSize: 11.5,
+        fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+        cursor: "pointer",
+        transition: "all 0.2s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => {
+        if (active) return;
+        e.currentTarget.style.borderColor = "var(--glass-border-focus)";
+        e.currentTarget.style.color = "var(--text-primary)";
+        e.currentTarget.style.background = "var(--bg-elevated)";
+      }}
+      onMouseLeave={(e) => {
+        if (active) return;
+        e.currentTarget.style.borderColor = "var(--glass-border)";
+        e.currentTarget.style.color = "var(--text-secondary)";
+        e.currentTarget.style.background = "var(--bg-base)";
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ChipMulti({
+  options,
+  selected,
+  onToggle,
+}: {
+  options: string[];
+  selected: string[];
+  onToggle: (v: string) => void;
+}): React.ReactElement {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+      {options.map((o) => (
+        <ChipButton key={o} active={selected.includes(o)} onClick={() => onToggle(o)}>
+          {o}
+        </ChipButton>
+      ))}
     </div>
   );
 }
 
-function NumInput({ value, onChange, placeholder }) {
+function NumInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}): React.ReactElement {
   return (
     <input
       type="text"
       inputMode="decimal"
       value={value}
       onChange={(e) => {
-        // Allow digits, one decimal point, and an optional leading minus.
         const v = e.target.value;
-        if (v === '' || /^-?\d*\.?\d*$/.test(v)) onChange(v);
+        if (v === "" || /^-?\d*\.?\d*$/.test(v)) onChange(v);
       }}
       placeholder={placeholder}
       style={{
-        width: '100%',
-        padding: '6px 10px',
-        background: 'var(--bg-base)',
-        border: '1px solid var(--glass-border)',
-        borderRadius: 'var(--radius-sm)',
-        color: 'var(--text-primary)',
-        fontFamily: 'var(--font-mono)',
+        width: "100%",
+        padding: "6px 10px",
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-sm)",
+        color: "var(--text-primary)",
+        fontFamily: "var(--font-mono)",
         fontSize: 12,
-        outline: 'none',
-        textAlign: 'right',
+        outline: "none",
+        textAlign: "right",
       }}
-      onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--glass-border-focus)'; }}
-      onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--glass-border)'; }}
+      onFocus={(e) => {
+        e.currentTarget.style.borderColor = "var(--glass-border-focus)";
+      }}
+      onBlur={(e) => {
+        e.currentTarget.style.borderColor = "var(--glass-border)";
+      }}
     />
   );
 }
 
-const tierBtnStyle = {
+const tierBtnStyle: React.CSSProperties = {
   flex: 1,
-  padding: '4px 0',
-  background: 'transparent',
-  border: '1px solid var(--glass-border)',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--text-tertiary)',
-  fontFamily: 'var(--font-ui)',
+  padding: "5px 0",
+  background: "transparent",
+  border: "1px solid var(--glass-border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--text-tertiary)",
+  fontFamily: "var(--font-ui)",
   fontSize: 10.5,
-  fontWeight: 'var(--weight-medium)',
-  cursor: 'pointer',
-  transition: 'all 0.2s var(--ease-quartr)',
+  fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+  cursor: "pointer",
+  transition: "all 0.2s var(--ease-quartr)",
 };
 
-function countActiveFilters(f) {
-  let n = 0;
-  for (const [k, v] of Object.entries(f)) {
-    if (Array.isArray(v)) { if (v.length > 0) n++; }
-    else if (v !== '' && v != null) n++;
-  }
-  // Treat min+max pairs as a single filter when only one of them is set or
-  // both are. The simple counter above is good enough; collapse mcap pair.
-  if (f.mcap_min !== '' && f.mcap_max !== '') n--;
-  if (f.day_min !== '' && f.day_max !== '') n--;
-  return Math.max(0, n);
-}
-
-const th = {
-  padding: '13px 16px',
+const th: React.CSSProperties = {
+  padding: "13px 16px",
   fontSize: 10,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 'var(--weight-display)',
-  borderBottom: '1.5px solid var(--glass-border)',
-  whiteSpace: 'nowrap',
-  userSelect: 'none',
-  fontFamily: 'var(--font-ui)',
-  transition: 'color 0.15s var(--ease-quartr)',
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  fontWeight: "var(--weight-display)" as React.CSSProperties["fontWeight"],
+  borderBottom: "1.5px solid var(--glass-border)",
+  whiteSpace: "nowrap",
+  userSelect: "none",
+  fontFamily: "var(--font-ui)",
+  transition: "color 0.15s var(--ease-quartr)",
 };
 
-const td = {
-  padding: '14px 16px',
+const td: React.CSSProperties = {
+  padding: "14px 16px",
   fontSize: 12.5,
-  borderBottom: '1px solid var(--glass-border)',
-  whiteSpace: 'nowrap',
+  borderBottom: "1px solid var(--glass-border)",
+  whiteSpace: "nowrap",
 };

@@ -2334,6 +2334,8 @@ async def _register_workflow(a, kt, db, uid):
             .first()
         )
         if wf is None:
+            # Honest boundary: the anchored agent is gone / not owned. Do NOT
+            # silently fall back to creating a duplicate — fail clearly.
             return {"success": False,
                     "error": f"workflow {workflow_id} not found",
                     "data": {}, "logiccard": None}
@@ -2341,7 +2343,53 @@ async def _register_workflow(a, kt, db, uid):
             return {"success": False,
                     "error": "cannot activate an archived workflow",
                     "data": {}, "logiccard": None}
-        if wf.status == WorkflowStatus.active:
+        # "Edit with chat" amendment: when the caller also supplies steps, the
+        # draft was edited — UPDATE this workflow in place (replace
+        # steps/name/description, bump version) before activating, mirroring
+        # PATCH /api/workflows/{id}. Without steps we just (re)activate.
+        amended_steps = a.get("steps")
+        has_amended_steps = isinstance(amended_steps, list) and bool(amended_steps)
+        if has_amended_steps:
+            steps_in = [
+                {
+                    "step_type": s.get("step_type"),
+                    "config": s.get("config") or {},
+                    "label": s.get("label"),
+                }
+                for s in amended_steps if isinstance(s, dict)
+            ]
+            try:
+                _validate_steps(steps_in)
+            except Exception as exc:  # HTTPException from validation_error
+                detail = getattr(exc, "detail", None)
+                msg = (
+                    detail.get("error", {}).get("message")
+                    if isinstance(detail, dict) and isinstance(detail.get("error"), dict)
+                    else str(detail or exc)
+                )
+                return {"success": False,
+                        "error": f"draft failed validation: {str(msg)[:240]}",
+                        "data": {}, "logiccard": None}
+            new_name = a.get("name")
+            if isinstance(new_name, str) and new_name.strip():
+                wf.name = new_name[:120]
+            new_desc = a.get("description")
+            if isinstance(new_desc, str):
+                wf.description = new_desc[:500] or None
+            raw_exp = a.get("expires_at") or a.get("valid_until")
+            if isinstance(raw_exp, str) and raw_exp:
+                from datetime import datetime as _dt
+                try:
+                    wf.expires_at = _dt.fromisoformat(
+                        raw_exp.replace("Z", "+00:00"),
+                    )
+                except ValueError:
+                    pass
+            _replace_steps(db, wf, steps_in)
+            # Bump version per the PATCH contract (runs reference the version
+            # at creation time, so old run rows keep their original steps).
+            wf.version = int(wf.version) + 1
+        elif wf.status == WorkflowStatus.active:
             return {
                 "success": True,
                 "data": {

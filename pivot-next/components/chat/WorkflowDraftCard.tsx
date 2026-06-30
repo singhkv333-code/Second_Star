@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { StepIcon } from "@/components/agent-panel/step-icon";
 import {
   activateWorkflow,
+  updateWorkflow,
   backtestDraftWorkflow,
   createWorkflow,
   runWorkflow,
@@ -62,6 +63,13 @@ export type WorkflowDraft = {
   rationale: string;
   warnings: string[];
   _render_hint: "workflow_draft_card";
+  /**
+   * Edit-target anchor. Set only when this draft is an amendment of an
+   * EXISTING saved workflow ("Edit with chat"): carries that workflow's id
+   * so Save & Activate updates THAT agent in place instead of creating a
+   * brand-new one. Absent for from-scratch drafts built in chat.
+   */
+  workflow_id?: string;
 };
 
 export type WorkflowDraftCardProps = {
@@ -159,25 +167,37 @@ export function WorkflowDraftCard({
 
   const handleSaveAndActivate = async (): Promise<void> => {
     setSaveState({ kind: "saving" });
-    const created = await createWorkflow({
-      name: draft.name,
-      description: draft.description ?? null,
-      single_instance: true,
-      steps: draft.steps.map((s, idx) => ({
-        step_index: idx,
-        step_type: s.step_type,
-        label: s.label,
-        config: s.config,
-      })),
-    });
-    if (isError(created)) {
+    // When the draft is anchored to an existing agent (edited via chat), update
+    // that exact workflow in place instead of registering a duplicate.
+    const saved = draft.workflow_id
+      ? await updateWorkflow(draft.workflow_id, {
+          name: draft.name,
+          description: draft.description ?? null,
+          steps: draft.steps.map((s) => ({
+            step_type: s.step_type,
+            label: s.label,
+            config: s.config,
+          })),
+        })
+      : await createWorkflow({
+          name: draft.name,
+          description: draft.description ?? null,
+          single_instance: true,
+          steps: draft.steps.map((s, idx) => ({
+            step_index: idx,
+            step_type: s.step_type,
+            label: s.label,
+            config: s.config,
+          })),
+        });
+    if (isError(saved)) {
       setSaveState({
         kind: "error",
-        message: created.error.message ?? "Failed to save workflow",
+        message: saved.error.message ?? "Failed to save workflow",
       });
       return;
     }
-    const activated = await activateWorkflow(created.data.id);
+    const activated = await activateWorkflow(saved.data.id);
     if (isError(activated)) {
       setSaveState({
         kind: "error",

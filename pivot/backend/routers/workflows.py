@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
@@ -41,11 +41,19 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import (
+    ForwardIdea,
+    PaperAccount,
+    PaperFill,
+    PaperIdeaNavSnapshot,
+    PaperNavSnapshot,
     RunStatus,
     Workflow,
+    WorkflowApproval,
     WorkflowRun,
+    WorkflowRunStep,
     WorkflowStatus,
     WorkflowStep,
+    WorkflowWebhookToken,
 )
 from backend.routers._deps import require_user
 from backend.routers._errors import (
@@ -678,6 +686,213 @@ def list_workflows(
     return WorkflowListResponse(items=items, next_cursor=next_cursor)
 
 
+# ── Agents-tab aggregate summary + per-agent performance ──────────────
+#
+# These power the Agents tab's top cards (counts, a 6-month trade
+# scorecard, a GitHub-style daily-P&L heatmap, and per-agent return
+# chips) and each agent card's sparkline. Everything is computed
+# on-read from existing paper-trading + workflow tables for the CURRENT
+# user only — no new columns, no seeded/faked numbers. When a user has
+# no paper account, no fills, or no NAV snapshots, the corresponding
+# field comes back as zeros / empty arrays with a clear flag.
+
+_SUMMARY_WINDOW_DAYS = 182  # ~6 months
+
+
+class _TradeScorecard(BaseModel):
+    """6-month closed-trade tally derived from PaperFill.realized_pnl.
+
+    A "win" is a closing fill (one that booked realized_pnl) with
+    realized_pnl > 0; a "loss" is realized_pnl < 0. Opening fills carry a
+    NULL realized_pnl and are ignored. `total` counts only fills that
+    booked a P&L (i.e. wins + losses), so win_rate_pct is over decided
+    trades. All zeros when the user has no paper account / no fills.
+    """
+    total: int = 0
+    wins: int = 0
+    losses: int = 0
+    win_rate_pct: Optional[float] = None
+
+
+class _DailyPnlPoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    pnl: float
+
+
+class _StrategyReturn(BaseModel):
+    workflow_id: str
+    name: str
+    # cum_return_pct from the linked ForwardIdea's scorecard_cache when
+    # available; null when the agent has no forward-test track record yet
+    # (never seeded).
+    return_pct: Optional[float] = None
+
+
+class _WorkflowsSummaryResponse(BaseModel):
+    active_count: int = 0
+    paused_count: int = 0
+    draft_count: int = 0
+    trades_6mo: _TradeScorecard = Field(default_factory=_TradeScorecard)
+    daily_pnl: list[_DailyPnlPoint] = Field(default_factory=list)
+    strategy_returns: list[_StrategyReturn] = Field(default_factory=list)
+    total_pnl: float = 0.0
+    has_data: bool = False
+
+
+@router.get(
+    "/workflows/summary",
+    response_model=_WorkflowsSummaryResponse,
+    summary="Agents-tab aggregate stats for the current user",
+    description=(
+        "Aggregates the current user's agents (workflows) and paper-trading "
+        "history for the Agents-tab top cards: status counts, a 6-month "
+        "closed-trade scorecard (from PaperFill.realized_pnl), a daily-P&L "
+        "series for a GitHub-style heatmap (from PaperNavSnapshot NAV "
+        "day-over-day deltas), and per-active-agent return chips (from the "
+        "linked ForwardIdea scorecard). Everything is computed on-read for "
+        "this user only; missing underlying data yields zeros / empty arrays, "
+        "never fabricated numbers."
+    ),
+)
+def workflows_summary(
+    user_id: int = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> _WorkflowsSummaryResponse:
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=_SUMMARY_WINDOW_DAYS)
+
+    # ── Status counts ────────────────────────────────────────────────
+    wfs = (
+        db.query(Workflow)
+        .filter(Workflow.user_id == user_id)
+        .all()
+    )
+    active_count = sum(1 for w in wfs if w.status == WorkflowStatus.active)
+    paused_count = sum(1 for w in wfs if w.status == WorkflowStatus.paused)
+    draft_count = sum(1 for w in wfs if w.status == WorkflowStatus.draft)
+
+    # ── Paper account (single book per user) ─────────────────────────
+    account = (
+        db.query(PaperAccount)
+        .filter(PaperAccount.user_id == user_id)
+        .first()
+    )
+
+    # ── 6-month closed-trade scorecard ───────────────────────────────
+    trades = _TradeScorecard()
+    if account is not None:
+        closing = (
+            db.query(PaperFill.realized_pnl)
+            .filter(
+                PaperFill.account_id == account.id,
+                PaperFill.filled_at >= since,
+                PaperFill.realized_pnl.isnot(None),
+            )
+            .all()
+        )
+        wins = 0
+        losses = 0
+        for (rpnl,) in closing:
+            val = float(rpnl)
+            if val > 0:
+                wins += 1
+            elif val < 0:
+                losses += 1
+        total = wins + losses
+        trades = _TradeScorecard(
+            total=total,
+            wins=wins,
+            losses=losses,
+            win_rate_pct=(
+                round(wins / total * 100.0, 2) if total > 0 else None
+            ),
+        )
+
+    # ── Daily P&L from NAV day-over-day deltas ───────────────────────
+    daily_pnl: list[_DailyPnlPoint] = []
+    total_pnl = 0.0
+    if account is not None:
+        snaps = (
+            db.query(PaperNavSnapshot)
+            .filter(
+                PaperNavSnapshot.account_id == account.id,
+                PaperNavSnapshot.as_of_date >= since.date(),
+            )
+            .order_by(PaperNavSnapshot.as_of_date.asc())
+            .all()
+        )
+        prev_nav: Optional[float] = None
+        for snap in snaps:
+            nav = float(snap.nav)
+            if prev_nav is not None:
+                pnl = round(nav - prev_nav, 2)
+                daily_pnl.append(
+                    _DailyPnlPoint(
+                        date=snap.as_of_date.isoformat(),
+                        pnl=pnl,
+                    )
+                )
+                total_pnl += pnl
+            prev_nav = nav
+        total_pnl = round(total_pnl, 2)
+
+    # ── Per-active-agent returns from linked ForwardIdea scorecard ───
+    strategy_returns: list[_StrategyReturn] = []
+    active_wfs = [w for w in wfs if w.status == WorkflowStatus.active]
+    if active_wfs and account is not None:
+        ideas = (
+            db.query(ForwardIdea)
+            .filter(
+                ForwardIdea.user_id == user_id,
+                ForwardIdea.origin_kind == "workflow",
+                ForwardIdea.workflow_id.in_([str(w.id) for w in active_wfs]),
+            )
+            .all()
+        )
+        idea_by_wf: dict[str, ForwardIdea] = {}
+        for idea in ideas:
+            # Most-recent idea wins if a workflow ever forked one.
+            existing = idea_by_wf.get(str(idea.workflow_id))
+            if existing is None or idea.created_at > existing.created_at:
+                idea_by_wf[str(idea.workflow_id)] = idea
+        for w in active_wfs:
+            idea = idea_by_wf.get(str(w.id))
+            ret: Optional[float] = None
+            if idea is not None and idea.scorecard_cache:
+                raw = idea.scorecard_cache.get("cum_return_pct")
+                if isinstance(raw, (int, float)):
+                    ret = float(raw)
+            strategy_returns.append(
+                _StrategyReturn(
+                    workflow_id=str(w.id),
+                    name=str(w.name),
+                    return_pct=ret,
+                )
+            )
+    else:
+        for w in active_wfs:
+            strategy_returns.append(
+                _StrategyReturn(
+                    workflow_id=str(w.id),
+                    name=str(w.name),
+                    return_pct=None,
+                )
+            )
+
+    has_data = bool(wfs) or bool(daily_pnl) or trades.total > 0
+
+    return _WorkflowsSummaryResponse(
+        active_count=active_count,
+        paused_count=paused_count,
+        draft_count=draft_count,
+        trades_6mo=trades,
+        daily_pnl=daily_pnl,
+        strategy_returns=strategy_returns,
+        total_pnl=total_pnl,
+        has_data=has_data,
+    )
+
+
 @router.get(
     "/workflows/{workflow_id}",
     response_model=WorkflowOut,
@@ -902,6 +1117,69 @@ def archive_workflow(
     return _to_workflow_out(wf)
 
 
+# ── Hard delete ───────────────────────────────────────────────────────
+
+
+class _WorkflowDeletedResponse(BaseModel):
+    deleted: bool
+    id: str
+
+
+@router.delete(
+    "/workflows/{workflow_id}",
+    response_model=_WorkflowDeletedResponse,
+    summary="Delete a workflow and all its children",
+    description=(
+        "Hard-deletes the user's workflow and every child row "
+        "(steps, runs + run-steps, approvals, webhook tokens). Cross-user "
+        "or missing workflow returns 404 (never 403, per §1). Idea / paper "
+        "rows attributed to the workflow are NOT touched — they keep the "
+        "soft `workflow_id` reference so the forward-test track record "
+        "survives the agent's deletion."
+    ),
+)
+def delete_workflow(
+    workflow_id: str,
+    user_id: int = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> _WorkflowDeletedResponse:
+    wf = _workflow_for_user(db, user_id, workflow_id)
+
+    # Delete children explicitly in FK-safe order. `steps`,
+    # `webhook_tokens`, and a run's `steps` cascade via the ORM
+    # relationship, but `runs` and `approvals` are NOT cascaded off the
+    # workflow, so we drain them by hand. Order: approvals -> run_steps
+    # -> runs (children of runs first), then steps + tokens, then the
+    # workflow row itself.
+    run_ids = [
+        r.id
+        for r in db.query(WorkflowRun.id)
+        .filter(WorkflowRun.workflow_id == wf.id)
+        .all()
+    ]
+    if run_ids:
+        db.query(WorkflowApproval).filter(
+            WorkflowApproval.run_id.in_(run_ids)
+        ).delete(synchronize_session=False)
+        db.query(WorkflowRunStep).filter(
+            WorkflowRunStep.run_id.in_(run_ids)
+        ).delete(synchronize_session=False)
+        db.query(WorkflowRun).filter(
+            WorkflowRun.workflow_id == wf.id
+        ).delete(synchronize_session=False)
+
+    db.query(WorkflowWebhookToken).filter(
+        WorkflowWebhookToken.workflow_id == wf.id
+    ).delete(synchronize_session=False)
+    db.query(WorkflowStep).filter(
+        WorkflowStep.workflow_id == wf.id
+    ).delete(synchronize_session=False)
+
+    db.delete(wf)
+    db.commit()
+    return _WorkflowDeletedResponse(deleted=True, id=workflow_id)
+
+
 @router.post(
     "/workflows/{workflow_id}/run",
     response_model=RunCreatedResponse,
@@ -940,6 +1218,110 @@ async def run_workflow(
     asyncio.create_task(engine.execute_run(str(run.id)))
 
     return RunCreatedResponse(run_id=str(run.id))
+
+
+# ── Per-agent performance (sparkline + headline metrics) ──────────────
+
+
+class _NavPoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    nav: float
+
+
+class _WorkflowPerformanceResponse(BaseModel):
+    """Per-agent sparkline + headline metrics, all on-read from real data.
+
+    `series` is the linked ForwardIdea's idea_nav over time (empty when
+    the agent has never filled / has no forward-test idea). `return_pct`
+    is the idea's cum_return_pct from its scorecard_cache. Run stats come
+    from WorkflowRun rows. `has_data` is true when there is either a NAV
+    series to chart or at least one run to summarise.
+    """
+    series: list[_NavPoint] = Field(default_factory=list)
+    return_pct: Optional[float] = None
+    last_run_at: Optional[datetime] = None
+    run_count: int = 0
+    success_rate: Optional[float] = None
+    has_data: bool = False
+
+
+@router.get(
+    "/workflows/{workflow_id}/performance",
+    response_model=_WorkflowPerformanceResponse,
+    summary="Per-agent sparkline + headline metrics",
+    description=(
+        "Returns the agent's forward-test NAV series (from "
+        "PaperIdeaNavSnapshot for the ForwardIdea whose workflow_id matches "
+        "this workflow) plus headline run metrics (run_count, success_rate, "
+        "last_run_at) from WorkflowRun. Cross-user / missing workflow → 404. "
+        "All numbers are real; absent data yields an empty series, nulls, and "
+        "has_data=false so the FE can show a 'no runs yet' state."
+    ),
+)
+def workflow_performance(
+    workflow_id: str,
+    user_id: int = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> _WorkflowPerformanceResponse:
+    wf = _workflow_for_user(db, user_id, workflow_id)
+
+    # ── Run metrics ──────────────────────────────────────────────────
+    runs = (
+        db.query(WorkflowRun.status, WorkflowRun.started_at)
+        .filter(WorkflowRun.workflow_id == wf.id)
+        .all()
+    )
+    run_count = len(runs)
+    succeeded = sum(
+        1 for status, _ in runs if status == RunStatus.succeeded
+    )
+    success_rate = (
+        round(succeeded / run_count * 100.0, 2) if run_count > 0 else None
+    )
+    last_run_at = wf.last_run_at
+
+    # ── Forward-test NAV series + return ─────────────────────────────
+    series: list[_NavPoint] = []
+    return_pct: Optional[float] = None
+    idea = (
+        db.query(ForwardIdea)
+        .filter(
+            ForwardIdea.user_id == user_id,
+            ForwardIdea.origin_kind == "workflow",
+            ForwardIdea.workflow_id == str(wf.id),
+        )
+        .order_by(ForwardIdea.created_at.desc())
+        .first()
+    )
+    if idea is not None:
+        if idea.scorecard_cache:
+            raw = idea.scorecard_cache.get("cum_return_pct")
+            if isinstance(raw, (int, float)):
+                return_pct = float(raw)
+        snaps = (
+            db.query(PaperIdeaNavSnapshot)
+            .filter(PaperIdeaNavSnapshot.idea_id == idea.id)
+            .order_by(PaperIdeaNavSnapshot.as_of_date.asc())
+            .all()
+        )
+        for snap in snaps:
+            series.append(
+                _NavPoint(
+                    date=snap.as_of_date.isoformat(),
+                    nav=float(snap.idea_nav),
+                )
+            )
+
+    has_data = bool(series) or run_count > 0
+
+    return _WorkflowPerformanceResponse(
+        series=series,
+        return_pct=return_pct,
+        last_run_at=last_run_at,
+        run_count=run_count,
+        success_rate=success_rate,
+        has_data=has_data,
+    )
 
 
 # ── Workflow draft backtest ───────────────────────────────────────────
