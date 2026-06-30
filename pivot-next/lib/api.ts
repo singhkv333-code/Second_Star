@@ -157,14 +157,20 @@ function getLegacyBase(): string {
   return getBaseUrl().replace(/\/api\/?$/, "");
 }
 
-async function request<T>(
+// Exported so feature-scoped API modules (e.g. lib/agentsApi.ts) can reuse
+// the exact auth/base/error-envelope handling without re-implementing the
+// fetch wrapper or duplicating the token plumbing. `request` targets the
+// /api Agent-System mount; `requestLegacy` targets the bare root mount.
+export type ApiRequestOptions = RequestOptions;
+
+export async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
   return _doRequest<T>(getBaseUrl(), path, options);
 }
 
-async function requestLegacy<T>(
+export async function requestLegacy<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {

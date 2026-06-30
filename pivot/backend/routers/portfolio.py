@@ -1,13 +1,16 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from backend.database import get_db
-from backend.models import User, ProductPosition
+from backend.models import User, ProductPosition, PaperAccount, PaperNavSnapshot
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.kite.auth import read_kite_access_token
 from backend.kite.portfolio import get_holdings, get_portfolio_summary, get_margins
 from backend.services.portfolio_cache import (
     get_summary_cached, get_holdings_cached,
 )
+from backend.services import portfolio_scores as _scores
 from backend.agents.yield_scanner import get_all_yields, calculate_after_tax_yield
 import json
 
@@ -113,3 +116,95 @@ async def yield_comparison(user_id: int = Depends(get_user_id), tax_slab: float 
     result.sort(key=lambda x: -x["after_tax_yield_pct"])
     result[0]["is_best"] = True
     return result
+
+
+# ---------------------------------------------------------------------------
+# /portfolio/scores — transparent, real-data-derived portfolio scores.
+# All math lives in services/portfolio_scores.py; this router only gathers
+# the inputs (holdings + sector map, reusing the same logic as /holdings and
+# /sector, plus the user's paper NAV series for a real return figure).
+# ---------------------------------------------------------------------------
+
+class DiversificationComponents(BaseModel):
+    n_holdings: int
+    n_sectors: int
+    top_holding_pct: float
+    top_sector_pct: float
+    hhi: float
+
+
+class DiversificationScore(BaseModel):
+    score: int
+    components: DiversificationComponents
+    explainer: str
+
+
+class PortfolioScoreComponents(BaseModel):
+    subscores: dict[str, float]
+    weights: dict[str, float]
+    performance_available: bool
+    total_return_pct: Optional[float] = None
+
+
+class PortfolioScore(BaseModel):
+    score: int
+    components: PortfolioScoreComponents
+    explainer: str
+
+
+class CommunityScore(BaseModel):
+    score: int
+    percentile: float
+    basis: str
+    explainer: str
+
+
+class PortfolioScoresResponse(BaseModel):
+    diversification_score: Optional[DiversificationScore] = None
+    portfolio_score: Optional[PortfolioScore] = None
+    community_score: Optional[CommunityScore] = None
+    reason: Optional[str] = None
+
+
+@router.get("/scores", response_model=PortfolioScoresResponse)
+def portfolio_scores(
+    user_id: int = Depends(get_user_id), db: Session = Depends(get_db),
+):
+    """Three transparent, real-data-derived scores for the user's holdings.
+
+    Reuses the same holdings + ``SECTOR_MAP`` logic as ``/holdings`` and
+    ``/sector``. Diversification is HHI-based; the composite portfolio score
+    blends diversification, a sector-concentration penalty, and — *only if a
+    real paper NAV series exists* — a return-based performance leg (otherwise
+    that leg is dropped, never fabricated). The community score is a
+    percentile against a documented benchmark cohort, not live peer data.
+
+    Returns all three scores as ``null`` with ``reason="no_holdings"`` when
+    the user has no holdings with positive market value.
+    """
+    token = get_kite_token(user_id, db)
+    holdings = [dict(h) for h in get_holdings_cached(user_id, token)]
+
+    # Real return input: the user's paper account NAV series, if any. We pass
+    # the account + ordered snapshots to the service, which returns None when
+    # there's nothing real to compute (no synthetic return is ever invented).
+    account = (
+        db.query(PaperAccount)
+        .filter(PaperAccount.user_id == user_id)
+        .first()
+    )
+    nav_snapshots = []
+    if account is not None:
+        nav_snapshots = (
+            db.query(PaperNavSnapshot)
+            .filter(PaperNavSnapshot.account_id == account.id)
+            .order_by(PaperNavSnapshot.as_of_date.asc())
+            .all()
+        )
+
+    return _scores.compute_scores(
+        holdings=holdings,
+        sector_of=lambda sym: SECTOR_MAP.get(sym, "Other"),
+        account=account,
+        nav_snapshots=nav_snapshots,
+    )

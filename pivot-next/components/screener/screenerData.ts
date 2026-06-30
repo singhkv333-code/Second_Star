@@ -1,8 +1,9 @@
-// @ts-nocheck — exact 1:1 port from frontend-quartr/.../screenerData.js.
-// Mock universe of Indian listed stocks for the screener.
-// Numbers are illustrative, not real market data.
+// Mock universe used ONLY by the screener's ETF / Index / Mutual-Fund tabs
+// (the Stocks tab is now backed by the live /api/screener endpoints). Numbers
+// are illustrative, not real market data. market_cap is in ₹ Cr.
 //
-// market_cap is in ₹ Cr.
+// STOCKS / SECTORS remain exported for backward-compat with any other importer
+// but are no longer consumed by ScreenerPage (the live grid replaced them).
 
 export const SECTORS = [
   'Banking', 'IT Services', 'Energy', 'FMCG', 'Auto', 'Pharma',

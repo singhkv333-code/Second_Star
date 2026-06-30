@@ -62,6 +62,7 @@ from backend.routers.options_admin import router as options_admin_router
 from backend.routers.option_strategies import router as option_strategies_router
 from backend.routers.views import router as views_router
 from backend.routers.feedback import router as feedback_router
+from backend.routers.screener import router as screener_router
 
 app = FastAPI(
     title="Pivot API",
@@ -135,6 +136,8 @@ app.include_router(option_strategies_router)
 # View Markets V2 — flag-gated at the endpoint level (404 when off).
 app.include_router(views_router)
 app.include_router(feedback_router)
+# Screener tab — curated universe + fundamentals + search (read-only).
+app.include_router(screener_router)
 
 # ── News & Event Trigger subsystem (flag-gated) ──────────────────────
 # Entire subsystem is opt-in via `settings.news_events_enabled`. With

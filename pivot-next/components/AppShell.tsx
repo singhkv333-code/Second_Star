@@ -84,7 +84,7 @@ import {
   setAccountMode,
   type PortfolioSummary,
 } from "@/lib/api";
-import type { Workflow, WorkflowSummary } from "@/lib/types";
+import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
 import {
   getTradingMode,
@@ -484,17 +484,42 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // sentence and sends; the agent tool returns an amended draft which opens
   // the editor via the normal onDraftFromChat path. Mode is pinned to "agent"
   // so the follow-up routes to the workflow tool.
-  const editWorkflowWithChat = useCallback((workflow: WorkflowSummary): void => {
+  //
+  // Targeting (TASK FE-2 item 3): we carry the FULL workflow (incl. steps) on
+  // the seed event so the chat surface attaches it as the `editor_draft` of
+  // the NEXT outgoing turn. The backend seeds its active_draft from that exact
+  // payload, so the amendment lands on THIS agent's steps — it never has to
+  // guess which agent from the free-text name (which mis-targeted before when
+  // two agents shared a similar name).
+  const editWorkflowWithChat = useCallback((workflow: Workflow): void => {
     const summary = workflow.description?.trim();
     const text = summary
       ? `Edit my agent “${workflow.name}” — it currently does: ${summary}. I'd like to `
       : `Edit my agent “${workflow.name}”. I'd like to `;
+    const seededDraft = {
+      // Anchor the seed to THIS exact agent so Save & Activate updates it in
+      // place rather than registering a duplicate (the id is threaded through
+      // the seed event → ChatDemo's one-shot ref → the editor_draft payload).
+      workflow_id: workflow.id,
+      name: workflow.name,
+      description: workflow.description ?? "",
+      steps: workflow.steps.map((s) => ({
+        step_type: s.step_type,
+        label: s.label,
+        config: s.config,
+      })),
+      rationale: "",
+      warnings: [],
+      _render_hint: "workflow_draft_card" as const,
+    };
     goTab("chat");
     // Wait a frame so the chat surface is the active pane before we drop the
     // seed in and focus the composer.
     requestAnimationFrame(() => {
       window.dispatchEvent(
-        new CustomEvent("pivot:seed-composer", { detail: { text, mode: "agent" } }),
+        new CustomEvent("pivot:seed-composer", {
+          detail: { text, mode: "agent", draft: seededDraft },
+        }),
       );
     });
   }, [goTab]);
