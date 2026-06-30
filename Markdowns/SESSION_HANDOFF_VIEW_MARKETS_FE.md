@@ -1,27 +1,61 @@
-# Session Handoff — View Markets "Views" Tab (FE + API)
+# Session Handoff — View Markets "Views" Tab (V2)
 
-> **Date:** 2026-06-30 · **Branch:** `Eventtriggers` · **Head:** `f4d3bed`
-> **State:** everything below is **BUILT + VERIFIED LIVE but NOT committed and NOT pushed.**
-> Pick up here. When facts drift from code, the code wins — verify file/flag/IDs before relying on them.
+> **Date:** 2026-06-30 (PM) · **Branch:** `Eventtriggers` · **Head:** `6715290`
+> **State:** **BUILT + MERGED + PUSHED + LIVE.** Everything below is committed and
+> pushed to `origin/Eventtriggers` (local == remote, ahead 0 / behind 0). Both
+> dev servers are running on the pushed code.
+> Pick up here. When facts drift from code, **the code wins** — verify
+> file/field/flag names before relying on them.
 
 ---
 
 ## 0. TL;DR — what this session delivered
 
-Built **Phase 6 of View Markets (V2)**: the chat-less **"Views" tab** end-to-end, then **redesigned it to a quant-grade visual bar** after a design-quality rejection. Net result: a new top-level nav tab **Chat · Views · Portfolio · Agents · Calendar · Screener** that renders the 3 curated market-belief views with real backtest metrics, risk/return visuals, and a one-click register-not-execute deploy path.
+Took the View Markets **"Views" tab** from a first-pass build to a **fully
+redesigned, data-rich V2 surface matching the owner's hand-drawn reference**,
+then **pulled 18 upstream commits, merged, and pushed**. The Views tab is now
+the second nav item (**Chat · Views · Portfolio · Agents · Calendar · Screener**)
+and renders 3 curated market-belief views with **real episode-gated equity
+curves**, a strategies table, a redesigned "Benchmark Comparison" dashboard
+(allocation/position pie + Monte-Carlo + per-holding heatmap + per-event
+returns), all in **plain layman language with zero jargon leakage**.
 
-Two pieces of work, in order:
-1. **Build** — a new `/api/views` backend router + the full `components/views/*` FE tab, wired into `AppShell`, flag flipped on.
-2. **Redesign (Opus ultracode)** — replaced clunky mono numerals, killed the semicircle "confidence dials", added shadcn charts + a real option **payoff diagram**, QuantConnect-style stat strips, fixed layout/alignment. Verified in **light + dark**.
+Work happened in rounds (each gated by an adversarial visual judge):
+1. **Round 1 — ground-up FE rebuild** (initially *square/border-only*): killed
+   the "AI-slop" grey-filled rounded cards; added a backend **layman content
+   layer** so the FE never renders quant jargon (CAAR/t/p/MinTRL/DSR/PSR/beta).
+2. **Round 2 — re-direction to the hand-drawn sketch:** reverted to **ROUNDED
+   corners**; added a **line chart** at the top, a **strategies TABLE**, the
+   **"Benchmark Comparison"** section, **crisp 7-8-word titles**, **gallery
+   mini line-charts**, removed the Timeline; **named the option structures**
+   and differentiated the 3 strategies.
+3. **Round 2.5 — episode-gated curve fix** (owner asked "what exit time?"):
+   replaced the continuous 5-yr buy-and-hold line with the **episode-gated
+   in-position curve from the same `v3/exits.py` engine that produced the
+   headline numbers**, so every line's endpoint == the stored return exactly.
+   Then made the gallery + detail **lead with the highest-returning strategy**.
+4. **Round 3 — detail enrich:** **full-width** layout; **per-strategy**
+   historical alignment (was identical for all); a dated **"when it happened +
+   returns after"** list; **exit period** shown; **redesigned Benchmark
+   Comparison** with varied real visuals + long/short position classification.
+5. **Merge + push:** gitignored ~40 MB of regenerable price caches, committed
+   the working tree, merged origin's 18 commits (1 conflict in `main.py`),
+   verified, pushed `6715290`.
 
 ---
 
 ## 1. Current state / how to run
 
-- **Servers (already running):** backend `uvicorn backend.main:app` on `:8000` (with `--reload`), frontend `next dev` on `:3000`.
-- **Feature flag:** `pivot/backend/config.py` → `view_markets_enabled: bool = True` (was `False`; flipped to `True` for the beta — comment `# V2 beta: Views tab live`). This gates the `/api/views` router **and** the lifecycle scheduler worker.
-- **Migration:** `0023_view_markets` is **already applied to Azure** (6 tables + 6 enums). No new migration this session.
-- **Auth note for testing:** the app redirects to `/login` without a JWT. The reads (`GET /api/views`) are **global / no auth**, but the shell gates. To screenshot/test, mint a token:
+- **Servers (running):** backend `uvicorn backend.main:app --reload --port 8000`
+  (launched from `pivot/`), frontend `next dev` on `:3000` (from `pivot-next/`).
+  Logs: `/tmp/pivot_backend.log`, `/tmp/pivot_frontend.log`. Backend `--reload`
+  picks up edits; FE hot-reloads. To restart: `pkill -f "uvicorn backend.main"`
+  / `pkill -f "next dev"`, then relaunch with `nohup … & disown`.
+- **Feature flag:** `pivot/backend/config.py` → `view_markets_enabled: bool = True`
+  (beta on). Gates the `/api/views` router (404 when off) + the lifecycle worker.
+- **Migration:** `0023_view_markets` already applied to Azure (6 tables + 6 enums).
+- **Auth for testing:** the shell redirects to `/login` without a JWT (the
+  `/api/views` reads are global/no-auth, but the shell gates). Mint a token:
   ```python
   # from pivot/, .venv/bin/python
   from backend.auth.jwt_handler import create_access_token
@@ -29,109 +63,191 @@ Two pieces of work, in order:
   db = SessionLocal(); u = db.query(models.User).get(1)
   print(create_access_token(u.id, u.email))   # user 1 = test@pivot.com
   ```
-  then `localStorage.setItem("pivot_jwt", "<token>")` in the browser, go to `/#views`.
-- **GOTCHA — deploy ownership:** the curated workflow drafts are owned by **`user_id=1`** (built during the strategies session). `GET /api/workflows/{id}` filters by user, so "Review & Arm" only opens the editor for **user 1**. For any other user it silently no-ops (a real multi-user gap — see §6).
+  In the browser: `localStorage.setItem("pivot_jwt","<token>")`, then `/#views`.
+  GOTCHA: a full reload lands on the Chat tab; navigate to `/#views` *after* a
+  fresh load (hash-only nav is same-document and won't re-mount).
+- **The 3 curated view IDs:** IT `4f40f896-0953-4d66-bf6f-1932667b531e`,
+  Monsoon `81809245-feeb-4ead-9f35-eb8166757cb7`,
+  Crude `19f04e99-b704-4166-b99a-697049885d44`.
 
 ---
 
-## 2. Backend — `/api/views` router (NEW)
+## 2. What the Views tab is now (maps to the hand-drawn reference)
 
-**File:** `pivot/backend/routers/views.py` (prefix `/api`, tag `Views`). Registered in `pivot/backend/main.py` (`app.include_router(views_router)` after `option_strategies_router`). Pydantic v2 response models in-file. Every endpoint gated on `settings.view_markets_enabled` → canonical 404 when off.
+**Gallery (`ViewsTab` → `ViewCard`):** rounded, border-only cards (no grey
+fills), each with a **crisp 7-8-word title** (`short_title`), a 1-line plain
+summary, the **highest-returning** strategy's hero number + a **mini line-chart**
+(`MiniLine`) of that strategy, a quiet "Beat Nifty X of N · Worst drop · trust"
+line, a **bare-heart** follow control, and a "View →". Crude renders an honest
+"Still developing — no finished basket yet". Filters are rounded toggle tags.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/views?status=&view_type=&category=` | List `ViewSummary[]` (non-archived, newest first) |
-| GET | `/api/views/{view_id}` | `ViewDetail` (confidence dials, transmission, expectations, expressions+scores) |
-| POST | `/api/views/expressions/{expression_id}/deploy` `{activate?,timing_mode?}` | Build/return the **register-not-execute** workflow draft → `{workflow_id,status,steps_count,activated}` |
-| POST | `/api/views/{view_id}/compare` | `compare_tiers` — ranked tiers + `recommended_tier` + rationale |
-| POST | `/api/views/expressions/{expression_id}/backtest` | On-demand `backtest_expression` (re-run + persist) |
-| POST/DELETE | `/api/views/{view_id}/follow` | per-user follow toggle (401 if no user) |
-
-- **Reuses** `backend/view_markets/{curation, deployment/{deploy,backtest,compare}, confidence}`. Does NOT reimplement engines.
-- **Projection:** `expression.config` → `scores` (passthrough `backtest{}` + `construction_alignment` + `alignment_kind`), `structure` passthrough, `best_expression` by `(VERDICT_RANK, expression_score)` among scored only. Confidence DB score `0..1 ×100 → 0..100` + letter band (A≥85/B≥70/C≥55/D≥40 else F). Missing scores → `scores: null` (never fabricated).
-- **Deploy semantics:** if `expression.workflow_id` set & `activate` falsy → returns the existing draft (no re-arm). Else `deploy_expression` (register-not-execute; every order step `requires_approval=True`, `book='live'`; **no order ever placed**). 422 on ValueError.
-- **Tests:** `pivot/tests/test_views_router.py` — **9 passing** (list/filter, detail projection, missing-scores→null, flag-off 404, unknown-id 404, deploy short-circuit with a broker-call trip-wire, follow round-trip).
-
----
-
-## 3. Frontend — the Views tab
-
-**Wiring:** `pivot-next/components/AppShell.tsx` gained `"views"` in `TabKey`, a `NAV_ITEMS` entry `{ key:"views", label:"Views", Icon: Telescope }`, and a render branch → `<ViewsTab onOpenWorkflowById={openWorkflowById} />`. The deploy CTA reuses the existing `openWorkflowById` → AgentPanel workflow-draft editor (the proven activate/approve flow).
-
-**Data layer:** `pivot-next/lib/types.ts` (View* types incl. `ExpressionInstrument`), `pivot-next/lib/api.ts` (`listViews/getView/deployExpression/compareViewTiers/backtestExpression/followView/unfollowView`, all via the `/api`-based `request<>()`).
-
-**Component inventory** (`pivot-next/components/views/`):
-- **Tab/cards:** `ViewsTab` (master↔detail state, filters, grid), `ViewCard`, `ViewFilters`, `ViewDetailPage` (hero → confidence → transmission → expectations → lifecycle → ladder), `ViewTransmissionMap`, `ViewLifecycle`, `ExpectationsSurprise`, `FollowButton`.
-- **Expression surfaces:** `ExpressionLadder` (3 tiers + recommended badge + "+N more"), `ExpressionCard` (stat strip → per-kind viz → meters/trust/risk → rationale → **Review & Arm** CTA), `RiskReturnPanel` (per-kind viz dispatcher: option→payoff, basket→donut+distribution, pair→legs+benchmark).
-- **Primitives/helpers:** `Stat.tsx` (`Num`/`Stat`/`StatStrip` — the Inter-tabular numeral primitive, replaces shared `Figure`/`Delta`), `ConfidenceMeter.tsx` (replaces deleted `ConfidenceDial`), `use-token-color.ts` (CSS-var reader, re-themes on `.dark`), `view-format.ts` (color/format helpers).
-- **Charts** (`components/views/charts/`): `PayoffDiagram` + `payoff-math.ts`, `AllocationDonut`, `ReturnDistribution`, `BenchmarkCompare`, `RiskStrip`, `TrustLadder`.
-- **shadcn chart primitive:** `pivot-next/components/ui/chart.tsx` (NEW; recharts-based, themed via CSS vars). Currently lightly used — charts mostly use raw recharts + `useTokenColors` (intentional).
-
-**Design system (HARD rules — see `app/globals.css`):**
-- **Numerals = `var(--font-display)` (Inter) + `tabular-nums`.** `var(--font-numeric)` (JetBrains Mono) is **banned in Views** (the original complaint). Audit = 0 occurrences.
-- Letters = `var(--font-ui)` (Inter); serif `var(--font-experiment)` only for the belief-title hero.
-- Tokens: `--bg-*`, `--glass-border*`, `--text-*`, `--color-profit/loss/warn`, `--pivot-blue`, `--radius-*`, `--ease-quartr`. Works light + dark.
+**Detail (`ViewDetailPage`)** — full-width, top → bottom:
+1. **Back link** "← Return to Views" + bare-heart follow.
+2. **Crisp H1** (`short_title`, NOT the long sentence).
+3. **Line chart** (`StrategyLineChart`) — the **episode-gated in-position equity
+   curve**, strategy SOLID (`--pivot-blue`) vs Nifty DASHED, x-axis "Days in
+   market", a `1 · 2 · 3` strategy selector + a **Compare +** overlay toggle,
+   caption "Return path while deployed · N episodes …". Defaults to the
+   highest-returning tier (== the gallery hero). Endpoint == the stored return.
+4. **View Description** (`ViewDescription`) — 2-3 plain lines + 3 bullets.
+5. **Strategies TABLE** (`StrategiesTable`) — Name · Type · Risk · Max drop ·
+   Profit · vs Nifty, with a per-row **Details** expander (plain why/risk,
+   what-you'd-hold, capital label, **Hold/exit period**, Deploy CTA).
+6. **Benchmark Comparison** (`BenchmarkComparison`) — a responsive grid of real
+   visuals for the *selected* strategy: **Allocation & position** pie
+   (`AllocationPie`, long/short classified), **How each holding did** heatmap
+   (`ReturnsHeatmap`), **What the simulations say** (`MonteCarloDistribution`),
+   **When it happened before** (`EventReturns` — dated per-event returns +
+   "Positive in N of M"), **Reward for the risk taken** (cross-strategy
+   risk:return bars), **How well it lined up** (per-strategy `ConfidenceMeter` +
+   "How long it's held" exit period).
+7. **Similar Views** (`SimilarViews`) — the other curated views, clickable.
+   **Timeline / lifecycle section REMOVED** (per owner). The old standalone
+   confidence + transmission + expectations sections were folded/dropped.
 
 ---
 
-## 4. The data it renders (3 curated views, already in Azure DB)
+## 3. Architecture & key files
 
-| View | type / id | expressions | best |
+### Backend — `pivot/backend/`
+- **`view_markets/` package** (the engine): `curation`, `confidence`,
+  `expectations`, `transmission`, `implied_move`, `event_study`, `feeds`,
+  `lifecycle`, `expressions/` (catalog/tiers/dispatch/builders/honest_short/
+  screens/…), `deployment/` (backtest/compare/deploy), and the two this session
+  leaned on hardest:
+  - **`precompute.py`** — computes + caches per-expression `equity_curve`
+    (episode-gated), `holdings` (with `position`/`weight_pct`), `episodes`
+    (`{label,date,return_pct,benchmark_pct,positive}`), `risk_return_ratio`,
+    per-strategy `historical_alignment` (recomputed via
+    `confidence.score_historical_alignment`), and `monte_carlo` (block-bootstrap
+    of the episode-gated daily returns). Writes
+    `view_markets/precomputed_views.json` (the cache the router serves; run
+    `python -m backend.view_markets.precompute` to refresh). **Equity curves are
+    built by reusing `scripts/strategy_research/v3/exits.py` `backtest_exits`
+    (the same engine that produced the headline returns) on the
+    dividend-adjusted `v3` `returns_matrix`** — so the curve endpoint == the
+    stored `total_return_pct` exactly. (`fetch_multi_symbol` was rejected — it's
+    `auto_adjust=False` and drifted 1.84pp on the hero.)
+  - **`plain_copy.py`** — the curated **layman content layer**: `short_title`
+    (crisp), `plain_one_liner`, `plain_summary`, `plain_thesis`, `description`,
+    `bullets`, `similar_views`, `strategy_identity` (`strategy_name` /
+    `strategy_type` / `option_legs`), `exit_period`, `capital_label`,
+    `trust_badge`, `members`, `benchmark_label`. Curated for the 3 live views,
+    safe humanized fallback for any future view.
+- **`routers/views.py`** — `/api/views` router (prefix `/api`, flag-gated).
+  Pydantic models project ALL the above as clean fields the FE mirrors. **`_best_expression`
+  leads with the HIGHEST-returning expression** (developing view → `None`).
+  Registered in `main.py` alongside the merged-in `feedback_router`.
+
+### Frontend — `pivot-next/components/views/`
+- **Live in v2:** `ViewsTab`, `ViewFilters`, `ViewCard` (gallery);
+  `ViewDetailPage`, `ViewDescription`, `StrategiesTable`, `BenchmarkComparison`,
+  `SimilarViews` (detail); charts `LineChart`, `MiniLine`, `AllocationPie`,
+  `ReturnsHeatmap`, `MonteCarloDistribution`, `EventReturns`, `ConfidenceMeter`;
+  shared `ViewSurface` (rounded, border-only card + `Hairline` + `KpiRow`),
+  `Stat` (Inter tabular, ≥13px floor), `view-format` (humanizers — every enum
+  routes through here), `use-token-color` (theme-reactive recharts colors),
+  `FollowButton` (bare heart).
+- **Legacy / superseded (kept, NOT in the v2 detail flow — cleanup candidates):**
+  `BenchmarkCompare` (old grouped-bar chart), `AllocationDonut`, `ExpressionCard`,
+  `ExpressionLadder`, `ViewLifecycle` (timeline removed), `ViewTransmissionMap`,
+  `ExpectationsSurprise`, `RiskReturnPanel`, `ReturnDistribution`, `RiskStrip`,
+  `TrustLadder`, `PayoffDiagram`, `HoldingsReturns`.
+- **Data layer:** `lib/types.ts` (View* + EquityPoint/Holding/OptionLeg/
+  EpisodeRow/MonteCarlo/HistoricalAlignment), `lib/api.ts` (list/get/deploy/
+  compare/backtest/follow).
+
+---
+
+## 4. Design law (still in force) + honesty constraints
+
+**Design law:** ROUNDED corners; **border-only** distinction (NO grey card
+fills — `bg-card`/`surface-hover`/`color-mix` banned); **no text < 13px**;
+**no jargon on screen** (every label via a `view-format` humanizer; numbers
+limited to a layman whitelist); aligned/symmetrical; calm; light + dark via CSS
+vars. Quality bar = composer.trade / kalshi / polymarket / streak / kite.
+
+**Honesty (never fabricate — these are real data limits handled honestly):**
+- **Option legs aren't stored.** The aggressive expression is an
+  engine-built **illustrative** structure (e.g. "Bull call spread") labelled
+  *"exact strikes set when you deploy"* — never invented as fact. Its curve +
+  MC + holdings are on the **underlying** (`curve_basis="underlying"`,
+  `monte_carlo.basis="underlying"`), stated plainly on screen.
+- **Pair short leg isn't stored** → described as **"Long basket / short Nifty
+  hedge"** (no fabricated per-stock shorts).
+- **Crude is developing** (empty screened basket) → empty curve/holdings/MC,
+  `best_expression: None`, honest "no finished basket" everywhere.
+- **Fundamentals** returned null in this env → the Fundamental-Comparison block
+  is omitted, not faked.
+- **Per-strategy alignment** is recomputed from each expression's OWN evidence
+  (so it genuinely differs; suppressed → "not enough track record yet").
+- Regenerable price caches (`strategy_research/**/_cache/*.parquet`, `*.pkl`)
+  are **gitignored** — the app serves from `precomputed_views.json`.
+
+---
+
+## 5. The 3 curated views (live numbers)
+
+| View | type · category | hero (highest tier) | conservative basket |
 |---|---|---|---|
-| **India's IT giants are in trouble** | event · `4f40f896-0953-4d66-bf6f-1932667b531e` | 6 | **R2 Defence+Auto basket**, Grade **A** / PROMISING, +46.0% (excess +47.6%), expr `3080d77a`, wf `faf26f7d` |
-| **Monsoon trade — Kharif rural** | theme · `81809245-feeb-4ead-9f35-eb8166757cb7` | 3 | Conservative basket, +95% |
-| **Crude / Geopolitical (de-escalation importer)** | event · `19f04e99-b704-4166-b99a-697049885d44` | 4 | **RC1 importer basket**, Grade **B** / UNPROVEN, expr `ac66729f` |
+| **A good monsoon lifts rural-economy stocks** | theme · seasonal | **Bull call spread +109.5%** (4 seasons) | Rural-demand basket +45.5% vs Nifty +14.9% |
+| **Weak IT guidance rotates money into domestic stocks** | event · equity rotation | **Long basket / short Nifty +57.3%** (8 events) | Domestic basket +48.8% vs Nifty −4.9% |
+| **Cheaper oil lifts India's importers** | event · macro·commodity | **— developing** (no finished basket) | — |
 
-Each expression carries real `config.scores.backtest` (PSR/DSR/MaxDD/win-rate/MC prob-loss/MinTRL/CAAR/sub-period returns/outcome+expression dials/total+excess return) + `structure` (weights for baskets, legs for options/pairs) + rationale/risk/warnings + a linked `workflow_id` draft. These were produced in the prior **IT/Monsoon/Crude strategies research** (top-gainer + OLS-connectedness grounded; "genuine vs spurious" event linkage) — all backed by real yfinance/Kite data, never fabricated.
-
----
-
-## 5. The redesign (what changed + why)
-
-The first build was rejected as "AI slop" (mono numerals, weak semicircle gauges, thin charts, blank/unaligned detail). An **Opus ultracode workflow** (design → 3 build agents → verify) rebuilt the visuals to reference **Kalshi/Polymarket** (cleanliness) + **QuantConnect/Streak/Composer** (quant depth):
-- **Font:** JetBrains-Mono numerals → **Inter-tabular** (matches the Screener).
-- **"Stupid circles" → `ConfidenceMeter`:** segmented horizontal meter (letter chip + filled track + score), equal-height/aligned.
-- **Charts:** allocation donut, return distribution, benchmark-compare, risk strip, **trust-ladder** stepper, and a real **option payoff diagram**.
-- **Stat strips:** QuantConnect-style (big colored values, micro-labels, sub-captions).
-- **Layout:** denser hero (chip + stat rail), aligned 2-col confidence, real cause→effect causal map.
+Returns are **episode-gated, concatenated across past events**, in-position time
+(NOT annual, NOT buy-and-hold). Exit periods: Monsoon = the Jun–Aug seasonal
+window (~3 months); IT = ~20 trading days (~4 weeks) after each weak-guidance
+print; Crude = profit-target / ~20 days.
 
 ---
 
-## 6. Key decisions, gotchas & live-caught bugs
+## 6. Verification done this session
 
-- **Register-not-execute preserved:** deploy only builds/arms a workflow draft; user confirms + places in their broker. No order path in the router (trip-wire test guards it).
-- **Deploy = reuse the existing editor:** "Review & Arm" opens the linked `workflow_id` in the AgentPanel (or `deployExpression` first). Simple, consistent. **Open gap:** curated drafts are owned by `user_id=1`; other users can't open them (silent no-op). Fix later = per-user deploy drafts that don't mutate the shared `expression.workflow_id`.
-- **Numeral primitive isolation:** Views uses a **local `Num`/`Stat`** instead of the shared `Figure`/`Delta` DS primitives (those hardcode `--font-numeric` and are used app-wide — editing them would re-skin the whole app).
-- **Option payoff is normalized:** option legs use *relative* `strike_offset` and a string underlying (e.g. "NIFTY IT"), so the payoff is drawn on a **spot=100 normalized** moneyness axis, labeled "structure only — premium not priced" (premium isn't persisted → never invented).
-- **Bugs I fixed live (workflow verify was tsc/lint-only and passed; these only surfaced at runtime):**
-  1. `ReturnDistribution` used shadcn `ChartTooltipContent` outside a `ChartContainer` → `useChart` threw → **blank page**. Fixed with a self-contained tooltip.
-  2. `ConfidenceDial` (old) treated an undefined `dial` as suppressed → every meter rendered blank. Fixed the suppression predicate (now `ConfidenceMeter`).
-  3. `instruments` rendered as `[object Object]` (they're objects, not strings) → map to `.symbol`.
-  4. `ViewDetailPage` shipped with inline **stubs** for `ConfidenceDial`/`ExpressionLadder` → rewired to the real components.
-
----
-
-## 7. Verification done
-
-- Backend: `ruff` clean, `pytest tests/test_views_router.py` → 9 passed, `import backend.main` OK.
-- Frontend: `tsc --noEmit` clean, `eslint components/views components/ui/chart.tsx` clean, **font audit = 0** `--font-numeric`, `vitest` no new failures (pre-existing ~45 router-mock fails are unrelated).
-- Live: `curl /api/views` + `/api/views/{IT}` return real projections; Playwright screenshots of grid + detail + expression cards + payoff in **light and dark** (in `…/scratchpad/redesign-*.png`).
+- Backend: `ruff` clean, `pytest tests/test_views_router.py` → **18 passed**
+  (two stale tests updated: best_expression now highest-leading; alignment now
+  recomputed per-strategy). `import backend.main` OK; live `/api/views` 200.
+- Frontend: `tsc --noEmit` clean; `eslint` clean; design-law greps (rounded /
+  no-grey-fill / no-<13px / no-jargon) ≈ 0 real violations.
+- Visual: Playwright light + dark, gallery + all 3 details, judged each round
+  (final rounds passed 7–9/10); remaining minors fixed by hand (truncations,
+  crude empty state, tier-toggle width, default-tier consistency).
+- Merge: pulled 18 upstream commits, 1 conflict (`main.py` — kept both
+  `views_router` + `feedback_router`), backend imports + 18 tests + FE tsc all
+  green post-merge, both routers mounted live. **Pushed `6715290`.**
 
 ---
 
-## 8. NOT done / open threads (next session)
+## 7. NOT done / open threads (next session)
 
-- **Commit + push** — nothing is committed. **HARD RULE: never push without explicit permission** (any branch/remote). 42 modified + 16 untracked files (Views FE/API + the prior view_markets pkg, migration 0023, strategies scripts). Commit freely; ask before pushing.
-- **Multi-user deploy ownership** (see §6) — make deploy mint a per-user draft.
-- **Phase 5 — chat integration** (deferred): summon/explore/express/deploy a View from the chat box (`propose_*_view` tools, routing, render-hints). Reuse `thematic_map.detect_thematic_scenario` + `_POSITIONING_RE`.
-- **Priced option payoff** — wire the existing option-strategy compute endpoint for a real (priced) payoff instead of the normalized structural shape.
-- **⚠️ PROGA / Polymarket regulatory finding** still UNVERIFIED — verify independently before any PM-odds-facing work (affects `trigger.polymarket/kalshi` + the "what's priced in" surface).
+- **Phase 5 — chat integration** (still deferred): summon/explore/express/deploy
+  a View from the chat box (`list_views`/`get_view`/`suggest_view_expression`/
+  `deploy_view_expression` tools, routing, render-hints). Reuse
+  `thematic_map.detect_thematic_scenario` + `_POSITIONING_RE`.
+- **Legacy component cleanup** — delete/retire the §3 "superseded" components no
+  longer rendered by the v2 detail (BenchmarkCompare, AllocationDonut,
+  ExpressionCard/Ladder, ViewLifecycle, transmission/expectations/risk widgets).
+- **Multi-user deploy ownership** — curated workflow drafts are owned by
+  `user_id=1`; "Review & Arm" silently no-ops for other users. Mint per-user
+  deploy drafts instead of mutating the shared `expression.workflow_id`.
+- **Priced option payoff** — the option curve/MC are on the underlying; wiring
+  the real option-strategy compute would give a priced payoff (and let the
+  Allocation pie show real leg weights instead of "equal-size legs").
+- **App-chrome consistency** — the global top search bar / avatar / FAB still
+  use the app's original rounded-but-filled chrome; the Views border-only,
+  square-numeral language is Views-only for now (owner left rest of app alone).
+- **⚠️ PROGA / Polymarket regulatory finding** still UNVERIFIED — verify before
+  any "what's priced in" odds-facing work (affects `trigger.polymarket/kalshi`).
 
 ---
 
-## 9. Pointers
+## 8. Pointers
 
-- Spec/checklist: `Markdowns/Version2.md`, `Markdowns/VIEW_MARKETS_V2_CHECKLIST.md`, `Markdowns/VIEW_MARKETS_{PLAN,STRATEGY_DESIGN,TESTING_AND_SCORING,VIEW_TAXONOMY}.md`.
-- Strategies research scripts: `pivot/scripts/strategy_research/` (+ `_out/*.json`).
-- Auto-memory: `~/.claude/projects/-Users-karanveersingh-Downloads-Second-Star/memory/project_view_markets_v2.md` (+ `MEMORY.md` index).
+- Spec/checklist: `Version2.md`, `VIEW_MARKETS_V2_CHECKLIST.md`,
+  `VIEW_MARKETS_{PLAN,STRATEGY_DESIGN,TESTING_AND_SCORING,VIEW_TAXONOMY}.md`.
+- Strategy research (source of the curated numbers + episode windows):
+  `pivot/scripts/strategy_research/` and `…/v3/` (+ `v3/_out/*.json` = the real
+  event dates/windows; `v3/exits.py` = the episode-gated backtest engine).
+- Auto-memory: `~/.claude/projects/-Users-karanveersingh-Downloads-Second-Star/
+  memory/MEMORY.md` (see the **PUSH STATE (2026-06-30)** line +
+  `project_view_markets_v2.md`).
 - Root `CLAUDE.md` = auto-loaded project context (§9 = V2 direction).
