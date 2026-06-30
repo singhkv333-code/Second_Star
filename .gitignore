@@ -64,3 +64,8 @@ Thumbs.db
 # ── Misc ─────────────────────────────────────────────────────────────────────
 *.tmp
 *.bak
+
+# ── Research price caches (regenerable; large parquet/pickle, not source) ────
+pivot/scripts/strategy_research/**/_cache/
+pivot/scripts/strategy_research/**/*.parquet
+pivot/scripts/strategy_research/**/*.pkl

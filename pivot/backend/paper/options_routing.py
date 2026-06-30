@@ -282,8 +282,7 @@ def submit_option_strategy(
 
     if strategy.book != "paper":
         raise OptionFillError("submit_option_strategy is paper-book only")
-    if strategy.segment == "MCX-OPT":
-        raise OptionFillError("MCX options are research-only — no execution")
+    # Commodities (MCX) are tradeable — paper-fills like any other segment.
 
     chain = get_chain(
         db, strategy.underlying, strategy.expiry.isoformat(), width=25,

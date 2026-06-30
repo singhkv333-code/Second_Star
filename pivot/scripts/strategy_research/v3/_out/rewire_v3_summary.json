@@ -1,0 +1,167 @@
+{
+  "IT": {
+    "view_id": "4f40f896-0953-4d66-bf6f-1932667b531e",
+    "b_NB": 0.0513,
+    "b_NB_t": 3.04,
+    "updated": [
+      {
+        "tier": "conservative",
+        "expression_id": "3080d77a-1e95-4a26-b4cb-0d032ff024bb",
+        "workflow_id": "faf26f7d-d703-4178-9f2e-f0ac33160547",
+        "kind": "basket",
+        "grade": "C",
+        "verdict": "unproven",
+        "outcome": 54,
+        "expression": null,
+        "excess_pct": 53.68,
+        "nifty_beta": 1.335,
+        "default_exit": "fixed"
+      },
+      {
+        "tier": "balanced",
+        "expression_id": "ab89395e-2ec9-4475-b694-26d679714c50",
+        "workflow_id": "68c6a6f8-1507-4a17-91fb-38e83fe804ac",
+        "kind": "pair",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 61,
+        "expression": 71,
+        "excess_pct": 62.11,
+        "nifty_beta": 0.284,
+        "default_exit": "fixed"
+      },
+      {
+        "tier": "aggressive",
+        "expression_id": "88f056f9-ab60-4b67-80eb-f0d4ab984d80",
+        "workflow_id": "e72af688-3708-4f8e-92d5-fa1e0d58d825",
+        "kind": "hedge",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 54,
+        "expression": 71,
+        "excess_pct": 61.77,
+        "nifty_beta": 0.335,
+        "default_exit": "fixed"
+      }
+    ],
+    "deleted": [
+      "736658c1-eaaf-4bec-9e69-8b641a1dbc09",
+      "7581c7df-56b9-46eb-a180-fae7b28b1b4d",
+      "720d95f7-465b-4e23-a2e6-0a65121a9a0e"
+    ],
+    "representative_tier": "balanced",
+    "conf_outcome": 61,
+    "conf_outcome_letter": "B",
+    "conf_expression": 71,
+    "conf_expression_letter": "B",
+    "conf_expr_suppressed": false
+  },
+  "Monsoon": {
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "b_NB": 0.0513,
+    "b_NB_t": 3.04,
+    "updated": [
+      {
+        "tier": "conservative",
+        "expression_id": "53133f60-1885-4653-924b-1b2e9d2442ae",
+        "workflow_id": "b127d4ec-b06d-45de-884e-2521bb5de384",
+        "kind": "basket",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 79,
+        "expression": 79,
+        "excess_pct": 30.7,
+        "nifty_beta": 0.582,
+        "default_exit": "fixed"
+      },
+      {
+        "tier": "balanced",
+        "expression_id": "6778bad9-9d0a-4528-9f24-5384e2b705cc",
+        "workflow_id": "7e813e69-a3bf-4116-89dd-77e35dbdccff",
+        "kind": "pair",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 79,
+        "expression": null,
+        "excess_pct": -3.26,
+        "nifty_beta": -0.209,
+        "default_exit": "fixed"
+      },
+      {
+        "tier": "aggressive",
+        "expression_id": "ad89abe0-0f1e-46cd-a820-a5b3e396a24c",
+        "workflow_id": "d7f728e9-6d45-4966-88c0-8f4db6402473",
+        "kind": "concentrated",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 79,
+        "expression": 79,
+        "excess_pct": 94.61,
+        "nifty_beta": 0.285,
+        "default_exit": "fixed"
+      }
+    ],
+    "deleted": [],
+    "representative_tier": "conservative",
+    "conf_outcome": 79,
+    "conf_outcome_letter": "B",
+    "conf_expression": 79,
+    "conf_expression_letter": "B",
+    "conf_expr_suppressed": false
+  },
+  "Crude": {
+    "view_id": "19f04e99-b704-4166-b99a-697049885d44",
+    "b_NB": 0.0513,
+    "b_NB_t": 3.04,
+    "updated": [
+      {
+        "tier": "conservative",
+        "expression_id": "ac66729f-77b9-4475-8666-c5739f7ed753",
+        "workflow_id": "cd1b87e8-2097-4452-9bb4-730aa2db985f",
+        "kind": "basket",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 76,
+        "expression": null,
+        "excess_pct": 10.15,
+        "nifty_beta": -0.014,
+        "default_exit": "target"
+      },
+      {
+        "tier": "balanced",
+        "expression_id": "e0027d6a-cc03-4d65-8532-587becaca68d",
+        "workflow_id": "ec2eca0d-ba92-4f99-8649-42d6f5767279",
+        "kind": "pair",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 76,
+        "expression": null,
+        "excess_pct": 9.67,
+        "nifty_beta": 0.101,
+        "default_exit": "target"
+      },
+      {
+        "tier": "aggressive",
+        "expression_id": "6f7f441b-ccc0-41e2-ad8e-31796dea4217",
+        "workflow_id": "c440d072-36ea-46d0-b13e-e6f50168a252",
+        "kind": "leveraged",
+        "grade": "B",
+        "verdict": "unproven",
+        "outcome": 76,
+        "expression": null,
+        "excess_pct": 19.6,
+        "nifty_beta": 0.019,
+        "default_exit": "target"
+      }
+    ],
+    "deleted": [
+      "eb816eab-69c8-440b-b283-81f0250c8e3c"
+    ],
+    "representative_tier": "conservative",
+    "conf_outcome": 76,
+    "conf_outcome_letter": "B",
+    "conf_expression": null,
+    "conf_expression_letter": null,
+    "conf_expr_suppressed": true
+  }
+}

@@ -91,11 +91,13 @@ def test_chain_cache_hit_skips_refetch(master, monkeypatch):
     assert chain2 == chain1
 
 
-def test_mcx_chain_is_research_only(master):
+def test_mcx_chain_tradeable(master):
+    # Commodities (MCX) are tradeable via register-not-execute — the chain is
+    # a real MCX segment but no longer flagged research-only.
     chain = get_chain(master, "CRUDEOIL", width=3)
     assert chain is not None
     assert chain["segment"] == "MCX-OPT"
-    assert chain["research_only"] is True
+    assert chain["research_only"] is False
     # MCX T-clock runs to the 23:30 close — strictly longer than an NSE
     # expiry on the same date would be; just assert it's positive.
     assert chain["t_years"] > 0

@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
 from apscheduler.triggers.cron import CronTrigger  # type: ignore[import-untyped]
@@ -258,6 +258,37 @@ def compute_next_run_at(
     return utc
 
 
+def _compute_one_time_run_at(run_at: str, tz_str: str) -> Optional[datetime]:
+    """Resolve a one-time schedule's ``run_at`` (ISO 8601 wall-clock in
+    ``tz_str``) to a UTC-aware datetime. Returns None when it's already in the
+    past — i.e. the single fire is spent — so the poller never re-arms it.
+
+    Raises ``InvalidCronError`` (the schedule subsystem's bad-config signal,
+    so the router still emits 422) on an unknown timezone or unparseable value.
+    """
+    try:
+        tz = pytz_timezone(tz_str)
+    except Exception as e:  # pytz.UnknownTimeZoneError, etc.
+        raise InvalidCronError(f"unknown timezone: {tz_str}") from e
+    try:
+        dt = datetime.fromisoformat(run_at.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise InvalidCronError(f"invalid run_at datetime: {run_at}") from e
+    # A naive value is wall-clock in tz_str; localize so DST is handled.
+    if dt.tzinfo is None:
+        dt = tz.localize(dt) if hasattr(tz, "localize") else dt.replace(tzinfo=tz)
+    utc = dt.astimezone(timezone.utc)
+    if utc <= datetime.now(timezone.utc):
+        return None
+    return utc
+
+
+def _is_one_time_schedule(step: Any) -> bool:
+    """True when a trigger.schedule step is one-time (has ``run_at``, no cron)."""
+    cfg = step.config or {}
+    return bool(cfg.get("run_at")) and not cfg.get("cron")
+
+
 def upsert_workflow_schedule(db: Session, workflow: Workflow) -> None:
     """Recompute per-step ``next_run_at`` for every ``trigger.schedule``
     step, plus the workflow-level ``next_run_at`` summary.
@@ -294,22 +325,39 @@ def upsert_workflow_schedule(db: Session, workflow: Workflow) -> None:
     for step in schedule_steps:
         raw_cfg: dict[str, object] = step.config or {}  # type: ignore[assignment]
         cfg: dict[str, object] = dict(raw_cfg) if raw_cfg else {}
-        # Two shapes flow through this loop today:
-        #   trigger.schedule              → cfg has {cron, timezone}
+        # Three shapes flow through this loop today:
+        #   trigger.schedule (recurring)  → cfg has {cron, timezone}
+        #   trigger.schedule (one-time)   → cfg has {run_at, timezone};
+        #                                   fires once then is "spent" (nra=None)
         #   trigger.market_relative_time  → cfg has {anchor, offset_minutes,
-        #                                            days, timezone}, which
-        #                                   we resolve to the same
-        #                                   (cron, tz) pair.
+        #                                            days, timezone}, resolved
+        #                                   to the same (cron, tz) pair.
         if str(step.step_type) == "trigger.market_relative_time":
             cron, tz_str = _resolve_market_relative_time(cfg)
+            nra: Optional[datetime] = compute_next_run_at(cron, tz_str)
+        elif cfg.get("run_at"):
+            # One-time: nra is the run_at while it's still in the future, and
+            # None once it has passed (the single fire is spent — never re-armed).
+            nra = _compute_one_time_run_at(
+                str(cfg.get("run_at")),
+                str(cfg.get("timezone", "Asia/Kolkata")),
+            )
         else:
             cron = str(cfg.get("cron", ""))
             tz_str = str(cfg.get("timezone", "UTC"))
-        nra = compute_next_run_at(cron, tz_str)
+            nra = compute_next_run_at(cron, tz_str)
         step.next_run_at = nra  # type: ignore[assignment]
-        if earliest is None or nra < earliest:
+        if nra is not None and (earliest is None or nra < earliest):
             earliest = nra
     workflow.next_run_at = earliest  # type: ignore[assignment]
+
+    # A workflow whose ONLY schedule triggers are spent one-time fires (run_at
+    # in the past) would otherwise linger as "active" with nothing left to do.
+    # Auto-pause it so a one-time agent reads as done after its single run.
+    if earliest is None and schedule_steps and all(
+        _is_one_time_schedule(s) for s in schedule_steps
+    ):
+        workflow.status = WorkflowStatus.paused  # type: ignore[assignment]
 
 
 async def _poll_due_workflows() -> None:

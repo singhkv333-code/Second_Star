@@ -21,7 +21,6 @@ import type {
   ApiResult,
   Approval,
   ApprovalDecisionRequest,
-  Broker,
   BrokerAutomationRequest,
   BrokerCredentialsRequest,
   BrokerDisconnectResponse,
@@ -29,9 +28,11 @@ import type {
   BrokerLoginUrl,
   BrokersResponse,
   BrokerStatus,
+  CompareResult,
   CreateWorkflowRequest,
   Diagnostic,
   ErrorBody,
+  ExpressionScores,
   IpoApplicationsListResponse,
   IpoCalendarResponse,
   IpoRegisterRequest,
@@ -49,6 +50,8 @@ import type {
   RunSummary,
   StepTypeCatalog,
   UpdateWorkflowRequest,
+  ViewDetail,
+  ViewSummary,
   Workflow,
   WorkflowStatus,
   WorkflowSummary,
@@ -2004,5 +2007,123 @@ export function listOptionStrategies(): Promise<
 > {
   return requestLegacy<{ items: OptionStrategyRegisterResponse["strategy"][] }>(
     "/users/option-strategies",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Views — View Markets V2  (GET /api/views, GET /api/views/{id}, …)
+//
+// All reads are GLOBAL (curated content; no per-user filtering). Follow is
+// per-user best-effort. Endpoints are flag-gated on settings.view_markets_enabled
+// on the backend — the FE receives a 404 { error } when the flag is off.
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/views` — list curated views (newest first, non-archived by default).
+ *
+ * @param params - optional filters mirroring the query params the backend accepts.
+ */
+export function listViews(params?: {
+  status?: string;
+  view_type?: string;
+  category?: string;
+}): Promise<ApiResult<{ items: ViewSummary[] }>> {
+  return request<{ items: ViewSummary[] }>("/views", { query: params });
+}
+
+/**
+ * `GET /api/views/{view_id}` — full view detail including transmission,
+ * expectations, confidence evidence, and expression ladder.
+ */
+export function getView(id: string): Promise<ApiResult<ViewDetail>> {
+  return request<ViewDetail>(`/views/${encodeURIComponent(id)}`);
+}
+
+/**
+ * `POST /api/views/expressions/{expression_id}/deploy`
+ *
+ * Links (or creates) a workflow draft from the expression. If the expression
+ * already has a `workflow_id` and re-arming isn't requested, returns the
+ * existing workflow id. The caller then opens the AgentPanel draft editor
+ * via `onOpenWorkflowById` — no order fires until the user approves.
+ */
+export function deployExpression(
+  expressionId: string,
+  body?: { activate?: boolean; timing_mode?: string },
+): Promise<
+  ApiResult<{
+    workflow_id: string;
+    status: string;
+    steps_count: number;
+    activated: boolean;
+  }>
+> {
+  return request<{
+    workflow_id: string;
+    status: string;
+    steps_count: number;
+    activated: boolean;
+  }>(`/views/expressions/${encodeURIComponent(expressionId)}/deploy`, {
+    method: "POST",
+    body: body ?? {},
+  });
+}
+
+/**
+ * `POST /api/views/{view_id}/compare`
+ *
+ * Ranks the three tiers and returns a `recommended_tier` with rationale.
+ * The FE highlights the recommended ExpressionCard.
+ */
+export function compareViewTiers(
+  viewId: string,
+): Promise<ApiResult<CompareResult>> {
+  return request<CompareResult>(
+    `/views/${encodeURIComponent(viewId)}/compare`,
+    { method: "POST", body: {} },
+  );
+}
+
+/**
+ * `POST /api/views/expressions/{expression_id}/backtest`
+ *
+ * Triggers a backtest run for the expression and persists the result.
+ * The returned `ExpressionScores` can be merged into local component state
+ * so the `RiskReturnPanel` refreshes without a full page reload.
+ */
+export function backtestExpression(
+  expressionId: string,
+): Promise<ApiResult<ExpressionScores>> {
+  return request<ExpressionScores>(
+    `/views/expressions/${encodeURIComponent(expressionId)}/backtest`,
+    { method: "POST", body: {} },
+  );
+}
+
+/**
+ * `POST /api/views/{view_id}/follow` — follow a view (per-user, best-effort).
+ *
+ * Callers should apply the result optimistically and silently revert on error.
+ */
+export function followView(
+  viewId: string,
+): Promise<ApiResult<{ is_following: boolean; follower_count: number }>> {
+  return request<{ is_following: boolean; follower_count: number }>(
+    `/views/${encodeURIComponent(viewId)}/follow`,
+    { method: "POST", body: {} },
+  );
+}
+
+/**
+ * `DELETE /api/views/{view_id}/follow` — unfollow a view (per-user, best-effort).
+ *
+ * Callers should apply the result optimistically and silently revert on error.
+ */
+export function unfollowView(
+  viewId: string,
+): Promise<ApiResult<{ is_following: boolean; follower_count: number }>> {
+  return request<{ is_following: boolean; follower_count: number }>(
+    `/views/${encodeURIComponent(viewId)}/follow`,
+    { method: "DELETE" },
   );
 }

@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Optional
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,23 @@ def _time_to_cron_minute_hour(time_ist: str) -> tuple[str, str]:
     return str(mm), str(hh)
 
 
+def _parse_run_at(run_at: str) -> tuple[str, str, str]:
+    """One-time ISO datetime → (normalized_iso, '22 Jun 2026', '13:00 IST').
+
+    Accepts a naive wall-clock ('2026-06-22T13:00') or an offset-aware ISO
+    string. Raises ValueError on anything unparseable."""
+    s = run_at.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError as e:
+        raise ValueError(
+            f"run_at must be an ISO 8601 datetime, got {run_at!r}: {e}"
+        )
+    date_label = f"{dt.day} {dt.strftime('%b %Y')}"  # cross-platform '22 Jun 2026'
+    time_label = f"{dt.strftime('%H:%M')} IST"
+    return dt.isoformat(), date_label, time_label
+
+
 def _label_for_dow(dow_field: str) -> str:
     """Friendly label for the schedule, e.g. '1-5' → 'every weekday'."""
     return {
@@ -177,12 +195,14 @@ def hydrate_scheduled_order(
     side: Literal["buy", "sell"],
     quantity: Optional[int] = None,
     notional_inr: Optional[float] = None,
-    days: list[str],
+    days: Optional[list[str]] = None,
     time_ist: str = "09:15",
+    run_at: Optional[str] = None,
     sl_pct: Optional[float] = None,
     requires_approval: bool = False,
 ) -> dict[str, Any]:
-    """'buy 5 NIFTYBEES every weekday at 09:15' style.
+    """'buy 5 NIFTYBEES every weekday at 09:15' (recurring) OR 'buy 10 RELIANCE
+    just tomorrow at 1pm' (one-time, via ``run_at``) style.
 
     Yields a 2-step workflow (trigger.schedule + action.place_order),
     or 3 steps when sl_pct is provided (adds action.set_stoploss).
@@ -198,10 +218,33 @@ def hydrate_scheduled_order(
 
     sym = str(symbol).strip().upper()
     side_low = side.lower()
-    minute, hour = _time_to_cron_minute_hour(time_ist)
-    dow_field = _days_to_cron_field(days)
-    cron = f"{minute} {hour} * * {dow_field}"
-    dow_label = _label_for_dow(dow_field)
+
+    # Recurring (days → cron) vs ONE-TIME (run_at) — exactly one.
+    one_time = bool(run_at and str(run_at).strip())
+    if one_time and days:
+        raise ValueError(
+            "scheduled_order: pass either `days` (recurring) or `run_at` "
+            "(one-time), not both"
+        )
+    if not one_time and not days:
+        raise ValueError(
+            "scheduled_order: must specify `days` (recurring) or `run_at` "
+            "(one-time)"
+        )
+
+    if one_time:
+        iso, date_label, time_label = _parse_run_at(str(run_at))
+        cadence_label = f"once on {date_label}"
+        trig_cfg: dict[str, Any] = {"run_at": iso, "timezone": "Asia/Kolkata"}
+        trig_label = f"Once on {date_label} at {time_label}"
+    else:
+        minute, hour = _time_to_cron_minute_hour(time_ist)
+        dow_field = _days_to_cron_field(days or [])
+        cron = f"{minute} {hour} * * {dow_field}"
+        cadence_label = _label_for_dow(dow_field)
+        time_label = f"{hour.zfill(2)}:{minute.zfill(2)} IST"
+        trig_cfg = {"cron": cron, "timezone": "Asia/Kolkata"}
+        trig_label = f"{cadence_label} at {time_label}"
 
     order_cfg: dict[str, Any] = {
         "symbol": sym,
@@ -218,15 +261,15 @@ def hydrate_scheduled_order(
         f"{quantity} shares" if quantity is not None
         else f"₹{int(notional_inr or 0):,}"
     )
-    name = f"{dow_label.capitalize()}: {side_low} {size_label} {sym}"
+    name = f"{cadence_label.capitalize()}: {side_low} {size_label} {sym}"
     if sl_pct is not None:
         name = f"{name} +{sl_pct:g}% SL"
 
     steps: list[dict[str, Any]] = [
         {
             "step_type": "trigger.schedule",
-            "label": f"{dow_label} at {hour.zfill(2)}:{minute.zfill(2)} IST",
-            "config": {"cron": cron, "timezone": "Asia/Kolkata"},
+            "label": trig_label,
+            "config": trig_cfg,
         },
         {
             "step_type": "action.place_order",
@@ -247,13 +290,12 @@ def hydrate_scheduled_order(
         })
 
     what = (
-        f"Schedule trigger fires {dow_label} at "
-        f"{hour.zfill(2)}:{minute.zfill(2)} IST and places a market "
-        f"{side_low} for {size_label} of {sym}."
+        f"Schedule trigger fires {cadence_label} at {time_label} and "
+        f"places a market {side_low} for {size_label} of {sym}."
         + (f" Then arms a {sl_pct:g}% stop-loss on the position." if sl_pct is not None else "")
     )
     why = (
-        f"You asked for a {dow_label} cadence into {sym}; a single-"
+        f"You asked for a {cadence_label} cadence into {sym}; a single-"
         f"instrument scheduled order is the most literal mapping. "
         f"Market orders accept whatever quote prevails at fire time "
         f"in exchange for guaranteed fills."
@@ -281,8 +323,8 @@ def hydrate_scheduled_order(
     return {
         "name": name[:60],
         "description": (
-            f"{side_low.capitalize()} {size_label} of {sym} {dow_label} "
-            f"at {hour.zfill(2)}:{minute.zfill(2)} IST."
+            f"{side_low.capitalize()} {size_label} of {sym} {cadence_label} "
+            f"at {time_label}."
         ),
         "steps": steps,
         "rationale": rationale,

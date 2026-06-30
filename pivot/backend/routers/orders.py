@@ -7,10 +7,16 @@ from backend.database import get_db
 from backend.models import TradeLog, User
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.paper.routing import (
+    InsufficientFundsError,
     should_use_paper,
     submit_gtt_for_user,
     submit_order_for_user,
 )
+from backend.brokers.sessions import get_active_broker_session
+from backend.paper.marks import get_mark_price
+# Imported as a module (not by value) so we read the LIVE mock-mode flag —
+# it flips at runtime on broker connect/disconnect.
+from backend.kite import auth as kite_auth
 from backend.kite.auth import read_kite_access_token
 from backend.agents.explainer import explain_order
 from backend.safety import validate_order_value
@@ -142,21 +148,31 @@ async def confirm_order(
     # Routes to the paper broker for accounts in mode='paper' (so the
     # confirmed order fills into the structured portfolio); falls back to
     # the Kite path otherwise. Idempotent on the preview id so a
-    # double-confirm of the same preview doesn't double-fill.
-    result = submit_order_for_user(
-        db, user_id,
-        access_token=kite_token,
-        tradingsymbol=req["tradingsymbol"],
-        exchange=req["exchange"],
-        transaction_type=req["transaction_type"],
-        quantity=req["quantity"],
-        order_type=req["order_type"],
-        price=req.get("price"),
-        product=req.get("product", "CNC"),
-        client_request_id=f"chat-confirm:{request.preview_id}",
-        source="chat",
-        conversation_id=request.conversation_id,
-    )
+    # double-confirm of the same preview doesn't double-fill. Funds-guard /
+    # broker-reject errors are surfaced (not 500'd) so the user sees why.
+    try:
+        result = submit_order_for_user(
+            db, user_id,
+            access_token=kite_token,
+            tradingsymbol=req["tradingsymbol"],
+            exchange=req["exchange"],
+            transaction_type=req["transaction_type"],
+            quantity=req["quantity"],
+            order_type=req["order_type"],
+            price=req.get("price"),
+            product=req.get("product", "CNC"),
+            client_request_id=f"chat-confirm:{request.preview_id}",
+            source="chat",
+            conversation_id=request.conversation_id,
+        )
+    except InsufficientFundsError as exc:
+        raise HTTPException(status_code=402, detail=str(exc))
+    except Exception as exc:
+        logger.exception("confirm order failed for %s", req.get("tradingsymbol"))
+        raise HTTPException(
+            status_code=502,
+            detail=f"Broker rejected the order: {str(exc).strip() or type(exc).__name__}",
+        )
 
     # Log to DB — store placed_at as IST-aware datetime
     trade_log = TradeLog(
@@ -221,10 +237,11 @@ class OrderRegisterLeg(BaseModel):
 class OrderRegisterRequest(BaseModel):
     """Body for POST /orders/register.
 
-    Comes from the chat LogicCard "Confirm & register" button. We do NOT
-    call any broker; we write a TradeLog row with status="registered" and
-    source="chat-confirm". Live trading is out of scope for v1 — we only
-    persist the intent so the UI can show order history.
+    Comes from the chat LogicCard "Confirm & register" button. The order is
+    routed by the account's paper-vs-live mode: a PAPER account fills the
+    simulated book (no broker, ever); a LIVE account (paper off) places through
+    the user's active broker connector. One TradeLog row is written per
+    resulting order with source="chat-confirm".
 
     Single-leg orders pass `symbol/transaction_type/...` at the top.
     Basket orders pass `legs: [...]`. Both forms result in one TradeLog
@@ -250,24 +267,77 @@ class OrderRegisterRequest(BaseModel):
 def _persist_leg(
     db: Session, user_id: int, leg: dict, *, conversation_id: Optional[str] = None,
 ) -> TradeLog:
-    """Persist a chat order intent as a TradeLog row.
+    """Persist a chat order intent as a TradeLog row, routing it by the
+    account's paper-vs-live mode.
 
-    When the user's account is in PAPER mode, the order is ALSO routed through
-    the paper broker (so it fills into the paper book and shows up in the Paper
-    dashboard); the TradeLog status then reflects the paper outcome
-    (filled / resting / rejected) and carries the paper order id. Otherwise it
-    stays the legacy register-only intent (status='registered', no broker).
+      - PAPER mode (paper trading on, account.mode == 'paper'): the order
+        fills the SIMULATED paper book — no broker is ever contacted. The
+        TradeLog status reflects the paper outcome (filled / resting /
+        rejected / pending) and carries the paper order id.
+      - LIVE mode (paper off): the order is placed through the user's active
+        broker connector (Kite/Dhan/Fyers; the Kite mock helper in dev or when
+        no broker session exists). The status reflects the broker outcome
+        (PENDING / COMPLETE / ...) and carries the broker order id.
+
+    ``submit_order_for_user`` owns that paper-vs-broker decision (it re-checks
+    ``should_use_paper`` internally), so a paper-mode account can NEVER reach a
+    real broker through this path. A routing/placement failure must not lose
+    the user's intent: we log it and fall back to recording a plain registered
+    order (status='registered', no order id).
     """
     symbol = leg["symbol"].upper()
     side = leg["transaction_type"]
-    order_type = leg["order_type"]
+    order_type = str(leg["order_type"]).upper()
     qty = int(leg["quantity"])
 
-    order_status = "registered"
-    paper_order_id: Optional[str] = None
+    paper = should_use_paper(db, user_id)
 
-    if should_use_paper(db, user_id):
-        try:
+    # LIVE mode (paper off) needs a CONNECTED broker to actually reach the
+    # exchange. Without a session the routing seam falls through to the Kite
+    # *mock* helper, which would report a phantom "placed" that never hit the
+    # broker (exactly the "card says Placed but Kite is empty" symptom). Fail
+    # honestly so the UI can prompt the user to connect — except in dev mock
+    # mode (no real key), where the mock placement is the intended behaviour.
+    if (
+        not paper
+        and not kite_auth.KITE_MOCK_MODE
+        and get_active_broker_session(db, user_id) is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No broker connected. Connect your broker (e.g. Zerodha Kite) "
+                "in Brokers settings to place live orders."
+            ),
+        )
+
+    order_status = "registered"
+    broker_order_id: Optional[str] = None
+
+    try:
+        if order_type == "GTT" and leg.get("trigger_price") is not None:
+            # A GTT MUST go through the broker's GTT API (place_gtt), not the
+            # regular place_order path — Kite rejects order_type="GTT" on a
+            # plain order, so it would never create the trigger. Resolve the
+            # current LTP the GTT API needs (falls back to the trigger price).
+            mark = get_mark_price(symbol)
+            limit_price = leg.get("price") or leg["trigger_price"]
+            result = submit_gtt_for_user(
+                db, user_id,
+                tradingsymbol=symbol,
+                exchange=leg.get("exchange", "NSE"),
+                transaction_type=side,
+                quantity=qty,
+                trigger_price=float(leg["trigger_price"]),
+                limit_price=float(limit_price),
+                last_price=float(mark) if mark is not None else float(leg["trigger_price"]),
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            broker_order_id = (
+                str(result.get("trigger_id") or result.get("order_id") or "") or None
+            )
+        else:
             result = submit_order_for_user(
                 db, user_id,
                 tradingsymbol=symbol,
@@ -281,20 +351,36 @@ def _persist_leg(
                 source="chat",
                 conversation_id=conversation_id,
             )
-            # paper_status is one of filled / resting / rejected / pending.
-            order_status = result.get("paper_status") or "registered"
-            paper_order_id = result.get("order_id")
-        except Exception:
-            # A paper-routing failure must not lose the user's intent — fall
-            # back to recording it as a plain registered order.
-            logger.exception(
-                "paper routing failed for chat order %s %s; registering only",
-                side, symbol,
+            broker_order_id = result.get("order_id")
+        # paper_status (simulated book: filled/resting/rejected/pending) takes
+        # precedence; otherwise the broker's own status (PENDING/COMPLETE/
+        # active/...).
+        order_status = (
+            result.get("paper_status") or result.get("status") or "registered"
+        )
+    except HTTPException:
+        raise
+    except InsufficientFundsError as exc:
+        # Pre-trade funds guard tripped — tell the user plainly.
+        raise HTTPException(status_code=402, detail=str(exc))
+    except Exception as exc:
+        logger.exception(
+            "order routing failed for chat order %s %s", side, symbol,
+        )
+        if not paper:
+            # LIVE order: the broker REJECTED/failed it (IP allow-list, RMS,
+            # market closed, …). Surface the real reason rather than silently
+            # recording a misleading "registered" that the UI shows as "Placed".
+            raise HTTPException(
+                status_code=502,
+                detail=f"Broker rejected the order: {str(exc).strip() or type(exc).__name__}",
             )
+        # PAPER/transient routing failure must not lose intent — register it.
+        order_status = "registered"
 
     row = TradeLog(
         user_id=user_id,
-        kite_order_id=paper_order_id,          # the paper order id (or None)
+        kite_order_id=broker_order_id,         # paper or broker order id (or None)
         symbol=symbol,
         exchange=leg.get("exchange", "NSE"),
         transaction_type=side,
@@ -316,11 +402,13 @@ async def register_order(
     auth: tuple = Depends(get_current_user_token),
     db: Session = Depends(get_db),
 ):
-    """Persist an order intent from a chat LogicCard confirm.
+    """Place/register an order from a chat LogicCard confirm.
 
-    No broker call; this is v1's "register but don't execute" path.
-    Returns the TradeLog row(s) that were inserted so the UI can show
-    them in order history immediately.
+    Routing follows the account's paper-vs-live mode (see ``_persist_leg``):
+    a PAPER account fills the simulated book (no broker, ever); a LIVE account
+    (paper off) places through the user's active broker connector. Either way
+    one TradeLog row is written per resulting order and returned so the UI can
+    show it in order history immediately.
     """
     user_id, _ = auth
 

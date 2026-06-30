@@ -20,11 +20,13 @@
  * are exported for OptionStrategyPanel to reuse.
  */
 
-import { useState } from "react";
-import { AlertCircle, ArrowUpRight, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, ArrowUpRight, Loader2, Minus, Plus, ShieldAlert, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import type { OptionStrategyPayload } from "@/lib/types";
+import { isError } from "@/lib/types";
+import { computeOptionStrategy } from "@/lib/api";
 import { OptionStrategyPanel } from "@/components/chat/OptionStrategyPanel";
 import { PayoffChart } from "@/components/chat/option-payoff-chart";
 
@@ -127,10 +129,67 @@ export type OptionStrategyCardProps = {
 };
 
 export function OptionStrategyCard({ payload }: OptionStrategyCardProps): React.ReactElement {
-  const { locked, computed, editable, critique } = payload;
   const [panelOpen, setPanelOpen] = useState(false);
   useExclusiveSidePanel("option-strategy", panelOpen, () => setPanelOpen(false));
 
+  // Live, editable payload. The inline card lets the user change the lot count
+  // directly (the most common edit); strikes/legs/expiry still hand off to the
+  // full builder panel. Recompute hits the same /option-strategies/compute
+  // endpoint the panel uses, so the displayed payoff/stats stay truthful.
+  const [current, setCurrent] = useState<OptionStrategyPayload>(payload);
+  const [qtyLots, setQtyLots] = useState<number>(payload.editable.qty_lots);
+  const [computing, setComputing] = useState(false);
+  const [computeError, setComputeError] = useState<string | null>(null);
+  const baselineLots = useRef<number>(payload.editable.qty_lots);
+
+  // Keep local state in sync if a new payload streams in (e.g. chat amendment).
+  useEffect(() => {
+    setCurrent(payload);
+    setQtyLots(payload.editable.qty_lots);
+    baselineLots.current = payload.editable.qty_lots;
+  }, [payload]);
+
+  // Debounced live recompute when the lot count changes. Legs/strikes are kept
+  // from the current payload (only qty_lots changes here), so no chain fetch is
+  // needed — the backend re-evaluates payoff/Greeks/premium for the new size.
+  useEffect(() => {
+    if (qtyLots === baselineLots.current) return;
+    if (!Number.isInteger(qtyLots) || qtyLots < 1) return;
+    let cancelled = false;
+    setComputing(true);
+    const t = setTimeout(async () => {
+      const res = await computeOptionStrategy({
+        underlying: current.locked.underlying,
+        expiry: current.locked.expiry,
+        template: current.editable.template,
+        qty_lots: qtyLots,
+        legs: current.editable.legs.map((l) => ({
+          option_type: l.option_type,
+          side: l.side,
+          strike: l.strike,
+        })),
+      });
+      if (cancelled) return;
+      setComputing(false);
+      if (isError(res)) {
+        setComputeError(res.error.message ?? "Recompute failed — try again.");
+        return;
+      }
+      if (!res.data.success || !res.data.payload) {
+        setComputeError(res.data.error ?? "Couldn't recompute for this lot size.");
+        return;
+      }
+      setComputeError(null);
+      baselineLots.current = qtyLots;
+      setCurrent(res.data.payload);
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [qtyLots, current.locked.underlying, current.locked.expiry, current.editable.template, current.editable.legs]);
+
+  const { locked, computed, editable, critique } = current;
   const legCount = editable.legs.length;
 
   return (
@@ -204,15 +263,69 @@ export function OptionStrategyCard({ payload }: OptionStrategyCardProps): React.
           />
         </div>
 
-        {/* Legs summary + CTA */}
+        {/* Legs summary + inline lots editor + CTA */}
         <div className="flex flex-col gap-2.5 border-t border-border/30 px-5 py-3">
-          <p className="text-[11px] text-muted-foreground">
-            {legCount} {legCount === 1 ? "leg" : "legs"} · {editable.qty_lots}{" "}
-            {editable.qty_lots === 1 ? "lot" : "lots"} ·{" "}
-            {editable.legs
-              .map((l) => `${l.side === "BUY" ? "+" : "-"}${l.strike}${l.option_type}`)
-              .join("  ")}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate text-[11px] text-muted-foreground">
+              {legCount} {legCount === 1 ? "leg" : "legs"} ·{" "}
+              {editable.legs
+                .map((l) => `${l.side === "BUY" ? "+" : "-"}${l.strike}${l.option_type}`)
+                .join("  ")}
+            </p>
+            {/* Lots stepper — edits the whole-strategy size; recomputes live. */}
+            <div className="flex shrink-0 items-center gap-1">
+              <span className="mr-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                Lots
+              </span>
+              <button
+                type="button"
+                aria-label="Decrease lots"
+                disabled={qtyLots <= 1}
+                onClick={() => setQtyLots((n) => Math.max(1, n - 1))}
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/60 text-foreground/70",
+                  "transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40",
+                )}
+              >
+                <Minus className="h-3 w-3" aria-hidden="true" />
+              </button>
+              <input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                aria-label="Number of lots"
+                data-testid="option-strategy-lots-input"
+                value={qtyLots}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!Number.isNaN(v)) setQtyLots(Math.max(1, v));
+                }}
+                className="h-6 w-10 rounded-md border border-border/60 bg-background text-center text-[12px] font-semibold tabular-nums text-foreground [appearance:textfield] focus:outline-none focus:ring-1 focus:ring-primary/40 [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <button
+                type="button"
+                aria-label="Increase lots"
+                onClick={() => setQtyLots((n) => n + 1)}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/60 text-foreground/70 transition-colors hover:bg-muted"
+              >
+                <Plus className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+
+          {/* Recompute status — honest "computing" + error, never a stale number silently */}
+          {(computing || computeError) && (
+            <p
+              className={cn(
+                "flex items-center gap-1 text-[10.5px]",
+                computeError ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground",
+              )}
+            >
+              {computing && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
+              {computeError ?? "Recomputing payoff for new lot size…"}
+            </p>
+          )}
+
           <button
             type="button"
             onClick={() => setPanelOpen(true)}
@@ -240,7 +353,9 @@ export function OptionStrategyCard({ payload }: OptionStrategyCardProps): React.
         </div>
       </div>
 
-      <OptionStrategyPanel open={panelOpen} onOpenChange={setPanelOpen} payload={payload} />
+      {/* Hand the live (lot-edited) payload to the full builder so it opens
+          from the same size the user set inline. */}
+      <OptionStrategyPanel open={panelOpen} onOpenChange={setPanelOpen} payload={current} />
     </>
   );
 }

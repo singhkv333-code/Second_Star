@@ -4076,7 +4076,18 @@ class ChatService:
         # turn -> {"_clarify_answers": [{slot, value, label}, ...]}. Fold them
         # all here and go straight to the build, instead of one cursor advance
         # per question. (Agent flow only; the portfolio clarify stays one-at-a-time.)
-        if is_agent and text.startswith("{") and "_clarify_answers" in text:
+        # NOTE: handled for BOTH the agent flow AND the portfolio/strategy
+        # flow. The FE pages every question client-side and submits them in
+        # one silent `_clarify_answers` batch on completion — for strategy
+        # builds too (build_tool=build_strategy). This used to be gated on
+        # `is_agent`, so a batched strategy clarify fell through to the
+        # one-at-a-time path: the JSON blob got mis-folded into the first
+        # slot, the cursor advanced, and the turn returned a "next question"
+        # (clarify_advance, tools=[]) that the FE — already showing "All set,
+        # building…" — never rendered. Result: the user answered everything
+        # and NO card was built. Folding the whole batch here for both flows
+        # sets build_now and goes straight to the builder.
+        if text.startswith("{") and "_clarify_answers" in text:
             try:
                 _payload = json.loads(text)
                 _batch = _payload.get("_clarify_answers")
@@ -4089,13 +4100,17 @@ class ChatService:
                         continue
                     _aq = _q_by_slot.get(str(_a.get("slot") or ""))
                     _aval = str(_a.get("value") or _a.get("label") or "")
-                    if _aq is not None and _aval:
-                        try:
+                    if _aq is None or not _aval:
+                        continue
+                    try:
+                        if is_agent:
                             agent_slots = normalize_agent_answer_into_slots(
                                 _aq.model_dump(), _aval, agent_slots,
                             )
-                        except Exception as e:
-                            logger.warning("clarify batch fold failed: %s", e)
+                        else:
+                            slots = normalize_answer_into_slots(_aq, _aval, slots)
+                    except Exception as e:
+                        logger.warning("clarify batch fold failed: %s", e)
                 # Every answer is folded — skip the single-answer path and build.
                 build_now = True
                 current = None
@@ -5132,6 +5147,33 @@ class ChatService:
         # ship a turn with zero tools.
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+
+        # F&O amendment scope: when the active draft is an OPTION strategy
+        # card and the user is AMENDING it ("increase max profit", "make it
+        # safer", "switch to a call spread"), keep the turn on the options
+        # surface and DROP the equity-basket builders. WHY: build_strategy
+        # (equity+gold basket) is in _ALWAYS_INCLUDE and its name is
+        # confusingly close to build_option_strategy, so on an option
+        # amendment the planner frequently fired build_strategy and emitted a
+        # stray "Diversified Equity Basket" under an options answer (~4/5 of
+        # the time on gpt-5.4-mini). The amendment HINT alone (re-emit
+        # build_option_strategy) didn't stop it — the wrong tool has to leave
+        # scope. Mirrors the hedge-turn strip (_HEDGE_STRIP_TOOLS). Gated on a
+        # DEPENDENT amendment that isn't a fresh independent intent, so a
+        # genuine new "build me a portfolio" ask is unaffected.
+        if selected_names is not None:
+            _active_opt = self.store.get_active_draft(conv_id)
+            if (_active_opt is not None
+                    and _active_opt.tool_name == "build_option_strategy"
+                    and _DEPENDENT_INTENT_RE.search(message)
+                    and not _INDEPENDENT_INTENT_RE.search(message)):
+                selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
+                    "build_strategy", "propose_basket_allocation",
+                })
+                trace.event(
+                    "tools.option_amendment_scope",
+                    dropped=["build_strategy", "propose_basket_allocation"],
+                )
 
         # WHY this strip exists: when an active draft was sitting in
         # cache at the start of this turn AND the user's message is
@@ -6982,6 +7024,33 @@ class ChatService:
 
         selected_names = select_tool_names(message)
         intent_kind = _classify_intent(message)
+
+        # F&O amendment scope: when the active draft is an OPTION strategy
+        # card and the user is AMENDING it ("increase max profit", "make it
+        # safer", "switch to a call spread"), keep the turn on the options
+        # surface and DROP the equity-basket builders. WHY: build_strategy
+        # (equity+gold basket) is in _ALWAYS_INCLUDE and its name is
+        # confusingly close to build_option_strategy, so on an option
+        # amendment the planner frequently fired build_strategy and emitted a
+        # stray "Diversified Equity Basket" under an options answer (~4/5 of
+        # the time on gpt-5.4-mini). The amendment HINT alone (re-emit
+        # build_option_strategy) didn't stop it — the wrong tool has to leave
+        # scope. Mirrors the hedge-turn strip (_HEDGE_STRIP_TOOLS). Gated on a
+        # DEPENDENT amendment that isn't a fresh independent intent, so a
+        # genuine new "build me a portfolio" ask is unaffected.
+        if selected_names is not None:
+            _active_opt = self.store.get_active_draft(conv_id)
+            if (_active_opt is not None
+                    and _active_opt.tool_name == "build_option_strategy"
+                    and _DEPENDENT_INTENT_RE.search(message)
+                    and not _INDEPENDENT_INTENT_RE.search(message)):
+                selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
+                    "build_strategy", "propose_basket_allocation",
+                })
+                trace.event(
+                    "tools.option_amendment_scope",
+                    dropped=["build_strategy", "propose_basket_allocation"],
+                )
 
         # Typo-continuation guard (mirror of non-streaming path).
         # See _is_bare_typo_continuation for full rationale.

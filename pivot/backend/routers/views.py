@@ -1,0 +1,1090 @@
+"""View Markets — /api/views REST router (V2 belief OS).
+
+Read-mostly surface for the "Views" FE tab: global, curated content (no
+per-user filtering on reads), with per-user "follow" + per-user
+"deploy" (calls register-not-execute via :mod:`view_markets.deployment`).
+
+Every endpoint is flag-gated on ``settings.view_markets_enabled`` — when the
+flag is OFF the router answers 404 with the canonical error envelope.
+
+Shape contract: see the task spec / Markdowns/Version2.md. The FE mirrors
+the Pydantic models here verbatim. Tolerant of missing keys in
+``ViewExpression.config`` (no fabrication: missing scores -> ``scores:None``).
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, Header
+from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from backend.auth.jwt_handler import get_user_id_from_token
+from backend.config import settings
+from backend.database import get_db
+from backend.models import (
+    ConfidenceDimension,
+    MarketView,
+    ViewConfidence,
+    ViewExpectation,
+    ViewExpression,
+    ViewFollow,
+    ViewStatus,
+    ViewTransmission,
+    ViewType,
+    Workflow,
+)
+from backend.routers._errors import http_error, not_found, validation_error
+from backend.view_markets import plain_copy, precompute
+from backend.view_markets.deployment.compare import compare_tiers
+from backend.view_markets.deployment.deploy import deploy_expression
+from backend.view_markets.deployment.backtest import backtest_expression
+
+
+router = APIRouter(prefix="/api", tags=["Views"])
+
+
+# ── flag gate ───────────────────────────────────────────────────────────────
+
+
+def _require_flag() -> None:
+    """Raise canonical 404 when the View Markets layer is disabled."""
+    if not getattr(settings, "view_markets_enabled", False):
+        raise not_found("view markets not enabled")
+
+
+# ── optional auth (reads ungated; follow/deploy best-effort) ────────────────
+
+
+def _optional_user_id(authorization: Optional[str] = Header(default=None)) -> Optional[int]:
+    """Resolve the bearer token to a user_id when present, else ``None``.
+
+    Reads are GLOBAL (curated content). Follow + deploy use the user id when
+    available; absent in dev/tests we mirror paper.py's user=1 fallback so the
+    FE works without a login flow."""
+    if not authorization:
+        if getattr(settings, "app_env", "development") == "development":
+            return 1
+        return None
+    uid = get_user_id_from_token(authorization.replace("Bearer ", "", 1))
+    if uid:
+        return int(uid)
+    if getattr(settings, "app_env", "development") == "development":
+        return 1
+    return None
+
+
+# ── letter band (V2 spec bands; intentionally distinct from confidence.letter_band) ──
+
+
+def _letter_band(score: Optional[int]) -> Optional[str]:
+    """API-contract letter bands (A>=85, B>=70, C>=55, D>=40, else F).
+
+    Note: distinct from ``view_markets.confidence.letter_band`` which uses
+    the internal Trust-ladder bands (A>=80…E); the API contract uses a
+    coarser five-band scheme for the FE dial."""
+    if score is None:
+        return None
+    if score >= 85:
+        return "A"
+    if score >= 70:
+        return "B"
+    if score >= 55:
+        return "C"
+    if score >= 40:
+        return "D"
+    return "F"
+
+
+# ── Pydantic v2 response models ─────────────────────────────────────────────
+
+
+class CurvePoint(BaseModel):
+    t: str
+    strategy: float
+    benchmark: float
+
+
+class Holding(BaseModel):
+    name: str
+    symbol: str
+    # Real in-position return for basket members / the Nifty short leg; ``None``
+    # for option legs (no faithful historical per-leg payoff).
+    return_pct: Optional[float] = None
+    # "long" for basket members; "short" for the pair's Nifty leg; long/short
+    # per option leg.
+    position: Optional[str] = None
+    # Equal-weight 100/n for a basket; ``None`` when not applicable (pair legs,
+    # the Nifty short, option legs).
+    weight_pct: Optional[float] = None
+
+
+class Episode(BaseModel):
+    """One past occurrence of the event/season the expression is about."""
+
+    label: str
+    date: str
+    return_pct: Optional[float] = None
+    benchmark_pct: Optional[float] = None
+    positive: bool = False
+
+
+class MonteCarlo(BaseModel):
+    """Block-bootstrap distribution of simulated TERMINAL return %."""
+
+    n_sims: int
+    terminal_pct: list[float] = Field(default_factory=list)
+    p05: Optional[float] = None
+    p25: Optional[float] = None
+    median: Optional[float] = None
+    p75: Optional[float] = None
+    p95: Optional[float] = None
+    prob_loss: Optional[float] = None
+    # "underlying" when the curve (and thus the MC) is on the option underlying.
+    basis: Optional[str] = None
+
+
+class OptionLeg(BaseModel):
+    action: str
+    option_type: str
+    strike_rule: Optional[str] = None
+    delta: Optional[float] = None
+    strike_offset: Optional[int] = None
+
+
+class SimilarView(BaseModel):
+    id: str
+    short_title: Optional[str] = None
+
+
+class FundamentalSide(BaseModel):
+    pe: Optional[float] = None
+    roe: Optional[float] = None
+
+
+class FundamentalComparison(BaseModel):
+    basket: FundamentalSide = Field(default_factory=FundamentalSide)
+    nifty: FundamentalSide = Field(default_factory=FundamentalSide)
+
+
+class ConfidenceBlock(BaseModel):
+    score: Optional[int] = None
+    letter: Optional[str] = None
+
+
+class ConfidenceBlockWithEvidence(ConfidenceBlock):
+    evidence: Optional[str] = None
+
+
+class BestExpression(BaseModel):
+    id: str
+    tier: str
+    expression_kind: str
+    grade: Optional[str] = None
+    trust_verdict: Optional[str] = None
+    total_return_pct: Optional[float] = None
+    excess_return_pct: Optional[float] = None
+    # ── layman layer ──
+    plain_label: Optional[str] = None
+    nifty_total_pct: Optional[float] = None
+    n_episodes: Optional[int] = None
+    pct_episodes_beat: Optional[float] = None
+    worst_drop_pct: Optional[float] = None
+    # ── real computed chart (for the gallery mini line) ──
+    equity_curve: list[CurvePoint] = Field(default_factory=list)
+
+
+class ViewSummary(BaseModel):
+    id: str
+    view_type: str
+    title: str
+    thesis: Optional[str] = None
+    category: Optional[str] = None
+    time_horizon: Optional[str] = None
+    status: str
+    resolution_date: Optional[datetime] = None
+    created_at: datetime
+    published_at: Optional[datetime] = None
+    outcome_confidence: ConfidenceBlock = Field(default_factory=ConfidenceBlock)
+    expression_confidence: ConfidenceBlock = Field(default_factory=ConfidenceBlock)
+    best_expression: Optional[BestExpression] = None
+    expression_count: int = 0
+    transmission_count: int = 0
+    follower_count: int = 0
+    is_following: bool = False
+    # True when there is NO finished/headline basket yet (a "developing" idea).
+    # Single source of truth shared by the gallery card and the detail page so
+    # the two surfaces never contradict each other (e.g. card says "no finished
+    # basket" while the detail shows full numbers as if it were live).
+    is_developing: bool = False
+    # ── layman layer ──
+    plain_one_liner: Optional[str] = None
+    plain_summary: Optional[str] = None
+    # 7-8-word Polymarket-style headline (curated, else the raw title).
+    short_title: Optional[str] = None
+
+
+class TransmissionEdge(BaseModel):
+    seq: int
+    from_node: str
+    to_node: str
+    edge_label: Optional[str] = None
+    strength: Optional[float] = None
+    evidence: Optional[str] = None
+    # ── layman layer ──
+    from_label: Optional[str] = None
+    to_label: Optional[str] = None
+    strength_label: Optional[str] = None
+    plain_evidence: Optional[str] = None
+
+
+class ExpectationRow(BaseModel):
+    source: str
+    market_id: Optional[str] = None
+    expected_value: Optional[float] = None
+    user_view_value: Optional[float] = None
+    surprise_sign: Optional[str] = None
+    as_of: Optional[datetime] = None
+    resolved_value: Optional[float] = None
+    # ── layman layer ──
+    source_label: Optional[str] = None
+
+
+class DetailConfidence(BaseModel):
+    outcome: ConfidenceBlockWithEvidence = Field(
+        default_factory=ConfidenceBlockWithEvidence
+    )
+    expression: ConfidenceBlockWithEvidence = Field(
+        default_factory=ConfidenceBlockWithEvidence
+    )
+
+
+class ExpressionDetail(BaseModel):
+    id: str
+    tier: str
+    expression_kind: str
+    label: Optional[str] = None
+    rationale: Optional[str] = None
+    risk_profile: Optional[str] = None
+    capital_intensity: Optional[str] = None
+    historical_strength: Optional[str] = None
+    time_horizon: Optional[str] = None
+    workflow_id: Optional[str] = None
+    backtest_run_id: Optional[str] = None
+    instruments: list[Any] = Field(default_factory=list)
+    warnings: list[Any] = Field(default_factory=list)
+    disclaimer: Optional[str] = None
+    structure: dict[str, Any] = Field(default_factory=dict)
+    scores: Optional[dict[str, Any]] = None
+    is_deployable: bool = False
+    # ── layman layer ──
+    plain_label: Optional[str] = None
+    plain_one_liner: Optional[str] = None
+    plain_why: Optional[str] = None
+    plain_risk: Optional[str] = None
+    capital_label: Optional[str] = None
+    trust_badge: Optional[str] = None
+    members: list[str] = Field(default_factory=list)
+    n_names: Optional[int] = None
+    strategy_total_pct: Optional[float] = None
+    nifty_total_pct: Optional[float] = None
+    excess_return_pct: Optional[float] = None
+    n_episodes: Optional[int] = None
+    pct_episodes_beat: Optional[float] = None
+    worst_drop_pct: Optional[float] = None
+    # ── honest strategy identity ──
+    strategy_name: Optional[str] = None
+    strategy_type: Optional[str] = None
+    option_legs: Optional[list[OptionLeg]] = None
+    option_legs_note: Optional[str] = None
+    # ── real computed chart + per-holding returns ──
+    equity_curve: list[CurvePoint] = Field(default_factory=list)
+    holdings: list[Holding] = Field(default_factory=list)
+    underlying_symbol: Optional[str] = None
+    curve_basis: Optional[str] = None
+    risk_return_ratio: Optional[float] = None
+    # Episode-gated curve metadata: the x-axis is a sequential in-position
+    # trading-day index, and these are the indices where each new episode starts.
+    curve_n_episodes: Optional[int] = None
+    episode_boundaries: list[int] = Field(default_factory=list)
+    # ── round-3 detail-page data (real-or-empty / null) ──
+    # Past occurrences of the event/season + how the strategy did each time.
+    episodes: list[Episode] = Field(default_factory=list)
+    positive_episodes: Optional[int] = None
+    # Plain hold-rule string ("Held through the Jun–Aug monsoon window …").
+    exit_period: Optional[str] = None
+    # Per-EXPRESSION alignment dial (NOT the view-level one); null = suppressed.
+    historical_alignment: Optional[ConfidenceBlock] = None
+    # "Thousands of simulations" terminal-return distribution; null when N/A.
+    monte_carlo: Optional[MonteCarlo] = None
+
+
+class ViewDetail(ViewSummary):
+    transmission: list[TransmissionEdge] = Field(default_factory=list)
+    confidence: DetailConfidence = Field(default_factory=DetailConfidence)
+    expectations: list[ExpectationRow] = Field(default_factory=list)
+    expressions: list[ExpressionDetail] = Field(default_factory=list)
+    # ── layman layer ──
+    plain_thesis: Optional[str] = None
+    benchmark_label: Optional[str] = None
+    description: Optional[str] = None
+    bullets: list[str] = Field(default_factory=list)
+    similar_views: list[SimilarView] = Field(default_factory=list)
+    fundamental_comparison: Optional[FundamentalComparison] = None
+
+
+class ListResponse(BaseModel):
+    items: list[ViewSummary]
+
+
+class DeployResponse(BaseModel):
+    workflow_id: str
+    status: str
+    steps_count: int
+    activated: bool
+
+
+class FollowResponse(BaseModel):
+    is_following: bool
+    follower_count: int
+
+
+# ── projection helpers ─────────────────────────────────────────────────────
+
+
+_TIER_ORDER = {"conservative": 0, "balanced": 1, "aggressive": 2}
+
+_DEPLOYABLE_KINDS = {"basket", "multi_asset", "pair", "option_strategy", "hedge"}
+
+
+def _str_enum(val: Any) -> str:
+    return str(getattr(val, "value", val)) if val is not None else ""
+
+
+def _expression_score(cfg: dict[str, Any]) -> Optional[float]:
+    """Pull a numeric expression_score from config.scores.backtest."""
+    scores = (cfg or {}).get("scores") or {}
+    bt = scores.get("backtest") or {}
+    val = bt.get("expression_score")
+    if isinstance(val, (int, float)):
+        return float(val)
+    return None
+
+
+def _verdict(cfg: dict[str, Any]) -> Optional[str]:
+    scores = (cfg or {}).get("scores") or {}
+    bt = scores.get("backtest") or {}
+    val = bt.get("trust_verdict")
+    return str(val) if val else None
+
+
+def _as_float(v: Any) -> Optional[float]:
+    if isinstance(v, (int, float)):
+        return float(v)
+    return None
+
+
+def _as_int(v: Any) -> Optional[int]:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(round(v))
+    return None
+
+
+def _clean_numbers(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Whitelisted, layman-safe numbers from scores.backtest.
+
+    Prefers ``backtest.nifty_comparison`` when present (the dedicated
+    benchmark-over-matched-windows block); falls back to the flat backtest
+    fields. ``worst_drop_pct`` is max drawdown with its negative sign kept.
+    Missing -> ``None`` (never invented).
+    """
+    bt = (cfg or {}).get("scores") or {}
+    bt = (bt.get("backtest") or {}) if isinstance(bt, dict) else {}
+    nc = bt.get("nifty_comparison") if isinstance(bt.get("nifty_comparison"), dict) else {}
+
+    def pick(nc_key: str, bt_key: str) -> Any:
+        if nc and nc.get(nc_key) is not None:
+            return nc.get(nc_key)
+        return bt.get(bt_key)
+
+    return {
+        "strategy_total_pct": _as_float(pick("strategy_total_pct", "total_return_pct")),
+        "nifty_total_pct": _as_float(pick("nifty_total_pct", "nifty_total_pct")),
+        "excess_return_pct": _as_float(pick("excess_pct", "excess_return_pct")),
+        "n_episodes": _as_int(pick("n_episodes", "n_episodes")),
+        "pct_episodes_beat": _as_float(pick("pct_episodes_beat", "pct_episodes_beat")),
+        "worst_drop_pct": _as_float(bt.get("max_dd_pct")),
+    }
+
+
+def _curve_points(pre: dict[str, Any]) -> list[CurvePoint]:
+    """Coerce a precomputed equity_curve into CurvePoint models (real-or-empty)."""
+    raw = pre.get("equity_curve") if isinstance(pre, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out: list[CurvePoint] = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        t = p.get("t")
+        s = _as_float(p.get("strategy"))
+        b = _as_float(p.get("benchmark"))
+        if t and s is not None and b is not None:
+            out.append(CurvePoint(t=str(t), strategy=s, benchmark=b))
+    return out
+
+
+def _holdings(pre: dict[str, Any]) -> list[Holding]:
+    """Coerce precomputed holdings into Holding models (real-or-empty).
+
+    ``return_pct`` may be ``None`` (option legs); position/weight pass through.
+    """
+    raw = pre.get("holdings") if isinstance(pre, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out: list[Holding] = []
+    for h in raw:
+        if not isinstance(h, dict):
+            continue
+        name, sym = h.get("name"), h.get("symbol")
+        if not (name and sym):
+            continue
+        pos = h.get("position")
+        out.append(Holding(
+            name=str(name),
+            symbol=str(sym),
+            return_pct=_as_float(h.get("return_pct")),
+            position=str(pos) if pos else None,
+            weight_pct=_as_float(h.get("weight_pct")),
+        ))
+    return out
+
+
+def _episodes(pre: dict[str, Any]) -> list[Episode]:
+    """Coerce precomputed per-episode segments into Episode models."""
+    raw = pre.get("episodes") if isinstance(pre, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out: list[Episode] = []
+    for ep in raw:
+        if not isinstance(ep, dict):
+            continue
+        label, date = ep.get("label"), ep.get("date")
+        if not (label and date):
+            continue
+        out.append(Episode(
+            label=str(label),
+            date=str(date),
+            return_pct=_as_float(ep.get("return_pct")),
+            benchmark_pct=_as_float(ep.get("benchmark_pct")),
+            positive=bool(ep.get("positive")),
+        ))
+    return out
+
+
+def _monte_carlo(pre: dict[str, Any]) -> Optional[MonteCarlo]:
+    """Coerce a precomputed Monte-Carlo block into a MonteCarlo model (or None)."""
+    raw = pre.get("monte_carlo") if isinstance(pre, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    n_sims = _as_int(raw.get("n_sims"))
+    if n_sims is None:
+        return None
+    terminal = [
+        v for v in (_as_float(x) for x in (raw.get("terminal_pct") or []))
+        if v is not None
+    ]
+    basis = raw.get("basis")
+    return MonteCarlo(
+        n_sims=n_sims,
+        terminal_pct=terminal,
+        p05=_as_float(raw.get("p05")),
+        p25=_as_float(raw.get("p25")),
+        median=_as_float(raw.get("median")),
+        p75=_as_float(raw.get("p75")),
+        p95=_as_float(raw.get("p95")),
+        prob_loss=_as_float(raw.get("prob_loss")),
+        basis=str(basis) if basis else None,
+    )
+
+
+def _historical_alignment(pre: dict[str, Any]) -> Optional[ConfidenceBlock]:
+    """Per-expression alignment dial {score, letter} or None (suppressed)."""
+    raw = pre.get("historical_alignment") if isinstance(pre, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    score = _as_int(raw.get("score"))
+    letter = raw.get("letter")
+    if score is None or not letter:
+        return None
+    return ConfidenceBlock(score=score, letter=str(letter))
+
+
+def _best_from_expression(view: MarketView, best: ViewExpression) -> BestExpression:
+    cfg = best.config if isinstance(best.config, dict) else {}
+    bt = (cfg.get("scores") or {}).get("backtest") or {}
+    nums = _clean_numbers(cfg)
+    plain = plain_copy.plain_for_expression(view, best)
+    pre = precompute.expression_precompute(str(best.id))
+    return BestExpression(
+        id=str(best.id),
+        tier=_str_enum(best.tier),
+        expression_kind=_str_enum(best.expression_kind),
+        grade=bt.get("grade"),
+        trust_verdict=bt.get("trust_verdict"),
+        total_return_pct=_as_float(bt.get("total_return_pct")),
+        excess_return_pct=nums["excess_return_pct"],
+        plain_label=plain.get("plain_label"),
+        nifty_total_pct=nums["nifty_total_pct"],
+        n_episodes=nums["n_episodes"],
+        pct_episodes_beat=nums["pct_episodes_beat"],
+        worst_drop_pct=nums["worst_drop_pct"],
+        equity_curve=_curve_points(pre),
+    )
+
+
+def _best_expression(
+    view: MarketView, exprs: list[ViewExpression],
+) -> Optional[BestExpression]:
+    """The HEADLINE expression whose numbers the card + detail lead with.
+
+    Product decision: lead with the HIGHEST-RETURNING expression (by total
+    return) so the card mini-line and detail chart show the best result. A
+    developing curated view (``headline_tier`` None, e.g. an empty/unscreened
+    basket) has no finished hero -> None. Never invents a number.
+    """
+    is_curated, tier = plain_copy.headline_tier(view)
+    if is_curated and tier is None:
+        return None  # developing: no finished hero
+
+    # Highest total return among expressions that actually have a real number.
+    scored: list[tuple[float, ViewExpression]] = []
+    for e in exprs:
+        cfg = e.config if isinstance(e.config, dict) else {}
+        tot = _clean_numbers(cfg)["strategy_total_pct"]
+        if tot is None:
+            continue
+        scored.append((tot, e))
+    if not scored:
+        return None
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return _best_from_expression(view, scored[0][1])
+
+
+def _confidence_score_letter(score_frac: Optional[float]) -> tuple[Optional[int], Optional[str]]:
+    """DB stores 0..1; the dial is 0..100. Letter via _letter_band."""
+    if score_frac is None:
+        return None, None
+    score = int(round(score_frac * 100))
+    return score, _letter_band(score)
+
+
+def _confidence_blocks(
+    db: Session, view_id: str,
+) -> tuple[ConfidenceBlock, ConfidenceBlock, dict[str, ViewConfidence]]:
+    """Return (outcome, expression) summary blocks + the raw rows by dim."""
+    rows = (
+        db.query(ViewConfidence)
+        .filter(ViewConfidence.view_id == view_id)
+        .all()
+    )
+    by_dim: dict[str, ViewConfidence] = {}
+    for r in rows:
+        by_dim[_str_enum(r.dimension)] = r
+    outcome_row = by_dim.get(ConfidenceDimension.outcome.value)
+    expr_row = by_dim.get(ConfidenceDimension.expression.value)
+    o_score, o_letter = _confidence_score_letter(
+        outcome_row.score if outcome_row else None
+    )
+    e_score, e_letter = _confidence_score_letter(
+        expr_row.score if expr_row else None
+    )
+    return (
+        ConfidenceBlock(score=o_score, letter=o_letter),
+        ConfidenceBlock(score=e_score, letter=e_letter),
+        by_dim,
+    )
+
+
+def _summary_counts(
+    db: Session, view_id: str, user_id: Optional[int],
+) -> tuple[int, int, int, bool]:
+    expr_count = (
+        db.query(func.count(ViewExpression.id))
+        .filter(ViewExpression.view_id == view_id)
+        .scalar()
+        or 0
+    )
+    trans_count = (
+        db.query(func.count(ViewTransmission.id))
+        .filter(ViewTransmission.view_id == view_id)
+        .scalar()
+        or 0
+    )
+    follower_count = (
+        db.query(func.count(ViewFollow.id))
+        .filter(ViewFollow.view_id == view_id)
+        .scalar()
+        or 0
+    )
+    is_following = False
+    if user_id is not None:
+        is_following = (
+            db.query(ViewFollow.id)
+            .filter(
+                ViewFollow.view_id == view_id,
+                ViewFollow.user_id == user_id,
+            )
+            .first()
+            is not None
+        )
+    return int(expr_count), int(trans_count), int(follower_count), is_following
+
+
+def _build_summary(
+    db: Session, view: MarketView, user_id: Optional[int],
+) -> ViewSummary:
+    outcome, expression, _ = _confidence_blocks(db, str(view.id))
+    expr_count, trans_count, follower_count, is_following = _summary_counts(
+        db, str(view.id), user_id,
+    )
+    # Load minimal expressions for best_expression projection.
+    exprs = (
+        db.query(ViewExpression)
+        .filter(ViewExpression.view_id == str(view.id))
+        .all()
+    )
+    plain = plain_copy.plain_for_view(view)
+    best = _best_expression(view, exprs)
+    return ViewSummary(
+        id=str(view.id),
+        view_type=_str_enum(view.view_type),
+        title=view.title,
+        thesis=view.thesis,
+        category=view.category,
+        time_horizon=view.time_horizon,
+        status=_str_enum(view.status),
+        resolution_date=view.resolution_date,
+        created_at=view.created_at,
+        published_at=view.published_at,
+        outcome_confidence=outcome,
+        expression_confidence=expression,
+        best_expression=best,
+        # No finished headline basket -> the idea is still developing. Both the
+        # gallery card and the detail page key their "developing" framing off
+        # this so the two surfaces stay consistent.
+        is_developing=best is None,
+        expression_count=expr_count,
+        transmission_count=trans_count,
+        follower_count=follower_count,
+        is_following=is_following,
+        plain_one_liner=plain.get("plain_one_liner"),
+        plain_summary=plain.get("plain_summary"),
+        short_title=plain_copy.short_title(str(view.id)) or view.title,
+    )
+
+
+def _expression_detail(view: MarketView, e: ViewExpression) -> ExpressionDetail:
+    cfg = e.config if isinstance(e.config, dict) else {}
+    structure = cfg.get("structure") if isinstance(cfg.get("structure"), dict) else {}
+    scores = cfg.get("scores") if isinstance(cfg.get("scores"), dict) else None
+    instruments = cfg.get("instruments") if isinstance(cfg.get("instruments"), list) else []
+    warnings = cfg.get("warnings") if isinstance(cfg.get("warnings"), list) else []
+    kind = _str_enum(e.expression_kind)
+    is_deployable = bool(e.workflow_id) or (kind in _DEPLOYABLE_KINDS)
+
+    # ── layman layer ──
+    plain = plain_copy.plain_for_expression(view, e)
+    members = plain_copy.basket_members(cfg)
+    n_names = _as_int((structure or {}).get("n_names")) or (len(members) or None)
+    nums = _clean_numbers(cfg)
+    bt = (cfg.get("scores") or {}).get("backtest") or {}
+
+    # Honest strategy identity + REAL precomputed chart/holdings.
+    ident = plain_copy.strategy_identity(view, e)
+    pre = precompute.expression_precompute(str(e.id))
+    option_legs = ident.get("option_legs")
+    legs_models = (
+        [OptionLeg(**leg) for leg in option_legs] if option_legs else None
+    )
+
+    return ExpressionDetail(
+        id=str(e.id),
+        tier=_str_enum(e.tier),
+        expression_kind=kind,
+        label=cfg.get("label"),
+        rationale=e.rationale,
+        risk_profile=e.risk_profile,
+        capital_intensity=e.capital_intensity,
+        historical_strength=e.historical_strength,
+        time_horizon=e.time_horizon,
+        workflow_id=str(e.workflow_id) if e.workflow_id else None,
+        backtest_run_id=str(e.backtest_run_id) if e.backtest_run_id else None,
+        instruments=list(instruments),
+        warnings=plain_copy.plain_warnings(warnings),
+        disclaimer=cfg.get("disclaimer"),
+        structure=dict(structure or {}),
+        scores=dict(scores) if scores is not None else None,
+        is_deployable=is_deployable,
+        plain_label=plain.get("plain_label"),
+        plain_one_liner=plain.get("plain_one_liner"),
+        plain_why=plain.get("plain_why"),
+        plain_risk=plain.get("plain_risk"),
+        capital_label=plain_copy.capital_label(e.capital_intensity),
+        trust_badge=plain_copy.trust_badge(bt.get("trust_verdict")),
+        members=members,
+        n_names=n_names,
+        strategy_total_pct=nums["strategy_total_pct"],
+        nifty_total_pct=nums["nifty_total_pct"],
+        excess_return_pct=nums["excess_return_pct"],
+        n_episodes=nums["n_episodes"],
+        pct_episodes_beat=nums["pct_episodes_beat"],
+        worst_drop_pct=nums["worst_drop_pct"],
+        strategy_name=ident.get("strategy_name"),
+        strategy_type=ident.get("strategy_type"),
+        option_legs=legs_models,
+        option_legs_note=ident.get("option_legs_note"),
+        equity_curve=_curve_points(pre),
+        holdings=_holdings(pre),
+        underlying_symbol=pre.get("underlying_symbol"),
+        curve_basis=pre.get("curve_basis"),
+        risk_return_ratio=_as_float(pre.get("risk_return_ratio")),
+        curve_n_episodes=_as_int(pre.get("n_episodes")),
+        episode_boundaries=[
+            b for b in (pre.get("episode_boundaries") or []) if isinstance(b, int)
+        ],
+        episodes=_episodes(pre),
+        positive_episodes=_as_int(pre.get("positive_episodes")),
+        exit_period=pre.get("exit_period"),
+        historical_alignment=_historical_alignment(pre),
+        monte_carlo=_monte_carlo(pre),
+    )
+
+
+def _order_expressions(exprs: list[ViewExpression]) -> list[ViewExpression]:
+    """conservative -> balanced -> aggressive; top expression_score first within tier."""
+    def key(e: ViewExpression) -> tuple[int, float]:
+        tier = _str_enum(e.tier)
+        tier_idx = _TIER_ORDER.get(tier, 99)
+        sc = _expression_score(e.config if isinstance(e.config, dict) else {})
+        # Higher score first within a tier; missing-score sorts after scored.
+        sc_key = -(sc if sc is not None else -1e18)
+        return (tier_idx, sc_key)
+    return sorted(exprs, key=key)
+
+
+# ── endpoints ──────────────────────────────────────────────────────────────
+
+
+@router.get("/views", response_model=ListResponse)
+def list_views(
+    status: Optional[str] = None,
+    view_type: Optional[str] = None,
+    category: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> ListResponse:
+    _require_flag()
+    q = db.query(MarketView)
+    if status:
+        try:
+            q = q.filter(MarketView.status == ViewStatus(status))
+        except ValueError as exc:
+            raise validation_error(f"unknown status {status!r}") from exc
+    else:
+        # Default: hide archived.
+        q = q.filter(MarketView.status != ViewStatus.archived)
+    if view_type:
+        try:
+            q = q.filter(MarketView.view_type == ViewType(view_type))
+        except ValueError as exc:
+            raise validation_error(f"unknown view_type {view_type!r}") from exc
+    if category:
+        q = q.filter(MarketView.category == category)
+    q = q.order_by(MarketView.created_at.desc())
+    items = [_build_summary(db, v, user_id) for v in q.all()]
+    return ListResponse(items=items)
+
+
+def _load_view_or_404(db: Session, view_id: str) -> MarketView:
+    view = db.query(MarketView).filter(MarketView.id == view_id).one_or_none()
+    if view is None:
+        raise not_found(f"view {view_id} not found")
+    return view
+
+
+@router.get("/views/{view_id}", response_model=ViewDetail)
+def get_view(
+    view_id: str,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> ViewDetail:
+    _require_flag()
+    view = _load_view_or_404(db, view_id)
+
+    summary = _build_summary(db, view, user_id)
+
+    # Confidence detail (with evidence).
+    outcome_block, expression_block, by_dim = _confidence_blocks(db, str(view.id))
+    o_row = by_dim.get(ConfidenceDimension.outcome.value)
+    e_row = by_dim.get(ConfidenceDimension.expression.value)
+    detail_conf = DetailConfidence(
+        outcome=ConfidenceBlockWithEvidence(
+            score=outcome_block.score,
+            letter=outcome_block.letter,
+            evidence=o_row.evidence if o_row else None,
+        ),
+        expression=ConfidenceBlockWithEvidence(
+            score=expression_block.score,
+            letter=expression_block.letter,
+            evidence=e_row.evidence if e_row else None,
+        ),
+    )
+
+    # Transmission edges (ordered by seq).
+    tx_rows = (
+        db.query(ViewTransmission)
+        .filter(ViewTransmission.view_id == str(view.id))
+        .order_by(ViewTransmission.seq.asc())
+        .all()
+    )
+    transmission = [
+        TransmissionEdge(
+            seq=int(r.seq or 0),
+            from_node=r.from_node,
+            to_node=r.to_node,
+            edge_label=r.edge_label,
+            strength=_as_float(r.strength),
+            evidence=r.evidence,
+            from_label=plain_copy.node_label(r.from_node),
+            to_label=plain_copy.node_label(r.to_node),
+            strength_label=plain_copy.strength_label(_as_float(r.strength)),
+            plain_evidence=plain_copy.plain_evidence(r.edge_label),
+        )
+        for r in tx_rows
+    ]
+
+    # Expectations.
+    exp_rows = (
+        db.query(ViewExpectation)
+        .filter(ViewExpectation.view_id == str(view.id))
+        .order_by(ViewExpectation.as_of.desc())
+        .all()
+    )
+    expectations = [
+        ExpectationRow(
+            source=_str_enum(r.source),
+            market_id=r.market_id,
+            expected_value=_as_float(r.expected_value),
+            user_view_value=_as_float(r.user_view_value),
+            surprise_sign=r.surprise_sign,
+            as_of=r.as_of,
+            resolved_value=_as_float(r.resolved_value),
+            source_label=plain_copy.source_label(_str_enum(r.source)),
+        )
+        for r in exp_rows
+    ]
+
+    # Expressions ordered Cons -> Bal -> Aggr, top-scored first within tier.
+    expr_rows = (
+        db.query(ViewExpression)
+        .filter(ViewExpression.view_id == str(view.id))
+        .all()
+    )
+    expressions = [
+        _expression_detail(view, e) for e in _order_expressions(expr_rows)
+    ]
+
+    plain = plain_copy.plain_for_view(view)
+    extras = plain_copy.view_extras(view)
+    similar = [
+        SimilarView(id=s["id"], short_title=s.get("short_title"))
+        for s in plain_copy.similar_views(str(view.id))
+    ]
+    fc_raw = precompute.fundamental_comparison(str(view.id))
+    fundamental = (
+        FundamentalComparison(
+            basket=FundamentalSide(**(fc_raw.get("basket") or {})),
+            nifty=FundamentalSide(**(fc_raw.get("nifty") or {})),
+        )
+        if isinstance(fc_raw, dict)
+        else None
+    )
+    return ViewDetail(
+        **summary.model_dump(),
+        transmission=transmission,
+        confidence=detail_conf,
+        expectations=expectations,
+        expressions=expressions,
+        plain_thesis=plain.get("plain_thesis"),
+        benchmark_label=plain.get("benchmark_label"),
+        description=extras.get("description"),
+        bullets=list(extras.get("bullets") or []),
+        similar_views=similar,
+        fundamental_comparison=fundamental,
+    )
+
+
+def _load_expression_or_404(db: Session, expression_id: str) -> ViewExpression:
+    expr = (
+        db.query(ViewExpression)
+        .filter(ViewExpression.id == expression_id)
+        .one_or_none()
+    )
+    if expr is None:
+        raise not_found(f"expression {expression_id} not found")
+    return expr
+
+
+class DeployRequest(BaseModel):
+    activate: bool = False
+    timing_mode: Optional[str] = None
+
+
+@router.post("/views/expressions/{expression_id}/deploy", response_model=DeployResponse)
+def deploy(
+    expression_id: str,
+    body: Optional[DeployRequest] = None,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> DeployResponse:
+    _require_flag()
+    expression = _load_expression_or_404(db, expression_id)
+    req = body or DeployRequest()
+
+    # Re-use the existing draft when one is linked and the caller isn't asking
+    # to (re-)arm it. NEVER places an order; deploy_expression itself is
+    # register-not-execute.
+    if expression.workflow_id and not req.activate:
+        wf = (
+            db.query(Workflow)
+            .filter(Workflow.id == str(expression.workflow_id))
+            .one_or_none()
+        )
+        if wf is not None:
+            steps_count = len(wf.steps) if wf.steps is not None else 0
+            return DeployResponse(
+                workflow_id=str(wf.id),
+                status=_str_enum(wf.status),
+                steps_count=int(steps_count),
+                activated=False,
+            )
+
+    try:
+        result = deploy_expression(
+            db,
+            expression,
+            timing_mode=req.timing_mode,  # type: ignore[arg-type]
+            activate=bool(req.activate),
+            user_id=user_id,
+        )
+    except ValueError as exc:
+        raise validation_error(str(exc)) from exc
+
+    db.commit()
+    return DeployResponse(
+        workflow_id=str(result.get("workflow_id") or ""),
+        status=str(result.get("status") or ""),
+        steps_count=int(len(result.get("steps") or [])),
+        activated=bool(result.get("activated")),
+    )
+
+
+@router.post("/views/{view_id}/compare")
+def compare(
+    view_id: str,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    _require_flag()
+    view = _load_view_or_404(db, view_id)
+    try:
+        result = compare_tiers(db, view)
+    except ValueError as exc:
+        raise validation_error(str(exc)) from exc
+    db.commit()
+    return result
+
+
+@router.post("/views/expressions/{expression_id}/backtest")
+def backtest(
+    expression_id: str,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    _require_flag()
+    expression = _load_expression_or_404(db, expression_id)
+    try:
+        result = backtest_expression(db, expression, persist=True)
+    except ValueError as exc:
+        raise validation_error(str(exc)) from exc
+    db.commit()
+    return result
+
+
+def _follower_count(db: Session, view_id: str) -> int:
+    return int(
+        db.query(func.count(ViewFollow.id))
+        .filter(ViewFollow.view_id == view_id)
+        .scalar()
+        or 0
+    )
+
+
+@router.post("/views/{view_id}/follow", response_model=FollowResponse)
+def follow(
+    view_id: str,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> FollowResponse:
+    _require_flag()
+    view = _load_view_or_404(db, view_id)
+    if user_id is None:
+        raise http_error(401, "unauthenticated", "login required to follow a view")
+    existing = (
+        db.query(ViewFollow)
+        .filter(
+            ViewFollow.view_id == str(view.id),
+            ViewFollow.user_id == user_id,
+        )
+        .one_or_none()
+    )
+    if existing is None:
+        db.add(ViewFollow(view_id=str(view.id), user_id=user_id))
+        db.commit()
+    return FollowResponse(
+        is_following=True, follower_count=_follower_count(db, str(view.id)),
+    )
+
+
+@router.delete("/views/{view_id}/follow", response_model=FollowResponse)
+def unfollow(
+    view_id: str,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> FollowResponse:
+    _require_flag()
+    view = _load_view_or_404(db, view_id)
+    if user_id is None:
+        raise http_error(401, "unauthenticated", "login required to unfollow a view")
+    existing = (
+        db.query(ViewFollow)
+        .filter(
+            ViewFollow.view_id == str(view.id),
+            ViewFollow.user_id == user_id,
+        )
+        .one_or_none()
+    )
+    if existing is not None:
+        db.delete(existing)
+        db.commit()
+    return FollowResponse(
+        is_following=False, follower_count=_follower_count(db, str(view.id)),
+    )
+
+
+__all__ = ["router"]

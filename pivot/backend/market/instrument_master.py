@@ -412,7 +412,9 @@ def future_instrument(
 
 
 def is_research_only(db: Session, underlying: str) -> bool:
-    """True when execution is product-blocked for this underlying (MCX).
+    """True when execution is product-blocked for this underlying.
+    Currently always False — MCX commodities are tradeable via
+    register-not-execute (2026-06-29); kept for future non-tradeable segments.
     Falls back to the segment when no universe row exists yet."""
     row = (
         db.query(OptionUniverse)
@@ -510,7 +512,7 @@ def select_active_universe(
     cutoff = _percentile([s["score"] for s in sampled], _SELECT_PERCENTILE)
     out: list[OptionUniverse] = []
     for s in sampled:
-        research_only = s["segment"] == "MCX-OPT"
+        research_only = False  # MCX commodities are tradeable (register-not-execute)
         liquid = (
             s["score"] >= cutoff
             and s["avg_oi"] > 0.0

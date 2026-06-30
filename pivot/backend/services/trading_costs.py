@@ -93,9 +93,9 @@ def slippage_bps() -> float:
 #     (brokerage + exchange + SEBI) — same shape as equity.
 # Slippage is NOT modelled here — the paper fill model handles it
 # spread-aware (mid ± half-spread), which is more honest for options
-# than a flat % of premium. MCX rates differ; MCX is research-only in
-# v1 so its costs are display-only and use the same NSE-shaped numbers
-# with the MCX exchange rate.
+# than a flat % of premium. MCX commodities are tradeable
+# (register-not-execute); MCX costs use the same NSE-shaped numbers with
+# the MCX exchange rate (OPT_EXCHANGE_PCT_MCX below).
 OPT_STT_SELL_PCT = 0.001            # 0.1% of premium, sell side only
 OPT_EXCHANGE_PCT = 0.0003503        # NSE premium transaction charge
 OPT_EXCHANGE_PCT_MCX = 0.000418     # MCX options premium txn charge

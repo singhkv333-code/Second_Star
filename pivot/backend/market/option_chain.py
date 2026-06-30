@@ -389,7 +389,7 @@ def get_chain(
         "top_put_oi": aggregates["top_put_oi"],
         "t_years": round(T, 6),
         "rows": rows,
-        "research_only": segment == "MCX-OPT",
+        "research_only": False,  # commodities (MCX) are tradeable via register-not-execute
         "source": source,
         "asof": datetime.now(IST).isoformat(timespec="seconds"),
     }

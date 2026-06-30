@@ -1412,9 +1412,11 @@ class OptionUniverse(Base):
     liquidity_score = Column(Float, nullable=True)
 
     # selected      → surfaced in chat suggestions / screeners.
-    # research_only → quotable + screenable but EXECUTION-BLOCKED
-    #                 (all MCX-OPT rows in v1 — commodities are research
-    #                 only by product decision).
+    # research_only → reserved flag for a quotable-but-execution-blocked
+    #                 underlying. Currently UNUSED: MCX commodities are now
+    #                 tradeable via register-not-execute (2026-06-29), so
+    #                 nothing sets this True; kept for future non-tradeable
+    #                 segments.
     selected = Column(Boolean, nullable=False, default=False)
     research_only = Column(Boolean, nullable=False, default=False)
     reason = Column(String(120), nullable=True)
@@ -1714,3 +1716,296 @@ class PasswordResetToken(Base):
     )
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
+
+
+# ─── View Markets (V2: belief -> expression -> deployment) ───────────────────
+#
+# Spec: Markdowns/Version2.md; scope contract: Markdowns/VIEW_MARKETS_PLAN.md;
+# build plan: Markdowns/VIEW_MARKETS_V2_CHECKLIST.md (Phase 1). Migration:
+# 0023_view_markets.
+#
+# A "view" is a structured, evidence-backed market BELIEF the user can express
+# and deploy. V1 is CURATED-ONLY (user_id NULL = backend-generated + human-
+# reviewed; a non-NULL user_id is reserved for the future user-authored path).
+# Three view_types — event / relative / theme. Each view fans out to:
+#   - view_expressions   conservative/balanced/aggressive deployable strategies
+#                        (basket / option_strategy / pair / multi_asset / hedge)
+#   - view_transmission  the cause->effect DAG that renders the transmission map
+#   - view_confidence    the TWO separate dimensions (outcome vs expression)
+#   - view_expectations  "what's priced in" surprise framing (READ from
+#                        Polymarket/Kalshi/consensus/model — never a trading
+#                        surface; Pivot does not become a prediction exchange)
+#   - view_follows       a user subscribes to a view's lifecycle updates
+#
+# Convention choices mirror the Workflow tables (the closest precedent — UUID
+# PK with gen_random_uuid in the migration; String(36)+_uuid_str in the model
+# for cross-dialect parity; enum columns as SQLEnum(..., native_enum=False) so
+# SQLite create_all renders a CHECK while 0023 creates a real Postgres ENUM).
+# Within this domain every PK/FK is a uuid, so the parent/child FKs are HARD
+# (uuid<->uuid) with ON DELETE CASCADE. backest_run_id / workflow_id stay SOFT
+# references (no FK) — they point at other domains (dsl_backtest_runs lives
+# outside backend.models; workflows.id is a native uuid the test create_all
+# doesn't share) exactly like paper_orders / option_strategies do.
+
+
+class ViewType(str, enum.Enum):
+    event = "event"
+    relative = "relative"
+    theme = "theme"
+
+
+class ViewStatus(str, enum.Enum):
+    open = "open"
+    developing = "developing"
+    consensus = "consensus"
+    resolved = "resolved"
+    archived = "archived"
+
+
+class ExpressionTier(str, enum.Enum):
+    conservative = "conservative"
+    balanced = "balanced"
+    aggressive = "aggressive"
+
+
+class ExpressionKind(str, enum.Enum):
+    basket = "basket"
+    option_strategy = "option_strategy"
+    pair = "pair"
+    multi_asset = "multi_asset"
+    hedge = "hedge"
+
+
+class ConfidenceDimension(str, enum.Enum):
+    outcome = "outcome"
+    expression = "expression"
+
+
+class ExpectationSource(str, enum.Enum):
+    polymarket = "polymarket"
+    kalshi = "kalshi"
+    consensus = "consensus"
+    model = "model"
+
+
+class MarketView(Base):
+    """One curated (or, later, user-authored) market belief.
+
+    ``user_id`` NULL = curated/backend-generated (the V1 default); a non-NULL
+    value is the future user-authored path. ``status`` walks the lifecycle
+    open -> developing -> consensus -> resolved -> archived. ``resolution_date``
+    is set on event views (objective outcome by a date) and NULL on open-ended
+    themes."""
+    __tablename__ = "market_views"
+    __table_args__ = (
+        Index("ix_market_views_status", "status"),
+        Index("ix_market_views_view_type", "view_type"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    # NULL = curated/backend-generated view (the V1 default). FK-only, no
+    # relationship — mirrors IPOApplication (we never navigate user.views).
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True,
+    )
+    view_type = Column(
+        SQLEnum(ViewType, name="view_type", native_enum=False), nullable=False,
+    )
+    title = Column(Text, nullable=False)
+    thesis = Column(Text, nullable=True)
+    category = Column(Text, nullable=True)
+    time_horizon = Column(Text, nullable=True)
+    status = Column(
+        SQLEnum(ViewStatus, name="view_status", native_enum=False),
+        nullable=False, default=ViewStatus.open,
+    )
+    resolution_date = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+    # NULL until the curation/review gate publishes the view.
+    published_at = Column(DateTime(timezone=True), nullable=True)
+
+    expressions = relationship(
+        "ViewExpression", back_populates="view",
+        cascade="all, delete-orphan",
+    )
+    transmission = relationship(
+        "ViewTransmission", back_populates="view",
+        cascade="all, delete-orphan", order_by="ViewTransmission.seq",
+    )
+    confidence = relationship(
+        "ViewConfidence", back_populates="view",
+        cascade="all, delete-orphan",
+    )
+    expectations = relationship(
+        "ViewExpectation", back_populates="view",
+        cascade="all, delete-orphan",
+    )
+    follows = relationship(
+        "ViewFollow", back_populates="view",
+        cascade="all, delete-orphan",
+    )
+
+
+class ViewExpression(Base):
+    """A deployable strategy that expresses a view at one risk tier.
+
+    ``expression_kind`` dispatches to an existing builder (basket allocation,
+    option strategy, pair trade, multi-asset, hedge); ``config`` holds the
+    kind-specific JSON the builder emits (legs / weights / thresholds). The
+    spec disclosures (why it may work, risk profile, capital intensity,
+    historical relationship strength, time horizon) are first-class columns so
+    every expression carries them. ``backtest_run_id`` / ``workflow_id`` are
+    SOFT refs filled in when the expression is backtested / deployed."""
+    __tablename__ = "view_expressions"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    view_id = Column(
+        String(36), ForeignKey("market_views.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    tier = Column(
+        SQLEnum(ExpressionTier, name="expression_tier", native_enum=False),
+        nullable=False,
+    )
+    expression_kind = Column(
+        SQLEnum(ExpressionKind, name="expression_kind", native_enum=False),
+        nullable=False,
+    )
+    # Dialect-aware so create_all matches the migration on Postgres (JSONB on
+    # PG, JSON on SQLite) — same pattern as ForwardIdea.scorecard_cache.
+    config = Column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=False, default=dict,
+    )
+    rationale = Column(Text, nullable=True)            # "why it may work"
+    risk_profile = Column(Text, nullable=True)
+    capital_intensity = Column(Text, nullable=True)
+    historical_strength = Column(Text, nullable=True)  # relationship strength
+    time_horizon = Column(Text, nullable=True)
+    # SOFT references (no hard FK) — cross-domain, see header.
+    backtest_run_id = Column(String(36), nullable=True)
+    workflow_id = Column(String(36), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    view = relationship("MarketView", back_populates="expressions")
+
+
+class ViewTransmission(Base):
+    """One edge of a view's cause->effect transmission DAG. ``seq`` orders the
+    edges for rendering; ``strength`` is an optional 0..1 relationship weight;
+    ``evidence`` is a short free-text citation of the data behind the edge."""
+    __tablename__ = "view_transmission"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    view_id = Column(
+        String(36), ForeignKey("market_views.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    seq = Column(Integer, nullable=False, default=0)
+    from_node = Column(Text, nullable=False)
+    to_node = Column(Text, nullable=False)
+    edge_label = Column(Text, nullable=True)
+    strength = Column(Float, nullable=True)
+    evidence = Column(Text, nullable=True)
+
+    view = relationship("MarketView", back_populates="transmission")
+
+
+class ViewConfidence(Base):
+    """One of a view's two confidence dimensions — kept SEPARATE on purpose
+    (spec §Confidence): ``outcome`` = how likely the event/belief itself is;
+    ``expression`` = given it occurs, how likely the proposed expression
+    benefits. Unique per (view, dimension) so each view holds at most one
+    outcome row and one expression row."""
+    __tablename__ = "view_confidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "view_id", "dimension",
+            name="uq_view_confidence_view_dimension",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    view_id = Column(
+        String(36), ForeignKey("market_views.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    dimension = Column(
+        SQLEnum(ConfidenceDimension, name="confidence_dimension",
+                native_enum=False),
+        nullable=False,
+    )
+    score = Column(Float, nullable=True)  # 0..1; NULL until scored
+    evidence = Column(Text, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    view = relationship("MarketView", back_populates="confidence")
+
+
+class ViewExpectation(Base):
+    """Market-expectations / surprise framing for a view. We READ "what's
+    priced in" (``expected_value``) from a prediction market (Polymarket /
+    Kalshi), consensus, or a model, compare it to the view's own
+    ``user_view_value``, and store the ``surprise_sign`` (positive / negative /
+    inline). ``resolved_value`` is backfilled when the event actually resolves.
+    Pivot only consumes these odds — it never offers outcome contracts."""
+    __tablename__ = "view_expectations"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    view_id = Column(
+        String(36), ForeignKey("market_views.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    source = Column(
+        SQLEnum(ExpectationSource, name="expectation_source",
+                native_enum=False),
+        nullable=False,
+    )
+    # Venue/market identifier on the source (e.g. a Polymarket token id or a
+    # Kalshi ticker). Free text — soft, since the source schemas differ.
+    market_id = Column(Text, nullable=True)
+    expected_value = Column(Float, nullable=True)   # what's priced in
+    user_view_value = Column(Float, nullable=True)  # the view's own number
+    surprise_sign = Column(Text, nullable=True)     # positive|negative|inline
+    as_of = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    resolved_value = Column(Float, nullable=True)   # backfilled on resolution
+
+    view = relationship("MarketView", back_populates="expectations")
+
+
+class ViewFollow(Base):
+    """A user subscribes to a view's lifecycle updates. Unique per
+    (user, view); FK-only on user_id (no User-side relationship)."""
+    __tablename__ = "view_follows"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "view_id", name="uq_view_follows_user_view",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    view_id = Column(
+        String(36), ForeignKey("market_views.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    view = relationship("MarketView", back_populates="follows")

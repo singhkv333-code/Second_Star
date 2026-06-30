@@ -250,7 +250,9 @@ async def test_action_live_book_registers_never_places(wf_ctx):
 
 
 @pytest.mark.asyncio
-async def test_action_mcx_hard_rejected(wf_ctx):
+async def test_action_mcx_allowed(wf_ctx):
+    # Commodities (MCX) are tradeable via register-not-execute — the workflow
+    # option action no longer hard-rejects MCX; it paper-fills like any segment.
     db, wf, run, step = wf_ctx
     from backend.workflows.steps.actions import (
         execute_action_place_option_strategy,
@@ -260,8 +262,8 @@ async def test_action_mcx_hard_rejected(wf_ctx):
         "underlying": "CRUDEOIL", "template": "long_straddle",
         "book": "paper", "qty_lots": 1, "requires_approval": False,
     })
-    with pytest.raises(ValueError, match="research-only"):
-        await execute_action_place_option_strategy(ctx)
+    out = await execute_action_place_option_strategy(ctx)
+    assert out and out.get("book") == "paper"
 
 
 @pytest.mark.asyncio

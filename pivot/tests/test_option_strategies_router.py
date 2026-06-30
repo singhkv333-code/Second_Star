@@ -76,12 +76,13 @@ def test_disclosure_not_acknowledged_blocks(client, auth_headers, db):
     assert "disclosure" in (out["error"] or "").lower()
 
 
-def test_mcx_registration_blocked(client, auth_headers, db):
+def test_mcx_registration_not_research_only_blocked(client, auth_headers, db):
+    # Commodities (MCX) are tradeable via register-not-execute — registration
+    # is no longer hard-rejected as "research-only".
     body = _register_body(db, template="long_straddle", underlying="CRUDEOIL")
     r = client.post("/option-strategies", json=body, headers=auth_headers)
     out = r.json()
-    assert out["success"] is False
-    assert "research-only" in (out["error"] or "")
+    assert "research-only" not in (out["error"] or "")
 
 
 def test_duplicate_register_returns_existing(client, auth_headers, db):

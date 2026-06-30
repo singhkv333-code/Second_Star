@@ -118,4 +118,58 @@ def monte_carlo_robustness(
     }
 
 
-__all__ = ["monte_carlo_robustness"]
+def monte_carlo_terminal_distribution(
+    period_returns: Sequence[float],
+    *,
+    n_sims: int = 2000,
+    block_size: Optional[int] = None,
+    n_points: int = 120,
+    seed: int = 1_234_567,
+) -> Optional[dict]:
+    """Block-bootstrap distribution of TERMINAL return % (for a "thousands of
+    simulations" spread visual).
+
+    Reuses the same circular block bootstrap as :func:`monte_carlo_robustness`,
+    but returns the full terminal-wealth spread: a downsampled, SORTED list of
+    simulated terminal returns (``n_points`` evenly-spaced quantiles) plus the
+    p05/p25/median/p75/p95 markers and ``prob_loss``. All percentages are
+    signed. ``None`` for fewer than ``_MIN_OBS`` finite returns. Deterministic
+    for a given ``seed``."""
+    r = _clean(period_returns)
+    n = len(r)
+    if n < _MIN_OBS:
+        return None
+    if block_size is None:
+        block_size = max(2, int(round(n ** (1.0 / 3.0))))
+    block_size = max(1, min(block_size, n))
+
+    rng = np.random.default_rng(seed)
+    paths = _block_bootstrap_paths(r, n_sims, block_size, rng)  # (n_sims, n)
+    equity = np.cumprod(1.0 + paths, axis=1)
+    terminal = (equity[:, -1] - 1.0) * 100.0                    # terminal return %
+
+    sorted_t = np.sort(terminal)
+    p05, p25, median, p75, p95 = (
+        float(np.percentile(terminal, q)) for q in (5, 25, 50, 75, 95)
+    )
+    # Downsample the sorted distribution to ~n_points evenly-spaced quantile
+    # samples (keeps the shape; small enough to ship in a JSON payload).
+    if len(sorted_t) > n_points:
+        idx = np.linspace(0, len(sorted_t) - 1, n_points).round().astype(int)
+        ds = sorted_t[idx]
+    else:
+        ds = sorted_t
+    return {
+        "n_sims": int(n_sims),
+        "block_size": int(block_size),
+        "terminal_pct": [round(float(x), 2) for x in ds.tolist()],
+        "p05": round(p05, 2),
+        "p25": round(p25, 2),
+        "median": round(median, 2),
+        "p75": round(p75, 2),
+        "p95": round(p95, 2),
+        "prob_loss": round(float(np.mean(terminal < 0.0)), 4),
+    }
+
+
+__all__ = ["monte_carlo_robustness", "monte_carlo_terminal_distribution"]

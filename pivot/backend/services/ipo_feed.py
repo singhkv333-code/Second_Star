@@ -415,6 +415,105 @@ def _dedupe(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(seen.values())
 
 
+# ── Trendlyne enrichment layer ─────────────────────────────────────────────
+#
+# NSE carries the skeleton (name/symbol/band/dates). Trendlyne's public IPO
+# widget carries the flesh: subscription breakdown, allotment date/status +
+# check-link, RHP PDF, and post-listing performance. We MERGE Trendlyne onto
+# the NSE list (matched by normalized name), keeping NSE canonical for the
+# symbol (the apply/automation flow is symbol-keyed) and filling every gap
+# from Trendlyne. We never embed their widget — only their data, attributed.
+
+# Optional enrichment fields copied from a matched Trendlyne record onto an
+# NSE record only where NSE left them empty.
+_TL_ENRICH_FIELDS: tuple[str, ...] = (
+    "subscription", "market_cap_cr", "min_investment", "rhp_url",
+    "allotment_date", "allotment_status", "allotment_check_url",
+    "listing_date", "issue_price", "listing_gain_pct", "current_return_pct",
+)
+
+
+def _trendlyne_map() -> dict[str, dict[str, Any]]:
+    """The parsed Trendlyne universe keyed by normalized name. Empty on any
+    failure (honest — never raises into the feed path)."""
+    try:
+        from backend.services import trendlyne_ipo as _tl
+        return (_tl.fetch_trendlyne_ipos().get("ipos") or {})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Trendlyne enrichment unavailable: %s", e)
+        return {}
+
+
+def _tl_key(name: str) -> str:
+    from backend.services import trendlyne_ipo as _tl
+    return _tl.normalize_name(name)
+
+
+def _trendlyne_live_record(t: dict[str, Any]) -> dict[str, Any]:
+    """Build an NSE-shaped record from a Trendlyne-only entry. These lack an
+    NSE symbol, so they are informational and flagged ``registerable: False``
+    — the register/automation flow stays symbol-keyed and honest."""
+    open_d = _parse_date(t.get("open_date"))
+    close_d = _parse_date(t.get("close_date"))
+    rec = {
+        "name": t.get("name", ""),
+        "symbol": "",
+        "price_band": t.get("price_band"),
+        "open_date": t.get("open_date"),
+        "close_date": t.get("close_date"),
+        "lot_size": None,
+        "issue_size": (f"{t['issue_size_cr']} Cr" if t.get("issue_size_cr") else None),
+        "type": t.get("type", "mainboard"),
+        "status": _derive_status({}, open_d, close_d),
+        "registerable": False,
+        "sources": ["trendlyne"],
+    }
+    for f in _TL_ENRICH_FIELDS:
+        if t.get(f) is not None:
+            rec[f] = t[f]
+    return rec
+
+
+def _merge_trendlyne(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Enrich NSE records in-place with Trendlyne, then append Trendlyne-only
+    *live* IPOs (still in subscription/allotment phase — no issue price yet)."""
+    tmap = _trendlyne_map()
+    if not tmap:
+        return records
+
+    matched: set[str] = set()
+    for r in records:
+        key = _tl_key(r.get("name") or r.get("symbol") or "")
+        t = tmap.get(key)
+        if not t:
+            continue
+        matched.add(key)
+        for f in _TL_ENRICH_FIELDS:
+            if t.get(f) is not None and r.get(f) in (None, ""):
+                r[f] = t[f]
+        # Fill the skeleton too, only where NSE left a gap.
+        for f in ("price_band", "open_date", "close_date"):
+            if not r.get(f) and t.get(f):
+                r[f] = t[f]
+        srcs = set(r.get("sources") or ["nse"])
+        srcs.add("trendlyne")
+        r["sources"] = sorted(srcs)
+        r.setdefault("registerable", True)
+
+    # Trendlyne-only live IPOs: still pre-listing (no issue_price) and carry a
+    # subscription window or allotment date. The historical "recently listed /
+    # performers" rows are NOT added here (they power get_ipo_listing instead).
+    extra: list[dict[str, Any]] = []
+    for key, t in tmap.items():
+        if key in matched:
+            continue
+        pre_listing = t.get("issue_price") is None
+        in_window = bool(t.get("open_date") or t.get("close_date") or t.get("allotment_date"))
+        if pre_listing and in_window:
+            extra.append(_trendlyne_live_record(t))
+    return records + extra
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def list_upcoming_ipos() -> dict[str, Any]:
@@ -443,16 +542,35 @@ def list_upcoming_ipos() -> dict[str, Any]:
     raw, source, err = _fetch_nse()
 
     if err is not None:
-        # Unreachable — surface the exact failure, do not cache (so the
-        # next call retries), do not fabricate.
+        # NSE unreachable — try the Trendlyne fallback before giving up, so
+        # the IPO surface still works when NSE 403s/blocks the host. Trendlyne
+        # is the very gap this integration fills.
+        extra = _merge_trendlyne([])
+        if extra:
+            extra.sort(key=lambda r: (r.get("open_date") or "9999"))
+            body = {
+                "count": len(extra),
+                "ipos": [{k: v for k, v in r.items() if k != "_raw"} for r in extra],
+                "source": "trendlyne",
+                "note": (
+                    f"NSE unreachable ({err}); showing IPO data from Trendlyne. "
+                    "These records have no NSE symbol, so registration/automation "
+                    "is unavailable for them until NSE is reachable."
+                ),
+            }
+            _write_cache(_CACHE_KEY, body)
+            _write_cache(_CACHE_KEY + ":raw", {"ipos": extra})
+            return {**body, "cached": False}
+        # Both sources unreachable — surface the exact failure, do not cache
+        # (so the next call retries), do not fabricate.
         return {
             "count": 0,
             "ipos": [],
             "source": "unreachable",
             "note": (
                 f"Live IPO feed unreachable from server. {err}. "
-                "Needs a reachable NSE endpoint (or a configured IPO data "
-                "provider) — no IPO data is invented."
+                "Needs a reachable NSE endpoint or the Trendlyne feed — "
+                "no IPO data is invented."
             ),
             "cached": False,
         }
@@ -460,7 +578,13 @@ def list_upcoming_ipos() -> dict[str, Any]:
     normalized = [_normalize(r) for r in raw if isinstance(r, dict)]
     normalized = [r for r in normalized if r["name"] or r["symbol"]]
     ipos = _dedupe(normalized)
+    # Enrich with Trendlyne (subscription, RHP, allotment, listing perf) and
+    # append any Trendlyne-only live IPOs NSE doesn't carry.
+    ipos = _merge_trendlyne(ipos)
     ipos.sort(key=lambda r: (r.get("open_date") or "9999"))
+
+    sources_used = sorted({s for r in ipos for s in (r.get("sources") or [source])})
+    merged_source = "+".join(sources_used) if sources_used else source
 
     note: str | None = None
     if not ipos:
@@ -475,7 +599,7 @@ def list_upcoming_ipos() -> dict[str, Any]:
         # Strip the bulky _raw from the list payload; details endpoint
         # re-fetches from cache and can expose it.
         "ipos": [{k: v for k, v in r.items() if k != "_raw"} for r in ipos],
-        "source": source,
+        "source": merged_source,
         "note": note,
     }
     # Cache the full (with _raw) records separately so get_ipo_details can
@@ -1103,6 +1227,12 @@ def fetch_listed_ipo(name_or_symbol: str) -> dict[str, Any]:
 
     records = fetch_past_issues()
     if records is None:
+        # NSE past-issues down — fall back to Trendlyne's listed sections
+        # (recently-listed / performers) which carry issue price + listing
+        # gain + current return directly.
+        tl_hit = _trendlyne_listed_lookup(query)
+        if tl_hit is not None:
+            return tl_hit
         return {
             "found": False,
             "source": "unreachable",
@@ -1174,7 +1304,7 @@ def fetch_listed_ipo(name_or_symbol: str) -> dict[str, Any]:
             except (TypeError, ValueError):
                 issue_price = None
 
-    return {
+    out = {
         "found": True,
         "symbol": str(rec.get("symbol") or "").strip().upper() or None,
         "name": str(
@@ -1183,6 +1313,49 @@ def fetch_listed_ipo(name_or_symbol: str) -> dict[str, Any]:
         "type": ipo_type,
         "issue_price": issue_price,
         "listing_date": listing_date.isoformat() if listing_date else None,
+    }
+    # Enrich with Trendlyne's directly-published listing performance (gain on
+    # listing day + current return vs LTP) when we can match the name.
+    tl = _trendlyne_map().get(_tl_key(out["name"] or out["symbol"] or ""))
+    if tl:
+        for f in ("listing_gain_pct", "current_return_pct", "subscription"):
+            if tl.get(f) is not None:
+                out[f] = tl[f]
+        if out.get("issue_price") is None and tl.get("issue_price") is not None:
+            out["issue_price"] = tl["issue_price"]
+        out["sources"] = ["nse", "trendlyne"]
+    return out
+
+
+def _trendlyne_listed_lookup(name_or_symbol: str) -> dict[str, Any] | None:
+    """Build a listed-IPO result purely from Trendlyne's listed sections —
+    used as the fallback when NSE past-issues is unreachable. Returns None
+    when Trendlyne has no listed match (caller then reports unreachable)."""
+    tmap = _trendlyne_map()
+    if not tmap:
+        return None
+    key = _tl_key(name_or_symbol)
+    t = tmap.get(key)
+    # exact key, else substring on normalized names
+    if t is None:
+        for k, v in tmap.items():
+            if key and key in k:
+                t = v
+                break
+    if t is None or t.get("issue_price") is None:
+        return None
+    return {
+        "found": True,
+        "symbol": None,
+        "name": t.get("name"),
+        "type": t.get("type", "mainboard"),
+        "issue_price": t.get("issue_price"),
+        "listing_date": t.get("listing_date"),
+        "listing_gain_pct": t.get("listing_gain_pct"),
+        "current_return_pct": t.get("current_return_pct"),
+        "subscription": t.get("subscription"),
+        "source": "trendlyne",
+        "sources": ["trendlyne"],
     }
 
 

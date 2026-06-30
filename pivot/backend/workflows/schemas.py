@@ -129,11 +129,45 @@ class _Strict(BaseModel):
 # ── Triggers ─────────────────────────────────────────────────────────
 
 class TriggerScheduleConfig(_Strict):
-    cron: str = Field(..., description="Cron expression, 5-field")
+    """Either a RECURRING clock (`cron`) or a ONE-TIME fire (`run_at`) —
+    exactly one. One-time fires once and the agent is then done; the model
+    resolves a relative ask ("just tomorrow at 1pm") to an absolute `run_at`
+    itself (it knows today's date)."""
+    cron: Optional[str] = Field(
+        default=None,
+        description="Cron expression, 5-field — for a RECURRING schedule.",
+    )
+    run_at: Optional[str] = Field(
+        default=None,
+        description=(
+            "One-time fire datetime, ISO 8601 wall-clock in `timezone` "
+            "(YYYY-MM-DDTHH:MM:SS). Set this for a single non-repeating run "
+            "and leave `cron` empty. Mutually exclusive with `cron`."
+        ),
+    )
     timezone: str = Field(
         default="Asia/Kolkata",
         description="IANA timezone, e.g. Asia/Kolkata",
     )
+
+    @model_validator(mode="after")
+    def _exactly_one_mode(self) -> "TriggerScheduleConfig":
+        has_cron = bool(self.cron and str(self.cron).strip())
+        has_run_at = bool(self.run_at and str(self.run_at).strip())
+        if has_cron == has_run_at:
+            raise ValueError(
+                "trigger.schedule needs exactly one of `cron` (recurring) or "
+                "`run_at` (one-time)."
+            )
+        if has_run_at:
+            from datetime import datetime
+            try:
+                datetime.fromisoformat(str(self.run_at).replace("Z", "+00:00"))
+            except ValueError as e:
+                raise ValueError(
+                    f"run_at must be ISO 8601 datetime, got {self.run_at!r}"
+                ) from e
+        return self
 
 
 class TriggerMarketRelativeTimeConfig(_Strict):
@@ -1418,8 +1452,8 @@ class ActionPlaceOptionStrategyConfig(_Strict):
     ACTIVE in the paper book. ``book='live'`` → REGISTER-NOT-EXECUTE:
     the strategy row is persisted as a registered live intent and the
     notify step tells the user to execute in their broker app — Pivot
-    NEVER places a live F&O order. MCX underlyings are hard-rejected
-    (research-only product decision).
+    NEVER places a live F&O order. MCX commodity underlyings are
+    supported (register-not-execute), same as NSE/BSE F&O.
 
     Strikes resolve AT FIRE TIME against the live chain via the named
     template's delta/ATM rules (same engine as the chat cards), so a

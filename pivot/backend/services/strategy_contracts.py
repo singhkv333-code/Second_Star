@@ -169,7 +169,8 @@ wire shape don't have to change later."""
 
 GoldInstrumentKind = Literal["sgb", "etf"]
 """Gold sleeve instruments — Sovereign Gold Bond (long core) + Gold ETF
-(liquid). MCX stays research-only and is intentionally absent."""
+(liquid). MCX gold futures are tradeable separately (register-not-execute);
+this gold sleeve uses ETF/SGB by design."""
 
 
 # ════════════════════════════════════════════════════════════════════════════

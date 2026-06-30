@@ -1623,7 +1623,7 @@ async def execute_action_arm_ipo_intent(
     description=(
         "Build a multi-leg option strategy. Paper book fills in "
         "simulation; live book registers the intent only — you place it "
-        "in your broker app. MCX is research-only."
+        "in your broker app. MCX commodities supported (register-not-execute)."
     ),
     icon="layers",
     max_retries=1,

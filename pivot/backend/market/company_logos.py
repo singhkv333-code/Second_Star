@@ -90,22 +90,29 @@ def get_logo_url(symbol_or_sc_id: str) -> Optional[str]:
 
 
 def _resolve_uncached(symbol_or_sc_id: str) -> Optional[str]:
+    # Resolve ONLY from the company's REAL website domain
+    # (enrich.company_profile.website). Rationale: img.logo.dev is keyed by
+    # domain and NEVER 404s — an unknown domain returns a generated
+    # placeholder, and a *wrong* domain that happens to belong to another
+    # company returns THAT company's logo. The precomputed
+    # mc.companies.logo_url column was built by guessing a domain from the
+    # (often abbreviated) name — e.g. Britannia -> bi.com, NTPC -> ntpc.com,
+    # Kotak -> kotakbank.com — so it frequently served a different company's
+    # logo. Using the real website domain means logo.dev returns either the
+    # correct logo or a neutral monogram, but NEVER a different company. When
+    # we have no real domain we return None so the FE renders its own clean
+    # monogram rather than a misattributed logo.
     sc_id: Optional[str] = None
-    # 1) precomputed mc.companies.logo_url (also gives us the sc_id for step 2)
     try:
         from backend.market.financials_db import get_company
 
         company = get_company(symbol_or_sc_id)
         if company is not None:
             sc_id = company.sc_id
-            logo = getattr(company, "logo_url", None)
-            if logo:
-                return logo
     except Exception as exc:  # noqa: BLE001
         logger.debug("[company_logos] financials lookup failed sym=%s err=%s",
                      symbol_or_sc_id, exc)
 
-    # 2) derive from the enrichment DB's website column
     try:
         from backend.market import enrich_db
 

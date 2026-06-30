@@ -323,3 +323,43 @@ def test_activate_rejects_invalid_cron_with_422(
     body = activate_resp.json()
     assert body["error"]["code"] == "validation_error"
     assert "cron" in body["error"]["message"].lower()
+
+
+# ── one-time schedule (run_at) ───────────────────────────────────────────
+
+def _make_one_time(
+    db: Session,
+    *,
+    run_at_iso: str,
+    status: WorkflowStatus = WorkflowStatus.active,
+    tz: str = "UTC",
+) -> Workflow:
+    wf = Workflow(user_id=1, name="once", status=status, version=1)
+    db.add(wf)
+    db.flush()
+    step = WorkflowStep(
+        workflow_id=wf.id, step_index=0, step_type="trigger.schedule",
+        config={"run_at": run_at_iso, "timezone": tz}, label=None,
+    )
+    db.add(step)
+    db.flush()
+    db.refresh(wf)
+    return wf
+
+
+def test_upsert_one_time_future_sets_next_run_at(workflow_db: Session) -> None:
+    future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    wf = _make_one_time(workflow_db, run_at_iso=future)
+    upsert_workflow_schedule(workflow_db, wf)
+    assert wf.next_run_at is not None
+    assert wf.status == WorkflowStatus.active  # still armed
+
+
+def test_upsert_one_time_past_clears_and_auto_pauses(workflow_db: Session) -> None:
+    # A spent one-time fire (run_at in the past, as it is after firing) must
+    # leave NO next run AND auto-pause so the agent reads as done, never re-fires.
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    wf = _make_one_time(workflow_db, run_at_iso=past)
+    upsert_workflow_schedule(workflow_db, wf)
+    assert wf.next_run_at is None
+    assert wf.status == WorkflowStatus.paused

@@ -1621,6 +1621,9 @@ export function ChatDemo({
                           "agent",
                         )
                       }
+                      onKnowMore={(sym) =>
+                        void submit(`tell me about the ${sym} IPO`)
+                      }
                     />
                   </div>
                 </div>
