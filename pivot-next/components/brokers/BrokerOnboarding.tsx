@@ -137,16 +137,28 @@ export function BrokerOnboarding({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[640px] sm:rounded-2xl"
+        className={
+          // Desktop: centered floating card.
+          "sm:flex sm:max-h-[calc(100dvh_-_2rem)] sm:max-w-[640px] sm:flex-col sm:rounded-2xl " +
+          // Mobile: slide up as a bottom sheet instead of taking the whole
+          // screen (anchored bottom, rounded top, capped height, internal scroll).
+          // `max-sm:!` overrides the shared dialog's full-screen `inset-0`/`border-0`.
+          "max-sm:!inset-x-0 max-sm:!top-auto max-sm:!bottom-0 " +
+          // Size to content so the broker list shows without a scrollbar; the
+          // ceiling only kicks in on very short screens. Trim padding to fit.
+          "max-sm:h-auto max-sm:max-h-[calc(100svh-1rem)] max-sm:!p-5 " +
+          "max-sm:rounded-t-2xl max-sm:!border-t " +
+          "max-sm:data-[state=open]:animate-in max-sm:data-[state=open]:slide-in-from-bottom-4"
+        }
         data-testid="broker-onboarding"
       >
         {selected ? (
           // ── Connect / manage one broker ──────────────────────────────────
-          <div className="flex flex-col gap-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
             <button
               type="button"
               onClick={() => setSelectedId(null)}
-              className="inline-flex w-fit items-center gap-1.5"
+              className="inline-flex w-fit shrink-0 items-center gap-1.5"
               style={{
                 fontSize: 12,
                 fontWeight: 500,
@@ -174,7 +186,7 @@ export function BrokerOnboarding({
           </div>
         ) : (
           // ── Picker ───────────────────────────────────────────────────────
-          <div className="flex flex-col gap-4">
+          <div className="quartr-no-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
             <DialogHeader className="gap-0 space-y-0 text-left">
               <DialogTitle className="sr-only">Connect a broker</DialogTitle>
             </DialogHeader>

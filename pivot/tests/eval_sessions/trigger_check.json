@@ -1,0 +1,9 @@
+[
+  {"category": "global_price", "name": "crypto_crosses_btc", "why": "crypto level alert -> trigger.global_price crosses_above", "turns": ["alert me when bitcoin crosses $100k"]},
+  {"category": "global_price", "name": "forex_usdinr", "why": "forex level -> trigger.global_price forex USDINR", "turns": ["tell me if USDINR goes above 87"]},
+  {"category": "global_price", "name": "crypto_webhook", "why": "crypto + outbound webhook -> trigger.global_price + notify.webhook", "turns": ["ping my webhook at https://hooks.example.com/pivot when ETH drops below 3000"]},
+  {"category": "global_price", "name": "commodity_wti", "why": "global commodity -> trigger.global_price commodity WTI", "turns": ["let me know when WTI crude falls below 60 dollars"]},
+  {"category": "earnings", "name": "earnings_beat_infy", "why": "earnings beat -> trigger.earnings condition=beat", "turns": ["alert me when INFY beats its EPS estimate this earnings season"]},
+  {"category": "earnings", "name": "earnings_miss_tcs", "why": "earnings miss -> trigger.earnings condition=miss", "turns": ["notify me if TCS misses its earnings estimate when results are announced"]},
+  {"category": "routing_sanity", "name": "nse_price_stays_kite", "why": "INR NSE equity must stay trigger.price (Kite), NOT global_price", "turns": ["alert me when RELIANCE crosses 1500"]}
+]

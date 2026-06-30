@@ -930,6 +930,8 @@ export type StockQuote = {
   market_cap: number | null;
   pe_ratio: number | null;
   sector: string | null;
+  /** Company logo URL (img.logo.dev), or null → render a monogram fallback. */
+  logo_url?: string | null;
   /** Phase 2: true when the quote came from Kite (WS or REST). */
   live?: boolean;
   /** Phase 2: which data source produced this quote. */
@@ -1016,6 +1018,8 @@ export type CompanySearchResult = {
   name: string;
   sector: string | null;
   has_fundamentals: boolean;
+  /** Company logo URL (img.logo.dev), or null → render a monogram fallback. */
+  logo_url?: string | null;
 };
 
 export type CompanySearchResponse = {
@@ -1159,6 +1163,42 @@ export type UserProfile = {
 /** `GET /auth/me` — returns user profile for dashboard greeting. */
 export function getMe(): Promise<ApiResult<UserProfile>> {
   return requestLegacy<UserProfile>("/auth/me");
+}
+
+// ---------------------------------------------------------------------------
+// Feedback — bug reports (/feedback router, bare-mounted, NO /api prefix)
+// ---------------------------------------------------------------------------
+
+export type BugReportCategory = "bug" | "data" | "ui" | "performance" | "other";
+export type BugReportSeverity = "low" | "normal" | "high" | "critical";
+
+export type BugReportContext = {
+  page?: string;
+  tab?: string;
+  user_agent?: string;
+  app_version?: string;
+  viewport?: string;
+};
+
+export type BugReportInput = {
+  category: BugReportCategory;
+  severity: BugReportSeverity;
+  title: string;
+  description: string;
+  email?: string;
+  context?: BugReportContext;
+};
+
+export type BugReportAck = { ok: boolean; id: string };
+
+/** `POST /feedback` — submit a bug report from the Report-a-bug widget. */
+export function submitBugReport(
+  report: BugReportInput,
+): Promise<ApiResult<BugReportAck>> {
+  return requestLegacy<BugReportAck>("/feedback", {
+    method: "POST",
+    body: report,
+  });
 }
 
 // ---------------------------------------------------------------------------

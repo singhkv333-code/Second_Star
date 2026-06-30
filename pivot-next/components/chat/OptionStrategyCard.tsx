@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, ArrowUpRight, Loader2, Minus, Plus, ShieldAlert, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import type { OptionStrategyPayload } from "@/lib/types";
 import { isError } from "@/lib/types";
 import { computeOptionStrategy } from "@/lib/api";
@@ -129,6 +130,7 @@ export type OptionStrategyCardProps = {
 
 export function OptionStrategyCard({ payload }: OptionStrategyCardProps): React.ReactElement {
   const [panelOpen, setPanelOpen] = useState(false);
+  useExclusiveSidePanel("option-strategy", panelOpen, () => setPanelOpen(false));
 
   // Live, editable payload. The inline card lets the user change the lot count
   // directly (the most common edit); strikes/legs/expiry still hand off to the

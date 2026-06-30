@@ -985,6 +985,36 @@ async def propose_dsl_workflow(args: dict) -> dict:
             "(trigger.schedule + action.* per branch)."
         )
 
+    # External-event-trigger detector — global price (crypto/forex/global
+    # commodity), earnings beats/misses, and webhook delivery are NOT DSL
+    # condition shapes. The DSL grammar covers price/indicator/aggregate
+    # leaves on the primary equity symbol; non-Kite assets and event
+    # triggers belong in propose_workflow with the matching trigger.* /
+    # notify.webhook step. Catch the obvious phrasings here so the user
+    # gets a clean route hint instead of a translator failure.
+    _EXT_EVENT_RE = re.compile(
+        r"\b(?:bitcoin|btc|ethereum|eth|"
+        r"usdinr|eurusd|gbpusd|forex|"
+        r"wti\s+crude|brent|xauusd|xagusd|"
+        r"earnings\s+(?:beat|miss|meet)|"
+        r"beats?\s+(?:eps|earnings)|misses?\s+(?:eps|earnings)|"
+        r"post\s+to\s+(?:my\s+)?(?:webhook|endpoint|url)|"
+        r"ping\s+(?:my\s+)?(?:webhook|endpoint|url))\b",
+        re.IGNORECASE,
+    )
+    if _EXT_EVENT_RE.search(condition) or (
+        exit_condition_text and _EXT_EVENT_RE.search(exit_condition_text)
+    ):
+        raise ValueError(
+            "propose_dsl_workflow translates only price / indicator / "
+            "aggregate conditions on a single equity symbol. Global "
+            "crypto / forex / non-Kite-commodity prices belong in "
+            "propose_workflow with a trigger.global_price step; earnings "
+            "beat/miss/meet asks belong in propose_workflow with a "
+            "trigger.earnings step; webhook delivery is a notify.webhook "
+            "action step. Re-route via propose_workflow."
+        )
+
     # Multi-trigger semicolon detector — "Every Monday at open buy 5
     # NIFTYBEES; on Friday close squareoff full NIFTYBEES" packs TWO
     # time-anchored triggers into one condition string. DSL is

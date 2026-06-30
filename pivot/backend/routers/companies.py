@@ -37,6 +37,10 @@ class CompanySearchResult(BaseModel):
     name: str
     sector: Optional[str] = None
     has_fundamentals: bool = False
+    # Company logo URL (img.logo.dev), or null → FE renders a monogram.
+    # Pulled from the precomputed mc.companies.logo_url column in the same
+    # search query (no extra round-trip on the autosuggest hot path).
+    logo_url: Optional[str] = None
 
 
 class CompanySearchResponse(BaseModel):
@@ -52,6 +56,20 @@ def search_companies(
     """Autosuggest matching companies by name or trading symbol."""
     _auth(authorization)
     hits = fdb.search_companies(q, limit=limit)
+
+    # Resolve every row through the shared resolver, which keys off the
+    # company's REAL website domain (NOT the precomputed mc.companies.logo_url
+    # column — those were guessed from the name and frequently pointed at a
+    # different company's domain, e.g. Britannia -> bi.com). Redis-cached and
+    # fail-safe; the result set is small (<= limit) so the autosuggest hot
+    # path stays cheap after warm-up. Null -> FE renders a clean monogram.
+    def _logo(h: "fdb.CompanyHit") -> Optional[str]:
+        try:
+            from backend.market.company_logos import get_logo_url
+            return get_logo_url(h.symbol)
+        except Exception:
+            return None
+
     return CompanySearchResponse(
         results=[
             CompanySearchResult(
@@ -59,6 +77,7 @@ def search_companies(
                 name=h.name,
                 sector=h.sector,
                 has_fundamentals=h.has_fundamentals,
+                logo_url=_logo(h),
             )
             for h in hits
         ]

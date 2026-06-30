@@ -19,6 +19,7 @@ import { useEffect, useRef } from "react";
 import { AlertTriangle, ArrowRight, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import type { IpoApplicationPayload } from "@/lib/types";
 
 const PANEL_WIDTH = "clamp(340px, 25vw, 520px)";
@@ -68,6 +69,7 @@ export function IpoDetailPanel({
   onApply,
 }: IpoDetailPanelProps): React.ReactElement | null {
   const panelRef = useRef<HTMLElement | null>(null);
+  useExclusiveSidePanel("ipo-detail", open, () => onOpenChange(false));
 
   useEffect(() => {
     if (!open) return;
@@ -87,17 +89,18 @@ export function IpoDetailPanel({
 
   return (
     <>
+      {/* NON-MODAL: transparent, click-through layer — no dark scrim. The chat
+          stays visible and interactive; closing is via the X / Esc only. */}
       <div
         aria-hidden="true"
-        onClick={() => onOpenChange(false)}
-        className="agent-panel-backdrop fixed inset-0 z-40 bg-black/60 animate-in fade-in-0"
+        className="agent-panel-backdrop fixed inset-0 z-40 pointer-events-none"
         data-testid="ipo-detail-panel-backdrop"
       />
       <aside
         ref={panelRef}
         role="dialog"
         aria-label="IPO details"
-        aria-modal="true"
+        aria-modal="false"
         style={{
           width: PANEL_WIDTH,
           maxWidth: "100%",

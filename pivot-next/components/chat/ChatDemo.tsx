@@ -795,6 +795,31 @@ export function ChatDemo({
     return () => window.removeEventListener("pivot:focus-composer", onFocus);
   }, []);
 
+  // "Edit with chat" entry point (dispatched from the Agents grid). Drops a
+  // pre-written amendment prompt for a saved agent into the composer WITHOUT
+  // auto-submitting, so the user can finish the sentence ("…raise the qty to
+  // 20") and send. Pins the mode to "agent" so the classifier routes the
+  // follow-up to the workflow tool rather than a generic answer.
+  useEffect(() => {
+    const onSeed = (e: Event): void => {
+      const detail = (e as CustomEvent<{ text?: string; mode?: ChatMode }>).detail;
+      if (!detail?.text) return;
+      setIntent(detail.text);
+      if (detail.mode !== undefined) setMode(detail.mode);
+      // Focus + move the caret to the end after the value settles so the
+      // user can keep typing where the seed left off.
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+      });
+    };
+    window.addEventListener("pivot:seed-composer", onSeed);
+    return () => window.removeEventListener("pivot:seed-composer", onSeed);
+  }, []);
+
   // Esc aborts an in-flight response (only armed while a stream is running,
   // so it never swallows Esc from dialogs/menus when the chat is idle).
   useEffect(() => {
@@ -887,6 +912,27 @@ export function ChatDemo({
     el.style.height = `${next}px`;
     el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_PX ? "auto" : "hidden";
   }, [intent]);
+
+  // One-time post-layout correction. On first mount the autosize above can
+  // measure scrollHeight before fonts/CSS settle and lock an empty textarea
+  // at TWO lines (~48px) — `intent` never changes, so the [intent] effect
+  // never re-runs to fix it. Recompute once the next frame + once fonts are
+  // ready so the resting composer is a single line.
+  useEffect(() => {
+    const fix = (): void => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      const next = Math.min(el.scrollHeight, MAX_TEXTAREA_PX);
+      el.style.height = `${next}px`;
+      el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_PX ? "auto" : "hidden";
+    };
+    const raf = requestAnimationFrame(fix);
+    if (typeof document !== "undefined" && document.fonts?.ready) {
+      void document.fonts.ready.then(fix);
+    }
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // Auto-scroll to the bottom whenever messages change (new message,
   // streaming delta) — but only if the user hasn't scrolled away.
@@ -2252,13 +2298,12 @@ function ClarifySummaryBubble({
         <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">
           Your choices
         </p>
-        <ul className="flex flex-col gap-1.5">
+        <ul className="flex flex-col gap-2">
           {answers.map((a, i) => (
-            <li key={i} className="flex items-baseline gap-2 text-[12.5px] leading-snug">
-              <span className="shrink-0 font-medium text-foreground/70">
+            <li key={i} className="flex flex-col gap-0.5 text-[12.5px] leading-snug">
+              <span className="font-medium text-foreground/70">
                 {a.prompt.replace(/[?:]$/, "")}
               </span>
-              <span className="text-muted-foreground/60">·</span>
               <span className="font-semibold text-foreground">
                 {a.label === "skip" || a.value === "skip" ? (
                   <em className="not-italic text-muted-foreground">Default</em>
@@ -2513,6 +2558,10 @@ function ChatComposer({
             color: "var(--text-primary)",
             fontFamily: "var(--font-ui)",
             lineHeight: "24px",
+            // Explicit one-line starting height so the very first paint (before
+            // the autosize effect runs) is already a single line — no tall
+            // flash even on a slow/throttled load. Autosize grows it from here.
+            height: "24px",
             overflowY: "hidden",
             maxHeight: MAX_TEXTAREA_PX,
           }}
@@ -2569,8 +2618,10 @@ function ChatComposer({
       </div>
 
       {/* Mode pills — Automation / Agent / Backtest (extras kept). Quartr-styled
-          so they read as a quiet row rather than glassy chips. */}
-      <div className="flex items-center justify-center" style={{ gap: 8 }}>
+          so they read as a quiet row rather than glassy chips. On phone the row
+          scrolls horizontally (the four chips overflow a ~360px width); on sm+
+          it stays a static centered row. */}
+      <div className="composer-modes flex items-center justify-start gap-2 overflow-x-auto px-0.5 sm:justify-center sm:overflow-x-visible sm:px-0">
         {MODES.map((m) => {
           const Icon = m.icon;
           const isActive = mode === m.id;
@@ -2583,7 +2634,7 @@ function ChatComposer({
               data-active={isActive}
               aria-pressed={isActive}
               title={m.description}
-              className="inline-flex items-center"
+              className="inline-flex shrink-0 items-center"
               style={{
                 // Borderless mode pills — same active treatment as the
                 // sidebar nav: subtle elevated bg + ink text. No border.
@@ -2615,7 +2666,9 @@ function ChatComposer({
           );
         })}
         {/* Dummy entry point — opens the full-screen option chain (mock data). */}
-        <OptionChainLauncherCard variant="pill" />
+        <span className="shrink-0">
+          <OptionChainLauncherCard variant="pill" />
+        </span>
       </div>
     </div>
   );

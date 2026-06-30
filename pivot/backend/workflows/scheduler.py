@@ -94,6 +94,24 @@ _IPO_LISTING_CREDIT_JOB_ID = "pivot_workflows_ipo_listing_credit"
 _MACRO_WATCHER_INTERVAL_SECONDS = 300
 _MACRO_WATCHER_JOB_ID = "pivot_workflows_macro_watcher"
 
+# Global-price watcher (trigger.global_price) cadence. Crypto / forex /
+# global-commodity quotes come from public APIs OUTSIDE Kite (Kraken,
+# CoinGecko, Twelve Data, Frankfurter, yfinance futures). The default
+# poll interval is 60s but is settings-tunable via
+# settings.global_price_poll_seconds so a deployer can dial it down to
+# respect provider rate limits. Like the IPO / macro watchers, this is
+# NOT gated on NSE market hours — crypto is 24/7 and forex sessions
+# span the Indian overnight.
+_GLOBAL_PRICE_WATCHER_JOB_ID = "pivot_workflows_global_price_watcher"
+
+# Earnings watcher (trigger.earnings) cadence. Company earnings prints
+# land at known dates with a multi-hour verify window (default 48h),
+# so a 30-minute poll fires close to the release without hammering
+# yfinance. NOT gated on NSE market hours: US ADR earnings (and the
+# subsequent estimate update) can land overnight.
+_EARNINGS_WATCHER_INTERVAL_SECONDS = 1800
+_EARNINGS_WATCHER_JOB_ID = "pivot_workflows_earnings_watcher"
+
 # APScheduler job id for the workflow poll job — keep stable across
 # restarts so `replace_existing=True` works.
 _POLL_JOB_ID = "pivot_workflows_poll"
@@ -558,13 +576,51 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
             max_instances=1,
             coalesce=True,
         )
+
+    # Global-price watcher (trigger.global_price) — only when the feature
+    # flag is on. Same registration-time gating pattern as the macro
+    # watcher: tests call `_poll_global_price_triggers` directly.
+    global_price_on = bool(
+        getattr(_settings, "global_price_triggers_enabled", False)
+    )
+    global_price_seconds = int(
+        getattr(_settings, "global_price_poll_seconds", 60) or 60
+    )
+    if global_price_on:
+        scheduler.add_job(
+            _poll_global_price_triggers,
+            trigger="interval",
+            seconds=global_price_seconds,
+            id=_GLOBAL_PRICE_WATCHER_JOB_ID,
+            name="Pivot Workflows — global-price watcher",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
+    # Earnings watcher (trigger.earnings) — feature-flag gated, mirrors
+    # the macro watcher's per-occurrence latch pattern.
+    earnings_on = bool(getattr(_settings, "earnings_events_enabled", False))
+    if earnings_on:
+        scheduler.add_job(
+            _poll_earnings_triggers,
+            trigger="interval",
+            seconds=_EARNINGS_WATCHER_INTERVAL_SECONDS,
+            id=_EARNINGS_WATCHER_JOB_ID,
+            name="Pivot Workflows — earnings watcher",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
     logger.info(
         "[workflow-scheduler] registered poll job (%ss) + watcher (%ss) "
-        "+ ipo-open watcher (%ss) + ipo-listing-credit (%ss)%s",
+        "+ ipo-open watcher (%ss) + ipo-listing-credit (%ss)%s%s%s",
         _POLL_INTERVAL_SECONDS, _WATCHER_INTERVAL_SECONDS,
         _IPO_OPEN_WATCHER_INTERVAL_SECONDS,
         _IPO_LISTING_CREDIT_INTERVAL_SECONDS,
         f" + macro watcher ({_MACRO_WATCHER_INTERVAL_SECONDS}s)" if macro_on else "",
+        f" + global-price watcher ({global_price_seconds}s)" if global_price_on else "",
+        f" + earnings watcher ({_EARNINGS_WATCHER_INTERVAL_SECONDS}s)" if earnings_on else "",
     )
 
 
@@ -2195,4 +2251,381 @@ async def _poll_ipo_listing_fills() -> None:
         except Exception:
             logger.exception(
                 "[ipo-listing-credit] worker failed for %s", alloc_id,
+            )
+
+
+# ── Global-price watcher (trigger.global_price) ──────────────────────
+
+
+# Per-step crossing-detection key. Mirrors `_LAST_PRICE_KEY` /
+# `_LAST_VALUE_KEY` but lives under its own slot so a workflow with
+# BOTH a `trigger.price` (Kite NSE/NFO/MCX) AND a `trigger.global_price`
+# (Kraken / Twelve Data / etc.) keeps independent crossing state per
+# step. `_persist_last_value` accepts (key, float) so we re-use it.
+_GLOBAL_PRICE_LAST_KEY = "_global_last_price"
+
+
+def _scan_active_global_price_triggers() -> list[tuple[str, int, dict[str, object]]]:
+    """Return (workflow_id, step_index, config_copy) for every active
+    workflow with a ``trigger.global_price`` step.
+
+    Multi-trigger: every such step is scanned independently (own last-
+    price state under ``_GLOBAL_PRICE_LAST_KEY``). Mirrors
+    ``_scan_active_macro_triggers`` / ``_scan_active_ipo_open_triggers``.
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Workflow, WorkflowStep)
+            .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+            .filter(
+                Workflow.status == WorkflowStatus.active,
+                WorkflowStep.step_type == "trigger.global_price",
+            )
+            .all()
+        )
+        return [
+            (str(wf.id), int(step.step_index), dict(step.config or {}))
+            for wf, step in rows
+        ]
+    finally:
+        db.close()
+
+
+async def _poll_global_price_triggers() -> None:
+    """Polled every ``settings.global_price_poll_seconds`` (default 60s).
+    Scans active workflows with a ``trigger.global_price`` step, fetches
+    the current price from the external provider chain
+    (``backend.market.global_quotes.get_global_quote``), evaluates the
+    threshold using the same ``_matches_threshold`` semantics as
+    ``trigger.price`` (with persisted last-price state for
+    ``crosses_*``), and fires on a match.
+
+    NOT gated on NSE market hours: crypto is 24/7 and forex sessions
+    span the Indian overnight. The provider chain is best-effort with
+    a Redis cache; ``get_global_quote`` returns None when every provider
+    fails, in which case we simply skip that step on this tick (no fire,
+    no false alarm) — same fail-safe posture as the macro watcher.
+    """
+    fired_at = datetime.now(timezone.utc)
+
+    try:
+        triggers = await asyncio.to_thread(_scan_active_global_price_triggers)
+    except Exception:
+        logger.exception("[watcher.global_price] scan failed")
+        return
+    if not triggers:
+        return
+
+    # Lazy import — keeps watcher startup cheap and lets the module load
+    # even if the global_quotes config fields aren't populated yet.
+    try:
+        from backend.market.global_quotes import get_global_quote
+    except Exception:
+        logger.exception("[watcher.global_price] import failed")
+        return
+
+    for wf_id, step_idx, cfg in triggers:
+        try:
+            asset_class = str(cfg.get("asset_class", "")).strip().lower()
+            symbol = str(cfg.get("symbol", "")).strip().upper()
+            operator = str(cfg.get("operator", "")).strip()
+            if not asset_class or not symbol or not operator:
+                continue
+            try:
+                threshold = float(cfg.get("value", 0.0))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                continue
+
+            quote_currency_raw = cfg.get("quote_currency")
+            quote_currency: Optional[str] = (
+                str(quote_currency_raw).strip().upper()
+                if isinstance(quote_currency_raw, str) and quote_currency_raw.strip()
+                else None
+            )
+
+            # Provider chain runs in a worker thread because the default
+            # httpx-based implementation is sync. None on every provider
+            # failure → skip this tick (fail-safe; no false fires).
+            quote = await asyncio.to_thread(
+                get_global_quote, asset_class, symbol,
+                quote_currency=quote_currency,
+            )
+            if quote is None:
+                continue
+
+            current = float(quote.price)
+            last_raw = cfg.get(_GLOBAL_PRICE_LAST_KEY)
+            last = float(last_raw) if isinstance(last_raw, (int, float)) else None
+
+            matched = _matches_threshold(operator, current, threshold, last)
+
+            # Persist last_price so the NEXT tick's crosses_* logic
+            # works — same pattern as `_evaluate_price_trigger`.
+            await asyncio.to_thread(
+                _persist_last_value,
+                wf_id, step_idx, _GLOBAL_PRICE_LAST_KEY, current,
+            )
+
+            if not matched:
+                continue
+
+            audit_context = {
+                "source": "global_price_watcher",
+                "asset_class": asset_class,
+                "symbol": symbol,
+                "operator": operator,
+                "threshold": threshold,
+                "price": current,
+                "quote_currency": quote.quote_currency,
+                "provider": quote.source,
+                "as_of": quote.as_of,
+            }
+            run_id = await _fire_watch_run(
+                wf_id, step_idx, "price_alert", fired_at,
+                audit_context=audit_context,
+            )
+            logger.info(
+                "[watcher.global_price] fired wf=%s step=%d "
+                "asset=%s sym=%s op=%s thr=%s price=%s src=%s run=%s",
+                wf_id, step_idx, asset_class, symbol, operator,
+                threshold, current, quote.source, run_id,
+            )
+        except Exception:
+            logger.exception(
+                "[watcher.global_price] failed to evaluate wf=%s step=%d",
+                wf_id, step_idx,
+            )
+
+
+# ── Earnings watcher (trigger.earnings) ──────────────────────────────
+
+
+# Per-occurrence fire-once latch for trigger.earnings. Mirrors
+# ``_MACRO_FIRED_KEY``: stores the event instance key (e.g.
+# "INFY:2026-07-15") so the workflow fires once per quarter and re-arms
+# automatically for the NEXT scheduled earnings date.
+_EARNINGS_FIRED_KEY = "_earnings_fired_for"
+
+
+def _persist_earnings_fired(
+    workflow_id: str, step_index: int, instance_key: str,
+) -> None:
+    """Persist the per-occurrence latch on a ``trigger.earnings`` step.
+
+    Mirrors ``_persist_macro_fired`` — copy-and-reassign the JSON dict
+    so SQLA tracks the change. Runs in a worker thread via
+    ``asyncio.to_thread``.
+    """
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == step_index,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        cfg = dict(step.config or {})
+        cfg[_EARNINGS_FIRED_KEY] = str(instance_key)
+        step.config = cfg  # type: ignore[assignment]
+        db.commit()
+    finally:
+        db.close()
+
+
+def _clear_earnings_fired(workflow_id: str, step_index: int) -> None:
+    """Remove the per-occurrence earnings latch. Called when the latch
+    was persisted but ``fire_external_event`` did NOT create a run (e.g.
+    the workflow was paused in the persist→fire window), so the
+    occurrence stays re-armable instead of being silently skipped
+    forever. Mirrors ``_clear_macro_fired``.
+    """
+    db = SessionLocal()
+    try:
+        step = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.workflow_id == workflow_id,
+                WorkflowStep.step_index == step_index,
+            )
+            .first()
+        )
+        if step is None:
+            return
+        cfg = dict(step.config or {})
+        if cfg.pop(_EARNINGS_FIRED_KEY, None) is not None:
+            step.config = cfg  # type: ignore[assignment]
+            db.commit()
+    finally:
+        db.close()
+
+
+def _scan_active_earnings_triggers() -> list[tuple[str, int, dict[str, object]]]:
+    """Return (workflow_id, step_index, config_copy) for every active
+    workflow with a ``trigger.earnings`` step. Multi-trigger: every such
+    step is read independently (own per-occurrence latch). Mirrors
+    ``_scan_active_macro_triggers``.
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Workflow, WorkflowStep)
+            .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+            .filter(
+                Workflow.status == WorkflowStatus.active,
+                WorkflowStep.step_type == "trigger.earnings",
+            )
+            .all()
+        )
+        return [
+            (str(wf.id), int(step.step_index), dict(step.config or {}))
+            for wf, step in rows
+        ]
+    finally:
+        db.close()
+
+
+async def _poll_earnings_triggers() -> None:
+    """Polled every 30 minutes. For each active ``trigger.earnings`` step
+    whose calendar occurrence is currently inside its verify window, run
+    the EPS/revenue outcome verifier and fire ONCE on a confident match.
+
+    Mirrors ``_poll_scheduled_macro_triggers`` exactly in shape:
+
+      * NOT gated on NSE market hours — US ADR earnings (and yfinance's
+        post-print estimate updates) can land overnight.
+      * Fail-safe: ``verify_earnings_outcome`` returns ``unknown``
+        whenever the reported number isn't in yet (or the metric isn't
+        supported, e.g. revenue today). We fire ONLY when
+        ``outcome.matched`` is True — a not-yet-reported quarter causes
+        a missed/late fire, never a false one.
+      * Fire-once is per-occurrence: the latch stores the event
+        instance key (``SYMBOL:YYYY-MM-DD``), persisted BEFORE firing so
+        a crash re-fires at-most-once (engine runs are idempotent), and
+        the workflow re-arms for the next quarter automatically.
+      * If ``fire_external_event`` returns None (workflow paused /
+        deactivated in the persist→fire window) the latch is cleared so
+        the occurrence isn't silently lost.
+    """
+    fired_at = datetime.now(timezone.utc)
+
+    try:
+        triggers = await asyncio.to_thread(_scan_active_earnings_triggers)
+    except Exception:
+        logger.exception("[watcher.earnings] scan failed")
+        return
+    if not triggers:
+        return
+
+    # Lazy imports keep watcher startup cheap and avoid a hard dependency
+    # on the earnings_events package at module load.
+    try:
+        from backend.config import settings
+        from backend.earnings_events import due_event, verify_earnings_outcome
+    except Exception:
+        logger.exception("[watcher.earnings] import failed")
+        return
+
+    global_floor = float(
+        getattr(settings, "earnings_verifier_min_confidence", 0.85)
+    )
+
+    for wf_id, step_idx, cfg in triggers:
+        try:
+            symbol = str(cfg.get("symbol", "")).strip().upper()
+            condition = str(cfg.get("condition", "")).strip().lower()
+            if not symbol or not condition:
+                continue
+            metric = str(cfg.get("metric", "eps")).strip().lower() or "eps"
+
+            # Only act while a known occurrence is inside its verify window.
+            ev = due_event(symbol, fired_at)
+            if ev is None:
+                continue
+            # Already fired for THIS occurrence?
+            if str(cfg.get(_EARNINGS_FIRED_KEY, "")) == ev.instance_key():
+                continue
+
+            try:
+                step_min = float(cfg.get("min_confidence", 0.85))
+            except (TypeError, ValueError):
+                step_min = 0.85
+            eff_min = max(step_min, global_floor)
+
+            surprise_threshold_raw = cfg.get("surprise_threshold_pct")
+            surprise_threshold: Optional[float]
+            if surprise_threshold_raw is None:
+                surprise_threshold = None
+            else:
+                try:
+                    surprise_threshold = float(surprise_threshold_raw)
+                except (TypeError, ValueError):
+                    surprise_threshold = None
+
+            outcome = await verify_earnings_outcome(
+                symbol, metric, condition,
+                surprise_threshold_pct=surprise_threshold,
+                min_confidence=eff_min,
+            )
+            if not outcome.matched:
+                logger.info(
+                    "[watcher.earnings] no fire wf=%s step=%d sym=%s "
+                    "metric=%s cond=%s decision=%s reason=%s",
+                    wf_id, step_idx, symbol, metric, condition,
+                    outcome.decision,
+                    (outcome.audit or {}).get("reason", ""),
+                )
+                continue
+
+            # Fire-once: persist the per-occurrence latch BEFORE firing
+            # (at-most-once — a real order must never double-register).
+            await asyncio.to_thread(
+                _persist_earnings_fired, wf_id, step_idx, ev.instance_key(),
+            )
+            run_id = await fire_external_event(
+                workflow_id=wf_id,
+                triggered_step_index=step_idx,
+                fired_at=fired_at,
+                audit_context={
+                    **(outcome.audit or {}),
+                    "source": "earnings_watcher",
+                    "symbol": symbol,
+                    "metric": metric,
+                    "condition": condition,
+                    "decision": outcome.decision,
+                    "reported": outcome.reported,
+                    "estimate": outcome.estimate,
+                    "surprise_pct": outcome.surprise_pct,
+                    "confidence": outcome.confidence,
+                    "evidence": outcome.evidence,
+                    "instance_key": ev.instance_key(),
+                    "label": ev.label,
+                },
+            )
+            if run_id is None:
+                # The fire didn't create a run (workflow paused/deactivated
+                # in the persist→fire window). Re-arm so the occurrence
+                # isn't silently lost — mirrors the macro watcher.
+                await asyncio.to_thread(
+                    _clear_earnings_fired, wf_id, step_idx,
+                )
+                logger.info(
+                    "[watcher.earnings] fire produced no run wf=%s "
+                    "step=%d — latch cleared, will retry",
+                    wf_id, step_idx,
+                )
+                continue
+            logger.info(
+                "[watcher.earnings] fired wf=%s step=%d sym=%s "
+                "metric=%s decision=%s run=%s",
+                wf_id, step_idx, symbol, metric, outcome.decision, run_id,
+            )
+        except Exception:
+            logger.exception(
+                "[watcher.earnings] failed to evaluate wf=%s step=%d",
+                wf_id, step_idx,
             )

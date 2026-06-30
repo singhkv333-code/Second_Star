@@ -19,8 +19,10 @@ from typing import Any, Optional
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
     TriggerCompoundConfig,
+    TriggerEarningsConfig,
     TriggerEventConfig,
     TriggerExitCompoundConfig,
+    TriggerGlobalPriceConfig,
     TriggerIndicatorConfig,
     TriggerExpiryDayConfig,
     TriggerIpoOpenConfig,
@@ -439,4 +441,69 @@ async def execute_trigger_webhook(ctx: Any) -> Optional[dict[str, Any]]:
     body into `run.context["webhook_payload"]` BEFORE the engine starts,
     so downstream `{{context.webhook_payload.<path>}}` refs resolve
     correctly."""
+    return None
+
+
+@register_step(
+    step_type="trigger.global_price",
+    category="trigger",
+    label="When a global asset's price crosses a level",
+    description=(
+        "Fire when a non-Kite asset (crypto like BTC/ETH, forex like "
+        "EURUSD/USDINR, or USD-denominated commodities like WTI/Brent/"
+        "gold) crosses a price level. For INR-denominated NSE/MCX "
+        "instruments use trigger.price (Kite path) instead."
+    ),
+    icon="coins",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerGlobalPriceConfig,
+    output_schema=None,
+    group="Price, indicators & exits",
+)
+async def execute_trigger_global_price(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the global-price watcher (``backend/workflows/scheduler.py
+    :_poll_global_price_triggers``) polls
+    :func:`backend.market.global_quotes.get_global_quote` on the configured
+    asset_class+symbol, applies the same ``_matches_threshold`` semantics as
+    ``trigger.price`` against a persisted last-price latch, and fires this
+    trigger out-of-band via ``fire_external_event``. By the time the engine
+    reaches this executor the run row already carries
+    ``triggered_by='price_alert'`` and ``run.context`` records the firing
+    snapshot. Same pattern as trigger.price — the executor exists purely
+    so the engine can advance to step 1 without a special trigger-skip
+    path. Crypto runs 24/7 so the poll loop is NOT gated on NSE hours."""
+    return None
+
+
+@register_step(
+    step_type="trigger.earnings",
+    category="trigger",
+    label="When a company reports earnings",
+    description=(
+        "Fire after a company's results are out, when EPS (or revenue) "
+        "beats / misses / meets the consensus estimate — e.g. 'alert me "
+        "when INFY beats EPS estimate'."
+    ),
+    icon="bar-chart-3",
+    max_retries=0,
+    trigger_only=True,
+    config_model=TriggerEarningsConfig,
+    output_schema=None,
+    group="Events & external",
+)
+async def execute_trigger_earnings(ctx: Any) -> Optional[dict[str, Any]]:
+    """No-op: the earnings watcher (``backend/workflows/scheduler.py
+    :_poll_earnings_triggers``) opens the verify window around the
+    announced report date (see
+    :func:`backend.earnings_events.due_event`), runs
+    :func:`backend.earnings_events.verify_earnings_outcome`, and fires
+    this trigger out-of-band via ``fire_external_event`` ONLY when
+    ``outcome.matched`` is True (fail-safe: missing data never fires).
+    By the time the engine reaches this executor the run row already
+    carries ``triggered_by='event_alert'`` (the value
+    ``fire_external_event`` sets — the only external-fire class allowed by
+    the workflow_runs CHECK constraint) and ``run.context`` holds the
+    verification snapshot (reported/estimate/surprise/evidence). Same
+    no-op pattern as trigger.scheduled_macro / trigger.polymarket."""
     return None

@@ -604,6 +604,161 @@ class TriggerKalshiConfig(_Strict):
         return self
 
 
+class TriggerGlobalPriceConfig(_Strict):
+    """Fire when a crypto / forex / global-commodity price crosses a level.
+
+    The companion to ``TriggerPriceConfig`` for assets Kite does NOT
+    serve. Driven by ``backend.market.global_quotes.get_global_quote``,
+    which fans out across provider chains keyed by ``asset_class``:
+
+      - crypto    : Kraken public REST -> CoinGecko fallback. No API key
+                    required for either provider. Symbols are canonical
+                    upper-case roots (BTC, ETH, SOL, ...); the resolver
+                    maps BTC -> Kraken XBTUSD and CoinGecko ``bitcoin``.
+      - forex     : Twelve Data (needs ``settings.twelvedata_api_key``)
+                    -> Frankfurter ECB fallback (free, daily). Symbols
+                    are six-letter pairs (``EURUSD``, ``USDINR``,
+                    ``GBPUSD``) — slash/dash separators are tolerated.
+      - commodity : Twelve Data -> yfinance futures fallback
+                    (``CL=F`` / ``BZ=F`` / ``GC=F`` / ``SI=F``). Symbols
+                    are USD-denominated globals (``WTI``, ``BRENT``,
+                    ``XAUUSD``, ``XAGUSD``).
+
+    INR-denominated MCX contracts (``CRUDEOIL`` / ``GOLD`` / ``SILVER``
+    in INR) are already reachable through ``trigger.price`` -> Kite —
+    use this trigger ONLY for the assets Kite does NOT serve.
+
+    Firing path mirrors ``TriggerPriceConfig``: the scheduler's
+    ``_poll_global_price_triggers`` loop (NOT gated on NSE market hours
+    because crypto is 24/7) reads the current price, persists the last
+    observed value under ``_global_last_price`` on the step config for
+    the ``crosses_above`` / ``crosses_below`` operators, and fires
+    out-of-band via ``fire_external_event`` when the comparison flips.
+    The watcher honours ``settings.global_price_triggers_enabled``;
+    when off, the job is not registered.
+    """
+    asset_class: Literal["crypto", "forex", "commodity"] = Field(
+        ...,
+        description=(
+            "Which provider chain to dispatch into. 'crypto' uses "
+            "Kraken/CoinGecko; 'forex' uses Twelve Data/Frankfurter; "
+            "'commodity' uses Twelve Data/yfinance futures."
+        ),
+    )
+    symbol: str = Field(
+        ..., min_length=1, max_length=32,
+        description=(
+            "Canonical upper-case symbol the resolver normalises against "
+            "(e.g. 'BTC', 'EURUSD', 'WTI'). Whitespace, slash, and dash "
+            "separators are tolerated and stripped before lookup. Use "
+            "trigger.price (NSE/BSE) for INR-denominated MCX commodities."
+        ),
+    )
+    operator: Literal[">", "<", "crosses_above", "crosses_below"] = Field(
+        ...,
+        description=(
+            "Comparison mode. '>' / '<' fire on every tick the level is "
+            "breached. 'crosses_above' / 'crosses_below' require a "
+            "transition from the previous polled price — engine-tracked "
+            "via the step config's _global_last_price latch."
+        ),
+    )
+    value: float = Field(
+        ...,
+        description=(
+            "Threshold in the asset's quote currency (USD for crypto + "
+            "global commodities by default; the pair's right-hand "
+            "currency for forex unless overridden)."
+        ),
+    )
+    quote_currency: Optional[str] = Field(
+        default=None, max_length=8,
+        description=(
+            "Optional override of the quote currency the resolver should "
+            "ask the provider for. Crypto defaults to USD; forex derives "
+            "the quote from the second half of the pair; commodities "
+            "default to USD. Use this for asks like 'BTC in INR'."
+        ),
+    )
+
+
+class TriggerEarningsConfig(_Strict):
+    """Fire after a company's quarterly results are announced, when the
+    reported figure beats / misses / meets consensus.
+
+    Source-of-truth is ``backend.earnings_events`` (yfinance-backed,
+    Redis-cached). The scheduler's ``_poll_earnings_triggers`` loop
+    mirrors ``_poll_scheduled_macro_triggers``: every ~30 minutes it
+    asks ``due_event(symbol, now)`` for an event whose
+    ``[report_at_utc, report_at_utc + verify_window]`` interval contains
+    now, then calls ``verify_earnings_outcome`` and fires
+    out-of-band via ``fire_external_event`` only when the verifier's
+    ``matched`` flag is True. A fire-once latch keyed on
+    ``EarningsEventDef.instance_key()`` (e.g. ``"INFY:2026-07-15"``) is
+    persisted on the step config so a single quarter only fires once,
+    and the workflow re-arms automatically for the next quarter.
+
+    FAIL-SAFE: missing data (not-yet-reported quarter, unsupported
+    metric, low confidence) returns ``EarningsOutcome.unknown`` and the
+    trigger DOES NOT fire — earnings asks are never speculatively
+    resolved. The watcher honours ``settings.earnings_events_enabled``;
+    when off, the job is not registered.
+    """
+    symbol: str = Field(
+        ..., min_length=1, max_length=40,
+        description=(
+            "Company ticker. India-first and currency-consistent: a bare "
+            "ticker resolves to its NSE listing (INFY -> INFY.NS, judged "
+            "in ₹), and an Indian listing is authoritative — the resolver "
+            "never silently falls back to a USD ADR, so the reported vs "
+            "estimate comparison (and any surprise threshold) stays in one "
+            "currency. Explicit exchange hints are honoured: 'NSE:INFY' / "
+            "'INFY.NS' (NSE), 'BSE:INFY' / 'INFY.BO' (BSE), and "
+            "'NASDAQ:AAPL' / 'NYSE:IBM' / 'AAPL.US' to OPT IN to a US "
+            "listing. Case is normalised upstream."
+        ),
+    )
+    metric: Literal["eps", "revenue"] = Field(
+        default="eps",
+        description=(
+            "Which line to judge against consensus. 'eps' is the v1 "
+            "supported path (yfinance's earnings-dates table carries "
+            "EPS estimate + reported). 'revenue' is accepted by the "
+            "schema for forward-compatibility but the verifier currently "
+            "returns ``unknown`` for revenue — keep emitting 'eps'."
+        ),
+    )
+    condition: Literal["beat", "miss", "meet"] = Field(
+        ...,
+        description=(
+            "Outcome the user wants the trigger armed for. 'beat' = "
+            "reported > estimate (optionally clearing "
+            "``surprise_threshold_pct``); 'miss' = reported < estimate; "
+            "'meet' = within roughly +-1% surprise of consensus."
+        ),
+    )
+    surprise_threshold_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Optional magnitude floor (in percent) for a 'beat'. e.g. "
+            "5.0 means only fire when the company beats consensus by at "
+            "least 5%. Positive surprises that fall below the floor are "
+            "downgraded to 'meet' rather than counted as a beat. Ignored "
+            "for 'miss' / 'meet'."
+        ),
+    )
+    min_confidence: float = Field(
+        default=0.85, ge=0.5, le=1.0,
+        description=(
+            "Verifier confidence floor (0.5-1.0). Mirrors the threshold "
+            "shape used by trigger.event / trigger.scheduled_macro. "
+            "Concrete reported+estimate numbers from yfinance resolve at "
+            "confidence 1.0; missing data resolves to ``unknown`` and "
+            "the trigger does not fire regardless of this value."
+        ),
+    )
+
+
 class TriggerManualConfig(_Strict):
     """Manual trigger has no config; user clicks Run now."""
     pass
@@ -1627,6 +1782,120 @@ class NotifyMessageConfig(_Strict):
     vars: dict[str, Union[str, int, float, bool, None]] = Field(
         default_factory=dict,
     )
+
+
+class ActionNotifyWebhookConfig(_Strict):
+    """POST a JSON payload to a user-supplied URL when a workflow fires.
+
+    The 'send to my webhook / ping my endpoint' branch of the notify
+    family. Lives alongside ``notify.message`` rather than under the
+    action family because the executor's tolerant shape mirrors
+    ``notify.message``: failures (DNS, 4xx/5xx, timeout) are caught and
+    surface as ``{"delivered": false, "status_code": int | None}`` so a
+    flaky third-party endpoint NEVER crashes a run mid-branch.
+
+    Body shape:
+      - When ``payload_template`` is provided, it is used verbatim as
+        the JSON body. The engine resolves ``{{ context.N.* }}`` /
+        ``{{ workflow.* }}`` Mustache refs inside the template at fire
+        time, so the user can interpolate any prior-step output.
+      - When omitted, the executor sends a default envelope:
+        ``{"workflow": <name>, "run_id": <id>, "fired_at": <iso>,
+          "message": <auto-generated>}`` — enough for a smoke-test
+        endpoint to confirm a fire without bespoke wiring.
+
+    Signing:
+      When ``secret`` is set, the executor HMAC-SHA256-signs the JSON
+      body and adds ``X-Pivot-Signature: hex(digest)``. The secret is
+      treated as opaque bytes; recipients reproduce the digest using
+      the same key to verify the call originated from Pivot. The secret
+      is REQUIRED to live in the step config (no separate webhook-token
+      table for OUTBOUND webhooks the way ``workflow_webhook_tokens``
+      hides INBOUND trigger tokens) — flag the field as sensitive in
+      the editor surface.
+
+    URL safety:
+      Only ``https://`` URLs are accepted. Plain HTTP is rejected at
+      validation time so an in-flight workflow can't leak secrets over
+      an unencrypted hop. Localhost / private-network checks are NOT
+      enforced here (the host process may legitimately need to ping an
+      internal endpoint); SSRF hardening lives in the executor layer.
+    """
+    url: str = Field(
+        ..., min_length=8, max_length=2048,
+        description=(
+            "Destination URL. MUST start with 'https://'; plain HTTP is "
+            "rejected at validation time."
+        ),
+    )
+    method: Literal["POST", "PUT"] = Field(
+        default="POST",
+        description=(
+            "HTTP verb. 'POST' is the standard webhook shape; 'PUT' is "
+            "supported for endpoints that want to model the run as an "
+            "idempotent upsert keyed on a run id in the URL."
+        ),
+    )
+    headers: Optional[dict[str, str]] = Field(
+        default=None,
+        description=(
+            "Optional extra request headers (e.g. an Authorization "
+            "bearer token the user's endpoint expects). Content-Type is "
+            "always set to application/json by the executor."
+        ),
+    )
+    # payload_template is intentionally Any-valued at the leaves — the
+    # whole point is to pass arbitrary JSON-shaped data through to the
+    # user's endpoint. Refs inside are resolved by the engine before the
+    # POST goes out.
+    payload_template: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Opaque JSON body sent as-is to the endpoint. {{ context.N.* "
+            "}} / {{ workflow.* }} refs inside are resolved at fire "
+            "time. When omitted, the executor sends a default envelope "
+            "carrying workflow name + run id + fired_at + message."
+        ),
+    )
+    secret: Optional[str] = Field(
+        default=None, min_length=8, max_length=256,
+        description=(
+            "Optional HMAC-SHA256 signing key. When set, the executor "
+            "adds 'X-Pivot-Signature: hex(digest)' to the request so "
+            "the recipient can verify the call. Sensitive — surface "
+            "masked in the editor."
+        ),
+    )
+
+    @field_validator("url")
+    @classmethod
+    def _https_only(cls, v: str) -> str:
+        s = v.strip() if isinstance(v, str) else v
+        if not isinstance(s, str) or not s.lower().startswith("https://"):
+            raise ValueError(
+                "notify.webhook: url must start with 'https://' "
+                "(plain HTTP is rejected to avoid leaking payloads / "
+                "signing secrets over an unencrypted hop)"
+            )
+        # Cheap shape check: 'https://' + at least one host char.
+        if len(s) <= len("https://"):
+            raise ValueError("notify.webhook: url is missing a host")
+        return s
+
+    @model_validator(mode="after")
+    def _payload_template_is_jsonish(self) -> "ActionNotifyWebhookConfig":
+        # Guard against the planner LLM occasionally emitting a string
+        # for payload_template ("just send this text"). The executor
+        # serialises the dict verbatim, so a non-dict here would 500 at
+        # fire time — catch it at the schema boundary instead.
+        if self.payload_template is not None and not isinstance(
+            self.payload_template, dict
+        ):
+            raise ValueError(
+                "notify.webhook: payload_template must be a JSON object "
+                "(use a single-key dict for plain-text payloads)"
+            )
+        return self
 
 
 class NotifyLogConfig(_Strict):

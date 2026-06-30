@@ -693,6 +693,16 @@ _RULES: list[_Rule] = [
         # (F-score / Magic-Formula / multi-factor) is always reachable.
         "screen_fundamentals",
         "fetch_fundamentals",
+        # Co-surface the technicals/performance tools so a thematic basket
+        # build can JUDGE candidates on technicals + risk-adjusted returns
+        # (not fundamentals alone) — see the "Thematic sector-growth"
+        # discover→vet→judge→build flow in system.md. Without these, the
+        # basket intent could only see fundamentals, so the model couldn't
+        # follow the "financials AND technicals" half of that flow.
+        "get_multiple_indicators",
+        "get_performance_metrics",
+        "compare_performance",
+        "get_price_history",
         "place_basket_order",
         "get_live_price",
     ),

@@ -84,8 +84,8 @@ export function BrokerConnectPanelBody({
   const connected = broker.status.connected;
 
   return (
-    <div className="flex flex-col gap-4">
-      <DialogHeader className="gap-0 space-y-0 text-left">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <DialogHeader className="shrink-0 gap-0 space-y-0 pb-3 text-left">
         <div className="flex items-center gap-3">
           <BrokerLogo
             brokerId={broker.id}
@@ -116,6 +116,7 @@ export function BrokerConnectPanelBody({
         </div>
       </DialogHeader>
 
+      <div className="quartr-no-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
       {/* OAuth round-trip banner */}
       {oauthResult?.kind === "connected" && !connected && (
         <Banner tone="success">
@@ -146,6 +147,7 @@ export function BrokerConnectPanelBody({
       ) : (
         <MockFlow broker={broker} onStatusChange={onStatusChange} onClose={onClose} />
       )}
+      </div>
     </div>
   );
 }
@@ -203,9 +205,12 @@ function OAuthFlow({
       >
         {`Connect ${broker.name}`}
       </PrimaryButton>
-      <p style={subtleNote}>
-        You&apos;ll sign in on {broker.name}&apos;s secure page and approve
-        access — Pivot never sees your password.
+      <p
+        className="flex items-center justify-center gap-1.5"
+        style={{ ...subtleNote, textAlign: "center" }}
+      >
+        <Lock size={11} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
+        Secured by {broker.name} OAuth — your password stays with {broker.name}.
       </p>
 
       {/* Advanced auto-login — collapsible, honest warning. */}
@@ -300,14 +305,7 @@ function ApiKeyFlow({
     <div className="flex flex-col gap-4">
       {/* Lead with the deep-link so they grab keys in one click. */}
       {broker.deep_links.api_key_page && (
-        <div
-          className="flex flex-col gap-2.5 p-3.5"
-          style={{
-            border: `1px solid color-mix(in srgb, ${broker.accent} 26%, transparent)`,
-            background: `color-mix(in srgb, ${broker.accent} 7%, transparent)`,
-            borderRadius: "var(--radius-md)",
-          }}
-        >
+        <div className="flex flex-col gap-2.5">
           <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>
             Step 1 — get your API keys
           </span>
@@ -319,8 +317,6 @@ function ApiKeyFlow({
           <DeepLinkButton
             href={broker.deep_links.api_key_page}
             label={`Open ${broker.name} → API Access`}
-            accent={broker.accent}
-            variant="accent"
           />
         </div>
       )}

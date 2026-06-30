@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Radio, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import { useStepCatalog } from "@/components/agent-panel/use-step-catalog";
 import {
   WorkflowEditorMock,
@@ -85,6 +86,9 @@ export function AgentPanel({
   onActiveEditorDraftChange,
 }: AgentPanelProps): React.ReactElement | null {
   const panelRef = useRef<HTMLElement | null>(null);
+
+  // Mutually exclusive with the other side editors — opening one closes the rest.
+  useExclusiveSidePanel("workflow-editor", open, () => onOpenChange(false));
 
   // Panel width state — initialised from localStorage on first render.
   const [panelWidth, setPanelWidth] = useState<number>(() => {

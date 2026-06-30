@@ -68,6 +68,7 @@ import {
 import { isError } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -266,6 +267,16 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
   const [range, setRange] = useState<SparklineRange>("5Y");
   const [bookmarked, setBookmarked] = useState(false);
   const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
+  // Phone reflows the page: chart on top, then Performance, then a 2-way
+  // Overview/Financials switch (desktop keeps the two-column overview+chart row).
+  const [isPhone, setIsPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639.98px)");
+    const sync = (): void => setIsPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   // Phase 2: live price overlay via WS (falls back to REST if WS is down).
   const liveQuote = useLiveQuote(symbol);
@@ -400,28 +411,17 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           onToggleBookmark={() => setBookmarked((b) => !b)}
           liveLtp={liveQuote.ltp}
           isLive={liveQuote.isLive}
+          isPhone={isPhone}
         />
       )}
 
-      {/* Two-column row — left (merged overview) is the narrower
-          column; chart drives the row height via its content. The
-          left column uses h-full + overflow-y-auto so when the chart
-          stretches (more comparison tickers, longer summary block),
-          the overview just scrolls instead of pushing the row taller. */}
-      <div
-        className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] items-stretch"
-        style={{ marginTop: 24, gap: 14 }}
-      >
-        {/* Left column — Overview + Statistics merged */}
-        <div className="flex min-h-0 flex-col">
-          {quoteState.kind === "ok" && (
-            <MergedOverviewCard quote={quoteState.quote} financials={financials} />
-          )}
-        </div>
-
-        {/* Right column — Comparison chart */}
-        <div className="flex min-h-0 flex-col">
-          <ChartCard
+      {/* Phone reflow: chart → Performance → Overview/Financials switch.
+          Desktop keeps the original two-column overview+chart layout. */}
+      {isPhone ? (
+        quoteState.kind === "ok" && (
+          <PhoneLayout
+            quote={quoteState.quote}
+            financials={financials}
             tickers={tickers}
             peerQuotes={peerQuotes}
             series={series}
@@ -429,30 +429,186 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             onRangeChange={setRange}
             onAddPeer={addPeer}
             onRemovePeer={removePeer}
-            primaryQuote={
-              quoteState.kind === "ok" ? quoteState.quote : null
-            }
           />
-        </div>
+        )
+      ) : (
+        <>
+          {/* Two-column row — left (merged overview) is the narrower
+              column; chart drives the row height via its content. The
+              left column uses h-full + overflow-y-auto so when the chart
+              stretches (more comparison tickers, longer summary block),
+              the overview just scrolls instead of pushing the row taller. */}
+          <div
+            className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] items-stretch"
+            style={{ marginTop: 24, gap: 14 }}
+          >
+            {/* Left column — Overview + Statistics merged */}
+            <div className="flex min-h-0 flex-col">
+              {quoteState.kind === "ok" && (
+                <MergedOverviewCard quote={quoteState.quote} financials={financials} />
+              )}
+            </div>
+
+            {/* Right column — Comparison chart */}
+            <div className="flex min-h-0 flex-col">
+              <ChartCard
+                tickers={tickers}
+                peerQuotes={peerQuotes}
+                series={series}
+                range={range}
+                onRangeChange={setRange}
+                onAddPeer={addPeer}
+                onRemovePeer={removePeer}
+                primaryQuote={
+                  quoteState.kind === "ok" ? quoteState.quote : null
+                }
+              />
+            </div>
+          </div>
+
+          {/* Performance — daily + 52-week price-within-range bars. Full width so
+              the two bars each keep a comfortable size side by side (the left
+              overview card was too narrow to fit both). */}
+          {quoteState.kind === "ok" && (
+            <PerformanceRanges quote={quoteState.quote} />
+          )}
+
+          {/* Key Metrics — snapshot tiles from the financials DB. Skipped
+              entirely when the symbol has no MC entry. */}
+          {quoteState.kind === "ok" && financials && financials.available && (
+            <KeyMetricsStrip financials={financials} />
+          )}
+
+          {/* Unified Financials panel */}
+          {quoteState.kind === "ok" && (
+            <FinancialsPanel quote={quoteState.quote} financials={financials} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PhoneLayout — mobile reflow of the stock page.
+//
+//   chart (shorter)  →  Performance  →  [ Overview | Financials ] switch
+//
+// The chart sits up top (above the company overview, matching Groww's mobile
+// app), Performance follows, then a two-way tab strip — styled like the
+// option-chain view toggle — swaps between the merged Overview/Statistics
+// block and the Key Metrics + Financials panels.
+// ---------------------------------------------------------------------------
+
+function PhoneLayout({
+  quote,
+  financials,
+  tickers,
+  peerQuotes,
+  series,
+  range,
+  onRangeChange,
+  onAddPeer,
+  onRemovePeer,
+}: {
+  quote: StockQuote;
+  financials: FinancialsResponse | null;
+  tickers: string[];
+  peerQuotes: Record<string, StockQuote>;
+  series: SeriesEntry[];
+  range: SparklineRange;
+  onRangeChange: (r: SparklineRange) => void;
+  onAddPeer: (s: string) => void;
+  onRemovePeer: (s: string) => void;
+}): React.ReactElement {
+  const [tab, setTab] = useState<"overview" | "financials">("overview");
+
+  return (
+    <div className="flex flex-col">
+      {/* Chart first — shorter on phone so it doesn't dominate the fold. */}
+      <div className="flex min-h-0 flex-col" style={{ marginTop: 16 }}>
+        <ChartCard
+          tickers={tickers}
+          peerQuotes={peerQuotes}
+          series={series}
+          range={range}
+          onRangeChange={onRangeChange}
+          onAddPeer={onAddPeer}
+          onRemovePeer={onRemovePeer}
+          primaryQuote={quote}
+          chartHeight={264}
+        />
       </div>
 
-      {/* Performance — daily + 52-week price-within-range bars. Full width so
-          the two bars each keep a comfortable size side by side (the left
-          overview card was too narrow to fit both). */}
-      {quoteState.kind === "ok" && (
-        <PerformanceRanges quote={quoteState.quote} />
+      {/* Performance — daily + 52-week range bars. */}
+      <PerformanceRanges quote={quote} />
+
+      {/* Overview / Financials switch — underline tab strip matching the
+          option-strategy Payoff/P&L/Greeks tabs. */}
+      <div
+        className="flex shrink-0 gap-6 border-b border-border/40"
+        role="tablist"
+        aria-label="Stock detail view"
+        style={{ marginTop: 24, padding: "0 20px" }}
+      >
+        {([
+          { v: "overview" as const, label: "Company Overview" },
+          { v: "financials" as const, label: "Financials" },
+        ]).map(({ v, label }) => {
+          const active = tab === v;
+          return (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(v)}
+              className={`relative px-1 py-2.5 text-[13px] font-medium transition-colors ${
+                active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+              {active && (
+                <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "overview" ? (
+        <div style={{ marginTop: 18 }}>
+          <MergedOverviewCard quote={quote} financials={financials} />
+        </div>
+      ) : (
+        <>
+          {financials && financials.available && (
+            <KeyMetricsStrip financials={financials} />
+          )}
+          <FinancialsPanel quote={quote} financials={financials} />
+        </>
       )}
 
-      {/* Key Metrics — snapshot tiles from the financials DB. Skipped
-          entirely when the symbol has no MC entry. */}
-      {quoteState.kind === "ok" && financials && financials.available && (
-        <KeyMetricsStrip financials={financials} />
-      )}
-
-      {/* Unified Financials panel */}
-      {quoteState.kind === "ok" && (
-        <FinancialsPanel quote={quoteState.quote} financials={financials} />
-      )}
+      {/* logo.dev attribution — required by their free tier wherever the
+          company logo is displayed. */}
+      <div
+        style={{
+          marginTop: 20,
+          fontSize: 10.5,
+          color: "var(--text-secondary)",
+          opacity: 0.7,
+        }}
+      >
+        Logos provided by{" "}
+        <a
+          href="https://logo.dev"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "inherit", textDecoration: "underline" }}
+        >
+          Logo.dev
+        </a>
+      </div>
     </div>
   );
 }
@@ -467,51 +623,47 @@ function Header({
   onToggleBookmark,
   liveLtp,
   isLive,
+  isPhone = false,
 }: {
   quote: StockQuote;
   bookmarked: boolean;
   onToggleBookmark: () => void;
   liveLtp?: number | null;
   isLive?: boolean;
+  /** Phone reflow: shrink glyph/name/price and keep the price pinned to the
+   *  right of the same row (Groww-style), with the day chip stacked beneath
+   *  it instead of inline. */
+  isPhone?: boolean;
 }): React.ReactElement {
   const displayLtp = liveLtp ?? quote.ltp;
   const positive = quote.change_pct >= 0;
-  const initial = quote.name.trim()[0]?.toUpperCase() ?? quote.symbol[0]?.toUpperCase() ?? "•";
   const hue = brandGlyphHue(quote.sector);
 
   return (
+    // Phone keeps name (left) and price (right) on one row — no flex-wrap so
+    // the price can't drop to a second line.
     <div
-      className="flex flex-wrap items-center"
-      style={{ gap: 18 }}
+      className={isPhone ? "flex items-center" : "flex flex-wrap items-center"}
+      style={{ gap: isPhone ? 10 : 18 }}
       data-testid="quote-header"
     >
-      {/* Brand glyph + name + bookmark */}
-      <div className="flex items-center" style={{ gap: 14 }}>
-        <div
-          aria-hidden="true"
-          className="flex shrink-0 items-center justify-center"
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: "var(--radius-md)",
-            background: `${hue}22`, // 13% alpha tint
-            border: `1px solid ${hue}55`,
-            color: hue,
-            fontFamily: "var(--font-ui)",
-            fontSize: 24,
-            fontWeight: 600,
-            letterSpacing: "-0.02em",
-          }}
-        >
-          {initial}
-        </div>
-        <div>
-          <div className="flex items-center" style={{ gap: 8 }}>
+      {/* Brand logo (with monogram fallback) + name + bookmark. min-w-0 lets
+          the name truncate rather than shove the price off on a narrow phone. */}
+      <div className="flex min-w-0 items-center" style={{ gap: isPhone ? 10 : 14 }}>
+        <CompanyLogo
+          logoUrl={quote.logo_url}
+          name={quote.name}
+          symbol={quote.symbol}
+          hue={hue}
+          size={isPhone ? 46 : 56}
+        />
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center" style={{ gap: isPhone ? 4 : 8 }}>
             <h1
-              className="m-0"
+              className="m-0 truncate"
               style={{
                 fontFamily: "var(--font-ui)",
-                fontSize: 22,
+                fontSize: isPhone ? 16 : 22,
                 fontWeight: 600,
                 letterSpacing: "-0.025em",
                 color: "var(--text-primary)",
@@ -524,10 +676,10 @@ function Header({
               onClick={onToggleBookmark}
               aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
               data-testid="bookmark-btn"
-              className="inline-flex items-center justify-center"
+              className="inline-flex shrink-0 items-center justify-center"
               style={{
-                width: 38,
-                height: 38,
+                width: isPhone ? 30 : 38,
+                height: isPhone ? 30 : 38,
                 background: "transparent",
                 border: "none",
                 borderRadius: "var(--radius-sm)",
@@ -567,17 +719,26 @@ function Header({
         </div>
       </div>
 
-      {/* Price + day chip */}
-      <div className="flex items-baseline" style={{ gap: 12, marginLeft: "auto" }}>
+      {/* Price + day chip. On phone the chip stacks beneath the price (right
+          aligned) so the whole block stays narrow and shares the header row
+          with the name; on desktop they sit inline on the baseline. */}
+      <div
+        className={
+          isPhone
+            ? "flex shrink-0 flex-col items-end"
+            : "flex shrink-0 items-baseline"
+        }
+        style={{ gap: isPhone ? 3 : 12, marginLeft: "auto" }}
+      >
         <span
           className="inline-flex items-center tabular-nums"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 28,
+            fontSize: isPhone ? 18 : 28,
             fontWeight: 600,
             letterSpacing: "-0.02em",
             color: "var(--text-primary)",
-            gap: 8,
+            gap: isPhone ? 6 : 8,
           }}
         >
           {INR.format(displayLtp)}
@@ -600,15 +761,19 @@ function Header({
           className="inline-flex items-center"
           style={{
             gap: 4,
-            padding: "3px 10px",
-            borderRadius: "var(--radius-xs)",
-            background: positive
-              ? "rgba(16, 185, 129, 0.16)"
-              : "rgba(239, 68, 68, 0.16)",
+            // Phone: bare coloured text (no chip). Desktop keeps the tinted pill.
+            padding: isPhone ? 0 : "3px 10px",
+            borderRadius: isPhone ? 0 : "var(--radius-xs)",
+            background: isPhone
+              ? "transparent"
+              : positive
+                ? "rgba(16, 185, 129, 0.16)"
+                : "rgba(239, 68, 68, 0.16)",
             color: positive ? "var(--color-profit)" : "var(--color-loss)",
             fontFamily: "var(--font-mono)",
-            fontSize: 12.5,
+            fontSize: isPhone ? 11 : 12.5,
             fontWeight: 500,
+            whiteSpace: "nowrap",
           }}
         >
           {fmtDelta(quote.change)} ({fmtPct(quote.change_pct)})
@@ -1126,6 +1291,7 @@ function ChartCard({
   onAddPeer,
   onRemovePeer,
   primaryQuote,
+  chartHeight = 320,
 }: {
   tickers: string[];
   peerQuotes: Record<string, StockQuote>;
@@ -1135,6 +1301,9 @@ function ChartCard({
   onAddPeer: (s: string) => void;
   onRemovePeer: (s: string) => void;
   primaryQuote: StockQuote | null;
+  /** Collapsed (non-fullscreen) chart height in px. Phone passes a shorter
+   *  value; defaults to the desktop 320. */
+  chartHeight?: number;
 }): React.ReactElement {
   const [metric, setMetric] = useState<Metric>("Price");
   // Min/Max date filters (ISO yyyy-mm-dd from native <input type="date">).
@@ -1507,6 +1676,52 @@ function ChartCard({
     }));
   }, [activeBaseRows, selectionInfo, tickers]);
 
+  // Range pills — rendered inline in the controls row on desktop, and moved
+  // below the chart (full width, each pill flex-1) on phone, matching the
+  // PortfolioTab pattern. The same element adapts via responsive classes.
+  const rangePills = (
+    <div
+      className="flex w-full sm:inline-flex sm:w-auto"
+      style={{
+        gap: 2,
+        padding: 2,
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-pill)",
+        flexShrink: 0,
+      }}
+    >
+      {RANGE_OPTIONS.map((r) => {
+        const active = range === r;
+        return (
+          <button
+            key={r}
+            type="button"
+            onClick={() => onRangeChange(r)}
+            aria-pressed={active}
+            data-testid={`range-${r}`}
+            className="flex-1 sm:flex-none"
+            style={{
+              padding: "5px 12px",
+              border: "none",
+              borderRadius: "var(--radius-pill)",
+              fontFamily: "var(--font-ui)",
+              fontSize: 11.5,
+              fontWeight: 500,
+              cursor: "pointer",
+              background: active ? "var(--text-primary)" : "transparent",
+              color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+              transition: "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {r}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
       {expanded && (
@@ -1632,66 +1847,41 @@ function ChartCard({
         </button>
       </div>
 
-      {/* ── Row 2: Min Date | range pills | Max Date | Price selector ── */}
+      {/* ── Row 2: controls ───────────────────────────────────────────────
+          Desktop: Min Date | range pills | Max Date | Price selector (right).
+          Phone: Min/Max dates share one line, then the Price selector full
+          width below; the range pills move beneath the chart (see below). */}
       <div
-        className="flex flex-wrap items-center"
+        className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center"
         style={{
           gap: 8,
           padding: "0 18px 14px",
         }}
       >
-        <DateField
-          value={minDate}
-          onChange={setMinDate}
-          placeholder="Min Date"
-          aria-label="Minimum date"
-        />
-        <div
-          className="inline-flex"
-          style={{
-            gap: 2,
-            padding: 2,
-            background: "var(--bg-base)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-pill)",
-          }}
-        >
-          {RANGE_OPTIONS.map((r) => {
-            const active = range === r;
-            return (
-              <button
-                key={r}
-                type="button"
-                onClick={() => onRangeChange(r)}
-                aria-pressed={active}
-                data-testid={`range-${r}`}
-                style={{
-                  padding: "5px 12px",
-                  border: "none",
-                  borderRadius: "var(--radius-pill)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: 11.5,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  background: active ? "var(--text-primary)" : "transparent",
-                  color: active ? "var(--bg-primary)" : "var(--text-secondary)",
-                  transition: "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-                }}
-              >
-                {r}
-              </button>
-            );
-          })}
+        {/* Dates wrapper: a full-width flex row on phone (Min + Max share the
+            line); dissolves into the parent row on desktop via `sm:contents`
+            so the original Min | pills | Max ordering is preserved. */}
+        <div className="flex w-full gap-2 sm:contents">
+          <DateField
+            value={minDate}
+            onChange={setMinDate}
+            placeholder="Min Date"
+            aria-label="Minimum date"
+            className="flex-1 sm:w-32 sm:flex-none"
+          />
+          {/* Range pills — desktop in-row slot only (hidden on phone). */}
+          <div className="hidden sm:contents">{rangePills}</div>
+          <DateField
+            value={maxDate}
+            onChange={setMaxDate}
+            placeholder="Max Date"
+            aria-label="Maximum date"
+            className="flex-1 sm:w-32 sm:flex-none"
+          />
         </div>
-        <DateField
-          value={maxDate}
-          onChange={setMaxDate}
-          placeholder="Max Date"
-          aria-label="Maximum date"
-        />
-        {/* Pushed to the right so its edge lines up with the search row's
-            right edge (the expand button) above. */}
-        <div style={{ marginLeft: "auto" }}>
+        {/* Metric selector — full width on phone, pushed to the right edge on
+            desktop (lines up with the expand button above). */}
+        <div className="w-full sm:ml-auto sm:w-auto">
           <MetricSelector value={metric} onChange={setMetric} />
         </div>
       </div>
@@ -1704,7 +1894,7 @@ function ChartCard({
           // Expanded: grow to fill the remaining flex space inside the
           // fixed overlay card so the chart consumes the freed area.
           // Collapsed: pinned to a comfortable inline height.
-          height: expanded ? "auto" : 320,
+          height: expanded ? "auto" : chartHeight,
           flex: expanded ? 1 : undefined,
           minHeight: expanded ? 0 : undefined,
           padding: "0 18px",
@@ -1956,6 +2146,20 @@ function ChartCard({
         )}
       </div>
 
+      {/* ── Range pills below the chart — phone only, full width (scrolls if
+          needed). On desktop the pills live in the controls row above. ── */}
+      <div
+        className="flex w-full sm:hidden"
+        style={{
+          padding: "12px 18px 0",
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none",
+        }}
+      >
+        {rangePills}
+      </div>
+
       {/* ── Footer summary box (price mode only), separated by a hairline ── */}
       {!isMetricMode && earliestDate && latestDate && summaries.length > 0 && (
         <div
@@ -1977,10 +2181,11 @@ function ChartCard({
           </div>
           <div className="flex flex-col" style={{ gap: 4 }}>
             {summaries.map((s) => {
-              const peerName =
+              const peerQuote =
                 s.symbol === primaryQuote?.symbol
-                  ? primaryQuote.name
-                  : peerQuotes[s.symbol]?.name ?? s.symbol;
+                  ? primaryQuote
+                  : peerQuotes[s.symbol];
+              const peerName = peerQuote?.name ?? s.symbol;
               const totalPos = s.totalChg !== null && s.totalChg >= 0;
               return (
                 <div
@@ -1997,6 +2202,12 @@ function ChartCard({
                       background: colorFor(s.symbol),
                       flexShrink: 0,
                     }}
+                  />
+                  <CompanyLogo
+                    logoUrl={peerQuote?.logo_url}
+                    name={peerName}
+                    symbol={s.symbol}
+                    size={18}
                   />
                   <span
                     style={{
@@ -2086,11 +2297,15 @@ function DateField({
   onChange,
   placeholder,
   "aria-label": ariaLabel,
+  className,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
   "aria-label"?: string;
+  /** Width control from the caller (e.g. `flex-1 sm:w-32` so the field is
+   *  fluid on phone and a fixed 128px on desktop). The button fills it. */
+  className?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   // "days" = month grid (default), "years" = 12-cell year picker.
@@ -2167,7 +2382,7 @@ function DateField({
   const label = hasValue ? formatDateLabel(value) : placeholder;
 
   return (
-    <div ref={wrapperRef} style={{ position: "relative" }}>
+    <div ref={wrapperRef} className={className} style={{ position: "relative" }}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -2175,7 +2390,7 @@ function DateField({
         aria-expanded={open}
         aria-label={ariaLabel}
         style={{
-          width: 128,
+          width: "100%",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -2588,7 +2803,7 @@ function MetricSelector({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex items-center"
+        className="inline-flex w-full items-center sm:w-auto"
         style={{
           gap: 8,
           height: 38,

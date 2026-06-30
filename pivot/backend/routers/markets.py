@@ -85,6 +85,9 @@ class StockQuote(BaseModel):
     market_cap: float | None
     pe_ratio: float | None
     last_updated: datetime
+    # Company logo URL (img.logo.dev), or null when none is known — the FE
+    # falls back to a first-letter monogram. See backend.market.company_logos.
+    logo_url: str | None = None
     # Phase 2: surface whether the quote came from the Kite live feed
     # (WS) or the REST/yfinance fallback. UIs can grey-out delayed
     # quotes; old callers ignore the fields entirely (defaults preserve
@@ -325,6 +328,7 @@ def get_quote(
         market_cap=_safe_float(info.get("marketCap")),
         pe_ratio=_safe_float(info.get("trailingPE")),
         last_updated=datetime.now(timezone.utc),
+        logo_url=_lookup_logo(sym),
         live=False,
         source="yfinance",
     )
@@ -394,9 +398,21 @@ def _read_cached_kite_tick(symbol: str) -> StockQuote | None:
         market_cap=None,
         pe_ratio=None,
         last_updated=last_updated,
+        logo_url=_lookup_logo(symbol),
         live=True,
         source=source_typed,
     )
+
+
+def _lookup_logo(symbol: str) -> str | None:
+    """Resolve a company logo URL (Redis-cached, fail-safe None). Kept
+    thin so the hot quote path never raises on a logo miss."""
+    try:
+        from backend.market.company_logos import get_logo_url
+
+        return get_logo_url(symbol)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _or_zero(value: object) -> float:

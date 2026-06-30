@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { searchCompanies, type CompanySearchResult } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 interface CompanyAutosuggestProps {
   placeholder?: string;
@@ -213,6 +214,28 @@ export function CompanyAutosuggest({
               onSelect={handleSelect}
             />
           ))}
+          {/* logo.dev attribution — required wherever logos render */}
+          <li
+            role="presentation"
+            style={{
+              padding: "5px 14px 3px",
+              fontSize: 10,
+              color: "var(--text-tertiary)",
+              borderTop: "1px solid var(--glass-border)",
+              marginTop: 2,
+            }}
+          >
+            Logos provided by{" "}
+            <a
+              href="https://logo.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "inherit", textDecoration: "underline" }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              Logo.dev
+            </a>
+          </li>
         </ul>
       )}
 
@@ -272,6 +295,14 @@ function DropdownRow({
         transition: "background 0.1s",
       }}
     >
+      {/* Company logo (monogram fallback when none / on load error) */}
+      <CompanyLogo
+        logoUrl={result.logo_url}
+        name={result.name}
+        symbol={result.symbol}
+        size={22}
+      />
+
       {/* Symbol badge */}
       <span
         style={{

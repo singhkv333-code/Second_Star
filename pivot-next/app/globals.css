@@ -593,6 +593,21 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   display: none;
 }
 
+/* Composer mode-pill row (Automation / Agent / Backtest / Option chain).
+   On a ~360px phone the four chips overflow a centered row and clip on both
+   edges, so the row scrolls horizontally (swipeable) with the scrollbar
+   hidden. Desktop keeps the static centered row via the `sm:` overrides on
+   the element itself. NOTE: deliberately NOT `.quartr-no-scrollbar`, which
+   forces `overflow-x: hidden` on phones and would kill the scroll. */
+.composer-modes {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.composer-modes::-webkit-scrollbar {
+  display: none;
+}
+
 /* Performance chart — on phone the 5 x-axis labels ("MMM yy", e.g.
    "May 21 / Aug 22 / Nov 23 / Feb 25 / May 26") collide with each other
    because each label is ~45px wide and the chart column is only ~250px.

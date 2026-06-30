@@ -466,7 +466,9 @@ function DraftBody({
             data-testid="backtest-ineligible"
             className="rounded-lg bg-muted px-3 py-2 text-[11.5px] text-muted-foreground"
           >
-            <span className="font-medium">Can&apos;t backtest this shape:</span>{" "}
+            {/* The backend reason is a self-contained sentence (e.g. "Event
+                trigger events cannot be backtested.") — show it as-is, no
+                "Can't backtest this shape:" preamble. */}
             {backtestState.reason}
           </p>
         )}

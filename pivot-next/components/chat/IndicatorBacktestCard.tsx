@@ -21,6 +21,7 @@
 import * as React from "react";
 import { ArrowDown, ArrowUp, ArrowUpRight, Calendar, Info, ShieldAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -164,6 +165,11 @@ type QuoteState =
 export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
   const { symbol, metrics, period_label } = payload;
 
+  // Controlled so the detail panel can participate in side-panel exclusivity
+  // (opening another side editor closes it, and vice versa).
+  const [panelOpen, setPanelOpen] = React.useState(false);
+  useExclusiveSidePanel("backtest", panelOpen, () => setPanelOpen(false));
+
   const positive = metrics.total_return_pct >= 0;
   const conditionLabel = conditionFor(payload);
 
@@ -278,7 +284,7 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
       {/* View pill — opens the full detail in a right-side sidebar, the
           same slide-in panel pattern as the workflow editor / step drawer
           (Radix dialog under the hood) rather than a centered modal. */}
-      <Sheet>
+      <Sheet open={panelOpen} onOpenChange={setPanelOpen} modal={false}>
         <SheetTrigger asChild>
           <button
             type="button"
@@ -314,7 +320,11 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
           // merging can't reliably override. Keep these bounds in sync with
           // AGENT_PANEL_MIN_WIDTH (340) / AGENT_PANEL_DEFAULT_WIDTH (520).
           style={{ width: "clamp(340px, 25vw, 520px)", maxWidth: "100%" }}
-          overlayClassName="backtest-sheet-overlay"
+          // Non-modal: transparent, click-through scrim so the chat stays
+          // visible and interactive (matches the workflow editor). Closing is
+          // via the X / Esc only — don't auto-close on outside interaction.
+          overlayClassName="backtest-sheet-overlay bg-transparent pointer-events-none"
+          onInteractOutside={(e) => e.preventDefault()}
           className="backtest-sheet-shell flex flex-col gap-0 border-l bg-background p-0 shadow-xl [&>button.opacity-70]:hidden"
         >
           <SheetTitle className="sr-only">{titleFor(payload)}</SheetTitle>

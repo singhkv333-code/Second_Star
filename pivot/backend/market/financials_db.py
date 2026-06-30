@@ -218,6 +218,7 @@ class Company:
     industry_slug: str | None
     market_cap: float | None
     is_active: bool
+    logo_url: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -324,7 +325,7 @@ def get_company(symbol_or_sc_id: str, *, session: Session | None = None) -> Comp
             text(
                 """
                 SELECT sc_id, company_name, nse_symbol, bse_code, ticker,
-                       sector, industry_slug, market_cap, is_active
+                       sector, industry_slug, market_cap, is_active, logo_url
                 FROM mc.companies
                 WHERE sc_id = :id
                 """
@@ -343,6 +344,7 @@ def get_company(symbol_or_sc_id: str, *, session: Session | None = None) -> Comp
             industry_slug=row[6],
             market_cap=float(row[7]) if row[7] is not None else None,
             is_active=bool(row[8]),
+            logo_url=row[9],
         )
     finally:
         if owns:
@@ -358,6 +360,7 @@ class CompanyHit:
     name: str
     sector: str | None
     has_fundamentals: bool
+    logo_url: str | None = None
 
 
 def search_companies(
@@ -391,7 +394,8 @@ def search_companies(
                 SELECT sc_id,
                        company_name,
                        COALESCE(nse_symbol, ticker, sc_id) AS symbol,
-                       sector
+                       sector,
+                       logo_url
                 FROM mc.companies
                 WHERE upper(company_name) LIKE :prefix
                    OR upper(company_name) LIKE :substr
@@ -453,6 +457,7 @@ def search_companies(
                     name=r[1],
                     sector=r[3],
                     has_fundamentals=r[0] in have,
+                    logo_url=r[4],
                 )
             )
             if len(out) >= limit:
