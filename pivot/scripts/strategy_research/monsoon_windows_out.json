@@ -1,0 +1,696 @@
+{
+  "name_win": {
+    "ASIANPAINT.NS": {
+      "forecast": {
+        "beta": -0.0078,
+        "t": -2.01,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0054,
+        "t": -1.62,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0015,
+        "t": 0.37,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0043,
+        "t": 1.0,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0063,
+        "t": -1.46,
+        "n": 16
+      }
+    },
+    "BAJAJ-AUTO.NS": {
+      "forecast": {
+        "beta": -0.0072,
+        "t": -2.68,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0038,
+        "t": -1.12,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0019,
+        "t": 0.43,
+        "n": 16
+      },
+      "season": {
+        "beta": -0.0012,
+        "t": -0.22,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.002,
+        "t": -0.52,
+        "n": 16
+      }
+    },
+    "BAJFINANCE.NS": {
+      "forecast": {
+        "beta": -0.008,
+        "t": -1.53,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0064,
+        "t": -1.44,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0017,
+        "t": 0.33,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0056,
+        "t": 1.1,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0008,
+        "t": -0.16,
+        "n": 16
+      }
+    },
+    "CHAMBLFERT.NS": {
+      "forecast": {
+        "beta": -0.0032,
+        "t": -0.68,
+        "n": 16
+      },
+      "onset": {
+        "beta": 0.0002,
+        "t": 0.04,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0036,
+        "t": 0.83,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0042,
+        "t": 0.89,
+        "n": 16
+      },
+      "drift": {
+        "beta": 0.0015,
+        "t": 0.25,
+        "n": 16
+      }
+    },
+    "COROMANDEL.NS": {
+      "forecast": {
+        "beta": -0.0024,
+        "t": -0.45,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0001,
+        "t": -0.03,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0052,
+        "t": 1.38,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0047,
+        "t": 0.86,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.007,
+        "t": -1.27,
+        "n": 16
+      }
+    },
+    "DABUR.NS": {
+      "forecast": {
+        "beta": 0.0009,
+        "t": 0.31,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0006,
+        "t": -0.24,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0014,
+        "t": 0.4,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0015,
+        "t": 0.44,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0046,
+        "t": -1.66,
+        "n": 16
+      }
+    },
+    "EMAMILTD.NS": {
+      "forecast": {
+        "beta": -0.0086,
+        "t": -1.37,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0077,
+        "t": -1.4,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0019,
+        "t": 0.3,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0023,
+        "t": 0.31,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.002,
+        "t": -0.46,
+        "n": 16
+      }
+    },
+    "ESCORTS.NS": {
+      "forecast": {
+        "beta": 0.0015,
+        "t": 0.32,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0046,
+        "t": -0.76,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.0083,
+        "t": -0.82,
+        "n": 16
+      },
+      "season": {
+        "beta": -0.0112,
+        "t": -0.93,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0026,
+        "t": -0.31,
+        "n": 16
+      }
+    },
+    "GODREJCP.NS": {
+      "forecast": {
+        "beta": 0.0009,
+        "t": 0.3,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0052,
+        "t": -2.12,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.003,
+        "t": -0.82,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0018,
+        "t": 0.4,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0038,
+        "t": -0.95,
+        "n": 16
+      }
+    },
+    "HEROMOTOCO.NS": {
+      "forecast": {
+        "beta": 0.0021,
+        "t": 0.65,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0012,
+        "t": -0.37,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0019,
+        "t": 0.45,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0006,
+        "t": 0.12,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0128,
+        "t": -2.95,
+        "n": 16
+      }
+    },
+    "HINDUNILVR.NS": {
+      "forecast": {
+        "beta": 0.0036,
+        "t": 0.82,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0032,
+        "t": -1.14,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.0027,
+        "t": -0.79,
+        "n": 16
+      },
+      "season": {
+        "beta": -0.0008,
+        "t": -0.16,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0076,
+        "t": -1.81,
+        "n": 16
+      }
+    },
+    "ITC.NS": {
+      "forecast": {
+        "beta": 0.0029,
+        "t": 1.44,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0,
+        "t": -0.01,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.0076,
+        "t": -2.39,
+        "n": 16
+      },
+      "season": {
+        "beta": -0.0076,
+        "t": -1.94,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0036,
+        "t": -1.42,
+        "n": 16
+      }
+    },
+    "M&M.NS": {
+      "forecast": {
+        "beta": 0.0039,
+        "t": 0.99,
+        "n": 16
+      },
+      "onset": {
+        "beta": 0.0018,
+        "t": 0.79,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.0001,
+        "t": -0.02,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.003,
+        "t": 0.7,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0048,
+        "t": -1.15,
+        "n": 16
+      }
+    },
+    "MARICO.NS": {
+      "forecast": {
+        "beta": 0.0022,
+        "t": 0.82,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0015,
+        "t": -0.82,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.0015,
+        "t": -0.54,
+        "n": 16
+      },
+      "season": {
+        "beta": -0.0011,
+        "t": -0.35,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0066,
+        "t": -2.22,
+        "n": 16
+      }
+    },
+    "PIIND.NS": {
+      "forecast": {
+        "beta": -0.0002,
+        "t": -0.04,
+        "n": 13
+      },
+      "onset": {
+        "beta": 0.0006,
+        "t": 0.09,
+        "n": 13
+      },
+      "sowing": {
+        "beta": -0.0014,
+        "t": -0.25,
+        "n": 13
+      },
+      "season": {
+        "beta": 0.0032,
+        "t": 0.52,
+        "n": 13
+      },
+      "drift": {
+        "beta": -0.0052,
+        "t": -0.56,
+        "n": 14
+      }
+    },
+    "RALLIS.NS": {
+      "forecast": {
+        "beta": -0.0058,
+        "t": -1.5,
+        "n": 16
+      },
+      "onset": {
+        "beta": 0.0014,
+        "t": 0.43,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0058,
+        "t": 1.15,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0055,
+        "t": 0.89,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0015,
+        "t": -0.28,
+        "n": 16
+      }
+    },
+    "TATACONSUM.NS": {
+      "forecast": {
+        "beta": 0.0019,
+        "t": 0.62,
+        "n": 16
+      },
+      "onset": {
+        "beta": 0.0033,
+        "t": 0.89,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.0014,
+        "t": -0.36,
+        "n": 16
+      },
+      "season": {
+        "beta": -0.0047,
+        "t": -1.12,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0071,
+        "t": -2.04,
+        "n": 16
+      }
+    },
+    "TITAN.NS": {
+      "forecast": {
+        "beta": -0.0047,
+        "t": -1.26,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0025,
+        "t": -0.58,
+        "n": 16
+      },
+      "sowing": {
+        "beta": -0.001,
+        "t": -0.27,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0025,
+        "t": 0.58,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0052,
+        "t": -1.19,
+        "n": 16
+      }
+    },
+    "TVSMOTOR.NS": {
+      "forecast": {
+        "beta": -0.0051,
+        "t": -0.88,
+        "n": 16
+      },
+      "onset": {
+        "beta": -0.0011,
+        "t": -0.27,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0033,
+        "t": 0.66,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0028,
+        "t": 0.44,
+        "n": 16
+      },
+      "drift": {
+        "beta": 0.001,
+        "t": 0.12,
+        "n": 16
+      }
+    },
+    "UPL.NS": {
+      "forecast": {
+        "beta": 0.0019,
+        "t": 0.56,
+        "n": 16
+      },
+      "onset": {
+        "beta": 0.0008,
+        "t": 0.25,
+        "n": 16
+      },
+      "sowing": {
+        "beta": 0.0063,
+        "t": 1.35,
+        "n": 16
+      },
+      "season": {
+        "beta": 0.0087,
+        "t": 1.37,
+        "n": 16
+      },
+      "drift": {
+        "beta": -0.0032,
+        "t": -0.71,
+        "n": 16
+      }
+    }
+  },
+  "group_stats": {
+    "forecast": {
+      "agri_input": {
+        "normal_pct": 5.48,
+        "deficient_pct": 3.69,
+        "nd_pct": 1.8,
+        "allyr_pct": 4.7,
+        "t_all": 1.74
+      },
+      "tractor_2w": {
+        "normal_pct": 7.12,
+        "deficient_pct": 7.9,
+        "nd_pct": -0.77,
+        "allyr_pct": 7.46,
+        "t_all": 2.83
+      },
+      "rural_fmcg": {
+        "normal_pct": 5.21,
+        "deficient_pct": 3.33,
+        "nd_pct": 1.88,
+        "allyr_pct": 4.38,
+        "t_all": 2.57
+      },
+      "urban_ctrl": {
+        "normal_pct": 2.04,
+        "deficient_pct": 7.63,
+        "nd_pct": -5.6,
+        "allyr_pct": 4.49,
+        "t_all": 1.33
+      }
+    },
+    "onset": {
+      "agri_input": {
+        "normal_pct": 0.33,
+        "deficient_pct": -1.87,
+        "nd_pct": 2.19,
+        "allyr_pct": -0.63,
+        "t_all": -0.34
+      },
+      "tractor_2w": {
+        "normal_pct": 1.46,
+        "deficient_pct": 2.7,
+        "nd_pct": -1.24,
+        "allyr_pct": 2.0,
+        "t_all": 1.03
+      },
+      "rural_fmcg": {
+        "normal_pct": 5.52,
+        "deficient_pct": 7.21,
+        "nd_pct": -1.69,
+        "allyr_pct": 6.26,
+        "t_all": 4.51
+      },
+      "urban_ctrl": {
+        "normal_pct": 4.63,
+        "deficient_pct": 5.49,
+        "nd_pct": -0.85,
+        "allyr_pct": 5.01,
+        "t_all": 1.71
+      }
+    },
+    "sowing": {
+      "agri_input": {
+        "normal_pct": 1.33,
+        "deficient_pct": -3.39,
+        "nd_pct": 4.73,
+        "allyr_pct": -0.74,
+        "t_all": -0.28
+      },
+      "tractor_2w": {
+        "normal_pct": 0.26,
+        "deficient_pct": 1.4,
+        "nd_pct": -1.14,
+        "allyr_pct": 0.76,
+        "t_all": 0.29
+      },
+      "rural_fmcg": {
+        "normal_pct": 4.21,
+        "deficient_pct": 5.82,
+        "nd_pct": -1.61,
+        "allyr_pct": 4.91,
+        "t_all": 3.26
+      },
+      "urban_ctrl": {
+        "normal_pct": 4.78,
+        "deficient_pct": 0.05,
+        "nd_pct": 4.73,
+        "allyr_pct": 2.71,
+        "t_all": 1.02
+      }
+    },
+    "season": {
+      "agri_input": {
+        "normal_pct": -1.11,
+        "deficient_pct": -5.85,
+        "nd_pct": 4.74,
+        "allyr_pct": -3.18,
+        "t_all": -0.94
+      },
+      "tractor_2w": {
+        "normal_pct": 1.8,
+        "deficient_pct": 4.09,
+        "nd_pct": -2.29,
+        "allyr_pct": 2.81,
+        "t_all": 0.83
+      },
+      "rural_fmcg": {
+        "normal_pct": 3.46,
+        "deficient_pct": 4.21,
+        "nd_pct": -0.75,
+        "allyr_pct": 3.78,
+        "t_all": 1.95
+      },
+      "urban_ctrl": {
+        "normal_pct": 7.56,
+        "deficient_pct": -2.12,
+        "nd_pct": 9.69,
+        "allyr_pct": 3.33,
+        "t_all": 1.05
+      }
+    },
+    "drift": {
+      "agri_input": {
+        "normal_pct": -6.18,
+        "deficient_pct": 1.92,
+        "nd_pct": -8.1,
+        "allyr_pct": -2.63,
+        "t_all": -0.83
+      },
+      "tractor_2w": {
+        "normal_pct": -10.23,
+        "deficient_pct": -0.83,
+        "nd_pct": -9.4,
+        "allyr_pct": -6.12,
+        "t_all": -1.76
+      },
+      "rural_fmcg": {
+        "normal_pct": -13.73,
+        "deficient_pct": -1.83,
+        "nd_pct": -11.9,
+        "allyr_pct": -8.53,
+        "t_all": -3.66
+      },
+      "urban_ctrl": {
+        "normal_pct": -13.37,
+        "deficient_pct": -0.69,
+        "nd_pct": -12.68,
+        "allyr_pct": -7.82,
+        "t_all": -2.62
+      }
+    }
+  }
+}

@@ -115,12 +115,24 @@ export function IpoListedCard({ payload }: IpoListedCardProps): React.ReactEleme
     listing_date,
     current_price,
     listing_gain_pct,
+    listing_day_gain_pct,
+    source,
     note,
   } = payload;
 
-  const hasGain = listing_gain_pct !== null && issue_price !== null && current_price !== null;
-  const pendingPrice = current_price === null;
+  // The big number is the current return (issue → live LTP, or Trendlyne's
+  // published current return when we have no live symbol price).
+  const hasGain = listing_gain_pct !== null;
+  const pendingPrice = current_price === null && listing_gain_pct === null;
   const missingIssue = issue_price === null;
+  const sourceText =
+    source === "trendlyne"
+      ? "Trendlyne"
+      : source === "nse+trendlyne"
+        ? "NSE + Trendlyne"
+        : source === "nse"
+          ? "NSE"
+          : null;
 
   return (
     <div
@@ -195,10 +207,37 @@ export function IpoListedCard({ payload }: IpoListedCardProps): React.ReactEleme
             </div>
           </div>
 
-          {/* Gain % */}
+          {/* Current return (issue → current) */}
           {hasGain ? (
-            <GainDisplay pct={listing_gain_pct} />
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                Current return
+              </span>
+              <GainDisplay pct={listing_gain_pct} />
+            </div>
           ) : null}
+
+          {/* Listing-day pop (issue → first-day open), when Trendlyne has it */}
+          {listing_day_gain_pct != null && (
+            <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                Listing day
+              </span>
+              <span
+                className={cn(
+                  "font-semibold tabular-nums",
+                  listing_day_gain_pct > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : listing_day_gain_pct < 0
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-foreground",
+                )}
+              >
+                {listing_day_gain_pct > 0 ? "+" : ""}
+                {listing_day_gain_pct.toFixed(2)}%
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Listing date */}
@@ -230,6 +269,11 @@ export function IpoListedCard({ payload }: IpoListedCardProps): React.ReactEleme
         {/* Backend note (e.g. "this IPO has already listed — applications are closed") */}
         {note && (
           <p className="text-[11px] text-muted-foreground/80 italic">{note}</p>
+        )}
+
+        {/* Source attribution */}
+        {sourceText && (
+          <p className="text-[10px] text-muted-foreground/60">Data: {sourceText}</p>
         )}
       </div>
     </div>

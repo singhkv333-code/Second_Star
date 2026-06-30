@@ -131,16 +131,17 @@ def test_submit_is_idempotent_per_leg(db, user):
     assert db.query(PaperOrder).filter(PaperOrder.user_id == user.id).count() == orders_before
 
 
-def test_mcx_strategy_refuses_execution(db, user):
-    from backend.paper.options_routing import OptionFillError
-
+def test_mcx_strategy_executes_in_paper(db, user):
+    # Commodities (MCX) are tradeable via register-not-execute — the paper book
+    # fills an MCX strategy like any other segment (no research-only refusal).
     payload = resolve_strategy(db, "CRUDEOIL", "long_straddle")
     strategy = persist_option_strategy(
         db, user_id=user.id, payload=payload, book="paper",
         qty_lots=1, source="test",
     )
-    with pytest.raises(OptionFillError, match="research-only"):
-        submit_option_strategy(db, user.id, strategy)
+    result = submit_option_strategy(db, user.id, strategy)
+    assert result["success"]
+    assert db.query(PaperFill).filter(PaperFill.user_id == user.id).count() > 0
 
 
 def test_insufficient_cash_blocks_margin_reserve(db, user):

@@ -415,3 +415,179 @@ class ErrorBody(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorBody
+
+
+# ─── View Markets (V2: belief -> expression -> deployment) ────────────
+#
+# Request/response shapes for the View Markets tables (migration 0023).
+# Enums mirror the Postgres ENUM types as Literal[...] (one source of truth
+# with backend.models ViewType / ViewStatus / ExpressionTier / ExpressionKind
+# / ConfidenceDimension / ExpectationSource). Strict typing; ``config`` is a
+# heterogeneous, builder-validated bag typed dict[str, object] like StepInput.
+# All Out models read straight off the ORM (from_attributes=True).
+
+ViewTypeLiteral = Literal["event", "relative", "theme"]
+ViewStatusLiteral = Literal[
+    "open", "developing", "consensus", "resolved", "archived"
+]
+ExpressionTierLiteral = Literal["conservative", "balanced", "aggressive"]
+ExpressionKindLiteral = Literal[
+    "basket", "option_strategy", "pair", "multi_asset", "hedge"
+]
+ConfidenceDimensionLiteral = Literal["outcome", "expression"]
+ExpectationSourceLiteral = Literal["polymarket", "kalshi", "consensus", "model"]
+SurpriseSignLiteral = Literal["positive", "negative", "inline"]
+
+
+# ── Transmission edges ────────────────────────────────────────────────
+
+class ViewTransmissionInput(BaseModel):
+    """One cause->effect edge of a view's transmission DAG."""
+    seq: int = 0
+    from_node: str = Field(..., min_length=1)
+    to_node: str = Field(..., min_length=1)
+    edge_label: Optional[str] = None
+    strength: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    evidence: Optional[str] = None
+
+
+class ViewTransmissionOut(ViewTransmissionInput):
+    id: str
+    view_id: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Expressions ───────────────────────────────────────────────────────
+
+class ViewExpressionInput(BaseModel):
+    """A deployable expression of a view at one risk tier. ``config`` is the
+    kind-specific builder payload (legs / weights / thresholds), opaque here
+    and validated by the expression builder."""
+    tier: ExpressionTierLiteral
+    expression_kind: ExpressionKindLiteral
+    config: dict[str, object] = Field(default_factory=dict)
+    rationale: Optional[str] = None
+    risk_profile: Optional[str] = None
+    capital_intensity: Optional[str] = None
+    historical_strength: Optional[str] = None
+    time_horizon: Optional[str] = None
+
+
+class ViewExpressionOut(ViewExpressionInput):
+    id: str
+    view_id: str
+    backtest_run_id: Optional[str] = None
+    workflow_id: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Confidence dimensions ─────────────────────────────────────────────
+
+class ViewConfidenceInput(BaseModel):
+    """One confidence dimension (outcome vs expression), kept separate."""
+    dimension: ConfidenceDimensionLiteral
+    score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    evidence: Optional[str] = None
+
+
+class ViewConfidenceOut(ViewConfidenceInput):
+    id: str
+    view_id: str
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Market expectations / surprise framing ────────────────────────────
+
+class ViewExpectationInput(BaseModel):
+    """"What's priced in" vs the view's own number. READ from a prediction
+    market / consensus / model — never an outcome-trading surface."""
+    source: ExpectationSourceLiteral
+    market_id: Optional[str] = None
+    expected_value: Optional[float] = None
+    user_view_value: Optional[float] = None
+    surprise_sign: Optional[SurpriseSignLiteral] = None
+
+
+class ViewExpectationOut(ViewExpectationInput):
+    id: str
+    view_id: str
+    as_of: datetime
+    resolved_value: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Views (CRUD) ──────────────────────────────────────────────────────
+
+class MarketViewCreate(BaseModel):
+    """Create a curated view (V1: backend-generated + human-reviewed). The
+    child collections are optional on create — generators fill them in."""
+    view_type: ViewTypeLiteral
+    title: str = Field(..., min_length=1)
+    thesis: Optional[str] = None
+    category: Optional[str] = None
+    time_horizon: Optional[str] = None
+    resolution_date: Optional[datetime] = None
+    expressions: list[ViewExpressionInput] = Field(default_factory=list)
+    transmission: list[ViewTransmissionInput] = Field(default_factory=list)
+    confidence: list[ViewConfidenceInput] = Field(default_factory=list)
+    expectations: list[ViewExpectationInput] = Field(default_factory=list)
+
+
+class MarketViewPatch(BaseModel):
+    """All fields optional. Lifecycle moves status; publish stamps
+    published_at server-side."""
+    title: Optional[str] = Field(default=None, min_length=1)
+    thesis: Optional[str] = None
+    category: Optional[str] = None
+    time_horizon: Optional[str] = None
+    status: Optional[ViewStatusLiteral] = None
+    resolution_date: Optional[datetime] = None
+
+
+class MarketViewSummary(BaseModel):
+    """Gallery / list-view shape (no child payloads)."""
+    id: str
+    user_id: Optional[int] = None
+    view_type: ViewTypeLiteral
+    title: str
+    thesis: Optional[str] = None
+    category: Optional[str] = None
+    time_horizon: Optional[str] = None
+    status: ViewStatusLiteral
+    resolution_date: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    published_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MarketViewOut(MarketViewSummary):
+    """Detail-view shape with the full transmission map, expressions,
+    confidence dials, and expectations."""
+    expressions: list[ViewExpressionOut] = Field(default_factory=list)
+    transmission: list[ViewTransmissionOut] = Field(default_factory=list)
+    confidence: list[ViewConfidenceOut] = Field(default_factory=list)
+    expectations: list[ViewExpectationOut] = Field(default_factory=list)
+
+
+class MarketViewListResponse(BaseModel):
+    items: list[MarketViewSummary]
+    next_cursor: Optional[str] = None
+
+
+# ── Follows ───────────────────────────────────────────────────────────
+
+class ViewFollowOut(BaseModel):
+    id: str
+    user_id: int
+    view_id: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

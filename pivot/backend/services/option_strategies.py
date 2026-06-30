@@ -1082,11 +1082,11 @@ def critique_strategy(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
             ),
         })
 
-    # MCX research-only.
-    if payload["validation"]["mcx_execution_blocked"]:
+    # Commodities (MCX) are tradeable via register-not-execute — leverage note.
+    if str(payload["locked"].get("segment", "")).startswith("MCX"):
         flags.append({
             "severity": "info",
-            "text": "Commodity (MCX) options are research-only on Pivot — no execution.",
+            "text": "Commodity (MCX) — tradeable via register-not-execute; leveraged, size carefully.",
         })
 
     risk_count = sum(1 for f in flags if f["severity"] == "risk")

@@ -1360,3 +1360,401 @@ export type BrokerHoldingsResponse = { holdings: BrokerHolding[] };
 
 /** Response of DELETE /brokers/{broker}/session. */
 export type BrokerDisconnectResponse = { connected: false };
+
+// ---------------------------------------------------------------------------
+// Views — View Markets V2 (GET /api/views, GET /api/views/{id}, …)
+//
+// Mirrors docs/API_CONTRACT.md "Views" section. All score-ish fields are
+// Optional/nullable — the FE must never fabricate a missing value.
+// ---------------------------------------------------------------------------
+
+export type ViewStatus =
+  | "draft"
+  | "developing"
+  | "published"
+  | "resolved"
+  | "archived";
+
+export type ViewType = "EVENT" | "THEME";
+
+export type ExpressionTier = "conservative" | "balanced" | "aggressive";
+
+export type ExpressionKind = string; // open — backend can add new kinds without FE change
+
+export type TrustVerdict =
+  | "PROMISING"
+  | "UNPROVEN"
+  | "NO_EDGE"
+  | "INSUFFICIENT_DATA";
+
+export type Grade = "A" | "A-" | "B" | "B-" | "C" | "D" | "F";
+
+/** A confidence dial letter — includes the sentinel "SUPPRESSED" for honest rendering. */
+export type Dial = Grade | "SUPPRESSED";
+
+/**
+ * One point on a real, backend-computed EPISODE-GATED equity curve. `strategy`
+ * and `benchmark` are indexed currency levels (start = 100000); `t` is the
+ * SEQUENTIAL in-position trading-day index ("0","1","2",…) — NOT a calendar
+ * date — because the strategy is only in the market during event/season
+ * windows and calendar time has gaps between episodes. Mirrors the backend
+ * CurvePoint model. Used by the gallery mini-line and the detail-page line
+ * chart + per-strategy comparison.
+ */
+export type EquityPoint = {
+  t: string;
+  strategy: number;
+  benchmark: number;
+};
+
+/** One named member of a basket expression, with its episode-window return. */
+export type Holding = {
+  name: string;
+  symbol: string;
+  return_pct: number;
+  /** "long" | "short" — the side held. Optional for forward-compat. */
+  position?: string | null;
+  /** Weight of this name in the basket (e.g. 16.7 = 16.7%). Optional. */
+  weight_pct?: number | null;
+};
+
+/**
+ * One historical episode row — a past window the strategy was in the market,
+ * with its own return vs the benchmark over that window. Real backtest rows;
+ * never fabricated. `positive` = the strategy made money that episode.
+ */
+export type EpisodeRow = {
+  label: string;
+  date: string;
+  return_pct: number;
+  benchmark_pct: number;
+  positive: boolean;
+};
+
+/** Plain "how well past episodes lined up" dial (score 0-100 + letter grade). */
+export type HistoricalAlignment = {
+  score: number | null;
+  letter: string | null;
+};
+
+/**
+ * Monte-Carlo outcome spread for an expression (null when not simulated).
+ * `terminal_pct` is the sorted/percentile-laddered list of simulated terminal
+ * returns; p05..p95 are the percentile cut points; `prob_loss` is the share of
+ * sims that ended below zero. Real simulated data — never fabricated.
+ */
+export type MonteCarlo = {
+  n_sims: number;
+  terminal_pct: number[];
+  p05: number;
+  p25: number;
+  median: number;
+  p75: number;
+  p95: number;
+  prob_loss: number;
+};
+
+/** One leg of an option-structure expression (honest, non-fabricated identity). */
+export type OptionLeg = {
+  action: string; // "BUY" | "SELL"
+  option_type: string; // "CE" | "PE"
+  strike_rule: string | null;
+  delta: number | null;
+  strike_offset: number | null;
+};
+
+/** A sibling view surfaced as "similar" on the detail page. */
+export type SimilarView = {
+  id: string;
+  short_title: string | null;
+};
+
+/** One side (basket or benchmark) of a fundamentals comparison. */
+export type FundamentalSide = {
+  pe: number | null;
+  roe: number | null;
+};
+
+/** Basket-vs-Nifty fundamentals comparison (null when not computed). */
+export type FundamentalComparison = {
+  basket: FundamentalSide;
+  nifty: FundamentalSide;
+};
+
+/** Per-dimension confidence block from GET /api/views/{id}. */
+export type ViewConfBlock = {
+  score: number | null;
+  letter: string | null;
+  evidence?: string | null;
+};
+
+/** Slim confidence block embedded in ViewSummary (no evidence text). */
+export type ViewConfBlockSummary = {
+  score: number | null;
+  letter: string | null;
+};
+
+/** Best-scored expression headline, embedded in ViewSummary. */
+export type BestExpression = {
+  id: string;
+  tier: ExpressionTier;
+  expression_kind: ExpressionKind;
+  grade: Grade | null;
+  trust_verdict: TrustVerdict | null;
+  total_return_pct: number | null;
+  excess_return_pct: number | null;
+  // Clean whitelisted numbers, hoisted out of scores.backtest.nifty_comparison.
+  plain_label: string | null;
+  nifty_total_pct: number | null;
+  n_episodes: number | null;
+  pct_episodes_beat: number | null;
+  worst_drop_pct: number | null;
+  // Real backend-computed curve for the gallery mini-line (may be empty).
+  equity_curve: EquityPoint[];
+};
+
+/** Shape returned by GET /api/views (list item). */
+export type ViewSummary = {
+  id: string;
+  view_type: ViewType;
+  title: string;
+  thesis: string;
+  category: string;
+  time_horizon: string | null;
+  status: ViewStatus;
+  resolution_date: string | null;
+  created_at: string;
+  published_at: string | null;
+  outcome_confidence: ViewConfBlockSummary;
+  expression_confidence: ViewConfBlockSummary;
+  best_expression: BestExpression | null;
+  expression_count: number;
+  transmission_count: number;
+  follower_count: number;
+  is_following: boolean;
+  /**
+   * True when there is NO finished/headline basket yet (a "developing" idea).
+   * Shared source of truth: the gallery card shows "No finished basket" and the
+   * detail page frames its numbers as a historical backtest (never as a live,
+   * deployable basket) off this same flag — the two surfaces never contradict.
+   */
+  is_developing: boolean;
+  // Layman content layer (the belief in plain English).
+  plain_one_liner: string | null;
+  plain_summary: string | null;
+  /** Punchy plain-English headline for the card, e.g. "Cheaper oil lifts India's importers". */
+  short_title: string | null;
+};
+
+/** One edge in the causal transmission map, ordered by seq. */
+export type TransmissionEdge = {
+  seq: number;
+  from_node: string;
+  to_node: string;
+  edge_label: string;
+  strength: number | null;
+  evidence?: string | null;
+  // Humanized layer (plain words only — never raw CAAR/t/p evidence).
+  from_label: string | null;
+  to_label: string | null;
+  strength_label: string | null;
+  plain_evidence: string | null;
+};
+
+/** One "what's priced in" row (option-implied or prediction-market source). */
+export type ViewExpectationRow = {
+  source: string;
+  market_id: string | null;
+  expected_value: number | null;
+  user_view_value: number | null;
+  surprise_sign: "positive" | "negative" | "inline" | null;
+  as_of: string | null;
+  resolved_value: number | null;
+  // Closed-map source label (unknown -> 'Market estimate').
+  source_label: string | null;
+};
+
+/**
+ * Full backtest trust block — every field is optional/nullable because the
+ * backend may return partial results or none at all when backtesting hasn't
+ * run yet. Mirrors the ExpressionDetail.scores.backtest wire shape.
+ */
+export type BacktestScores = {
+  grade?: Grade | null;
+  trust_verdict?: TrustVerdict | null;
+  trust_conf?: number | null;
+  total_return_pct?: number | null;
+  excess_return_pct?: number | null;
+  nifty_same_window_pct?: number | null;
+  nifty_buy_hold_total_pct?: number | null;
+  max_dd_pct?: number | null;
+  win_rate?: number | null;
+  psr?: number | null;
+  dsr?: number | null;
+  min_trl?: number | null;
+  min_trl_cleared?: boolean | null;
+  mc_prob_loss?: number | null;
+  mc_dd_p95_pct?: number | null;
+  n_obs?: number | null;
+  n_events?: number | null;
+  n_episodes?: number | null;
+  caar_pct?: number | null;
+  caar_p?: number | null;
+  caar_t?: number | null;
+  sub_period_pos_frac?: number | null;
+  sub_period_returns_pct?: number[] | null;
+  outcome_dial?: Dial | null;
+  outcome_score?: number | null;
+  expression_dial?: Dial | null;
+  expression_score?: number | null;
+  version?: number | string | null;
+};
+
+/** Composite scores block embedded in ExpressionDetail. */
+export type ExpressionScores = {
+  backtest?: BacktestScores | null;
+  construction_alignment?: number | null;
+  alignment_kind?: string | null;
+};
+
+/**
+ * The structure field is a passthrough of the backend's config.structure dict.
+ * We type the well-known sub-fields and allow extras via index signature.
+ */
+export type ExpressionStructure = {
+  scheme?: string;
+  n_names?: number;
+  weights?: Record<string, number>;
+  single_name_cap?: number;
+  basket_purity?: number;
+  min_names?: number;
+  signal?: string;
+  hold_bars?: number;
+  legs?: unknown[];
+  [k: string]: unknown;
+};
+
+/** One instrument leg inside an expression. Passed through from the backend
+ *  config; tolerant of a bare-symbol string or the richer object form. */
+export type ExpressionInstrument = {
+  symbol?: string;
+  role?: string;
+  segment?: string;
+  exchange?: string;
+  tradeable?: boolean;
+  instrument_type?: string;
+  note?: string;
+  [k: string]: unknown;
+};
+
+/** One expression returned inside GET /api/views/{id} detail. */
+export type ExpressionDetail = {
+  id: string;
+  tier: ExpressionTier;
+  expression_kind: ExpressionKind;
+  label: string;
+  rationale: string;
+  risk_profile: string;
+  capital_intensity: string;
+  historical_strength: string;
+  time_horizon: string;
+  workflow_id: string | null;
+  backtest_run_id: string | null;
+  instruments: (string | ExpressionInstrument)[];
+  warnings: string[];
+  disclaimer: string | null;
+  structure: ExpressionStructure;
+  scores: ExpressionScores | null;
+  is_deployable: boolean;
+  // Layman content layer + hoisted clean numbers (from scores.backtest.nifty_comparison
+  // and scores.backtest.max_dd_pct). Any missing source -> null; FE shows '—'.
+  plain_label: string | null;
+  plain_one_liner: string | null;
+  plain_why: string | null;
+  plain_risk: string | null;
+  /** Plain words only: 'Low' / 'Low-medium' / 'Medium' — NEVER a rupee figure. */
+  capital_label: string | null;
+  /** Plain word: 'Not enough data' | 'No edge yet' | 'Unproven' | 'Promising'. */
+  trust_badge: string | null;
+  /** Plain stock display names for the basket, e.g. ['Britannia','MRF', …]. */
+  members: string[];
+  n_names: number | null;
+  strategy_total_pct: number | null;
+  nifty_total_pct: number | null;
+  excess_return_pct: number | null;
+  n_episodes: number | null;
+  pct_episodes_beat: number | null;
+  worst_drop_pct: number | null;
+  // ── honest strategy identity ──
+  /** Plain strategy name, e.g. "Rural-demand basket". */
+  strategy_name: string | null;
+  /** Plain strategy type, e.g. "Basket" / "Pair" / "Call spread". */
+  strategy_type: string | null;
+  /** Option legs when this expression is an option structure; null otherwise. */
+  option_legs: OptionLeg[] | null;
+  /** One-line note describing the option structure (null when no legs). */
+  option_legs_note: string | null;
+  // ── real computed chart + per-holding returns ──
+  /** Real backend-computed strategy-vs-benchmark curve (may be empty). */
+  equity_curve: EquityPoint[];
+  /** Per-name returns for a basket (empty for non-basket expressions). */
+  holdings: Holding[];
+  /** Underlying symbol for an option structure (null for baskets). */
+  underlying_symbol: string | null;
+  /** What the curve is measured on, e.g. "in_position_episodes" / "underlying". */
+  curve_basis: string | null;
+  /** Reward-to-risk ratio (null when not computed). */
+  risk_return_ratio: number | null;
+  /** Number of episodes the in-position curve concatenates (null when no curve). */
+  curve_n_episodes?: number | null;
+  /** In-position indices where each new episode starts (for stitch markers). */
+  episode_boundaries?: number[];
+  // ── per-episode breakdown + hold window + outcome spread ──
+  /** Per-episode history (each past window, return vs benchmark). May be empty. */
+  episodes?: EpisodeRow[];
+  /** How many of the episodes the strategy ended in profit. */
+  positive_episodes?: number | null;
+  /** Plain-words hold/exit window, e.g. "Held through the Jun–Aug window (~3 months)". */
+  exit_period?: string | null;
+  /** Plain "how well the history lined up" dial (null when not computed). */
+  historical_alignment?: HistoricalAlignment | null;
+  /** Monte-Carlo outcome spread (null when not simulated). */
+  monte_carlo?: MonteCarlo | null;
+};
+
+/** Full view detail returned by GET /api/views/{id}. */
+export type ViewDetail = ViewSummary & {
+  transmission: TransmissionEdge[];
+  confidence: {
+    outcome: ViewConfBlock;
+    expression: ViewConfBlock;
+  };
+  expectations: ViewExpectationRow[];
+  expressions: ExpressionDetail[];
+  // Layman content layer.
+  /** 3-4 plain sentences, humble, ends 'This is analysis, not financial advice.' */
+  plain_thesis: string | null;
+  /** The benchmark in plain words, e.g. 'Nifty 50'. */
+  benchmark_label: string | null;
+  /** Longer plain-English description of the belief (detail hero copy). */
+  description: string | null;
+  /** Plain takeaways: what drives it / how to play it / main caveat. */
+  bullets: string[];
+  /** Sibling views surfaced as "similar". */
+  similar_views: SimilarView[];
+  /** Basket-vs-Nifty fundamentals, or null when not computed. */
+  fundamental_comparison: FundamentalComparison | null;
+};
+
+/** Result of POST /api/views/{id}/compare — ranked tier recommendation. */
+export type CompareResult = {
+  recommended_tier: ExpressionTier;
+  rationale: string;
+  tiers: Array<{
+    tier: ExpressionTier;
+    expression_id: string;
+    rank: number;
+    score: number | null;
+    reason: string;
+  }>;
+};

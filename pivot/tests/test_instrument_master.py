@@ -119,20 +119,22 @@ def test_disappeared_contract_keeps_row_with_stale_last_seen(master):
     assert row.last_seen == date.today()
 
 
-def test_universe_selection_marks_mcx_research_only(master):
+def test_universe_selection_mcx_tradeable(master):
+    # Commodities (MCX) are now tradeable via register-not-execute — no
+    # research-only marking; they go through the same liquidity gate.
     rows = select_active_universe(master)
     assert rows
     by_u = {r.underlying: r for r in rows}
     crude = by_u["CRUDEOIL"]
-    assert crude.research_only is True
-    assert crude.selected is False
-    assert crude.reason == "mcx_research_only"
+    assert crude.research_only is False
+    assert crude.reason != "mcx_research_only"
+    assert crude.reason in ("liquidity_ok", "below_liquidity_percentile")
     # Liquid index universe selected, evidence recorded.
     nifty = by_u["NIFTY"]
     assert nifty.selected is True
     assert nifty.avg_oi and nifty.avg_oi > 0
     assert nifty.liquidity_score is not None
-    assert is_research_only(master, "CRUDEOIL") is True
+    assert is_research_only(master, "CRUDEOIL") is False
     assert is_research_only(master, "NIFTY") is False
 
 

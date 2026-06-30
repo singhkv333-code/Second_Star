@@ -186,11 +186,14 @@ def test_critique_flags_naked_short_as_risky(master):
     assert "Unlimited loss" in texts
 
 
-def test_critique_mcx_research_only_flag(master):
+def test_critique_mcx_tradeable(master):
+    # Commodities (MCX) are tradeable via register-not-execute: no execution
+    # block, and the critique carries a leverage note instead of "research-only".
     p = resolve_strategy(master, "CRUDEOIL", "long_straddle")
-    assert p["validation"]["mcx_execution_blocked"] is True
+    assert p["validation"]["mcx_execution_blocked"] is False
     texts = " ".join(f["text"] for f in p["critique"]["flags"])
-    assert "research-only" in texts
+    assert "research-only" not in texts
+    assert "tradeable" in texts.lower()
 
 
 def test_sebi_disclosure_always_present(master):

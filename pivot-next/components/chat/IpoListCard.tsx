@@ -97,6 +97,12 @@ function IpoRow({
       ? `${openLabel} – ${closeLabel}`
       : openLabel ?? closeLabel ?? null;
 
+  // Trendlyne-only IPOs carry no NSE symbol → can't register/automate. Route
+  // chat actions by name so "Know more" still works; disable Apply/Remind.
+  const registerable = ipo.registerable !== false && !!ipo.symbol;
+  const actionRef = ipo.symbol || ipo.name;
+  const subTotal = ipo.subscription?.total;
+
   return (
     <div
       className="flex flex-col gap-2 border-b border-border/40 py-3 last:border-0"
@@ -144,17 +150,44 @@ function IpoRow({
             {dateRange}
           </span>
         )}
+        {subTotal != null && (
+          <span>
+            <span className="font-medium text-foreground/80">Subscribed</span>{" "}
+            {subTotal.toFixed(1)}×
+          </span>
+        )}
       </div>
+
+      {/* Subscription breakdown (Trendlyne) — retail / HNI / QIB */}
+      {ipo.subscription &&
+        (ipo.subscription.retail != null ||
+          ipo.subscription.hni != null ||
+          ipo.subscription.qib != null) && (
+          <div className="flex flex-wrap gap-x-3 text-[10.5px] text-muted-foreground/80">
+            {ipo.subscription.retail != null && (
+              <span>Retail {ipo.subscription.retail.toFixed(1)}×</span>
+            )}
+            {ipo.subscription.hni != null && (
+              <span>HNI {ipo.subscription.hni.toFixed(1)}×</span>
+            )}
+            {ipo.subscription.qib != null && (
+              <span>QIB {ipo.subscription.qib.toFixed(1)}×</span>
+            )}
+          </div>
+        )}
 
       {/* Actions */}
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => onSelectIpo(ipo.symbol)}
+          onClick={() => onSelectIpo(actionRef)}
+          disabled={!registerable}
           aria-label={`Apply for ${ipo.name} IPO`}
+          title={registerable ? undefined : "Not on the NSE feed yet — registration unavailable"}
           className={cn(
             "inline-flex h-7 items-center rounded-full bg-primary px-3 text-[11.5px] font-medium text-primary-foreground",
             "transition-all hover:bg-primary/90 active:scale-[0.97]",
+            !registerable && "cursor-not-allowed opacity-40 hover:bg-primary",
           )}
         >
           Apply
@@ -162,7 +195,7 @@ function IpoRow({
         {onKnowMore && (
           <button
             type="button"
-            onClick={() => onKnowMore(ipo.symbol)}
+            onClick={() => onKnowMore(actionRef)}
             aria-label={`Know more about ${ipo.name} IPO`}
             className={cn(
               "inline-flex h-7 items-center rounded-full border border-border/60 px-3 text-[11px] font-medium text-foreground/75",
@@ -174,11 +207,14 @@ function IpoRow({
         )}
         <button
           type="button"
-          onClick={() => onRemindIpo(ipo.symbol)}
+          onClick={() => onRemindIpo(actionRef)}
+          disabled={!registerable}
           aria-label={`Set up reminders for ${ipo.name} IPO`}
+          title={registerable ? undefined : "Not on the NSE feed yet — automation unavailable"}
           className={cn(
             "inline-flex h-7 items-center gap-1.5 rounded-full border border-border/60 px-2.5 text-[11px] font-medium text-foreground/75",
             "transition-colors hover:bg-muted hover:text-foreground",
+            !registerable && "cursor-not-allowed opacity-40",
           )}
         >
           <BellRing className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -187,6 +223,13 @@ function IpoRow({
       </div>
     </div>
   );
+}
+
+/** Human label for the merged data source(s). */
+function sourceLabel(source: string): string | null {
+  if (!source || source === "unreachable") return null;
+  const parts = source.split("+").map((s) => (s === "nse" ? "NSE" : s === "trendlyne" ? "Trendlyne" : s));
+  return parts.join(" + ");
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +316,7 @@ export function IpoListCard({
           <div className="flex flex-col">
             {sorted.map((ipo, idx) => (
               <IpoRow
-                key={ipo.symbol}
+                key={ipo.symbol || ipo.name || idx}
                 ipo={ipo}
                 index={idx}
                 onSelectIpo={onSelectIpo}
@@ -282,6 +325,13 @@ export function IpoListCard({
               />
             ))}
           </div>
+        )}
+
+        {/* Source attribution — honest provenance of the feed. */}
+        {!isUnreachable && !isEmpty && sourceLabel(payload.source) && (
+          <p className="pt-1 text-[10px] text-muted-foreground/60">
+            Data: {sourceLabel(payload.source)}
+          </p>
         )}
       </div>
     </div>

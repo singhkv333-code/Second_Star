@@ -1886,15 +1886,29 @@ async def _get_ipo_listing(a, kt, db, uid):
         _listed_current_price(symbol) if symbol else None
     )
 
+    # Trendlyne-published performance (issue→listing-day pop, and issue→LTP
+    # current return) carried through fetch_listed_ipo. Used to (a) surface
+    # the listing-day pop the live computation can't reconstruct, and (b)
+    # fall back to a real current-return when we have no live symbol price.
+    tl_listing_gain = rec.get("listing_gain_pct")   # issue → listing-day open
+    tl_current_return = rec.get("current_return_pct")  # issue → current LTP
+
     listing_gain_pct: float | None
+    source = "nse"
     if (
         issue_price is not None
         and current_price is not None
         and issue_price > 0
     ):
+        # Live current return (issue → live LTP).
         listing_gain_pct = round(
             (current_price - issue_price) / issue_price * 100.0, 2
         )
+    elif tl_current_return is not None:
+        # No live price (e.g. Trendlyne-only, no NSE symbol) — use Trendlyne's
+        # published current return rather than showing nothing.
+        listing_gain_pct = float(tl_current_return)
+        source = "trendlyne"
     else:
         listing_gain_pct = None
 
@@ -1903,8 +1917,11 @@ async def _get_ipo_listing(a, kt, db, uid):
     note: str | None = None
     if issue_price is None:
         note = "issue price unavailable"
-    elif current_price is None:
+    elif current_price is None and listing_gain_pct is None:
         note = "listing data pending — no live price yet"
+
+    if "trendlyne" in (rec.get("sources") or []) and source == "nse":
+        source = "nse+trendlyne"
 
     payload: dict = {
         "_render_hint": "ipo_listed_card",
@@ -1915,7 +1932,13 @@ async def _get_ipo_listing(a, kt, db, uid):
         "listing_date": listing_date,
         "current_price": current_price,
         "listing_gain_pct": listing_gain_pct,
-        "source": "nse",
+        # New: the listing-day pop (issue → first-day open), distinct from the
+        # current return above. Surfaced when Trendlyne carries it.
+        "listing_day_gain_pct": (
+            float(tl_listing_gain) if tl_listing_gain is not None else None
+        ),
+        "subscription": rec.get("subscription"),
+        "source": source,
         "note": note,
     }
     return {"success": True, "data": payload, "logiccard": None}
@@ -2717,9 +2740,15 @@ async def _propose_ipo_application(a, kt, db, uid):
     if isinstance(raw_extra, dict):
         enrichment_record["_raw"] = raw_extra
 
-    rhp_url = resolve_rhp(enrichment_record)
+    # Trendlyne enrichment now rides on the merged ipo record (see
+    # ipo_feed._merge_trendlyne). Prefer the NSE-derived helpers, fall back to
+    # the Trendlyne fields so the card fills even when NSE is sparse.
+    rhp_url = resolve_rhp(enrichment_record) or ipo.get("rhp_url")
     registrar_name, allotment_deeplink = detect_registrar(enrichment_record)
-    listing_date = resolve_listing_date(enrichment_record)
+    # Trendlyne carries a BSE allotment-status check link for listing-soon IPOs.
+    if not allotment_deeplink and ipo.get("allotment_check_url"):
+        allotment_deeplink = ipo.get("allotment_check_url")
+    listing_date = resolve_listing_date(enrichment_record) or ipo.get("listing_date")
 
     # Subscription % is meaningful ONLY for currently-open issues; skip
     # the network call for upcoming / closed (NSE returns "Missing
@@ -2731,6 +2760,21 @@ async def _propose_ipo_application(a, kt, db, uid):
         sub_cats = sub_body.get("subscription")
         if isinstance(sub_cats, dict):
             subscription_block = {**sub_cats, "as_of": sub_body.get("as_of")}
+    # Fall back to Trendlyne's subscription breakdown (total/retail/hni/qib)
+    # when NSE gave nothing — map onto the card's category keys.
+    if subscription_block is None:
+        tl_sub = ipo.get("subscription")
+        if isinstance(tl_sub, dict) and any(v is not None for v in tl_sub.values()):
+            subscription_block = {
+                "overall": tl_sub.get("total"),
+                "rii": tl_sub.get("retail"),
+                "nii": tl_sub.get("hni"),
+                "qib": tl_sub.get("qib"),
+                "employee": None,
+                "shareholder": None,
+                "as_of": None,
+                "source": "trendlyne",
+            }
 
     # FE-driven defaults. Mainboard min 1 lot, SME min 2 lots.
     min_lots = 2 if ipo_type == "sme" else 1
@@ -2767,6 +2811,10 @@ async def _propose_ipo_application(a, kt, db, uid):
         # P1: listing date — populated on listed/past records, None on
         # upcoming/active. Honest-null, never fabricated.
         "listing_date": listing_date,
+        # Trendlyne: allotment date + status for listing-soon IPOs (the
+        # allotment_deeplink above is the BSE status-check link).
+        "allotment_date": ipo.get("allotment_date"),
+        "allotment_status": ipo.get("allotment_status"),
     }
     editable = {
         "category": "retail",
@@ -2806,6 +2854,9 @@ async def _propose_ipo_application(a, kt, db, uid):
         # workflow is now buildable via propose_ipo_automation.
         "automatable": True,
         "conversation_id": a.get("conversation_id"),
+        # Honest provenance: which feeds populated this card (NSE skeleton +
+        # Trendlyne enrichment). The FE renders a small "Data: …" line.
+        "data_sources": ipo.get("sources") or ["nse"],
         "disclaimer": (
             "Pivot can't submit or fund this bid. This registers your "
             "intent only; YOU place and approve the mandate in your "

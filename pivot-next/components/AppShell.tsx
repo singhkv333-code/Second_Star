@@ -45,6 +45,7 @@ import {
   Settings,
   ShieldCheck,
   Sun,
+  Telescope,
   X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -59,6 +60,7 @@ import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
+import { ViewsTab } from "@/components/views/ViewsTab";
 import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
@@ -98,7 +100,8 @@ type TabKey =
   | "portfolio"
   | "agents"
   | "calendar"
-  | "screener";
+  | "screener"
+  | "views";
 
 const NAV_ITEMS: {
   key: TabKey;
@@ -106,6 +109,7 @@ const NAV_ITEMS: {
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }[] = [
   { key: "chat", label: "Chat", Icon: MessageSquare },
+  { key: "views", label: "Views", Icon: Telescope },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },
@@ -709,6 +713,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             // ("padding: 24px 32px"). Sections scroll inside. Mobile tightens.
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
               <PortfolioTab />
+            </div>
+          ) : active === "views" ? (
+            // Views tab — curated market beliefs grid + detail page.
+            // Same scrollable wrapper as agents/portfolio.
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
+              <ViewsTab onOpenWorkflowById={openWorkflowById} />
             </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">

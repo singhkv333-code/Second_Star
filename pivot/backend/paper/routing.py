@@ -42,6 +42,69 @@ from backend.paper.broker import PaperBroker
 logger = logging.getLogger(__name__)
 
 
+class InsufficientFundsError(Exception):
+    """A live BUY can't be covered by the broker's available cash. Carries the
+    numbers so the API layer can build a user-facing message."""
+
+    def __init__(self, required: float, available: float):
+        self.required = float(required)
+        self.available = float(available)
+        super().__init__(
+            f"Insufficient funds: this order needs about ₹{self.required:,.0f} "
+            f"but your broker balance is ₹{self.available:,.0f}. Add funds or "
+            f"reduce the quantity."
+        )
+
+
+def _estimated_order_value(
+    symbol: str, order_type: str, price: Optional[float], quantity: int,
+) -> Optional[float]:
+    """Cash a BUY would consume: limit/SL price when set, else the live LTP for
+    a MARKET order. Returns None when no price is resolvable (caller then skips
+    the funds check — we never block on unknown data)."""
+    ot = str(order_type).upper()
+    px = float(price) if (price and ot in ("LIMIT", "SL", "SL-M")) else None
+    if px is None:
+        from backend.paper.marks import get_mark_price
+        mark = get_mark_price(str(symbol).upper())
+        px = float(mark) if mark is not None else (float(price) if price else None)
+    if px is None:
+        return None
+    return float(quantity) * px
+
+
+def assert_live_funds_ok(
+    connector: Any,
+    sess: Any,
+    *,
+    symbol: str,
+    side: str,
+    quantity: int,
+    order_type: str,
+    price: Optional[float],
+) -> None:
+    """Pre-trade funds guard for the LIVE path: block a BUY the broker's
+    available cash can't cover. No-op for SELLs (they free cash / draw on
+    holdings) and whenever the price or balance is unknown — we only block on a
+    *definite* shortfall, never on missing data (fail-open)."""
+    if str(side).upper() != "BUY":
+        return
+    value = _estimated_order_value(symbol, order_type, price, quantity)
+    if value is None:
+        return
+    try:
+        available = connector.get_available_cash(sess)
+    except Exception:
+        logger.warning(
+            "funds check skipped: could not read broker balance", exc_info=True,
+        )
+        return
+    if available is None:
+        return
+    if value > float(available):
+        raise InsufficientFundsError(value, float(available))
+
+
 def should_use_paper(db: Session, user_id: int) -> bool:
     """True when this user's orders should fill in the paper portfolio.
     Early-returns False (no account side-effect) when the flag is off."""
@@ -409,20 +472,41 @@ def submit_order_for_user(
     # User-CONFIRMED (chat): NOT auto-exec gated — but audit the placement.
     sess = _live_broker_session(db, uid)
     if sess is not None:
-        result = get_connector(sess.broker).place_order(
-            sess,
-            tradingsymbol=symbol,
-            exchange=exchange,
-            transaction_type=side,
-            quantity=int(quantity),
-            order_type=ot,
-            price=price,
-            product=product,
-            trigger_price=trigger_price,
-            tag=tag,
-            variety=variety,
-            client_request_id=client_request_id,
+        connector = get_connector(sess.broker)
+        # Pre-trade funds guard: refuse a live BUY the broker balance can't
+        # cover (raises InsufficientFundsError) so we fail fast with a clear
+        # reason instead of a downstream broker reject.
+        assert_live_funds_ok(
+            connector, sess, symbol=symbol, side=side,
+            quantity=int(quantity), order_type=ot, price=price,
         )
+        try:
+            result = connector.place_order(
+                sess,
+                tradingsymbol=symbol,
+                exchange=exchange,
+                transaction_type=side,
+                quantity=int(quantity),
+                order_type=ot,
+                price=price,
+                product=product,
+                trigger_price=trigger_price,
+                tag=tag,
+                variety=variety,
+                client_request_id=client_request_id,
+            )
+        except Exception as exc:
+            # Broker rejected it (IP allow-list, RMS/margin, market closed, …).
+            # Audit the failure for visibility, then re-raise so the router can
+            # surface the real reason instead of a silent "registered".
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_failed", status="error",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type=ot, price=price, detail=str(exc),
+            )
+            db.commit()
+            raise
         record_audit(
             db, user_id=uid, broker=sess.broker,
             event_type="order_placed",

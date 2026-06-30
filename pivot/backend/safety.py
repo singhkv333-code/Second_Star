@@ -64,11 +64,7 @@ def run_option_pretrade_gate(payload: dict, *, acknowledged: bool) -> tuple[bool
     editable = payload.get("editable") or {}
     legs = editable.get("legs") or []
 
-    if validation.get("mcx_execution_blocked"):
-        return False, (
-            "Commodity (MCX) options are research-only on Pivot — "
-            "execution and registration are blocked."
-        )
+    # Commodities (MCX) are tradeable via register-not-execute — no MCX block.
     if validation.get("requires_disclosure") and not acknowledged:
         return False, (
             "The SEBI risk disclosure must be acknowledged before "

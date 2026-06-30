@@ -332,7 +332,7 @@ tool("get_option_chain",
      {
          "underlying": {"type": "string", "description":
                         "Underlying root, e.g. NIFTY, BANKNIFTY, RELIANCE, "
-                        "SENSEX, CRUDEOIL (MCX commodities are research-only)."},
+                        "SENSEX, CRUDEOIL (MCX commodities are tradeable, register-not-execute)."},
          "expiry":     {"type": "string", "description":
                         "ISO date (YYYY-MM-DD), 'nearest' (default) or 'next'. "
                         "The card lists the valid expiries."},
@@ -817,35 +817,41 @@ tool("get_symbol_news",
      defaults={"limit": 5})
 
 tool("list_upcoming_ipos",
-     "Lists current open + upcoming mainboard and SME IPOs from the live NSE "
-     "feed (name, symbol, price band, open/close dates, lot size, issue size, "
-     "type, status). Use for 'any IPOs open right now?', 'upcoming IPOs', 'new "
-     "IPOs this week', 'SME IPOs'. Read-only. Empty list = no live issues right "
-     "now (not an error); if the feed is unreachable relay the note verbatim — "
-     "NEVER invent IPOs.",
+     "Lists current open + upcoming mainboard and SME IPOs from the live feed "
+     "(NSE skeleton enriched with Trendlyne: name, symbol, price band, "
+     "open/close dates, lot/issue size, type, status, PLUS subscription "
+     "breakdown — total/retail/HNI/QIB ×, RHP prospectus link, and market "
+     "cap). Use for 'any IPOs open right now?', 'upcoming IPOs', 'how "
+     "subscribed is X', 'SME IPOs'. Cite the `source` (e.g. NSE + Trendlyne). "
+     "Some Trendlyne-only rows carry no NSE symbol (`registerable: false`) — "
+     "they're informational; do NOT offer to register/automate those. Read-"
+     "only. Empty list = no live issues (not an error); if the feed is "
+     "unreachable relay the note verbatim — NEVER invent IPOs.",
      {},
      [])
 
 tool("get_ipo_details",
-     "Full detail of ONE IPO matched by name or symbol from the live NSE list "
-     "(price band, dates, lot size, issue size, type, status). Use after "
-     "list_upcoming_ipos when the user asks about a specific IPO ('tell me "
-     "about the X IPO', 'details on <symbol>', 'I want to apply for X'). If "
-     "found is false, present the candidate matches to disambiguate. NEVER "
-     "fabricate IPO details.",
+     "Full detail of ONE IPO matched by name or symbol (price band, dates, "
+     "lot/issue size, type, status, PLUS the Trendlyne enrichment: "
+     "subscription breakdown — total/retail/HNI/QIB ×, RHP link, allotment "
+     "date/status, market cap). Use after list_upcoming_ipos when the user "
+     "asks about a specific IPO ('tell me about the X IPO', 'how subscribed "
+     "is X', 'I want to apply for X'). If found is false, present the "
+     "candidate matches to disambiguate. NEVER fabricate IPO details.",
      {"name_or_symbol": {"type": "string",
                          "description": "IPO company name or NSE symbol. Case-insensitive."}},
      ["name_or_symbol"])
 
 tool("get_ipo_listing",
-     "Post-listing performance of an IPO — issue price vs current price, "
-     "listing gain %. Use for 'how did X list', 'X listing gain', 'X listing "
-     "price', 'did X list well', 'how did the X IPO list'. Reads the NSE "
-     "past-issues feed (the IPO has already listed and dropped off the "
-     "upcoming/current feeds) and pairs it with the live price. Returns the "
-     "ipo_listed_card payload (issue/current/gain%/listing date). NEVER "
-     "fabricates the current price, the listing gain, the issue price, or "
-     "the listing date — any unavailable field is null with an honest note.",
+     "Post-listing performance of an IPO — issue price, current return %, and "
+     "the listing-day pop (issue→first-day open). Use for 'how did X list', "
+     "'X listing gain', 'did X list well'. Reads NSE past-issues paired with "
+     "the live price, and falls back to Trendlyne's published listing-day gain "
+     "+ current return when NSE is sparse or the name has no live symbol. "
+     "Returns the ipo_listed_card payload (issue/current/current-return%/"
+     "listing-day%/listing date + source). NEVER fabricates the current price, "
+     "the gain, the issue price, or the listing date — any unavailable field "
+     "is null with an honest note.",
      {"name_or_symbol": {"type": "string",
                          "description": "IPO company name or NSE symbol. Case-insensitive."}},
      ["name_or_symbol"])
@@ -1654,14 +1660,16 @@ tool("propose_dsl_workflow",
 
 
 tool("propose_scheduled_order",
-     "Build a workflow that places ONE order on a recurring schedule "
-     "(SIP-style / weekly / Monday rules). PREFER over propose_workflow "
-     "for prompts like 'buy 5 NIFTYBEES every weekday at 09:15'. Server "
-     "hydrates trigger.schedule + action.place_order (+ optional SL). "
-     "Pass exactly ONE of `quantity` or `notional_inr`. STRICTLY "
-     "SINGLE-TRIGGER, NO CONDITIONS/GUARDS — if the prompt has a second "
-     "trigger, conditional second leg, or any 'if/unless/only when' "
-     "guard, bail to propose_workflow.",
+     "Build a workflow that places ONE order on a schedule — RECURRING "
+     "(SIP-style / weekly / Monday rules, via `days`+`time_ist`) OR ONE-TIME "
+     "(a single non-repeating run, via `run_at`). PREFER over propose_workflow "
+     "for prompts like 'buy 5 NIFTYBEES every weekday at 09:15' or 'buy 10 "
+     "RELIANCE just tomorrow at 1pm'. Server hydrates trigger.schedule + "
+     "action.place_order (+ optional SL). Pass exactly ONE of `quantity` or "
+     "`notional_inr`, and exactly ONE of `days` (recurring) or `run_at` "
+     "(one-time). STRICTLY SINGLE-TRIGGER, NO CONDITIONS/GUARDS — if the "
+     "prompt has a second trigger, conditional second leg, or any "
+     "'if/unless/only when' guard, bail to propose_workflow.",
      {
          "symbol": {"type": "string"},
          "side": {"type": "string", "enum": ["buy", "sell"]},
@@ -1672,12 +1680,25 @@ tool("propose_scheduled_order",
          "days": {
              "type": "array",
              "items": {"type": "string"},
-             "description": "Days to fire — list of mon|tue|wed|thu|fri|"
-                            "weekday|daily. Use ['weekday'] for Mon-Fri.",
+             "description": "RECURRING schedule: days to fire — list of "
+                            "mon|tue|wed|thu|fri|weekday|daily. Use "
+                            "['weekday'] for Mon-Fri. Omit when using run_at.",
          },
          "time_ist": {
              "type": "string",
-             "description": "Fire time, HH:MM in IST. Default 09:15.",
+             "description": "Fire time for a recurring schedule, HH:MM in IST. "
+                            "Default 09:15.",
+         },
+         "run_at": {
+             "type": "string",
+             "description": (
+                 "ONE-TIME run: a single ISO 8601 IST datetime "
+                 "(YYYY-MM-DDTHH:MM:SS) you resolve yourself from today's "
+                 "date — e.g. 'just tomorrow at 1pm', 'once at 3pm today', "
+                 "'only this Friday'. The order fires exactly once, then the "
+                 "agent is done. When set, OMIT `days`/`time_ist`. Use the "
+                 "recurring fields instead for repeating schedules."
+             ),
          },
          "sl_pct": {"type": "number", "minimum": 0.1, "maximum": 50,
                     "description": "Optional % stop-loss after the fill."},
@@ -1693,7 +1714,7 @@ tool("propose_scheduled_order",
              ),
          },
      },
-     ["symbol", "side", "days"])
+     ["symbol", "side"])
 
 
 tool("propose_threshold_order",

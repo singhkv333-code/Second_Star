@@ -456,3 +456,67 @@ def test_squareoff_cancels_orphaned_protective_sell(
     assert session.query(PaperOrder).filter_by(
         order_type="GTT", status="cancelled").count() == 1
     assert out["cancelled_guards"]  # the orphaned SELL was cancelled
+
+
+# ── live pre-trade funds guard (assert_live_funds_ok) ──────────────────────
+
+class _FakeConnector:
+    """Minimal connector exposing only get_available_cash for the funds guard."""
+
+    def __init__(self, cash):
+        self._cash = cash
+
+    def get_available_cash(self, sess):  # noqa: ANN001
+        if isinstance(self._cash, Exception):
+            raise self._cash
+        return self._cash
+
+
+def test_funds_guard_blocks_unaffordable_buy() -> None:
+    from backend.paper.routing import InsufficientFundsError, assert_live_funds_ok
+
+    with pytest.raises(InsufficientFundsError):
+        # value 5 * 1300 = 6500 > 100 available
+        assert_live_funds_ok(
+            _FakeConnector(100.0), object(),
+            symbol="RELIANCE", side="BUY", quantity=5,
+            order_type="LIMIT", price=1300.0,
+        )
+
+
+def test_funds_guard_allows_affordable_buy() -> None:
+    from backend.paper.routing import assert_live_funds_ok
+
+    # 6500 <= 50000 -> no raise
+    assert_live_funds_ok(
+        _FakeConnector(50000.0), object(),
+        symbol="RELIANCE", side="BUY", quantity=5,
+        order_type="LIMIT", price=1300.0,
+    )
+
+
+def test_funds_guard_skips_sell() -> None:
+    from backend.paper.routing import assert_live_funds_ok
+
+    # A SELL is never blocked on cash, even with a zero balance.
+    assert_live_funds_ok(
+        _FakeConnector(0.0), object(),
+        symbol="RELIANCE", side="SELL", quantity=5,
+        order_type="LIMIT", price=1300.0,
+    )
+
+
+def test_funds_guard_fails_open_on_unknown_balance() -> None:
+    from backend.paper.routing import assert_live_funds_ok
+
+    # Broker can't report balance (None) or errors -> never block (fail-open).
+    assert_live_funds_ok(
+        _FakeConnector(None), object(),
+        symbol="RELIANCE", side="BUY", quantity=5,
+        order_type="LIMIT", price=1300.0,
+    )
+    assert_live_funds_ok(
+        _FakeConnector(RuntimeError("margins API down")), object(),
+        symbol="RELIANCE", side="BUY", quantity=5,
+        order_type="LIMIT", price=1300.0,
+    )

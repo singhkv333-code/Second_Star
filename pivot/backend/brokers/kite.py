@@ -298,3 +298,14 @@ class KiteConnector(BrokerConnector):
 
     def get_positions(self, session: BrokerSession):
         return kite_portfolio.get_positions(read_broker_access_token(session) or "mock_token")
+
+    def get_available_cash(self, session: BrokerSession) -> Optional[float]:
+        """Live equity cash balance from Kite's margins API (₹). Returns None
+        if the shape is unexpected so the funds guard fails open, never closed."""
+        margins = kite_portfolio.get_margins(
+            read_broker_access_token(session) or "mock_token"
+        )
+        try:
+            return float(margins["equity"]["available"]["live_balance"])
+        except (KeyError, TypeError, ValueError):
+            return None

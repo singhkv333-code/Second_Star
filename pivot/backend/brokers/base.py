@@ -161,3 +161,8 @@ class BrokerConnector(abc.ABC):
 
     def get_positions(self, session: BrokerSession) -> Any:
         raise NotImplementedError(f"{self.broker}: positions not supported")
+
+    def get_available_cash(self, session: BrokerSession) -> Optional[float]:
+        """Available equity cash (₹) for funding fresh BUY orders, or None when
+        the broker can't report it. Used as a pre-trade funds guard."""
+        raise NotImplementedError(f"{self.broker}: funds not supported")

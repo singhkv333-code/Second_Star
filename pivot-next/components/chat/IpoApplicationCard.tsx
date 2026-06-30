@@ -623,6 +623,10 @@ function OfficialLinksBlock({
   const hasRhp = Boolean(locked.rhp_url);
   const hasAllotment = Boolean(locked.allotment_deeplink);
   const gmp = payload.gmp;
+  const sources = payload.data_sources ?? [];
+  const sourceText = sources
+    .map((s) => (s === "nse" ? "NSE" : s === "trendlyne" ? "Trendlyne" : s))
+    .join(" + ");
 
   return (
     <div className="flex flex-col gap-2">
@@ -650,10 +654,21 @@ function OfficialLinksBlock({
           </a>
         )}
       </div>
-      {!hasAllotment && (
+      {locked.allotment_date && (
+        <p className="text-[11px] text-muted-foreground/80">
+          Allotment date: {formatDate(locked.allotment_date)}
+          {locked.allotment_status && locked.allotment_status !== "Check Now"
+            ? ` · ${locked.allotment_status}`
+            : ""}
+        </p>
+      )}
+      {!hasAllotment && !locked.allotment_date && (
         <p className="text-[11px] text-muted-foreground/70">
           Allotment: check with your broker / registrar
         </p>
+      )}
+      {sourceText && (
+        <p className="text-[10px] text-muted-foreground/55">Data: {sourceText}</p>
       )}
 
       {/* GMP chip — only rendered when payload.gmp is present (v1: always absent) */}

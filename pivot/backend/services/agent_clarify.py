@@ -150,7 +150,7 @@ _THEME_HINTS: dict[str, tuple[re.Pattern[str], str, str]] = {
             "(e.g. ONGC, OIL India); DO NOT pick downstream refiners / "
             "marketers like IOC, BPCL, HPCL whose marketing margins COMPRESS "
             "when crude rises. An oil-services / E&P basket or a long-crude "
-            "MCX proxy (research-only) are the nearest real things."
+            "MCX crude future (tradeable, register-not-execute) are the nearest real things."
         ),
     ),
     "oil_down": (

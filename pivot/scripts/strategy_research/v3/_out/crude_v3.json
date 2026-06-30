@@ -1,0 +1,7060 @@
+{
+  "view": "crude_down",
+  "generated": "2026-06-30T08:35:29.582523+00:00",
+  "universe": {
+    "n_total": 500,
+    "n_with_data": 500,
+    "weighting": "equal_weight",
+    "n_scanned_event_window": 459
+  },
+  "events": [
+    {
+      "date": "2010-05-18",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -16.3,
+      "context": ""
+    },
+    {
+      "date": "2014-12-11",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -18.1,
+      "context": ""
+    },
+    {
+      "date": "2015-08-24",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -15.3,
+      "context": ""
+    },
+    {
+      "date": "2015-12-11",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -15.4,
+      "context": ""
+    },
+    {
+      "date": "2016-01-20",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -23.4,
+      "context": ""
+    },
+    {
+      "date": "2018-11-23",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -16.8,
+      "context": ""
+    },
+    {
+      "date": "2019-06-05",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -16.0,
+      "context": ""
+    },
+    {
+      "date": "2020-02-04",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -16.5,
+      "context": ""
+    },
+    {
+      "date": "2020-03-18",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -51.3,
+      "context": "OPEC+ breakup + COVID demand crash (Brent collapse)"
+    },
+    {
+      "date": "2021-12-01",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -16.5,
+      "context": ""
+    },
+    {
+      "date": "2022-07-13",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -15.6,
+      "context": ""
+    },
+    {
+      "date": "2024-09-10",
+      "kind": "CRASH",
+      "brent_10d_ret_pct": -15.0,
+      "context": ""
+    }
+  ],
+  "factors": {
+    "b_NB": 0.0513,
+    "b_NB_t": 3.04,
+    "b_NB_ewmkt": 0.0425,
+    "b_NB_ewmkt_t": 2.67,
+    "mkt_perp_built_from": "^NSEI residual vs Brent (FWL step 1)",
+    "interpretation": "NIFTY loads +0.0513 on Brent (t=3.04); MKT_\u22a5Brent removes that crude channel so per-name b_brent is no longer biased by the market's own crude sensitivity."
+  },
+  "top_gainers": [
+    {
+      "symbol": "LLOYDSME.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 30.98,
+      "rank": 1,
+      "nifty_comparison": {
+        "strategy_total_pct": 25.28,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 10.88,
+        "nifty_beta": 0.032,
+        "nifty_beta_t": 1.49,
+        "alpha_ann_pct": 24.15,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "PATANJALI.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 27.9,
+      "rank": 2,
+      "nifty_comparison": {
+        "strategy_total_pct": 417.34,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 402.94,
+        "nifty_beta": 0.343,
+        "nifty_beta_t": 2.0,
+        "alpha_ann_pct": 180.13,
+        "pct_episodes_beat": 50.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "BHARTIHEXA.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 16.7,
+      "rank": 3,
+      "nifty_comparison": {
+        "strategy_total_pct": 11.64,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -2.76,
+        "nifty_beta": 0.044,
+        "nifty_beta_t": 1.62,
+        "alpha_ann_pct": 12.17,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "KAYNES.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 16.27,
+      "rank": 4,
+      "nifty_comparison": {
+        "strategy_total_pct": 11.22,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -3.18,
+        "nifty_beta": 0.065,
+        "nifty_beta_t": 1.42,
+        "alpha_ann_pct": 11.42,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "RAINBOW.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 13.98,
+      "rank": 5,
+      "nifty_comparison": {
+        "strategy_total_pct": 23.83,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 9.44,
+        "nifty_beta": 0.028,
+        "nifty_beta_t": 1.38,
+        "alpha_ann_pct": 23.82,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "IRCTC.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 12.5,
+      "rank": 6,
+      "nifty_comparison": {
+        "strategy_total_pct": 65.48,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 51.09,
+        "nifty_beta": 0.266,
+        "nifty_beta_t": 2.41,
+        "alpha_ann_pct": 54.8,
+        "pct_episodes_beat": 50.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "AIIL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 12.42,
+      "rank": 7,
+      "nifty_comparison": {
+        "strategy_total_pct": 7.53,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -6.87,
+        "nifty_beta": 0.01,
+        "nifty_beta_t": 0.8,
+        "alpha_ann_pct": 8.32,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "SAPPHIRE.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 11.9,
+      "rank": 8,
+      "nifty_comparison": {
+        "strategy_total_pct": 33.55,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 19.15,
+        "nifty_beta": 0.068,
+        "nifty_beta_t": 1.68,
+        "alpha_ann_pct": 30.82,
+        "pct_episodes_beat": 50.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "JWL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 11.74,
+      "rank": 9,
+      "nifty_comparison": {
+        "strategy_total_pct": 137.12,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 122.72,
+        "nifty_beta": 0.663,
+        "nifty_beta_t": 3.35,
+        "alpha_ann_pct": 96.77,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "HOMEFIRST.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 11.61,
+      "rank": 10,
+      "nifty_comparison": {
+        "strategy_total_pct": 30.68,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 16.29,
+        "nifty_beta": 0.055,
+        "nifty_beta_t": 1.72,
+        "alpha_ann_pct": 29.62,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "RPOWER.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 11.16,
+      "rank": 11,
+      "nifty_comparison": {
+        "strategy_total_pct": 149.86,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 135.47,
+        "nifty_beta": 0.554,
+        "nifty_beta_t": 2.95,
+        "alpha_ann_pct": 104.99,
+        "pct_episodes_beat": 66.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "ACUTAAS.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 10.74,
+      "rank": 12,
+      "nifty_comparison": {
+        "strategy_total_pct": 28.67,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 14.27,
+        "nifty_beta": 0.068,
+        "nifty_beta_t": 1.47,
+        "alpha_ann_pct": 28.01,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "RRKABEL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 10.15,
+      "rank": 13,
+      "nifty_comparison": {
+        "strategy_total_pct": 5.4,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -9.0,
+        "nifty_beta": -0.015,
+        "nifty_beta_t": -0.88,
+        "alpha_ann_pct": 6.28,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "DEVYANI.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 10.05,
+      "rank": 14,
+      "nifty_comparison": {
+        "strategy_total_pct": 25.11,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 10.71,
+        "nifty_beta": 0.145,
+        "nifty_beta_t": 1.78,
+        "alpha_ann_pct": 24.52,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "TORNTPOWER.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 9.77,
+      "rank": 15,
+      "nifty_comparison": {
+        "strategy_total_pct": 177.93,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 163.54,
+        "nifty_beta": 0.768,
+        "nifty_beta_t": 6.42,
+        "alpha_ann_pct": 104.98,
+        "pct_episodes_beat": 66.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "MANKIND.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 9.75,
+      "rank": 16,
+      "nifty_comparison": {
+        "strategy_total_pct": 4.98,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -9.42,
+        "nifty_beta": 0.024,
+        "nifty_beta_t": 1.4,
+        "alpha_ann_pct": 5.33,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "APTUS.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 9.5,
+      "rank": 17,
+      "nifty_comparison": {
+        "strategy_total_pct": 24.84,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 10.44,
+        "nifty_beta": 0.04,
+        "nifty_beta_t": 1.54,
+        "alpha_ann_pct": 24.25,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "ZENTEC.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 9.1,
+      "rank": 18,
+      "nifty_comparison": {
+        "strategy_total_pct": 100.0,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 85.61,
+        "nifty_beta": 0.741,
+        "nifty_beta_t": 3.92,
+        "alpha_ann_pct": 78.65,
+        "pct_episodes_beat": 58.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "PARADEEP.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 8.92,
+      "rank": 19,
+      "nifty_comparison": {
+        "strategy_total_pct": 12.61,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -1.79,
+        "nifty_beta": 0.062,
+        "nifty_beta_t": 1.62,
+        "alpha_ann_pct": 13.74,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "BSE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 8.63,
+      "rank": 20,
+      "nifty_comparison": {
+        "strategy_total_pct": 54.46,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 40.06,
+        "nifty_beta": 0.545,
+        "nifty_beta_t": 5.68,
+        "alpha_ann_pct": 46.0,
+        "pct_episodes_beat": 50.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "ADANIPOWER.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 8.46,
+      "rank": 21,
+      "nifty_comparison": {
+        "strategy_total_pct": 127.3,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 112.9,
+        "nifty_beta": 1.209,
+        "nifty_beta_t": 9.28,
+        "alpha_ann_pct": 78.68,
+        "pct_episodes_beat": 66.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "KIMS.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 8.37,
+      "rank": 22,
+      "nifty_comparison": {
+        "strategy_total_pct": 21.16,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 6.76,
+        "nifty_beta": 0.042,
+        "nifty_beta_t": 1.62,
+        "alpha_ann_pct": 20.71,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "SHYAMMETL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 8.09,
+      "rank": 23,
+      "nifty_comparison": {
+        "strategy_total_pct": 20.55,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 6.15,
+        "nifty_beta": 0.072,
+        "nifty_beta_t": 1.83,
+        "alpha_ann_pct": 19.68,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "MAXHEALTH.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 7.83,
+      "rank": 24,
+      "nifty_comparison": {
+        "strategy_total_pct": 19.54,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 5.14,
+        "nifty_beta": 0.044,
+        "nifty_beta_t": 1.33,
+        "alpha_ann_pct": 19.56,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "NAVINFLUOR.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 7.68,
+      "rank": 25,
+      "nifty_comparison": {
+        "strategy_total_pct": 122.44,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 108.04,
+        "nifty_beta": 0.708,
+        "nifty_beta_t": 7.8,
+        "alpha_ann_pct": 83.12,
+        "pct_episodes_beat": 58.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "BERGEPAINT.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 7.52,
+      "rank": 26,
+      "nifty_comparison": {
+        "strategy_total_pct": 115.86,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 101.46,
+        "nifty_beta": 0.787,
+        "nifty_beta_t": 9.17,
+        "alpha_ann_pct": 74.92,
+        "pct_episodes_beat": 66.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "FIVESTAR.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 7.48,
+      "rank": 27
+    },
+    {
+      "symbol": "EMCURE.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 7.43,
+      "rank": 28
+    },
+    {
+      "symbol": "ANGELONE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 7.26,
+      "rank": 29
+    },
+    {
+      "symbol": "TARIL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 7.12,
+      "rank": 30
+    },
+    {
+      "symbol": "KALYANKJIL.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 7.05,
+      "rank": 31
+    },
+    {
+      "symbol": "TORNTPHARM.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 7.02,
+      "rank": 32
+    },
+    {
+      "symbol": "ABBOTINDIA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 6.92,
+      "rank": 33
+    },
+    {
+      "symbol": "BDL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 6.76,
+      "rank": 34
+    },
+    {
+      "symbol": "IRCON.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": 6.74,
+      "rank": 35
+    },
+    {
+      "symbol": "VIJAYA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 6.72,
+      "rank": 36
+    },
+    {
+      "symbol": "JSWENERGY.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 6.55,
+      "rank": 37
+    },
+    {
+      "symbol": "IDFCFIRSTB.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 6.46,
+      "rank": 38
+    },
+    {
+      "symbol": "ANURAS.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 6.31,
+      "rank": 39
+    },
+    {
+      "symbol": "TRENT.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 6.3,
+      "rank": 40
+    },
+    {
+      "symbol": "LALPATHLAB.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 6.26,
+      "rank": 41
+    },
+    {
+      "symbol": "HFCL.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 6.25,
+      "rank": 42
+    },
+    {
+      "symbol": "CHOICEIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 6.15,
+      "rank": 43
+    },
+    {
+      "symbol": "CANFINHOME.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 6.15,
+      "rank": 44
+    },
+    {
+      "symbol": "MUTHOOTFIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 6.08,
+      "rank": 45
+    },
+    {
+      "symbol": "DEEPAKNTR.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 6.04,
+      "rank": 46
+    },
+    {
+      "symbol": "IFCI.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 6.02,
+      "rank": 47
+    },
+    {
+      "symbol": "IPCALAB.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 5.9,
+      "rank": 48
+    },
+    {
+      "symbol": "ATUL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 5.86,
+      "rank": 49
+    },
+    {
+      "symbol": "DMART.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 5.84,
+      "rank": 50
+    },
+    {
+      "symbol": "APLAPOLLO.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 5.81,
+      "rank": 51
+    },
+    {
+      "symbol": "AFFLE.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 5.78,
+      "rank": 52
+    },
+    {
+      "symbol": "FIRSTCRY.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 5.69,
+      "rank": 53
+    },
+    {
+      "symbol": "CEMPRO.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": 5.67,
+      "rank": 54
+    },
+    {
+      "symbol": "INDIACEM.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": 5.59,
+      "rank": 55
+    },
+    {
+      "symbol": "AUROPHARMA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 5.52,
+      "rank": 56
+    },
+    {
+      "symbol": "MINDACORP.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 5.52,
+      "rank": 57
+    },
+    {
+      "symbol": "TIMKEN.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 5.48,
+      "rank": 58
+    },
+    {
+      "symbol": "POWERINDIA.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 5.44,
+      "rank": 59
+    },
+    {
+      "symbol": "SIGNATURE.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 5.42,
+      "rank": 60
+    },
+    {
+      "symbol": "CAPLIPOINT.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 5.32,
+      "rank": 61
+    },
+    {
+      "symbol": "SUZLON.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 5.32,
+      "rank": 62
+    },
+    {
+      "symbol": "TATAELXSI.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 5.31,
+      "rank": 63
+    },
+    {
+      "symbol": "ADANIGREEN.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 5.28,
+      "rank": 64
+    },
+    {
+      "symbol": "MANAPPURAM.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 5.24,
+      "rank": 65
+    },
+    {
+      "symbol": "POLYCAB.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 5.18,
+      "rank": 66
+    },
+    {
+      "symbol": "LTM.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 5.13,
+      "rank": 67
+    },
+    {
+      "symbol": "SRF.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 5.13,
+      "rank": 68
+    },
+    {
+      "symbol": "CEATLTD.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 5.12,
+      "rank": 69,
+      "nifty_comparison": {
+        "strategy_total_pct": 69.49,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 55.09,
+        "nifty_beta": 0.866,
+        "nifty_beta_t": 7.14,
+        "alpha_ann_pct": 50.12,
+        "pct_episodes_beat": 66.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "SIEMENS.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 5.11,
+      "rank": 70
+    },
+    {
+      "symbol": "SAREGAMA.NS",
+      "industry": "Media Entertainment & Publication",
+      "event_win_ret_pct": 5.01,
+      "rank": 71
+    },
+    {
+      "symbol": "JSWDULUX.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 5.0,
+      "rank": 72
+    },
+    {
+      "symbol": "NATIONALUM.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 4.94,
+      "rank": 73
+    },
+    {
+      "symbol": "LAURUSLABS.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.91,
+      "rank": 74
+    },
+    {
+      "symbol": "INFY.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 4.9,
+      "rank": 75
+    },
+    {
+      "symbol": "SCHNEIDER.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 4.89,
+      "rank": 76
+    },
+    {
+      "symbol": "CIPLA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.88,
+      "rank": 77
+    },
+    {
+      "symbol": "CRAFTSMAN.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 4.79,
+      "rank": 78
+    },
+    {
+      "symbol": "VEDL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 4.7,
+      "rank": 79
+    },
+    {
+      "symbol": "KPRMILL.NS",
+      "industry": "Textiles",
+      "event_win_ret_pct": 4.7,
+      "rank": 80
+    },
+    {
+      "symbol": "BSOFT.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 4.67,
+      "rank": 81
+    },
+    {
+      "symbol": "TITAGARH.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 4.64,
+      "rank": 82
+    },
+    {
+      "symbol": "ESCORTS.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 4.62,
+      "rank": 83
+    },
+    {
+      "symbol": "PIIND.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 4.6,
+      "rank": 84
+    },
+    {
+      "symbol": "TATACOMM.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 4.59,
+      "rank": 85
+    },
+    {
+      "symbol": "LUPIN.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.58,
+      "rank": 86
+    },
+    {
+      "symbol": "DEEPAKFERT.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 4.58,
+      "rank": 87
+    },
+    {
+      "symbol": "POWERGRID.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 4.55,
+      "rank": 88
+    },
+    {
+      "symbol": "ADANIENT.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 4.53,
+      "rank": 89
+    },
+    {
+      "symbol": "DIVISLAB.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.52,
+      "rank": 90
+    },
+    {
+      "symbol": "JBCHEPHARM.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.51,
+      "rank": 91
+    },
+    {
+      "symbol": "GRAVITA.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 4.49,
+      "rank": 92
+    },
+    {
+      "symbol": "NEULANDLAB.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.44,
+      "rank": 93
+    },
+    {
+      "symbol": "INTELLECT.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 4.31,
+      "rank": 94
+    },
+    {
+      "symbol": "SUNPHARMA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.3,
+      "rank": 95
+    },
+    {
+      "symbol": "HINDZINC.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 4.3,
+      "rank": 96
+    },
+    {
+      "symbol": "DRREDDY.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 4.23,
+      "rank": 97
+    },
+    {
+      "symbol": "SBILIFE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 4.14,
+      "rank": 98
+    },
+    {
+      "symbol": "HDFCAMC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 4.11,
+      "rank": 99
+    },
+    {
+      "symbol": "UTIAMC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 4.08,
+      "rank": 100
+    },
+    {
+      "symbol": "PIDILITIND.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 4.04,
+      "rank": 101
+    },
+    {
+      "symbol": "PAYTM.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 4.03,
+      "rank": 102
+    },
+    {
+      "symbol": "NTPC.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 3.99,
+      "rank": 103
+    },
+    {
+      "symbol": "PERSISTENT.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 3.98,
+      "rank": 104
+    },
+    {
+      "symbol": "MAZDOCK.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 3.81,
+      "rank": 105
+    },
+    {
+      "symbol": "SYNGENE.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 3.79,
+      "rank": 106
+    },
+    {
+      "symbol": "LTTS.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 3.78,
+      "rank": 107
+    },
+    {
+      "symbol": "DIXON.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 3.71,
+      "rank": 108
+    },
+    {
+      "symbol": "BALRAMCHIN.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 3.69,
+      "rank": 109
+    },
+    {
+      "symbol": "FACT.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 3.69,
+      "rank": 110
+    },
+    {
+      "symbol": "JUBLPHARMA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 3.67,
+      "rank": 111
+    },
+    {
+      "symbol": "CLEAN.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 3.66,
+      "rank": 112
+    },
+    {
+      "symbol": "COLPAL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 3.64,
+      "rank": 113
+    },
+    {
+      "symbol": "KFINTECH.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 3.61,
+      "rank": 114
+    },
+    {
+      "symbol": "IEX.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 3.59,
+      "rank": 115
+    },
+    {
+      "symbol": "APARINDS.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 3.59,
+      "rank": 116
+    },
+    {
+      "symbol": "CGPOWER.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 3.54,
+      "rank": 117
+    },
+    {
+      "symbol": "ECLERX.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 3.53,
+      "rank": 118
+    },
+    {
+      "symbol": "NUVOCO.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": 3.5,
+      "rank": 119
+    },
+    {
+      "symbol": "AJANTPHARM.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 3.5,
+      "rank": 120
+    },
+    {
+      "symbol": "IGL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 3.42,
+      "rank": 121
+    },
+    {
+      "symbol": "UCOBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 3.37,
+      "rank": 122
+    },
+    {
+      "symbol": "SBFC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 3.34,
+      "rank": 123
+    },
+    {
+      "symbol": "OBEROIRLTY.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 3.32,
+      "rank": 124
+    },
+    {
+      "symbol": "ANANDRATHI.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 3.3,
+      "rank": 125
+    },
+    {
+      "symbol": "UNOMINDA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.26,
+      "rank": 126
+    },
+    {
+      "symbol": "APOLLOHOSP.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 3.26,
+      "rank": 127
+    },
+    {
+      "symbol": "SHREECEM.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": 3.22,
+      "rank": 128
+    },
+    {
+      "symbol": "HINDUNILVR.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 3.17,
+      "rank": 129
+    },
+    {
+      "symbol": "3MINDIA.NS",
+      "industry": "Diversified",
+      "event_win_ret_pct": 3.17,
+      "rank": 130
+    },
+    {
+      "symbol": "ICICIPRULI.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 3.17,
+      "rank": 131
+    },
+    {
+      "symbol": "PETRONET.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 3.16,
+      "rank": 132
+    },
+    {
+      "symbol": "TRITURBINE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 3.15,
+      "rank": 133
+    },
+    {
+      "symbol": "TATACHEM.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 3.13,
+      "rank": 134
+    },
+    {
+      "symbol": "AEGISLOG.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 3.11,
+      "rank": 135
+    },
+    {
+      "symbol": "PFIZER.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 3.1,
+      "rank": 136
+    },
+    {
+      "symbol": "BEL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 3.08,
+      "rank": 137
+    },
+    {
+      "symbol": "HDFCLIFE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 3.06,
+      "rank": 138
+    },
+    {
+      "symbol": "OLECTRA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.01,
+      "rank": 139
+    },
+    {
+      "symbol": "UPL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 2.96,
+      "rank": 140
+    },
+    {
+      "symbol": "BHARTIARTL.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 2.91,
+      "rank": 141
+    },
+    {
+      "symbol": "NMDC.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 2.88,
+      "rank": 142
+    },
+    {
+      "symbol": "APOLLOTYRE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.85,
+      "rank": 143,
+      "nifty_comparison": {
+        "strategy_total_pct": 29.5,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 15.11,
+        "nifty_beta": 0.909,
+        "nifty_beta_t": 8.84,
+        "alpha_ann_pct": 19.8,
+        "pct_episodes_beat": 50.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "BATAINDIA.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 2.84,
+      "rank": 144
+    },
+    {
+      "symbol": "NAM-INDIA.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 2.81,
+      "rank": 145
+    },
+    {
+      "symbol": "ZFCVINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.81,
+      "rank": 146
+    },
+    {
+      "symbol": "JPPOWER.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 2.77,
+      "rank": 147
+    },
+    {
+      "symbol": "EXIDEIND.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.77,
+      "rank": 148
+    },
+    {
+      "symbol": "LTFOODS.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 2.75,
+      "rank": 149
+    },
+    {
+      "symbol": "NESTLEIND.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 2.71,
+      "rank": 150
+    },
+    {
+      "symbol": "BIOCON.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 2.71,
+      "rank": 151
+    },
+    {
+      "symbol": "WIPRO.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 2.7,
+      "rank": 152
+    },
+    {
+      "symbol": "CONCORDBIO.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 2.68,
+      "rank": 153
+    },
+    {
+      "symbol": "BRITANNIA.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 2.67,
+      "rank": 154
+    },
+    {
+      "symbol": "UBL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 2.67,
+      "rank": 155
+    },
+    {
+      "symbol": "RITES.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": 2.67,
+      "rank": 156
+    },
+    {
+      "symbol": "ASIANPAINT.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 2.65,
+      "rank": 157,
+      "nifty_comparison": {
+        "strategy_total_pct": 28.27,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 13.88,
+        "nifty_beta": 0.834,
+        "nifty_beta_t": 9.3,
+        "alpha_ann_pct": 16.36,
+        "pct_episodes_beat": 75.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "IRB.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": 2.65,
+      "rank": 158
+    },
+    {
+      "symbol": "EICHERMOT.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.65,
+      "rank": 159
+    },
+    {
+      "symbol": "ERIS.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 2.59,
+      "rank": 160
+    },
+    {
+      "symbol": "SUPREMEIND.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 2.56,
+      "rank": 161
+    },
+    {
+      "symbol": "BLUEDART.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 2.55,
+      "rank": 162
+    },
+    {
+      "symbol": "KEI.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 2.55,
+      "rank": 163
+    },
+    {
+      "symbol": "MMTC.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 2.54,
+      "rank": 164
+    },
+    {
+      "symbol": "MARICO.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 2.48,
+      "rank": 165
+    },
+    {
+      "symbol": "ULTRACEMCO.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": 2.45,
+      "rank": 166
+    },
+    {
+      "symbol": "BAJFINANCE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 2.45,
+      "rank": 167
+    },
+    {
+      "symbol": "BEML.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 2.44,
+      "rank": 168
+    },
+    {
+      "symbol": "TCS.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 2.42,
+      "rank": 169
+    },
+    {
+      "symbol": "SWANCORP.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 2.42,
+      "rank": 170
+    },
+    {
+      "symbol": "GRSE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 2.39,
+      "rank": 171
+    },
+    {
+      "symbol": "GVT&D.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 2.37,
+      "rank": 172
+    },
+    {
+      "symbol": "ITI.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 2.36,
+      "rank": 173
+    },
+    {
+      "symbol": "TIINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.33,
+      "rank": 174
+    },
+    {
+      "symbol": "ARE&M.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.33,
+      "rank": 175
+    },
+    {
+      "symbol": "WELSPUNLIV.NS",
+      "industry": "Textiles",
+      "event_win_ret_pct": 2.29,
+      "rank": 176
+    },
+    {
+      "symbol": "PGEL.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 2.28,
+      "rank": 177
+    },
+    {
+      "symbol": "HONAUT.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 2.26,
+      "rank": 178
+    },
+    {
+      "symbol": "SUNDARMFIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 2.2,
+      "rank": 179
+    },
+    {
+      "symbol": "MCX.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 2.18,
+      "rank": 180
+    },
+    {
+      "symbol": "ABB.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 2.15,
+      "rank": 181
+    },
+    {
+      "symbol": "ZYDUSLIFE.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 2.08,
+      "rank": 182
+    },
+    {
+      "symbol": "NCC.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": 2.05,
+      "rank": 183
+    },
+    {
+      "symbol": "CESC.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 2.03,
+      "rank": 184
+    },
+    {
+      "symbol": "LINDEINDIA.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 2.02,
+      "rank": 185
+    },
+    {
+      "symbol": "AARTIIND.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 2.02,
+      "rank": 186
+    },
+    {
+      "symbol": "COHANCE.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 2.02,
+      "rank": 187
+    },
+    {
+      "symbol": "RELIANCE.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 2.01,
+      "rank": 188,
+      "nifty_comparison": {
+        "strategy_total_pct": 15.71,
+        "nifty_total_pct": 14.4,
+        "excess_pct": 1.31,
+        "nifty_beta": 1.207,
+        "nifty_beta_t": 22.16,
+        "alpha_ann_pct": 1.22,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "NATCOPHARM.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 1.98,
+      "rank": 189
+    },
+    {
+      "symbol": "HSCL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 1.96,
+      "rank": 190
+    },
+    {
+      "symbol": "PRESTIGE.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 1.95,
+      "rank": 191
+    },
+    {
+      "symbol": "EIHOTEL.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 1.92,
+      "rank": 192
+    },
+    {
+      "symbol": "FLUOROCHEM.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 1.9,
+      "rank": 193
+    },
+    {
+      "symbol": "ALKEM.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 1.9,
+      "rank": 194
+    },
+    {
+      "symbol": "THERMAX.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 1.88,
+      "rank": 195
+    },
+    {
+      "symbol": "GRANULES.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 1.87,
+      "rank": 196
+    },
+    {
+      "symbol": "SAMMAANCAP.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.83,
+      "rank": 197
+    },
+    {
+      "symbol": "NHPC.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 1.81,
+      "rank": 198
+    },
+    {
+      "symbol": "DATAPATTNS.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 1.8,
+      "rank": 199
+    },
+    {
+      "symbol": "HINDALCO.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 1.78,
+      "rank": 200
+    },
+    {
+      "symbol": "AMBUJACEM.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": 1.77,
+      "rank": 201
+    },
+    {
+      "symbol": "CENTRALBK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.76,
+      "rank": 202
+    },
+    {
+      "symbol": "TECHNOE.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": 1.75,
+      "rank": 203
+    },
+    {
+      "symbol": "HDFCBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.68,
+      "rank": 204
+    },
+    {
+      "symbol": "GAIL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 1.67,
+      "rank": 205
+    },
+    {
+      "symbol": "PFC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.66,
+      "rank": 206
+    },
+    {
+      "symbol": "SCHAEFFLER.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.65,
+      "rank": 207
+    },
+    {
+      "symbol": "SHRIRAMFIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.64,
+      "rank": 208
+    },
+    {
+      "symbol": "INOXWIND.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 1.59,
+      "rank": 209
+    },
+    {
+      "symbol": "TTML.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 1.58,
+      "rank": 210
+    },
+    {
+      "symbol": "GRAPHITE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 1.56,
+      "rank": 211
+    },
+    {
+      "symbol": "MGL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 1.53,
+      "rank": 212
+    },
+    {
+      "symbol": "NAVA.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 1.52,
+      "rank": 213
+    },
+    {
+      "symbol": "BAJAJ-AUTO.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.52,
+      "rank": 214
+    },
+    {
+      "symbol": "JSL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 1.52,
+      "rank": 215
+    },
+    {
+      "symbol": "DABUR.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 1.51,
+      "rank": 216
+    },
+    {
+      "symbol": "BPCL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 1.48,
+      "rank": 217,
+      "nifty_comparison": {
+        "strategy_total_pct": 9.74,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -4.65,
+        "nifty_beta": 0.882,
+        "nifty_beta_t": 9.91,
+        "alpha_ann_pct": 2.16,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "SUNTV.NS",
+      "industry": "Media Entertainment & Publication",
+      "event_win_ret_pct": 1.47,
+      "rank": 218
+    },
+    {
+      "symbol": "ANANTRAJ.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 1.46,
+      "rank": 219
+    },
+    {
+      "symbol": "COALINDIA.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 1.45,
+      "rank": 220
+    },
+    {
+      "symbol": "M&M.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.45,
+      "rank": 221
+    },
+    {
+      "symbol": "JMFINANCIL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.43,
+      "rank": 222
+    },
+    {
+      "symbol": "TATASTEEL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 1.43,
+      "rank": 223
+    },
+    {
+      "symbol": "ABREL.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 1.41,
+      "rank": 224
+    },
+    {
+      "symbol": "VTL.NS",
+      "industry": "Textiles",
+      "event_win_ret_pct": 1.38,
+      "rank": 225
+    },
+    {
+      "symbol": "JSWINFRA.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 1.36,
+      "rank": 226
+    },
+    {
+      "symbol": "NAUKRI.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 1.35,
+      "rank": 227
+    },
+    {
+      "symbol": "CCL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 1.32,
+      "rank": 228
+    },
+    {
+      "symbol": "NBCC.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": 1.3,
+      "rank": 229
+    },
+    {
+      "symbol": "TVSMOTOR.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.27,
+      "rank": 230
+    },
+    {
+      "symbol": "HINDCOPPER.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 1.26,
+      "rank": 231
+    },
+    {
+      "symbol": "IDBI.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.25,
+      "rank": 232
+    },
+    {
+      "symbol": "INDIGO.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 1.25,
+      "rank": 233,
+      "nifty_comparison": {
+        "strategy_total_pct": -3.75,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -18.15,
+        "nifty_beta": 0.536,
+        "nifty_beta_t": 3.73,
+        "alpha_ann_pct": -2.74,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "TRIDENT.NS",
+      "industry": "Textiles",
+      "event_win_ret_pct": 1.24,
+      "rank": 234
+    },
+    {
+      "symbol": "GESHIP.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 1.23,
+      "rank": 235
+    },
+    {
+      "symbol": "KAJARIACER.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 1.19,
+      "rank": 236
+    },
+    {
+      "symbol": "GLENMARK.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 1.19,
+      "rank": 237
+    },
+    {
+      "symbol": "ONGC.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 1.14,
+      "rank": 238,
+      "nifty_comparison": {
+        "strategy_total_pct": 7.07,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -7.33,
+        "nifty_beta": 1.004,
+        "nifty_beta_t": 7.31,
+        "alpha_ann_pct": -1.23,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "SUMICHEM.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 1.14,
+      "rank": 239
+    },
+    {
+      "symbol": "RECLTD.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.12,
+      "rank": 240
+    },
+    {
+      "symbol": "JSWSTEEL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 1.08,
+      "rank": 241
+    },
+    {
+      "symbol": "ACE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 1.06,
+      "rank": 242
+    },
+    {
+      "symbol": "RADICO.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 1.03,
+      "rank": 243
+    },
+    {
+      "symbol": "CDSL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 1.03,
+      "rank": 244
+    },
+    {
+      "symbol": "FORTIS.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 0.98,
+      "rank": 245
+    },
+    {
+      "symbol": "GODIGIT.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.95,
+      "rank": 246
+    },
+    {
+      "symbol": "FEDERALBNK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.92,
+      "rank": 247
+    },
+    {
+      "symbol": "HAVELLS.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 0.9,
+      "rank": 248
+    },
+    {
+      "symbol": "INDIAMART.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 0.89,
+      "rank": 249
+    },
+    {
+      "symbol": "SOLARINDS.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 0.85,
+      "rank": 250
+    },
+    {
+      "symbol": "HAL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 0.84,
+      "rank": 251
+    },
+    {
+      "symbol": "GALLANTT.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 0.84,
+      "rank": 252
+    },
+    {
+      "symbol": "BAYERCROP.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 0.83,
+      "rank": 253
+    },
+    {
+      "symbol": "BRIGADE.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 0.82,
+      "rank": 254
+    },
+    {
+      "symbol": "HCLTECH.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 0.8,
+      "rank": 255
+    },
+    {
+      "symbol": "ABFRL.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 0.78,
+      "rank": 256
+    },
+    {
+      "symbol": "ADANIPORTS.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 0.77,
+      "rank": 257
+    },
+    {
+      "symbol": "ICICIGI.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.74,
+      "rank": 258
+    },
+    {
+      "symbol": "RAMCOCEM.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": 0.73,
+      "rank": 259
+    },
+    {
+      "symbol": "FSL.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 0.73,
+      "rank": 260
+    },
+    {
+      "symbol": "PAGEIND.NS",
+      "industry": "Textiles",
+      "event_win_ret_pct": 0.67,
+      "rank": 261
+    },
+    {
+      "symbol": "GLAXO.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 0.66,
+      "rank": 262
+    },
+    {
+      "symbol": "HEG.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 0.65,
+      "rank": 263
+    },
+    {
+      "symbol": "JKTYRE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.61,
+      "rank": 264,
+      "nifty_comparison": {
+        "strategy_total_pct": 0.13,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -14.27,
+        "nifty_beta": 1.111,
+        "nifty_beta_t": 8.06,
+        "alpha_ann_pct": -6.01,
+        "pct_episodes_beat": 50.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "COFORGE.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 0.6,
+      "rank": 265
+    },
+    {
+      "symbol": "AMBER.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 0.56,
+      "rank": 266
+    },
+    {
+      "symbol": "INDGN.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": 0.56,
+      "rank": 267
+    },
+    {
+      "symbol": "DLF.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 0.56,
+      "rank": 268
+    },
+    {
+      "symbol": "KARURVYSYA.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.56,
+      "rank": 269
+    },
+    {
+      "symbol": "MAHABANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.53,
+      "rank": 270
+    },
+    {
+      "symbol": "GMRAIRPORT.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 0.53,
+      "rank": 271
+    },
+    {
+      "symbol": "BLUESTARCO.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 0.52,
+      "rank": 272
+    },
+    {
+      "symbol": "JBMA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.51,
+      "rank": 273
+    },
+    {
+      "symbol": "AADHARHFC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.5,
+      "rank": 274
+    },
+    {
+      "symbol": "BOSCHLTD.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.49,
+      "rank": 275
+    },
+    {
+      "symbol": "MOTHERSON.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.49,
+      "rank": 276
+    },
+    {
+      "symbol": "HEROMOTOCO.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.47,
+      "rank": 277
+    },
+    {
+      "symbol": "AAVAS.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.46,
+      "rank": 278
+    },
+    {
+      "symbol": "GABRIEL.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.43,
+      "rank": 279
+    },
+    {
+      "symbol": "BALKRISIND.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.43,
+      "rank": 280,
+      "nifty_comparison": {
+        "strategy_total_pct": -0.68,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -15.08,
+        "nifty_beta": 0.966,
+        "nifty_beta_t": 6.63,
+        "alpha_ann_pct": -9.14,
+        "pct_episodes_beat": 41.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "DCMSHRIRAM.NS",
+      "industry": "Diversified",
+      "event_win_ret_pct": 0.4,
+      "rank": 281
+    },
+    {
+      "symbol": "PHOENIXLTD.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 0.4,
+      "rank": 282
+    },
+    {
+      "symbol": "MPHASIS.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": 0.35,
+      "rank": 283
+    },
+    {
+      "symbol": "TATACONSUM.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.31,
+      "rank": 284
+    },
+    {
+      "symbol": "CHAMBLFERT.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 0.28,
+      "rank": 285
+    },
+    {
+      "symbol": "GODREJCP.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.26,
+      "rank": 286
+    },
+    {
+      "symbol": "GMDCLTD.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 0.2,
+      "rank": 287
+    },
+    {
+      "symbol": "NLCINDIA.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 0.19,
+      "rank": 288
+    },
+    {
+      "symbol": "GODREJPROP.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": 0.18,
+      "rank": 289
+    },
+    {
+      "symbol": "POONAWALLA.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.15,
+      "rank": 290
+    },
+    {
+      "symbol": "BAJAJFINSV.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.13,
+      "rank": 291
+    },
+    {
+      "symbol": "LICHSGFIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.12,
+      "rank": 292
+    },
+    {
+      "symbol": "CUB.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.07,
+      "rank": 293
+    },
+    {
+      "symbol": "ZYDUSWELL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.06,
+      "rank": 294
+    },
+    {
+      "symbol": "CUMMINSIND.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 0.04,
+      "rank": 295
+    },
+    {
+      "symbol": "ITC.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.04,
+      "rank": 296
+    },
+    {
+      "symbol": "MFSL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 0.02,
+      "rank": 297
+    },
+    {
+      "symbol": "KOTAKBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.01,
+      "rank": 298
+    },
+    {
+      "symbol": "MRF.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -0.03,
+      "rank": 299,
+      "nifty_comparison": {
+        "strategy_total_pct": -5.61,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -20.01,
+        "nifty_beta": 0.813,
+        "nifty_beta_t": 18.45,
+        "alpha_ann_pct": -15.47,
+        "pct_episodes_beat": 16.7,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "GODFRYPHLP.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -0.04,
+      "rank": 300
+    },
+    {
+      "symbol": "BIKAJI.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -0.06,
+      "rank": 301
+    },
+    {
+      "symbol": "IOC.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": -0.06,
+      "rank": 302,
+      "nifty_comparison": {
+        "strategy_total_pct": -6.31,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -20.71,
+        "nifty_beta": 0.538,
+        "nifty_beta_t": 5.8,
+        "alpha_ann_pct": -11.83,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "INDIANB.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.06,
+      "rank": 303
+    },
+    {
+      "symbol": "TECHM.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -0.07,
+      "rank": 304
+    },
+    {
+      "symbol": "LTF.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.1,
+      "rank": 305
+    },
+    {
+      "symbol": "AUBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.1,
+      "rank": 306
+    },
+    {
+      "symbol": "AXISBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.11,
+      "rank": 307
+    },
+    {
+      "symbol": "INDUSINDBK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.13,
+      "rank": 308
+    },
+    {
+      "symbol": "LT.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": -0.13,
+      "rank": 309
+    },
+    {
+      "symbol": "CRISIL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.13,
+      "rank": 310
+    },
+    {
+      "symbol": "SARDAEN.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": -0.17,
+      "rank": 311
+    },
+    {
+      "symbol": "SPLPETRO.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": -0.2,
+      "rank": 312
+    },
+    {
+      "symbol": "GILLETTE.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -0.26,
+      "rank": 313
+    },
+    {
+      "symbol": "TITAN.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": -0.27,
+      "rank": 314
+    },
+    {
+      "symbol": "SJVN.NS",
+      "industry": "Power",
+      "event_win_ret_pct": -0.28,
+      "rank": 315
+    },
+    {
+      "symbol": "INDHOTEL.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -0.31,
+      "rank": 316
+    },
+    {
+      "symbol": "OFSS.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -0.33,
+      "rank": 317
+    },
+    {
+      "symbol": "STARHEALTH.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.36,
+      "rank": 318
+    },
+    {
+      "symbol": "PCBL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": -0.38,
+      "rank": 319
+    },
+    {
+      "symbol": "ZENSARTECH.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -0.39,
+      "rank": 320
+    },
+    {
+      "symbol": "NH.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -0.44,
+      "rank": 321
+    },
+    {
+      "symbol": "ABCAPITAL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.44,
+      "rank": 322
+    },
+    {
+      "symbol": "VBL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -0.46,
+      "rank": 323
+    },
+    {
+      "symbol": "CONCOR.NS",
+      "industry": "Services",
+      "event_win_ret_pct": -0.51,
+      "rank": 324
+    },
+    {
+      "symbol": "GODREJIND.NS",
+      "industry": "Diversified",
+      "event_win_ret_pct": -0.54,
+      "rank": 325
+    },
+    {
+      "symbol": "PVRINOX.NS",
+      "industry": "Media Entertainment & Publication",
+      "event_win_ret_pct": -0.55,
+      "rank": 326
+    },
+    {
+      "symbol": "NEWGEN.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -0.57,
+      "rank": 327
+    },
+    {
+      "symbol": "WHIRLPOOL.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": -0.6,
+      "rank": 328
+    },
+    {
+      "symbol": "ICICIBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.63,
+      "rank": 329
+    },
+    {
+      "symbol": "CHOLAFIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.63,
+      "rank": 330
+    },
+    {
+      "symbol": "ASTERDM.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -0.65,
+      "rank": 331
+    },
+    {
+      "symbol": "KPITTECH.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -0.66,
+      "rank": 332
+    },
+    {
+      "symbol": "EIDPARRY.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -0.69,
+      "rank": 333
+    },
+    {
+      "symbol": "ACC.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": -0.7,
+      "rank": 334
+    },
+    {
+      "symbol": "CREDITACC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.72,
+      "rank": 335
+    },
+    {
+      "symbol": "MARUTI.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -0.75,
+      "rank": 336
+    },
+    {
+      "symbol": "JKCEMENT.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": -0.76,
+      "rank": 337
+    },
+    {
+      "symbol": "BANKBARODA.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.79,
+      "rank": 338
+    },
+    {
+      "symbol": "ELGIEQUIP.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -0.83,
+      "rank": 339
+    },
+    {
+      "symbol": "CARBORUNIV.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -0.88,
+      "rank": 340
+    },
+    {
+      "symbol": "WOCKPHARMA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -0.89,
+      "rank": 341
+    },
+    {
+      "symbol": "ZEEL.NS",
+      "industry": "Media Entertainment & Publication",
+      "event_win_ret_pct": -0.89,
+      "rank": 342
+    },
+    {
+      "symbol": "HBLENGINE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -0.9,
+      "rank": 343
+    },
+    {
+      "symbol": "AIAENG.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -0.91,
+      "rank": 344
+    },
+    {
+      "symbol": "KIRLOSENG.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -0.92,
+      "rank": 345
+    },
+    {
+      "symbol": "UNITDSPR.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -0.93,
+      "rank": 346
+    },
+    {
+      "symbol": "CASTROLIND.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": -0.95,
+      "rank": 347
+    },
+    {
+      "symbol": "TATAINVEST.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -0.97,
+      "rank": 348
+    },
+    {
+      "symbol": "WELCORP.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -0.97,
+      "rank": 349
+    },
+    {
+      "symbol": "FORCEMOT.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -1.0,
+      "rank": 350
+    },
+    {
+      "symbol": "COROMANDEL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": -1.01,
+      "rank": 351
+    },
+    {
+      "symbol": "BLUEJET.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -1.01,
+      "rank": 352
+    },
+    {
+      "symbol": "IREDA.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -1.01,
+      "rank": 353
+    },
+    {
+      "symbol": "IOB.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -1.02,
+      "rank": 354
+    },
+    {
+      "symbol": "HINDPETRO.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": -1.09,
+      "rank": 355,
+      "nifty_comparison": {
+        "strategy_total_pct": -18.01,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -32.41,
+        "nifty_beta": 0.855,
+        "nifty_beta_t": 7.3,
+        "alpha_ann_pct": -27.58,
+        "pct_episodes_beat": 33.3,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "JUBLFOOD.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -1.09,
+      "rank": 356
+    },
+    {
+      "symbol": "KPIL.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": -1.1,
+      "rank": 357
+    },
+    {
+      "symbol": "UNIONBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -1.12,
+      "rank": 358
+    },
+    {
+      "symbol": "ENGINERSIN.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": -1.12,
+      "rank": 359
+    },
+    {
+      "symbol": "REDINGTON.NS",
+      "industry": "Services",
+      "event_win_ret_pct": -1.14,
+      "rank": 360
+    },
+    {
+      "symbol": "ATGL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": -1.17,
+      "rank": 361
+    },
+    {
+      "symbol": "TATAPOWER.NS",
+      "industry": "Power",
+      "event_win_ret_pct": -1.17,
+      "rank": 362
+    },
+    {
+      "symbol": "JUBLINGREA.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": -1.21,
+      "rank": 363
+    },
+    {
+      "symbol": "CHENNPETRO.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": -1.27,
+      "rank": 364
+    },
+    {
+      "symbol": "MSUMI.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -1.29,
+      "rank": 365
+    },
+    {
+      "symbol": "TEGA.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -1.33,
+      "rank": 366
+    },
+    {
+      "symbol": "360ONE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -1.35,
+      "rank": 367
+    },
+    {
+      "symbol": "BBTC.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -1.35,
+      "rank": 368
+    },
+    {
+      "symbol": "RVNL.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": -1.37,
+      "rank": 369
+    },
+    {
+      "symbol": "GICRE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -1.46,
+      "rank": 370
+    },
+    {
+      "symbol": "ASAHIINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -1.54,
+      "rank": 371
+    },
+    {
+      "symbol": "ELECON.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -1.57,
+      "rank": 372
+    },
+    {
+      "symbol": "FINCABLES.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -1.59,
+      "rank": 373
+    },
+    {
+      "symbol": "CROMPTON.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": -1.6,
+      "rank": 374
+    },
+    {
+      "symbol": "ASTRAL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -1.63,
+      "rank": 375
+    },
+    {
+      "symbol": "ASHOKLEY.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -1.68,
+      "rank": 376
+    },
+    {
+      "symbol": "AWL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -1.69,
+      "rank": 377
+    },
+    {
+      "symbol": "IRFC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -1.8,
+      "rank": 378
+    },
+    {
+      "symbol": "ETERNAL.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -1.88,
+      "rank": 379
+    },
+    {
+      "symbol": "KEC.NS",
+      "industry": "Construction",
+      "event_win_ret_pct": -1.9,
+      "rank": 380
+    },
+    {
+      "symbol": "MAPMYINDIA.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -1.9,
+      "rank": 381
+    },
+    {
+      "symbol": "SBIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -1.94,
+      "rank": 382
+    },
+    {
+      "symbol": "GPIL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -1.97,
+      "rank": 383
+    },
+    {
+      "symbol": "MOTILALOFS.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.03,
+      "rank": 384
+    },
+    {
+      "symbol": "SOBHA.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": -2.06,
+      "rank": 385
+    },
+    {
+      "symbol": "SONATSOFTW.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -2.07,
+      "rank": 386
+    },
+    {
+      "symbol": "VOLTAS.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": -2.08,
+      "rank": 387
+    },
+    {
+      "symbol": "SAIL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": -2.2,
+      "rank": 388
+    },
+    {
+      "symbol": "JYOTICNC.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -2.23,
+      "rank": 389
+    },
+    {
+      "symbol": "DOMS.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -2.28,
+      "rank": 390
+    },
+    {
+      "symbol": "CGCL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.33,
+      "rank": 391
+    },
+    {
+      "symbol": "SCI.NS",
+      "industry": "Services",
+      "event_win_ret_pct": -2.38,
+      "rank": 392
+    },
+    {
+      "symbol": "BAJAJHLDNG.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.39,
+      "rank": 393
+    },
+    {
+      "symbol": "OIL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": -2.4,
+      "rank": 394,
+      "nifty_comparison": {
+        "strategy_total_pct": -30.68,
+        "nifty_total_pct": 14.4,
+        "excess_pct": -45.07,
+        "nifty_beta": 0.788,
+        "nifty_beta_t": 8.41,
+        "alpha_ann_pct": -43.2,
+        "pct_episodes_beat": 25.0,
+        "n_episodes": 12,
+        "window_basis": "concatenated_episode_windows"
+      }
+    },
+    {
+      "symbol": "JIOFIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.42,
+      "rank": 395
+    },
+    {
+      "symbol": "J&KBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.45,
+      "rank": 396
+    },
+    {
+      "symbol": "COCHINSHIP.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -2.47,
+      "rank": 397
+    },
+    {
+      "symbol": "ABSLAMC.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.47,
+      "rank": 398
+    },
+    {
+      "symbol": "RKFORGE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -2.49,
+      "rank": 399
+    },
+    {
+      "symbol": "INDUSTOWER.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": -2.51,
+      "rank": 400
+    },
+    {
+      "symbol": "TBOTEK.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -2.53,
+      "rank": 401
+    },
+    {
+      "symbol": "USHAMART.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -2.55,
+      "rank": 402
+    },
+    {
+      "symbol": "MRPL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": -2.56,
+      "rank": 403
+    },
+    {
+      "symbol": "JINDALSAW.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -2.58,
+      "rank": 404
+    },
+    {
+      "symbol": "JINDALSTEL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": -2.59,
+      "rank": 405
+    },
+    {
+      "symbol": "IIFL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.6,
+      "rank": 406
+    },
+    {
+      "symbol": "CAMS.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.61,
+      "rank": 407
+    },
+    {
+      "symbol": "BANKINDIA.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.63,
+      "rank": 408
+    },
+    {
+      "symbol": "SYRMA.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -2.63,
+      "rank": 409
+    },
+    {
+      "symbol": "GRASIM.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": -2.65,
+      "rank": 410
+    },
+    {
+      "symbol": "CANBK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -2.66,
+      "rank": 411
+    },
+    {
+      "symbol": "GLAND.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -2.67,
+      "rank": 412
+    },
+    {
+      "symbol": "CIEINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -2.72,
+      "rank": 413
+    },
+    {
+      "symbol": "RHIM.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -2.86,
+      "rank": 414
+    },
+    {
+      "symbol": "ADANIENSOL.NS",
+      "industry": "Power",
+      "event_win_ret_pct": -2.9,
+      "rank": 415
+    },
+    {
+      "symbol": "DELHIVERY.NS",
+      "industry": "Services",
+      "event_win_ret_pct": -3.02,
+      "rank": 416
+    },
+    {
+      "symbol": "TMPV.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -3.09,
+      "rank": 417
+    },
+    {
+      "symbol": "EMAMILTD.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -3.1,
+      "rank": 418
+    },
+    {
+      "symbol": "PPLPHARMA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -3.17,
+      "rank": 419
+    },
+    {
+      "symbol": "NIACL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -3.22,
+      "rank": 420
+    },
+    {
+      "symbol": "POLYMED.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -3.26,
+      "rank": 421
+    },
+    {
+      "symbol": "DALBHARAT.NS",
+      "industry": "Construction Materials",
+      "event_win_ret_pct": -3.42,
+      "rank": 422
+    },
+    {
+      "symbol": "CARTRADE.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -3.45,
+      "rank": 423
+    },
+    {
+      "symbol": "YESBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -3.62,
+      "rank": 424
+    },
+    {
+      "symbol": "BANDHANBNK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -3.64,
+      "rank": 425
+    },
+    {
+      "symbol": "CYIENT.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -3.66,
+      "rank": 426
+    },
+    {
+      "symbol": "CHOLAHLDNG.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -3.7,
+      "rank": 427
+    },
+    {
+      "symbol": "HUDCO.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -3.74,
+      "rank": 428
+    },
+    {
+      "symbol": "BHARATFORG.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -3.86,
+      "rank": 429
+    },
+    {
+      "symbol": "TATATECH.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -3.88,
+      "rank": 430
+    },
+    {
+      "symbol": "RAILTEL.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": -4.26,
+      "rank": 431
+    },
+    {
+      "symbol": "NSLNISP.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": -4.46,
+      "rank": 432
+    },
+    {
+      "symbol": "PTCIL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -4.49,
+      "rank": 433
+    },
+    {
+      "symbol": "SONACOMS.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -4.53,
+      "rank": 434
+    },
+    {
+      "symbol": "ENDURANCE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -4.65,
+      "rank": 435
+    },
+    {
+      "symbol": "BHEL.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -4.81,
+      "rank": 436
+    },
+    {
+      "symbol": "M&MFIN.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -5.02,
+      "rank": 437
+    },
+    {
+      "symbol": "NUVAMA.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -5.14,
+      "rank": 438
+    },
+    {
+      "symbol": "LATENTVIEW.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -5.25,
+      "rank": 439
+    },
+    {
+      "symbol": "IDEA.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": -5.35,
+      "rank": 440
+    },
+    {
+      "symbol": "LICI.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -5.48,
+      "rank": 441
+    },
+    {
+      "symbol": "LODHA.NS",
+      "industry": "Realty",
+      "event_win_ret_pct": -5.53,
+      "rank": 442
+    },
+    {
+      "symbol": "PNB.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -5.85,
+      "rank": 443
+    },
+    {
+      "symbol": "BAJAJHFL.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -5.9,
+      "rank": 444
+    },
+    {
+      "symbol": "SBICARD.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -6.1,
+      "rank": 445
+    },
+    {
+      "symbol": "CHALET.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -6.98,
+      "rank": 446
+    },
+    {
+      "symbol": "ABDL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -7.04,
+      "rank": 447
+    },
+    {
+      "symbol": "PNBHOUSING.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -7.26,
+      "rank": 448
+    },
+    {
+      "symbol": "POLICYBZR.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -7.26,
+      "rank": 449
+    },
+    {
+      "symbol": "NYKAA.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -7.5,
+      "rank": 450
+    },
+    {
+      "symbol": "BLS.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -7.67,
+      "rank": 451
+    },
+    {
+      "symbol": "PREMIERENE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": -8.06,
+      "rank": 452
+    },
+    {
+      "symbol": "LEMONTREE.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": -8.39,
+      "rank": 453
+    },
+    {
+      "symbol": "RBLBANK.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": -8.42,
+      "rank": 454
+    },
+    {
+      "symbol": "NETWEB.NS",
+      "industry": "Information Technology",
+      "event_win_ret_pct": -9.75,
+      "rank": 455
+    },
+    {
+      "symbol": "TEJASNET.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": -9.89,
+      "rank": 456
+    },
+    {
+      "symbol": "MEDANTA.NS",
+      "industry": "Healthcare",
+      "event_win_ret_pct": -11.25,
+      "rank": 457
+    },
+    {
+      "symbol": "OLAELEC.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -17.07,
+      "rank": 458
+    },
+    {
+      "symbol": "HONASA.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -20.05,
+      "rank": 459
+    }
+  ],
+  "connectedness": {
+    "LLOYDSME.NS": {
+      "naive": {
+        "beta_brent": 0.059,
+        "t": 1.7,
+        "beta_mkt": 1.4173,
+        "verdict": {
+          "beta": 0.059,
+          "t": 1.7,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.1318,
+        "t": 3.63,
+        "factor": "b_brent",
+        "beta_mktperp": 1.4173,
+        "t_mktperp": 12.22,
+        "verdict": {
+          "beta": 0.1318,
+          "t": 3.63,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0728,
+      "r2_clean": 0.217,
+      "n": 703,
+      "flipped": false
+    },
+    "PATANJALI.NS": {
+      "naive": {
+        "beta_brent": -0.0163,
+        "t": -0.48,
+        "beta_mkt": 0.7009,
+        "verdict": {
+          "beta": -0.0163,
+          "t": -0.48,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0197,
+        "t": 0.55,
+        "factor": "b_brent",
+        "beta_mktperp": 0.7009,
+        "t_mktperp": 6.67,
+        "verdict": {
+          "beta": 0.0197,
+          "t": 0.55,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.036,
+      "r2_clean": 0.059,
+      "n": 3896,
+      "flipped": false
+    },
+    "BHARTIHEXA.NS": {
+      "naive": {
+        "beta_brent": 0.0026,
+        "t": 0.06,
+        "beta_mkt": 0.8736,
+        "verdict": {
+          "beta": 0.0026,
+          "t": 0.06,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0474,
+        "t": 1.15,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8736,
+        "t_mktperp": 5.76,
+        "verdict": {
+          "beta": 0.0474,
+          "t": 1.15,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0448,
+      "r2_clean": 0.101,
+      "n": 527,
+      "flipped": false
+    },
+    "KAYNES.NS": {
+      "naive": {
+        "beta_brent": -0.0085,
+        "t": -0.22,
+        "beta_mkt": 1.3426,
+        "verdict": {
+          "beta": -0.0085,
+          "t": -0.22,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0604,
+        "t": 1.41,
+        "factor": "b_brent",
+        "beta_mktperp": 1.3426,
+        "t_mktperp": 7.7,
+        "verdict": {
+          "beta": 0.0604,
+          "t": 1.41,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0689,
+      "r2_clean": 0.117,
+      "n": 856,
+      "flipped": false
+    },
+    "RAINBOW.NS": {
+      "naive": {
+        "beta_brent": -0.0073,
+        "t": -0.27,
+        "beta_mkt": 0.417,
+        "verdict": {
+          "beta": -0.0073,
+          "t": -0.27,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0141,
+        "t": 0.5,
+        "factor": "b_brent",
+        "beta_mktperp": 0.417,
+        "t_mktperp": 5.4,
+        "verdict": {
+          "beta": 0.0141,
+          "t": 0.5,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0214,
+      "r2_clean": 0.025,
+      "n": 986,
+      "flipped": false
+    },
+    "IRCTC.NS": {
+      "naive": {
+        "beta_brent": -0.0188,
+        "t": -0.73,
+        "beta_mkt": 0.8394,
+        "verdict": {
+          "beta": -0.0188,
+          "t": -0.73,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0243,
+        "t": 0.96,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8394,
+        "t_mktperp": 6.64,
+        "verdict": {
+          "beta": 0.0243,
+          "t": 0.96,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0431,
+      "r2_clean": 0.163,
+      "n": 1606,
+      "flipped": false
+    },
+    "AIIL.NS": {
+      "naive": {
+        "beta_brent": -0.1121,
+        "t": -1.58,
+        "beta_mkt": 1.6421,
+        "verdict": {
+          "beta": -0.1121,
+          "t": -1.58,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0278,
+        "t": -0.39,
+        "factor": "b_brent",
+        "beta_mktperp": 1.6421,
+        "t_mktperp": 8.85,
+        "verdict": {
+          "beta": -0.0278,
+          "t": -0.39,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0843,
+      "r2_clean": 0.204,
+      "n": 521,
+      "flipped": false
+    },
+    "SAPPHIRE.NS": {
+      "naive": {
+        "beta_brent": -0.0479,
+        "t": -1.46,
+        "beta_mkt": 0.7408,
+        "verdict": {
+          "beta": -0.0479,
+          "t": -1.46,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0098,
+        "t": -0.29,
+        "factor": "b_brent",
+        "beta_mktperp": 0.7408,
+        "t_mktperp": 8.11,
+        "verdict": {
+          "beta": -0.0098,
+          "t": -0.29,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0381,
+      "r2_clean": 0.086,
+      "n": 1098,
+      "flipped": false
+    },
+    "JWL.NS": {
+      "naive": {
+        "beta_brent": -0.0362,
+        "t": -1.35,
+        "beta_mkt": 1.0226,
+        "verdict": {
+          "beta": -0.0362,
+          "t": -1.35,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0163,
+        "t": 0.61,
+        "factor": "b_brent",
+        "beta_mktperp": 1.0226,
+        "t_mktperp": 11.93,
+        "verdict": {
+          "beta": 0.0163,
+          "t": 0.61,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0525,
+      "r2_clean": 0.082,
+      "n": 3708,
+      "flipped": false
+    },
+    "HOMEFIRST.NS": {
+      "naive": {
+        "beta_brent": -0.0233,
+        "t": -0.85,
+        "beta_mkt": 0.7466,
+        "verdict": {
+          "beta": -0.0233,
+          "t": -0.85,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.015,
+        "t": 0.55,
+        "factor": "b_brent",
+        "beta_mktperp": 0.7466,
+        "t_mktperp": 8.2,
+        "verdict": {
+          "beta": 0.015,
+          "t": 0.55,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0383,
+      "r2_clean": 0.076,
+      "n": 1288,
+      "flipped": false
+    },
+    "RPOWER.NS": {
+      "naive": {
+        "beta_brent": 0.0011,
+        "t": 0.05,
+        "beta_mkt": 1.091,
+        "verdict": {
+          "beta": 0.0011,
+          "t": 0.05,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0571,
+        "t": 2.5,
+        "factor": "b_brent",
+        "beta_mktperp": 1.091,
+        "t_mktperp": 10.51,
+        "verdict": {
+          "beta": 0.0571,
+          "t": 2.5,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.056,
+      "r2_clean": 0.116,
+      "n": 3898,
+      "flipped": false
+    },
+    "ACUTAAS.NS": {
+      "naive": {
+        "beta_brent": 0.0671,
+        "t": 1.91,
+        "beta_mkt": 1.1167,
+        "verdict": {
+          "beta": 0.0671,
+          "t": 1.91,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.1244,
+        "t": 3.49,
+        "factor": "b_brent",
+        "beta_mktperp": 1.1167,
+        "t_mktperp": 11.03,
+        "verdict": {
+          "beta": 0.1244,
+          "t": 3.49,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0573,
+      "r2_clean": 0.119,
+      "n": 1144,
+      "flipped": false
+    },
+    "RRKABEL.NS": {
+      "naive": {
+        "beta_brent": -0.0201,
+        "t": -0.42,
+        "beta_mkt": 0.8518,
+        "verdict": {
+          "beta": -0.0201,
+          "t": -0.42,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0236,
+        "t": 0.47,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8518,
+        "t_mktperp": 8.81,
+        "verdict": {
+          "beta": 0.0236,
+          "t": 0.47,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0437,
+      "r2_clean": 0.096,
+      "n": 657,
+      "flipped": false
+    },
+    "DEVYANI.NS": {
+      "naive": {
+        "beta_brent": -0.0034,
+        "t": -0.11,
+        "beta_mkt": 0.9948,
+        "verdict": {
+          "beta": -0.0034,
+          "t": -0.11,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0477,
+        "t": 1.53,
+        "factor": "b_brent",
+        "beta_mktperp": 0.9948,
+        "t_mktperp": 11.06,
+        "verdict": {
+          "beta": 0.0477,
+          "t": 1.53,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0511,
+      "r2_clean": 0.139,
+      "n": 1162,
+      "flipped": false
+    },
+    "TORNTPOWER.NS": {
+      "naive": {
+        "beta_brent": 0.0079,
+        "t": 0.53,
+        "beta_mkt": 0.7761,
+        "verdict": {
+          "beta": 0.0079,
+          "t": 0.53,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0478,
+        "t": 3.15,
+        "factor": "b_brent",
+        "beta_mktperp": 0.7761,
+        "t_mktperp": 18.02,
+        "verdict": {
+          "beta": 0.0478,
+          "t": 3.15,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0399,
+      "r2_clean": 0.118,
+      "n": 3898,
+      "flipped": false
+    },
+    "MANKIND.NS": {
+      "naive": {
+        "beta_brent": 0.0211,
+        "t": 0.73,
+        "beta_mkt": 0.5493,
+        "verdict": {
+          "beta": 0.0211,
+          "t": 0.73,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0493,
+        "t": 1.68,
+        "factor": "b_brent",
+        "beta_mktperp": 0.5493,
+        "t_mktperp": 6.15,
+        "verdict": {
+          "beta": 0.0493,
+          "t": 1.68,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0282,
+      "r2_clean": 0.054,
+      "n": 748,
+      "flipped": false
+    },
+    "APTUS.NS": {
+      "naive": {
+        "beta_brent": -0.0455,
+        "t": -1.38,
+        "beta_mkt": 0.8495,
+        "verdict": {
+          "beta": -0.0455,
+          "t": -1.38,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0019,
+        "t": -0.06,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8495,
+        "t_mktperp": 11.72,
+        "verdict": {
+          "beta": -0.0019,
+          "t": -0.06,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0436,
+      "r2_clean": 0.107,
+      "n": 1156,
+      "flipped": false
+    },
+    "ZENTEC.NS": {
+      "naive": {
+        "beta_brent": 0.0631,
+        "t": 2.06,
+        "beta_mkt": 1.0713,
+        "verdict": {
+          "beta": 0.0631,
+          "t": 2.06,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.118,
+        "t": 4.19,
+        "factor": "b_brent",
+        "beta_mktperp": 1.0713,
+        "t_mktperp": 10.61,
+        "verdict": {
+          "beta": 0.118,
+          "t": 4.19,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0549,
+      "r2_clean": 0.105,
+      "n": 2686,
+      "flipped": false
+    },
+    "PARADEEP.NS": {
+      "naive": {
+        "beta_brent": -0.0812,
+        "t": -2.06,
+        "beta_mkt": 0.8975,
+        "verdict": {
+          "beta": -0.0812,
+          "t": -2.06,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0352,
+        "t": -0.89,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8975,
+        "t_mktperp": 7.37,
+        "verdict": {
+          "beta": -0.0352,
+          "t": -0.89,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.046,
+      "r2_clean": 0.073,
+      "n": 974,
+      "flipped": true
+    },
+    "BSE.NS": {
+      "naive": {
+        "beta_brent": -0.0098,
+        "t": -0.44,
+        "beta_mkt": 0.8913,
+        "verdict": {
+          "beta": -0.0098,
+          "t": -0.44,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0359,
+        "t": 1.67,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8913,
+        "t_mktperp": 13.7,
+        "verdict": {
+          "beta": 0.0359,
+          "t": 1.67,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0457,
+      "r2_clean": 0.121,
+      "n": 2248,
+      "flipped": false
+    },
+    "ADANIPOWER.NS": {
+      "naive": {
+        "beta_brent": -0.0085,
+        "t": -0.39,
+        "beta_mkt": 1.3268,
+        "verdict": {
+          "beta": -0.0085,
+          "t": -0.39,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0596,
+        "t": 2.73,
+        "factor": "b_brent",
+        "beta_mktperp": 1.3268,
+        "t_mktperp": 18.96,
+        "verdict": {
+          "beta": 0.0596,
+          "t": 2.73,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0681,
+      "r2_clean": 0.19,
+      "n": 3898,
+      "flipped": false
+    },
+    "KIMS.NS": {
+      "naive": {
+        "beta_brent": -0.0163,
+        "t": -0.77,
+        "beta_mkt": 0.562,
+        "verdict": {
+          "beta": -0.0163,
+          "t": -0.77,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0125,
+        "t": 0.57,
+        "factor": "b_brent",
+        "beta_mktperp": 0.562,
+        "t_mktperp": 8.58,
+        "verdict": {
+          "beta": 0.0125,
+          "t": 0.57,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0288,
+      "r2_clean": 0.064,
+      "n": 1195,
+      "flipped": false
+    },
+    "SHYAMMETL.NS": {
+      "naive": {
+        "beta_brent": 0.0208,
+        "t": 0.85,
+        "beta_mkt": 1.018,
+        "verdict": {
+          "beta": 0.0208,
+          "t": 0.85,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0731,
+        "t": 2.91,
+        "factor": "b_brent",
+        "beta_mktperp": 1.018,
+        "t_mktperp": 14.68,
+        "verdict": {
+          "beta": 0.0731,
+          "t": 2.91,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0523,
+      "r2_clean": 0.174,
+      "n": 1196,
+      "flipped": false
+    },
+    "MAXHEALTH.NS": {
+      "naive": {
+        "beta_brent": -0.0195,
+        "t": -0.89,
+        "beta_mkt": 0.6202,
+        "verdict": {
+          "beta": -0.0195,
+          "t": -0.89,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0123,
+        "t": 0.55,
+        "factor": "b_brent",
+        "beta_mktperp": 0.6202,
+        "t_mktperp": 7.88,
+        "verdict": {
+          "beta": 0.0123,
+          "t": 0.55,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0318,
+      "r2_clean": 0.058,
+      "n": 1398,
+      "flipped": false
+    },
+    "NAVINFLUOR.NS": {
+      "naive": {
+        "beta_brent": -0.0041,
+        "t": -0.24,
+        "beta_mkt": 0.7217,
+        "verdict": {
+          "beta": -0.0041,
+          "t": -0.24,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0329,
+        "t": 1.96,
+        "factor": "b_brent",
+        "beta_mktperp": 0.7217,
+        "t_mktperp": 17.56,
+        "verdict": {
+          "beta": 0.0329,
+          "t": 1.96,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.037,
+      "r2_clean": 0.103,
+      "n": 3897,
+      "flipped": false
+    },
+    "BERGEPAINT.NS": {
+      "naive": {
+        "beta_brent": -0.0542,
+        "t": -3.15,
+        "beta_mkt": 0.704,
+        "verdict": {
+          "beta": -0.0542,
+          "t": -3.15,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0181,
+        "t": -1.07,
+        "factor": "b_brent",
+        "beta_mktperp": 0.704,
+        "t_mktperp": 20.31,
+        "verdict": {
+          "beta": -0.0181,
+          "t": -1.07,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0361,
+      "r2_clean": 0.141,
+      "n": 3897,
+      "flipped": true
+    },
+    "FIVESTAR.NS": {
+      "naive": {
+        "beta_brent": -0.0887,
+        "t": -2.64,
+        "beta_mkt": 0.8338,
+        "verdict": {
+          "beta": -0.0887,
+          "t": -2.64,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0459,
+        "t": -1.31,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8338,
+        "t_mktperp": 5.91,
+        "verdict": {
+          "beta": -0.0459,
+          "t": -1.31,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0428,
+      "r2_clean": 0.081,
+      "n": 856,
+      "flipped": true
+    },
+    "EMCURE.NS": {
+      "naive": {
+        "beta_brent": 0.035,
+        "t": 0.69,
+        "beta_mkt": 0.8816,
+        "verdict": {
+          "beta": 0.035,
+          "t": 0.69,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0802,
+        "t": 1.51,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8816,
+        "t_mktperp": 6.32,
+        "verdict": {
+          "beta": 0.0802,
+          "t": 1.51,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0452,
+      "r2_clean": 0.104,
+      "n": 470,
+      "flipped": false
+    },
+    "ANGELONE.NS": {
+      "naive": {
+        "beta_brent": -0.0637,
+        "t": -1.62,
+        "beta_mkt": 1.3119,
+        "verdict": {
+          "beta": -0.0637,
+          "t": -1.62,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0037,
+        "t": 0.09,
+        "factor": "b_brent",
+        "beta_mktperp": 1.3119,
+        "t_mktperp": 12.98,
+        "verdict": {
+          "beta": 0.0037,
+          "t": 0.09,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0674,
+      "r2_clean": 0.132,
+      "n": 1370,
+      "flipped": false
+    },
+    "TARIL.NS": {
+      "naive": {
+        "beta_brent": -0.0112,
+        "t": -0.5,
+        "beta_mkt": 0.9589,
+        "verdict": {
+          "beta": -0.0112,
+          "t": -0.5,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0381,
+        "t": 1.71,
+        "factor": "b_brent",
+        "beta_mktperp": 0.9589,
+        "t_mktperp": 13.96,
+        "verdict": {
+          "beta": 0.0381,
+          "t": 1.71,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0493,
+      "r2_clean": 0.082,
+      "n": 3898,
+      "flipped": false
+    },
+    "KALYANKJIL.NS": {
+      "naive": {
+        "beta_brent": 0.0205,
+        "t": 0.71,
+        "beta_mkt": 1.074,
+        "verdict": {
+          "beta": 0.0205,
+          "t": 0.71,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0756,
+        "t": 2.68,
+        "factor": "b_brent",
+        "beta_mktperp": 1.074,
+        "t_mktperp": 11.78,
+        "verdict": {
+          "beta": 0.0756,
+          "t": 2.68,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0551,
+      "r2_clean": 0.114,
+      "n": 1255,
+      "flipped": false
+    },
+    "TORNTPHARM.NS": {
+      "naive": {
+        "beta_brent": 0.0114,
+        "t": 0.87,
+        "beta_mkt": 0.406,
+        "verdict": {
+          "beta": 0.0114,
+          "t": 0.87,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0323,
+        "t": 2.41,
+        "factor": "b_brent",
+        "beta_mktperp": 0.406,
+        "t_mktperp": 12.05,
+        "verdict": {
+          "beta": 0.0323,
+          "t": 2.41,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0209,
+      "r2_clean": 0.062,
+      "n": 3898,
+      "flipped": false
+    },
+    "ABBOTINDIA.NS": {
+      "naive": {
+        "beta_brent": -0.0083,
+        "t": -0.67,
+        "beta_mkt": 0.3582,
+        "verdict": {
+          "beta": -0.0083,
+          "t": -0.67,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0101,
+        "t": 0.86,
+        "factor": "b_brent",
+        "beta_mktperp": 0.3582,
+        "t_mktperp": 7.65,
+        "verdict": {
+          "beta": 0.0101,
+          "t": 0.86,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0184,
+      "r2_clean": 0.053,
+      "n": 3896,
+      "flipped": false
+    },
+    "BDL.NS": {
+      "naive": {
+        "beta_brent": 0.0301,
+        "t": 1.17,
+        "beta_mkt": 0.8649,
+        "verdict": {
+          "beta": 0.0301,
+          "t": 1.17,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0745,
+        "t": 2.96,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8649,
+        "t_mktperp": 12.55,
+        "verdict": {
+          "beta": 0.0745,
+          "t": 2.96,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0444,
+      "r2_clean": 0.114,
+      "n": 1975,
+      "flipped": false
+    },
+    "IRCON.NS": {
+      "naive": {
+        "beta_brent": -0.0024,
+        "t": -0.07,
+        "beta_mkt": 0.9893,
+        "verdict": {
+          "beta": -0.0024,
+          "t": -0.07,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0484,
+        "t": 1.48,
+        "factor": "b_brent",
+        "beta_mktperp": 0.9893,
+        "t_mktperp": 9.94,
+        "verdict": {
+          "beta": 0.0484,
+          "t": 1.48,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0508,
+      "r2_clean": 0.148,
+      "n": 1850,
+      "flipped": false
+    },
+    "VIJAYA.NS": {
+      "naive": {
+        "beta_brent": -0.0191,
+        "t": -0.59,
+        "beta_mkt": 0.5401,
+        "verdict": {
+          "beta": -0.0191,
+          "t": -0.59,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0086,
+        "t": 0.27,
+        "factor": "b_brent",
+        "beta_mktperp": 0.5401,
+        "t_mktperp": 4.91,
+        "verdict": {
+          "beta": 0.0086,
+          "t": 0.27,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0277,
+      "r2_clean": 0.033,
+      "n": 1143,
+      "flipped": false
+    },
+    "JSWENERGY.NS": {
+      "naive": {
+        "beta_brent": 0.0248,
+        "t": 1.3,
+        "beta_mkt": 1.1259,
+        "verdict": {
+          "beta": 0.0248,
+          "t": 1.3,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0825,
+        "t": 4.61,
+        "factor": "b_brent",
+        "beta_mktperp": 1.1259,
+        "t_mktperp": 13.28,
+        "verdict": {
+          "beta": 0.0825,
+          "t": 4.61,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0577,
+      "r2_clean": 0.192,
+      "n": 3898,
+      "flipped": false
+    },
+    "IDFCFIRSTB.NS": {
+      "naive": {
+        "beta_brent": 0.0035,
+        "t": 0.2,
+        "beta_mkt": 1.2496,
+        "verdict": {
+          "beta": 0.0035,
+          "t": 0.2,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0676,
+        "t": 3.79,
+        "factor": "b_brent",
+        "beta_mktperp": 1.2496,
+        "t_mktperp": 20.6,
+        "verdict": {
+          "beta": 0.0676,
+          "t": 3.79,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0641,
+      "r2_clean": 0.308,
+      "n": 2540,
+      "flipped": false
+    },
+    "ANURAS.NS": {
+      "naive": {
+        "beta_brent": -0.0663,
+        "t": -2.18,
+        "beta_mkt": 0.6085,
+        "verdict": {
+          "beta": -0.0663,
+          "t": -2.18,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0351,
+        "t": -1.15,
+        "factor": "b_brent",
+        "beta_mktperp": 0.6085,
+        "t_mktperp": 8.45,
+        "verdict": {
+          "beta": -0.0351,
+          "t": -1.15,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0312,
+      "r2_clean": 0.086,
+      "n": 1255,
+      "flipped": true
+    },
+    "TRENT.NS": {
+      "naive": {
+        "beta_brent": -0.0133,
+        "t": -1.01,
+        "beta_mkt": 0.8385,
+        "verdict": {
+          "beta": -0.0133,
+          "t": -1.01,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0297,
+        "t": 2.26,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8385,
+        "t_mktperp": 13.89,
+        "verdict": {
+          "beta": 0.0297,
+          "t": 2.26,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.043,
+      "r2_clean": 0.166,
+      "n": 3897,
+      "flipped": false
+    },
+    "ONGC.NS": {
+      "naive": {
+        "beta_brent": 0.0674,
+        "t": 2.54,
+        "beta_mkt": 0.8869,
+        "verdict": {
+          "beta": 0.0674,
+          "t": 2.54,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.1129,
+        "t": 4.25,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8869,
+        "t_mktperp": 18.03,
+        "verdict": {
+          "beta": 0.1129,
+          "t": 4.25,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0455,
+      "r2_clean": 0.221,
+      "n": 3898,
+      "flipped": false
+    },
+    "OIL.NS": {
+      "naive": {
+        "beta_brent": 0.049,
+        "t": 2.06,
+        "beta_mkt": 0.6462,
+        "verdict": {
+          "beta": 0.049,
+          "t": 2.06,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0822,
+        "t": 3.43,
+        "factor": "b_brent",
+        "beta_mktperp": 0.6462,
+        "t_mktperp": 13.69,
+        "verdict": {
+          "beta": 0.0822,
+          "t": 3.43,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0332,
+      "r2_clean": 0.109,
+      "n": 3898,
+      "flipped": false
+    },
+    "BPCL.NS": {
+      "naive": {
+        "beta_brent": -0.0514,
+        "t": -2.95,
+        "beta_mkt": 0.9738,
+        "verdict": {
+          "beta": -0.0514,
+          "t": -2.95,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0014,
+        "t": -0.08,
+        "factor": "b_brent",
+        "beta_mktperp": 0.9738,
+        "t_mktperp": 24.47,
+        "verdict": {
+          "beta": -0.0014,
+          "t": -0.08,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.05,
+      "r2_clean": 0.224,
+      "n": 3897,
+      "flipped": true
+    },
+    "HINDPETRO.NS": {
+      "naive": {
+        "beta_brent": -0.0927,
+        "t": -4.08,
+        "beta_mkt": 1.003,
+        "verdict": {
+          "beta": -0.0927,
+          "t": -4.08,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0412,
+        "t": -1.8,
+        "factor": "b_brent",
+        "beta_mktperp": 1.003,
+        "t_mktperp": 19.3,
+        "verdict": {
+          "beta": -0.0412,
+          "t": -1.8,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": true
+        }
+      },
+      "naive_clean_delta": -0.0515,
+      "r2_clean": 0.188,
+      "n": 3898,
+      "flipped": true
+    },
+    "IOC.NS": {
+      "naive": {
+        "beta_brent": -0.04,
+        "t": -2.97,
+        "beta_mkt": 0.8106,
+        "verdict": {
+          "beta": -0.04,
+          "t": -2.97,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0016,
+        "t": 0.12,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8106,
+        "t_mktperp": 15.59,
+        "verdict": {
+          "beta": 0.0016,
+          "t": 0.12,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0416,
+      "r2_clean": 0.192,
+      "n": 3898,
+      "flipped": true
+    },
+    "ASIANPAINT.NS": {
+      "naive": {
+        "beta_brent": -0.0624,
+        "t": -5.49,
+        "beta_mkt": 0.707,
+        "verdict": {
+          "beta": -0.0624,
+          "t": -5.49,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0261,
+        "t": -2.31,
+        "factor": "b_brent",
+        "beta_mktperp": 0.707,
+        "t_mktperp": 21.03,
+        "verdict": {
+          "beta": -0.0261,
+          "t": -2.31,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0363,
+      "r2_clean": 0.216,
+      "n": 3898,
+      "flipped": false
+    },
+    "INDIGO.NS": {
+      "naive": {
+        "beta_brent": -0.0845,
+        "t": -3.41,
+        "beta_mkt": 0.8916,
+        "verdict": {
+          "beta": -0.0845,
+          "t": -3.41,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.0388,
+        "t": -1.55,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8916,
+        "t_mktperp": 10.87,
+        "verdict": {
+          "beta": -0.0388,
+          "t": -1.55,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0457,
+      "r2_clean": 0.153,
+      "n": 2537,
+      "flipped": true
+    },
+    "MRF.NS": {
+      "naive": {
+        "beta_brent": -0.0036,
+        "t": -0.37,
+        "beta_mkt": 0.8227,
+        "verdict": {
+          "beta": -0.0036,
+          "t": -0.37,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0386,
+        "t": 3.95,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8227,
+        "t_mktperp": 29.11,
+        "verdict": {
+          "beta": 0.0386,
+          "t": 3.95,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0422,
+      "r2_clean": 0.238,
+      "n": 3896,
+      "flipped": false
+    },
+    "APOLLOTYRE.NS": {
+      "naive": {
+        "beta_brent": 0.0117,
+        "t": 0.89,
+        "beta_mkt": 1.1254,
+        "verdict": {
+          "beta": 0.0117,
+          "t": 0.89,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0695,
+        "t": 5.44,
+        "factor": "b_brent",
+        "beta_mktperp": 1.1254,
+        "t_mktperp": 24.08,
+        "verdict": {
+          "beta": 0.0695,
+          "t": 5.44,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0578,
+      "r2_clean": 0.244,
+      "n": 3898,
+      "flipped": false
+    },
+    "CEATLTD.NS": {
+      "naive": {
+        "beta_brent": -0.0101,
+        "t": -0.65,
+        "beta_mkt": 0.8795,
+        "verdict": {
+          "beta": -0.0101,
+          "t": -0.65,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.035,
+        "t": 2.27,
+        "factor": "b_brent",
+        "beta_mktperp": 0.8795,
+        "t_mktperp": 21.66,
+        "verdict": {
+          "beta": 0.035,
+          "t": 2.27,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0451,
+      "r2_clean": 0.134,
+      "n": 3898,
+      "flipped": false
+    },
+    "BALKRISIND.NS": {
+      "naive": {
+        "beta_brent": -0.0091,
+        "t": -0.67,
+        "beta_mkt": 0.743,
+        "verdict": {
+          "beta": -0.0091,
+          "t": -0.67,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.029,
+        "t": 2.18,
+        "factor": "b_brent",
+        "beta_mktperp": 0.743,
+        "t_mktperp": 13.4,
+        "verdict": {
+          "beta": 0.029,
+          "t": 2.18,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0381,
+      "r2_clean": 0.136,
+      "n": 3896,
+      "flipped": false
+    },
+    "JKTYRE.NS": {
+      "naive": {
+        "beta_brent": -0.0515,
+        "t": -3.0,
+        "beta_mkt": 1.089,
+        "verdict": {
+          "beta": -0.0515,
+          "t": -3.0,
+          "sign_hyp": -1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0044,
+        "t": 0.26,
+        "factor": "b_brent",
+        "beta_mktperp": 1.089,
+        "t_mktperp": 23.85,
+        "verdict": {
+          "beta": 0.0044,
+          "t": 0.26,
+          "sign_hyp": -1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0559,
+      "r2_clean": 0.17,
+      "n": 3898,
+      "flipped": true
+    },
+    "RELIANCE.NS": {
+      "naive": {
+        "beta_brent": 0.0044,
+        "t": 0.34,
+        "beta_mkt": 1.0887,
+        "verdict": {
+          "beta": 0.0044,
+          "t": 0.34,
+          "sign_hyp": 0,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0603,
+        "t": 4.79,
+        "factor": "b_brent",
+        "beta_mktperp": 1.0887,
+        "t_mktperp": 41.98,
+        "verdict": {
+          "beta": 0.0603,
+          "t": 4.79,
+          "sign_hyp": 0,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0559,
+      "r2_clean": 0.451,
+      "n": 3898,
+      "flipped": true
+    }
+  },
+  "side_by_side": [
+    {
+      "symbol": "LLOYDSME.NS",
+      "industry": "",
+      "event_win_ret_pct": 30.98,
+      "b_raw": 0.059,
+      "b_clean": 0.1318,
+      "t_clean": 3.63,
+      "naive_clean_delta": -0.0728,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "PATANJALI.NS",
+      "industry": "",
+      "event_win_ret_pct": 27.9,
+      "b_raw": -0.0163,
+      "b_clean": 0.0197,
+      "t_clean": 0.55,
+      "naive_clean_delta": -0.036,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "BHARTIHEXA.NS",
+      "industry": "",
+      "event_win_ret_pct": 16.7,
+      "b_raw": 0.0026,
+      "b_clean": 0.0474,
+      "t_clean": 1.15,
+      "naive_clean_delta": -0.0448,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "KAYNES.NS",
+      "industry": "",
+      "event_win_ret_pct": 16.27,
+      "b_raw": -0.0085,
+      "b_clean": 0.0604,
+      "t_clean": 1.41,
+      "naive_clean_delta": -0.0689,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "RAINBOW.NS",
+      "industry": "",
+      "event_win_ret_pct": 13.98,
+      "b_raw": -0.0073,
+      "b_clean": 0.0141,
+      "t_clean": 0.5,
+      "naive_clean_delta": -0.0214,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "IRCTC.NS",
+      "industry": "",
+      "event_win_ret_pct": 12.5,
+      "b_raw": -0.0188,
+      "b_clean": 0.0243,
+      "t_clean": 0.96,
+      "naive_clean_delta": -0.0431,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "AIIL.NS",
+      "industry": "",
+      "event_win_ret_pct": 12.42,
+      "b_raw": -0.1121,
+      "b_clean": -0.0278,
+      "t_clean": -0.39,
+      "naive_clean_delta": -0.0843,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "SAPPHIRE.NS",
+      "industry": "",
+      "event_win_ret_pct": 11.9,
+      "b_raw": -0.0479,
+      "b_clean": -0.0098,
+      "t_clean": -0.29,
+      "naive_clean_delta": -0.0381,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "JWL.NS",
+      "industry": "",
+      "event_win_ret_pct": 11.74,
+      "b_raw": -0.0362,
+      "b_clean": 0.0163,
+      "t_clean": 0.61,
+      "naive_clean_delta": -0.0525,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "HOMEFIRST.NS",
+      "industry": "",
+      "event_win_ret_pct": 11.61,
+      "b_raw": -0.0233,
+      "b_clean": 0.015,
+      "t_clean": 0.55,
+      "naive_clean_delta": -0.0383,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "RPOWER.NS",
+      "industry": "",
+      "event_win_ret_pct": 11.16,
+      "b_raw": 0.0011,
+      "b_clean": 0.0571,
+      "t_clean": 2.5,
+      "naive_clean_delta": -0.056,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "ACUTAAS.NS",
+      "industry": "",
+      "event_win_ret_pct": 10.74,
+      "b_raw": 0.0671,
+      "b_clean": 0.1244,
+      "t_clean": 3.49,
+      "naive_clean_delta": -0.0573,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "RRKABEL.NS",
+      "industry": "",
+      "event_win_ret_pct": 10.15,
+      "b_raw": -0.0201,
+      "b_clean": 0.0236,
+      "t_clean": 0.47,
+      "naive_clean_delta": -0.0437,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "DEVYANI.NS",
+      "industry": "",
+      "event_win_ret_pct": 10.05,
+      "b_raw": -0.0034,
+      "b_clean": 0.0477,
+      "t_clean": 1.53,
+      "naive_clean_delta": -0.0511,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "TORNTPOWER.NS",
+      "industry": "",
+      "event_win_ret_pct": 9.77,
+      "b_raw": 0.0079,
+      "b_clean": 0.0478,
+      "t_clean": 3.15,
+      "naive_clean_delta": -0.0399,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "MANKIND.NS",
+      "industry": "",
+      "event_win_ret_pct": 9.75,
+      "b_raw": 0.0211,
+      "b_clean": 0.0493,
+      "t_clean": 1.68,
+      "naive_clean_delta": -0.0282,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "APTUS.NS",
+      "industry": "",
+      "event_win_ret_pct": 9.5,
+      "b_raw": -0.0455,
+      "b_clean": -0.0019,
+      "t_clean": -0.06,
+      "naive_clean_delta": -0.0436,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "ZENTEC.NS",
+      "industry": "",
+      "event_win_ret_pct": 9.1,
+      "b_raw": 0.0631,
+      "b_clean": 0.118,
+      "t_clean": 4.19,
+      "naive_clean_delta": -0.0549,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "PARADEEP.NS",
+      "industry": "",
+      "event_win_ret_pct": 8.92,
+      "b_raw": -0.0812,
+      "b_clean": -0.0352,
+      "t_clean": -0.89,
+      "naive_clean_delta": -0.046,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "BSE.NS",
+      "industry": "",
+      "event_win_ret_pct": 8.63,
+      "b_raw": -0.0098,
+      "b_clean": 0.0359,
+      "t_clean": 1.67,
+      "naive_clean_delta": -0.0457,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "ADANIPOWER.NS",
+      "industry": "",
+      "event_win_ret_pct": 8.46,
+      "b_raw": -0.0085,
+      "b_clean": 0.0596,
+      "t_clean": 2.73,
+      "naive_clean_delta": -0.0681,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "KIMS.NS",
+      "industry": "",
+      "event_win_ret_pct": 8.37,
+      "b_raw": -0.0163,
+      "b_clean": 0.0125,
+      "t_clean": 0.57,
+      "naive_clean_delta": -0.0288,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "SHYAMMETL.NS",
+      "industry": "",
+      "event_win_ret_pct": 8.09,
+      "b_raw": 0.0208,
+      "b_clean": 0.0731,
+      "t_clean": 2.91,
+      "naive_clean_delta": -0.0523,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "MAXHEALTH.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.83,
+      "b_raw": -0.0195,
+      "b_clean": 0.0123,
+      "t_clean": 0.55,
+      "naive_clean_delta": -0.0318,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "NAVINFLUOR.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.68,
+      "b_raw": -0.0041,
+      "b_clean": 0.0329,
+      "t_clean": 1.96,
+      "naive_clean_delta": -0.037,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "BERGEPAINT.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.52,
+      "b_raw": -0.0542,
+      "b_clean": -0.0181,
+      "t_clean": -1.07,
+      "naive_clean_delta": -0.0361,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "FIVESTAR.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.48,
+      "b_raw": -0.0887,
+      "b_clean": -0.0459,
+      "t_clean": -1.31,
+      "naive_clean_delta": -0.0428,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "EMCURE.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.43,
+      "b_raw": 0.035,
+      "b_clean": 0.0802,
+      "t_clean": 1.51,
+      "naive_clean_delta": -0.0452,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "ANGELONE.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.26,
+      "b_raw": -0.0637,
+      "b_clean": 0.0037,
+      "t_clean": 0.09,
+      "naive_clean_delta": -0.0674,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "TARIL.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.12,
+      "b_raw": -0.0112,
+      "b_clean": 0.0381,
+      "t_clean": 1.71,
+      "naive_clean_delta": -0.0493,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "KALYANKJIL.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.05,
+      "b_raw": 0.0205,
+      "b_clean": 0.0756,
+      "t_clean": 2.68,
+      "naive_clean_delta": -0.0551,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "TORNTPHARM.NS",
+      "industry": "",
+      "event_win_ret_pct": 7.02,
+      "b_raw": 0.0114,
+      "b_clean": 0.0323,
+      "t_clean": 2.41,
+      "naive_clean_delta": -0.0209,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "ABBOTINDIA.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.92,
+      "b_raw": -0.0083,
+      "b_clean": 0.0101,
+      "t_clean": 0.86,
+      "naive_clean_delta": -0.0184,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "BDL.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.76,
+      "b_raw": 0.0301,
+      "b_clean": 0.0745,
+      "t_clean": 2.96,
+      "naive_clean_delta": -0.0444,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "IRCON.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.74,
+      "b_raw": -0.0024,
+      "b_clean": 0.0484,
+      "t_clean": 1.48,
+      "naive_clean_delta": -0.0508,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "VIJAYA.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.72,
+      "b_raw": -0.0191,
+      "b_clean": 0.0086,
+      "t_clean": 0.27,
+      "naive_clean_delta": -0.0277,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "JSWENERGY.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.55,
+      "b_raw": 0.0248,
+      "b_clean": 0.0825,
+      "t_clean": 4.61,
+      "naive_clean_delta": -0.0577,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "IDFCFIRSTB.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.46,
+      "b_raw": 0.0035,
+      "b_clean": 0.0676,
+      "t_clean": 3.79,
+      "naive_clean_delta": -0.0641,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "ANURAS.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.31,
+      "b_raw": -0.0663,
+      "b_clean": -0.0351,
+      "t_clean": -1.15,
+      "naive_clean_delta": -0.0312,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "TRENT.NS",
+      "industry": "",
+      "event_win_ret_pct": 6.3,
+      "b_raw": -0.0133,
+      "b_clean": 0.0297,
+      "t_clean": 2.26,
+      "naive_clean_delta": -0.043,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "ONGC.NS",
+      "industry": "",
+      "event_win_ret_pct": 1.14,
+      "b_raw": 0.0674,
+      "b_clean": 0.1129,
+      "t_clean": 4.25,
+      "naive_clean_delta": -0.0455,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "OIL.NS",
+      "industry": "",
+      "event_win_ret_pct": -2.4,
+      "b_raw": 0.049,
+      "b_clean": 0.0822,
+      "t_clean": 3.43,
+      "naive_clean_delta": -0.0332,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BPCL.NS",
+      "industry": "",
+      "event_win_ret_pct": 1.48,
+      "b_raw": -0.0514,
+      "b_clean": -0.0014,
+      "t_clean": -0.08,
+      "naive_clean_delta": -0.05,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "HINDPETRO.NS",
+      "industry": "",
+      "event_win_ret_pct": -1.09,
+      "b_raw": -0.0927,
+      "b_clean": -0.0412,
+      "t_clean": -1.8,
+      "naive_clean_delta": -0.0515,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "IOC.NS",
+      "industry": "",
+      "event_win_ret_pct": -0.06,
+      "b_raw": -0.04,
+      "b_clean": 0.0016,
+      "t_clean": 0.12,
+      "naive_clean_delta": -0.0416,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "ASIANPAINT.NS",
+      "industry": "",
+      "event_win_ret_pct": 2.65,
+      "b_raw": -0.0624,
+      "b_clean": -0.0261,
+      "t_clean": -2.31,
+      "naive_clean_delta": -0.0363,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "INDIGO.NS",
+      "industry": "",
+      "event_win_ret_pct": 1.25,
+      "b_raw": -0.0845,
+      "b_clean": -0.0388,
+      "t_clean": -1.55,
+      "naive_clean_delta": -0.0457,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "MRF.NS",
+      "industry": "",
+      "event_win_ret_pct": -0.03,
+      "b_raw": -0.0036,
+      "b_clean": 0.0386,
+      "t_clean": 3.95,
+      "naive_clean_delta": -0.0422,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "APOLLOTYRE.NS",
+      "industry": "",
+      "event_win_ret_pct": 2.85,
+      "b_raw": 0.0117,
+      "b_clean": 0.0695,
+      "t_clean": 5.44,
+      "naive_clean_delta": -0.0578,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "CEATLTD.NS",
+      "industry": "",
+      "event_win_ret_pct": 5.12,
+      "b_raw": -0.0101,
+      "b_clean": 0.035,
+      "t_clean": 2.27,
+      "naive_clean_delta": -0.0451,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "BALKRISIND.NS",
+      "industry": "",
+      "event_win_ret_pct": 0.43,
+      "b_raw": -0.0091,
+      "b_clean": 0.029,
+      "t_clean": 2.18,
+      "naive_clean_delta": -0.0381,
+      "verdict_naive": false,
+      "verdict_clean": false,
+      "flipped": false
+    },
+    {
+      "symbol": "JKTYRE.NS",
+      "industry": "",
+      "event_win_ret_pct": 0.61,
+      "b_raw": -0.0515,
+      "b_clean": 0.0044,
+      "t_clean": 0.26,
+      "naive_clean_delta": -0.0559,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "RELIANCE.NS",
+      "industry": "",
+      "event_win_ret_pct": 2.01,
+      "b_raw": 0.0044,
+      "b_clean": 0.0603,
+      "t_clean": 4.79,
+      "naive_clean_delta": -0.0559,
+      "verdict_naive": false,
+      "verdict_clean": true,
+      "flipped": true
+    }
+  ],
+  "genuine_beneficiaries": [
+    "ASIANPAINT.NS"
+  ],
+  "basket": [
+    "ASIANPAINT.NS"
+  ],
+  "basket_note": null,
+  "paints_check": {
+    "ASIANPAINT.NS": "GENUINE",
+    "BERGEPAINT.NS": "spurious"
+  },
+  "tyres_check": {
+    "MRF.NS": "spurious",
+    "APOLLOTYRE.NS": "spurious",
+    "BALKRISIND.NS": "spurious"
+  },
+  "mfe": {
+    "median_pct": 6.81,
+    "p25": 2.63,
+    "p75": 7.62,
+    "per_episode_mfe_pct": [
+      7.17,
+      6.61,
+      2.48,
+      4.92,
+      7.01,
+      8.48,
+      0.6,
+      0.13,
+      8.53,
+      7.33,
+      18.11,
+      2.68
+    ],
+    "target_pct_declared": 5.0,
+    "sensitivity_pct": 5.11,
+    "rounding": "down_to_round_anchor",
+    "n": 12
+  },
+  "expressions": [
+    {
+      "name": "Conservative \u2014 EW crude-DOWN beneficiary basket",
+      "engine": "basket",
+      "exit_variants": {
+        "fixed": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 8,
+            "rationale": "There may be an edge but it isn't established yet: PSR 82%; DSR 8% after 53 variants; needs ~757 obs (have 240).",
+            "flags": [
+              "drawdown_risk",
+              "selection_bias"
+            ],
+            "engine": "basket",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 28.27,
+              "max_drawdown_pct": -16.31,
+              "n_trades": 240,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0617,
+                "skew": -0.8463,
+                "kurtosis": 13.8569,
+                "n_obs": 240,
+                "num_trials": 53,
+                "psr": 0.8225,
+                "min_trl": 757.1,
+                "deflated_sharpe": 0.0848
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -19.04,
+                "dd_p95_severity_pct": -33.18,
+                "dd_worst_pct": -48.33,
+                "terminal_median_pct": 28.23,
+                "terminal_p05_pct": -16.0,
+                "prob_loss": 0.163,
+                "prob_dd_worse_than_tol": 0.431,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  6.75,
+                  5.7,
+                  -0.99,
+                  14.82
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 14.82,
+                "worst_period_return_pct": -0.99,
+                "concentration": 0.514
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=240) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": null,
+            "as_of": "2026-06-30T08:35:29.461374+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 28.27,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 13.88,
+            "nifty_beta": 0.834,
+            "nifty_beta_t": 9.3,
+            "alpha_ann_pct": 16.36,
+            "pct_episodes_beat": 75.0,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            5.99,
+            5.2,
+            -4.27,
+            1.43,
+            -0.97,
+            5.23,
+            -4.66,
+            -2.27,
+            6.26,
+            6.92,
+            15.35,
+            -6.9
+          ],
+          "caar_significance": {
+            "caar": 2.277,
+            "classical_t": 1.24,
+            "classical_p": 0.2157,
+            "bmp_t": 1.24,
+            "bmp_p": 0.2157,
+            "nonparam_p": 0.5637,
+            "combined_p": 0.5637,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 28.27,
+            "max_drawdown_pct": -16.31,
+            "psr": 0.8225,
+            "deflated_sharpe": 0.0848,
+            "min_trl": 757.1,
+            "n_obs": 240,
+            "observed_sharpe": 0.0617,
+            "num_trials": 53,
+            "cost_survival": 0.83,
+            "hit_rate": 0.583
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 70,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (70/100): analog hit-rate 58%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=240) to score the expression dial honestly."
+          }
+        },
+        "target": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 12,
+            "rationale": "There may be an edge but it isn't established yet: PSR 86%; DSR 12% after 53 variants; needs ~399 obs (have 179).",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "basket",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 24.54,
+              "max_drawdown_pct": -10.47,
+              "n_trades": 179,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0797,
+                "skew": 0.9371,
+                "kurtosis": 6.4828,
+                "n_obs": 179,
+                "num_trials": 53,
+                "psr": 0.8643,
+                "min_trl": 399.2,
+                "deflated_sharpe": 0.1153
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -15.19,
+                "dd_p95_severity_pct": -26.96,
+                "dd_worst_pct": -46.82,
+                "terminal_median_pct": 23.21,
+                "terminal_p05_pct": -10.72,
+                "prob_loss": 0.165,
+                "prob_dd_worse_than_tol": 0.2,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  5.03,
+                  9.83,
+                  -3.41,
+                  11.77
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 11.77,
+                "worst_period_return_pct": -3.41,
+                "concentration": 0.385
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=179) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": null,
+            "as_of": "2026-06-30T08:35:29.464326+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 24.54,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 10.15,
+            "nifty_beta": -0.014,
+            "nifty_beta_t": -0.33,
+            "alpha_ann_pct": 34.79,
+            "pct_episodes_beat": 66.7,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            5.48,
+            6.22,
+            -4.27,
+            1.43,
+            5.21,
+            6.15,
+            -4.66,
+            -2.27,
+            7.31,
+            4.69,
+            5.18,
+            -6.9
+          ],
+          "caar_significance": {
+            "caar": 1.965,
+            "classical_t": 1.34,
+            "classical_p": 0.1807,
+            "bmp_t": 1.34,
+            "bmp_p": 0.1807,
+            "nonparam_p": 0.2482,
+            "combined_p": 0.2482,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 24.54,
+            "max_drawdown_pct": -10.47,
+            "psr": 0.8643,
+            "deflated_sharpe": 0.1153,
+            "min_trl": 399.2,
+            "n_obs": 179,
+            "observed_sharpe": 0.0797,
+            "num_trials": 53,
+            "cost_survival": 0.72,
+            "hit_rate": 0.667
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 76,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (76/100): analog hit-rate 67%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=179) to score the expression dial honestly."
+          },
+          "hit_target": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false
+          ],
+          "bars_to_target": [
+            16,
+            19,
+            null,
+            null,
+            7,
+            18,
+            null,
+            null,
+            2,
+            9,
+            8,
+            null
+          ]
+        },
+        "manual": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 8,
+            "rationale": "There may be an edge but it isn't established yet: PSR 82%; DSR 8% after 53 variants; needs ~757 obs (have 240).",
+            "flags": [
+              "drawdown_risk",
+              "selection_bias"
+            ],
+            "engine": "basket",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 28.27,
+              "max_drawdown_pct": -16.31,
+              "n_trades": 240,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0617,
+                "skew": -0.8463,
+                "kurtosis": 13.8569,
+                "n_obs": 240,
+                "num_trials": 53,
+                "psr": 0.8225,
+                "min_trl": 757.1,
+                "deflated_sharpe": 0.0848
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -19.04,
+                "dd_p95_severity_pct": -33.18,
+                "dd_worst_pct": -48.33,
+                "terminal_median_pct": 28.23,
+                "terminal_p05_pct": -16.0,
+                "prob_loss": 0.163,
+                "prob_dd_worse_than_tol": 0.431,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  6.75,
+                  5.7,
+                  -0.99,
+                  14.82
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 14.82,
+                "worst_period_return_pct": -0.99,
+                "concentration": 0.514
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=240) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": null,
+            "as_of": "2026-06-30T08:35:29.468151+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 28.27,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 13.88,
+            "nifty_beta": 0.834,
+            "nifty_beta_t": 9.3,
+            "alpha_ann_pct": 16.36,
+            "pct_episodes_beat": 75.0,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            5.99,
+            5.2,
+            -4.27,
+            1.43,
+            -0.97,
+            5.23,
+            -4.66,
+            -2.27,
+            6.26,
+            6.92,
+            15.35,
+            -6.9
+          ],
+          "caar_significance": {
+            "caar": 2.277,
+            "classical_t": 1.24,
+            "classical_p": 0.2157,
+            "bmp_t": 1.24,
+            "bmp_p": 0.2157,
+            "nonparam_p": 0.5637,
+            "combined_p": 0.5637,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 28.27,
+            "max_drawdown_pct": -16.31,
+            "psr": 0.8225,
+            "deflated_sharpe": 0.0848,
+            "min_trl": 757.1,
+            "n_obs": 240,
+            "observed_sharpe": 0.0617,
+            "num_trials": 53,
+            "cost_survival": 0.83,
+            "hit_rate": 0.583
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 70,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (70/100): analog hit-rate 58%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=240) to score the expression dial honestly."
+          }
+        }
+      }
+    },
+    {
+      "name": "Balanced \u2014 beta-neutral pair (long basket / short ONGC upstream)",
+      "engine": "pair",
+      "exit_variants": {
+        "fixed": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 8,
+            "rationale": "There may be an edge but it isn't established yet: PSR 82%; DSR 8% after 53 variants; needs ~797 obs (have 240).",
+            "flags": [
+              "drawdown_risk",
+              "selection_bias"
+            ],
+            "engine": "pair",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 26.06,
+              "max_drawdown_pct": -14.66,
+              "n_trades": 240,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0602,
+                "skew": -0.9238,
+                "kurtosis": 12.1652,
+                "n_obs": 240,
+                "num_trials": 53,
+                "psr": 0.8163,
+                "min_trl": 796.8,
+                "deflated_sharpe": 0.0812
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -18.5,
+                "dd_p95_severity_pct": -32.16,
+                "dd_worst_pct": -44.33,
+                "terminal_median_pct": 26.62,
+                "terminal_p05_pct": -14.9,
+                "prob_loss": 0.169,
+                "prob_dd_worse_than_tol": 0.393,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  4.81,
+                  5.55,
+                  -0.48,
+                  14.5
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 14.5,
+                "worst_period_return_pct": -0.48,
+                "concentration": 0.561
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=240) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "Beta-neutral spread: long EW beneficiary basket, short ONGC.NS (upstream), beta=0.11 (2-leg costs).",
+            "as_of": "2026-06-30T08:35:29.483209+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 26.06,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 11.67,
+            "nifty_beta": 0.725,
+            "nifty_beta_t": 8.45,
+            "alpha_ann_pct": 15.99,
+            "pct_episodes_beat": 66.7,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            4.68,
+            4.96,
+            -4.61,
+            0.87,
+            -0.81,
+            5.49,
+            -4.56,
+            -0.87,
+            5.18,
+            7.17,
+            14.5,
+            -6.69
+          ],
+          "caar_significance": {
+            "caar": 2.111,
+            "classical_t": 1.21,
+            "classical_p": 0.2257,
+            "bmp_t": 1.21,
+            "bmp_p": 0.2257,
+            "nonparam_p": 0.5637,
+            "combined_p": 0.5637,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 26.06,
+            "max_drawdown_pct": -14.66,
+            "psr": 0.8163,
+            "deflated_sharpe": 0.0812,
+            "min_trl": 796.8,
+            "n_obs": 240,
+            "observed_sharpe": 0.0602,
+            "num_trials": 53,
+            "cost_survival": 0.821,
+            "hit_rate": 0.583
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 70,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (70/100): analog hit-rate 58%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=240) to score the expression dial honestly."
+          },
+          "note": "Beta-neutral spread: long EW beneficiary basket, short ONGC.NS (upstream), beta=0.11 (2-leg costs)."
+        },
+        "target": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 12,
+            "rationale": "There may be an edge but it isn't established yet: PSR 86%; DSR 12% after 53 variants; needs ~410 obs (have 184).",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "pair",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 24.06,
+              "max_drawdown_pct": -9.35,
+              "n_trades": 184,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0796,
+                "skew": 0.6094,
+                "kurtosis": 4.7229,
+                "n_obs": 184,
+                "num_trials": 53,
+                "psr": 0.8645,
+                "min_trl": 409.6,
+                "deflated_sharpe": 0.1155
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -14.87,
+                "dd_p95_severity_pct": -26.46,
+                "dd_worst_pct": -47.92,
+                "terminal_median_pct": 23.19,
+                "terminal_p05_pct": -13.31,
+                "prob_loss": 0.171,
+                "prob_dd_worse_than_tol": 0.207,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  4.9,
+                  10.19,
+                  -3.53,
+                  11.26
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 11.26,
+                "worst_period_return_pct": -3.53,
+                "concentration": 0.371
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=184) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "Beta-neutral spread: long EW beneficiary basket, short ONGC.NS (upstream), beta=0.11 (2-leg costs).",
+            "as_of": "2026-06-30T08:35:29.487872+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 24.06,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 9.67,
+            "nifty_beta": 0.101,
+            "nifty_beta_t": 2.18,
+            "alpha_ann_pct": 31.95,
+            "pct_episodes_beat": 66.7,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            5.24,
+            6.29,
+            -4.61,
+            0.87,
+            5.08,
+            6.43,
+            -4.56,
+            -0.87,
+            6.53,
+            4.69,
+            4.67,
+            -6.69
+          ],
+          "caar_significance": {
+            "caar": 1.924,
+            "classical_t": 1.36,
+            "classical_p": 0.1741,
+            "bmp_t": 1.36,
+            "bmp_p": 0.1741,
+            "nonparam_p": 0.2482,
+            "combined_p": 0.2482,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 24.06,
+            "max_drawdown_pct": -9.35,
+            "psr": 0.8645,
+            "deflated_sharpe": 0.1155,
+            "min_trl": 409.6,
+            "n_obs": 184,
+            "observed_sharpe": 0.0796,
+            "num_trials": 53,
+            "cost_survival": 0.758,
+            "hit_rate": 0.667
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 76,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (76/100): analog hit-rate 67%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=184) to score the expression dial honestly."
+          },
+          "hit_target": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false
+          ],
+          "bars_to_target": [
+            17,
+            19,
+            null,
+            null,
+            10,
+            18,
+            null,
+            null,
+            2,
+            10,
+            8,
+            null
+          ],
+          "note": "Beta-neutral spread: long EW beneficiary basket, short ONGC.NS (upstream), beta=0.11 (2-leg costs)."
+        },
+        "manual": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 8,
+            "rationale": "There may be an edge but it isn't established yet: PSR 82%; DSR 8% after 53 variants; needs ~797 obs (have 240).",
+            "flags": [
+              "drawdown_risk",
+              "selection_bias"
+            ],
+            "engine": "pair",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 26.06,
+              "max_drawdown_pct": -14.66,
+              "n_trades": 240,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0602,
+                "skew": -0.9238,
+                "kurtosis": 12.1652,
+                "n_obs": 240,
+                "num_trials": 53,
+                "psr": 0.8163,
+                "min_trl": 796.8,
+                "deflated_sharpe": 0.0812
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -18.5,
+                "dd_p95_severity_pct": -32.16,
+                "dd_worst_pct": -44.33,
+                "terminal_median_pct": 26.62,
+                "terminal_p05_pct": -14.9,
+                "prob_loss": 0.169,
+                "prob_dd_worse_than_tol": 0.393,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  4.81,
+                  5.55,
+                  -0.48,
+                  14.5
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 14.5,
+                "worst_period_return_pct": -0.48,
+                "concentration": 0.561
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=240) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "Beta-neutral spread: long EW beneficiary basket, short ONGC.NS (upstream), beta=0.11 (2-leg costs).",
+            "as_of": "2026-06-30T08:35:29.495060+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 26.06,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 11.67,
+            "nifty_beta": 0.725,
+            "nifty_beta_t": 8.45,
+            "alpha_ann_pct": 15.99,
+            "pct_episodes_beat": 66.7,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            4.68,
+            4.96,
+            -4.61,
+            0.87,
+            -0.81,
+            5.49,
+            -4.56,
+            -0.87,
+            5.18,
+            7.17,
+            14.5,
+            -6.69
+          ],
+          "caar_significance": {
+            "caar": 2.111,
+            "classical_t": 1.21,
+            "classical_p": 0.2257,
+            "bmp_t": 1.21,
+            "bmp_p": 0.2257,
+            "nonparam_p": 0.5637,
+            "combined_p": 0.5637,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 26.06,
+            "max_drawdown_pct": -14.66,
+            "psr": 0.8163,
+            "deflated_sharpe": 0.0812,
+            "min_trl": 796.8,
+            "n_obs": 240,
+            "observed_sharpe": 0.0602,
+            "num_trials": 53,
+            "cost_survival": 0.821,
+            "hit_rate": 0.583
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 70,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (70/100): analog hit-rate 58%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=240) to score the expression dial honestly."
+          },
+          "note": "Beta-neutral spread: long EW beneficiary basket, short ONGC.NS (upstream), beta=0.11 (2-leg costs)."
+        }
+      }
+    },
+    {
+      "name": "Aggressive \u2014 1.5x leveraged directional basket (defined-risk proxy)",
+      "engine": "leveraged",
+      "exit_variants": {
+        "fixed": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 9,
+            "rationale": "There may be an edge but it isn't established yet: PSR 83%; DSR 9% after 53 variants; needs ~690 obs (have 240).",
+            "flags": [
+              "drawdown_risk",
+              "selection_bias"
+            ],
+            "engine": "leveraged",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 43.02,
+              "max_drawdown_pct": -24.06,
+              "n_trades": 240,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0648,
+                "skew": -0.8503,
+                "kurtosis": 13.8607,
+                "n_obs": 240,
+                "num_trials": 53,
+                "psr": 0.8336,
+                "min_trl": 690.1,
+                "deflated_sharpe": 0.0918
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -27.57,
+                "dd_p95_severity_pct": -46.13,
+                "dd_worst_pct": -63.97,
+                "terminal_median_pct": 42.69,
+                "terminal_p05_pct": -24.73,
+                "prob_loss": 0.174,
+                "prob_dd_worse_than_tol": 0.906,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  9.96,
+                  8.65,
+                  -2.81,
+                  23.16
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 23.16,
+                "worst_period_return_pct": -2.81,
+                "concentration": 0.502
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=240) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "1.5x leveraged directional proxy on the beneficiary basket. A live aggressive tier would use a defined-risk debit spread; no historical option chain exists, so NO option payoff is fabricated \u2014 the leverage proxy is labelled as such. POP=None (not an option).",
+            "as_of": "2026-06-30T08:35:29.507011+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 43.02,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 28.62,
+            "nifty_beta": 1.251,
+            "nifty_beta_t": 9.31,
+            "alpha_ann_pct": 26.89,
+            "pct_episodes_beat": 75.0,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            9.15,
+            7.68,
+            -6.44,
+            2.27,
+            -1.49,
+            7.85,
+            -6.77,
+            -3.31,
+            7.82,
+            10.56,
+            23.95,
+            -10.13
+          ],
+          "caar_significance": {
+            "caar": 3.428,
+            "classical_t": 1.23,
+            "classical_p": 0.217,
+            "bmp_t": 1.23,
+            "bmp_p": 0.217,
+            "nonparam_p": 0.5637,
+            "combined_p": 0.5637,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 43.02,
+            "max_drawdown_pct": -24.06,
+            "psr": 0.8336,
+            "deflated_sharpe": 0.0918,
+            "min_trl": 690.1,
+            "n_obs": 240,
+            "observed_sharpe": 0.0648,
+            "num_trials": 53,
+            "cost_survival": 0.87,
+            "hit_rate": 0.583
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 70,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (70/100): analog hit-rate 58%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=240) to score the expression dial honestly."
+          },
+          "note": "1.5x leveraged directional proxy on the beneficiary basket. A live aggressive tier would use a defined-risk debit spread; no historical option chain exists, so NO option payoff is fabricated \u2014 the leverage proxy is labelled as such. POP=None (not an option)."
+        },
+        "target": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 11,
+            "rationale": "There may be an edge but it isn't established yet: PSR 86%; DSR 11% after 53 variants; needs ~392 obs (have 165).",
+            "flags": [
+              "drawdown_risk",
+              "selection_bias"
+            ],
+            "engine": "leveraged",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 33.99,
+              "max_drawdown_pct": -15.22,
+              "n_trades": 165,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0802,
+                "skew": 0.9716,
+                "kurtosis": 6.4455,
+                "n_obs": 165,
+                "num_trials": 53,
+                "psr": 0.8565,
+                "min_trl": 392.4,
+                "deflated_sharpe": 0.1086
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 5,
+                "dd_median_pct": -21.74,
+                "dd_p95_severity_pct": -37.99,
+                "dd_worst_pct": -55.88,
+                "terminal_median_pct": 31.96,
+                "terminal_p05_pct": -19.51,
+                "prob_loss": 0.18,
+                "prob_dd_worse_than_tol": 0.608,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  7.99,
+                  11.8,
+                  -3.78,
+                  15.34
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 15.34,
+                "worst_period_return_pct": -3.78,
+                "concentration": 0.386
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=165) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "1.5x leveraged directional proxy on the beneficiary basket. A live aggressive tier would use a defined-risk debit spread; no historical option chain exists, so NO option payoff is fabricated \u2014 the leverage proxy is labelled as such. POP=None (not an option).",
+            "as_of": "2026-06-30T08:35:29.509586+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 33.99,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 19.6,
+            "nifty_beta": 0.019,
+            "nifty_beta_t": 0.25,
+            "alpha_ann_pct": 53.34,
+            "pct_episodes_beat": 66.7,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            5.15,
+            9.25,
+            -6.44,
+            7.03,
+            4.91,
+            9.3,
+            -6.77,
+            -3.31,
+            11.08,
+            6.49,
+            6.01,
+            -10.13
+          ],
+          "caar_significance": {
+            "caar": 2.714,
+            "classical_t": 1.29,
+            "classical_p": 0.1976,
+            "bmp_t": 1.29,
+            "bmp_p": 0.1976,
+            "nonparam_p": 0.2482,
+            "combined_p": 0.2482,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 33.99,
+            "max_drawdown_pct": -15.22,
+            "psr": 0.8565,
+            "deflated_sharpe": 0.1086,
+            "min_trl": 392.4,
+            "n_obs": 165,
+            "observed_sharpe": 0.0802,
+            "num_trials": 53,
+            "cost_survival": 0.687,
+            "hit_rate": 0.667
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 76,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (76/100): analog hit-rate 67%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=165) to score the expression dial honestly."
+          },
+          "hit_target": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            true,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false
+          ],
+          "bars_to_target": [
+            15,
+            19,
+            null,
+            16,
+            2,
+            18,
+            null,
+            null,
+            2,
+            7,
+            6,
+            null
+          ],
+          "note": "1.5x leveraged directional proxy on the beneficiary basket. A live aggressive tier would use a defined-risk debit spread; no historical option chain exists, so NO option payoff is fabricated \u2014 the leverage proxy is labelled as such. POP=None (not an option)."
+        },
+        "manual": {
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 9,
+            "rationale": "There may be an edge but it isn't established yet: PSR 83%; DSR 9% after 53 variants; needs ~690 obs (have 240).",
+            "flags": [
+              "drawdown_risk",
+              "selection_bias"
+            ],
+            "engine": "leveraged",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 43.02,
+              "max_drawdown_pct": -24.06,
+              "n_trades": 240,
+              "benchmark_return_pct": 14.4,
+              "forward_stats": {
+                "observed_sharpe": 0.0648,
+                "skew": -0.8503,
+                "kurtosis": 13.8607,
+                "n_obs": 240,
+                "num_trials": 53,
+                "psr": 0.8336,
+                "min_trl": 690.1,
+                "deflated_sharpe": 0.0918
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -27.57,
+                "dd_p95_severity_pct": -46.13,
+                "dd_worst_pct": -63.97,
+                "terminal_median_pct": 42.69,
+                "terminal_p05_pct": -24.73,
+                "prob_loss": 0.174,
+                "prob_dd_worse_than_tol": 0.906,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  9.96,
+                  8.65,
+                  -2.81,
+                  23.16
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 23.16,
+                "worst_period_return_pct": -2.81,
+                "concentration": 0.502
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=240) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "1.5x leveraged directional proxy on the beneficiary basket. A live aggressive tier would use a defined-risk debit spread; no historical option chain exists, so NO option payoff is fabricated \u2014 the leverage proxy is labelled as such. POP=None (not an option).",
+            "as_of": "2026-06-30T08:35:29.513601+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 43.02,
+            "nifty_total_pct": 14.4,
+            "excess_pct": 28.62,
+            "nifty_beta": 1.251,
+            "nifty_beta_t": 9.31,
+            "alpha_ann_pct": 26.89,
+            "pct_episodes_beat": 75.0,
+            "n_episodes": 12,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            9.15,
+            7.68,
+            -6.44,
+            2.27,
+            -1.49,
+            7.85,
+            -6.77,
+            -3.31,
+            7.82,
+            10.56,
+            23.95,
+            -10.13
+          ],
+          "caar_significance": {
+            "caar": 3.428,
+            "classical_t": 1.23,
+            "classical_p": 0.217,
+            "bmp_t": 1.23,
+            "bmp_p": 0.217,
+            "nonparam_p": 0.5637,
+            "combined_p": 0.5637,
+            "n": 12,
+            "both_agree": false
+          },
+          "battery_summary": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "total_return_pct": 43.02,
+            "max_drawdown_pct": -24.06,
+            "psr": 0.8336,
+            "deflated_sharpe": 0.0918,
+            "min_trl": 690.1,
+            "n_obs": 240,
+            "observed_sharpe": 0.0648,
+            "num_trials": 53,
+            "cost_survival": 0.87,
+            "hit_rate": 0.583
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 70,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (70/100): analog hit-rate 58%; N=12."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=240) to score the expression dial honestly."
+          },
+          "note": "1.5x leveraged directional proxy on the beneficiary basket. A live aggressive tier would use a defined-risk debit spread; no historical option chain exists, so NO option payoff is fabricated \u2014 the leverage proxy is labelled as such. POP=None (not an option)."
+        }
+      }
+    }
+  ],
+  "honesty": {
+    "n_events": 12,
+    "trial_group": "crude_v3",
+    "num_trials_deflation": 53,
+    "note": "12 crash episodes \u2014 below MinTRL for honest dial scoring; outcome/expression dials suppress on insufficient_data. Aggressive tier is a labelled leverage proxy (no historical option chain)."
+  }
+}

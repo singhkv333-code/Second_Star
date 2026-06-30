@@ -60,6 +60,7 @@ from backend.routers.admin_simulate import router as admin_simulate_router
 from backend.routers.backtest_dsl import router as backtest_dsl_router
 from backend.routers.options_admin import router as options_admin_router
 from backend.routers.option_strategies import router as option_strategies_router
+from backend.routers.views import router as views_router
 
 app = FastAPI(
     title="Pivot API",
@@ -130,6 +131,8 @@ app.include_router(backtest_dsl_router)
 app.include_router(options_admin_router)
 # F&O P1: option-strategy registration (bare-mounted like /ipo-applications).
 app.include_router(option_strategies_router)
+# View Markets V2 — flag-gated at the endpoint level (404 when off).
+app.include_router(views_router)
 
 # ── News & Event Trigger subsystem (flag-gated) ──────────────────────
 # Entire subsystem is opt-in via `settings.news_events_enabled`. With
@@ -297,6 +300,15 @@ async def startup():
         from backend.workflows.scheduler import register_workflow_scheduler
         if scheduler_module.scheduler is not None:
             register_workflow_scheduler(scheduler_module.scheduler)
+            # View Markets lifecycle worker — additive, flag-gated. The
+            # registration helper is a NO-OP unless
+            # `config.view_markets_enabled` (default off), so prod is
+            # unaffected and the job doesn't exist when disabled.
+            from backend.view_markets.lifecycle import (
+                register_view_markets_lifecycle,
+            )
+
+            register_view_markets_lifecycle(scheduler_module.scheduler)
             # News & Event Trigger pollers — additive, flag-gated.
             # With the flag off, this branch is a no-op and the
             # subsystem's modules are never imported.
