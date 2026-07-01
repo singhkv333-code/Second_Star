@@ -24,7 +24,7 @@
  */
 
 import * as React from "react";
-import { ArrowLeft, AlertCircle, Plus } from "lucide-react";
+import { ArrowLeft, AlertCircle, Plus, Info } from "lucide-react";
 import { getView, deployExpression } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { ViewDetail, ExpressionDetail, StanceIntent } from "@/lib/types";
@@ -252,7 +252,9 @@ function StanceCard({
    *  soft outline ring (no box-shadow, no fill; design-law clean). */
   highlighted?: boolean;
 }): React.ReactElement {
-  const ring = accent ?? "var(--text-tertiary)";
+  // A "no clean trade" (muted) side rings in muted grey, not the amber accent —
+  // matching the gallery card's muted treatment so the two surfaces agree.
+  const ring = muted ? "var(--text-tertiary)" : (accent ?? "var(--text-tertiary)");
   return (
     <div
       style={{
@@ -332,7 +334,14 @@ function StanceBlock({
           accent="var(--pivot-blue)"
           verdict={stance.yes.verdict}
           summary={stance.yes.summary}
-          footnote="Expressed by the strategies below ↓"
+          // When the reader arrived on No, don't point them "down to the
+          // strategies" from the YES card — the No note by the table carries
+          // the honest framing instead.
+          footnote={
+            highlight === "no"
+              ? undefined
+              : "Expressed by the strategies below ↓"
+          }
           highlighted={highlight === "yes"}
         />
         <StanceCard
@@ -788,6 +797,44 @@ export function ViewDetailPage({
               >
                 Strategies
               </h2>
+              {/* No follow-through: our curated views author only the YES-side
+                  expressions (the basket/option tiers). When the reader came in
+                  on No, say so plainly — the strategies express Yes; No means
+                  sit in the index (or, for an asymmetric event, no clean trade).
+                  This closes the gap where a No-picker could deploy the Yes
+                  bundle thinking it was "their" pick. */}
+              {initialStance === "no" && view.stance && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    padding: "12px 14px",
+                    border: "1px dashed var(--glass-border)",
+                    borderRadius: "var(--radius-lg)",
+                    background: "var(--bg-base)",
+                  }}
+                >
+                  <Info
+                    size={15}
+                    aria-hidden
+                    style={{
+                      color: "var(--text-tertiary)",
+                      flexShrink: 0,
+                      marginTop: 2,
+                    }}
+                  />
+                  <Body color="var(--text-secondary)" size={13}>
+                    You leaned{" "}
+                    <strong style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                      No
+                    </strong>{" "}
+                    — {view.stance.no.verdict}.{" "}
+                    {view.stance.no.has_trade
+                      ? "That's the sit-in-the-index default — there's nothing here to arm. The strategies below express the Yes case."
+                      : "There's no clean position to arm here — sitting it out is the call. The strategies below express the Yes case."}
+                  </Body>
+                </div>
+              )}
               <StrategiesTable
                 expressions={exprs}
                 selectedId={selectedExpr?.id ?? null}

@@ -223,9 +223,13 @@ function StanceButton({
           lineHeight: 1.2,
           letterSpacing: tone === "yes" ? "-0.01em" : "0",
           fontVariantNumeric: "tabular-nums",
-          whiteSpace: "nowrap",
+          // The Yes return is always short (1 line); a No verdict like "Back
+          // the incumbents" wraps to a second line rather than truncating
+          // mid-word. Buttons are flex siblings → they stretch to equal height.
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
           overflow: "hidden",
-          textOverflow: "ellipsis",
           maxWidth: "100%",
         }}
       >
