@@ -689,6 +689,15 @@ function AgentMiniCard({
 // has_data false → "No runs yet" (no fabricated chart).
 // ---------------------------------------------------------------------------
 
+// Two equal points → NavSparkline renders a flat line. Used ONLY as a
+// visual placeholder (dashed + neutral-gray, never profit/loss colored) for
+// cards with no live data and no eligible backtest — never mistaken for a
+// real (even flat) result.
+const FLAT_PLACEHOLDER_SERIES: { date: string; nav: number }[] = [
+  { date: "", nav: 0 },
+  { date: "", nav: 0 },
+];
+
 function PerformanceBlock({
   perf,
   isLoading,
@@ -746,24 +755,16 @@ function PerformanceBlock({
       );
     }
     return (
-      <div
-        className="flex flex-col items-center justify-center rounded-md text-center"
-        style={{
-          height: 56,
-          marginTop: 14,
-          background: "var(--bg-elevated)",
-          color: "var(--text-tertiary)",
-          fontFamily: "var(--font-ui)",
-          fontSize: 11.5,
-        }}
-        data-testid="agent-no-runs"
-      >
-        No runs yet
-        {perf && perf.run_count > 0 && series.length < 2 && (
-          <span style={{ fontSize: 10.5, marginTop: 2 }}>
-            {perf.run_count} run{perf.run_count === 1 ? "" : "s"} · no NAV history
-          </span>
-        )}
+      <div className="flex flex-col" style={{ marginTop: 14, gap: 8 }} data-testid="agent-no-runs">
+        <NavSparkline series={FLAT_PLACEHOLDER_SERIES} positive={false} dashed neutral />
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="text-muted-foreground">No runs yet</span>
+          {perf && perf.run_count > 0 && series.length < 2 && (
+            <span className="text-muted-foreground tabular-nums">
+              {perf.run_count} run{perf.run_count === 1 ? "" : "s"} · no NAV history
+            </span>
+          )}
+        </div>
       </div>
     );
   }
@@ -799,12 +800,17 @@ function NavSparkline({
   series,
   positive,
   dashed = false,
+  neutral = false,
 }: {
   series: { date: string; nav: number }[];
   positive: boolean;
   /** Backtested (not live) results render with a dashed stroke so the two
    *  are never visually confused at a glance. */
   dashed?: boolean;
+  /** No real/backtested data at all — a flat muted-gray placeholder line
+   *  instead of the profit/loss green or red, so it's never mistaken for
+   *  an actual (even zero) result. */
+  neutral?: boolean;
 }): React.ReactElement {
   const W = 280;
   const H = 56;
@@ -822,9 +828,9 @@ function NavSparkline({
     .join(" ");
   const areaPath = `${linePath} L ${W} ${H} L 0 ${H} Z`;
   const gradId = `nav-spark-${Math.round(min)}-${n}`;
-  const stroke = positive ? "var(--color-profit)" : "var(--color-loss)";
-  const fillTop = positive ? "rgba(16, 185, 129, 0.22)" : "rgba(239, 68, 68, 0.22)";
-  const fillBot = positive ? "rgba(16, 185, 129, 0)" : "rgba(239, 68, 68, 0)";
+  const stroke = neutral ? "var(--text-tertiary)" : positive ? "var(--color-profit)" : "var(--color-loss)";
+  const fillTop = neutral ? "rgba(148, 163, 184, 0.16)" : positive ? "rgba(16, 185, 129, 0.22)" : "rgba(239, 68, 68, 0.22)";
+  const fillBot = neutral ? "rgba(148, 163, 184, 0)" : positive ? "rgba(16, 185, 129, 0)" : "rgba(239, 68, 68, 0)";
 
   return (
     <svg
