@@ -161,6 +161,8 @@ interface StrategiesTableProps {
   onDeploy: (expr: ExpressionDetail) => void;
   deployingId?: string | null;
   deployError?: string | null;
+  /** Open the full statistical analysis page for a strategy. */
+  onOpenDeepDive?: (expr: ExpressionDetail) => void;
 }
 
 export function StrategiesTable({
@@ -170,6 +172,7 @@ export function StrategiesTable({
   onDeploy,
   deployingId,
   deployError,
+  onOpenDeepDive,
 }: StrategiesTableProps): React.ReactElement | null {
   const [openId, setOpenId] = React.useState<string | null>(null);
 
@@ -395,6 +398,25 @@ export function StrategiesTable({
                     }
                   />
                 </div>
+                {onOpenDeepDive && (
+                  <button
+                    onClick={() => onOpenDeepDive(expr)}
+                    style={{
+                      alignSelf: "flex-start",
+                      fontFamily: FONT,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "var(--pivot-blue)",
+                      background: "transparent",
+                      border: "1px solid color-mix(in srgb, var(--pivot-blue) 40%, transparent)",
+                      borderRadius: "var(--radius-md)",
+                      padding: "7px 12px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    See the full analysis →
+                  </button>
+                )}
                 <DeployButton
                   onClick={() => onDeploy(expr)}
                   busy={deployingId === expr.id}

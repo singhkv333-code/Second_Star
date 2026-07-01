@@ -282,6 +282,11 @@ class ViewSummary(BaseModel):
     # ViewSummary is model_rebuild()'d after it. Same field/type as ViewDetail —
     # the two surfaces stay in lock-step once a live source is wired.
     stance: Optional["Stance"] = None
+    # The single BEST past occurrence of the headline strategy (return % + label)
+    # — the most striking-yet-honest number for the card, always shown alongside
+    # the typical return. None when there's no per-occurrence sample.
+    best_episode_pct: Optional[float] = None
+    best_episode_label: Optional[str] = None
 
 
 class TransmissionEdge(BaseModel):
@@ -841,6 +846,23 @@ def _build_summary(
     )
     plain = plain_copy.plain_for_view(view)
     best = _best_expression(view, exprs)
+    # The single best past occurrence of the headline strategy (real, from the
+    # precompute episode list) — the most striking honest number for the card.
+    best_ep_pct: Optional[float] = None
+    best_ep_label: Optional[str] = None
+    if best is not None:
+        pre = precompute.expression_precompute(str(best.id))
+        eps = pre.get("episodes") if isinstance(pre, dict) else None
+        if isinstance(eps, list) and eps:
+            top = max(
+                eps,
+                key=lambda ep: (
+                    ep.get("return_pct") if isinstance(ep.get("return_pct"), (int, float))
+                    else -1e9
+                ),
+            )
+            best_ep_pct = _as_float(top.get("return_pct"))
+            best_ep_label = top.get("label")
     return ViewSummary(
         id=str(view.id),
         view_type=_str_enum(view.view_type),
@@ -870,6 +892,8 @@ def _build_summary(
         # details" card when absent. Wired here so the summary lights up the
         # same day a live stance source lands in _stance_for_view.
         stance=_stance_for_view(view),
+        best_episode_pct=best_ep_pct,
+        best_episode_label=best_ep_label,
     )
 
 

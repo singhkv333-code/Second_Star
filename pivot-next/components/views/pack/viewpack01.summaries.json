@@ -689,7 +689,9 @@
     "verdict": "Stay in the index",
     "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
    }
-  }
+  },
+  "best_episode_pct": 64.8,
+  "best_episode_label": "Window 20"
  },
  {
   "id": "ai_search",
@@ -1381,7 +1383,9 @@
     "verdict": "Back the incumbents",
     "summary": "If disruption takes longer than expected, the large legacy IT firms keep their scale advantage \u2014 own them instead."
    }
-  }
+  },
+  "best_episode_pct": 95.5,
+  "best_episode_label": "Window 20"
  },
  {
   "id": "nuclear",
@@ -2073,7 +2077,9 @@
     "verdict": "Stay in the index",
     "summary": "Nuclear itself isn't listed here, and the wider power theme doesn't clearly separate from the market \u2014 the index is the honest fallback."
    }
-  }
+  },
+  "best_episode_pct": 54.0,
+  "best_episode_label": "Window 28"
  },
  {
   "id": "ev",
@@ -2765,7 +2771,9 @@
     "verdict": "Stick with legacy auto",
     "summary": "If EV adoption disappoints, the established petrol-engine makers and the broad index likely hold up better."
    }
-  }
+  },
+  "best_episode_pct": 55.9,
+  "best_episode_label": "Window 5"
  },
  {
   "id": "mideast",
@@ -3142,7 +3150,9 @@
     "verdict": "No clean trade",
     "summary": "De-escalation doesn't reliably move oil, gold or defence stocks the other way, so there's no clean position to take if tensions cool."
    }
-  }
+  },
+  "best_episode_pct": 45.3,
+  "best_episode_label": "Window 9"
  },
  {
   "id": "nifty30k",
@@ -3834,7 +3844,9 @@
     "verdict": "Stay in the index",
     "summary": "A move this large is rare \u2014 if it doesn't happen, simply holding the index avoids paying for a bet that can expire worthless."
    }
-  }
+  },
+  "best_episode_pct": 35.9,
+  "best_episode_label": "Mar 2020"
  },
  {
   "id": "gold",
@@ -4211,7 +4223,9 @@
     "verdict": "Stay in equities",
     "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
    }
-  }
+  },
+  "best_episode_pct": 18.7,
+  "best_episode_label": "Window 9"
  },
  {
   "id": "fintech",
@@ -4903,6 +4917,8 @@
     "verdict": "Stay in the index",
     "summary": "These names are young and volatile with an inconsistent edge \u2014 the index is the steadier bet until the pattern proves out."
    }
-  }
+  },
+  "best_episode_pct": 127.1,
+  "best_episode_label": "Mar 2020"
  }
 ]

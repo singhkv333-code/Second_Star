@@ -357,6 +357,40 @@ export function ViewCard({
         {view.plain_summary ?? ""}
       </p>
 
+      {/* ── (c.5) the most interesting return — the standout past occurrence ─ */}
+      {/* Honest by construction: labelled "best past run" (a single real past
+          occurrence, never a promise), and the Yes button below carries the
+          TYPICAL return so the two are always seen together. */}
+      {typeof view.best_episode_pct === "number" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 7,
+            marginTop: 12,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: FONT,
+              fontVariantNumeric: "tabular-nums",
+              fontSize: 24,
+              fontWeight: 800,
+              letterSpacing: "-0.02em",
+              color:
+                view.best_episode_pct >= 0
+                  ? "var(--color-profit)"
+                  : "var(--color-loss)",
+            }}
+          >
+            {fmtPct(view.best_episode_pct)}
+          </span>
+          <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
+            best past run
+          </span>
+        </div>
+      )}
+
       {/* ── (d) return path — the belief's own curve ─────────────────── */}
       {/* The curve lives in a flex-grow region and is vertically centred, so it
           fills the space between the summary and the buttons instead of leaving

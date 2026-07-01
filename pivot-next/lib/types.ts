@@ -1587,6 +1587,14 @@ export type ViewSummary = {
    * expression, they don't price a binary outcome.
    */
   stance?: ViewStance | null;
+  /**
+   * The single BEST past occurrence of the headline strategy (return % + its
+   * label) — the most striking-yet-honest number to surface on the card. Always
+   * paired with the typical return so it never over-promises. Null when there is
+   * no per-occurrence sample.
+   */
+  best_episode_pct?: number | null;
+  best_episode_label?: string | null;
 };
 
 /** One edge in the causal transmission map, ordered by seq. */
@@ -1691,6 +1699,40 @@ export type ExpressionInstrument = {
 };
 
 /** One expression returned inside GET /api/views/{id} detail. */
+/** One leg of the modelled option structure (spot normalised to 100). */
+export type OptionModelLeg = {
+  action: string; // "BUY" | "SELL"
+  option_type: string; // "CE" | "PE"
+  strike_pct: number; // % moneyness (spot = 100)
+  strike_label: string; // "ATM" | "+5%"
+};
+
+/** One point of the priced payoff curve: terminal underlying move → P&L as % of
+ *  the capital deployed (the debit premium). */
+export type OptionModelPayoffPoint = { move_pct: number; pnl_pct: number };
+
+/** REAL Black–Scholes model of the option tier's defined-risk vertical. Every
+ *  number is computed (max loss/profit are % of the capital deployed); the
+ *  historical return stays "priced at deploy" — this is the payoff SHAPE. */
+export type OptionModel = {
+  structure: string; // "bull_call_spread" | "bear_put_spread"
+  direction: "bullish" | "bearish";
+  underlying_label: string | null;
+  legs: OptionModelLeg[];
+  net_premium_pct: number;
+  width_pct: number;
+  max_loss_pct: number; // -100 (the debit) for a defined-risk spread
+  max_profit_pct: number; // % of capital deployed
+  breakeven_move_pct: number;
+  pop_pct: number; // lognormal probability of profit at expiry
+  net_greeks: { delta: number; gamma: number; vega: number; theta: number };
+  vol_used_pct: number;
+  horizon_days: number;
+  payoff: OptionModelPayoffPoint[];
+  basis: string;
+  assumptions: string;
+};
+
 export type ExpressionDetail = {
   id: string;
   tier: ExpressionTier;
@@ -1768,6 +1810,12 @@ export type ExpressionDetail = {
   historical_alignment?: HistoricalAlignment | null;
   /** Monte-Carlo outcome spread (null when not simulated). */
   monte_carlo?: MonteCarlo | null;
+  /** REAL per-tier weighting scheme actually used
+   *  (min_variance / risk_parity / factor / equal). */
+  weight_scheme?: string | null;
+  /** REAL modelled Black–Scholes option payoff for the option tier
+   *  (null for non-option kinds). */
+  option_model?: OptionModel | null;
 };
 
 /** Full view detail returned by GET /api/views/{id}. */

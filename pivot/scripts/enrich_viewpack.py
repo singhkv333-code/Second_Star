@@ -362,6 +362,12 @@ def main() -> None:
             "equity_curve": best.get("equity_curve"),
         })
         s["best_expression"] = be
+        # The single most striking (yet honest) return — the best past occurrence.
+        eps = best.get("episodes") or []
+        if eps:
+            top = max(eps, key=lambda ep: ep.get("return_pct") or -1e9)
+            s["best_episode_pct"] = top.get("return_pct")
+            s["best_episode_label"] = top.get("label")
 
     with open(_DETAILS, "w") as fh:
         json.dump(details, fh, indent=1)

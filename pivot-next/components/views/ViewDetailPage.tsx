@@ -35,6 +35,7 @@ import {
 } from "@/components/views/charts/LineChart";
 import { ViewDescription } from "@/components/views/ViewDescription";
 import { StrategiesTable } from "@/components/views/StrategiesTable";
+import { StrategyDeepDive } from "@/components/views/StrategyDeepDive";
 import { BenchmarkComparison } from "@/components/views/BenchmarkComparison";
 import { SimilarViews } from "@/components/views/SimilarViews";
 import { tierLabel } from "@/components/views/view-format";
@@ -427,6 +428,7 @@ export function ViewDetailPage({
   const [compareOn, setCompareOn] = React.useState(false);
   const [deployingId, setDeployingId] = React.useState<string | null>(null);
   const [deployError, setDeployError] = React.useState<string | null>(null);
+  const [deepDiveId, setDeepDiveId] = React.useState<string | null>(null);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -567,6 +569,23 @@ export function ViewDetailPage({
           }))
           .filter((cs) => cs.series.length >= 2)
       : [];
+
+  // Full statistical deep-dive for one strategy (swaps the whole detail body).
+  const deepDiveExpr =
+    deepDiveId && view
+      ? view.expressions.find((x) => x.id === deepDiveId) ?? null
+      : null;
+  if (deepDiveExpr) {
+    return (
+      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 28 }}>
+        <StrategyDeepDive
+          expression={deepDiveExpr}
+          viewTitle={view?.short_title ?? view?.title ?? null}
+          onBack={() => setDeepDiveId(null)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -842,6 +861,7 @@ export function ViewDetailPage({
                 onDeploy={handleDeploy}
                 deployingId={deployingId}
                 deployError={deployError}
+                onOpenDeepDive={(expr) => setDeepDiveId(expr.id)}
               />
             </div>
           )}
