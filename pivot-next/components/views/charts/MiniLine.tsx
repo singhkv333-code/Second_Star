@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * MiniLine — a compact, axis-less sparkline for the View gallery card. Strategy
- * line in the accent (var(--pivot-blue)) over a faint Nifty reference line.
+ * MiniLine — a compact, axis-less sparkline for the View gallery card. Shows
+ * ONLY the strategy's own return path in the accent (var(--pivot-blue)) — no
+ * benchmark reference line (users see the return, nothing to "beat").
  * ~120x44, rounded, no ticks/labels/tooltip. Empty / too-short series renders
  * nothing (a thin placeholder), never a fabricated line.
  *
@@ -88,12 +89,6 @@ export function MiniLine({
     height,
     pad,
   );
-  const benchPath = pathFor(
-    safe.map((p) => p.benchmark),
-    width,
-    height,
-    pad,
-  );
 
   return (
     <svg
@@ -101,19 +96,9 @@ export function MiniLine({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="Strategy versus Nifty performance sparkline"
+      aria-label="Strategy return sparkline"
       style={{ borderRadius: 10, display: "block", overflow: "visible" }}
     >
-      <path
-        d={benchPath}
-        fill="none"
-        stroke={c.tertiary}
-        strokeOpacity={0.45}
-        strokeWidth={1.25}
-        strokeDasharray="3 3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
       <path
         d={stratPath}
         fill="none"

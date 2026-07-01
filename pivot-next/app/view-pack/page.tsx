@@ -93,7 +93,7 @@ export default function ViewPackPage(): React.ReactElement {
                   lineHeight: 1.5,
                 }}
               >
-                Beliefs, expressed as deployable strategies — tested against the Nifty.
+                Beliefs, expressed as deployable strategies — with the return each one has paid.
               </p>
             </div>
             <div

@@ -151,7 +151,7 @@ export function ViewsTab({
             lineHeight: 1.5,
           }}
         >
-          Beliefs, expressed as deployable strategies — tested against the Nifty.
+          Beliefs, expressed as deployable strategies — with the return each one has paid.
         </p>
       </div>
 
@@ -343,8 +343,8 @@ function ViewsEmptyState(): React.ReactElement {
           lineHeight: 1.5,
         }}
       >
-        Curated market beliefs will appear here — each one explained, tested
-        against the Nifty, and ready to deploy.
+        Curated market beliefs will appear here — each one explained, with the
+        return it has paid, and ready to deploy.
       </p>
     </div>
   );
