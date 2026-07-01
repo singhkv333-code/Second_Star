@@ -15,6 +15,7 @@
 
 import { Fragment, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 import type {
   DailyPnlPoint,
   StrategyReturn,
@@ -643,18 +644,13 @@ function PnlHeatmap({
         <ValueChip text={isLoading || !hasData ? "—" : formatInr(totalPnl, true)} tone={totalTone} />
       </div>
 
-      {!isLoading && !hasData ? (
+      {isLoading ? (
         <div
-          className="flex items-center justify-center text-center"
-          style={{
-            minHeight: 96,
-            fontFamily: "var(--font-ui)",
-            fontSize: 12,
-            color: "var(--text-tertiary)",
-          }}
-          data-testid="pnl-heatmap-empty"
+          className="flex items-center justify-center"
+          style={{ minHeight: 96 }}
+          data-testid="pnl-heatmap-loading"
         >
-          No paper-trading P&amp;L history yet
+          <Skeleton className="h-full w-full rounded-md" style={{ minHeight: 96 }} />
         </div>
       ) : (
         <div style={gridStyle} role="img" aria-label="Daily profit and loss heatmap, last six months">

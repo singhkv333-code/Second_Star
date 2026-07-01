@@ -34,13 +34,16 @@ Three scores are produced:
    is fully explainable.
 
 3. ``community_score`` (0-100)
-   A **percentile** of this user's ``portfolio_score`` against a *fixed,
-   documented benchmark cohort distribution* — NOT live peer data and NOT a
-   "N users beaten" claim. The reference distribution
-   (``BENCHMARK_SCORE_DISTRIBUTION``) is a transparent set of representative
-   retail-portfolio scores; the percentile is the fraction of that
-   benchmark the user's score meets or exceeds. The ``basis`` string makes
-   it explicit that this is a benchmark, not a live community.
+   A **percentile** of this user's ``portfolio_score`` against real peer
+   scores — other users with a genuinely differentiated portfolio (a
+   connected broker session, or paper-trading NAV history) — when at least
+   ``_MIN_REAL_PEERS`` of them exist. Users with neither are excluded from
+   the peer pool entirely: on the shared dev mock holdings with no NAV
+   history their score is byte-identical to every other such user, so
+   counting them would dress up placeholder data as real community
+   signal. Below the threshold this falls back to a fixed, documented
+   benchmark cohort distribution (``BENCHMARK_SCORE_DISTRIBUTION``) and says
+   so plainly in ``basis`` — never silently degrades without disclosing it.
 """
 
 from __future__ import annotations
@@ -70,6 +73,11 @@ BENCHMARK_BASIS = (
     "Percentile vs a fixed reference distribution of representative retail "
     "portfolio scores (benchmark anchors, not live peer/user data)."
 )
+
+# Below this many real peer scores, a percentile is too noisy/small a sample
+# to be meaningful (e.g. "beats 1 of 2 people") — fall back to the documented
+# benchmark cohort instead, and say so in `basis`.
+_MIN_REAL_PEERS = 5
 
 
 def _hhi(weights: Iterable[float]) -> float:
@@ -281,20 +289,44 @@ def compute_portfolio_score(
     }
 
 
-def compute_community_score(portfolio_score: float) -> dict[str, Any]:
-    """Percentile of the user's portfolio score vs a fixed benchmark cohort.
+def compute_community_score(
+    portfolio_score: float,
+    peer_scores: Optional[list[float]] = None,
+) -> dict[str, Any]:
+    """Percentile of the user's portfolio score vs real peers when enough
+    exist, else a fixed benchmark cohort.
 
-    The percentile is the fraction of ``BENCHMARK_SCORE_DISTRIBUTION`` that
-    the user's score meets or exceeds. This is explicitly a benchmark, not
-    live peer data — see ``basis``.
+    ``peer_scores`` — other users' portfolio scores, already filtered by the
+    caller to genuinely differentiated portfolios (see module docstring).
+    When there are at least ``_MIN_REAL_PEERS`` of them, the percentile is
+    computed against that real distribution and ``basis`` says so plainly.
+    Otherwise falls back to ``BENCHMARK_SCORE_DISTRIBUTION`` and discloses
+    the fallback (never silently swaps data sources without saying so).
     """
-    dist = BENCHMARK_SCORE_DISTRIBUTION
+    real_peers = peer_scores or []
+    use_real = len(real_peers) >= _MIN_REAL_PEERS
+
+    if use_real:
+        dist = tuple(real_peers)
+        basis = (
+            f"Percentile vs {len(dist)} real peer portfolio scores from "
+            "other Pivot users (users on the shared demo/mock portfolio "
+            "with no trading history are excluded, not counted as peers)."
+        )
+    else:
+        dist = BENCHMARK_SCORE_DISTRIBUTION
+        basis = BENCHMARK_BASIS + (
+            f" (Only {len(real_peers)} real differentiated peer portfolio(s) "
+            f"exist right now — need at least {_MIN_REAL_PEERS} before the "
+            "percentile switches to live peer data.)"
+        )
+
     if not dist:
         return {
             "score": 0,
             "percentile": 0.0,
-            "basis": BENCHMARK_BASIS,
-            "explainer": "No benchmark distribution configured.",
+            "basis": basis,
+            "explainer": "No reference distribution available.",
         }
     at_or_below = sum(1 for d in dist if portfolio_score >= d)
     percentile = round(at_or_below / len(dist) * 100, 1)
@@ -302,12 +334,17 @@ def compute_community_score(portfolio_score: float) -> dict[str, Any]:
         # community_score *is* the percentile (0-100), per the spec.
         "score": round(percentile),
         "percentile": percentile,
-        "basis": BENCHMARK_BASIS,
+        "basis": basis,
         "explainer": (
             f"Your portfolio score of {round(portfolio_score)} sits at the "
-            f"{percentile:.0f}th percentile of a fixed benchmark cohort of "
-            f"{len(dist)} representative retail portfolio scores. This is a "
-            f"benchmark comparison, not live community/peer data."
+            f"{percentile:.0f}th percentile of "
+            + (
+                f"{len(dist)} real peer portfolios."
+                if use_real
+                else f"a fixed benchmark cohort of {len(dist)} representative "
+                "retail portfolio scores. This is a benchmark comparison, "
+                "not live community/peer data."
+            )
         ),
     }
 
@@ -317,11 +354,15 @@ def compute_scores(
     sector_of,
     account=None,
     nav_snapshots: Optional[list] = None,
+    peer_scores: Optional[list[float]] = None,
 ) -> dict[str, Any]:
     """Top-level entry: returns the full scores payload.
 
     If there are no holdings (or none with positive market value) all three
-    scores are ``None`` and ``reason`` is ``"no_holdings"``.
+    scores are ``None`` and ``reason`` is ``"no_holdings"``. ``peer_scores``
+    is the caller-gathered list of OTHER users' portfolio scores (already
+    filtered to genuinely differentiated portfolios) used for the community
+    percentile — see ``compute_community_score``.
     """
     div = compute_diversification(holdings, sector_of)
     if div is None:
@@ -340,7 +381,7 @@ def compute_scores(
         top_sector_pct=top_sector_pct,
         total_return_pct=total_return_pct,
     )
-    community = compute_community_score(portfolio["score"])
+    community = compute_community_score(portfolio["score"], peer_scores=peer_scores)
 
     return {
         "diversification_score": div,

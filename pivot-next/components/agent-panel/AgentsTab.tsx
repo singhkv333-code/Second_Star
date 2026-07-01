@@ -45,7 +45,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { getWorkflow, listWorkflows } from "@/lib/api";
+import {
+  getWorkflow,
+  listWorkflows,
+  backtestDraftWorkflow,
+  type BacktestDraftResponse,
+} from "@/lib/api";
 import {
   deleteWorkflow,
   getWorkflowPerformance,
@@ -529,6 +534,45 @@ function AgentMiniCard({
     };
   }, [workflow.id]);
 
+  // Backtested-results fallback — only fetched once the live-performance check
+  // above resolves AND turns out to have no real NAV chart. A workflow that's
+  // been live long enough to have its own NAV history always shows THAT
+  // (never overshadowed by a backtest); one that hasn't yet still gives the
+  // user something real to look at instead of a bare "No runs yet" box.
+  const perfHasChart = (perf?.has_data ?? false) && (perf?.series?.length ?? 0) >= 2;
+  const [backtest, setBacktest] = useState<BacktestDraftResponse | null>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+
+  useEffect(() => {
+    if (perfLoading || perfHasChart) return;
+    let cancelled = false;
+    setBacktestLoading(true);
+    getWorkflow(workflow.id)
+      .then((wfResult) => {
+        if (cancelled) return null;
+        if (isError(wfResult)) return null;
+        return backtestDraftWorkflow({
+          name: wfResult.data.name,
+          description: wfResult.data.description,
+          steps: wfResult.data.steps,
+          period: "1y",
+        });
+      })
+      .then((btResult) => {
+        if (cancelled) return;
+        setBacktest(btResult && !isError(btResult) ? btResult.data : null);
+      })
+      .catch(() => {
+        if (!cancelled) setBacktest(null);
+      })
+      .finally(() => {
+        if (!cancelled) setBacktestLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workflow.id, perfLoading, perfHasChart]);
+
   const handleKey = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -577,7 +621,12 @@ function AgentMiniCard({
       </h3>
 
       {/* Performance — real NAV sparkline + return, or honest "No runs yet". */}
-      <PerformanceBlock perf={perf} isLoading={perfLoading} />
+      <PerformanceBlock
+        perf={perf}
+        isLoading={perfLoading}
+        backtest={backtest}
+        backtestLoading={backtestLoading}
+      />
 
       {/* KV rows */}
       <div className="mt-auto flex flex-col gap-1.5 border-t border-border/40 pt-3 text-[12px]">
@@ -643,9 +692,13 @@ function AgentMiniCard({
 function PerformanceBlock({
   perf,
   isLoading,
+  backtest,
+  backtestLoading,
 }: {
   perf: WorkflowPerformance | null;
   isLoading: boolean;
+  backtest: BacktestDraftResponse | null;
+  backtestLoading: boolean;
 }): React.ReactElement {
   if (isLoading) {
     return <Skeleton className="h-[56px] w-full rounded-md" style={{ marginTop: 14 }} />;
@@ -654,7 +707,44 @@ function PerformanceBlock({
   const hasData = perf?.has_data ?? false;
   const series = perf?.series ?? [];
 
+  // No real live NAV yet — fall back to a backtest of the SAME steps over
+  // the last year, clearly labelled so it's never mistaken for live
+  // performance. Ineligible shapes (event triggers, one-off manual orders,
+  // etc.) or a still-loading fetch keep the honest "No runs yet" state.
   if (!hasData || series.length < 2) {
+    if (backtestLoading) {
+      return <Skeleton className="h-[56px] w-full rounded-md" style={{ marginTop: 14 }} />;
+    }
+    if (backtest?.eligible) {
+      const btSeries = backtest.equity_curve.map((p) => ({ date: p.t, nav: p.v }));
+      const btPositive = backtest.metrics.total_return_pct >= 0;
+      return (
+        <div className="flex flex-col" style={{ marginTop: 14, gap: 8 }}>
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+              style={{ background: "var(--bg-elevated)", color: "var(--text-tertiary)" }}
+              title="Simulated over historical prices — not live trading results"
+            >
+              Backtested · 1y
+            </span>
+          </div>
+          <NavSparkline series={btSeries} positive={btPositive} dashed />
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span
+              className="tabular-nums"
+              style={{ fontWeight: 600, color: btPositive ? "var(--color-profit)" : "var(--color-loss)" }}
+            >
+              {btPositive ? "+" : "−"}
+              {Math.abs(backtest.metrics.total_return_pct).toFixed(1)}%
+            </span>
+            <span className="text-muted-foreground tabular-nums">
+              {backtest.metrics.n_trades} simulated trade{backtest.metrics.n_trades === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         className="flex flex-col items-center justify-center rounded-md text-center"
@@ -708,9 +798,13 @@ function PerformanceBlock({
 function NavSparkline({
   series,
   positive,
+  dashed = false,
 }: {
   series: { date: string; nav: number }[];
   positive: boolean;
+  /** Backtested (not live) results render with a dashed stroke so the two
+   *  are never visually confused at a glance. */
+  dashed?: boolean;
 }): React.ReactElement {
   const W = 280;
   const H = 56;
@@ -756,6 +850,7 @@ function NavSparkline({
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
+        strokeDasharray={dashed ? "4 3" : undefined}
         vectorEffect="non-scaling-stroke"
       />
     </svg>
