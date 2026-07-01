@@ -68,6 +68,7 @@ import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { DashboardTab } from "@/components/DashboardTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
+import { PivotMark } from "@/components/brand/PivotMark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -158,12 +159,6 @@ function applyTheme(t: Theme): void {
   if (typeof document === "undefined") return;
   const isDark = t === "dark" || (t === "system" && osPrefersDark());
   document.documentElement.classList.toggle("dark", isDark);
-}
-
-/** Resolve "system" to a concrete dark/light boolean so the topbar can
- *  pick the right Pivot logo asset for the current theme. */
-function resolvedDark(t: Theme): boolean {
-  return t === "dark" || (t === "system" && osPrefersDark());
 }
 
 // ---------------------------------------------------------------------------
@@ -924,34 +919,13 @@ function TopHeader({
           cursor: "pointer",
         }}
       >
-        {/* Pivot brand mark — theme-aware: dark mode uses pivot-icon.png
-            (the standalone dark logo), light mode uses pivot-light.png
-            (the user-supplied light variant).
-
-            The two PNGs share a 2000×2000 canvas but their inner glyph
-            crops differ — pivot-icon is ~810px wide, pivot-light is
-            ~650px wide. To make the rendered glyph appear the *same*
-            visual size in both themes, we render the light variant at
-            a slightly larger box (44 × 810/650 ≈ 55) so the glyph
-            inside both boxes hits the same rendered width. */}
-        {(() => {
-          const isDark = resolvedDark(theme);
-          const size = isDark ? 44 : 55;
-          return (
-            <img
-              src={isDark ? "/pivot-icon.png" : "/pivot-light.png"}
-              alt="Pivot"
-              width={size}
-              height={size}
-              className="shrink-0"
-              style={{ display: "block", objectFit: "contain" }}
-            />
-          );
-        })()}
-        {/* Negative margin pulls "pivot" back over the transparent
-            right padding baked into the logo PNG. Adjust the px value
-            to taste — more negative = closer. */}
-        <span style={{ marginLeft: -2 }}>pivot</span>
+        {/* Pivot brand mark — crisp inline SVG (see PivotMark). Paints with
+            currentColor, so it inherits `--text-primary` and flips between
+            black (light) and white (dark) automatically, with no raster
+            asset or per-theme file swap. */}
+        <PivotMark size={19} className="shrink-0" title="Pivot" />
+        {/* Small gap between the mark and the serif wordmark. */}
+        <span style={{ marginLeft: 8 }}>pivot</span>
       </button>
 
       {/* Search — Quartr pill, sized + bordered, no Tailwind background.
