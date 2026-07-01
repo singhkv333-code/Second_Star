@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>View Markets — Revamp Plan · Pivot</title>
+<style>
+  :root{
+    --ink:#0d0d0e; --ink-2:#3d454c; --ink-3:#6b7280;
+    --bg:#ffffff; --bg-soft:#fafbfc; --hairline:rgba(15,18,22,.09);
+    --green:#059669; --green-soft:#ecfdf5;
+    --red:#b91c1c;  --red-soft:#fef2f2;
+    --amber:#b45309; --amber-soft:#fffbeb;
+    --market:#33566b; --market-soft:#f0f5f8;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:var(--sans);color:var(--ink);background:var(--bg);font-size:15px;line-height:1.65;
+       -webkit-font-smoothing:antialiased;padding:0 24px 120px}
+  .wrap{max-width:960px;margin:0 auto}
+  header.doc{padding:72px 0 40px;border-bottom:1px solid var(--hairline)}
+  .eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  h1{font-size:34px;font-weight:650;letter-spacing:-.02em;line-height:1.2;margin:10px 0 14px}
+  .lede{font-size:17px;color:var(--ink-2);max-width:760px}
+  .meta-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+  .chip{font-size:12px;font-weight:550;color:var(--ink-2);border:1px solid var(--hairline);
+        border-radius:999px;padding:3px 12px;background:var(--bg-soft)}
+  h2{font-size:23px;font-weight:640;letter-spacing:-.015em;margin:0 0 6px;scroll-margin-top:24px}
+  h3{font-size:17px;font-weight:620;margin:34px 0 10px;scroll-margin-top:24px}
+  h4{font-size:14.5px;font-weight:620;margin:22px 0 8px}
+  section{padding:52px 0 8px;border-bottom:1px solid var(--hairline)}
+  .kicker{font-size:12.5px;font-weight:620;letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px}
+  .k-red{color:var(--red)} .k-green{color:var(--green)} .k-amber{color:var(--amber)} .k-market{color:var(--market)} .k-ink{color:var(--ink-3)}
+  p{margin:0 0 14px;color:var(--ink-2)} p b,li b{color:var(--ink)}
+  ul,ol{margin:0 0 16px 22px;color:var(--ink-2)} li{margin-bottom:7px}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--bg-soft);border:1px solid var(--hairline);
+       border-radius:5px;padding:1px 5px;color:var(--ink)}
+  pre{font-family:var(--mono);font-size:12.5px;background:var(--bg-soft);border:1px solid var(--hairline);
+      border-radius:10px;padding:16px 18px;overflow-x:auto;margin:0 0 18px;line-height:1.6}
+  pre code{background:none;border:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:13.5px}
+  th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);font-weight:600;
+     text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--ink)}
+  td{padding:9px 12px 9px 0;border-bottom:1px solid var(--hairline);vertical-align:top;color:var(--ink-2)}
+  td:first-child{color:var(--ink);font-weight:550}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .toc{background:var(--bg-soft);border:1px solid var(--hairline);border-radius:14px;padding:22px 26px;margin:36px 0 0}
+  .toc ol{margin:8px 0 0 20px} .toc li{margin-bottom:5px;font-size:14px}
+  .toc a{color:var(--ink);text-decoration:none;font-weight:530} .toc a:hover{text-decoration:underline}
+  .toc .sub{color:var(--ink-3);font-weight:400}
+  .callout{border:1px solid var(--hairline);border-left:3px solid var(--ink);border-radius:10px;
+           padding:14px 18px;margin:0 0 18px;background:var(--bg-soft);font-size:14px}
+  .callout.red{border-left-color:var(--red);background:var(--red-soft)}
+  .callout.green{border-left-color:var(--green);background:var(--green-soft)}
+  .callout.amber{border-left-color:var(--amber);background:var(--amber-soft)}
+  .callout.market{border-left-color:var(--market);background:var(--market-soft)}
+  .sev{font-size:11px;font-weight:650;letter-spacing:.05em;border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .sev.p0{background:var(--red-soft);color:var(--red)}
+  .sev.p1{background:var(--amber-soft);color:var(--amber)}
+  .sev.p2{background:var(--bg-soft);color:var(--ink-3);border:1px solid var(--hairline)}
+  .grade{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;
+         font-weight:700;font-size:13px;font-family:var(--mono)}
+  .gA{background:#dcf5ea;color:#04724d}.gB{background:#eafaf3;color:#059669}
+  .gC{background:#f2f4f6;color:#4d555c}.gD{background:#fdf1e3;color:#b45309}.gE{background:#fdecec;color:#b91c1c}
+  /* ---------- mockup frames ---------- */
+  .mock-pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0 26px}
+  @media(max-width:800px){.mock-pair{grid-template-columns:1fr}}
+  .mock-label{font-size:11.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px}
+  .frame{border:1px solid var(--hairline);border-radius:16px;padding:20px;background:#fff}
+  .frame.bad{border-style:dashed}
+  /* current-card mockup */
+  .oc-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-3);margin-bottom:8px}
+  .oc-title{font-size:17px;font-weight:620;line-height:1.35;margin-bottom:6px}
+  .oc-sub{font-size:13.5px;color:var(--ink-3);margin-bottom:10px}
+  .oc-big{font-size:24px;font-weight:800;color:var(--green)} .oc-big small{font-size:12px;font-weight:400;color:var(--ink-3);margin-left:6px}
+  .oc-btns{display:flex;gap:10px;margin:12px 0 10px}
+  .oc-yes{background:#219ebc;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;flex:1}
+  .oc-yes b{display:block;font-size:16px;font-weight:800}
+  .oc-no{background:#d97706;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;flex:1}
+  .oc-foot{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-3);
+           border-top:1px solid var(--hairline);padding-top:10px;margin-top:4px}
+  .oc-foot .warn{color:var(--amber)}
+  /* new-card mockup */
+  .nc-meta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--ink-3);margin-bottom:10px}
+  .nc-cat{border:1px solid var(--hairline);border-radius:999px;padding:1px 9px;font-weight:550}
+  .nc-title{font-size:17px;font-weight:620;line-height:1.35;margin-bottom:14px}
+  .nc-priced{display:flex;align-items:baseline;gap:10px;margin-bottom:3px}
+  .nc-priced .pct{font-size:30px;font-weight:700;font-family:var(--mono);color:var(--market)}
+  .nc-priced .delta{font-size:12.5px;font-weight:600;color:var(--green)}
+  .nc-priced-cap{font-size:12px;color:var(--ink-3);margin-bottom:14px}
+  .nc-evidence{font-size:13px;color:var(--ink-2);border-top:1px solid var(--hairline);padding:10px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .nc-cta{font-size:13.5px;font-weight:570;color:var(--ink);border-top:1px solid var(--hairline);padding-top:11px;display:flex;justify-content:space-between;align-items:center}
+  .nc-cta span:last-child{color:var(--ink-3)}
+  /* range band mockup */
+  .band{position:relative;height:14px;border-radius:999px;background:linear-gradient(90deg,#fdecec 0%,#f2f4f6 42%,#dcf5ea 100%);margin:16px 0 4px}
+  .band .tick{position:absolute;top:-4px;width:2px;height:22px;background:var(--ink);border-radius:2px}
+  .band-labels{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+  .wire{background:var(--bg-soft);border:1px solid var(--hairline);border-radius:12px;padding:10px 14px;margin-bottom:8px;font-size:13px}
+  .wire b{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:2px}
+  .flow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 18px;font-size:13px;font-weight:550}
+  .flow .node{border:1px solid var(--hairline);border-radius:10px;padding:7px 13px;background:#fff}
+  .flow .arr{color:var(--ink-3)}
+  footer{padding-top:40px;font-size:12.5px;color:var(--ink-3)}
+  a{color:var(--market)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="eyebrow">Pivot · V2 View Markets · Internal plan — not a public document</div>
+  <h1>View Markets Revamp<br>Critique, Strategy Doctrine &amp; Experience Redesign</h1>
+  <p class="lede">A grounded diagnosis of why the current build reads as a vibecoded artifact, an encoded
+  philosophy for how event-based strategies must be constructed and graded from here on, and a
+  page-by-page redesign that keeps prediction-market ease without inheriting prediction-market
+  gambling mechanics. Plan only — no code has been changed.</p>
+  <div class="meta-chips">
+    <span class="chip">2026-07-02</span>
+    <span class="chip">Grounded in commit <span class="num">40814e2</span> (branch Eventtriggers)</span>
+    <span class="chip">Evidence: 5-agent research workflow + live UI screenshots</span>
+    <span class="chip">Full spec refs: Markdowns/Version2.md · VIEW_MARKETS_V2_CHECKLIST.md</span>
+  </div>
+
+  <nav class="toc">
+    <div class="eyebrow">Contents</div>
+    <ol>
+      <li><a href="#exec">Executive summary</a> <span class="sub">— the four failures, in one screen</span></li>
+      <li><a href="#diagnosis">Part I — Diagnosis</a> <span class="sub">— data integrity · visual language · information architecture · strategy edge</span></li>
+      <li><a href="#doctrine">Part II — The Strategy Doctrine</a> <span class="sub">— axioms · event taxonomy · the Edge Grade · projection &amp; sizing · process gates</span></li>
+      <li><a href="#experience">Part III — Experience redesign</a> <span class="sub">— card anatomy · detail page · deep dive · calculator · visual system · onboarding</span></li>
+      <li><a href="#dataplan">Part IV — Data-integrity work order</a> <span class="sub">— what must be fixed before any pixel moves</span></li>
+      <li><a href="#roadmap">Part V — Roadmap</a> <span class="sub">— five phases, file-level touch lists, gates</span></li>
+      <li><a href="#appendix">Appendix</a> <span class="sub">— research citations &amp; formulas</span></li>
+    </ol>
+  </nav>
+</header>
+
+<!-- ================================================================ -->
+<section id="exec">
+  <div class="kicker k-ink">§0</div>
+  <h2>Executive summary</h2>
+  <p>View Markets is conceptually right — Belief → Expression → Deployment is a genuinely differentiated
+  wedge, and the engine underneath (event studies with BMP significance, deflated Sharpe, MinTRL,
+  two-dial confidence, tiered builders, honest-short resolution) is more rigorous than anything an Indian
+  retail product ships. The problem is that <b>none of that rigor reaches the screen, and what does reach
+  the screen actively undermines it</b>. The showcase leads with a cherry-picked "best past run," dresses
+  strategy tiers in Polymarket's Yes/No costume without Polymarket's one honest number (price = probability),
+  buries the position calculator at the top of the wrong page, and — worst — ships a data pack in which
+  every strategy's rigor block is a copy-pasted artifact from an unrelated monsoon/rural study.</p>
+  <p>Four failures, in order of severity:</p>
+  <table>
+    <tr><th style="width:26%">Failure</th><th>One-line statement</th><th style="width:10%">Class</th></tr>
+    <tr><td>1 · Data integrity</td><td>The pack's <code>scores</code> blocks, confidence evidence, and disclosure copy are a rural-basket research artifact repeated 20×; the three copies of <code>best_expression</code> disagree with each other; <code>transmission_count: 2</code> with an empty transmission array. This violates the never-fabricate boundary <i>today</i>.</td><td><span class="sev p0">P0</span></td></tr>
+    <tr><td>2 · Strategy edge</td><td>Tiers are templates stamped uniformly on every view (all 8 aggressive tiers are the same ATM/+5% bull call spread); evidence windows are calendar windows, not event-conditioned abnormal returns; nothing is graded against what's already priced in. The suspicion of "no edge" is structurally correct.</td><td><span class="sev p0">P0</span></td></tr>
+    <tr><td>3 · Information architecture</td><td>Ten stacked sections with no narrative arc, duplicate charts on two pages, three different hero numbers for one strategy, calculator three clicks deep on the evidence page instead of inside the deploy decision.</td><td><span class="sev p1">P1</span></td></tr>
+    <tr><td>4 · Visual language</td><td>Identical green sparklines on every card, saturated cyan/orange Yes/No chips, empty "♥ 0" counters, "—" grids, a 13px monotone type wall, 10 of 15 chart files dead code.</td><td><span class="sev p1">P1</span></td></tr>
+  </table>
+  <p>The fix is equally structured: <b>Part II</b> encodes a research-backed doctrine — five axioms, an
+  event taxonomy that decides which evidence standard each view type is allowed to claim, a formal
+  <b>Edge Grade</b> (five gates, multiplicative, mapped onto the existing verdict ceilings in
+  <code>confidence.py</code>), and an honest projection/sizing method (shrinkage → cost haircut → band,
+  fractional Kelly). <b>Part III</b> redesigns the three surfaces around the prediction-market patterns
+  worth stealing — one dominant number per card, resolution rules as a trust object, progressive
+  disclosure — while explicitly rejecting the betting affordances. <b>Parts IV–V</b> sequence the work so
+  data honesty lands before any restyling.</p>
+  <div class="callout market"><b>North-star sentence for the revamp.</b> A user should be able to say:
+  <i>"I believe X. Pivot showed me what the market already prices, what happened the last N times,
+  how sure I can honestly be, three ways to express it at my risk level, and what deploying ₹50,000
+  would realistically look like — net of costs, as a range, not a promise."</i></div>
+</section>
+
+<!-- ================================================================ -->
+<section id="diagnosis">
+  <div class="kicker k-red">§1 · Part I</div>
+  <h2>Diagnosis — what is actually wrong, with receipts</h2>
+  <p>Everything below is verified against the code at <span class="num">40814e2</span>, the shipped pack
+  JSON, and live screenshots of <code>/view-pack</code> (list, detail, deep dive). File:line references
+  are clickable anchors for the fix phase.</p>
+
+  <h3 id="d-data">1.1 · Data integrity — the product currently fabricates</h3>
+  <div class="callout red"><b>This class outranks everything else.</b> CLAUDE.md's identity rule is
+  "never fabricate." The pack violates it in six distinct ways. No visual redesign is worth doing while
+  these ship, because any polish would just make fabricated numbers more convincing.</div>
+  <table>
+    <tr><th style="width:34%">Finding</th><th>Evidence</th><th style="width:9%">Sev</th></tr>
+    <tr><td>Rural-artifact scores repeated 20×</td><td>Every expression's <code>label / rationale / risk_profile / capital_intensity / historical_strength / structure / scores</code> block is copied from a monsoon/rural study: <code>structure.members_long = [BRITANNIA.NS, MRF.NS, MARICO.NS…]</code> while top-level <code>members</code> say TCS/Infosys; <code>scores.clean_factors.thesis_factor = "RURAL_f"</code>; all 8 aggressive <code>scores</code> blocks byte-identical (PSR 0.9951, DSR 0.5227, +45.55%, N=4, p=0.001 — the same rural strategy, everywhere).</td><td><span class="sev p0">P0</span></td></tr>
+    <tr><td>Three-way <code>best_expression</code> desync</td><td>In 7 of 8 views, <code>details[id].best_expression</code> (ai_jobs: +11.9%, 32 episodes, "promising") ≠ <code>summaries[].best_expression</code> ≠ <code>expressions[conservative]</code> (+9.78%, 31 episodes, "unproven") — two generations mixed in one file. <code>plain_thesis</code> quotes the stale numbers, so the detail header contradicts its own strategy table.</td><td><span class="sev p0">P0</span></td></tr>
+    <tr><td>Fabricated counts &amp; hollow dials</td><td><code>transmission_count: 2</code> on every view with <code>transmission: []</code>; <code>expectations: []</code>, <code>similar_views: []</code> everywhere; confidence letters nulled but the <i>identical</i> evidence sentence ("Outcome B (79/100): analog hit-rate 100%; N=4…") ships verbatim in all 8 views — leaking the rural numbers the nulling was meant to remove.</td><td><span class="sev p0">P0</span></td></tr>
+    <tr><td>Option underlying mismatches</td><td>ai_jobs aggressive: label says "bet on <b>Infosys</b>", <code>option_model.underlying_label: "TCS"</code>, capital copy mentions "M&amp;M option chain". fintech: "bet on BSE" vs underlying "Paytm". nifty30k: <code>underlying_label: ""</code>.</td><td><span class="sev p0">P0</span></td></tr>
+    <tr><td>Template copy artifacts</td><td>Every conservative <code>plain_one_liner</code> begins "<b>Own own</b> a bundle…" (label interpolated into "Own {label}"). <code>BenchmarkComparison.tsx:171-186</code> hardcodes "lined up strongly with past <b>monsoon seasons</b>" for every view including AI and Nifty-30k.</td><td><span class="sev p1">P1</span></td></tr>
+    <tr><td>Windows sold as events</td><td><code>scripts/enrich_viewpack.py</code> builds "episodes" as <b>non-overlapping calendar windows</b> ("Window 1…N", <code>date: null</code>) — not event-conditioned occurrences — while the UI narrates them as "each time this happened before." For theme views this is a mislabel; for event views it is the wrong methodology outright (§2, Axiom 2).</td><td><span class="sev p0">P0</span></td></tr>
+  </table>
+
+  <h3 id="d-edge">1.2 · Strategy edge — why the strategies feel like they have none</h3>
+  <p>The construction pipeline (<code>expressions/dispatch.py</code> → 21-archetype catalog → tier knobs →
+  builders) is good scaffolding: honest instrument resolution, purity/liquidity screens, β-hedged pair
+  sizing, refusal envelopes. But as shipped, <b>the event never conditions the strategy</b>:</p>
+  <ul>
+    <li><b>One trade, eight costumes.</b> All 8 aggressive tiers are the same bullish ATM/+5% vertical
+    spread (net premium in a 2.06–2.35% band) regardless of whether the view is "gold rises" (→ a Titan
+    spread!?) or "Nifty 30k". Direction, moneyness, and structure never respond to the view's implied
+    move, IV state, or event date.</li>
+    <li><b>No surprise dimension.</b> The literature is unambiguous — returns follow
+    <i>surprise vs consensus</i>, not outcomes (Bernanke–Kuttner: an <i>expected</i> cut moves the index
+    ~zero). The full expectations pipeline exists (<code>expectations.compute_surprise</code>,
+    <code>implied_move.py</code>, PM adapters) and <b>zero rows are populated</b>; nothing on any surface
+    answers "what's already priced in?" — the single most defensible differentiator in the spec.</li>
+    <li><b>Evidence isn't abnormal returns.</b> <code>event_study.py</code> implements market-model
+    abnormal returns with BMP + sign tests — and <b>nothing on the serving path calls it</b>. The pack's
+    per-occurrence returns are raw windows, so every "positive in N of M" conflates the strategy with beta.</li>
+    <li><b>Statistically weak claims presented as track record.</b> "Positive in 20 of 31" is a one-sided
+    sign-test p ≈ 0.075 — indistinguishable from chance at conventional thresholds, before any
+    multiple-testing deflation. The card's hero number, "best past run +64.8%," is the sample maximum:
+    the one statistic guaranteed to be inflated by selection.</li>
+    <li><b>Rigor exists but is disconnected.</b> PSR/DSR/MinTRL/num_trials, CAAR significance, clean-factor
+    orthogonalization, exit variants — all computed by the v3 battery, all present in schema, none real in
+    the pack and none rendered. Four disjoint score systems (construction alignment, v3 battery,
+    <code>_trust_from_distribution</code>'s 78/60/42 table, deployment trust block) with no combiner.</li>
+    <li><b>Costs invisible.</b> Every envelope carries <code>costs.round_trip_bps</code>; no surface
+    renders it. At Indian retail scale (~0.25–0.35% round trip delivery equity; several % of premium on
+    single-stock options) costs halve small event edges — hiding them overstates every number shown.</li>
+  </ul>
+
+  <h3 id="d-ia">1.3 · Information architecture — correct pieces, no story</h3>
+  <ul>
+    <li><b>No narrative arc.</b> The detail page stacks: stance → chart → pills → description → table →
+    six-card grid → similar. The natural investor question sequence — <i>what's the claim → what does the
+    market think → what's the evidence → how do I express it → what would it cost me</i> — appears
+    nowhere in that order.</li>
+    <li><b>Three hero numbers for one strategy.</b> Card: "best past run +64.8%". Deep dive: "typical
+    +11.0% median". Stats grid: "+9.8% mean per occurrence". Same strategy, three surfaces, three
+    contradictory headline framings (one of them fed by the desynced <code>best_expression</code>).</li>
+    <li><b>Duplicated modules.</b> The Monte-Carlo chart renders on both detail (<code>BenchmarkComparison</code>)
+    and deep dive; per-occurrence returns render as a list (detail) and as bars (deep dive); the deep-dive
+    "honest stats" repeat the calculator's outputs on the same page.</li>
+    <li><b>The calculator is in the wrong place</b> (<code>StrategyDeepDive.tsx:182</code>): a
+    <i>sizing</i> widget mounted as <b>section 1 of the evidence page</b>, reachable only via
+    gallery → detail → expand row → "See the full analysis" — while the actual deploy decision
+    (StrategiesTable row → Deploy) has <b>no sizing step at all</b>. The number a user deploys with never
+    touches the calculator.</li>
+    <li><b>Dead-end deploy.</b> On <code>/view-pack</code>, <code>onOpenWorkflowById</code> is a no-op and
+    pack ids don't exist in the DB — Deploy POSTs fail silently. Follow hearts silently revert. The page
+    demos a promise the page itself breaks.</li>
+    <li><b>No URLs.</b> Detail and deep dive are body-swaps with no route change — nothing is linkable,
+    back-button behavior is trapped, and the deep dive can't be landed on.</li>
+  </ul>
+
+  <h3 id="d-visual">1.4 · Visual language — why it reads "vibecoded"</h3>
+  <table>
+    <tr><th style="width:30%">Symptom</th><th>Root cause</th></tr>
+    <tr><td>Every card looks identical</td><td>6 of 8 cards carry same-shape 127-point up-and-right green area sparklines with no axis or scale (<code>ViewCard.tsx:81-131</code>); fixed 376px card height leaves dead whitespace (<code>:58</code>). The grid reads as one card repeated.</td></tr>
+    <tr><td>Casino accents in a calm system</td><td>Solid <code>#219ebc</code> cyan Yes / <code>#d97706</code> amber No chips with white 800-weight numbers (<code>:141-230</code>) are the only filled elements in an otherwise borders-only design — a direct Polymarket imitation (acknowledged in the component's own header comment) carrying a return where Polymarket carries a price. Amber "No" reads as an error state.</td></tr>
+    <tr><td>Empty social proof</td><td>"♥ 0" on every card and detail header (<code>FollowButton.tsx:125-127</code>) — dead counters are worse than no counters.</td></tr>
+    <tr><td>Dead cells, triple-signalled</td><td>Option rows print "—" under Avg profit <i>next to</i> a "Priced at deploy" chip under Max drop <i>and</i> "Priced at deploy" again as Track record (<code>StrategiesTable.tsx:299-399</code>) — three renderings of the same null.</td></tr>
+    <tr><td>Type monotone</td><td>A hard 13px floor with nearly everything at exactly 13px/500 tertiary — hierarchy carried by position alone; methodology paragraphs render at caption size. 700/800 weight appears only inside the Yes chip and the best-run number, i.e. emphasis is spent on the two most dishonest elements.</td></tr>
+    <tr><td>Copy register whiplash</td><td>"Where it could go" / "If you put in this much" (chatty) vs "Allocation &amp; position" (clinical) vs "this is analysis, not financial advice" repeated 3–5× per journey. One register, one disclaimer placement is needed.</td></tr>
+    <tr><td>Dead code shipping</td><td>10 of 15 chart/section files are orphans (<code>ExpressionLadder</code>, <code>ViewTransmissionMap</code>, <code>TrustLadder</code>, <code>RiskStrip</code>…) — remnants of the pre-redesign page, several still carrying the removed benchmark-beating framing. Two competing sparkline systems (ViewCard local vs orphaned <code>MiniLine</code>).</td></tr>
+  </table>
+</section>
+<!-- ================================================================ -->
+<section id="doctrine">
+  <div class="kicker k-green">§2 · Part II</div>
+  <h2>The Strategy Doctrine — how event-based strategies are built and graded from now on</h2>
+  <p>This is the encoded philosophy requested: a set of rules concrete enough that a strategy either
+  passes or it doesn't, grounded in the event-study, backtest-inflation, and market-microstructure
+  literature (full citations in the <a href="#appendix">Appendix</a>), and mapped onto machinery Pivot
+  already has so it is an <i>assembly</i> exercise, not a rewrite. It should be lifted nearly verbatim
+  into <code>Markdowns/STRATEGY_DOCTRINE.md</code> and referenced from CLAUDE.md when implementation
+  begins.</p>
+
+  <h3 id="axioms">2.1 · Five axioms</h3>
+  <table>
+    <tr><th style="width:24%">Axiom</th><th>Statement</th><th style="width:32%">Research anchor</th></tr>
+    <tr><td>A1 · Surprise, not outcome</td><td>Markets price the consensus; returns follow <code>actual − expected</code>. A view's tradeable content is the <b>gap between what's priced and what the user believes</b> — a correctly-predicted outcome that was 85% priced pays almost nothing. Every Event/Relative view must carry an Expected vs Your-view vs Gap frame; strategies are graded on the gap.</td><td>Kuttner 2001; Bernanke &amp; Kuttner 2005 (expected component moves S&amp;P ~0; surprise 25bp ≈ 1%)</td></tr>
+    <tr><td>A2 · Abnormal, not raw</td><td>All historical evidence is market-model <b>abnormal returns</b> (α̂, β̂ from an estimation window; AR = R − expected R), never raw windows. Raw windows launder beta into "edge." Calendar windows are only legal for Theme views and must be labeled as rolling windows, never as occurrences.</td><td>MacKinlay 1997 (JEL); BMP standardized tests</td></tr>
+    <tr><td>A3 · Small N is structural</td><td>Indian macro events give N ≈ 8–31 analogs. At that size the normal approximation fails and one outlier owns the mean, so: nonparametric tests (sign / Corrado rank), verdict ceilings, no point forecasts, and no claim stronger than "suggestive." 20-of-31 positive is p ≈ 0.075 — the doctrine's canonical example of a number that must be displayed <i>with</i> its weakness.</td><td>MacKinlay 1997 small-sample regime; Bernard &amp; Thomas 1989 (41-of-48 quarters is what real robustness looks like)</td></tr>
+    <tr><td>A4 · Deflate before display</td><td>Any number a user sees has already survived: trial-count deflation (DSR logic — with 20 tried variants, a best Sharpe ≈ 1 is noise), a ≥50% decay shrinkage on projections, and Indian round-trip costs. If deflation kills the edge, the death is shown (honest <code>no_edge</code>), never hidden.</td><td>Bailey &amp; López de Prado 2014 (DSR); Harvey-Liu-Zhu 2016 (t &gt; 3); McLean &amp; Pontiff 2016 (−26% OOS, −58% post-publication)</td></tr>
+    <tr><td>A5 · Two risks, two dials</td><td>Being right about the event and long the wrong instrument is a losing trade. Outcome confidence (will the belief resolve true?) and expression confidence (does this instrument capture it?) are graded separately and never averaged — already the law in <code>confidence.py::two_dial_score</code>; the doctrine makes it a display law too.</td><td>Dubinsky-Johannes 2019 (event variance ≠ direction); Pivot <code>confidence.py</code></td></tr>
+  </table>
+
+  <h3 id="taxonomy">2.2 · Event taxonomy — the evidence standard each view type may claim</h3>
+  <p>The single biggest construction error today is that one evidence recipe (calendar-window backtest →
+  hit rate) is stamped on every view type. The doctrine forbids that. <b>The view's type determines what
+  evidence it is allowed to show and which expressions it is allowed to offer:</b></p>
+  <table>
+    <tr><th style="width:15%">Type</th><th style="width:22%">Qualifies when</th><th style="width:24%">Evidence standard</th><th style="width:24%">Expression menu (tiers)</th><th>Forbidden</th></tr>
+    <tr><td>Scheduled macro<br><span class="num" style="font-size:11px">RBI MPC · CPI · FOMC · Budget</span></td><td>Pre-committed date + measurable consensus (OIS/futures/PM price/analyst median) → surprise is computable</td><td>Event study on analog occurrences, surprise-conditioned (only analogs with the same surprise sign count); AR/CAAR + sign test; implied move vs realized-move history for the event type</td><td>Cons: rate-sensitive basket, confirmation-timed · Bal: duration/beneficiary pair (β-neutral) · Aggr: defined-risk spread aligned to the surprise direction; straddle <i>only if</i> expected move &gt; implied</td><td>Unconditional long baskets graded on calendar windows; long premium bought into the IV run-up without the variance-premium warning</td></tr>
+    <tr><td>Repeated corporate<br><span class="num" style="font-size:11px">earnings · expiry · index rebalance</span></td><td>High cross-sectional N (hundreds/yr) + quantifiable surprise (SUE)</td><td>PEAD-style cross-sectional study; drift half-life stated (front-loaded, 5–10 days); decay acknowledged (spread ≤3% today vs ~5% in the '90s)</td><td>Cons: post-print drift basket · Bal: long-surprise/short-miss pair · Aggr: post-event long-vol when IV crushed</td><td>Holding long straddles through the print (implied &gt; realized ~70–75% of the time)</td></tr>
+    <tr><td>Unscheduled shock<br><span class="num" style="font-size:11px">war · sanctions · disaster</span></td><td>Never pre-positionable — no consensus baseline exists; the move <i>is</i> the surprise</td><td>Transmission map is the product (cause→effect chain with confirm/invalidate markers); historical analogs shown as context, hard-capped at <code>unproven</code> — no analog set is truly comparable</td><td>Confirmation-mode only; hedged expressions (collar, gold sleeve, multi-asset) over directional bets</td><td>Pre-positioning tiers; any "hit rate" statistic; event-study language</td></tr>
+    <tr><td>Relative<br><span class="num" style="font-size:11px">A beats B over T</span></td><td>Defined pair/benchmark + horizon</td><td>Cointegration rigor (ADF tier, OU half-life <i>vs the view horizon</i>), spread stationarity, clean-factor check that the relationship isn't a factor exposure in disguise (machinery exists: <code>clean_factors</code>)</td><td>Cons: sector-vs-index tilt · Bal: β-neutral pair with z-bands · Aggr: relative options</td><td>Pairs whose half-life exceeds the horizon; "market-neutral" labels on pairs that fail cointegration at 5%</td></tr>
+    <tr><td>Theme<br><span class="num" style="font-size:11px">structural narratives</span></td><td>Long-duration thesis with confirmable milestones</td><td><b>Not event-study-gradable — ever.</b> N≈1 per narrative. Rubric: thesis → 3–5 falsifiable milestones → invalidation levels; basket purity × liquidity; milestone tracker replaces hit rate</td><td>Cons: purity-screened basket · Bal: basket + index hedge / gold sleeve · Aggr: factor-tilted concentration</td><td>Hit rates, sign tests, "positive in N of M," win-rate framing of any kind (today's cards do exactly this for AI/EV/nuclear themes)</td></tr>
+  </table>
+  <div class="callout amber"><b>Immediate consequence for the current pack:</b> ai_jobs, nuclear, ev and
+  fintech are Theme views wearing Event-view statistics. Under the doctrine their "positive in 20 of 31"
+  strips disappear and are replaced by milestone trackers — which the transmission/lifecycle machinery
+  already supports. The mideast view is an Unscheduled shock incorrectly offering a pre-positioned tier.</div>
+
+  <h3 id="grade">2.3 · The Edge Grade — one score, five gates, existing ceilings</h3>
+  <p>Today four disjoint score systems coexist with no combiner (construction alignment; the v3 battery's
+  outcome/expression dials; <code>_trust_from_distribution</code>'s 78/60/42 table; the deployment trust
+  block). The Edge Grade replaces the display layer of all four with <b>one pipeline, computed per
+  expression, stored in <code>config.scores.edge_grade</code>, rendered everywhere the same way.</b></p>
+  <div class="flow">
+    <span class="node">G0 · Integrity</span><span class="arr">→</span>
+    <span class="node">G1 · Mechanism <span class="num">/25</span></span><span class="arr">→</span>
+    <span class="node">G2 · Evidence <span class="num">/25</span></span><span class="arr">→</span>
+    <span class="node">G3 · Robustness <span class="num">/20</span></span><span class="arr">→</span>
+    <span class="node">G4 · Implementability <span class="num">/15</span></span><span class="arr">→</span>
+    <span class="node">G5 · Expression fit <span class="num">/15</span></span><span class="arr">→</span>
+    <span class="node"><b>Grade + ceilings</b></span>
+  </div>
+  <table>
+    <tr><th style="width:20%">Gate</th><th>What it scores</th><th style="width:34%">Inputs that already exist</th></tr>
+    <tr><td>G0 · Integrity <span class="num">(pass/fail)</span></td><td>Provenance is real: scores computed for <i>this</i> expression on <i>this</i> universe; every variant tried is registered in a trial group; no copied blocks. Fail → no grade is rendered at all (absence, not "—").</td><td><code>record_and_deflate</code> + <code>strategy_fingerprint</code> (<code>services.backtest.validation.trials</code>); pack generation provenance metadata</td></tr>
+    <tr><td>G1 · Economic mechanism <span class="num">(0–25)</span></td><td>A causal transmission chain exists, each link is falsifiable (confirm/invalidate markers), and the instrument actually sits on the chain. Purity of the basket w.r.t. the thesis; clean-factor check that returns load on the thesis factor, not a mechanical style exposure.</td><td><code>transmission.py</code> DAG; <code>screens.purity_score</code>; <code>clean_factors</code> (FWL orthogonalization, HAC t)</td></tr>
+    <tr><td>G2 · Statistical evidence <span class="num">(0–25)</span></td><td>Abnormal-return CAAR with BMP + generalized sign test on the surprise-conditioned analog sample. Hard ceilings: N &lt; 8 → <code>insufficient_data</code> (suppress); sign-test p &gt; 0.10 → capped at <code>no_edge</code> ceiling (39); <b>N &lt; 30 → grade capped at <code>unproven</code> regardless of hit rate</b>. Theme views score G2 on milestone confirmation instead.</td><td><code>event_study.run_event_study</code> + <code>bmp_significance</code> (built, currently uncalled); <code>VERDICT_CEILING</code> in <code>confidence.py</code></td></tr>
+    <tr><td>G3 · Robustness <span class="num">(0–20)</span></td><td>Survives deflation: DSR &gt; 0 after the true trial count (screen width = trials, as v3 already does with num_trials = 98); PSR vs MinTRL; block-bootstrap Monte Carlo <code>prob_loss</code>; sub-period stability. DSR ≤ 0 hard-caps at 39 (already law in <code>score_expression_dial</code> — keep it).</td><td>v3 <code>battery.py</code>; <code>forward_stats_block</code>; <code>monte_carlo_robustness</code>; <code>sub_period_robustness</code></td></tr>
+    <tr><td>G4 · Implementability <span class="num">(0–15)</span></td><td>Edge survives Indian costs (round-trip bps subtracted from mean occurrence return — delivery ~0.25–0.35%, options several % of premium incl. spread); liquidity screen (ADV ≥ ₹5cr already enforced); capacity sanity; honest-short feasibility for short legs.</td><td><code>costs.round_trip_bps</code> (computed, unrendered); <code>screens.liquidity_screen</code>; <code>honest_short.short_leg_for</code></td></tr>
+    <tr><td>G5 · Expression fit <span class="num">(0–15)</span></td><td>The payoff geometry matches the belief: POP × asymmetry; breakevens inside the expected move; theta/vega sign consistent with the timing mode (pre-position long-vol pays the variance premium — warn; confirmation-mode wants delta, not vega); pair half-life &lt; horizon; hedge floor actually floors.</td><td><code>option_model</code> POP/breakevens/greeks; <code>implied_move.py</code>; pair rigor ceiling in <code>pair_builder</code></td></tr>
+  </table>
+  <h4>Score → verdict mapping (respects every pinned test)</h4>
+  <pre><code>edge_score = G1 + G2 + G3 + G4 + G5                      # 0–100, only if G0 passes
+ceilings   = existing VERDICT_CEILING {no_edge: 39, unproven: 79, promising: 100}
+             + N&lt;30 → min(ceiling, unproven)  + DSR≤0 → min(ceiling, 39)  + MinTRL unmet → suppress
+PRICED-IN MODIFIER (Event/Relative only):
+  if market-implied P(view) ≥ 0.80 → halve G2 contribution, flag "largely priced in"
+  if |user P − market P| ≤ market calibration error (~5–8 pts, liquid) → flag "no actionable gap"
+letters: A ≥ 85 · B ≥ 70 · C ≥ 55 · D ≥ 40 · F  (the API's existing _letter_band)
+verdicts: ≥ 70 promising · 40–69 unproven · &lt; 40 no_edge · suppression = insufficient_data</code></pre>
+  <div class="callout green"><b>Why this is credible externally:</b> "no Indian retail platform deflates
+  for trials" is already Pivot's backtester moat. The Edge Grade extends the same posture to the belief
+  layer: every grade the user sees has survived sign-test honesty, trial deflation, decay shrinkage, cost
+  subtraction, and a priced-in check. Kalshi's number is honest because it's a settled claim on $1;
+  Pivot's grade is honest because it's the <i>deflated</i> residual of a documented pipeline.</div>
+
+  <h3 id="projection">2.4 · Projection &amp; sizing — what replaces "best past run"</h3>
+  <p>The projection system converts historical evidence into the only forward statement the doctrine
+  permits: <b>a cost-adjusted, shrunk range</b>. This also fixes the three-hero-numbers problem — there is
+  exactly one canonical statistic per strategy (the shrunk net median) and one canonical picture (the band).</p>
+  <pre><code># per expression, computed at pack-generation time
+w        = N / (N + 30)                      # shrinkage toward zero; N=30 → w=0.5,
+                                             # matching the McLean–Pontiff ≥50% decay base rate
+p50_net  = w · median(AR_occurrences) − round_trip_costs
+band     = [w·P25 − costs,  w·P75 − costs]   # empirical quartiles, same shrinkage
+tail     = MC p05 (block bootstrap, already computed) — displayed as "worst 5% of re-runs"
+sizing   = quarter-Kelly on the shrunk edge, capped at 5% of stated capital per view
+           f* = w·(p̂ − (1−p̂)/b) / 4        # p̂ = shrunk hit rate, b = |P75/P25| asymmetry
+display  = "Typically +4.6% net over ~3 months (range +1% to +9%, worst 5% ≈ −16%)"
+forbidden = best_episode_pct as a headline · any un-shrunk mean · any pre-cost number anywhere</code></pre>
+  <h4>Worked example — regrading today's flagship (ai_jobs · conservative basket)</h4>
+  <table>
+    <tr><th style="width:22%">Gate</th><th>Assessment on current data</th><th style="width:14%">Outcome</th></tr>
+    <tr><td>G0 Integrity</td><td>Scores block is the rural artifact → <b>fails as shipped</b>; after regeneration with real per-view battery, passes.</td><td class="num">blocked → pass</td></tr>
+    <tr><td>G1 Mechanism</td><td>Chain "AI adoption → Indian IT demand" is plausible but the view is a <b>Theme</b>, and 22% Wipro / 28% TCS is a beta-heavy, purity-mixed proxy for "AI creates jobs." Mid score.</td><td class="num">~14/25</td></tr>
+    <tr><td>G2 Evidence</td><td>31 "occurrences" are calendar windows, not events (A2 violation) → must be re-framed as a Theme milestone rubric; if kept as windows: 20/31, sign-test p ≈ 0.075 → below the 0.05 bar.</td><td class="num">capped</td></tr>
+    <tr><td>G3 Robustness</td><td>No real DSR/PSR for this expression yet (artifact values). MC prob_loss 28% is real and fine.</td><td class="num">incomplete</td></tr>
+    <tr><td>G4 Implementability</td><td>Liquid large-caps; ~0.3% round trip vs ~9.8% mean window return → survives costs easily.</td><td class="num">~13/15</td></tr>
+    <tr><td>G5 Expression fit</td><td>Plain long basket for a "jobs by 2027" belief — horizon mismatch (6-month windows vs a 2027 resolution) and no hedge tier fit issue.</td><td class="num">~8/15</td></tr>
+    <tr><td><b>Verdict</b></td><td>Honest label today: <b>Unproven (C)</b> — exactly what the current UI happens to show, but now for <i>stated, defensible reasons</i>, with a to-do list (define milestones, purity-tighten the basket, real battery) instead of a vibe. Projection line: w = 31/61 ≈ 0.51 → p50 ≈ 0.51 × 9.8% − 0.3% ≈ <b>+4.7% net</b>, band ≈ +1% to +9%, worst 5% −16%.</td><td><span class="grade gC">C</span></td></tr>
+  </table>
+
+  <h3 id="process">2.5 · Process gates — the checklist every future strategy passes before it ships</h3>
+  <ol>
+    <li><b>Classify the view</b> against the taxonomy (§2.2). The type fixes the evidence standard and the legal expression menu. A view that fits no row does not ship.</li>
+    <li><b>Write the resolution spec first</b> — metric, benchmark, date, data source — before any strategy work (this becomes the "Rules" object on the page, §3.3).</li>
+    <li><b>Establish the consensus</b> (Event/Relative): option-implied move/probability, PM price where liquid (source-tagged), or analyst median. No consensus → reclassify as shock or theme.</li>
+    <li><b>Condition the analog sample on surprise sign</b>; compute market-model ARs, CAAR, BMP + sign test (call the existing <code>event_study.py</code> — it is built and tested).</li>
+    <li><b>Register every variant tried</b> in a view-scoped trial group (<code>record_and_deflate</code>) — the screen width is the trial count; there is no such thing as an unregistered experiment.</li>
+    <li><b>Build tiers from the conditioned evidence</b>, not from the template ladder alone: direction from surprise gap, option moneyness from implied-vs-expected move, pair legs from cointegration, hedges from the transmission map's loser branch.</li>
+    <li><b>Subtract costs, shrink, band</b> (§2.4). If p50_net ≤ 0, the tier ships only as an honest <code>no_edge</code> teaching artifact or not at all.</li>
+    <li><b>Grade with the five gates</b>; write <code>config.scores.edge_grade</code>; the UI renders only from this block.</li>
+    <li><b>One generator, one sync</b>: a single script emits pack summaries + details from the same computation (kills the best_expression desync class permanently), stamping provenance (<code>generated_at</code>, engine version, universe hash).</li>
+    <li><b>Adversarial pass before publish</b>: one reviewer (human or agent) attempts to refute G1 and G5 in writing; the refutation attempt is stored with the view (this is the curation gate <code>validate_for_review</code> grown one level).</li>
+  </ol>
+</section>
+<!-- ================================================================ -->
+<section id="experience">
+  <div class="kicker k-market">§3 · Part III</div>
+  <h2>Experience redesign — prediction-market ease, quant honesty</h2>
+
+  <h3 id="principles">3.1 · Borrow / reject — the design contract</h3>
+  <p>What makes Kalshi and Polymarket effortless is not the betting — it is <b>one dominant number per
+  card, a plain-English question with a deadline, rules one scroll from the action, and complexity behind
+  a toggle rather than removed</b>. Pivot borrows the discipline and rejects the affordances:</p>
+  <table>
+    <tr><th style="width:44%">Borrow</th><th>Reject</th></tr>
+    <tr><td>Question-as-sentence with a deadline as the card title (Polymarket)</td><td>Yes/No buy buttons, cent prices, "To win ₹X" payout teasers — we are not an exchange</td></tr>
+    <tr><td>One dominant number: <b>market-implied "priced in" %, source-tagged</b>, with a weekly delta chip (both)</td><td>Minting our own probability where no market exists — never fabricate; Themes get lifecycle + milestones instead</td></tr>
+    <tr><td>"Rules" as a trust object: resolution metric + benchmark + date + source, one scroll from the act panel (both)</td><td>Order books, depth, live trade feeds, top holders, comments, voting — engagement bait, out of V1 scope</td></tr>
+    <tr><td>Regulation as visible trust: register-not-execute + data-source tags inline (Kalshi's CFTC posture)</td><td>KYC-before-browse; login walls anywhere before Deploy</td></tr>
+    <tr><td>Outlook-first entry, max-loss before max-gain, breakeven marked (Robinhood strategy builder)</td><td>Approval-level gamification, confetti, streaks, red/green flashing</td></tr>
+    <tr><td>The smallcase dialect per tier: risk word · time-labeled return · min capital (the Indian retail vocabulary that already works)</td><td>A single seductive equity curve for open-ended baskets — bands and ranges only</td></tr>
+    <tr><td>Two surfaces: calm consumer view + pro deep-dive one click down (Kalshi terminal split)</td><td>Everything on one dense page; terminal vibes</td></tr>
+  </table>
+
+  <h3 id="card">3.2 · The card, before → after</h3>
+  <div class="mock-pair">
+    <div>
+      <div class="mock-label k-red">Current (observed)</div>
+      <div class="frame bad">
+        <div class="oc-meta"><span>AI · Theme</span><span style="color:var(--green)">● Open</span></div>
+        <div class="oc-title">Will AI create more jobs than it destroys by 2027?</div>
+        <div class="oc-sub">As AI spreads, India's big IT &amp; software…</div>
+        <div class="oc-big">+64.8% <small>best past run</small></div>
+        <svg viewBox="0 0 300 46" style="width:100%;height:46px;margin:6px 0 2px">
+          <path d="M0,40 C30,38 45,34 70,32 S120,26 150,22 S220,14 260,10 L300,6 L300,46 L0,46 Z" fill="#05966915"/>
+          <path d="M0,40 C30,38 45,34 70,32 S120,26 150,22 S220,14 260,10 L300,6" fill="none" stroke="#059669" stroke-width="1.6"/>
+        </svg>
+        <div class="oc-btns">
+          <div class="oc-yes">Yes <b>+9.8%</b></div>
+          <div class="oc-no">No<br>Stay in the index</div>
+        </div>
+        <div class="oc-foot"><span class="warn">● Unproven · Positive in 20 of 31</span><span>♥ 0</span></div>
+      </div>
+      <ul style="font-size:12.5px;margin-top:10px">
+        <li>Hero = sample maximum (selection bias as headline)</li>
+        <li>Same sparkline shape on 6 of 8 cards; no scale</li>
+        <li>"Yes +9.8%" — a stance chip carrying a return; means nothing precise</li>
+        <li>Theme view wearing an event hit-rate; empty heart</li>
+      </ul>
+    </div>
+    <div>
+      <div class="mock-label k-green">Proposed — Event view (market data exists)</div>
+      <div class="frame">
+        <div class="nc-meta">
+          <span><span class="nc-cat">Macro · Event</span></span>
+          <span>Resolves <b>6 Aug 2026</b></span>
+        </div>
+        <div class="nc-title">RBI cuts the repo rate at the August MPC</div>
+        <div class="nc-priced"><span class="pct">62%</span><span class="delta">▲ +4 this week</span></div>
+        <div class="nc-priced-cap">priced in · Polymarket, ₹-liquid contract · updated 2h ago</div>
+        <div class="nc-evidence">
+          <span class="grade gB">B</span>
+          <span><b>Promising</b> · 14 analog cuts since 2010 · typically <b>+2.1% net</b> on rate-sensitives</span>
+        </div>
+        <div class="nc-cta"><span>3 ways to express this →</span><span>Cons · Bal · Aggr</span></div>
+      </div>
+      <div class="mock-label k-green" style="margin-top:16px">Proposed — Theme view (no market → no fake %)</div>
+      <div class="frame">
+        <div class="nc-meta">
+          <span><span class="nc-cat">AI · Theme</span></span>
+          <span>Horizon <b>2027</b></span>
+        </div>
+        <div class="nc-title">AI lifts Indian IT hiring &amp; revenue through 2027</div>
+        <div class="nc-evidence" style="border-top:none;padding-top:0">
+          <span style="font-weight:600;color:var(--ink)">Developing</span>
+          <span style="color:var(--ink-3)">· 2 of 5 milestones confirmed · last: Q4 IT headcount ↑</span>
+        </div>
+        <div class="nc-evidence"><span class="grade gC">C</span><span><b>Unproven</b> · purity-screened 7-stock basket · band +1% to +9% net</span></div>
+        <div class="nc-cta"><span>2 ways to express this →</span><span>Cons · Aggr</span></div>
+      </div>
+    </div>
+  </div>
+  <p><b>Card rules:</b> variable height (kill the fixed 376px); no sparkline unless the series is
+  per-view distinct and scaled (probability-history qualifies later; identical equity curves do not);
+  the dominant number is priced-in % (source-tagged) or, for themes, the lifecycle word + milestone
+  count; the evidence line carries grade chip + verdict + the <i>shrunk net</i> typical figure; one quiet
+  CTA; no hearts until follower counts are real; stance moves to the detail page.</p>
+
+  <h3 id="detail">3.3 · Detail page — the narrative spine</h3>
+  <p>One arc, top to bottom, mirroring the investor's question sequence. Desktop: content column + sticky
+  right rail (the act panel). Mobile: rail becomes a bottom sheet. Real routes:
+  <code>/views/[id]</code>, deep dive at <code>/views/[id]/e/[tier]</code> — the body-swap navigation goes.</p>
+  <div style="margin:18px 0 22px">
+    <div class="wire"><b>1 · The claim</b> Question H1 · type/horizon/status meta · one-line thesis. (Yes/No chips → a neutral "Your read: Agree / Disagree" segment that filters expressions; disagree shows the honest counter-expression or "the index is the calmer default" — today's stance copy, better placed.)</div>
+    <div class="wire"><b>2 · What's priced in</b> Expected vs Your view vs Gap — implied probability / implied move (source-tagged: Polymarket · Kalshi · option-implied), delta chip, probability-over-time line where history exists. <i>The A1 surprise frame, previously invisible.</i></div>
+    <div class="wire"><b>3 · How this resolves</b> The "Rules" trust object: metric · benchmark · date · data source · verifier (macro_events verifier). Quotable, written before publication (process gate 2).</div>
+    <div class="wire"><b>4 · The evidence</b> ONE per-occurrence module (merges today's duplicated EventReturns + EpisodeBars): occurrence strip with real dates, CAAR band, stats row — N · shrunk net median · hit rate <i>with sign-test wording</i> · worst occurrence. Theme views render the milestone tracker here instead. Transmission map (data exists in DB views) as a horizontal chain, tap node → affected names.</div>
+    <div class="wire"><b>5 · Three expressions</b> Tier cards in the smallcase dialect: risk word · min capital · time-labeled shrunk net return · max drawdown · grade chip · "what you'd hold" preview. Select → expanded: allocation, payoff (options, breakeven marked, max loss before max gain), link to deep dive.</div>
+    <div class="wire"><b>6 · Act panel (sticky rail)</b> Selected tier summary → <b>Position size step = the relocated calculator</b> (amount in → shrunk net band out: "₹50,000 typically becomes ₹52,300 · range ₹50.5k–₹54.5k · worst 5% ₹42k") → itemized haircuts on tap (shrinkage · costs) → Deploy (register-not-execute, stated once here, nowhere else) → suggested size line (quarter-Kelly cap).</div>
+    <div class="wire"><b>7 · Related views</b> from the transmission graph (cheap, high-value borrow of "Related markets").</div>
+  </div>
+  <h4>The projection band (replaces the equity-curve hero and the three hero numbers)</h4>
+  <div class="frame" style="max-width:560px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:2px">If you deploy ₹1,00,000 · Conservative</div>
+    <div style="font-size:12px;color:var(--ink-3)">net of costs, shrunk for small sample — a range, not a promise</div>
+    <div class="band">
+      <span class="tick" style="left:8%"></span>
+      <span class="tick" style="left:42%;height:26px;top:-6px;width:3px"></span>
+      <span class="tick" style="left:78%"></span>
+    </div>
+    <div class="band-labels"><span>worst 5% −16%</span><span>typical <b>+4.7%</b></span><span>best quartile +9%</span></div>
+  </div>
+
+  <h3 id="deepdive">3.4 · Deep dive — the pro surface, one click down</h3>
+  <p>Keeps everything a sharp user wants, none of it leading: methodology header first (how computed,
+  <code>curve_basis</code>, provenance, engine version — the Kalshi-style visible rigor), then occurrence
+  table with real dates, Monte-Carlo fan, factor-cleanliness panel (when real), option greeks + payoff,
+  itemized cost stack. <b>The calculator does not live here</b> — the deep dive links back to the act
+  panel with the amount preserved. "The honest stats" grid dissolves into the sections it duplicated.</p>
+
+  <h3 id="visual">3.5 · Visual system</h3>
+  <table>
+    <tr><th style="width:22%">Token</th><th>Rule</th></tr>
+    <tr><td>Palette</td><td>Keep the border-only, no-fill, no-shadow card law. Semantic color only: <b>green = realized positive numbers</b> (never buttons), <b>red = risk/max-loss only</b>, <b>amber = caveat callouts only</b>, and a new <b>slate-blue reserved for market-implied data</b> (priced-in %, deltas) so "what the market thinks" is visually distinct from "what we computed." Kill the cyan/orange chip pair. Grade chips: A/B green-tinted, C neutral, D amber, F red — never a celebratory pair.</td></tr>
+    <tr><td>Type scale</td><td>12 (tags, micro-caps allowed here only) · 13 captions · 15 body · 17 H3 · 20 H2 · 28 H1 · 30 mono for the one dominant number. Weights 400/500/600; 700 reserved for the dominant number and grade chips — emphasis spent on honest elements only. Figures always tabular-nums mono.</td></tr>
+    <tr><td>Charts</td><td>One sparkline system (retire ViewCard's local one; base on MiniLine). Full charts always scaled and labeled. Bands/fans for anything forward-looking; single lines only for realized history; occurrence markers on curves (needs <code>episode_boundaries</code> populated). Fix hardcoded off-palette hexes (<code>LineChart.tsx:50-55, :205</code>).</td></tr>
+    <tr><td>Copy</td><td>One register: calm analyst. "Where it could go" → <b>Simulated range</b> · "The honest stats" → <b>Track record</b> · "If you put in this much" → <b>Position size</b>. The disclaimer renders exactly once per surface, in the act panel. Every relayed number carries its source tag ("(Polymarket, 2h ago)", "(option-implied)", "(yfinance, EOD)").</td></tr>
+    <tr><td>States</td><td>One skeleton system, one empty-state pattern, absence over "—": a null metric renders as the section not existing (option tiers get their own stat set — POP, max loss, breakeven — not a basket table with holes).</td></tr>
+  </table>
+
+  <h3 id="onboarding">3.6 · Onboarding &amp; progressive disclosure</h3>
+  <ul>
+    <li><b>Browse free:</b> all views readable logged-out; the wall appears at Deploy only (matches Polymarket's browse-first funnel).</li>
+    <li><b>First-visit strip</b> (dismissible, localStorage): three tiles — <i>Hold a belief → See the evidence → Express it your way</i> — with one sentence each; replaces the current marketing tagline.</li>
+    <li><b>Education in context, not tutorials:</b> "62% priced in" gets an inline "?" → one sentence: "A liquid prediction market currently pays out as if this has a 62% chance. Your opportunity lives in the difference between that and what you believe." Same pattern for grade chips (tap → the five gates, one line each) and the band (tap → itemized haircuts).</li>
+    <li><b>Complexity behind toggles, present not removed:</b> greeks, factor loadings, occurrence tables, cost stacks all exist one deliberate click down (deep dive) — the Kalshi two-surface model.</li>
+    <li><b>Default act flow = two decisions:</b> pick a tier, type an amount. Everything else has a sane default.</li>
+  </ul>
+
+  <h3 id="components">3.7 · Component disposition</h3>
+  <table>
+    <tr><th style="width:18%">Action</th><th>Files</th></tr>
+    <tr><td>Keep as-is</td><td><code>view-format.ts</code> · <code>use-token-color.ts</code> · <code>Stat.tsx</code> · <code>ViewSurface.tsx</code> · <code>charts/payoff-math.ts</code> · <code>MonteCarloDistribution</code> · <code>AllocationPie</code> · <code>ReturnsHeatmap</code> (restyle only)</td></tr>
+    <tr><td>Rebuild on existing plumbing</td><td><code>ViewCard</code> (new anatomy §3.2) · <code>ViewDetailPage</code> (spine §3.3 + real routes) · <code>StrategiesTable</code> → tier cards · <code>StrategyCalculator</code> → act-panel Position step · <code>StrategyDeepDive</code> (§3.4) · <code>ViewsTab</code>/<code>ViewFilters</code> (add sort: Resolving soon / Highest grade)</td></tr>
+    <tr><td>Resurrect (was built for the spec, orphaned by the last pass)</td><td><code>ExpectationsSurprise.tsx</code> (§3.3-2) · <code>ViewTransmissionMap.tsx</code> (§3.3-4) · <code>ViewLifecycle.tsx</code> (theme cards) — pending real data (Part IV)</td></tr>
+    <tr><td>Delete</td><td><code>ExpressionCard</code> · <code>ExpressionLadder</code> · <code>RiskReturnPanel</code> · <code>charts/{AllocationDonut, BenchmarkCompare, HoldingsReturns, MiniLine→fold into new sparkline, ReturnDistribution, RiskStrip, TrustLadder, PayoffDiagram}</code> — removes the last benchmark-beating code paths; decide keep-or-cut on uncalled <code>compareViewTiers</code>/<code>backtestExpression</code> API fns (recommend: keep, the deploy panel will want compare)</td></tr>
+  </table>
+</section>
+
+<!-- ================================================================ -->
+<section id="dataplan">
+  <div class="kicker k-amber">§4 · Part IV</div>
+  <h2>Data-integrity work order — before any pixel moves</h2>
+  <ol>
+    <li><b>Purge the rural artifact.</b> <code>scripts/enrich_viewpack.py</code> stops copying editorial <code>scores/structure/disclosure</code> blocks; each expression's block is either computed for that expression (run the v3 battery per view) or omitted honestly. Acceptance: no two expressions share a byte-identical <code>scores</code> block; no <code>RURAL_f</code>/BRITANNIA strings anywhere in the pack.</li>
+    <li><b>One generator.</b> Summaries + details emitted from a single computation in one script run, with provenance metadata (<code>generated_at</code>, engine version, universe hash). Acceptance: <code>details[id].best_expression ≡ summaries[id].best_expression ≡ expressions[best]</code> for all views; <code>plain_thesis</code> numbers regenerated from the same source.</li>
+    <li><b>Event-condition the evidence.</b> Event views: episodes = real dated occurrences through <code>event_study.py</code> (abnormal returns, surprise-conditioned); populate <code>episode_boundaries</code>. Theme views: relabel windows as "rolling windows," drop hit-rate fields, add milestone objects. Acceptance: no <code>date: null</code> occurrence rows on event views; no <code>pct_positive</code> on theme views.</li>
+    <li><b>Populate expectations.</b> Model-source expected value via <code>implied_move</code>/<code>implied_probability</code> for every Event/Relative view; PM prices where flags allow, source-tagged. Acceptance: <code>expectations</code> non-empty on all event/relative views.</li>
+    <li><b>Populate transmission</b> from <code>thematic_map</code> seeds (or set <code>transmission_count</code> to the array's true length). Acceptance: count ≡ length everywhere.</li>
+    <li><b>Fix the small lies:</b> "Own own" template bug · monsoon <code>alignmentWords()</code> · option underlying label/model mismatches (ai_jobs, fintech, nifty30k empty underlying) · identical confidence-evidence sentences (regenerate per view or omit).</li>
+    <li><b>Vary the option tiers</b> per the doctrine: direction/moneyness/structure from the view's implied move and surprise gap — acceptance: the 8 aggressive tiers are no longer one identical spread.</li>
+  </ol>
+</section>
+
+<!-- ================================================================ -->
+<section id="roadmap">
+  <div class="kicker k-ink">§5 · Part V</div>
+  <h2>Roadmap — five phases, each independently shippable</h2>
+  <table>
+    <tr><th style="width:16%">Phase</th><th>Scope</th><th style="width:30%">Touches</th><th style="width:14%">Gate to exit</th></tr>
+    <tr><td>P0 · Truth <span class="num">(~2–3d)</span></td><td>Part IV items 1–6. No visual changes.</td><td><code>scripts/enrich_viewpack.py</code> · <code>view_markets/precompute.py</code> · <code>event_study.py</code> wiring · pack JSONs regenerated · <code>BenchmarkComparison.tsx</code> copy fix</td><td>Pack passes an integrity script (no shared blocks, sync holds); 18 views tests green</td></tr>
+    <tr><td>P1 · Grade <span class="num">(~2–3d)</span></td><td>Edge Grade engine (§2.3) + projection fields (§2.4): new <code>view_markets/grading.py</code>, wired into precompute + pack; trial registry enforced.</td><td><code>grading.py</code> (new) · <code>confidence.py</code> (reuse ceilings, untouched tests) · <code>enrich_viewpack.py</code> · <code>lib/types.ts</code></td><td>Every expression carries <code>edge_grade</code> + <code>projection</code>; pinned tests (ceilings, DSR cap, MinTRL suppression, trust-block shape) all green</td></tr>
+    <tr><td>P2 · Core surfaces <span class="num">(~3–4d)</span></td><td>Card v2 + detail spine + real routes (<code>/views/[id]</code>, <code>/views/[id]/e/[tier]</code>); expectations + transmission + lifecycle resurrected; tier cards replace the table.</td><td><code>ViewCard</code> · <code>ViewDetailPage</code> · <code>ViewsTab</code>/<code>ViewFilters</code> · <code>ExpectationsSurprise</code> · <code>ViewTransmissionMap</code> · <code>ViewLifecycle</code> · deletions (§3.7)</td><td>tsc 0 · visual judge pass on screenshots · no fabricated % anywhere</td></tr>
+    <tr><td>P3 · Act flow <span class="num">(~2d)</span></td><td>Sticky act panel; calculator → Position step with itemized haircuts + quarter-Kelly suggestion; deploy wired or honestly disabled on the showcase ("showcase — deploy from the Views tab"); onboarding strip + in-context education.</td><td><code>StrategyCalculator</code> → <code>PositionStep</code> · act-panel (new) · <code>StrategyDeepDive</code> reorder · copy pass (one register, one disclaimer)</td><td>Deploy path either works end-to-end or states its boundary; calculator unreachable ≤1 click from tier selection = fixed</td></tr>
+    <tr><td>P4 · Polish + QA <span class="num">(~1–2d)</span></td><td>Type/palette tokens, single sparkline system, states unification, dark mode parity; instrumented multi-turn eval of the chat → views routing; screenshot suite.</td><td>tokens in <code>globals.css</code> · charts · skeletons</td><td>Triad report (tokens · latency · quality verdict) per surface; commit (no push without permission)</td></tr>
+  </table>
+  <h4>Risks &amp; mitigations</h4>
+  <ul>
+    <li><b>Small-N honesty may read as weakness</b> ("Unproven" everywhere). Mitigation: the grade chip's tap-through explains <i>why</i> and what would upgrade it — rigor as brand, the Kalshi lesson. A pack where everything honestly grades C still beats one fabricated A.</li>
+    <li><b>PM data availability in India</b> (geo/liquidity). Mitigation: the frame is source-agnostic — option-implied moves and analyst consensus fill where PM prices are thin; the slot renders only with a real source.</li>
+    <li><b>Pinned tests</b> encode today's verdict ceilings and trust-block shapes — the Edge Grade is deliberately layered <i>on top of</i> them (same ceilings, new combiner), not through them.</li>
+    <li><b>Scope creep into user-authored views</b> — out of V1 per the spec; nothing here requires it.</li>
+  </ul>
+</section>
+
+<!-- ================================================================ -->
+<section id="appendix">
+  <div class="kicker k-ink">§6</div>
+  <h2>Appendix — citations &amp; formulas</h2>
+  <h4>Core references</h4>
+  <ul style="font-size:13.5px">
+    <li>MacKinlay (1997), "Event Studies in Economics and Finance," <i>JEL</i> 35(1) — market-model AR/CAR/CAAR, estimation vs event windows, small-N inference.</li>
+    <li>Savor &amp; Wilson (2013), <i>JFQA</i> — 11.4bp announcement-day vs 1.1bp other days; &gt;60% of the equity premium on 13% of days.</li>
+    <li>Lucca &amp; Moench (2015), <i>JF</i> / FRBNY SR512 — ~49bp pre-FOMC drift, Sharpe 1.14; <b>decayed post-2011</b> (the canonical published-anomaly decay).</li>
+    <li>Kuttner (2001), <i>JME</i>; Bernanke &amp; Kuttner (2005), <i>JF</i> — surprise decomposition; expected component ≈ 0 price impact.</li>
+    <li>Bernard &amp; Thomas (1989/90) — PEAD: top-minus-bottom SUE decile ≈ 4.2% over 60 days, positive 41 of 48 quarters; spread ≤3% by late 2010s.</li>
+    <li>Bailey &amp; López de Prado (2012, 2014) — PSR, MinTRL, Deflated Sharpe: <code>E[max SR_N] ≈ √V[SR]·[(1−γ)Φ⁻¹(1−1/N)+γΦ⁻¹(1−1/Ne)]</code>.</li>
+    <li>Bailey, Borwein, López de Prado &amp; Zhu (2017), <i>JCF</i> — PBO via CSCV; PBO &gt; 0.5 = selection carries no information.</li>
+    <li>Harvey, Liu &amp; Zhu (2016), <i>RFS</i> — multiple-testing hurdle t &gt; 3.0.</li>
+    <li>McLean &amp; Pontiff (2016), <i>JF</i> — 97 predictors: −26% out-of-sample, −58% post-publication → the 50% shrinkage base rate.</li>
+    <li>Dubinsky, Johannes, Kaeck &amp; Seeger (2019), <i>RFS</i> — event variance premium / IV crush (30–50% overnight); implied &gt; realized ~70–75% of events; earnings-straddle hold-through ≈ 45.3% win, −3.2% mean (Volatility Box, 2021–25, N≈4,200).</li>
+    <li>Kelly (1956); MacLean, Thorp &amp; Ziemba (2010) — half-Kelly ≈ 75% of growth at half the variance; estimated edges → fractional Kelly.</li>
+    <li>PM calibration: Polymarket Brier ≈ 0.084–0.09; Kalshi ≈ 0.05–0.06 at 200 days out; Clinton &amp; Huang (2026, Vanderbilt) caution on thin markets → volume-weight the prior, shrink user probability w ≈ 0.3–0.5.</li>
+    <li>Costs (post-Oct-2024): delivery STT 0.1%/side; options STT 0.1% of premium (sell) + ~₹20/order + NSE txn ~0.03% + GST + stamp; single-stock option spreads often 1–5% of premium.</li>
+  </ul>
+  <h4>The three formulas the product displays (nothing else is shown as a forward number)</h4>
+  <pre><code>shrinkage      w    = N / (N + 30)
+projection     p50  = w · median(AR_occ) − costs_rt        (+ band [w·P25 − c, w·P75 − c], tail = MC p05)
+edge vs market gap  = (w_u·p_user + (1−w_u)·q) − q         (w_u ≈ 0.3–0.5; actionable only if |gap| &gt; calibration error)</code></pre>
+</section>
+
+<footer>
+  Prepared 2026-07-02 · grounded in commit <span class="num">40814e2</span> · evidence: 5-agent
+  ultracode workflow (frontend/backend/data-pack maps + quant &amp; UX research briefs, ~700k tokens) +
+  live screenshots of /view-pack · plan only — no code changed. Companion docs:
+  <span class="num">Markdowns/Version2.md</span> · <span class="num">Markdowns/VIEW_MARKETS_V2_CHECKLIST.md</span>.
+</footer>
+
+</div>
+</body>
+</html>
