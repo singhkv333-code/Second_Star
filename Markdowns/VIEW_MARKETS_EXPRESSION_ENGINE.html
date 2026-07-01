@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>View Markets — The Expression Engine: shared machinery, independent strategies</title>
+<style>
+  :root{
+    --ink:#0d0d0e; --ink2:#3b4148; --ink3:#6b7280; --line:#e6e7ea; --line2:#d6d8dc;
+    --paper:#ffffff; --tint:#f7f8fa; --blue:#1f7a93; --blue-bg:#e9f3f6;
+    --green:#0f8a5f; --green-bg:#e8f6ef; --amber:#b06d12; --amber-bg:#fbf1e2;
+    --purple:#6d4aff; --purple-bg:#efeaff; --red:#c0392b; --red-bg:#fbeae8;
+    --radius:14px; --radius-sm:9px;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--tint);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;font-size:16.5px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:48px 24px 96px}
+  header.h{margin-bottom:8px}
+  .eyebrow{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--blue)}
+  h1{font-size:34px;line-height:1.2;letter-spacing:-.02em;margin:.3em 0 .15em}
+  .sub{font-size:18px;color:var(--ink2);margin:0 0 6px;max-width:42em}
+  .meta{font-size:13px;color:var(--ink3);margin-top:14px;font-family:var(--mono)}
+  h2{font-size:23px;letter-spacing:-.01em;margin:54px 0 6px;padding-top:8px}
+  h2 .num{color:var(--blue);font-variant-numeric:tabular-nums;margin-right:.4em}
+  h3{font-size:18px;margin:26px 0 6px}
+  p{margin:10px 0;max-width:44em}
+  .lead{font-size:17.5px;color:var(--ink2)}
+  code{font-family:var(--mono);font-size:.86em;background:#eef0f3;padding:1.5px 6px;border-radius:6px;color:#243}
+  strong{font-weight:650}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:22px 24px;margin:18px 0}
+  .callout{background:var(--blue-bg);border:1px solid #cfe4ea;border-radius:var(--radius);padding:18px 22px;margin:20px 0}
+  .callout.tldr{background:#0d0d0e;border-color:#0d0d0e;color:#f2f3f4}
+  .callout.tldr strong{color:#fff}
+  .callout.tldr code{background:#2a2c30;color:#cfe4ea}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  /* file table */
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:600;border-bottom:1.5px solid var(--line2)}
+  td code{white-space:nowrap}
+  .tag{display:inline-block;font-size:11.5px;font-weight:650;letter-spacing:.03em;padding:2px 8px;border-radius:999px}
+  .tag.data{background:var(--green-bg);color:var(--green)}
+  .tag.mach{background:var(--purple-bg);color:var(--purple)}
+  .tag.deleg{background:var(--amber-bg);color:var(--amber)}
+  /* pipeline */
+  .pipe{display:flex;flex-direction:column;gap:0;margin:8px 0 4px}
+  .step{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--line)}
+  .step:first-child{border-top:none}
+  .step .n{flex:0 0 30px;height:30px;border-radius:8px;background:var(--ink);color:#fff;font-weight:700;
+    font-size:15px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .step .b{flex:1;min-width:0}
+  .step .t{font-weight:650;font-size:15.5px}
+  .step .d{color:var(--ink2);font-size:14.5px;margin-top:1px}
+  .step .file{font-family:var(--mono);font-size:12.5px;color:var(--blue)}
+  /* axes of variation */
+  .axis{border-left:3px solid var(--line2);padding:2px 0 2px 16px;margin:16px 0}
+  .axis.a1{border-color:var(--green)} .axis.a2{border-color:var(--blue)}
+  .axis.a3{border-color:var(--purple)} .axis.a4{border-color:var(--amber)} .axis.a5{border-color:var(--red)}
+  .axis h4{margin:0 0 2px;font-size:16px}
+  .axis p{margin:4px 0;font-size:15px;color:var(--ink2)}
+  .axis .k{font-size:12.5px;font-weight:650;letter-spacing:.04em;text-transform:uppercase}
+  .a1 .k{color:var(--green)} .a2 .k{color:var(--blue)} .a3 .k{color:var(--purple)} .a4 .k{color:var(--amber)} .a5 .k{color:var(--red)}
+  /* worked example mini-table */
+  .ex td,.ex th{font-size:13.5px;padding:8px 10px}
+  .ex td:first-child{font-weight:600}
+  .pos{color:var(--green);font-weight:650} .neg{color:var(--red);font-weight:650}
+  .hr{height:1px;background:var(--line);border:0;margin:40px 0}
+  .foot{font-size:13px;color:var(--ink3);margin-top:56px;border-top:1px solid var(--line);padding-top:16px}
+  ul{margin:10px 0;padding-left:22px} li{margin:5px 0}
+  .pillrow{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+  .pill{font-size:13px;background:#fff;border:1px solid var(--line2);border-radius:999px;padding:5px 12px}
+  .pill b{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="h">
+  <div class="eyebrow">Pivot · View Markets V2 · Architecture note</div>
+  <h1>One engine, many strategies</h1>
+  <p class="sub">Why the Expression layer is a handful of <em>shared</em> Python files — and how that same shared code still produces a genuinely <em>independent</em> analysis and construction for every single strategy.</p>
+  <div class="meta">backend/view_markets/expressions/ &nbsp;·&nbsp; ~21 archetypes × 3 tiers → 13 files, not 60</div>
+</header>
+
+<div class="callout tldr">
+  <strong>The one-sentence answer.</strong> The strategies do <em>not</em> each get their own file. The files are <strong>generic machinery</strong>; what makes each strategy independent is the <strong>data and inputs that flow through them</strong> — a declarative <em>catalog entry</em> (which recipe), a set of <em>tier knobs</em> (how aggressive), the <em>view's own resolved instruments</em> (which real stocks/legs), and a <em>delegation to the real analysis engine</em> (greeks, cointegration, weighting) that does the actual, separate maths per strategy.
+</div>
+
+<h2><span class="num">1</span>The problem we were avoiding</h2>
+<p class="lead">A "strategy" in View Markets is an <strong>archetype × tier</strong> pair. There are ~21 archetypes (rate debit-spread, NBFC-vs-bank pair, event straddle, IV-crush iron-fly, PEAD, merger-arb, cointegrated pair, sector-vs-index, factor-ETF-vs-index, purity basket, factor-tilt, multi-asset, the six MCX commodity families…) and each can be expressed Conservative / Balanced / Aggressive.</p>
+<p>That is <strong>~60 concrete variants</strong>. The naïve design — one <code>.py</code> per strategy — would mean 60 files that 90&#37; duplicate each other (every one re-implements price loading, weighting, risk, disclosures), drift apart over time, and make a fix in "how we size a basket" a 20-file edit. The repo already rejected that pattern elsewhere (<code>option_strategies.TEMPLATES</code>, <code>weighting</code> scheme-dispatch), so View Markets follows the same rule:</p>
+<div class="callout"><strong>A strategy's difference lives in DATA (a frozen catalog entry + tier knobs), never in a bespoke file.</strong> ~60 variants collapse to one data table + five builders + one dispatcher.</div>
+
+<h2><span class="num">2</span>The shared files — and what kind of thing each one is</h2>
+<p>Every file under <code>expressions/</code> falls into one of three roles. This is the whole engine:</p>
+
+<div class="pillrow">
+  <span class="pill"><span class="tag data">DATA</span> &nbsp;facts &amp; settings, no logic</span>
+  <span class="pill"><span class="tag mach">MACHINERY</span> &nbsp;generic glue, runs for every strategy</span>
+  <span class="pill"><span class="tag deleg">DELEGATES</span> &nbsp;calls the real analysis engine</span>
+</div>
+
+<table>
+  <thead><tr><th>File</th><th>Role</th><th>What it holds / does (the same for every strategy)</th></tr></thead>
+  <tbody>
+    <tr><td><code>catalog.py</code></td><td><span class="tag data">DATA</span></td><td>The frozen registry of ~21 <code>Archetype</code> entries. Each entry = <code>key · view_types · expression_kind · template_or_scheme · params · applies_when · required_primitive · status(EXISTS&#124;GAP)</code>. This <em>is</em> where a strategy's identity lives.</td></tr>
+    <tr><td><code>tiers.py</code></td><td><span class="tag data">DATA</span></td><td><code>TierKnobs</code> keyed by <code>(expression_kind, tier)</code>. Conservative / Balanced / Aggressive are <strong>not three engines</strong> — they are knob settings (capital intensity, leverage, hedge ratio, option moneyness, pair z-bands, single-name cap, rebalance cadence, timing default) on one object.</td></tr>
+    <tr><td><code>builders/</code><br>(5 files)</td><td><span class="tag deleg">DELEGATES</span></td><td>One builder <em>per instrument kind</em>, not per strategy: <code>basket</code> · <code>pair</code> · <code>option</code> · <code>hedge</code> · <code>multi_asset</code>. Uniform signature <code>(db, view, archetype, tier)</code>. Each one <strong>delegates to the real engine</strong> and never reinvents the maths.</td></tr>
+    <tr><td><code>dispatch.py</code></td><td><span class="tag mach">MACHINERY</span></td><td>The single public entry point — <code>suggest_expressions(db, view, tier?)</code>. Picks archetypes, looks up the builder + knobs, resolves the view's real instruments, builds, attaches timing, enforces disclosures, persists.</td></tr>
+    <tr><td><code>screens.py</code></td><td><span class="tag mach">MACHINERY</span></td><td>The "good basket, not flat basket" engine: theme purity score, liquidity floor, single-name cap (iterative redistribution), minimum-names floor (refuse a 3-stock "theme" → offer the ETF proxy).</td></tr>
+    <tr><td><code>honest_short.py</code></td><td><span class="tag mach">MACHINERY</span></td><td>The no-fabricated-short rule. Single-stock → SSF/put or <strong>AVOID</strong>; index → NIFTY/BANKNIFTY future or put; commodity → MCX future/put. <em>AVOID is a first-class output</em>, so we never invent a fake short.</td></tr>
+    <tr><td><code>cross_sectional.py</code></td><td><span class="tag mach">MACHINERY</span></td><td>Decile / rank engine + the factor → smart-beta-ETF catalog (Momentum 30 / Quality 30 / Value 20 / Low-Vol 30 / Multi-Factor).</td></tr>
+    <tr><td><code>merger_arb.py</code></td><td><span class="tag mach">MACHINERY</span></td><td>Open-offer / buyback spread + implied-break-probability + annualised return + proration maths (the retail-friendly Indian event arb).</td></tr>
+    <tr><td><code>timing.py</code></td><td><span class="tag mach">MACHINERY</span></td><td>Maps Pre-position / Confirmation / Hybrid to the deployed workflow's trigger shape (arm-now vs event-gated vs split-tranche).</td></tr>
+    <tr><td><code>config_schema.py</code></td><td><span class="tag data">DATA</span></td><td>The envelope schema + the five mandatory disclosure fields (why · risk · capital · historical-strength · horizon). Enforced — never blank.</td></tr>
+    <tr><td><code>commodities.py</code></td><td><span class="tag data">DATA</span></td><td>MCX universe + the leverage note stamped on every commodity expression (commodities are leveraged → never auto-sized).</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">3</span>How one request flows through the shared machinery</h2>
+<p><code>dispatch.suggest_expressions(view)</code> runs this fixed algorithm for <em>every</em> view. Nothing here is strategy-specific code — the <em>inputs</em> at each step are what differ.</p>
+
+<div class="card">
+<div class="pipe">
+  <div class="step"><div class="n">1</div><div class="b"><div class="t">Pick archetypes</div><div class="d">For each tier, an ordered preference list (the per-tier structure menu) ∩ <code>catalog.archetypes_for_view_type(view.view_type)</code> ∩ an <code>applies_when</code> gate. Exactly one archetype is built per tier → a clean 3-rung ladder, not a flood.</div><div class="file">dispatch.py · catalog.py</div></div></div>
+  <div class="step"><div class="n">2</div><div class="b"><div class="t">Look up the builder + the knobs</div><div class="d"><code>builders.BUILDERS[archetype.expression_kind]</code> and <code>tiers.tier_knobs(kind, tier)</code>. Same builder for every "basket" strategy; the knobs differ by tier.</div><div class="file">builders/ · tiers.py</div></div></div>
+  <div class="step"><div class="n">3</div><div class="b"><div class="t">Resolve the view's REAL instruments</div><div class="d">From the belief itself — <code>thematic_map</code> scenario → transmission edges → <code>sector_universe</code> — never fabricated. This is where IT becomes REC/Adani-Power/RVNL and Monsoon becomes Britannia/MRF/Marico.</div><div class="file">thematic_map · sector_universe</div></div></div>
+  <div class="step"><div class="n">4</div><div class="b"><div class="t">Build — by delegating to the real engine</div><div class="d">The builder calls the actual analysis engine with those inputs. It either returns a constructed envelope, <strong>degrades honestly</strong> to AVOID (thin data / un-shortable), or <strong>raises</strong> → dispatch falls through to the next preference.</div><div class="file">option_strategies · backtest.pairs · weighting · screens</div></div></div>
+  <div class="step"><div class="n">5</div><div class="b"><div class="t">Attach timing</div><div class="d"><code>timing.timing_to_trigger(view, mode)</code> — Conservative=Confirmation, Balanced=Hybrid, Aggressive=Pre-position. Describes an armed workflow; never creates one. <em>Register-not-execute preserved.</em></div><div class="file">timing.py</div></div></div>
+  <div class="step"><div class="n">6</div><div class="b"><div class="t">Enforce the five disclosures, then persist</div><div class="d">Fill rationale / risk / capital / historical-strength / horizon (raise if any blank), write one <code>ViewExpression</code> row per tier. Does not commit — the caller owns the transaction.</div><div class="file">config_schema.py · models</div></div></div>
+</div>
+</div>
+
+<h2><span class="num">4</span>So where does the <em>independence</em> come from?</h2>
+<p class="lead">Independence is not produced by separate code. It is produced by <strong>five axes of variation</strong> that feed the shared machinery. Change any of them and the same builder yields a completely different, separately-analysed strategy.</p>
+
+<div class="axis a1">
+  <div class="k">Axis 1 · the catalog entry</div>
+  <h4>Which recipe — builder, template, params, guards</h4>
+  <p>Two strategies routed to the same <code>option</code> builder are different because their catalog entries carry a different <code>template_or_scheme</code> (<code>bull_call_spread</code> vs <code>iron_condor</code> vs <code>straddle</code>) and different params. The entry is data; it <em>selects</em> the behaviour.</p>
+</div>
+
+<div class="axis a2">
+  <div class="k">Axis 2 · the tier knobs</div>
+  <h4>How aggressive — same archetype, different dials</h4>
+  <p>Conservative vs Balanced vs Aggressive of one archetype run through the <em>same</em> builder with different <code>option_moneyness</code> / <code>hedge_ratio</code> / <code>single_name_cap</code> / <code>pair_z_*</code> / <code>leverage</code>. Same kitchen, different settings → a different, defended construction per rung.</p>
+</div>
+
+<div class="axis a3">
+  <div class="k">Axis 3 · the view's resolved instruments</div>
+  <h4>Which real stocks &amp; legs — drawn from the belief, never invented</h4>
+  <p>Step&nbsp;3 resolves each belief's own symbols from <code>thematic_map → sector_universe</code>. The basket builder is one piece of code; the members it weights are the IT view's domestic names, or the Monsoon view's rural names — per view, grounded, never fabricated.</p>
+</div>
+
+<div class="axis a4">
+  <div class="k">Axis 4 · delegation to the real engine</div>
+  <h4>The actual maths is separate, per strategy</h4>
+  <p>This is the crux. A builder never <em>contains</em> the analysis — it hands the inputs to the real engine, which runs <strong>that strategy's own</strong> computation: option <em>greeks / POP / margin</em> (<code>option_strategies</code>), pair <em>cointegration / z-bands / beta-hedge</em> (<code>backtest.pairs</code>), basket <em>weighting + purity + liquidity screens</em> (<code>weighting</code> + <code>screens</code>). Each strategy therefore gets its own independent backtest, its own greeks, its own cointegration test — even though the routing code is shared.</p>
+</div>
+
+<div class="axis a5">
+  <div class="k">Axis 5 · honest degradation &amp; fall-through</div>
+  <h4>Each outcome is decided by that strategy's real data</h4>
+  <p>A builder can return <strong>AVOID</strong> (un-shortable name, thin chain) or raise so dispatch tries the next preference. So whether a tier even <em>exists</em>, and what it becomes, is determined independently by whether <em>this</em> strategy's real data supports it — which is exactly why the Crude view has no finished basket while Monsoon has three full tiers.</p>
+</div>
+
+<h2><span class="num">5</span>Worked example — same code, three independent strategies</h2>
+<p>The Monsoon view ran through the one pipeline and produced three genuinely different expressions. Same <code>dispatch</code>, same files — different <em>data</em> at each axis, different <em>engine</em> doing the maths:</p>
+
+<table class="ex">
+  <thead><tr><th>Tier</th><th>Archetype → builder</th><th>Engine that did the maths</th><th>Result (its own backtest)</th></tr></thead>
+  <tbody>
+    <tr><td>Conservative</td><td>purity basket → <code>basket_builder</code></td><td><code>weighting</code> + <code>screens</code> (equal-weight, single-name cap)</td><td><span class="pos">+45.5&#37;</span> vs Nifty +14.9&#37;</td></tr>
+    <tr><td>Balanced</td><td>market-neutral pair → <code>pair_builder</code></td><td><code>backtest.pairs</code> (beta-hedge long basket / short Nifty)</td><td><span class="pos">+11.6&#37;</span>, low drawdown</td></tr>
+    <tr><td>Aggressive</td><td>directional option → <code>option_builder</code></td><td><code>option_strategies</code> (bull call spread, defined-risk)</td><td><span class="pos">+109.5&#37;</span>, capped loss</td></tr>
+  </tbody>
+</table>
+<p style="font-size:14.5px;color:var(--ink3)">Three rows, one engine. The basket and the pair share members but are <em>analysed</em> by different engines (weighting vs cointegration) and so behave independently; the option is a different kind entirely. None of this required a "monsoon_conservative.py".</p>
+
+<div class="callout">
+  <strong>The mental model.</strong> Think of a <strong>kitchen with a recipe book</strong>. The kitchen (dispatch + builders) is shared. Each dish is defined by its <em>recipe card</em> (catalog entry), the <em>dial settings</em> on the equipment (tier knobs), and the <em>ingredients delivered for this order</em> (the view's resolved instruments). The recipe says <em>which specialist station</em> cooks it (delegate to the real engine). Same kitchen, different cards + ingredients + stations → distinct, independently-prepared dishes. Adding a new dish is a new recipe card, not a new kitchen.
+</div>
+
+<h2><span class="num">6</span>Why this is the right trade</h2>
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">What "shared" buys us</h3>
+    <ul>
+      <li><strong>One place to fix.</strong> Improve basket sizing, the short rule, or the disclosure gate <em>once</em> — every strategy inherits it.</li>
+      <li><strong>No drift.</strong> 60 hand-written files would diverge; one table + five builders cannot.</li>
+      <li><strong>Add by data.</strong> A new strategy is a new <code>catalog</code> row (+ knobs if a new kind), not new code.</li>
+      <li><strong>Honesty enforced centrally.</strong> Register-not-execute, the AVOID rule, the five mandatory disclosures, and never-fabricate all live in the shared layer, so no strategy can quietly skip them.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">How "independent" is guaranteed</h3>
+    <ul>
+      <li><strong>Different recipe</strong> → different builder/template/params.</li>
+      <li><strong>Different dials</strong> → different tier construction.</li>
+      <li><strong>Different ingredients</strong> → the view's own real instruments.</li>
+      <li><strong>Different specialist</strong> → the real engine runs that strategy's own greeks / cointegration / weighting / backtest.</li>
+      <li><strong>Different verdict</strong> → honest degradation decides per-strategy whether a tier exists at all.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout tldr" style="margin-top:26px">
+  <strong>In one line:</strong> shared <em>code</em>, independent <em>data + inputs + delegated maths</em>. The files are common so we maintain the <em>discipline</em> once; the analysis is independent because each strategy carries its own recipe, dials, instruments, and runs through its own real analysis engine.
+</div>
+
+<div class="foot">
+  <p><strong>Where this lives in the codebase:</strong> <code>pivot/backend/view_markets/expressions/</code> — <code>dispatch.py</code> (orchestrator), <code>catalog.py</code> + <code>tiers.py</code> (data), <code>builders/{basket,pair,option,hedge,multi_asset}_builder.py</code> (delegating builders), plus <code>screens.py</code> · <code>honest_short.py</code> · <code>cross_sectional.py</code> · <code>merger_arb.py</code> · <code>timing.py</code> · <code>config_schema.py</code> · <code>commodities.py</code>. Design source of truth: <code>Markdowns/VIEW_MARKETS_STRATEGY_DESIGN.md</code> (the §5 tier tables) and the Phase-3 section of <code>Markdowns/VIEW_MARKETS_V2_CHECKLIST.md</code>.</p>
+  <p style="margin-top:10px">This file: <code>Markdowns/VIEW_MARKETS_EXPRESSION_ENGINE.html</code> · Pivot View Markets V2 · 2026-06-30</p>
+</div>
+
+</div>
+</body>
+</html>

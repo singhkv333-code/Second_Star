@@ -13,15 +13,17 @@ the Pydantic models here verbatim. Tolerant of missing keys in
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
+from backend.cache import redis_client
 from backend.config import settings
 from backend.database import get_db
 from backend.models import (
@@ -43,7 +45,51 @@ from backend.view_markets.deployment.deploy import deploy_expression
 from backend.view_markets.deployment.backtest import backtest_expression
 
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["Views"])
+
+# ── response cache (curated content — global, not per-user) ─────────────────
+#
+# _build_summary() does ~6 sequential DB round-trips PER view (confidence
+# blocks, 3-4 summary counts, a separate ViewExpression query) with no
+# batching, so a cold GET /api/views walking N curated views is N*6 round
+# trips. Views change on a curation cadence (minutes/hours), not per-request,
+# so a short TTL response cache removes essentially all of that cost for the
+# overwhelming majority of requests without ever serving meaningfully stale
+# content. Deliberately keyed WITHOUT user_id: reads are documented as global
+# curated content, and `is_following`/`follower_count` staleness is bounded
+# by the TTL (a follow toggling mid-window is an acceptable, self-healing
+# trade-off for a 30-45s window — see CLAUDE.md's cache conventions).
+_LIST_CACHE_TTL_S = 45
+_LIST_CACHE_PREFIX = "views:list:v1:"
+_DETAIL_CACHE_TTL_S = 45
+_DETAIL_CACHE_PREFIX = "views:detail:v1:"
+
+
+def _cache_get_model(cache_key: str, model: type[BaseModel]) -> Optional[BaseModel]:
+    """Best-effort cache read; any failure (unreachable Redis, stale/bad
+    shape from a prior deploy) is treated as a miss — caching must never be
+    able to break or corrupt a response."""
+    try:
+        raw = redis_client.get(cache_key)
+    except Exception:  # noqa: BLE001
+        logger.debug("[views] cache read failed key=%s", cache_key, exc_info=True)
+        return None
+    if not raw:
+        return None
+    try:
+        return model.model_validate_json(raw)
+    except (ValidationError, ValueError):
+        logger.debug("[views] cache hit with stale/invalid shape key=%s", cache_key)
+        return None
+
+
+def _cache_set_model(cache_key: str, value: BaseModel, ttl_s: int) -> None:
+    try:
+        redis_client.set(cache_key, value.model_dump_json(), ex=ttl_s)
+    except Exception:  # noqa: BLE001
+        logger.debug("[views] cache write failed key=%s", cache_key, exc_info=True)
 
 
 # ── flag gate ───────────────────────────────────────────────────────────────
@@ -192,6 +238,10 @@ class BestExpression(BaseModel):
     n_episodes: Optional[int] = None
     pct_episodes_beat: Optional[float] = None
     worst_drop_pct: Optional[float] = None
+    # Positive-outcome frequency over the past occurrences — the ONLY trust
+    # basis shown on screen (never benchmark-beating). Real-or-null.
+    pct_positive: Optional[float] = None
+    n_positive: Optional[int] = None
     # ── real computed chart (for the gallery mini line) ──
     equity_curve: list[CurvePoint] = Field(default_factory=list)
 
@@ -294,6 +344,12 @@ class ExpressionDetail(BaseModel):
     n_episodes: Optional[int] = None
     pct_episodes_beat: Optional[float] = None
     worst_drop_pct: Optional[float] = None
+    # Positive-outcome frequency over the past occurrences (contract rule #3 —
+    # the ONLY basis for trust, never benchmark-beating). ``None`` for
+    # option/derivative tiers (rule #4 — no real historical option payoff
+    # exists to compute a positive-outcome frequency from).
+    pct_positive: Optional[float] = None
+    n_positive: Optional[int] = None
     # ── honest strategy identity ──
     strategy_name: Optional[str] = None
     strategy_type: Optional[str] = None
@@ -321,6 +377,26 @@ class ExpressionDetail(BaseModel):
     monte_carlo: Optional[MonteCarlo] = None
 
 
+class StanceSide(BaseModel):
+    """One side of the calm, presentation-only YES/NO stance reading.
+
+    A READING device only — never a wager, odds, or a clickable contract."""
+
+    verdict: str
+    summary: str
+
+
+class StanceNoSide(StanceSide):
+    # False -> the honest "no clean trade" treatment (asymmetric views), never
+    # rendered as a failure.
+    has_trade: bool = True
+
+
+class Stance(BaseModel):
+    yes: StanceSide
+    no: StanceNoSide
+
+
 class ViewDetail(ViewSummary):
     transmission: list[TransmissionEdge] = Field(default_factory=list)
     confidence: DetailConfidence = Field(default_factory=DetailConfidence)
@@ -333,6 +409,11 @@ class ViewDetail(ViewSummary):
     bullets: list[str] = Field(default_factory=list)
     similar_views: list[SimilarView] = Field(default_factory=list)
     fundamental_comparison: Optional[FundamentalComparison] = None
+    # Calm YES/NO presentation-only reading (contract §B). ``None`` on today's
+    # live path — no curated stance data source is wired yet for the curated
+    # views (never fabricate); the static /view-pack demo JSON carries the
+    # real curated stance copy. The FIELD exists so the FE type is satisfied.
+    stance: Optional[Stance] = None
 
 
 class ListResponse(BaseModel):
@@ -421,6 +502,73 @@ def _clean_numbers(cfg: dict[str, Any]) -> dict[str, Any]:
         "pct_episodes_beat": _as_float(pick("pct_episodes_beat", "pct_episodes_beat")),
         "worst_drop_pct": _as_float(bt.get("max_dd_pct")),
     }
+
+
+def _headline_numbers(pre: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    """Layman-safe headline numbers, preferring the AVERAGE-per-occurrence figures
+    from the precompute cache.
+
+    An expression is deployed ONCE PER OCCURRENCE of its event, so the honest
+    headline is the average return over the event's past occurrences — NOT the
+    return compounded across all of them (which overstates a single deployment,
+    e.g. four ~20% monsoon seasons stacking to a misleading +109%). Falls back to
+    the stored backtest fields when no precompute is available (uncached / dev)."""
+    nums = _clean_numbers(cfg)
+    avg_s = _as_float((pre or {}).get("avg_episode_return_pct"))
+    if avg_s is not None:
+        nums["strategy_total_pct"] = avg_s
+        avg_b = _as_float(pre.get("avg_episode_benchmark_pct"))
+        if avg_b is not None:
+            nums["nifty_total_pct"] = avg_b
+        avg_x = _as_float(pre.get("avg_episode_excess_pct"))
+        if avg_x is not None:
+            nums["excess_return_pct"] = avg_x
+        # The occurrence count drives the "Avg over N occurrences" / win-rate copy
+        # — take it from the same place the average came from so they never drift.
+        n_ep = _as_int(pre.get("n_episodes"))
+        if n_ep:
+            nums["n_episodes"] = n_ep
+    return nums
+
+
+_PRICED_AT_DEPLOY_BADGE = "Priced at deploy"
+
+
+def _not_backtested(
+    kind: str, pre: dict[str, Any], option_legs: Optional[Any] = None,
+) -> bool:
+    """Rule #4 — an expression has NO faithful historical backtest when it is
+    an option/derivative structure: there is no offline option chain, so any
+    curve rides the underlying's own price path
+    (``curve_basis == "underlying"``), never a real option payoff. Trust /
+    alignment / max-drop must never be shown as a real backtested figure for
+    these — "Priced at deploy", not a fabricated number sitting in the same
+    column as a genuinely backtested one."""
+    curve_basis = (pre or {}).get("curve_basis")
+    return kind == "option_strategy" or curve_basis == "underlying" or bool(option_legs)
+
+
+def _effective_trust_verdict(
+    pre: dict[str, Any], cfg_verdict: Optional[str],
+) -> Optional[str]:
+    """Prefer the precompute's OWN-return-distribution verdict (contract rule
+    #3 — positive-outcome frequency + N + median) over the stored/offline
+    verdict, whenever a real per-occurrence sample was available to derive
+    it. Falls back to the stored cfg verdict when precompute hasn't run
+    (uncached / dev) so nothing regresses."""
+    own = (pre or {}).get("trust_verdict")
+    return str(own) if own else cfg_verdict
+
+
+def _stance_for_view(view: MarketView) -> Optional[Stance]:
+    """Calm YES/NO presentation-only reading (contract §B). ``None`` today on
+    the live path — no curated stance data source is wired yet for the
+    curated views (never fabricate a stance); the static /view-pack demo JSON
+    carries the real curated stance copy. Wiring a live source here (e.g. a
+    ``market_views.stance`` column) is a follow-up, not a live-path
+    regression — the schema FIELD already exists so the FE type is
+    satisfied."""
+    return None
 
 
 def _curve_points(pre: dict[str, Any]) -> list[CurvePoint]:
@@ -529,22 +677,31 @@ def _historical_alignment(pre: dict[str, Any]) -> Optional[ConfidenceBlock]:
 def _best_from_expression(view: MarketView, best: ViewExpression) -> BestExpression:
     cfg = best.config if isinstance(best.config, dict) else {}
     bt = (cfg.get("scores") or {}).get("backtest") or {}
-    nums = _clean_numbers(cfg)
     plain = plain_copy.plain_for_expression(view, best)
     pre = precompute.expression_precompute(str(best.id))
+    nums = _headline_numbers(pre, cfg)
+    kind = _str_enum(best.expression_kind)
+    not_bt = _not_backtested(kind, pre)
     return BestExpression(
         id=str(best.id),
         tier=_str_enum(best.tier),
-        expression_kind=_str_enum(best.expression_kind),
+        expression_kind=kind,
         grade=bt.get("grade"),
-        trust_verdict=bt.get("trust_verdict"),
-        total_return_pct=_as_float(bt.get("total_return_pct")),
+        trust_verdict=(
+            None if not_bt else _effective_trust_verdict(pre, bt.get("trust_verdict"))
+        ),
+        # AVERAGE return per occurrence (not compounded across occurrences).
+        total_return_pct=nums["strategy_total_pct"],
         excess_return_pct=nums["excess_return_pct"],
         plain_label=plain.get("plain_label"),
         nifty_total_pct=nums["nifty_total_pct"],
         n_episodes=nums["n_episodes"],
         pct_episodes_beat=nums["pct_episodes_beat"],
-        worst_drop_pct=nums["worst_drop_pct"],
+        # Rule #4: no fabricated backtested drawdown for option/derivative
+        # tiers — "Priced at deploy", never a number in the drawdown column.
+        worst_drop_pct=None if not_bt else nums["worst_drop_pct"],
+        pct_positive=_as_float(pre.get("pct_positive")),
+        n_positive=_as_int(pre.get("n_positive")),
         equity_curve=_curve_points(pre),
     )
 
@@ -563,11 +720,12 @@ def _best_expression(
     if is_curated and tier is None:
         return None  # developing: no finished hero
 
-    # Highest total return among expressions that actually have a real number.
+    # Highest AVERAGE-per-occurrence return among expressions with a real number.
     scored: list[tuple[float, ViewExpression]] = []
     for e in exprs:
         cfg = e.config if isinstance(e.config, dict) else {}
-        tot = _clean_numbers(cfg)["strategy_total_pct"]
+        pre = precompute.expression_precompute(str(e.id))
+        tot = _headline_numbers(pre, cfg)["strategy_total_pct"]
         if tot is None:
             continue
         scored.append((tot, e))
@@ -703,15 +861,25 @@ def _expression_detail(view: MarketView, e: ViewExpression) -> ExpressionDetail:
     plain = plain_copy.plain_for_expression(view, e)
     members = plain_copy.basket_members(cfg)
     n_names = _as_int((structure or {}).get("n_names")) or (len(members) or None)
-    nums = _clean_numbers(cfg)
     bt = (cfg.get("scores") or {}).get("backtest") or {}
 
     # Honest strategy identity + REAL precomputed chart/holdings.
     ident = plain_copy.strategy_identity(view, e)
     pre = precompute.expression_precompute(str(e.id))
+    # AVERAGE return per occurrence (precompute), falling back to stored fields.
+    nums = _headline_numbers(pre, cfg)
     option_legs = ident.get("option_legs")
     legs_models = (
         [OptionLeg(**leg) for leg in option_legs] if option_legs else None
+    )
+    # Rule #4: option/derivative tiers have no faithful historical backtest —
+    # never a fabricated drawdown/trust; the badge reads "Priced at deploy".
+    not_bt = _not_backtested(kind, pre, option_legs)
+    effective_verdict = (
+        None if not_bt else _effective_trust_verdict(pre, bt.get("trust_verdict"))
+    )
+    trust_badge_str = (
+        _PRICED_AT_DEPLOY_BADGE if not_bt else plain_copy.trust_badge(effective_verdict)
     )
 
     return ExpressionDetail(
@@ -737,7 +905,7 @@ def _expression_detail(view: MarketView, e: ViewExpression) -> ExpressionDetail:
         plain_why=plain.get("plain_why"),
         plain_risk=plain.get("plain_risk"),
         capital_label=plain_copy.capital_label(e.capital_intensity),
-        trust_badge=plain_copy.trust_badge(bt.get("trust_verdict")),
+        trust_badge=trust_badge_str,
         members=members,
         n_names=n_names,
         strategy_total_pct=nums["strategy_total_pct"],
@@ -745,7 +913,11 @@ def _expression_detail(view: MarketView, e: ViewExpression) -> ExpressionDetail:
         excess_return_pct=nums["excess_return_pct"],
         n_episodes=nums["n_episodes"],
         pct_episodes_beat=nums["pct_episodes_beat"],
-        worst_drop_pct=nums["worst_drop_pct"],
+        # Rule #4: no fabricated backtested drawdown for option/derivative
+        # tiers — "Priced at deploy", never a number in the drawdown column.
+        worst_drop_pct=None if not_bt else nums["worst_drop_pct"],
+        pct_positive=_as_float(pre.get("pct_positive")),
+        n_positive=_as_int(pre.get("n_positive")),
         strategy_name=ident.get("strategy_name"),
         strategy_type=ident.get("strategy_type"),
         option_legs=legs_models,
@@ -782,6 +954,20 @@ def _order_expressions(exprs: list[ViewExpression]) -> list[ViewExpression]:
 # ── endpoints ──────────────────────────────────────────────────────────────
 
 
+def _list_cache_key(
+    status: Optional[str], view_type: Optional[str], category: Optional[str],
+) -> str:
+    """Deterministic cache key covering every filter `list_views` accepts.
+
+    Missing filters are represented by an explicit empty segment so
+    ``status=None`` and ``status=""`` (never sent) can't collide with a
+    real value that happens to be empty."""
+    return (
+        f"{_LIST_CACHE_PREFIX}"
+        f"status={status or ''}:type={view_type or ''}:category={category or ''}"
+    )
+
+
 @router.get("/views", response_model=ListResponse)
 def list_views(
     status: Optional[str] = None,
@@ -791,25 +977,43 @@ def list_views(
     user_id: Optional[int] = Depends(_optional_user_id),
 ) -> ListResponse:
     _require_flag()
-    q = db.query(MarketView)
+
+    # Validate filters up front (unchanged behaviour: an unknown enum value
+    # is a 400 regardless of cache state) before touching Redis or Postgres.
+    status_enum: Optional[ViewStatus] = None
     if status:
         try:
-            q = q.filter(MarketView.status == ViewStatus(status))
+            status_enum = ViewStatus(status)
         except ValueError as exc:
             raise validation_error(f"unknown status {status!r}") from exc
+    view_type_enum: Optional[ViewType] = None
+    if view_type:
+        try:
+            view_type_enum = ViewType(view_type)
+        except ValueError as exc:
+            raise validation_error(f"unknown view_type {view_type!r}") from exc
+
+    cache_key = _list_cache_key(status, view_type, category)
+    cached = _cache_get_model(cache_key, ListResponse)
+    if cached is not None:
+        assert isinstance(cached, ListResponse)  # narrows for mypy
+        return cached
+
+    q = db.query(MarketView)
+    if status_enum is not None:
+        q = q.filter(MarketView.status == status_enum)
     else:
         # Default: hide archived.
         q = q.filter(MarketView.status != ViewStatus.archived)
-    if view_type:
-        try:
-            q = q.filter(MarketView.view_type == ViewType(view_type))
-        except ValueError as exc:
-            raise validation_error(f"unknown view_type {view_type!r}") from exc
+    if view_type_enum is not None:
+        q = q.filter(MarketView.view_type == view_type_enum)
     if category:
         q = q.filter(MarketView.category == category)
     q = q.order_by(MarketView.created_at.desc())
     items = [_build_summary(db, v, user_id) for v in q.all()]
-    return ListResponse(items=items)
+    resp = ListResponse(items=items)
+    _cache_set_model(cache_key, resp, _LIST_CACHE_TTL_S)
+    return resp
 
 
 def _load_view_or_404(db: Session, view_id: str) -> MarketView:
@@ -826,6 +1030,13 @@ def get_view(
     user_id: Optional[int] = Depends(_optional_user_id),
 ) -> ViewDetail:
     _require_flag()
+
+    cache_key = f"{_DETAIL_CACHE_PREFIX}{view_id}"
+    cached = _cache_get_model(cache_key, ViewDetail)
+    if cached is not None:
+        assert isinstance(cached, ViewDetail)  # narrows for mypy
+        return cached
+
     view = _load_view_or_404(db, view_id)
 
     summary = _build_summary(db, view, user_id)
@@ -916,7 +1127,7 @@ def get_view(
         if isinstance(fc_raw, dict)
         else None
     )
-    return ViewDetail(
+    detail = ViewDetail(
         **summary.model_dump(),
         transmission=transmission,
         confidence=detail_conf,
@@ -928,7 +1139,10 @@ def get_view(
         bullets=list(extras.get("bullets") or []),
         similar_views=similar,
         fundamental_comparison=fundamental,
+        stance=_stance_for_view(view),
     )
+    _cache_set_model(cache_key, detail, _DETAIL_CACHE_TTL_S)
+    return detail
 
 
 def _load_expression_or_404(db: Session, expression_id: str) -> ViewExpression:

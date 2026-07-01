@@ -1469,6 +1469,27 @@ export type SimilarView = {
   short_title: string | null;
 };
 
+/**
+ * Presentation-only Yes/No stance block, shown under the view title. A
+ * reading device — NOT a bet, wager, or clickable contract (V1 scope forbids
+ * becoming a prediction exchange). `no.has_trade === false` means the honest
+ * "no clean trade" case (e.g. an asymmetric event like Middle-East
+ * de-escalation) — render calmly, never as a failure.
+ */
+export type ViewStanceSide = {
+  verdict: string;
+  summary: string;
+};
+
+export type ViewStanceNoSide = ViewStanceSide & {
+  has_trade: boolean;
+};
+
+export type ViewStance = {
+  yes: ViewStanceSide;
+  no: ViewStanceNoSide;
+};
+
 /** One side (basket or benchmark) of a fundamentals comparison. */
 export type FundamentalSide = {
   pe: number | null;
@@ -1509,6 +1530,11 @@ export type BestExpression = {
   n_episodes: number | null;
   pct_episodes_beat: number | null;
   worst_drop_pct: number | null;
+  /** Fraction (0..100) of past occurrences with return_pct > 0 — the
+   *  benchmark-free replacement headline stat for pct_episodes_beat. */
+  pct_positive?: number | null;
+  /** Integer count of positive-outcome occurrences (out of n_episodes). */
+  n_positive?: number | null;
   // Real backend-computed curve for the gallery mini-line (may be empty).
   equity_curve: EquityPoint[];
 };
@@ -1685,6 +1711,11 @@ export type ExpressionDetail = {
   n_episodes: number | null;
   pct_episodes_beat: number | null;
   worst_drop_pct: number | null;
+  /** Fraction (0..100) of past occurrences with return_pct > 0 — the
+   *  benchmark-free replacement headline stat for pct_episodes_beat. */
+  pct_positive?: number | null;
+  /** Integer count of positive-outcome occurrences (out of n_episodes). */
+  n_positive?: number | null;
   // ── honest strategy identity ──
   /** Plain strategy name, e.g. "Rural-demand basket". */
   strategy_name: string | null;
@@ -1744,6 +1775,12 @@ export type ViewDetail = ViewSummary & {
   similar_views: SimilarView[];
   /** Basket-vs-Nifty fundamentals, or null when not computed. */
   fundamental_comparison: FundamentalComparison | null;
+  /** Presentation-only Yes/No stance block (null for views not yet backfilled,
+   *  e.g. the 3 frozen live curated views — render nothing in that case). */
+  stance?: ViewStance | null;
+  /** The honest "what if you're wrong" line — promoted to its own emphasized
+   *  line rather than a flat bullet. Null when not computed. */
+  caveat?: string | null;
 };
 
 /** Result of POST /api/views/{id}/compare — ranked tier recommendation. */

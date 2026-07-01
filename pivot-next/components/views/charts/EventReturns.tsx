@@ -3,9 +3,14 @@
 /**
  * EventReturns — the "when the event happened + how it paid off" list. Each row
  * is one past episode: its label + date on the left, the strategy's own return
- * (signed, coloured, with a small magnitude bar) on the right, and the
- * benchmark's faint return beside it for context. A header line summarises
- * "Positive in N of M past events". Numbers are right-aligned in fixed columns.
+ * (signed, coloured, with a thin magnitude bar) on the right. A header line
+ * summarises "Positive in N of M past events". Numbers are right-aligned in a
+ * fixed column. No benchmark figure is ever rendered here — the only
+ * performance number a user sees is the strategy's own return.
+ *
+ * The list defaults to the first 6 rows; beyond that a rounded, border-only
+ * "Show all N occurrences" toggle expands the full list ("Show fewer" to
+ * collapse again).
  *
  * DESIGN LAW: rounded, border-only, every label >= 13px, tabular numerals,
  * aligned columns, light + dark via useTokenColors. Empty → renders nothing
@@ -25,7 +30,7 @@ export type EventEpisode = {
 };
 
 const VAL_W = 70;
-const BENCH_W = 100;
+const DEFAULT_VISIBLE = 6;
 
 function signed(v: number, dp = 1): string {
   const s = v > 0 ? "+" : v < 0 ? "−" : "";
@@ -35,10 +40,11 @@ function signed(v: number, dp = 1): string {
 export function EventReturns({
   episodes,
   positiveEpisodes,
-  benchmarkLabel = "Nifty",
+  benchmarkLabel: _benchmarkLabel = "Nifty",
 }: {
   episodes?: EventEpisode[] | null;
   positiveEpisodes?: number | null;
+  /** Accepted for caller compatibility — no benchmark figure is ever rendered. */
   benchmarkLabel?: string;
 }): React.ReactElement | null {
   const c = useTokenColors({
@@ -50,6 +56,7 @@ export function EventReturns({
     border: "--glass-border",
     bgBase: "--bg-base",
   });
+  const [expanded, setExpanded] = React.useState(false);
 
   const safe = (Array.isArray(episodes) ? episodes : []).filter(
     (e) => e && typeof e.return_pct === "number",
@@ -61,6 +68,10 @@ export function EventReturns({
     typeof positiveEpisodes === "number"
       ? positiveEpisodes
       : safe.filter((e) => (e.positive ?? e.return_pct >= 0)).length;
+
+  const maxAbs = Math.max(...safe.map((e) => Math.abs(e.return_pct)), 1e-6);
+  const hasMore = n > DEFAULT_VISIBLE;
+  const visible = expanded ? safe : safe.slice(0, DEFAULT_VISIBLE);
 
   return (
     <div
@@ -93,15 +104,18 @@ export function EventReturns({
             color: c.tertiary,
           }}
         >
-          Return after the event, vs {benchmarkLabel}
+          Return after the event
         </span>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column" }}>
-        {safe.map((e, i) => {
+        {visible.map((e, i) => {
           const up = e.return_pct >= 0;
           const color = up ? c.profit : c.loss;
-          const hasBench = typeof e.benchmark_pct === "number";
+          const barPct = Math.max(
+            (Math.abs(e.return_pct) / maxAbs) * 100,
+            3,
+          );
           return (
             <div
               key={`${e.label}-${i}`}
@@ -128,6 +142,31 @@ export function EventReturns({
                 {e.date}
               </span>
 
+              {/* Thin magnitude bar — width proportional to |return|, so the
+                  row reads as a mini-viz rather than empty space now that the
+                  benchmark column is gone. */}
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 40,
+                  maxWidth: 140,
+                  height: 6,
+                  borderRadius: "var(--radius-pill)",
+                  background: c.border,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${barPct}%`,
+                    height: "100%",
+                    marginLeft: "auto",
+                    background: color,
+                    borderRadius: "var(--radius-pill)",
+                  }}
+                />
+              </div>
+
               {/* Strategy return */}
               <span
                 style={{
@@ -144,27 +183,31 @@ export function EventReturns({
               >
                 {signed(e.return_pct)}
               </span>
-
-              {/* Benchmark return, faint */}
-              <span
-                style={{
-                  width: BENCH_W,
-                  flexShrink: 0,
-                  textAlign: "right",
-                  fontFamily: "var(--font-display)",
-                  fontVariantNumeric: "tabular-nums",
-                  fontSize: 13,
-                  color: c.tertiary,
-                }}
-              >
-                {hasBench
-                  ? `${benchmarkLabel} ${signed(e.benchmark_pct as number)}`
-                  : "—"}
-              </span>
             </div>
           );
         })}
       </div>
+
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            alignSelf: "flex-start",
+            fontFamily: "var(--font-display)",
+            fontSize: 13,
+            fontWeight: 500,
+            color: c.secondary,
+            background: "transparent",
+            border: `1px solid ${c.border}`,
+            borderRadius: "var(--radius-pill)",
+            padding: "6px 14px",
+            cursor: "pointer",
+          }}
+        >
+          {expanded ? "Show fewer" : `Show all ${n} occurrences`}
+        </button>
+      )}
     </div>
   );
 }

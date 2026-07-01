@@ -13,13 +13,15 @@
  *   (b) TITLE          (short_title)                18/600, 2-line clamp
  *   (c) layman summary  (plain_summary)             15/400, 1-line clamp
  *   ─── hairline ───
- *   (e) HERO block    : total return (30/600) + vs Nifty   |  mini line chart
- *   (f) quiet line    : win-rate · worst drop · trust word
+ *   (e) HERO block    : avg return / occurrence (30/600)      | mini line
+ *   (f) quiet line    : positive-outcome hit rate · worst drop · trust word
  *   ─── hairline ───
  *   (h) footer        : "View →"                    | FollowButton (bare heart)
  *
- * The mini line chart traces the best/highest-returning strategy vs Nifty.
- * Whole card is the click target → onOpen(view.id).
+ * No benchmark comparison anywhere on this card (design law — the strategy's
+ * own return + risk context is the only performance number a user sees). The
+ * mini line chart traces the best/highest-returning strategy's own equity
+ * curve. Whole card is the click target → onOpen(view.id).
  */
 
 import * as React from "react";
@@ -35,10 +37,21 @@ import {
   statusLabel,
   statusDotColor,
   trustBadge,
-  winRateLabel,
 } from "./view-format";
 
 const CARD_HEIGHT = 360;
+
+// ---------------------------------------------------------------------------
+// BestExpression is gaining positive-outcome fields (pct_positive/n_positive)
+// on the shared data contract — declared as a local structural extension so
+// this file type-checks ahead of that landing in lib/types.ts (harmless once
+// the real fields arrive there; TS will simply narrow to the real types).
+// ---------------------------------------------------------------------------
+
+type BestExpressionWithPositive = NonNullable<ViewSummary["best_expression"]> & {
+  pct_positive?: number | null;
+  n_positive?: number | null;
+};
 
 // ---------------------------------------------------------------------------
 // ViewCard
@@ -168,7 +181,7 @@ export function ViewCard({
 
       {hasReturn ? (
         <>
-          {/* ── (e) HERO block — number + vs Nifty | mini line chart ──── */}
+          {/* ── (e) HERO block — the strategy's own avg return | mini line ── */}
           <div className="flex items-end justify-between gap-3">
             <div className="flex flex-col" style={{ gap: 4, minWidth: 0 }}>
               <Num size="hero" weight={600} color={signColor(be!.total_return_pct)}>
@@ -186,11 +199,9 @@ export function ViewCard({
                   textOverflow: "ellipsis",
                 }}
               >
-                {`Total return${
-                  be!.nifty_total_pct != null
-                    ? ` · vs Nifty ${fmtPct(be!.nifty_total_pct)}`
-                    : ""
-                }`}
+                {be!.n_episodes != null
+                  ? `Avg over ${be!.n_episodes} occurrences`
+                  : "Avg per occurrence"}
               </span>
             </div>
             {hasCurve && (
@@ -310,19 +321,51 @@ export function ViewCard({
 }
 
 // ---------------------------------------------------------------------------
-// statLine — "Beat Nifty 4 of 4 times · Worst drop −12%"
-// Win-rate + worst-drop only; the trust verdict renders on its own line so the
-// row never truncates mid-word. Drops any part that has no data.
+// positiveHitLabel — "Positive in 3 of 4 occurrences"
+// Local copy of the contract helper being added to view-format.ts (same
+// name/signature: pctPositive, nEpisodes → sentence). Kept local so this file
+// type-checks and behaves correctly regardless of when that lands; safe to
+// swap for the shared import once it exists. NEVER references a benchmark.
+// ---------------------------------------------------------------------------
+
+function positiveHitLabel(
+  pctPositive: number | null | undefined,
+  nEpisodes: number | null | undefined,
+): string {
+  if (
+    pctPositive === null ||
+    pctPositive === undefined ||
+    nEpisodes === null ||
+    nEpisodes === undefined ||
+    nEpisodes <= 0
+  ) {
+    return "Not enough history yet";
+  }
+  const positive = Math.round((pctPositive / 100) * nEpisodes);
+  return `Positive in ${positive} of ${nEpisodes} occurrences`;
+}
+
+// ---------------------------------------------------------------------------
+// statLine — "Positive in 3 of 4 occurrences · Worst drop −12%"
+// Positive-outcome rate (own returns, never a benchmark) + worst-drop only;
+// the trust verdict renders on its own line so the row never truncates
+// mid-word. Drops any part that has no data; falls back to "Recent idea" when
+// nothing at all is available.
 // ---------------------------------------------------------------------------
 
 function statLine(be: NonNullable<ViewSummary["best_expression"]>): string {
-  const parts: string[] = [
-    winRateLabel(be.pct_episodes_beat ?? null, be.n_episodes ?? null),
-  ];
+  const bx = be as BestExpressionWithPositive;
+  const parts: string[] = [];
+
+  if (bx.n_positive != null && be.n_episodes != null && be.n_episodes > 0) {
+    parts.push(`Positive in ${bx.n_positive} of ${be.n_episodes} occurrences`);
+  } else if (bx.pct_positive != null && be.n_episodes != null && be.n_episodes > 0) {
+    parts.push(positiveHitLabel(bx.pct_positive, be.n_episodes));
+  }
 
   if (be.worst_drop_pct != null) {
     parts.push(`Worst drop ${fmtPct(be.worst_drop_pct, 0)}`);
   }
 
-  return parts.join(" · ");
+  return parts.length > 0 ? parts.join(" · ") : "Recent idea";
 }

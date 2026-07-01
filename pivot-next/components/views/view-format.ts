@@ -489,6 +489,30 @@ export function winRateLabel(
 }
 
 /**
+ * Positive-outcome sentence from the episode counts — the benchmark-free
+ * replacement for winRateLabel(). Never mentions Nifty/beating a benchmark;
+ * counts occurrences where the strategy's OWN return was positive.
+ * positiveHitLabel(75, 32) → "Positive in 24 of 32 occurrences"
+ * Missing data → "Not enough history yet".
+ */
+export function positiveHitLabel(
+  pctPositive: number | null | undefined,
+  nEpisodes: number | null | undefined,
+): string {
+  if (
+    pctPositive === null ||
+    pctPositive === undefined ||
+    nEpisodes === null ||
+    nEpisodes === undefined ||
+    nEpisodes <= 0
+  ) {
+    return "Not enough history yet";
+  }
+  const wins = Math.round((pctPositive / 100) * nEpisodes);
+  return `Positive in ${wins} of ${nEpisodes} occurrences`;
+}
+
+/**
  * Growth-of-investment helper for the "₹1,00,000 → ₹X" story.
  * growthOfInvestment(45.55) → { base: 100000, final: 145550,
  *   label: "₹1,00,000 → ₹1,45,550" }

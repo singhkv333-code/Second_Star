@@ -290,11 +290,6 @@ export function ExpressionCard({
           color={signColor(expression.strategy_total_pct)}
         />
         <Metric
-          label="vs Nifty"
-          value={fmtPct(expression.nifty_total_pct)}
-          color="var(--text-secondary)"
-        />
-        <Metric
           label="Worst drop"
           value={fmtPct(expression.worst_drop_pct)}
           color={signColor(expression.worst_drop_pct)}

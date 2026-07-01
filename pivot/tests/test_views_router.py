@@ -30,6 +30,31 @@ def _enable_flag(monkeypatch):
     monkeypatch.setattr(settings, "view_markets_enabled", True)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_views_cache():
+    """GET /api/views (list) and GET /api/views/{id} (detail) are Redis-cached
+    (short TTL — see backend/routers/views.py). Flush both prefixes between
+    tests: several tests here seed a MarketView under a FIXED curated id
+    (``IT_ID`` / ``CRUDE_ID``) with different row content per test, and a
+    real local Redis (redis://localhost:6379/0, shared — see conftest) would
+    otherwise serve one test's cached response to the next (order-dependent
+    flakes). Mirrors the equivalent fixture in test_option_chain.py."""
+    from backend.cache import redis_client
+
+    def _flush() -> None:
+        if hasattr(redis_client, "_store"):  # MockRedis
+            redis_client._store.clear()
+            redis_client._expires_at.clear()
+        elif hasattr(redis_client, "scan_iter"):  # real Redis
+            for prefix in ("views:list:v1:*", "views:detail:v1:*"):
+                for key in list(redis_client.scan_iter(prefix)):
+                    redis_client.delete(key)
+
+    _flush()
+    yield
+    _flush()
+
+
 def _seed_view(
     db,
     *,
@@ -668,6 +693,97 @@ def test_round3_detail_fields_projected_from_precompute(client, db):
     mc = cons["monte_carlo"]
     assert mc["n_sims"] == 2000 and mc["prob_loss"] == 0.08
     assert len(mc["terminal_pct"]) == 3
+
+
+def test_headline_uses_average_per_occurrence_not_compounded(client, db):
+    """The card/table/detail headline is the AVERAGE return over the event's past
+    occurrences (from precompute) — NEVER the return compounded across all of them
+    (the stored backtest total). A single deployment earns the average, not the
+    stacked total."""
+    from backend.view_markets import precompute
+
+    v = _seed_curated_it(db)
+    db.commit()
+
+    exprs = db.query(ViewExpression).filter(ViewExpression.view_id == v.id).all()
+
+    def _tier(e):
+        return str(getattr(e.tier, "value", e.tier))
+
+    cons_e = next(e for e in exprs if _tier(e) == "conservative")  # cfg total 48.83
+    aggr_e = next(e for e in exprs if _tier(e) == "aggressive")    # cfg total 56.92
+
+    def _avg(avg, bench, excess):
+        return {
+            **precompute._blank(),
+            "avg_episode_return_pct": avg,
+            "avg_episode_benchmark_pct": bench,
+            "avg_episode_excess_pct": excess,
+            "n_episodes": 8,
+        }
+
+    payloads = {
+        str(cons_e.id): _avg(6.0, -0.5, 6.5),
+        str(aggr_e.id): _avg(9.0, -0.5, 9.5),
+    }
+
+    def fake(expr_id):
+        return payloads.get(str(expr_id), precompute._blank())
+
+    with patch(
+        "backend.routers.views.precompute.expression_precompute", side_effect=fake,
+    ):
+        r = client.get(f"/api/views/{v.id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    # Hero leads with the highest-AVERAGE expression (aggressive 9.0 > cons 6.0),
+    # and the hero number is the AVERAGE, not the compounded 56.92.
+    be = body["best_expression"]
+    assert be["tier"] == "aggressive"
+    assert be["total_return_pct"] == 9.0
+    assert be["nifty_total_pct"] == -0.5
+    assert be["n_episodes"] == 8
+
+    # Conservative row: average 6.0, not the stored compounded 48.83.
+    cons = next(e for e in body["expressions"] if e["tier"] == "conservative")
+    assert cons["strategy_total_pct"] == 6.0
+    assert cons["nifty_total_pct"] == -0.5
+    assert cons["excess_return_pct"] == 6.5
+
+
+def test_headline_falls_back_to_stored_total_when_no_precompute(client, db):
+    """Uncached/dev (precompute blank) → fall back to the stored backtest fields so
+    nothing breaks; only when precompute supplies an average do we override."""
+    v = _seed_curated_it(db)
+    db.commit()
+    r = client.get(f"/api/views/{v.id}")  # ids not in the on-disk cache → blank
+    assert r.status_code == 200, r.text
+    cons = next(
+        e for e in r.json()["expressions"] if e["tier"] == "conservative"
+    )
+    assert cons["strategy_total_pct"] == 48.83  # stored fallback, unchanged
+
+
+def test_monte_carlo_horizon_models_single_occurrence(client, db):
+    """The horizon kwarg bootstraps from the full sample but simulates a SHORTER
+    path (one occurrence), so an upward-drifting series yields a smaller terminal
+    spread than simulating the whole concatenated history."""
+    from backend.services.backtest.validation.monte_carlo import (
+        monte_carlo_terminal_distribution,
+    )
+
+    rets = [0.01, -0.005, 0.012, 0.003, -0.002, 0.008] * 8  # 48 obs, mild up-drift
+    full = monte_carlo_terminal_distribution(rets, n_sims=400, seed=7)
+    short = monte_carlo_terminal_distribution(
+        rets, n_sims=400, seed=7, horizon=len(rets) // 4,
+    )
+    assert full is not None and short is not None
+    # Same sample, shorter horizon → lower compounded terminal median.
+    assert short["median"] < full["median"]
+    # Backward compatible: no horizon == full sample horizon.
+    same = monte_carlo_terminal_distribution(rets, n_sims=400, seed=7)
+    assert same["median"] == full["median"]
 
 
 def test_layman_transmission_and_expectation_labels(client, db):

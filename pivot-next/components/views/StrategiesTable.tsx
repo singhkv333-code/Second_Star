@@ -4,11 +4,19 @@
  * StrategiesTable — the real, roomy strategies TABLE on a View detail page
  * (replaces the old stacked expression cards).
  *
- * Columns: Name | Type | Risk profile | Max drop | Profit | vs Nifty | (View details)
+ * Columns: Name | Type | Risk | Max drop | Avg profit | (View details)
+ * "Avg profit" is the AVERAGE over the event's past occurrences (mean per
+ * occurrence) — never compounded across occurrences. Benchmark-relative
+ * numbers (vs Nifty / excess return) are never rendered here — only the
+ * strategy's own return.
  * Rows: the view's expressions. Numeric columns are right-aligned + tabular.
  * Each row has a "View details" button that expands an in-table panel showing
  * the strategy's plain_why, plain_risk, what-you'd-hold (basket members or the
  * honest option-legs note), capital intensity, and a Deploy CTA.
+ *
+ * Option / derivative expressions have no offline historical backtest (there
+ * is no offline option chain) — those rows render "Priced at deploy" instead
+ * of a fabricated max-drop number or a trust word (see isNotBacktested()).
  *
  * DESIGN LAW (v2): ROUNDED (outer card var(--radius-lg); chips/buttons
  * var(--radius-md)), BORDER-ONLY (no grey fills), plain language (no jargon),
@@ -30,7 +38,7 @@ const FONT = "var(--font-display)";
 
 // Grid template shared by the header row and every data row so columns align.
 const GRID =
-  "minmax(150px, 1.5fr) minmax(110px, 1.1fr) 96px 92px 92px 92px 116px";
+  "minmax(150px, 1.5fr) minmax(110px, 1.1fr) 96px 92px 92px 116px";
 
 function HeaderCell({
   children,
@@ -52,6 +60,41 @@ function HeaderCell({
       }}
     >
       {children}
+    </span>
+  );
+}
+
+// An expression is an options/derivative structure with no offline historical
+// backtest when ANY of these hold — such rows must never show a fabricated
+// max-drop number or a trust word derived from a backtest that doesn't exist.
+function isNotBacktested(expr: ExpressionDetail): boolean {
+  return (
+    expr.curve_basis === "underlying" ||
+    expr.expression_kind === "option_strategy" ||
+    (expr.option_legs != null && expr.option_legs.length > 0) ||
+    (expr.strategy_type ?? "").toLowerCase().includes("option")
+  );
+}
+
+// A small muted, border-only, rounded chip used in place of a fabricated
+// number for tiers that have no historical backtest.
+function PricedAtDeployChip(): React.ReactElement {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontFamily: FONT,
+        fontSize: 13,
+        fontWeight: 500,
+        color: "var(--text-tertiary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-md)",
+        padding: "3px 9px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      Priced at deploy
     </span>
   );
 }
@@ -135,7 +178,7 @@ export function StrategiesTable({
 
   // Hold / exit window for these strategies (view-level — every row shares it).
   // Surfaced as an always-visible caption so the holding period is clear without
-  // expanding a row (the three numeric columns are drop / profit / vs-Nifty).
+  // expanding a row (the two numeric columns are max drop / avg profit).
   const holdWindow = rows
     .map((r) => r.exit_period)
     .find((p): p is string => typeof p === "string" && p.trim().length > 0);
@@ -164,8 +207,7 @@ export function StrategiesTable({
         <HeaderCell>Type</HeaderCell>
         <HeaderCell>Risk</HeaderCell>
         <HeaderCell align="right">Max drop</HeaderCell>
-        <HeaderCell align="right">Profit</HeaderCell>
-        <HeaderCell align="right">vs Nifty</HeaderCell>
+        <HeaderCell align="right">Avg profit</HeaderCell>
         <HeaderCell align="right">{""}</HeaderCell>
       </div>
 
@@ -174,6 +216,7 @@ export function StrategiesTable({
         const selected = selectedId === expr.id;
         const name = expr.strategy_name ?? expr.plain_label ?? tierLabel(expr.tier);
         const type = expr.strategy_type ?? "—";
+        const notBacktested = isNotBacktested(expr);
         return (
           <div
             key={expr.id}
@@ -242,9 +285,13 @@ export function StrategiesTable({
                 {tierLabel(expr.tier)}
               </span>
               <span style={{ textAlign: "right" }}>
-                <Num size="md" weight={600} color="var(--color-loss)">
-                  {fmtPct(expr.worst_drop_pct)}
-                </Num>
+                {notBacktested ? (
+                  <PricedAtDeployChip />
+                ) : (
+                  <Num size="md" weight={600} color="var(--color-loss)">
+                    {fmtPct(expr.worst_drop_pct)}
+                  </Num>
+                )}
               </span>
               <span style={{ textAlign: "right" }}>
                 <Num
@@ -253,15 +300,6 @@ export function StrategiesTable({
                   color={signColor(expr.strategy_total_pct)}
                 >
                   {fmtPct(expr.strategy_total_pct)}
-                </Num>
-              </span>
-              <span style={{ textAlign: "right" }}>
-                <Num
-                  size="md"
-                  weight={600}
-                  color={signColor(expr.excess_return_pct)}
-                >
-                  {fmtPct(expr.excess_return_pct)}
                 </Num>
               </span>
               <span
@@ -331,6 +369,12 @@ export function StrategiesTable({
                       : "Not specified for this strategy."
                   }
                 />
+                {notBacktested && (
+                  <DetailLine
+                    label="About this number"
+                    value="This is an options structure with no historical backtest — its payoff (max loss, breakevens, probability) is priced from the live option chain when you deploy."
+                  />
+                )}
                 <div
                   style={{
                     display: "flex",
@@ -344,7 +388,11 @@ export function StrategiesTable({
                   />
                   <MetaChip
                     label="Track record"
-                    value={expr.trust_badge ?? "Not enough data"}
+                    value={
+                      notBacktested
+                        ? "Priced at deploy"
+                        : expr.trust_badge ?? "Not enough data"
+                    }
                   />
                 </div>
                 <DeployButton
@@ -384,42 +432,63 @@ export function StrategiesTable({
         );
       })}
 
-      {/* Always-visible hold/exit window caption (the time signal the numeric
-          columns don't carry). */}
-      {holdWindow && (
-        <div
+      {/* Always-visible footer: clarifies that the profit columns are the
+          AVERAGE per occurrence (not compounded across occurrences), plus the
+          hold/exit window — the time signal the numeric columns don't carry. */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          padding: "13px 18px",
+          borderTop: "1px solid var(--glass-border)",
+        }}
+      >
+        <span
           style={{
-            display: "flex",
-            alignItems: "baseline",
-            flexWrap: "wrap",
-            gap: "2px 8px",
-            padding: "13px 18px",
-            borderTop: "1px solid var(--glass-border)",
+            fontFamily: FONT,
+            fontSize: 13,
+            fontWeight: 400,
+            color: "var(--text-tertiary)",
+            lineHeight: 1.4,
           }}
         >
+          Avg profit is the average each time this has happened before — not
+          added up across occurrences.
+        </span>
+        {holdWindow && (
           <span
             style={{
-              fontFamily: FONT,
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text-secondary)",
+              display: "flex",
+              alignItems: "baseline",
+              flexWrap: "wrap",
+              gap: "2px 8px",
             }}
           >
-            Typical hold:
+            <span
+              style={{
+                fontFamily: FONT,
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--text-secondary)",
+              }}
+            >
+              Typical hold:
+            </span>
+            <span
+              style={{
+                fontFamily: FONT,
+                fontSize: 13,
+                fontWeight: 400,
+                color: "var(--text-secondary)",
+                lineHeight: 1.4,
+              }}
+            >
+              {holdWindow}
+            </span>
           </span>
-          <span
-            style={{
-              fontFamily: FONT,
-              fontSize: 13,
-              fontWeight: 400,
-              color: "var(--text-secondary)",
-              lineHeight: 1.4,
-            }}
-          >
-            {holdWindow}
-          </span>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

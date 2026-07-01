@@ -6,14 +6,18 @@ computed prices, never fabricated. Computing curves on every request is slow, so
 we precompute ONCE into an on-disk JSON cache (:data:`CACHE_PATH`) and the router
 loads it cheaply per request.
 
-EPISODE-GATED methodology (the methodology fix)
------------------------------------------------
-Every headline return on a View card (monsoon +45.5%, IT +48.8%, …) is
-**episode-gated**: the strategy is only in the market during the specific
-event/season windows the belief is about, not continuously for five years. The
-old curve here was a *continuous* 5-year buy-and-hold, so its endpoint did NOT
-equal the stored headline. We now build the SAME concatenated, in-position
-equity curve the headline came from, by reusing the v3 research engine:
+AVERAGE-OCCURRENCE methodology (the methodology fix)
+----------------------------------------------------
+Every headline return on a View card is **per occurrence**: a view's expression is
+deployed ONCE PER OCCURRENCE of its event (each monsoon season, each weak-IT print),
+so the honest headline is the AVERAGE return over the event's past occurrences —
+NOT the return compounded across all of them. The earlier curve here concatenated
+and compounded every occurrence into one line (four ~20% monsoon seasons stacking
+to a misleading +109% ramp, implying a single deployment earns >100%). We now build
+the **average single occurrence**: each past episode's in-position cumret path,
+time-normalised across occurrences of differing length and averaged (event-study
+CAAR style). Its endpoint == the average per-occurrence return. Built by reusing the
+v3 research engine:
 
   * ``v3/exits.py``    — ``backtest_exits`` / ``episode_returns`` build the
     per-episode daily strategy returns and concatenate them into ONE equity
@@ -31,9 +35,11 @@ equity curve the headline came from, by reusing the v3 research engine:
 Per ViewExpression we emit, all over the SAME concatenated episodes:
 
   * ``equity_curve`` — ``[{"t": "0", "strategy": float, "benchmark": float}, …]``
-    where ``t`` is the SEQUENTIAL in-position trading-day index (calendar time has
-    gaps between episodes, so a date axis would lie). Both legs are rebased to a
-    ₹1,00,000 base. The strategy leg depends on the expression kind:
+    the AVERAGE single occurrence, where ``t`` is the in-occurrence trading-day
+    index (occurrences differ in length, so they are aligned on normalised progress
+    and averaged; a calendar/date axis would lie). Both legs are rebased to a
+    ₹1,00,000 base and start there; the strategy endpoint == the average
+    per-occurrence return. The strategy leg depends on the expression kind:
       - basket / multi_asset → equal-weight ``members_long`` (the headline basket).
       - pair                 → IT: long basket − IT_f factor; Monsoon: the
                                0.5·long − 0.5·Nifty dollar-neutral spread (the v3
@@ -42,11 +48,14 @@ Per ViewExpression we emit, all over the SAME concatenated episodes:
       - option_strategy      → the single underlying's own in-position path
                                (``curve_basis="underlying"`` — honest; no live
                                option chain to reconstruct a payoff from).
-  * ``n_episodes`` / ``episode_boundaries`` — the count and the in-position
-    indices where each new episode starts (so the FE can mark the stitches).
+  * ``avg_episode_return_pct`` / ``avg_episode_benchmark_pct`` /
+    ``avg_episode_excess_pct`` — the AVERAGE return over the past occurrences (the
+    headline a single deployment can expect); ``n_episodes`` is the occurrence count.
+    ``episode_boundaries`` is now always ``[]`` (one averaged occurrence, no stitches).
   * ``curve_basis`` — ``"in_position_episodes"`` (or ``"underlying"``).
-  * ``holdings`` — per-holding REAL in-position total return over the episodes.
-  * ``risk_return_ratio`` — ``total_return_pct / abs(max_drawdown_pct)`` (1 dp).
+  * ``holdings`` — per-holding REAL AVERAGE in-position return per occurrence.
+  * ``risk_return_ratio`` — ``avg_episode_return_pct / abs(max_drawdown_pct)`` of the
+    average-occurrence curve (1 dp).
 
 HONESTY: if the engine is unavailable, the basket is empty (a developing view
 like Crude), or a leg can't be faithfully reconstructed, we serve an empty curve
@@ -152,6 +161,20 @@ def _blank() -> dict[str, Any]:
         "exit_period": None,
         "historical_alignment": None,
         "monte_carlo": None,
+        # AVERAGE return over the event's past occurrences (NOT compounded across
+        # them) — the honest headline a single deployment can actually earn.
+        "avg_episode_return_pct": None,
+        "avg_episode_benchmark_pct": None,
+        "avg_episode_excess_pct": None,
+        # Positive-outcome frequency over the SAME past occurrences — the ONLY
+        # basis for trust (never benchmark-beating; see
+        # ``_trust_from_distribution``).
+        "pct_positive": None,
+        "n_positive": None,
+        # Own-return-distribution trust verdict (contract rule #3). None for
+        # option/derivative expressions (rule #4 — no real historical option
+        # payoff exists) or when there isn't yet a real occurrence sample.
+        "trust_verdict": None,
     }
 
 
@@ -181,6 +204,118 @@ def _max_drawdown_pct(values: list[float]) -> float:
             if dd < max_dd:
                 max_dd = dd
     return max_dd
+
+
+def _mean(xs: list[float]) -> Optional[float]:
+    vals = [float(x) for x in xs if x is not None and np.isfinite(float(x))]
+    return (sum(vals) / len(vals)) if vals else None
+
+
+def _median(xs: list[float]) -> Optional[float]:
+    vals = [float(x) for x in xs if x is not None and np.isfinite(float(x))]
+    return float(np.median(vals)) if vals else None
+
+
+def _letter_for_score(score: int) -> str:
+    """API-contract letter band for the historical-alignment dial:
+    A>=85, B>=70, C>=55, D>=40, else F."""
+    if score >= 85:
+        return "A"
+    if score >= 70:
+        return "B"
+    if score >= 55:
+        return "C"
+    if score >= 40:
+        return "D"
+    return "F"
+
+
+def _trust_from_distribution(
+    n: int, pct_positive: Optional[float], median_pct: Optional[float],
+) -> tuple[Optional[str], Optional[dict[str, Any]]]:
+    """Contract rule #3 — the trust verdict + historical-alignment dial,
+    derived ONLY from the expression's OWN past-occurrence return distribution
+    (positive-outcome frequency + N + median) — NEVER from beating a
+    benchmark.
+
+      N < 8                           -> "insufficient_data", alignment None
+      p >= 0.70 AND median > 0        -> "promising",          alignment 78
+      0.58 <= p < 0.70                -> "unproven",            alignment 60
+      otherwise (p < 0.58 or med<=0)  -> "no_edge",              alignment 42
+
+    Deterministic and real: every input is a real per-occurrence number
+    already computed by the episode engine — nothing is fabricated.
+    """
+    if n < 8 or pct_positive is None:
+        return "insufficient_data", None
+    p = pct_positive / 100.0
+    med = median_pct if median_pct is not None else 0.0
+    if p >= 0.70 and med > 0:
+        score, verdict = 78, "promising"
+    elif 0.58 <= p < 0.70:
+        score, verdict = 60, "unproven"
+    else:
+        score, verdict = 42, "no_edge"
+    return verdict, {"score": score, "letter": _letter_for_score(score)}
+
+
+# ── average-occurrence curve (the methodology fix) ────────────────────────────
+# The old curve CONCATENATED + COMPOUNDED every past occurrence into one line, so
+# four ~20% monsoon seasons stacked to a misleading +109% ramp — implying a single
+# deployment earns >100%. A view's expression is deployed ONCE PER OCCURRENCE, so
+# the honest path is the AVERAGE single occurrence: each past episode's in-position
+# cumulative-return path, time-normalised across occurrences of differing length
+# and averaged (event-study CAAR style). Its endpoint == the average per-occurrence
+# return — the number a single deployment can actually expect.
+
+
+def _episode_cumrets(paths: list, cost_rt: float) -> list[Any]:
+    """For each per-episode daily-return Series, the cumulative-return path WITH a
+    leading 0.0 (index 0 = entry/base, then cumret after each in-position bar). The
+    real Indian round-trip cost is charged on the entry bar only (0.0 for the
+    benchmark, the do-nothing yardstick)."""
+    out: list[Any] = []
+    for p in paths:
+        vals = [float(r) if np.isfinite(r) else 0.0 for r in p.fillna(0.0).values]
+        cum = [0.0]
+        eq = 1.0
+        for i, r in enumerate(vals):
+            r_net = r - (cost_rt if i == 0 else 0.0)
+            eq *= (1.0 + r_net)
+            cum.append(eq - 1.0)
+        out.append(np.asarray(cum, dtype=float))
+    return out
+
+
+def _avg_curve(
+    strat_cumrets: list, bench_cumrets: list,
+) -> tuple[list[float], list[float]]:
+    """Average the per-episode cumret paths onto a common grid (= the longest
+    occurrence's bar count) by linear interpolation over normalised progress, then
+    mean across occurrences. Both series start at 0.0; the endpoint == the mean of
+    each occurrence's final cumret (the average per-occurrence return). No
+    fabrication: every input is a real episode path."""
+    usable = [c for c in strat_cumrets if len(c) >= 2]
+    if not usable:
+        return [], []
+    grid_n = max(len(c) - 1 for c in usable)          # bars in the longest episode
+    if grid_n < 1:
+        return [], []
+    grid = np.linspace(0.0, 1.0, grid_n + 1)
+
+    def resample(cumrets: list) -> list[float]:
+        stacked = []
+        for c in cumrets:
+            bars = len(c) - 1
+            if bars < 1:
+                continue
+            xp = np.linspace(0.0, 1.0, bars + 1)
+            stacked.append(np.interp(grid, xp, c))
+        if not stacked:
+            return []
+        return [float(v) for v in np.mean(np.vstack(stacked), axis=0)]
+
+    return resample(strat_cumrets), resample(bench_cumrets)
 
 
 # ── episode-window construction (real event dates / seasons) ──────────────────
@@ -297,17 +432,6 @@ class _Engine:
         # Unknown kind → treat as a long basket (never fabricate).
         return self.rets, {m: 1.0 for m in present}, "in_position_episodes", None
 
-    def _benchmark_equity(self, episodes) -> list[float]:
-        """Nifty buy-hold concatenated over the SAME episodes (no cost — the
-        do-nothing yardstick), starting at 1.0."""
-        paths = _v3e.episode_returns(episodes, self.r_nifty.to_frame("NIFTY"), "NIFTY")
-        eq = [1.0]
-        for p in paths:
-            for r in p.fillna(0.0).values:
-                r = float(r) if np.isfinite(r) else 0.0
-                eq.append(eq[-1] * (1.0 + r))
-        return eq
-
     def _benchmark_per_episode_pct(self, episodes) -> list[float]:
         """Nifty buy-hold total return % within each episode window (same order
         as ``episodes``) — the per-episode benchmark the strategy is judged
@@ -319,16 +443,17 @@ class _Engine:
         return out
 
     def _member_holdings(self, episodes, present: list[str]) -> list[tuple[str, float]]:
-        """Per-member REAL in-position total return (gross, no cost) over the
-        concatenated episodes — 'how each holding did on the days in market'."""
+        """Per-member AVERAGE in-position return (gross, no cost) across the past
+        occurrences — 'how each holding did, on average, each time' — NOT compounded
+        across occurrences (which would overstate it the same way the old headline
+        did)."""
         out: list[tuple[str, float]] = []
         for m in present:
             paths = _v3e.episode_returns(episodes, self.rets, m)
-            eq = 1.0
-            for p in paths:
-                for r in p.fillna(0.0).values:
-                    eq *= (1.0 + (float(r) if np.isfinite(r) else 0.0))
-            out.append((m, (eq - 1.0) * 100.0))
+            per_ep = [
+                float((1.0 + p.fillna(0.0)).prod() - 1.0) * 100.0 for p in paths
+            ]
+            out.append((m, _mean(per_ep) or 0.0))
         return out
 
 
@@ -378,7 +503,8 @@ def _historical_alignment(cfg: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 
 def _episode_holdings(
-    engine: _Engine, view_id: str, kind: str, present: list[str], bench_eq: list[float],
+    engine: _Engine, view_id: str, kind: str, present: list[str],
+    avg_bench_pct: Optional[float],
 ) -> list[dict[str, Any]]:
     """Per-holding rows with position + weight + REAL in-position return.
 
@@ -415,14 +541,10 @@ def _episode_holdings(
             "weight_pct": ew_weight,
         })
     if kind in ("pair", "hedge"):
-        nifty_total = (
-            round((bench_eq[-1] / bench_eq[0] - 1.0) * 100.0, 1)
-            if len(bench_eq) >= 2 and bench_eq[0] > 0
-            else None
-        )
         out.append({
             "name": _NIFTY_DISPLAY, "symbol": _NIFTY_SYMBOL,
-            "return_pct": nifty_total, "position": "short", "weight_pct": None,
+            "return_pct": round(avg_bench_pct, 1) if avg_bench_pct is not None else None,
+            "position": "short", "weight_pct": None,
         })
     return out
 
@@ -431,11 +553,14 @@ def _compute_expression(
     engine: Optional[_Engine], view_id: str, kind: str, cfg: dict[str, Any],
 ) -> dict[str, Any]:
     """Episode-gated, in-position concatenated curve + detail-page extras for one
-    expression. Returns honest empties (with exit_period + historical_alignment
-    still populated) on no data / no engine / unsupported view."""
+    expression. Returns honest empties (with exit_period populated; trust /
+    historical_alignment left ``None``) on no data / no engine / unsupported
+    view — trust is ONLY ever derived from a real per-occurrence return sample
+    (``_trust_from_distribution`` below), never from the cfg-stored
+    benchmark-beat blend (``_historical_alignment``, kept for callers that
+    still want the belief-design-fit dial from stored backtest evidence)."""
     base = _blank()
     base["exit_period"] = _EXIT_PERIOD.get(view_id)
-    base["historical_alignment"] = _historical_alignment(cfg)
 
     members = _members_long(cfg)
     if not members or engine is None:
@@ -454,33 +579,34 @@ def _compute_expression(
         episodes, src, weights_or_leg, engine.r_nifty,
         modes=("fixed",), hold_bars=_HOLD_BARS,
     )["fixed"]
-    strat_eq = res["equity"]                       # concatenated, starts at 1.0
     n_episodes = int(res["n_episodes"])
-    bench_eq = engine._benchmark_equity(episodes)  # same episodes, no cost
 
-    L = min(len(strat_eq), len(bench_eq))
+    # AVERAGE-OCCURRENCE curve: each past occurrence's in-position cumret path
+    # (strategy net of entry cost; Nifty no cost), time-normalised and averaged —
+    # NOT compounded across occurrences. Endpoint == the average per-occurrence
+    # return (what one deployment can expect), never a stacked >100% ramp.
+    strat_paths = _v3e.episode_returns(episodes, src, weights_or_leg)
+    bench_paths = _v3e.episode_returns(
+        episodes, engine.r_nifty.to_frame("NIFTY"), "NIFTY"
+    )
+    strat_cum = _episode_cumrets(strat_paths, _v3e.DEFAULT_RT)
+    bench_cum = _episode_cumrets(bench_paths, 0.0)
+    avg_s, avg_b = _avg_curve(strat_cum, bench_cum)
+
+    L = min(len(avg_s), len(avg_b))
     if L < 2:
         return base
 
-    # Sequential in-position trading-day index ("0","1",…) — calendar time has
-    # gaps between episodes so a date axis would misrepresent the path.
+    # x is the in-occurrence trading-day index ("0","1",…) — the path of a single
+    # TYPICAL occurrence (occurrences differ in length; they are aligned + averaged).
     curve = [
         {
             "t": str(i),
-            "strategy": round(strat_eq[i] * BASE_VALUE, 2),
-            "benchmark": round(bench_eq[i] * BASE_VALUE, 2),
+            "strategy": round((1.0 + avg_s[i]) * BASE_VALUE, 2),
+            "benchmark": round((1.0 + avg_b[i]) * BASE_VALUE, 2),
         }
         for i in range(L)
     ]
-
-    # Episode boundaries = the in-position index where each episode's first bar
-    # lands (index 0 is the pre-first-episode base point).
-    boundaries: list[int] = []
-    acc = 1
-    for p in _v3e.episode_returns(episodes, src, weights_or_leg):
-        if acc < L:
-            boundaries.append(acc)
-        acc += len(p)
 
     # Per-episode segments: strategy (net, episode-gated) vs Nifty over the SAME
     # window, named from the real event dates/seasons.
@@ -503,23 +629,62 @@ def _compute_expression(
             "positive": is_pos,
         })
 
-    holdings = _episode_holdings(engine, view_id, kind, present, bench_eq)
+    # AVERAGE return over the occurrences — the honest headline (mean per-episode,
+    # not compounded). Sourced from the engine's per-episode numbers so it stays
+    # consistent with the dated per-occurrence list above.
+    avg_ret = _mean(strat_pe)
+    avg_bench = _mean(bench_pe)
+    avg_excess = (
+        round(avg_ret - avg_bench, 2)
+        if avg_ret is not None and avg_bench is not None
+        else None
+    )
 
-    # Monte-Carlo terminal-return distribution over the episode-gated daily
-    # returns (REUSE the block-bootstrap engine). For an option the daily path
-    # is the underlying's, so the distribution is the underlying's — labelled.
-    mc = monte_carlo_terminal_distribution(res["daily_rets"])
+    holdings = _episode_holdings(engine, view_id, kind, present, avg_bench)
+
+    # Monte-Carlo terminal-return distribution for a SINGLE occurrence: bootstrap
+    # from the full episode-gated daily-return sample, but simulate a path of one
+    # average-occurrence length (not the whole concatenated history) so the spread
+    # centres on a single deployment, matching the headline.
+    horizon = (
+        max(1, int(round(len(res["daily_rets"]) / n_episodes)))
+        if n_episodes
+        else None
+    )
+    mc = monte_carlo_terminal_distribution(res["daily_rets"], horizon=horizon)
     if mc is not None and curve_basis == "underlying":
         mc["basis"] = "underlying"
 
-    # Risk/return ratio from the strategy curve itself.
+    # Risk/return ratio from the average-occurrence curve (reward of a typical
+    # occurrence per unit of its drawdown).
     rr: Optional[float] = None
     strat_vals = [pt["strategy"] for pt in curve]
-    if len(strat_vals) >= 2 and strat_vals[0] > 0:
-        total = (strat_vals[-1] / strat_vals[0] - 1.0) * 100.0
+    if avg_ret is not None and len(strat_vals) >= 2:
         dd = _max_drawdown_pct(strat_vals)
         if abs(dd) > 1e-9:
-            rr = round(total / abs(dd), 1)
+            rr = round(avg_ret / abs(dd), 1)
+
+    # ── trust (contract rule #3) — the expression's OWN positive-outcome
+    # frequency + N + median, NEVER beating a benchmark. Option/derivative
+    # tiers (rule #4) have no faithful historical option payoff — the curve
+    # rides the underlying's own path (``curve_basis == "underlying"``) — so
+    # we suppress trust/alignment entirely rather than presenting the
+    # underlying stock's own win-rate as if it were the option's.
+    is_option_expression = kind == "option_strategy" or curve_basis == "underlying"
+    if is_option_expression:
+        pct_positive: Optional[float] = None
+        n_positive: Optional[int] = None
+        trust_verdict: Optional[str] = None
+        own_alignment: Optional[dict[str, Any]] = None
+    else:
+        pct_positive = (
+            round(positive_episodes / n_episodes * 100.0, 1) if n_episodes else None
+        )
+        n_positive = positive_episodes if n_episodes else None
+        median_ret = _median(strat_pe)
+        trust_verdict, own_alignment = _trust_from_distribution(
+            n_episodes, pct_positive, median_ret,
+        )
 
     return {
         **base,
@@ -529,10 +694,20 @@ def _compute_expression(
         "underlying_symbol": plain_copy.stock_name(underlying) if underlying else None,
         "curve_basis": curve_basis,
         "n_episodes": n_episodes,
-        "episode_boundaries": boundaries,
+        # Single averaged occurrence → no inter-episode stitches to mark.
+        "episode_boundaries": [],
         "episodes": episodes_out,
         "positive_episodes": positive_episodes,
         "monte_carlo": mc,
+        "avg_episode_return_pct": round(avg_ret, 2) if avg_ret is not None else None,
+        "avg_episode_benchmark_pct": (
+            round(avg_bench, 2) if avg_bench is not None else None
+        ),
+        "avg_episode_excess_pct": avg_excess,
+        "pct_positive": pct_positive,
+        "n_positive": n_positive,
+        "trust_verdict": trust_verdict,
+        "historical_alignment": own_alignment,
     }
 
 
@@ -548,7 +723,7 @@ def compute_all(db) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_value": BASE_VALUE,
         "benchmark": "^NSEI",
-        "curve_method": "episode_gated_in_position_concatenated",
+        "curve_method": "average_occurrence_normalised",
         "engine_available": engine is not None,
         "expressions": {},
         "fundamental_comparison": {},

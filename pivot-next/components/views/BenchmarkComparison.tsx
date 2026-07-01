@@ -1,16 +1,21 @@
 "use client";
 
 /**
- * BenchmarkComparison — the "Benchmark Comparison" section on a View detail,
- * rebuilt as a balanced, responsive GRID of varied, real visuals for the
- * CURRENTLY SELECTED strategy (it re-renders whenever the tier changes).
+ * BenchmarkComparison — the "How this strategy behaves" section on a View
+ * detail, rebuilt as a balanced, responsive GRID of varied, real visuals for
+ * the CURRENTLY SELECTED strategy (it re-renders whenever the tier changes).
+ *
+ * Only the strategy's OWN return is ever shown — no benchmark figures,
+ * comparisons, or "beat" framing appear anywhere in this section.
  *
  * Grid cells (each a rounded, border-only card; omitted honestly when its data
- * is genuinely unavailable — never fabricated):
- *   1. Allocation & position   → <AllocationPie/>           (weights + long/short)
- *   2. How each holding did     → <ReturnsHeatmap/>          (per-name return + tag)
+ * is genuinely unavailable — never fabricated). Cells 1-3 + 5-6 sit in the
+ * balanced auto-fit grid; cell 4 is full-width in its own row below (its
+ * episode list runs much taller than its neighbours):
+ *   1. Allocation & position   → <AllocationPie/>           (weights + long/short; 2+ holdings only)
+ *   2. How each holding did     → <ReturnsHeatmap/>          (per-name return + tag; 2+ holdings only)
  *   3. What the simulations say → <MonteCarloDistribution/>  (outcome spread)
- *   4. When it happened before  → <EventReturns/>            (date → return, N of M)
+ *   4. When it happened before  → <EventReturns/>            (date → return, N of M) — full-width row
  *   5. Reward for the risk taken→ cross-strategy reward:risk bars
  *   6. How well it lined up      → PER-STRATEGY historical alignment + hold window
  *
@@ -190,12 +195,15 @@ export function BenchmarkComparison({
   if (!expr) return null;
 
   const holdings = expr.holdings ?? [];
-  const hasHoldings = holdings.length > 0;
+  // A single-holding strategy's donut/heatmap just repeats the hero number —
+  // only show them once there are at least two holdings to actually compare.
+  const hasHoldings = holdings.length > 0 && holdings.length >= 2;
   // Per-holding returns exist only when at least one holding carries a number
   // (option legs carry null — we omit the heatmap honestly for those).
-  const hasHoldingReturns = holdings.some(
-    (h) => typeof h.return_pct === "number" && !Number.isNaN(h.return_pct),
-  );
+  const hasHoldingReturns =
+    holdings.some(
+      (h) => typeof h.return_pct === "number" && !Number.isNaN(h.return_pct),
+    ) && holdings.length >= 2;
 
   const exprs = view.expressions ?? [];
   const ratioVals = exprs
@@ -234,7 +242,7 @@ export function BenchmarkComparison({
             margin: 0,
           }}
         >
-          Benchmark Comparison
+          How this strategy behaves
         </h2>
         <span
           style={{
@@ -245,7 +253,7 @@ export function BenchmarkComparison({
             lineHeight: 1.4,
           }}
         >
-          {selName} — measured against {benchLabel}.
+          {selName}.
           {expr.exit_period && expr.exit_period.trim().length > 0
             ? ` Typical hold: ${expr.exit_period}.`
             : ""}
@@ -276,7 +284,7 @@ export function BenchmarkComparison({
         {hasHoldingReturns && (
           <SubCard
             title="How each holding did"
-            subtitle="Return over the tested seasons — greener is stronger."
+            subtitle="Average return each time the event happened — greener is stronger."
           >
             <ReturnsHeatmap holdings={holdings} />
           </SubCard>
@@ -286,22 +294,13 @@ export function BenchmarkComparison({
         {hasMc && (
           <SubCard
             title="What the simulations say"
-            subtitle="Re-running the strategy on resampled history, many times over."
+            subtitle="Re-running a single occurrence on resampled history, thousands of times."
           >
             <MonteCarloDistribution
               mc={mc}
               underlyingSymbol={expr.underlying_symbol}
             />
           </SubCard>
-        )}
-
-        {/* 4 — When it happened before (self-titled bordered card) */}
-        {hasEpisodes && (
-          <EventReturns
-            episodes={episodes}
-            positiveEpisodes={expr.positive_episodes}
-            benchmarkLabel={benchLabel}
-          />
         )}
 
         {/* 5 — Reward for the risk taken (cross-strategy) */}
@@ -392,6 +391,19 @@ export function BenchmarkComparison({
           )}
         </SubCard>
       </div>
+
+      {/* 4 — When it happened before (self-titled bordered card). Rendered
+          full-width in its own row rather than inside the auto-fit grid above:
+          its episode list runs much taller than its neighbours, so sharing a
+          grid row with them stretched every cell to match and left dead
+          whitespace beside the shorter cards. */}
+      {hasEpisodes && (
+        <EventReturns
+          episodes={episodes}
+          positiveEpisodes={expr.positive_episodes}
+          benchmarkLabel={benchLabel}
+        />
+      )}
     </section>
   );
 }

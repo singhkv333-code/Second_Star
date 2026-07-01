@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * StrategyLineChart — the PRIMARY "Strategy vs Nifty" chart on a View detail /
- * expression detail. A real recharts series whose x-axis is the SEQUENTIAL
- * in-position trading-day index ("days in market"), NOT calendar time: the
- * strategy is only deployed during event/season windows, so the curve is the
- * EPISODE-GATED, in-position concatenated path (its endpoint equals the headline
- * return). Calendar time has gaps between episodes, so we never draw a date axis.
+ * StrategyLineChart — the PRIMARY chart on a View detail / expression detail,
+ * showing the STRATEGY'S OWN return path only (no benchmark line — beating a
+ * benchmark is never shown on this surface). A real recharts series whose
+ * x-axis is the SEQUENTIAL in-position trading-day index ("days in market"),
+ * NOT calendar time: the strategy is only deployed during event/season
+ * windows, so the curve is the EPISODE-GATED, in-position concatenated path
+ * (its endpoint equals the headline return). Calendar time has gaps between
+ * episodes, so we never draw a date axis.
  *   - Strategy line  → SOLID, var(--pivot-blue)
- *   - Nifty 50 line  → DASHED, var(--text-tertiary) gray
- *   - optional extra compared strategies → solid, muted accent palette
+ *   - optional extra compared strategies (tier-vs-tier, NOT a benchmark) →
+ *     solid, muted accent palette
  *   - faint vertical separators at each new episode's first in-market day
  *
  * v2 design language: ROUNDED container, calm, no gridline clutter, tabular
@@ -53,7 +55,6 @@ const MUTED_ACCENTS = [
 ];
 
 const STRATEGY_KEY = "strategy";
-const BENCH_KEY = "benchmark";
 const compareKey = (i: number): string => `cmp_${i}`;
 
 const accentFor = (i: number): string =>
@@ -61,15 +62,16 @@ const accentFor = (i: number): string =>
 
 type Row = Record<string, number | string>;
 
-/** Merge the strategy/benchmark series + any compare series into one
- * recharts-ready row array keyed by timestamp. */
+/** Merge the strategy series + any compare series into one recharts-ready
+ * row array keyed by timestamp. The benchmark value is intentionally never
+ * written into a row — this chart shows only the strategy's own path. */
 function buildRows(
   series: EquityPoint[],
   compareSeries: CompareSeries[],
 ): Row[] {
   const byT = new Map<string, Row>();
   for (const p of series) {
-    byT.set(p.t, { t: p.t, [STRATEGY_KEY]: p.strategy, [BENCH_KEY]: p.benchmark });
+    byT.set(p.t, { t: p.t, [STRATEGY_KEY]: p.strategy });
   }
   compareSeries.forEach((cs, i) => {
     for (const p of cs.series) {
@@ -141,14 +143,12 @@ function LegendDot({
 export function StrategyLineChart({
   series,
   compareSeries = [],
-  benchmarkLabel = "Nifty 50",
   strategyLabel = "Strategy",
   episodeBoundaries = [],
   height = 240,
 }: {
   series?: EquityPoint[] | null;
   compareSeries?: CompareSeries[];
-  benchmarkLabel?: string;
   strategyLabel?: string;
   /** In-position indices where each new episode starts (faint stitch markers). */
   episodeBoundaries?: number[];
@@ -276,7 +276,6 @@ export function StrategyLineChart({
               formatter={(value: number, name: string) => {
                 let label = name;
                 if (name === STRATEGY_KEY) label = strategyLabel;
-                else if (name === BENCH_KEY) label = benchmarkLabel;
                 else {
                   const idx = Number(name.replace("cmp_", ""));
                   label = validCompare[idx]?.label ?? name;
@@ -284,16 +283,6 @@ export function StrategyLineChart({
                 return [fmtCurrency(value), label];
               }}
               cursor={{ stroke: c.border, strokeWidth: 1 }}
-            />
-            <Line
-              type="monotone"
-              dataKey={BENCH_KEY}
-              stroke={c.tertiary}
-              strokeWidth={1.75}
-              strokeDasharray="5 4"
-              dot={false}
-              isAnimationActive={false}
-              connectNulls
             />
             {validCompare.map((cs, i) => (
               <Line
@@ -330,12 +319,6 @@ export function StrategyLineChart({
         }}
       >
         <LegendDot color={c.blue} label={strategyLabel} secondary={c.secondary} />
-        <LegendDot
-          color={c.tertiary}
-          dashed
-          label={benchmarkLabel}
-          secondary={c.secondary}
-        />
         {validCompare.map((cs, i) => (
           <LegendDot
             key={cs.label}

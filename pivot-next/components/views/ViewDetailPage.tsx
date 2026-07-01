@@ -6,8 +6,9 @@
  *
  *   1  header           "← Return to Views" back link · Follow (bare heart)
  *   2  title            view.short_title as a crisp H1 (NOT the long sentence)
- *   3  line chart       StrategyLineChart (strategy vs Nifty) + tier pills
- *                       "1 · 2 · 3" selector + a "Compare +" overlay toggle
+ *   2.5 stance           calm YES/NO reading of the view (view.stance, optional)
+ *   3  line chart       StrategyLineChart (the strategy's own return path) +
+ *                       tier pills "1 · 2 · 3" selector + a "Compare +" overlay
  *   4  description       <ViewDescription/> — 2-3 plain lines + 3 bullets
  *   5  strategies table  <StrategiesTable/> — a real, roomy table w/ expand+deploy
  *   6  benchmark         <BenchmarkComparison/> — heatmap, per-holding returns,
@@ -197,6 +198,138 @@ function TierPill({
   );
 }
 
+// ── stance block (GOAL B) ───────────────────────────────────────────────────
+// A calm, presentation-only YES/NO reading of the view's title question. Never
+// a bet, never a contract — just a readable framing above the strategies.
+
+function StancePill({
+  label,
+  accent,
+}: {
+  label: string;
+  accent: string | null;
+}): React.ReactElement {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontFamily: FONT,
+        fontSize: 13,
+        fontWeight: 600,
+        letterSpacing: "0.02em",
+        color: accent ?? "var(--text-tertiary)",
+        background: accent
+          ? `color-mix(in srgb, ${accent} 10%, transparent)`
+          : "transparent",
+        border: `1px solid ${accent ?? "var(--glass-border)"}`,
+        borderRadius: "var(--radius-pill)",
+        padding: "2px 10px",
+        width: "fit-content",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function StanceCard({
+  pillLabel,
+  accent,
+  verdict,
+  summary,
+  footnote,
+  muted = false,
+}: {
+  pillLabel: string;
+  accent: string | null;
+  verdict: string;
+  summary: string;
+  footnote?: string;
+  muted?: boolean;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-lg)",
+        background: "var(--bg-base)",
+        padding: 18,
+        minWidth: 0,
+      }}
+    >
+      <StancePill label={pillLabel} accent={muted ? null : accent} />
+      <span
+        style={{
+          fontFamily: FONT,
+          fontSize: 15,
+          fontWeight: 600,
+          color: muted ? "var(--text-secondary)" : "var(--text-primary)",
+          lineHeight: 1.3,
+        }}
+      >
+        {verdict}
+      </span>
+      <Body color={muted ? "var(--text-tertiary)" : "var(--text-secondary)"}>
+        {summary}
+      </Body>
+      {footnote && (
+        <Body color="var(--text-tertiary)" size={13}>
+          {footnote}
+        </Body>
+      )}
+    </div>
+  );
+}
+
+function StanceBlock({
+  stance,
+}: {
+  stance: NonNullable<ViewDetail["stance"]>;
+}): React.ReactElement {
+  const noHasTrade = stance.no.has_trade === true;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <span
+        style={{
+          fontFamily: FONT,
+          fontSize: 13,
+          fontWeight: 500,
+          color: "var(--text-tertiary)",
+        }}
+      >
+        Your call
+      </span>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
+          gap: 12,
+        }}
+      >
+        <StanceCard
+          pillLabel="YES"
+          accent="var(--pivot-blue)"
+          verdict={stance.yes.verdict}
+          summary={stance.yes.summary}
+          footnote="Expressed by the strategies below ↓"
+        />
+        <StanceCard
+          pillLabel="NO"
+          accent="var(--color-warn)"
+          verdict={stance.no.verdict}
+          summary={stance.no.summary}
+          muted={!noHasTrade}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── default expression pick ─────────────────────────────────────────────────
 // Lead with the SAME headline strategy the gallery card features (best_expression),
 // so the card number and the detail chart agree. Fall back to the conservative
@@ -223,12 +356,19 @@ interface ViewDetailPageProps {
   viewId: string;
   onBack: () => void;
   onOpenWorkflowById: (workflowId: string) => void;
+  /**
+   * Static detail to render instead of fetching from /api/views/{id}. Used by
+   * the standalone /view-pack showcase to render curated views through this
+   * exact component. When set, the fetch is skipped entirely.
+   */
+  detailOverride?: ViewDetail | null;
 }
 
 export function ViewDetailPage({
   viewId,
   onBack,
   onOpenWorkflowById,
+  detailOverride = null,
 }: ViewDetailPageProps): React.ReactElement {
   // Internal navigation id — lets "Similar views" open a sibling without the
   // parent re-keying us. Resets whenever the parent hands a new viewId.
@@ -280,6 +420,23 @@ export function ViewDetailPage({
     setCompareOn(false);
     setDeployError(null);
     setDeployingId(null);
+    if (detailOverride) {
+      setView(detailOverride);
+      setFollowState({
+        is_following: detailOverride.is_following,
+        follower_count: detailOverride.follower_count,
+      });
+      setSelectedId(
+        pickDefault(
+          detailOverride.expressions ?? [],
+          detailOverride.best_expression?.id ?? null,
+        )?.id ?? null,
+      );
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     setLoading(true);
     setError(null);
     getView(currentId).then((res) => {
@@ -305,7 +462,7 @@ export function ViewDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [currentId]);
+  }, [currentId, detailOverride]);
 
   // Esc → back to the gallery.
   React.useEffect(() => {
@@ -455,12 +612,14 @@ export function ViewDetailPage({
             {view.short_title ?? view.plain_one_liner ?? "—"}
           </h1>
 
+          {/* ── 2.5 · STANCE (YES / NO reading) ── */}
+          {view.stance && <StanceBlock stance={view.stance} />}
+
           {/* ── 3 · LINE CHART + tier selector + Compare ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <StrategyLineChart
               series={selectedExpr?.equity_curve ?? []}
               compareSeries={compareSeries}
-              benchmarkLabel={view.benchmark_label ?? "Nifty 50"}
               strategyLabel={
                 selectedExpr?.strategy_name ??
                 (selectedExpr ? tierLabel(selectedExpr.tier) : "Strategy")
@@ -534,15 +693,16 @@ export function ViewDetailPage({
             <Body color="var(--text-tertiary)" size={13}>
               {(selectedExpr?.equity_curve?.length ?? 0) >= 2 ? (
                 <>
-                  Return path while deployed ·{" "}
+                  The average single occurrence, across{" "}
                   {selectedExpr?.curve_n_episodes ??
                     selectedExpr?.n_episodes ??
                     0}{" "}
-                  episodes (only the days the strategy is in the market).{" "}
-                  {selectedExpr?.strategy_name ?? "Strategy"} vs{" "}
-                  {view.benchmark_label ?? "Nifty 50"}, ₹1,00,000 invested ·{" "}
-                  {selectedExpr?.trust_badge ?? "Unproven"} — this is analysis,
-                  not financial advice.
+                  past occurrences — the typical return while deployed, not added
+                  up across occurrences.{" "}
+                  {selectedExpr?.strategy_name ?? "Strategy"}, ₹1,00,000
+                  invested per occurrence ·{" "}
+                  {selectedExpr?.trust_badge ?? "Unproven"} — this is
+                  analysis, not financial advice.
                 </>
               ) : (
                 <>
@@ -558,6 +718,7 @@ export function ViewDetailPage({
           <ViewDescription
             description={view.description}
             bullets={view.bullets}
+            caveat={view.caveat}
           />
 
           {/* ── 5 · STRATEGIES TABLE ── */}
