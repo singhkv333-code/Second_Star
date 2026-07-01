@@ -19,7 +19,7 @@ import * as React from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { listViews } from "@/lib/api";
 import { isError } from "@/lib/types";
-import type { ViewSummary } from "@/lib/types";
+import type { ViewSummary, StanceIntent } from "@/lib/types";
 import { ViewCard } from "./ViewCard";
 import { ViewFilters, DEFAULT_FILTERS, type FiltersState } from "./ViewFilters";
 import { ViewDetailPage } from "./ViewDetailPage";
@@ -69,6 +69,10 @@ export function ViewsTab({
   const [selectedViewId, setSelectedViewId] = React.useState<string | null>(
     null,
   );
+  // Which Yes/No side a card press intended (null = opened via the card body).
+  // Threaded to the detail page so it scrolls to + highlights that stance.
+  const [selectedStance, setSelectedStance] =
+    React.useState<StanceIntent | null>(null);
   const [filters, setFilters] = React.useState<FiltersState>(DEFAULT_FILTERS);
   const [state, setState] = React.useState<FetchState>({ kind: "loading" });
 
@@ -108,12 +112,24 @@ export function ViewsTab({
     [],
   );
 
+  const openView = React.useCallback(
+    (id: string, intent?: StanceIntent): void => {
+      setSelectedStance(intent ?? null);
+      setSelectedViewId(id);
+    },
+    [],
+  );
+
   // ── Detail mode ───────────────────────────────────────────────────────────
   if (selectedViewId !== null) {
     return (
       <ViewDetailPage
         viewId={selectedViewId}
-        onBack={() => setSelectedViewId(null)}
+        initialStance={selectedStance}
+        onBack={() => {
+          setSelectedViewId(null);
+          setSelectedStance(null);
+        }}
         onOpenWorkflowById={onOpenWorkflowById}
       />
     );
@@ -186,7 +202,7 @@ export function ViewsTab({
               <div key={view.id} role="listitem">
                 <ViewCard
                   view={merged}
-                  onOpen={(id) => setSelectedViewId(id)}
+                  onOpen={openView}
                   onFollowChange={handleFollowChange}
                 />
               </div>
@@ -210,7 +226,7 @@ function ViewsGridSkeleton(): React.ReactElement {
           key={i}
           className="animate-pulse"
           style={{
-            height: 360,
+            height: 376,
             width: "100%",
             background: "var(--bg-base)",
             border: "1px solid var(--glass-border)",

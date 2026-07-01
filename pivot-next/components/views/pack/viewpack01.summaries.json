@@ -678,7 +678,18 @@
   "is_developing": false,
   "plain_one_liner": "Will AI create more jobs than it destroys by 2027?",
   "plain_summary": "As AI spreads, India's big IT & software companies get more work \u2014 and their shares tend to rise.",
-  "short_title": "Will AI create more jobs than it destroys by 2027?"
+  "short_title": "Will AI create more jobs than it destroys by 2027?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the AI/IT winners",
+    "summary": "If AI adoption keeps lifting demand for India's IT and software firms, owning that bundle directly captures it."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
+   }
+  }
  },
  {
   "id": "ai_search",
@@ -1359,7 +1370,18 @@
   "is_developing": false,
   "plain_one_liner": "Will AI replace traditional search engines?",
   "plain_summary": "Newer, faster-moving Indian tech firms may do better than the giant established ones as AI reshapes the industry.",
-  "short_title": "Will AI replace traditional search engines?"
+  "short_title": "Will AI replace traditional search engines?",
+  "stance": {
+   "yes": {
+    "verdict": "Back the nimble adopters",
+    "summary": "If AI reshapes the industry quickly, the nimble product firms should pull ahead of the slower incumbents."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Back the incumbents",
+    "summary": "If disruption takes longer than expected, the large legacy IT firms keep their scale advantage \u2014 own them instead."
+   }
+  }
  },
  {
   "id": "nuclear",
@@ -2040,7 +2062,18 @@
   "is_developing": false,
   "plain_one_liner": "Will nuclear energy make a major comeback before 2027?",
   "plain_summary": "India's power-building boom lifts big power and engineering firms (nuclear pure-plays aren't listed here).",
-  "short_title": "Will nuclear energy make a major comeback before 2027?"
+  "short_title": "Will nuclear energy make a major comeback before 2027?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the power-capex basket",
+    "summary": "If India's power-building boom continues, the listed power and engineering firms benefit directly."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "Nuclear itself isn't listed here, and the wider power theme doesn't clearly separate from the market \u2014 the index is the honest fallback."
+   }
+  }
  },
  {
   "id": "ev",
@@ -2721,7 +2754,18 @@
   "is_developing": false,
   "plain_one_liner": "Will EV sales increase more than expected this year?",
   "plain_summary": "If electric-vehicle sales grow faster than expected, the whole EV supply chain benefits.",
-  "short_title": "Will EV sales increase more than expected this year?"
+  "short_title": "Will EV sales increase more than expected this year?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the EV supply chain",
+    "summary": "If EV adoption keeps accelerating, the makers, battery and parts firms in the chain benefit together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stick with legacy auto",
+    "summary": "If EV adoption disappoints, the established petrol-engine makers and the broad index likely hold up better."
+   }
+  }
  },
  {
   "id": "mideast",
@@ -3087,7 +3131,18 @@
   "is_developing": false,
   "plain_one_liner": "Will Middle-East tensions escalate further this quarter?",
   "plain_summary": "When conflict flares, oil and gold tend to rise, helping oil producers and defence firms.",
-  "short_title": "Will Middle-East tensions escalate further this quarter?"
+  "short_title": "Will Middle-East tensions escalate further this quarter?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the oil & defence beneficiaries",
+    "summary": "If tensions escalate, oil, gold and defence names tend to rise together \u2014 the bundle captures that."
+   },
+   "no": {
+    "has_trade": false,
+    "verdict": "No clean trade",
+    "summary": "De-escalation doesn't reliably move oil, gold or defence stocks the other way, so there's no clean position to take if tensions cool."
+   }
+  }
  },
  {
   "id": "nifty30k",
@@ -3768,7 +3823,18 @@
   "is_developing": false,
   "plain_one_liner": "Will Nifty touch 30,000 before year-end?",
   "plain_summary": "The whole Indian market would need to climb about a quarter more to reach 30,000.",
-  "short_title": "Will Nifty touch 30,000 before year-end?"
+  "short_title": "Will Nifty touch 30,000 before year-end?",
+  "stance": {
+   "yes": {
+    "verdict": "Position for the run to 30,000",
+    "summary": "If the Nifty makes the roughly quarter-sized climb, owning the index or a defined-risk call spread captures the move."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "A move this large is rare \u2014 if it doesn't happen, simply holding the index avoids paying for a bet that can expire worthless."
+   }
+  }
  },
  {
   "id": "gold",
@@ -4134,7 +4200,18 @@
   "is_developing": false,
   "plain_one_liner": "Will Gold make a new all-time high this quarter?",
   "plain_summary": "When gold keeps hitting new highs, jewellers and gold-loan firms tend to do well.",
-  "short_title": "Will Gold make a new all-time high this quarter?"
+  "short_title": "Will Gold make a new all-time high this quarter?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the gold beneficiaries",
+    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in equities",
+    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
+   }
+  }
  },
  {
   "id": "fintech",
@@ -4815,6 +4892,17 @@
   "is_developing": false,
   "plain_one_liner": "Will digital-payments / fintech beat the market this year?",
   "plain_summary": "India's digital-payment boom (UPI) may lift finance-tech companies above the market.",
-  "short_title": "Will digital-payments / fintech beat the market this year?"
+  "short_title": "Will digital-payments / fintech beat the market this year?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the fintech bundle",
+    "summary": "If India's digital-payments boom keeps compounding, the listed fintech and market-infrastructure names benefit."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "These names are young and volatile with an inconsistent edge \u2014 the index is the steadier bet until the pattern proves out."
+   }
+  }
  }
 ]

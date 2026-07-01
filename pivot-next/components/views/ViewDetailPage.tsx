@@ -27,7 +27,7 @@ import * as React from "react";
 import { ArrowLeft, AlertCircle, Plus } from "lucide-react";
 import { getView, deployExpression } from "@/lib/api";
 import { isError } from "@/lib/types";
-import type { ViewDetail, ExpressionDetail } from "@/lib/types";
+import type { ViewDetail, ExpressionDetail, StanceIntent } from "@/lib/types";
 import { FollowButton } from "@/components/views/FollowButton";
 import {
   StrategyLineChart,
@@ -240,6 +240,7 @@ function StanceCard({
   summary,
   footnote,
   muted = false,
+  highlighted = false,
 }: {
   pillLabel: string;
   accent: string | null;
@@ -247,7 +248,11 @@ function StanceCard({
   summary: string;
   footnote?: string;
   muted?: boolean;
+  /** The side a Yes/No card press picked — drawn with an accent border + a
+   *  soft outline ring (no box-shadow, no fill; design-law clean). */
+  highlighted?: boolean;
 }): React.ReactElement {
+  const ring = accent ?? "var(--text-tertiary)";
   return (
     <div
       style={{
@@ -256,9 +261,16 @@ function StanceCard({
         gap: 8,
         // A muted (no-clean-trade) side gets a DASHED border so it reads as
         // categorically "not a live position" at a glance — not just a paler pill.
-        border: `1px ${muted ? "dashed" : "solid"} var(--glass-border)`,
+        border: `1px ${muted ? "dashed" : "solid"} ${
+          highlighted ? ring : "var(--glass-border)"
+        }`,
         borderRadius: "var(--radius-lg)",
         background: "var(--bg-base)",
+        outline: highlighted
+          ? `2px solid color-mix(in srgb, ${ring} 32%, transparent)`
+          : undefined,
+        outlineOffset: highlighted ? 2 : undefined,
+        transition: "border-color 200ms var(--ease-quartr)",
         padding: 18,
         minWidth: 0,
       }}
@@ -289,8 +301,10 @@ function StanceCard({
 
 function StanceBlock({
   stance,
+  highlight = null,
 }: {
   stance: NonNullable<ViewDetail["stance"]>;
+  highlight?: StanceIntent | null;
 }): React.ReactElement {
   const noHasTrade = stance.no.has_trade === true;
   return (
@@ -319,6 +333,7 @@ function StanceBlock({
           verdict={stance.yes.verdict}
           summary={stance.yes.summary}
           footnote="Expressed by the strategies below ↓"
+          highlighted={highlight === "yes"}
         />
         <StanceCard
           pillLabel="NO"
@@ -326,6 +341,7 @@ function StanceBlock({
           verdict={stance.no.verdict}
           summary={stance.no.summary}
           muted={!noHasTrade}
+          highlighted={highlight === "no"}
           footnote={
             noHasTrade
               ? undefined
@@ -369,6 +385,13 @@ interface ViewDetailPageProps {
    * exact component. When set, the fetch is skipped entirely.
    */
   detailOverride?: ViewDetail | null;
+  /**
+   * Which Yes/No side the gallery card press intended. When set (and the view
+   * carries a stance), the page scrolls to + highlights that side of the "Your
+   * call" block on open — the deployment/strategy link the Yes/No buttons
+   * promise. Null when opened via the card body (plain overview).
+   */
+  initialStance?: StanceIntent | null;
 }
 
 export function ViewDetailPage({
@@ -376,6 +399,7 @@ export function ViewDetailPage({
   onBack,
   onOpenWorkflowById,
   detailOverride = null,
+  initialStance = null,
 }: ViewDetailPageProps): React.ReactElement {
   // Internal navigation id — lets "Similar views" open a sibling without the
   // parent re-keying us. Resets whenever the parent hands a new viewId.
@@ -485,6 +509,22 @@ export function ViewDetailPage({
     if (typeof window !== "undefined")
       window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // When the view was opened by a Yes/No card press, bring the "Your call"
+  // block into view once it has painted — the promise the buttons make ("open
+  // the view on this side"). The highlight (passed to StanceBlock) draws the
+  // eye to the chosen side; from there the strategies/deploy table is one
+  // glance down. No-op when opened via the card body (initialStance null).
+  const stanceRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (!initialStance || loading || !view?.stance) return;
+    const el = stanceRef.current;
+    if (!el || typeof window === "undefined") return;
+    const t = window.setTimeout(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 140);
+    return () => window.clearTimeout(t);
+  }, [initialStance, loading, view?.stance, currentId]);
 
   const exprs = view?.expressions ?? [];
   const selectedExpr =
@@ -620,7 +660,11 @@ export function ViewDetailPage({
           </h1>
 
           {/* ── 2.5 · STANCE (YES / NO reading) ── */}
-          {view.stance && <StanceBlock stance={view.stance} />}
+          {view.stance && (
+            <div ref={stanceRef}>
+              <StanceBlock stance={view.stance} highlight={initialStance} />
+            </div>
+          )}
 
           {/* ── 3 · LINE CHART + tier selector + Compare ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

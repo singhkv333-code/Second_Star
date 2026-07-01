@@ -14,7 +14,7 @@
 import * as React from "react";
 import { ViewCard } from "@/components/views/ViewCard";
 import { ViewDetailPage } from "@/components/views/ViewDetailPage";
-import type { ViewSummary, ViewDetail } from "@/lib/types";
+import type { ViewSummary, ViewDetail, StanceIntent } from "@/lib/types";
 import summariesRaw from "@/components/views/pack/viewpack01.summaries.json";
 import detailsRaw from "@/components/views/pack/viewpack01.details.json";
 
@@ -25,7 +25,16 @@ const FONT = "var(--font-display)";
 
 export default function ViewPackPage(): React.ReactElement {
   const [openId, setOpenId] = React.useState<string | null>(null);
+  const [openStance, setOpenStance] = React.useState<StanceIntent | null>(null);
   const detail = openId ? (DETAILS[openId] ?? null) : null;
+
+  const openView = React.useCallback(
+    (id: string, intent?: StanceIntent): void => {
+      setOpenStance(intent ?? null);
+      setOpenId(id);
+    },
+    [],
+  );
 
   React.useEffect(() => {
     const html = document.documentElement;
@@ -54,7 +63,11 @@ export default function ViewPackPage(): React.ReactElement {
           <ViewDetailPage
             viewId={openId!}
             detailOverride={detail}
-            onBack={() => setOpenId(null)}
+            initialStance={openStance}
+            onBack={() => {
+              setOpenId(null);
+              setOpenStance(null);
+            }}
             onOpenWorkflowById={() => {}}
           />
         ) : (
@@ -101,7 +114,7 @@ export default function ViewPackPage(): React.ReactElement {
               style={{ gap: 20 }}
             >
               {SUMMARIES.map((v) => (
-                <ViewCard key={v.id} view={v} onOpen={(id) => setOpenId(id)} />
+                <ViewCard key={v.id} view={v} onOpen={openView} />
               ))}
             </div>
           </>

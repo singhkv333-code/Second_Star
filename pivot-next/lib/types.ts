@@ -1490,6 +1490,14 @@ export type ViewStance = {
   no: ViewStanceNoSide;
 };
 
+/**
+ * Which side of the Yes/No stance a gallery-card click intends. Threaded from
+ * ViewCard's Yes/No buttons through to ViewDetailPage so the opened detail can
+ * scroll to + highlight the chosen side and its deployable strategy. NOT a
+ * wager — just navigation intent.
+ */
+export type StanceIntent = "yes" | "no";
+
 /** One side (basket or benchmark) of a fundamentals comparison. */
 export type FundamentalSide = {
   pe: number | null;
@@ -1570,6 +1578,15 @@ export type ViewSummary = {
   plain_summary: string | null;
   /** Punchy plain-English headline for the card, e.g. "Cheaper oil lifts India's importers". */
   short_title: string | null;
+  /**
+   * Presentation-only Yes/No stance for the gallery card's two-button
+   * (Polymarket/Kalshi-style) affordance. Null for views with no authored
+   * stance (e.g. live curated views not yet backfilled, or developing ideas) —
+   * the card then falls back to a plain "View details" affordance. NEVER a
+   * bet/contract: the buttons open the view + route to a real securities
+   * expression, they don't price a binary outcome.
+   */
+  stance?: ViewStance | null;
 };
 
 /** One edge in the causal transmission map, ordered by seq. */
