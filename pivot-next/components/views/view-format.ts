@@ -342,7 +342,12 @@ export function viewTypeLabel(t: string | null | undefined): string {
  */
 export function categoryLabel(c: string | null | undefined): string {
   if (!c) return "General";
-  const slug = c.trim().toLowerCase();
+  const trimmed = c.trim();
+  // Already display-formatted (e.g. "AI · Theme", "Geopolitics · Event") — the
+  // backend/pack sends these pre-cased. Trust them; lowercasing would mangle
+  // acronyms ("AI" → "Ai") and drop the intended capitalisation.
+  if (trimmed.includes("·")) return trimmed;
+  const slug = trimmed.toLowerCase();
   const OVERRIDES: Record<string, string> = {
     macro_commodity: "Macro · Commodity",
     equity_rotation: "Equity rotation",

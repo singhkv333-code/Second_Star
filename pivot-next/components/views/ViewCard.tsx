@@ -364,15 +364,28 @@ export function ViewCard({
       </p>
 
       {/* ── (d) return path — the belief's own curve ─────────────────── */}
-      {curveValues.length >= 2 && (
-        <div style={{ marginTop: 14 }}>
-          <Sparkline values={curveValues} />
+      {/* The curve lives in a flex-grow region and is vertically centred, so it
+          fills the space between the summary and the buttons instead of leaving
+          a dead band — the curve is the hero (Polymarket-style), and every card
+          still bottom-aligns its Yes/No buttons regardless of title length. */}
+      {curveValues.length >= 2 ? (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 60,
+            marginTop: 14,
+            marginBottom: 14,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ width: "100%" }}>
+            <Sparkline values={curveValues} height={60} />
+          </div>
         </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 12 }} />
       )}
-
-      {/* spacer pushes the Yes/No buttons + footer to the bottom so every
-          card in the grid bottom-aligns regardless of title length */}
-      <div style={{ flex: 1, minHeight: 12 }} />
 
       {/* ── (e) YES / NO — the two ways to play (or a graceful fallback) ─ */}
       {stance ? (
