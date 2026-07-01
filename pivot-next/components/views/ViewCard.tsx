@@ -131,41 +131,41 @@ function Sparkline({
 }
 
 // ---------------------------------------------------------------------------
-// StanceButton — one of the two "ways to play" buttons. `tone` maps to the
-// accent (yes → brand-blue, no → amber, muted → the dashed "no clean trade"
-// case). The secondary line is the Yes-side return (profit/loss coloured) or
-// the No-side plain verdict. An arrow signals it OPENS the view.
+// StanceButton — one of the two "ways to play" buttons. SOLID-filled (Yes →
+// brand-blue, No → amber), white text, no arrow — the real Polymarket/Kalshi
+// button weight. The "no clean trade" case is a calm solid grey (never red,
+// never a loud fill). The secondary line is the Yes-side return or the No-side
+// plain verdict; the whole button opens the view on that side.
 // ---------------------------------------------------------------------------
 
 function StanceButton({
   word,
   secondary,
-  secondaryColor,
   tone,
   ariaLabel,
   onOpen,
 }: {
   word: string;
   secondary: string;
-  secondaryColor?: string;
   tone: "yes" | "no" | "muted";
   ariaLabel: string;
   onOpen: (e: React.MouseEvent | React.KeyboardEvent) => void;
 }): React.ReactElement {
   const [hover, setHover] = React.useState(false);
   const muted = tone === "muted";
-  const accent =
+  const fill =
     tone === "yes"
       ? "var(--pivot-blue)"
       : tone === "no"
         ? "var(--color-warn)"
-        : "var(--text-tertiary)";
-  const wordColor = muted ? "var(--text-tertiary)" : accent;
-  const border = muted
-    ? "var(--glass-border)"
-    : hover
-      ? accent
-      : "var(--glass-border)";
+        : // no clean trade — a solid but calm grey chip (opaque, not a tint)
+          "color-mix(in srgb, var(--text-tertiary) 22%, var(--bg-base))";
+  // Darken the fill slightly on hover for a tactile press feel.
+  const hoverFill = muted
+    ? "color-mix(in srgb, var(--text-tertiary) 32%, var(--bg-base))"
+    : `color-mix(in srgb, ${fill} 88%, #000)`;
+  const wordColor = muted ? "var(--text-tertiary)" : "rgba(255,255,255,0.9)";
+  const bodyColor = muted ? "var(--text-secondary)" : "#ffffff";
 
   return (
     <button
@@ -183,26 +183,18 @@ function StanceButton({
         display: "flex",
         flexDirection: "column",
         alignItems: "flex-start",
-        gap: 3,
+        gap: 2,
         textAlign: "left",
-        padding: "9px 13px",
+        padding: "10px 14px",
         borderRadius: "var(--radius-md)",
-        border: `1px ${muted ? "dashed" : "solid"} ${border}`,
-        background: muted
-          ? "transparent"
-          : hover
-            ? `color-mix(in srgb, ${accent} 12%, transparent)`
-            : `color-mix(in srgb, ${accent} 6%, transparent)`,
+        border: muted ? "1px solid var(--glass-border)" : "none",
+        background: hover ? hoverFill : fill,
         cursor: "pointer",
-        transition:
-          "border-color 160ms var(--ease-quartr), background 160ms var(--ease-quartr)",
+        transition: "background 160ms var(--ease-quartr)",
       }}
     >
       <span
         style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 5,
           fontFamily: FONT,
           fontSize: 13,
           fontWeight: 700,
@@ -212,20 +204,18 @@ function StanceButton({
         }}
       >
         {word}
-        <ArrowRight size={12} aria-hidden style={{ opacity: 0.75 }} />
       </span>
       <span
         style={{
           fontFamily: FONT,
-          fontSize: tone === "yes" ? 17 : 14,
-          fontWeight: tone === "yes" ? 700 : 500,
-          color: secondaryColor ?? "var(--text-secondary)",
+          fontSize: tone === "yes" ? 18 : 14,
+          fontWeight: tone === "yes" ? 800 : 600,
+          color: bodyColor,
           lineHeight: 1.2,
           letterSpacing: tone === "yes" ? "-0.01em" : "0",
           fontVariantNumeric: "tabular-nums",
-          // The Yes return is always short (1 line); a No verdict like "Back
-          // the incumbents" wraps to a second line rather than truncating
-          // mid-word. Buttons are flex siblings → they stretch to equal height.
+          // Yes return is one line; a longer No verdict wraps to a second line
+          // rather than truncating mid-word. Buttons stretch to equal height.
           display: "-webkit-box",
           WebkitLineClamp: 2,
           WebkitBoxOrient: "vertical",
@@ -398,7 +388,6 @@ export function ViewCard({
             tone="yes"
             word="Yes"
             secondary={hasReturn ? fmtPct(be!.total_return_pct) : "See the basket"}
-            secondaryColor={hasReturn ? signColor(be!.total_return_pct) : undefined}
             ariaLabel={`Yes — ${stance.yes.verdict}. Open the view.`}
             onOpen={() => onOpen(view.id, "yes")}
           />
