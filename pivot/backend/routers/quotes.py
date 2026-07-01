@@ -43,7 +43,7 @@ _INDEX_ALIAS: dict[str, str] = {
 }
 
 
-_RangeLiteral = Literal["1D", "1W", "1M", "6M", "1Y", "5Y"]
+_RangeLiteral = Literal["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"]
 
 
 @router.get(

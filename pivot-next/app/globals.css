@@ -1242,3 +1242,12 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   stroke-dasharray: 1;
   animation: ds-draw 1.6s var(--ease-quartr) forwards;
 }
+
+@keyframes skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}

@@ -37,3 +37,6 @@ telegram.session
 # OS
 .DS_Store
 Thumbs.db
+
+# logo override generator checkpoint (scripts/build_logo_overrides.py)
+backend/market/logo_overrides_progress.json

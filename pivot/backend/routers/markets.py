@@ -452,7 +452,7 @@ def _or_zero(value: object) -> float:
 # ── Sparkline (historical close series) ──────────────────────────────
 
 
-_RangeLiteral = Literal["1D", "1W", "1M", "6M", "1Y", "5Y"]
+_RangeLiteral = Literal["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"]
 
 # Map our public range strings → (yfinance period, yfinance interval).
 # Intervals chosen so each range comfortably fits inside ~80 points
@@ -461,6 +461,7 @@ _RANGE_MAP: dict[str, tuple[str, str]] = {
     "1D": ("1d", "5m"),
     "1W": ("5d", "30m"),
     "1M": ("1mo", "1d"),
+    "3M": ("3mo", "1d"),
     "6M": ("6mo", "1d"),
     "1Y": ("1y", "1wk"),
     "5Y": ("5y", "1mo"),
@@ -508,7 +509,7 @@ def get_sparkline(
         try:
             from backend.kite.historical import get_kite_historical
             kite_period = {
-                "1D": "1d", "1W": "5d", "1M": "1mo",
+                "1D": "1d", "1W": "5d", "1M": "1mo", "3M": "3mo",
                 "6M": "6mo", "1Y": "1y", "5Y": "5y",
             }[range]
             kite_rows = get_kite_historical(
@@ -616,7 +617,7 @@ def get_ohlc(
         try:
             from backend.kite.historical import get_kite_historical
             kite_period = {
-                "1D": "1d", "1W": "5d", "1M": "1mo",
+                "1D": "1d", "1W": "5d", "1M": "1mo", "3M": "3mo",
                 "6M": "6mo", "1Y": "1y", "5Y": "5y",
             }[range]
             kite_rows = get_kite_historical(

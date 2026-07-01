@@ -38,7 +38,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <AppBootstrap>{children}</AppBootstrap>
-        <Toaster position="top-right" />
+        <Toaster position="top-right" closeButton />
       </body>
     </html>
   );

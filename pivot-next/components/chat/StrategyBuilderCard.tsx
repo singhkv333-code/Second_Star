@@ -516,7 +516,7 @@ export function StrategyBuilderCard({
       role="region"
       aria-label={`Strategy basket: ${card.title}`}
       className={cn(
-        "my-2 w-full max-w-[440px] overflow-hidden rounded-3xl border border-border/50 bg-card",
+        "my-2 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
       )}
       style={{

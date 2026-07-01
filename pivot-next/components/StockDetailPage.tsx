@@ -43,7 +43,6 @@ import {
 import { format, parseISO } from "date-fns";
 import {
   AlertCircle,
-  Bookmark,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -67,6 +66,7 @@ import {
 } from "@/lib/api";
 import { isError, type ApiResult } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
+import { WatchlistBookmark } from "@/components/WatchlistBookmark";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { CompanyLogo } from "@/components/CompanyLogo";
 
@@ -363,7 +363,6 @@ function GrowwTooltip({
 export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElement {
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("5Y");
-  const [bookmarked, setBookmarked] = useState(false);
   const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
   // Phone reflows the page: chart on top, then Performance, then a 2-way
   // Overview/Financials switch (desktop keeps the two-column overview+chart row).
@@ -507,8 +506,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
       {quoteState.kind === "ok" && (
         <Header
           quote={quoteState.quote}
-          bookmarked={bookmarked}
-          onToggleBookmark={() => setBookmarked((b) => !b)}
           liveLtp={liveQuote.ltp}
           isLive={liveQuote.isLive}
           isPhone={isPhone}
@@ -719,15 +716,11 @@ function PhoneLayout({
 
 function Header({
   quote,
-  bookmarked,
-  onToggleBookmark,
   liveLtp,
   isLive,
   isPhone = false,
 }: {
   quote: StockQuote;
-  bookmarked: boolean;
-  onToggleBookmark: () => void;
   liveLtp?: number | null;
   isLive?: boolean;
   /** Phone reflow: shrink glyph/name/price and keep the price pinned to the
@@ -771,38 +764,11 @@ function Header({
             >
               {quote.name}
             </h1>
-            <button
-              type="button"
-              onClick={onToggleBookmark}
-              aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
-              data-testid="bookmark-btn"
-              className="inline-flex shrink-0 items-center justify-center"
-              style={{
-                width: isPhone ? 30 : 38,
-                height: isPhone ? 30 : 38,
-                background: "transparent",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                color: bookmarked ? "var(--text-primary)" : "var(--text-tertiary)",
-                cursor: "pointer",
-                transition: "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--surface-active)";
-                e.currentTarget.style.color = "var(--text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = bookmarked ? "var(--text-primary)" : "var(--text-tertiary)";
-              }}
-            >
-              <Bookmark
-                size={20}
-                strokeWidth={2}
-                fill={bookmarked ? "currentColor" : "none"}
-                aria-hidden="true"
-              />
-            </button>
+            <WatchlistBookmark
+              symbol={quote.symbol}
+              size={20}
+              buttonSize={isPhone ? 30 : 38}
+            />
           </div>
           <p
             className="m-0"

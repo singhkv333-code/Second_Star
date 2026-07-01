@@ -36,6 +36,7 @@ type S =
 function LoadingSkeleton(): React.ReactElement {
   return (
     <div
+      className="space-y-4"
       style={{
         background: "var(--bg-primary)",
         border: "1px solid var(--glass-border)",
@@ -44,32 +45,38 @@ function LoadingSkeleton(): React.ReactElement {
         padding: "20px 16px",
       }}
     >
-      {/* Header row */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <Skeleton style={{ height: 20, width: 120 }} />
-        <Skeleton style={{ height: 20, width: 60 }} />
+      <div style={{ display: "flex", gap: 10, marginBottom: 4, alignItems: "center" }}>
+        <Skeleton style={{ height: 16, width: 124 }} />
+        <Skeleton style={{ height: 24, width: 72, borderRadius: 999 }} />
       </div>
-      {/* 4 stat tiles */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
             style={{
-              background: "var(--bg-secondary)",
-              borderRadius: "var(--radius-sm)",
+              background: "color-mix(in srgb, var(--bg-secondary) 82%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--glass-border) 78%, transparent)",
+              borderRadius: "calc(var(--radius-md) - 4px)",
               padding: "10px 12px",
               display: "flex",
               flexDirection: "column",
-              gap: 6,
+              gap: 8,
             }}
           >
-            <Skeleton style={{ height: 10, width: "60%" }} />
-            <Skeleton style={{ height: 18, width: "80%" }} />
-            <Skeleton style={{ height: 9, width: "50%" }} />
+            <Skeleton style={{ height: 10, width: "44%" }} />
+            <Skeleton style={{ height: 22, width: "74%" }} />
+            <Skeleton style={{ height: 10, width: "56%" }} />
           </div>
         ))}
       </div>
-      {/* Table rows */}
+      <div style={{ display: "grid", gridTemplateColumns: "2fr repeat(5, 1fr)", gap: 12, paddingBottom: 8 }}>
+        <Skeleton style={{ height: 10, width: "28%" }} />
+        {Array.from({ length: 5 }).map((__, j) => (
+          <div key={j} style={{ display: "flex", justifyContent: "flex-end" }}>
+            <Skeleton style={{ height: 10, width: "52%" }} />
+          </div>
+        ))}
+      </div>
       {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
@@ -77,15 +84,18 @@ function LoadingSkeleton(): React.ReactElement {
             display: "grid",
             gridTemplateColumns: "2fr repeat(5, 1fr)",
             gap: 12,
-            padding: "10px 0",
+            padding: "12px 0",
             borderTop: "1px solid var(--glass-border)",
             alignItems: "center",
           }}
         >
-          <Skeleton style={{ height: 12, width: "60%" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Skeleton style={{ height: 12, width: "44%" }} />
+            <Skeleton style={{ height: 10, width: "24%" }} />
+          </div>
           {Array.from({ length: 5 }).map((__, j) => (
             <div key={j} style={{ display: "flex", justifyContent: "flex-end" }}>
-              <Skeleton style={{ height: 12, width: "70%" }} />
+              <Skeleton style={{ height: 12, width: "62%" }} />
             </div>
           ))}
         </div>

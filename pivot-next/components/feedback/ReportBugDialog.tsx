@@ -211,6 +211,7 @@ export function ReportBugDialog({
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. RSI workflow didn't trigger a buy when TCS dropped below 30"
                 maxLength={160}
+                className="focus-visible:ring-[var(--glass-border-hover)]"
                 data-testid="report-bug-title"
               />
             </Field>
@@ -226,7 +227,7 @@ export function ReportBugDialog({
                 placeholder={
                   "What did you do, what did you expect, and what happened instead?\nInclude the ticker / strategy / steps if relevant."
                 }
-                className="min-h-[110px] resize-y"
+                className="min-h-[110px] resize-y focus-visible:ring-[var(--glass-border-hover)]"
                 data-testid="report-bug-description"
               />
             </Field>

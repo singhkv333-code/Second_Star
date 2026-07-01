@@ -1,13 +1,10 @@
 "use client";
 
 /**
- * OptionChainLauncherCard — a tiny entry point that opens the full-screen
+ * OptionChainLauncherCard - a tiny entry point that opens the full-screen
  * OptionChainFullScreen overlay. Self-contained (owns its own open state), so
  * it can be dropped anywhere: as a chat widget (`variant="card"`) or as a
  * compact pill in the composer row (`variant="pill"`).
- *
- * DUMMY for now — the full-screen chain uses mock data; this is just the
- * trigger the user asked for.
  */
 
 import { useState } from "react";
@@ -15,6 +12,17 @@ import { ArrowUpRight, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import { OptionChainFullScreen } from "@/components/chat/OptionChainFullScreen";
+import { OptionStrategyPanel } from "@/components/chat/OptionStrategyPanel";
+import { computeOptionStrategy } from "@/lib/api";
+import { isError } from "@/lib/types";
+import type { OptionStrategyPayload, StrategyLeg } from "@/lib/types";
+
+type StrategyDraft = {
+  underlying: string;
+  expiry: string;
+  qtyLots: number;
+  legs: Pick<StrategyLeg, "option_type" | "side" | "strike">[];
+};
 
 export function OptionChainLauncherCard({
   variant = "card",
@@ -24,7 +32,39 @@ export function OptionChainLauncherCard({
   underlying?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderPayload, setBuilderPayload] = useState<OptionStrategyPayload | null>(null);
+  const [buildPending, setBuildPending] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+
   useExclusiveSidePanel("option-chain", open, () => setOpen(false));
+  useExclusiveSidePanel("option-strategy", builderOpen, () => setBuilderOpen(false));
+
+  async function handleBuildStrategy(draft: StrategyDraft): Promise<void> {
+    setBuildPending(true);
+    setBuildError(null);
+    const result = await computeOptionStrategy({
+      underlying: draft.underlying,
+      expiry: draft.expiry,
+      template: "custom",
+      qty_lots: draft.qtyLots,
+      legs: draft.legs,
+    });
+    setBuildPending(false);
+
+    if (isError(result)) {
+      setBuildError(result.error.message ?? "Couldn't open the builder right now.");
+      return;
+    }
+    if (!result.data.success || !result.data.payload) {
+      setBuildError(result.data.error ?? "Couldn't build this structure on the current chain.");
+      return;
+    }
+
+    setBuilderPayload(result.data.payload);
+    setOpen(false);
+    setBuilderOpen(true);
+  }
 
   return (
     <>
@@ -57,10 +97,10 @@ export function OptionChainLauncherCard({
             </div>
             <div className="flex items-baseline gap-2">
               <h3 className="text-[16px] font-semibold tracking-tight text-foreground">{underlying} options</h3>
-              <span className="text-[12px] text-muted-foreground">strikes · OI · IV · greeks</span>
+              <span className="text-[12px] text-muted-foreground">strikes - OI - IV - greeks</span>
             </div>
             <p className="text-[11.5px] leading-snug text-muted-foreground">
-              Open the live chain to browse strikes and build a basket — buy or sell any strike in one tap.
+              Open the live chain to browse strikes and build a basket - buy or sell any strike in one tap.
             </p>
             <button
               type="button"
@@ -79,7 +119,21 @@ export function OptionChainLauncherCard({
         </div>
       )}
 
-      <OptionChainFullScreen open={open} onClose={() => setOpen(false)} underlying={underlying} />
+      <OptionChainFullScreen
+        open={open}
+        onClose={() => setOpen(false)}
+        underlying={underlying}
+        onBuildStrategy={handleBuildStrategy}
+        buildPending={buildPending}
+        buildError={buildError}
+      />
+      {builderPayload && (
+        <OptionStrategyPanel
+          open={builderOpen}
+          onOpenChange={setBuilderOpen}
+          payload={builderPayload}
+        />
+      )}
     </>
   );
 }

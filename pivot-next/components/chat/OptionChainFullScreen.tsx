@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Sigma, X } from "lucide-react";
+import { AlertCircle, ChevronDown, Loader2, Sigma, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ContentOverlay } from "@/components/chat/ContentOverlay";
@@ -12,8 +12,10 @@ type Quote = Greeks & { ltp: number; oi: number; oiChg: number; ltpChg: number }
 type ChainRow = { strike: number; ce: Quote; pe: Quote };
 type BasketLeg = { strike: number; type: OptType; side: Side; ltp: number };
 type View = "ltp" | "oi" | "greeks";
+type StrategyDraft = { underlying: string; expiry: string; qtyLots: number; legs: { option_type: "CE" | "PE"; side: "BUY" | "SELL"; strike: number }[]; };
 
 const EXPIRIES = ["26 Jun", "3 Jul", "10 Jul", "31 Jul", "28 Aug"];
+const EXPIRY_VALUES: Record<string, string> = { "26 Jun": "2026-06-26", "3 Jul": "2026-07-03", "10 Jul": "2026-07-10", "31 Jul": "2026-07-31", "28 Aug": "2026-08-28" };
 const DAY_CHG_ABS = -196.2;
 const DAY_CHG_PCT = -0.81;
 
@@ -55,19 +57,20 @@ function fmtOi(n: number): string {
 }
 const pct = (n: number): string => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 const lossColor = (n: number): string => (n >= 0 ? "var(--color-profit)" : "var(--color-loss)");
+const resolveExpiryValue = (expiry: string): string => EXPIRY_VALUES[expiry] ?? expiry;
 
-export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spot = 23971.8 }: { open: boolean; onClose: () => void; underlying?: string; spot?: number }): React.ReactElement | null {
+export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spot = 23971.8, onBuildStrategy, buildPending = false, buildError = null }: { open: boolean; onClose: () => void; underlying?: string; spot?: number; onBuildStrategy?: (draft: StrategyDraft) => Promise<void> | void; buildPending?: boolean; buildError?: string | null }): React.ReactElement | null {
   const [expiry, setExpiry] = useState(EXPIRIES[1]!);
   // One view at a time keeps each row scannable (Sensibull/Groww style):
   // LTP (price + chg), OI (open interest + bars), or Greeks.
   const [view, setView] = useState<View>("ltp");
-  // Laptop only — Groww-style Greeks toggle. OFF = combined chain (OI+LTP+IV);
+  // Laptop only - Groww-style Greeks toggle. OFF = combined chain (OI+LTP+IV);
   // ON = the same chain with the five greek columns expanded inline on each
   // side (wide, horizontally scrollable). Phone uses `view` instead.
   const [laptopGreeks, setLaptopGreeks] = useState(false);
   const [basket, setBasket] = useState<BasketLeg[]>([]);
   const [isPhone, setIsPhone] = useState(false);
-  // Touch has no hover, so Buy/Sell can't be hover-only — tapping a row opens
+  // Touch has no hover, so Buy/Sell can't be hover-only - tapping a row opens
   // a compact action bar beneath it (desktop keeps the hover B/S controls).
   const [selStrike, setSelStrike] = useState<number | null>(null);
   useEffect(() => {
@@ -129,13 +132,13 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
             </span>
             <div className="ml-0.5 flex items-baseline gap-1.5 sm:ml-1 sm:gap-2">
               <span className="text-[15px] font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-[18px]">{spot.toLocaleString("en-IN")}</span>
-              <span className="text-[11.5px] font-medium tabular-nums sm:text-[12px]" style={{ color: lossColor(DAY_CHG_PCT) }}>{dayDown ? "−" : "+"}{Math.abs(DAY_CHG_ABS).toFixed(2)} ({pct(DAY_CHG_PCT)})</span>
+              <span className="text-[11.5px] font-medium tabular-nums sm:text-[12px]" style={{ color: lossColor(DAY_CHG_PCT) }}>{dayDown ? "-" : "+"}{Math.abs(DAY_CHG_ABS).toFixed(2)} ({pct(DAY_CHG_PCT)})</span>
             </div>
           </div>
           <Button variant="ghost" size="icon" aria-label="Close option chain" onClick={onClose} className="shrink-0 rounded-full"><X className="h-4 w-4" aria-hidden="true" /></Button>
         </div>
 
-        {/* Phone view toggle — LTP / OI / Greeks (one column set at a time).
+        {/* Phone view toggle - LTP / OI / Greeks (one column set at a time).
             Laptop has no top toggle; it uses the floating Greeks switch below. */}
         {isPhone && (
           <div className="flex shrink-0 items-center justify-center border-b border-border/50 px-3 py-2 sm:px-6">
@@ -246,7 +249,7 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
                       <span className="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-[11px] font-medium tabular-nums text-foreground shadow-sm">
                         <span className="h-1.5 w-1.5 rounded-full" style={{ background: lossColor(DAY_CHG_PCT) }} aria-hidden="true" />
                         {spot.toLocaleString("en-IN")}
-                        <span className="text-muted-foreground/80">·</span>
+                        <span className="text-muted-foreground/80">-</span>
                         <span style={{ color: lossColor(DAY_CHG_PCT) }}>{pct(DAY_CHG_PCT)}</span>
                       </span>
                     </div>
@@ -336,27 +339,50 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
         </div>
         {basket.length > 0 && (
           <div className="shrink-0 border-t border-border/50 bg-card/60 px-6 py-3 lg:px-9">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Basket · {basket.length} {basket.length === 1 ? "leg" : "legs"}</span>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Basket - {basket.length} {basket.length === 1 ? "leg" : "legs"}</span>
               <button type="button" onClick={() => setBasket([])} className="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground">Clear all</button>
             </div>
             <div className="flex flex-wrap gap-2">
               {basket.map((b, i) => {
                 const c = b.side === "BUY" ? "var(--color-profit)" : "var(--color-loss)";
                 return (
-                  <span key={i} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tabular-nums" style={{ borderColor: `color-mix(in srgb, ${c} 35%, transparent)`, background: `color-mix(in srgb, ${c} 8%, transparent)`, color: c }}>
+                  <span key={i} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium tabular-nums" style={{ background: `color-mix(in srgb, ${c} 8%, transparent)`, color: c }}>
                     <span className="font-semibold">{b.side === "BUY" ? "B" : "S"}</span>
                     {b.strike} {b.type}
-                    <span className="opacity-70">₹{b.ltp.toFixed(2)}</span>
+                    <span className="opacity-70">Rs {b.ltp.toFixed(2)}</span>
                     <button type="button" onClick={() => setBasket((p) => p.filter((_, idx) => idx !== i))} aria-label="Remove leg" className="ml-0.5 opacity-60 transition-opacity hover:opacity-100"><X className="h-3 w-3" aria-hidden="true" /></button>
                   </span>
                 );
               })}
             </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] text-muted-foreground">Buy and sell picks now continue into the strategy builder as a custom basket.</p>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-full px-4"
+                disabled={buildPending || !onBuildStrategy}
+                onClick={() => void onBuildStrategy?.({ underlying, expiry: resolveExpiryValue(expiry), qtyLots: 1, legs: basket.map((leg) => ({ option_type: leg.type, side: leg.side, strike: leg.strike })) })}
+              >
+                {buildPending ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    Opening builder
+                  </>
+                ) : "Open builder"}
+              </Button>
+            </div>
+            {buildError && (
+              <div className="mt-2 flex items-start gap-2 rounded-2xl border border-rose-200/70 bg-rose-50/70 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{buildError}</span>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Laptop Greeks toggle — Groww-style floating switch. Expands the
+        {/* Laptop Greeks toggle - Groww-style floating switch. Expands the
             greek columns inline rather than swapping the table. */}
         {!isPhone && (
           <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
@@ -416,16 +442,16 @@ function OiCell({ side, oi, oiChg, width, dim }: { side: "call" | "put"; oi: num
 }
 function PriceCell({ align, ltp, chg, onBuy, onSell }: { align: "left" | "right"; ltp: number; chg: number; onBuy?: () => void; onSell?: () => void }): React.ReactElement {
   // B/S sit in the blank space BESIDE the LTP (never over it) and reveal on ROW
-  // hover — laptop only, since phone uses the Buy CE/Sell CE tap actions instead.
+  // hover - laptop only, since phone uses the Buy CE/Sell CE tap actions instead.
   const bs = onBuy && onSell ? (
     <div className="invisible flex items-center gap-1 transition-opacity group-hover:visible">
-      <button type="button" onClick={onBuy} aria-label="Buy" className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[10px] font-bold text-white shadow-sm" style={{ background: "var(--color-profit)" }}>B</button>
-      <button type="button" onClick={onSell} aria-label="Sell" className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[10px] font-bold text-white shadow-sm" style={{ background: "var(--color-loss)" }}>S</button>
+      <button type="button" onClick={(e) => { e.stopPropagation(); onBuy(); }} aria-label="Buy" className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[10px] font-bold text-white shadow-sm" style={{ background: "var(--color-profit)" }}>B</button>
+      <button type="button" onClick={(e) => { e.stopPropagation(); onSell(); }} aria-label="Sell" className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[10px] font-bold text-white shadow-sm" style={{ background: "var(--color-loss)" }}>S</button>
     </div>
   ) : null;
   const price = (
     <div className={cn("flex min-w-0 flex-col leading-tight", align === "right" ? "items-end text-right" : "items-start text-left")}>
-      <span className="truncate text-[13px] font-semibold text-foreground">₹{ltp.toFixed(2)}</span>
+      <span className="truncate text-[13px] font-semibold text-foreground">Rs {ltp.toFixed(2)}</span>
       <span className="text-[10px] font-medium" style={{ color: lossColor(chg) }}>{pct(chg)}</span>
     </div>
   );
@@ -435,3 +461,4 @@ function PriceCell({ align, ltp, chg, onBuy, onSell }: { align: "left" | "right"
     </div>
   );
 }
+
