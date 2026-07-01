@@ -3773,6 +3773,17 @@ class ChatService:
             if isinstance(val, list):
                 canonical[list_key] = val
 
+        # Edit-target anchor: "Edit with chat" seeds the editor_draft with the
+        # clicked workflow's id. Carry it onto the ActiveDraft so a later
+        # register/Save UPDATES that exact agent in place rather than creating
+        # a duplicate. Absent for from-scratch drafts (id stays None).
+        seeded_wf_id = editor_draft.get("workflow_id")
+        target_workflow_id: Optional[str] = (
+            seeded_wf_id.strip()
+            if isinstance(seeded_wf_id, str) and seeded_wf_id.strip()
+            else None
+        )
+
         # Preserve the existing tool_name when an active draft is
         # already in cache — that's the tool the amendment-hint should
         # re-emit. Fall back to propose_workflow (the canonical
@@ -3784,6 +3795,10 @@ class ChatService:
             else "propose_workflow"
         )
         last_caption = existing.last_caption if existing is not None else ""
+        # Keep the anchor across repeated amendments: if this seed didn't carry
+        # an id but a prior active draft was already anchored, preserve it.
+        if target_workflow_id is None and existing is not None:
+            target_workflow_id = getattr(existing, "workflow_id", None)
 
         try:
             self.store.set_active_draft(conv_id, ActiveDraft(
@@ -3794,6 +3809,7 @@ class ChatService:
                     "%Y-%m-%dT%H:%M:%SZ", time.gmtime(),
                 ),
                 symbol=_draft_primary_symbol(canonical),
+                workflow_id=target_workflow_id,
             ))
         except Exception as e:  # noqa: BLE001 — never block a chat turn
             logger.warning("editor_draft seed failed: %s", e)
@@ -3804,6 +3820,7 @@ class ChatService:
                 tool=tool_name,
                 steps=len(clean_steps),
                 had_prior=existing is not None,
+                workflow_id=target_workflow_id or "",
             )
 
     def _stash_workflow_draft(
@@ -3826,12 +3843,30 @@ class ChatService:
         """
         if not draft:
             return
+        # Preserve the edit-target anchor across an agentic amendment turn:
+        # when the LLM re-emits the amended draft for an "Edit with chat"
+        # session, carry the existing workflow_id forward so the later
+        # register still UPDATES that agent in place (it's matched by symbol so
+        # we don't bleed an anchor onto an unrelated parked draft).
+        carried_wf_id: Optional[str] = None
+        try:
+            prior = self.store.get_active_draft(conv_id)
+        except Exception:  # noqa: BLE001 — stub stores in tests
+            prior = None
+        if prior is not None:
+            prior_wf_id = getattr(prior, "workflow_id", None)
+            if isinstance(prior_wf_id, str) and prior_wf_id:
+                prior_symbol = (prior.symbol or "").upper()
+                new_symbol = (_draft_primary_symbol(draft) or "").upper()
+                if prior_symbol == new_symbol:
+                    carried_wf_id = prior_wf_id
         evicted = self.store.set_active_draft(conv_id, ActiveDraft(
             tool_name=tool_name,
             draft=draft,
             last_caption=caption[:400],
             created_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             symbol=_draft_primary_symbol(draft),
+            workflow_id=carried_wf_id,
         ))
         if evicted:
             logger.info(
@@ -4402,14 +4437,22 @@ class ChatService:
             return None
 
         from backend.services.tool_registry import execute as _registry_execute
+        # When the draft is anchored to an existing agent ("Edit with chat"),
+        # pass its id so register_workflow UPDATES that workflow in place
+        # (replace steps/name/description, bump version) instead of creating a
+        # duplicate. None anchor → unchanged create-new behaviour.
+        register_args: dict[str, Any] = {
+            "name": draft.get("name"),
+            "description": draft.get("description"),
+            "steps": draft.get("steps"),
+            "expires_at": draft.get("expires_at") or draft.get("valid_until"),
+        }
+        target_wf_id = getattr(active, "workflow_id", None)
+        if isinstance(target_wf_id, str) and target_wf_id.strip():
+            register_args["workflow_id"] = target_wf_id.strip()
         result = await _registry_execute(
             "register_workflow",
-            {
-                "name": draft.get("name"),
-                "description": draft.get("description"),
-                "steps": draft.get("steps"),
-                "expires_at": draft.get("expires_at") or draft.get("valid_until"),
-            },
+            register_args,
             kite_token=ctx.kite_token, db=ctx.db, user_id=ctx.user_id,
         )
         if not result.success:

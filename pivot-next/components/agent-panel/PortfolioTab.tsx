@@ -5,14 +5,15 @@
  *
  * Visuals ported from frontend-quartr/src/pages/Dashboard.jsx (PortfolioTab),
  * with the YieldTable section deliberately excluded per request. The data
- * path still uses pivot's existing API: getPortfolioSummary,
- * getPortfolioHoldings, getPortfolioPerformance, getIndexHistory.
+ * path uses pivot's existing API: getPortfolioSummary, getPortfolioHoldings,
+ * and getPortfolioPerformance (the REAL per-user historical value series).
  *
  * Sections (top → bottom):
  *   1. Page title (serif).
- *   2. Performance chart with range pills (1W / 1M / 3M / 6M / 1Y / 5Y / ALL),
- *      portfolio line + dashed NIFTY-50 benchmark, area fill, Y-axis labels,
- *      footer comparison strip (portfolio · benchmark · alpha).
+ *   2. Performance chart with range pills (1M / 3M / 6M / 1Y / 5Y), driven by
+ *      the real GET /api/portfolio/performance series — no synthetic line and
+ *      no fabricated benchmark; honest loading / error / empty states. The
+ *      footer strip below it is per-user (real total return + concentration).
  *   3. Holdings table (sortable, ticker tag with sector subtext).
  *   4. Asset Allocation — donut + legend across Market Cap / Sectors / Stocks.
  *   5. Diversification Score — your score vs community median, narrative line.
@@ -38,6 +39,14 @@ import {
   type PortfolioSummary,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import {
+  getPortfolioScores,
+  getPortfolioPerformance,
+  type PortfolioScoresResponse,
+  type PortfolioPerformance,
+  type PerformancePoint,
+  type PerformancePeriod,
+} from "@/lib/portfolioApi";
 import { useTradingMode } from "@/lib/trading-mode";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 
@@ -100,13 +109,6 @@ const PALETTE = [
 // Formatters
 // ---------------------------------------------------------------------------
 
-function fmtINR(v: number): string {
-  if (v >= 1e7) return `${(v / 1e7).toFixed(2)}Cr`;
-  if (v >= 1e5) return `${(v / 1e5).toFixed(2)}L`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
-  return `${Math.round(v)}`;
-}
-
 function fmtRupee(n: number, opts: { sign?: boolean; max?: number } = {}): string {
   const { sign = false, max = 0 } = opts;
   const abs = Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: max });
@@ -150,6 +152,10 @@ type PortfolioView = "overview" | "history";
 export function PortfolioTab(): React.ReactElement {
   const [view, setView] = useState<PortfolioView>("overview");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
+  // Bumped on every (re)load so the PortfolioScores panel re-fetches its
+  // /portfolio/scores data in lockstep with the summary + holdings (e.g. when
+  // the trading mode flips or the user retries).
+  const [scoresReloadKey, setScoresReloadKey] = useState(0);
   // Re-fetch whenever the global trading mode flips: getPortfolioSummary /
   // getPortfolioHoldings are mode-aware, so this swaps the page between real
   // and paper data with no other change.
@@ -157,6 +163,7 @@ export function PortfolioTab(): React.ReactElement {
 
   const load = (): void => {
     setState({ kind: "loading" });
+    setScoresReloadKey((k) => k + 1);
     Promise.all([getPortfolioSummary(), getPortfolioHoldings()])
       .then(([sumRes, holdRes]) => {
         if (isError(sumRes)) { setState({ kind: "error", message: sumRes.error.message }); return; }
@@ -278,7 +285,11 @@ export function PortfolioTab(): React.ReactElement {
 
       {view === "overview" && state.kind === "ok" && (
         <>
-          <PerformanceChart summary={state.summary} />
+          <PerformanceChart
+            summary={state.summary}
+            holdings={state.holdings}
+            reloadKey={scoresReloadKey}
+          />
 
           {/* Mobile-only P&L strip above the holdings (on desktop these
               figures already live in the top bar). */}
@@ -320,7 +331,7 @@ export function PortfolioTab(): React.ReactElement {
           </Section>
 
           <AssetAllocation holdings={state.holdings} />
-          <DiversificationScore holdings={state.holdings} />
+          <PortfolioScores reloadKey={scoresReloadKey} />
         </>
       )}
     </div>
@@ -420,65 +431,89 @@ function PortfolioValueHead({ summary }: { summary: PortfolioSummary }): React.R
 }
 
 // ---------------------------------------------------------------------------
-// PerformanceChart — Quartr-style demo chart.
+// PerformanceChart — real per-user portfolio value series.
 //
-// A deterministic seeded series scaled so the LAST point matches the live
-// portfolio total. No API is called here: matching Quartr's pattern from
-// frontend-quartr/src/components/portfolio/PerformanceChart.jsx.
+// The line is driven entirely by GET /api/portfolio/performance (qty × close
+// history summed across holdings, computed server-side). NO synthetic series
+// and NO fabricated benchmark — empty/failed fetches render honest states.
 // ---------------------------------------------------------------------------
 
-const RANGES: { id: string; days: number; label: string; longLabel: string }[] = [
-  { id: "1W",  days: 7,    label: "1W",  longLabel: "1 week"   },
-  { id: "1M",  days: 30,   label: "1M",  longLabel: "1 month"  },
-  { id: "3M",  days: 90,   label: "3M",  longLabel: "3 months" },
-  { id: "6M",  days: 180,  label: "6M",  longLabel: "6 months" },
-  { id: "1Y",  days: 365,  label: "1Y",  longLabel: "1 year"   },
-  { id: "5Y",  days: 1825, label: "5Y",  longLabel: "5 years"  },
-  { id: "ALL", days: 2555, label: "ALL", longLabel: "all time" },
+// Only the periods the backend actually serves (yfinance-backed). 1W and ALL
+// are intentionally absent: the endpoint can't produce them, so we don't fake
+// a label for a window it never computed.
+const RANGES: { id: PerformancePeriod; label: string; longLabel: string }[] = [
+  { id: "1M", label: "1M", longLabel: "1 month"  },
+  { id: "3M", label: "3M", longLabel: "3 months" },
+  { id: "6M", label: "6M", longLabel: "6 months" },
+  { id: "1Y", label: "1Y", longLabel: "1 year"   },
+  { id: "5Y", label: "5Y", longLabel: "5 years"  },
 ];
 
-/** Deterministic pseudo-random walk so the chart is stable across renders.
- *  Mirrors frontend-quartr/.../PerformanceChart.jsx::buildSeries. */
-function buildSeries(days: number, seed: number): number[] {
-  const out: number[] = [];
-  let v = 100;
-  for (let i = 0; i < days; i++) {
-    const r = Math.sin((i + seed) * 0.31) + Math.cos((i + seed) * 0.13);
-    const drift = 0.06;
-    const vol = 0.65;
-    v = Math.max(60, v + drift + r * vol);
-    out.push(v);
-  }
-  return out;
-}
-
-function fmtMonthAt(idx: number, totalDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - (totalDays - idx - 1));
+/** Format a chart point's ISO timestamp as "Mon 'YY" for the hover tooltip. */
+function fmtPointDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
 }
 
+type PerfState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "empty" }
+  | { kind: "ok"; perf: PortfolioPerformance };
+
 function PerformanceChart({
   summary,
+  holdings,
+  reloadKey,
 }: {
   summary: PortfolioSummary;
+  holdings: Holding[];
+  reloadKey: number;
 }): React.ReactElement {
-  const [rangeId, setRangeId] = useState<string>("1Y");
-  const range = RANGES.find((r) => r.id === rangeId) ?? RANGES[4]!;
-  const days = range.days;
-  const totalValue = summary.total_value;
+  const [rangeId, setRangeId] = useState<PerformancePeriod>("1Y");
+  const [perfState, setPerfState] = useState<PerfState>({ kind: "loading" });
+  // Bumped by Retry to force a re-fetch of the same range.
+  const [retryKey, setRetryKey] = useState(0);
 
-  // Build series scaled so the last portfolio point = live total_value.
-  const { port, bench } = useMemo(() => {
-    const rawP = buildSeries(days, 7);
-    const rawB = buildSeries(days, 21).map((v, i) => v * 0.95 + i * 0.005);
-    const liveTotal = totalValue || 800000;
-    const scaleP = liveTotal / rawP[rawP.length - 1]!;
-    const scaleB = (liveTotal * 0.94) / rawB[rawB.length - 1]!;
-    const portfolio = rawP.map((v) => v * scaleP);
-    const benchmark = rawB.map((v) => v * scaleB);
-    return { port: portfolio, bench: benchmark };
-  }, [days, totalValue]);
+  // Fetch the real series on range change and in lockstep with the parent
+  // load()/trading-mode flips (via reloadKey) and Retry (via retryKey). A
+  // stale guard drops responses from a superseded request so fast range
+  // toggles can't race.
+  useEffect(() => {
+    let active = true;
+    setPerfState({ kind: "loading" });
+    getPortfolioPerformance(rangeId)
+      .then((res) => {
+        if (!active) return;
+        if (isError(res)) {
+          // 404 == "no holdings" / no history → honest empty state, not a wall.
+          if (res.error.code === "http_404" || res.error.code === "not_found") {
+            setPerfState({ kind: "empty" });
+            return;
+          }
+          setPerfState({ kind: "error", message: res.error.message });
+          return;
+        }
+        const pts = res.data.points ?? [];
+        // A single point can't draw a line; treat as empty (honest).
+        if (pts.length < 2) {
+          setPerfState({ kind: "empty" });
+          return;
+        }
+        setPerfState({ kind: "ok", perf: res.data });
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        const msg = err instanceof Error ? err.message : "Network error";
+        setPerfState({ kind: "error", message: msg });
+      });
+    return () => {
+      active = false;
+    };
+  }, [rangeId, reloadKey, retryKey]);
+
+  const retry = (): void => setRetryKey((k) => k + 1);
 
   // Range pills — rendered top-right of the header on sm+, and below the
   // chart on phone (see the two breakpoint-gated wrappers below).
@@ -541,8 +576,20 @@ function PerformanceChart({
       </div>
 
       <div style={{ padding: "22px 0 0" }}>
-        <PerformanceSvg port={port} bench={bench} />
+        {perfState.kind === "loading" && <PerformanceChartSkeleton />}
+        {perfState.kind === "error" && (
+          <PerformanceChartError message={perfState.message} onRetry={retry} />
+        )}
+        {perfState.kind === "empty" && <PerformanceChartEmpty />}
+        {perfState.kind === "ok" && (
+          <PerformanceSvg points={perfState.perf.points} />
+        )}
       </div>
+
+      {/* Footer — dynamic, per-user. Driven entirely by the live summary +
+          holdings (never the seeded series): total return, holding count,
+          and the user's largest single-name / sector concentration. */}
+      <PerformanceFooter summary={summary} holdings={holdings} />
 
       {/* Pills below chart — phone only (full width, scrolls if needed). */}
       <div
@@ -602,12 +649,103 @@ function TipRow({
   );
 }
 
-function PerformanceSvg({
-  port,
-  bench,
+// Shared chart geometry so the loading skeleton, empty/error placeholders, and
+// the real line all occupy exactly the same box (no layout shift on resolve).
+const CHART_H = 190;
+
+/** Loading skeleton — same height as the chart so resolving doesn't jump. */
+function PerformanceChartSkeleton(): React.ReactElement {
+  return (
+    <div data-testid="portfolio-perf-loading" style={{ width: "100%" }}>
+      <Skeleton style={{ width: "100%", height: CHART_H, borderRadius: 10 }} />
+    </div>
+  );
+}
+
+/** Honest empty state — no history to draw, no fabricated line. */
+function PerformanceChartEmpty(): React.ReactElement {
+  return (
+    <div
+      data-testid="portfolio-perf-empty"
+      className="flex flex-col items-center justify-center text-center"
+      style={{
+        height: CHART_H,
+        border: "1px dashed var(--glass-border)",
+        borderRadius: 10,
+        padding: 16,
+      }}
+    >
+      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+        No performance history yet
+      </p>
+      <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
+        Once your holdings have price history, your portfolio value over time
+        will chart here.
+      </p>
+    </div>
+  );
+}
+
+/** Error state with a Retry that re-fetches the same range. */
+function PerformanceChartError({
+  message,
+  onRetry,
 }: {
-  port: number[];
-  bench: number[];
+  message: string;
+  onRetry: () => void;
+}): React.ReactElement {
+  return (
+    <div
+      role="alert"
+      data-testid="portfolio-perf-error"
+      className="flex flex-col items-center justify-center text-center"
+      style={{
+        height: CHART_H,
+        border: "1px solid var(--glass-border)",
+        borderRadius: 10,
+        padding: 16,
+      }}
+    >
+      <AlertCircle
+        className="mb-2 h-5 w-5"
+        style={{ color: "var(--color-loss)" }}
+        aria-hidden="true"
+      />
+      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+        Couldn&apos;t load performance
+      </p>
+      <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
+        {message}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 inline-flex items-center"
+        style={{
+          gap: 8,
+          padding: "5px 11px",
+          background: "transparent",
+          border: "1px solid var(--glass-border-hover)",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--text-primary)",
+          fontSize: 12,
+          fontWeight: 500,
+          cursor: "pointer",
+          transition:
+            "color 0.2s var(--ease-quartr), border-color 0.2s var(--ease-quartr)",
+        }}
+      >
+        <RefreshCw size={13} aria-hidden="true" />
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function PerformanceSvg({
+  points,
+}: {
+  points: PerformancePoint[];
 }): React.ReactElement {
   // Groww-style hover state — tracks the downsampled point under the cursor.
   // `null` means the user isn't currently over the chart, so the crosshair
@@ -637,54 +775,45 @@ function PerformanceSvg({
   // provides the value/date at any point on the curve, so the chrome
   // was just clutter. Padding shrunk accordingly (no axis labels to
   // accommodate).
-  const W = chartW, H = 190, padL = 0, padR = 4, padT = 8, padB = 8;
+  const W = chartW, H = CHART_H, padL = 0, padR = 4, padT = 8, padB = 8;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
 
   // Downsample to a fixed number of segments so the polyline reads as
   // discrete straight lines (like a typical stock chart), not a dense
-  // ~365-point trace that visually averages into a smooth curve.
+  // trace that visually averages into a smooth curve. We downsample the
+  // REAL points (keeping value + timestamp paired) — never synthesise.
   const TARGET_SEGMENTS = 52;
-  const downsample = (s: number[]): number[] => {
-    if (s.length <= TARGET_SEGMENTS + 1) return s;
-    const out: number[] = [];
+  const portDs = useMemo<PerformancePoint[]>(() => {
+    if (points.length <= TARGET_SEGMENTS + 1) return points;
+    const out: PerformancePoint[] = [];
     for (let i = 0; i <= TARGET_SEGMENTS; i++) {
-      const idx = Math.round((i / TARGET_SEGMENTS) * (s.length - 1));
-      out.push(s[idx]!);
+      const idx = Math.round((i / TARGET_SEGMENTS) * (points.length - 1));
+      out.push(points[idx]!);
     }
     return out;
-  };
-  const portDs = downsample(port);
-  const benchDs = downsample(bench);
+  }, [points]);
 
-  const all = [...portDs, ...benchDs];
-  const minV = Math.min(...all);
-  const maxV = Math.max(...all);
+  const values = portDs.map((p) => p.v);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
   const span = Math.max(1, maxV - minV);
 
   const xAt = (i: number): number => padL + (i / (portDs.length - 1)) * innerW;
   const yAt = (v: number): number => padT + (1 - (v - minV) / span) * innerH;
 
-  const buildPath = (s: number[]): string =>
-    s.map((v, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ");
-  const portPath = buildPath(portDs);
-  const benchPath = buildPath(benchDs);
-  const areaPath = `${portPath} L ${xAt(portDs.length - 1).toFixed(1)} ${(padT + innerH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(padT + innerH).toFixed(1)} Z`;
+  const portPath = portDs
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.v).toFixed(1)}`)
+    .join(" ");
 
-  const portReturnPct = ((port[port.length - 1]! - port[0]!) / port[0]!) * 100;
-  const benchReturnPct = ((bench[bench.length - 1]! - bench[0]!) / bench[0]!) * 100;
-  const alphaPct = portReturnPct - benchReturnPct;
-
-  // Green when portfolio is up over the range, red when down. Matches the
-  // P/L colors used everywhere else (--color-profit / --color-loss).
-  const isUp = portReturnPct >= 0;
+  // Line color follows the portfolio's REAL drift across the rendered window
+  // (first → last actual value). The numeric return shown to the user is the
+  // REAL total return from the live summary (PerformanceFooter).
+  const isUp = portDs[portDs.length - 1]!.v >= portDs[0]!.v;
   const lineColor = isUp ? "var(--color-profit)" : "var(--color-loss)";
 
   return (
     <>
-      {/* [y-label column | chart column] — the y-labels are physically
-          separated from the chart so the SVG can never overlap them
-          regardless of container width. */}
       <div style={{ width: "100%" }}>
         <div
           ref={chartColRef}
@@ -711,15 +840,6 @@ function PerformanceSvg({
             style={{ display: "block" }}
           >
             <path
-              d={benchPath}
-              fill="none"
-              stroke="var(--text-disabled)"
-              strokeWidth="1"
-              strokeDasharray="3 4"
-              strokeLinejoin="miter"
-              vectorEffect="non-scaling-stroke"
-            />
-            <path
               d={portPath}
               fill="none"
               stroke={lineColor}
@@ -730,24 +850,17 @@ function PerformanceSvg({
             />
           </svg>
 
-          {/* ── Hover overlay — Groww-style crosshair, dual dots, tooltip.
-              Crosshair and dots are rendered as positioned divs (not
+          {/* ── Hover overlay — Groww-style crosshair, dot, tooltip.
+              Crosshair and dot are rendered as positioned divs (not
               SVG elements) so they stay crisp regardless of how the
               `preserveAspectRatio="none"` SVG above is stretched. */}
           {hoverIdx !== null && (() => {
-            const portVal = portDs[hoverIdx]!;
-            const benchVal = benchDs[hoverIdx]!;
+            const pt = portDs[hoverIdx]!;
             // Position the crosshair within the chart's USABLE width
             // (innerW / W of the container, since padR sits to the right).
             const xPctOfChart = (xAt(hoverIdx) / innerW) * (innerW / W) * 100;
-            const portYPct = (yAt(portVal) / H) * 100;
-            const benchYPct = (yAt(benchVal) / H) * 100;
-            // Map the downsampled idx back to the original `port` array
-            // (port.length = days) so we can compute the calendar date.
-            const originalIdx = Math.round(
-              (hoverIdx / (portDs.length - 1)) * (port.length - 1),
-            );
-            const dateLabel = fmtMonthAt(originalIdx, port.length);
+            const portYPct = (yAt(pt.v) / H) * 100;
+            const dateLabel = fmtPointDate(pt.t);
             // Edge-clamp the tooltip so it doesn't disappear off the
             // sides of the chart.
             const tipAnchor: React.CSSProperties =
@@ -784,22 +897,6 @@ function PerformanceSvg({
                     background: lineColor,
                     border: "2px solid var(--bg-base)",
                     boxShadow: "0 0 0 1px rgba(0,0,0,0.06)",
-                    pointerEvents: "none",
-                  }}
-                />
-                <div
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: `${xPctOfChart}%`,
-                    top: `${benchYPct}%`,
-                    width: 8,
-                    height: 8,
-                    marginLeft: -4,
-                    marginTop: -4,
-                    borderRadius: "50%",
-                    background: "var(--text-disabled)",
-                    border: "2px solid var(--bg-base)",
                     pointerEvents: "none",
                   }}
                 />
@@ -841,14 +938,8 @@ function PerformanceSvg({
                   <TipRow
                     color={lineColor}
                     label="Portfolio"
-                    value={fmtRupee(portVal, { max: 0 })}
+                    value={fmtRupee(pt.v, { max: 0 })}
                     strong
-                  />
-                  <div style={{ height: 5 }} />
-                  <TipRow
-                    color="var(--text-disabled)"
-                    label="NIFTY 50"
-                    value={fmtRupee(benchVal, { max: 0 })}
                   />
                 </div>
               </>
@@ -856,47 +947,137 @@ function PerformanceSvg({
           })()}
         </div>
       </div>
-
-      {/* Footer comparison line — kept to a single row at every width via a
-          compact scale + nowrap (it's a small caption, so it reads fine even
-          on the narrowest phones). */}
-      <div
-        className="flex items-center"
-        style={{
-          marginTop: 10,
-          columnGap: 9,
-          fontSize: 11,
-          whiteSpace: "nowrap",
-          color: "var(--text-tertiary)",
-        }}
-      >
-        <span>
-          vs&nbsp;<span style={{ color: "var(--text-secondary)" }}>NIFTY&nbsp;50</span>
-        </span>
-        <PerfStat label="portfolio" value={portReturnPct} />
-        <PerfStat label="benchmark" value={benchReturnPct} />
-        <PerfStat label="alpha" value={alphaPct} />
-      </div>
     </>
   );
 }
 
-function PerfStat({
+// ---------------------------------------------------------------------------
+// PerformanceFooter — dynamic caption under the chart.
+//
+// Every figure here is REAL, drawn from the live portfolio summary +
+// holdings: total return %, holding count, and the user's largest single
+// position / sector by market value. No seeded series, no hardcoded names.
+// Honest empty state when the book is empty.
+// ---------------------------------------------------------------------------
+
+function PerformanceFooter({
+  summary,
+  holdings,
+}: {
+  summary: PortfolioSummary;
+  holdings: Holding[];
+}): React.ReactElement {
+  const stats = useMemo(() => {
+    const total = holdings.reduce((s, h) => s + holdingValue(h), 0);
+    if (holdings.length === 0 || total <= 0) {
+      return null;
+    }
+    // Largest single holding by market value.
+    let topHolding = holdings[0]!;
+    for (const h of holdings) {
+      if (holdingValue(h) > holdingValue(topHolding)) topHolding = h;
+    }
+    const topHoldingPct = (holdingValue(topHolding) / total) * 100;
+
+    // Largest sector by market value (uses the local SECTOR_MAP; unknown
+    // symbols fall into "Other" — same convention as Asset Allocation).
+    const bySector = new Map<string, number>();
+    for (const h of holdings) {
+      const sector = SECTOR_MAP[h.tradingsymbol] ?? "Other";
+      bySector.set(sector, (bySector.get(sector) ?? 0) + holdingValue(h));
+    }
+    let topSector = "Other";
+    let topSectorVal = -1;
+    for (const [sector, val] of bySector) {
+      if (val > topSectorVal) {
+        topSectorVal = val;
+        topSector = sector;
+      }
+    }
+    const topSectorPct = (topSectorVal / total) * 100;
+
+    return {
+      topSymbol: topHolding.tradingsymbol,
+      topHoldingPct,
+      topSector,
+      topSectorPct,
+    };
+  }, [holdings]);
+
+  if (!stats) {
+    return (
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 11,
+          color: "var(--text-tertiary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        No holdings yet — your performance summary will appear here once you
+        place a trade.
+      </div>
+    );
+  }
+
+  const returnPos = summary.total_pnl_pct >= 0;
+
+  return (
+    <div
+      className="flex flex-wrap items-center"
+      style={{
+        marginTop: 10,
+        columnGap: 14,
+        rowGap: 6,
+        fontSize: 11,
+        color: "var(--text-tertiary)",
+      }}
+      data-testid="portfolio-perf-footer"
+    >
+      <FooterStat
+        label="total return"
+        value={fmtPct(summary.total_pnl_pct)}
+        valueColor={returnPos ? "var(--color-profit)" : "var(--color-loss)"}
+      />
+      <FooterStat
+        label={summary.num_holdings === 1 ? "holding" : "holdings"}
+        value={String(summary.num_holdings)}
+      />
+      <FooterStat
+        label={`top — ${stats.topSymbol}`}
+        value={`${stats.topHoldingPct.toFixed(1)}%`}
+      />
+      <FooterStat
+        label={`sector — ${stats.topSector}`}
+        value={`${stats.topSectorPct.toFixed(1)}%`}
+      />
+    </div>
+  );
+}
+
+function FooterStat({
   label,
   value,
+  valueColor,
 }: {
   label: string;
-  value: number;
+  value: string;
+  valueColor?: string;
 }): React.ReactElement {
-  const pos = value >= 0;
-  const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
-    <span className="inline-flex items-center" style={{ gap: 4, fontFamily: "var(--font-mono)" }}>
-      <span style={{ color }}>
-        {pos ? "+" : ""}
-        {value.toFixed(1)}%
+    <span
+      className="inline-flex items-center"
+      style={{ gap: 4, whiteSpace: "nowrap" }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          color: valueColor ?? "var(--text-secondary)",
+        }}
+      >
+        {value}
       </span>
-      <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>{label}</span>
+      <span style={{ color: "var(--text-tertiary)" }}>{label}</span>
     </span>
   );
 }
@@ -1681,90 +1862,297 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
 }
 
 // ---------------------------------------------------------------------------
-// DiversificationScore — sector-HHI based, vs community median
+// PortfolioScores — diversification + portfolio + community score panel.
+//
+// Driven entirely by GET /portfolio/scores (real, on-read math). Renders three
+// 0-100 gauge cards with the sub-components + explainers the endpoint returns.
+// All three scores are null (reason "no_holdings") when the book is empty →
+// honest empty state, never fabricated gauges.
 // ---------------------------------------------------------------------------
 
-const COMMUNITY_SCORE = 58;
+type ScoresState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ok"; data: PortfolioScoresResponse };
 
-function computeScore(holdings: Holding[]): number {
-  if (!holdings || holdings.length === 0) return 0;
-  const total = holdings.reduce((s, h) => s + holdingValue(h), 0);
-  if (total <= 0) return 0;
-  const bySector = new Map<string, number>();
-  for (const h of holdings) {
-    const sector = SECTOR_MAP[h.tradingsymbol] ?? "Other";
-    bySector.set(sector, (bySector.get(sector) ?? 0) + holdingValue(h));
-  }
-  const weights = Array.from(bySector.values()).map((v) => v / total);
-  const hhi = weights.reduce((s, w) => s + w * w, 0);
-  const n = bySector.size;
-  const minHHI = 1 / Math.max(1, n);
-  const norm = (hhi - minHHI) / (1 - minHHI || 1);
-  return Math.round((1 - norm) * 100);
-}
+function PortfolioScores({ reloadKey }: { reloadKey: number }): React.ReactElement {
+  const [state, setState] = useState<ScoresState>({ kind: "loading" });
 
-function DiversificationScore({ holdings }: { holdings: Holding[] }): React.ReactElement {
-  const score = useMemo(() => computeScore(holdings), [holdings]);
-  const diff = score - COMMUNITY_SCORE;
-  const aboveMedian = diff >= 0;
+  const load = (): void => {
+    setState({ kind: "loading" });
+    getPortfolioScores()
+      .then((res) => {
+        if (isError(res)) {
+          setState({ kind: "error", message: res.error.message });
+          return;
+        }
+        setState({ kind: "ok", data: res.data });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Network error";
+        setState({ kind: "error", message: msg });
+      });
+  };
+
+  // Re-fetch when the trading mode / holdings change (reloadKey is driven by
+  // the same `mode` that re-loads the summary + holdings above).
+  useEffect(() => {
+    load();
+  }, [reloadKey]);
 
   return (
-    <Section label="Diversification">
-      <Card padding="22px 24px">
-        <div className="flex flex-col" style={{ gap: 12, marginBottom: 16 }}>
-          <ScoreBar
-            label="Your Portfolio Score"
-            value={score}
-            color={aboveMedian ? "var(--pivot-blue)" : "var(--color-loss)"}
-          />
-          <ScoreBar
-            label="Community Score"
-            value={COMMUNITY_SCORE}
-            color="var(--text-secondary)"
-          />
+    <Section label="Portfolio Scores">
+      {state.kind === "loading" && (
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: 16,
+          }}
+          data-testid="portfolio-scores-loading"
+        >
+          {[0, 1, 2].map((i) => (
+            <Card key={i} padding="22px 24px">
+              <Skeleton style={{ height: 14, width: "55%", marginBottom: 16 }} />
+              <Skeleton style={{ height: 36, width: "40%", marginBottom: 16 }} />
+              <Skeleton style={{ height: 8, width: "100%", marginBottom: 14 }} />
+              <Skeleton style={{ height: 12, width: "90%" }} />
+            </Card>
+          ))}
         </div>
-        <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-          Your portfolio&apos;s diversification score is{" "}
-          <strong style={{ color: "var(--text-primary)", fontWeight: 550 }}>{score}%</strong>, while
-          the community median is{" "}
-          <strong style={{ color: "var(--text-primary)", fontWeight: 550 }}>{COMMUNITY_SCORE}%</strong>,
-          meaning your holdings are{" "}
-          <strong
-            style={{
-              color: aboveMedian ? "var(--pivot-blue)" : "var(--color-loss)",
-              fontWeight: 550,
-            }}
+      )}
+
+      {state.kind === "error" && (
+        <Card padding="22px 24px">
+          <div
+            className="flex flex-col items-center justify-center text-center"
+            role="alert"
+            data-testid="portfolio-scores-error"
+            style={{ gap: 8, padding: "12px 0" }}
           >
-            {aboveMedian ? "more" : "less"} diversified
-          </strong>
-          {" "}compared to the broader community.
-        </div>
-      </Card>
+            <AlertCircle
+              size={20}
+              aria-hidden="true"
+              style={{ color: "var(--color-loss)" }}
+            />
+            <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+              Couldn&apos;t load your scores
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{state.message}</p>
+            <button
+              type="button"
+              onClick={load}
+              className="mt-2 inline-flex items-center"
+              style={{
+                gap: 6,
+                padding: "6px 12px",
+                background: "transparent",
+                border: "1px solid var(--glass-border-hover)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--text-primary)",
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              <RefreshCw size={13} aria-hidden="true" />
+              Retry
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {state.kind === "ok" && <ScoresPanel data={state.data} />}
     </Section>
   );
 }
 
-function ScoreBar({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}): React.ReactElement {
+function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactElement {
+  const empty =
+    data.reason === "no_holdings" ||
+    (!data.diversification_score &&
+      !data.portfolio_score &&
+      !data.community_score);
+
+  if (empty) {
+    return (
+      <Card padding="22px 24px">
+        <div
+          className="flex flex-col items-center justify-center py-8 text-center"
+          data-testid="portfolio-scores-empty"
+        >
+          <Wallet
+            size={26}
+            aria-hidden="true"
+            style={{ color: "var(--text-tertiary)", marginBottom: 10 }}
+          />
+          <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+            Add holdings to see your scores
+          </p>
+          <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4, maxWidth: 320 }}>
+            Once you hold positions, we&apos;ll score your diversification,
+            overall portfolio quality, and how it stacks up against a benchmark.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
+  const div = data.diversification_score;
+  const pf = data.portfolio_score;
+  const comm = data.community_score;
+
   return (
     <div
-      className="portfolio-meter-row"
+      className="grid"
       style={{
-        width: "100%",
-        display: "grid",
-        gridTemplateColumns: "200px minmax(0, 1fr) 64px",
-        alignItems: "center",
-        gap: 18,
+        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+        gap: 16,
       }}
+      data-testid="portfolio-scores-panel"
     >
-      <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 500 }}>{label}</span>
+      {/* Diversification */}
+      {div && (
+        <ScoreCard
+          title="Diversification"
+          score={div.score}
+          color="var(--pivot-blue)"
+          explainer={div.explainer}
+          rows={[
+            { label: "Holdings", value: String(div.components.n_holdings) },
+            { label: "Sectors", value: String(div.components.n_sectors) },
+            {
+              label: "Top sector",
+              value: `${div.components.top_sector_pct.toFixed(1)}%`,
+            },
+            {
+              label: "Top holding",
+              value: `${div.components.top_holding_pct.toFixed(1)}%`,
+            },
+            { label: "HHI", value: div.components.hhi.toFixed(3) },
+          ]}
+        />
+      )}
+
+      {/* Portfolio score */}
+      {pf && (
+        <ScoreCard
+          title="Portfolio Score"
+          score={pf.score}
+          color="var(--color-profit)"
+          explainer={pf.explainer}
+          rows={[
+            {
+              label: "Diversification",
+              value: pf.components.subscores.diversification.toFixed(0),
+            },
+            {
+              label: "Concentration",
+              value: pf.components.subscores.concentration_penalty.toFixed(0),
+            },
+            ...(pf.components.performance_available &&
+            pf.components.subscores.performance !== undefined
+              ? [
+                  {
+                    label: "Performance",
+                    value: pf.components.subscores.performance.toFixed(0),
+                  },
+                ]
+              : []),
+            ...(pf.components.total_return_pct !== null
+              ? [
+                  {
+                    label: "Total return",
+                    value: fmtPct(pf.components.total_return_pct),
+                    valueColor:
+                      pf.components.total_return_pct >= 0
+                        ? "var(--color-profit)"
+                        : "var(--color-loss)",
+                  },
+                ]
+              : [
+                  {
+                    label: "Total return",
+                    value: "no NAV history",
+                  },
+                ]),
+          ]}
+        />
+      )}
+
+      {/* Community score */}
+      {comm && (
+        <ScoreCard
+          title="Community Score"
+          score={comm.score}
+          color="var(--text-secondary)"
+          explainer={comm.explainer}
+          rows={[
+            {
+              label: "Percentile",
+              value: `${comm.percentile.toFixed(0)}th`,
+            },
+            { label: "Basis", value: comm.basis, wrap: true },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+type ScoreRow = {
+  label: string;
+  value: string;
+  valueColor?: string;
+  /** When true, allow the value to wrap onto multiple lines (e.g. "basis"). */
+  wrap?: boolean;
+};
+
+function ScoreCard({
+  title,
+  score,
+  color,
+  explainer,
+  rows,
+}: {
+  title: string;
+  score: number;
+  color: string;
+  explainer: string;
+  rows: ScoreRow[];
+}): React.ReactElement {
+  const clamped = Math.max(0, Math.min(100, score));
+  return (
+    <Card padding="22px 24px">
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: "var(--weight-display)" as unknown as number,
+            fontSize: 13,
+            letterSpacing: "-0.02em",
+            color: "var(--text-primary)",
+          }}
+        >
+          {title}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--font-serif)",
+            fontWeight: 500,
+            fontSize: 26,
+            lineHeight: 1,
+            letterSpacing: "-0.02em",
+            fontVariantNumeric: "tabular-nums",
+            color: "var(--text-primary)",
+          }}
+        >
+          {clamped}
+          <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>/100</span>
+        </span>
+      </div>
+
+      {/* 0-100 meter */}
       <div
         style={{
           position: "relative",
@@ -1772,30 +2160,62 @@ function ScoreBar({
           background: "var(--bg-elevated)",
           borderRadius: 999,
           overflow: "hidden",
+          marginBottom: 16,
         }}
       >
         <div
           style={{
             position: "absolute",
             inset: 0,
-            width: `${Math.max(0, Math.min(100, value))}%`,
+            width: `${clamped}%`,
             background: color,
             borderRadius: 999,
             transition: "width 0.6s var(--ease-quartr)",
           }}
         />
       </div>
-      <span
+
+      {/* Sub-components */}
+      <div className="flex flex-col" style={{ gap: 7, marginBottom: 14 }}>
+        {rows.map((r) => (
+          <div
+            key={r.label}
+            className="flex items-baseline justify-between"
+            style={{ gap: 14 }}
+          >
+            <span
+              style={{ fontSize: 11.5, color: "var(--text-tertiary)", flexShrink: 0 }}
+            >
+              {r.label}
+            </span>
+            <span
+              style={{
+                fontFamily: r.wrap ? "var(--font-ui)" : "var(--font-mono)",
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: r.valueColor ?? "var(--text-secondary)",
+                textAlign: "right",
+                whiteSpace: r.wrap ? "normal" : "nowrap",
+              }}
+            >
+              {r.value}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <p
         style={{
-          textAlign: "right",
-          fontFamily: "var(--font-mono)",
-          fontSize: 12.5,
-          color: "var(--text-primary)",
+          fontSize: 12,
+          lineHeight: 1.55,
+          color: "var(--text-secondary)",
+          paddingTop: 12,
+          borderTop: "1px solid var(--glass-border)",
         }}
       >
-        {value}/100
-      </span>
-    </div>
+        {explainer}
+      </p>
+    </Card>
   );
 }
 

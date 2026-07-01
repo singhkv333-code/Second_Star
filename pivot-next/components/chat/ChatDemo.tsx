@@ -668,6 +668,14 @@ export function ChatDemo({
    *  finally block. */
   const abortRef = useRef<AbortController | null>(null);
   /**
+   * One-shot edit target seeded by "Edit with chat" from the Agents grid.
+   * Carries the EXACT workflow (incl. steps) the user clicked, so the next
+   * outgoing turn attaches it as `editor_draft` and the backend amends THAT
+   * agent — never guessing from the free-text name. Cleared after the first
+   * submit so it can't bleed into an unrelated later message.
+   */
+  const seededEditDraftRef = useRef<WorkflowDraft | null>(null);
+  /**
    * Index of the active clarify message in `messages`. Used to UPDATE the
    * same message in-place when a clarify answer returns another clarify card
    * (deduplication — the user sees a single card that paged locally, not a
@@ -802,10 +810,17 @@ export function ChatDemo({
   // follow-up to the workflow tool rather than a generic answer.
   useEffect(() => {
     const onSeed = (e: Event): void => {
-      const detail = (e as CustomEvent<{ text?: string; mode?: ChatMode }>).detail;
+      const detail = (e as CustomEvent<{
+        text?: string;
+        mode?: ChatMode;
+        draft?: WorkflowDraft;
+      }>).detail;
       if (!detail?.text) return;
       setIntent(detail.text);
       if (detail.mode !== undefined) setMode(detail.mode);
+      // Stash the exact agent to amend (if supplied) — consumed once on the
+      // next submit so the backend targets THIS workflow's steps.
+      seededEditDraftRef.current = detail.draft ?? null;
       // Focus + move the caret to the end after the value settles so the
       // user can keep typing where the seed left off.
       requestAnimationFrame(() => {
@@ -1168,10 +1183,13 @@ export function ChatDemo({
       // set inside the setter above — wait one tick for the flush.
       await Promise.resolve();
 
-      // Build the editor_draft payload: only include it when the panel is
-      // open and bound to an unsaved draft — converts Workflow → WorkflowDraft
-      // shape so the backend contract is satisfied.
-      const editorDraft: WorkflowDraft | null =
+      // Build the editor_draft payload. Priority:
+      //   1. The unsaved draft open in the editor panel (live editing).
+      //   2. The one-shot "Edit with chat" target seeded from the Agents grid
+      //      — consumed exactly once so the backend amends THAT exact agent's
+      //      steps rather than guessing from the message text.
+      // Converts Workflow → WorkflowDraft shape so the backend contract holds.
+      const panelDraft: WorkflowDraft | null =
         panelOpenWithDraft && activeEditorDraft
           ? {
               name: activeEditorDraft.name,
@@ -1186,6 +1204,10 @@ export function ChatDemo({
               _render_hint: "workflow_draft_card",
             }
           : null;
+      const editorDraft: WorkflowDraft | null =
+        panelDraft ?? seededEditDraftRef.current;
+      // Consume the one-shot seed so it never leaks into a later, unrelated turn.
+      seededEditDraftRef.current = null;
 
       const gen = streamChat(
         trimmed,

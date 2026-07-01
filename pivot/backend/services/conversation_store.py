@@ -109,6 +109,12 @@ class ActiveDraft:
     # when no symbol could be derived (the draft is still usable via
     # the single most-recent slot).
     symbol: str = ""
+    # Edit-target anchor. Set only when this draft is an amendment of an
+    # EXISTING saved workflow ("Edit with chat" seeds the editor_draft with
+    # the clicked workflow's id). On register/Save the deterministic path
+    # UPDATES that workflow in place instead of creating a duplicate. None
+    # for from-scratch drafts proposed in chat.
+    workflow_id: Optional[str] = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), default=str)
@@ -118,6 +124,7 @@ class ActiveDraft:
         data = json.loads(raw if isinstance(raw, str) else raw.decode())
         known = {
             "tool_name", "draft", "last_caption", "created_at_iso", "symbol",
+            "workflow_id",
         }
         return cls(**{k: v for k, v in data.items() if k in known})
 
