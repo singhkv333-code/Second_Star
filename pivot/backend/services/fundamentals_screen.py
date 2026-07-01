@@ -663,4 +663,91 @@ def fetch_gate_inputs(
             mf: (round(float(row[1 + i]), 4) if row[1 + i] is not None else None)
             for i, mf in enumerate(_GATE_FIELDS)
         }
+
+    # ── 3. yfinance fallback for symbols the MC batch cannot serve ──
+    # Two failure modes converge on the same all-null gate row: (a) the
+    # symbol never resolved to any mc.companies sc_id (SBIN has no row at
+    # all; ICICIBANK's ticker maps only to impostors filtered out above),
+    # and (b) the sc_id has profit_loss data but NO 'ratios' rows (TCS,
+    # INFY, HDFCBANK, HINDUNILVR are all in this bucket — verified against
+    # the live Azure DB: 0 ratios rows despite hundreds of P&L rows).
+    # Neither is fixable by better symbol resolution — we go to yfinance,
+    # the same source `routers/financials.py` uses for the single-stock
+    # page's ratio-fallback block. Never overwrite an MC value with the
+    # yfinance one; only fill genuine nulls.
+    missing: list[str] = []
+    for sym in syms:
+        rec = out.get(sym)
+        if rec is None:
+            missing.append(sym)
+            continue
+        if rec.get("pe") is None and rec.get("roe") is None:
+            missing.append(sym)
+
+    if not missing:
+        return out
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from backend.market import yfinance_fundamentals as yff  # lazy: avoid circular import
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[fundamentals_screen] yfinance fallback unavailable: %s", exc)
+        return out
+
+    def _fetch_one(symbol: str) -> tuple[str, dict[str, float | None] | None]:
+        """Pull latest.pe/latest.roe from yfinance. Every failure returns None
+        so the caller leaves the symbol's ratios null (honest-null contract).
+        The underlying `yff.fetch_fundamentals` is Redis-cached (1h) already —
+        we do NOT layer a second cache."""
+        try:
+            data = yff.fetch_fundamentals(symbol) or {}
+            latest = data.get("latest") or {}
+            pe_pt = latest.get("pe") or {}
+            roe_pt = latest.get("roe") or {}
+            pe = pe_pt.get("value") if isinstance(pe_pt, dict) else None
+            roe = roe_pt.get("value") if isinstance(roe_pt, dict) else None
+            if pe is None and roe is None:
+                return symbol, None
+            return symbol, {
+                "pe": round(float(pe), 4) if pe is not None else None,
+                "roe": round(float(roe), 4) if roe is not None else None,
+            }
+        except Exception as exc:  # noqa: BLE001 — yfinance throws assorted
+            logger.debug(
+                "[fundamentals_screen] yfinance fallback failed for %s: %s",
+                symbol, str(exc)[:120],
+            )
+            return symbol, None
+
+    # ~130-200 curated names — a serial loop would add seconds of network
+    # latency to every cold page. Cap workers to keep it neighbourly to
+    # yfinance and Redis; the module-level 1h cache absorbs the rest.
+    fallback: dict[str, dict[str, float | None]] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for sym, rec in pool.map(_fetch_one, missing):
+            if rec is not None:
+                fallback[sym] = rec
+
+    for sym, extra in fallback.items():
+        existing = out.get(sym)
+        if existing is None:
+            # Symbol wasn't in the MC batch at all — synthesise a full row
+            # with the yfinance-served ratios and honest nulls for roce/de
+            # (yfinance doesn't publish ROCE; MC-derived D/E we skip here
+            # because it wasn't the reported bug and would need shape
+            # translation — leave as null under the honest-null contract).
+            out[sym] = {
+                "roe": extra.get("roe"),
+                "roce": None,
+                "de": None,
+                "pe": extra.get("pe"),
+            }
+        else:
+            # MC-first: only fill genuine nulls, never overwrite.
+            if existing.get("pe") is None and extra.get("pe") is not None:
+                existing["pe"] = extra["pe"]
+            if existing.get("roe") is None and extra.get("roe") is not None:
+                existing["roe"] = extra["roe"]
+
     return out

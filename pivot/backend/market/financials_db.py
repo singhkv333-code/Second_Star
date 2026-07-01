@@ -26,9 +26,10 @@ Design choices
 from __future__ import annotations
 
 import ast
+from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import date
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -282,6 +283,18 @@ def resolve_symbol(symbol: str, *, session: Session | None = None) -> str | None
       3. exact `nse_symbol` match (case-insensitive)
       4. exact `bse_code` match
       5. case-insensitive `company_name` exact match
+      6. enrich-DB ticker → sc_id bridge (see below)
+
+    Step 6 exists because `mc.companies.nse_symbol` is NULL on 11,246 of 11,256
+    rows and `.ticker` is populated on only ~3,020, so some real trading names
+    (e.g. TCS's own row historically had both fields NULL) can't be found by
+    the mc-only lookup. The `pivot_enrich` sibling DB was built exactly to
+    bridge that gap via an offline yfinance name-matching pass
+    (`scripts/map_no_ticker_companies.py`), keyed by `sc_id`. We consult it
+    only after the mc-only path returns nothing, and we re-verify the sc_id
+    still exists in `mc.companies` because the two DBs live on different
+    physical hosts — we can't SQL-join across them. Any hiccup on the enrich
+    DB fails soft (like every other branch in this function).
 
     Returns None when nothing matches — caller decides whether that's fatal.
     """
@@ -308,7 +321,30 @@ def resolve_symbol(symbol: str, *, session: Session | None = None) -> str | None
             ),
             {"s": sym},
         ).fetchone()
-        return row[0] if row else None
+        if row:
+            return row[0]
+
+        # Step 6: enrich-DB fallback. Additive — never restructures the SQL
+        # above; only runs when the mc-only path missed.
+        try:
+            from backend.market import enrich_db
+
+            if enrich_db.is_enabled():
+                enr = enrich_db.get_by_ticker(sym)
+                if enr is not None:
+                    confirmed = s.execute(
+                        text(
+                            "SELECT sc_id FROM mc.companies WHERE sc_id = :id"
+                        ),
+                        {"id": enr.sc_id},
+                    ).fetchone()
+                    if confirmed:
+                        return confirmed[0]
+        except Exception:
+            # enrich hiccup can never break symbol resolution — every other
+            # branch here fails soft too.
+            pass
+        return None
     finally:
         if owns:
             s.close()
@@ -688,6 +724,135 @@ def get_fundamental_history(
     finally:
         if owns:
             s.close()
+
+
+def get_company_fundamentals_bulk(
+    sc_id: str,
+    *,
+    fields: Sequence[str],
+    history_fields: Sequence[str] = (),
+    history_limit: int = 12,
+    basis: str = "consolidated",
+    as_of_date: date | None = None,
+    session: Session | None = None,
+) -> tuple[dict[str, "FundamentalValue | None"], dict[str, list["FundamentalValue"]]]:
+    """Latest snapshot + multi-year history for MANY fields in ONE query.
+
+    Replaces the N+1 pattern of calling :func:`get_fundamental` /
+    :func:`get_fundamental_history` once per field — each opened its own session,
+    re-resolved the symbol, and made 1-2 Azure round-trips, so the stock-detail
+    page's ~36 fields cost ~36+ sequential round-trips (~7s). Here we fetch every
+    candidate ``statement_lines`` row for the company in a single query and do the
+    per-field selection in Python, **preserving the exact basis-preference /
+    latest-period / synonym-priority semantics** of the single-field helpers:
+
+      * basis: prefer ``basis`` (consolidated); fall back to the other basis only
+        when the preferred one has no matching row for that field;
+      * latest: newest ``period_end`` (NULLS LAST), tie-broken by
+        ``availability_date`` DESC;
+      * history: one row per ``period_end`` (synonym-priority on ties), newest
+        first, capped at ``history_limit``.
+
+    Returns ``(latest, history)`` of :class:`FundamentalValue` objects, matching
+    what the per-field helpers returned.
+    """
+    other = "standalone" if basis == "consolidated" else "consolidated"
+    latest_fields = [f for f in fields if f in FIELD_MAP]
+    hist_fields = [f for f in history_fields if f in FIELD_MAP]
+    used = set(latest_fields) | set(hist_fields)
+    if not used:
+        return ({f: None for f in latest_fields}, {f: [] for f in hist_fields})
+
+    # Union of statements + line-item synonyms we need → bounds the single fetch.
+    want_stmts = sorted({FIELD_MAP[f][0] for f in used})
+    want_items = sorted({li for f in used for li in FIELD_MAP[f][1]})
+
+    owns = session is None
+    s = session or _session()
+    try:
+        rows = (
+            s.execute(
+                text(
+                    """
+                    SELECT statement, basis, line_item, period_label, period_end,
+                           availability_date, value_numeric, value_text, unit
+                    FROM mc.statement_lines
+                    WHERE sc_id = :sc
+                      AND value_numeric IS NOT NULL
+                      AND statement::text = ANY(:stmts)
+                      AND line_item = ANY(:items)
+                      AND (:as_of IS NULL OR availability_date <= :as_of)
+                    """
+                ),
+                {
+                    "sc": sc_id,
+                    "stmts": want_stmts,
+                    "items": want_items,
+                    "as_of": as_of_date,
+                },
+            )
+            .mappings()
+            .all()
+        )
+    finally:
+        if owns:
+            s.close()
+
+    by_stmt: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        by_stmt[r["statement"]].append(r)
+
+    def _fv(r: dict, field: str) -> FundamentalValue:
+        return FundamentalValue(
+            sc_id=sc_id,
+            field=field,
+            line_item=r["line_item"],
+            statement=r["statement"],
+            basis=r["basis"],
+            period_label=r["period_label"],
+            period_end=r["period_end"],
+            availability_date=r["availability_date"],
+            value_numeric=float(r["value_numeric"]) if r["value_numeric"] is not None else None,
+            value_text=r["value_text"],
+            unit=r["unit"],
+        )
+
+    def _candidates(field: str) -> list[dict]:
+        stmt, syns = FIELD_MAP[field]
+        syn_set = set(syns)
+        cands = [r for r in by_stmt.get(stmt, ()) if r["line_item"] in syn_set]
+        cons = [r for r in cands if r["basis"] == basis]
+        return cons if cons else [r for r in cands if r["basis"] == other]
+
+    _MIN = date.min
+
+    def _latest_key(r: dict) -> tuple:
+        pe, av = r["period_end"], r["availability_date"]
+        return (pe is not None, pe or _MIN, av is not None, av or _MIN)
+
+    latest: dict[str, FundamentalValue | None] = {}
+    for field in latest_fields:
+        cands = _candidates(field)
+        latest[field] = _fv(max(cands, key=_latest_key), field) if cands else None
+
+    history: dict[str, list[FundamentalValue]] = {}
+    for field in hist_fields:
+        _, syns = FIELD_MAP[field]
+        syn_pos = {li: i for i, li in enumerate(syns)}
+        best_by_pe: dict[object, tuple[int, dict]] = {}
+        for r in _candidates(field):
+            if r["period_end"] is None:
+                continue
+            pos = syn_pos.get(r["line_item"], 1 << 30)
+            cur = best_by_pe.get(r["period_end"])
+            if cur is None or pos < cur[0]:
+                best_by_pe[r["period_end"]] = (pos, r)
+        ordered = sorted(
+            best_by_pe.values(), key=lambda t: t[1]["period_end"], reverse=True
+        )
+        history[field] = [_fv(r, field) for _, r in ordered[:history_limit]]
+
+    return latest, history
 
 
 def get_ohlcv(

@@ -127,12 +127,13 @@ class OhlcResponse(BaseModel):
 
 class MetricPoint(BaseModel):
     t: datetime    # timestamp
-    v: float       # metric value (PE multiple, EV/EBITDA multiple, …)
+    v: float       # metric value (PE multiple, market cap in ₹ Cr, revenue in ₹ Cr, …)
+    margin: float | None = None  # optional secondary series (used by sales_margin for net-profit-margin %)
 
 
 class MetricSeriesResponse(BaseModel):
     symbol: str
-    metric: str            # "pe" | "ev_ebitda"
+    metric: str            # "pe" | "market_cap" | "sales_margin"
     range: str
     available: bool        # false → caller shows an honest empty state
     points: list[MetricPoint]
@@ -270,6 +271,18 @@ def get_quote(
     if cached is not None:
         return cached
 
+    # Kite tick miss → the yfinance path below makes a slow `.info` call (~1-2s).
+    # Cache the resulting (already delayed, live=False) snapshot briefly so repeat
+    # loads and duplicate concurrent fetches don't each pay it. Live Kite ticks
+    # bypass this entirely (handled above), so real-time freshness is unaffected.
+    _q_key = f"quote:yf:v1:{exchange}:{sym}"
+    try:
+        _raw = redis_client.get(_q_key)
+        if _raw:
+            return StockQuote.model_validate_json(_raw)
+    except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
+        pass
+
     # [C4] resolve_symbol maps index aliases (NIFTY→^NSEI, SENSEX→^BSESN,
     # BANKNIFTY→^NSEBANK) and shorthand (RIL→RELIANCE) to real yfinance
     # tickers. The old naive ".NS" suffix produced dead tickers
@@ -309,7 +322,7 @@ def get_quote(
     change = ltp - prev_close
     change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
 
-    return StockQuote(
+    quote = StockQuote(
         symbol=sym,
         name=str(info.get("longName") or info.get("shortName") or sym),
         exchange=exchange,
@@ -332,12 +345,21 @@ def get_quote(
         live=False,
         source="yfinance",
     )
+    try:
+        redis_client.setex(_q_key, _QUOTE_CACHE_TTL_SECONDS, quote.model_dump_json())
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        pass
+    return quote
 
 
 # Max age of a Redis-cached tick we'll treat as "live". The ticker
 # pushes ~1 msg/sec/symbol on a busy stock, so 5s is generous; the
 # scheduler/quoting fallback handles older entries.
 _KITE_TICK_FRESH_SECONDS = 5
+
+# TTL for the cached yfinance (delayed) quote snapshot — short enough that the
+# detail page stays fresh, long enough to absorb repeat loads + duplicate fetches.
+_QUOTE_CACHE_TTL_SECONDS = 20
 
 
 def _read_cached_kite_tick(symbol: str) -> StockQuote | None:
@@ -692,7 +714,7 @@ def _cached_52w(symbol: str) -> tuple[float | None, float | None]:
     return hi, lo
 
 
-# ── Metric series (PE / EV-EBITDA over time, for the chart toggle) ────
+# ── Metric series (PE / Market Cap / Sales & Margin over time, for chart toggle) ────
 
 
 from datetime import date as _date  # noqa: E402
@@ -771,66 +793,124 @@ def _pe_series(sym: str, prices: list[tuple[datetime, float]]) -> tuple[list[Met
     return pts, (source if pts else "none")
 
 
-def _ev_ebitda_series(sym: str, prices: list[tuple[datetime, float]]) -> tuple[list[MetricPoint], str]:
+def _market_cap_series(sym: str, prices: list[tuple[datetime, float]]) -> tuple[list[MetricPoint], str]:
+    """Market cap over time (₹ Cr) = close_price × shares_outstanding / 1e7.
+
+    Shares outstanding is a slow-moving figure sourced from yfinance's per-ticker
+    fundamentals — we treat it as constant across the chart's window (good enough
+    for a visual trend; buy-backs / splits are rare enough that the small residual
+    error is preferable to fabricating a share-count history yfinance doesn't ship).
+    """
     from backend.market import yfinance_fundamentals as yff
     f = yff.fetch_fundamentals(sym)
     shares = f.get("shares")
-    ebitda_hist = f.get("history", {}).get("ebitda") or []
-    debt_hist = f.get("history", {}).get("total_debt") or []
-    cash_hist = f.get("history", {}).get("cash") or []
-    if not shares or not ebitda_hist:
+    if not shares:
         return [], "none"
+    pts: list[MetricPoint] = [
+        MetricPoint(t=ts, v=round(close * shares / 1e7, 2))
+        for ts, close in prices
+    ]
+    return pts, ("yfinance" if pts else "none")
 
-    ebitda_steps: list[tuple[_date, float]] = []
-    for p in ebitda_hist:
-        d = _to_date(p.get("period_end"))
-        if d is not None and p.get("value") is not None:
-            ebitda_steps.append((d, float(p["value"])))  # ₹ Cr
-    ebitda_steps.sort(key=lambda s: s[0])
 
-    cash_by: dict[_date, float] = {}
-    for p in cash_hist:
-        d = _to_date(p.get("period_end"))
-        if d is not None and p.get("value") is not None:
-            cash_by[d] = float(p["value"])
-    netdebt_steps: list[tuple[_date, float]] = []
-    for p in debt_hist:
-        d = _to_date(p.get("period_end"))
-        if d is not None and p.get("value") is not None:
-            netdebt_steps.append((d, float(p["value"]) - cash_by.get(d, 0.0)))  # ₹ Cr
-    netdebt_steps.sort(key=lambda s: s[0])
+def _revenue_steps(sym: str) -> tuple[list[tuple[_date, float]], str]:
+    """Annual revenue (₹ Cr) steps ascending, MC-primary then yfinance."""
+    from backend.market import financials_db as fdb
+    try:
+        rows = fdb.get_fundamental_history(sym, "revenue", limit=12)
+    except Exception:
+        rows = []
+    steps: list[tuple[_date, float]] = []
+    for r in rows:
+        if r.value_numeric is None:
+            continue
+        d = _to_date(r.availability_date) or _to_date(r.period_end)
+        if d is not None:
+            steps.append((d, float(r.value_numeric)))
+    if steps:
+        steps.sort(key=lambda s: s[0])
+        return steps, "moneycontrol"
 
+    # yfinance fallback — values in ₹ Cr per yfinance_fundamentals._CR_FIELDS.
+    from backend.market import yfinance_fundamentals as yff
+    f = yff.fetch_fundamentals(sym)
+    for p in (f.get("history", {}).get("revenue") or []):
+        d = _to_date(p.get("period_end"))
+        v = p.get("value")
+        if d is not None and v is not None:
+            steps.append((d, float(v)))
+    steps.sort(key=lambda s: s[0])
+    return steps, ("yfinance" if steps else "none")
+
+
+def _margin_steps(sym: str) -> list[tuple[_date, float]]:
+    """Net-profit-margin (%) steps ascending, MC-primary then yfinance;
+    falls back to ebitda_margin when net-profit-margin has no rows."""
+    from backend.market import financials_db as fdb
+    steps: list[tuple[_date, float]] = []
+    for metric_key in ("net_profit_margin", "ebitda_margin"):
+        try:
+            rows = fdb.get_fundamental_history(sym, metric_key, limit=12)
+        except Exception:
+            rows = []
+        for r in rows:
+            if r.value_numeric is None:
+                continue
+            d = _to_date(r.availability_date) or _to_date(r.period_end)
+            if d is not None:
+                steps.append((d, float(r.value_numeric)))
+        if steps:
+            steps.sort(key=lambda s: s[0])
+            return steps
+
+    # yfinance fallback
+    from backend.market import yfinance_fundamentals as yff
+    f = yff.fetch_fundamentals(sym)
+    for key in ("net_profit_margin", "ebitda_margin"):
+        for p in (f.get("history", {}).get(key) or []):
+            d = _to_date(p.get("period_end"))
+            v = p.get("value")
+            if d is not None and v is not None:
+                steps.append((d, float(v)))
+        if steps:
+            steps.sort(key=lambda s: s[0])
+            return steps
+    return steps
+
+
+def _sales_margin_series(sym: str, prices: list[tuple[datetime, float]]) -> tuple[list[MetricPoint], str]:
+    """Revenue (₹ Cr, primary series) + net-profit-margin (%, secondary) as-of
+    each price timestamp. Margin may legitimately be None on a given point —
+    we leave it None rather than fabricate."""
+    revenue_steps, source = _revenue_steps(sym)
+    if not revenue_steps:
+        return [], "none"
+    margin_steps = _margin_steps(sym)
     pts: list[MetricPoint] = []
-    for ts, close in prices:
+    for ts, _close in prices:
         d = ts.date() if isinstance(ts, datetime) else _to_date(ts)
         if d is None:
             continue
-        ebitda = _value_asof(ebitda_steps, d)
-        if not ebitda or ebitda <= 0:
+        rev = _value_asof(revenue_steps, d)
+        if rev is None:
             continue
-        netdebt = _value_asof(netdebt_steps, d) or 0.0
-        mcap_cr = (close * shares) / 1e7
-        ev_cr = mcap_cr + netdebt
-        pts.append(MetricPoint(t=ts, v=round(ev_cr / ebitda, 2)))
-
-    # Defense-in-depth against any residual unit mismatch: a real EV/EBITDA
-    # sits well under ~120x. If the median is absurd, the inputs are bad —
-    # show nothing rather than a fabricated curve.
-    if pts:
-        import statistics
-        if statistics.median(p.v for p in pts) > 120:
-            return [], "none"
-    return pts, ("yfinance" if pts else "none")
+        margin = _value_asof(margin_steps, d) if margin_steps else None
+        pts.append(MetricPoint(
+            t=ts,
+            v=round(rev, 2),
+            margin=(round(margin, 2) if margin is not None else None),
+        ))
+    return pts, (source if pts else "none")
 
 
 @router.get(
     "/metric-series/{symbol}",
     response_model=MetricSeriesResponse,
-    summary="Time series of a valuation metric (PE / EV-EBITDA) for the chart toggle",
+    summary="Time series of a valuation metric (PE / Market Cap / Sales & Margin) for the chart toggle",
 )
 def get_metric_series(
     symbol: str,
-    metric: Literal["pe", "ev_ebitda"] = Query("pe"),
+    metric: Literal["pe", "market_cap", "sales_margin"] = Query("pe"),
     range: _RangeLiteral = Query("5Y"),
     exchange: str = Query("NSE", pattern="^(NSE|BSE)$"),
     _user_id: int = Depends(require_user),
@@ -849,8 +929,10 @@ def get_metric_series(
 
     if metric == "pe":
         pts, source = _pe_series(sym, prices)
+    elif metric == "market_cap":
+        pts, source = _market_cap_series(sym, prices)
     else:
-        pts, source = _ev_ebitda_series(sym, prices)
+        pts, source = _sales_margin_series(sym, prices)
 
     return MetricSeriesResponse(
         symbol=sym, metric=metric, range=range,

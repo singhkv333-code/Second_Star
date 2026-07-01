@@ -8,17 +8,28 @@ GET /api/financials/{symbol}
 """
 from __future__ import annotations
 
+import json
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
 
 from backend.config import settings
 from backend.auth.jwt_handler import get_user_id_from_token
+from backend.cache import redis_client
 from backend.market import financials_db as fdb
 from backend.market import yfinance_fundamentals as yff
 
 
 router = APIRouter(prefix="/api/financials", tags=["Financials"])
+logger = logging.getLogger(__name__)
+
+# Fundamentals change quarterly, so the assembled response is safe to cache for a
+# while. This makes repeat navigation to a stock page (and re-mounts) effectively
+# instant instead of re-querying Azure Postgres each time. Bump the version suffix
+# in the key when the payload shape changes.
+_RESP_CACHE_TTL = 1800  # 30 minutes
+_RESP_CACHE_PREFIX = "financials:resp:v1:"
 
 
 def _auth(authorization: Optional[str]) -> int:
@@ -76,17 +87,49 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
 
+    # ── response cache (public fundamentals — same for every user) ─────────
+    cache_key = f"{_RESP_CACHE_PREFIX}{sym}"
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("financials cache read miss/error for %s", sym, exc_info=True)
+
     company = fdb.get_company(sym)
 
+    # ── Enrichment DB (yfinance-scraped profile: name/blurb/website/sector) ─
+    # Separate Postgres (`pivot_enrich`) filled offline; primary source for the
+    # Company Overview panel's website/blurb since `mc.companies` has no such
+    # columns. Never raises — a missing DSN or lookup failure just leaves
+    # `enr = None` and the router falls back to yfinance profile if available.
+    enr = None
+    try:
+        from backend.market import enrich_db
+
+        if enrich_db.is_enabled():
+            enr = enrich_db.get_by_sc_id(company.sc_id) if company is not None else None
+            if enr is None:
+                enr = enrich_db.get_by_ticker(sym)
+    except Exception:  # noqa: BLE001 — enrichment is best-effort
+        enr = None
+
     # ── Moneycontrol (primary) ─────────────────────────────────────────────
-    # Latest snapshot — every curated field. Caller decides which to display;
-    # we don't pre-filter so adding a new metric is a FE-only change. Each
-    # value is tagged with its source so the FE can show provenance.
+    # Latest snapshot + history for EVERY curated field in ONE batched query
+    # (was an N+1: ~36 per-field calls, each its own Azure round-trip ≈ 7s). The
+    # selection semantics (basis preference / latest period / synonym priority)
+    # are identical to the per-field helpers. Each value is tagged with its
+    # source so the FE can show provenance.
     latest: dict[str, Optional[dict]] = {}
     history: dict[str, list[dict]] = {}
     if company is not None:
-        for field in fdb.list_supported_fields():
-            v = fdb.get_fundamental(company.sc_id, field)
+        bulk_latest, bulk_history = fdb.get_company_fundamentals_bulk(
+            company.sc_id,
+            fields=fdb.list_supported_fields(),
+            history_fields=_HISTORY_FIELDS,
+            history_limit=_HISTORY_LIMIT,
+        )
+        for field, v in bulk_latest.items():
             if v is None or v.value_numeric is None:
                 latest[field] = None
                 continue
@@ -101,9 +144,6 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
             }
 
         for field in _HISTORY_FIELDS:
-            rows = fdb.get_fundamental_history(
-                company.sc_id, field, limit=_HISTORY_LIMIT,
-            )
             history[field] = [
                 {
                     "period_end": r.period_end.isoformat() if r.period_end else None,
@@ -112,7 +152,7 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
                     "unit": r.unit,
                     "source": "moneycontrol",
                 }
-                for r in rows
+                for r in bulk_history.get(field, [])
             ]
 
     # ── yfinance (fallback) ────────────────────────────────────────────────
@@ -129,18 +169,33 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
         or sum(latest.get(f) is not None for f in _HEADLINE_LATEST) < 3
         or sum(bool(history.get(f)) for f in _HEADLINE_HIST) < 2
     )
-    profile = None
-    if needs_fallback:
-        yf = yff.fetch_fundamentals(sym)
-        if yf:
-            profile = yf.get("profile")
-            for field, val in (yf.get("latest") or {}).items():
-                if latest.get(field) is None:
-                    latest[field] = val
-            yf_hist = yf.get("history") or {}
-            for field in _HISTORY_FIELDS:
-                if not history.get(field) and yf_hist.get(field):
-                    history[field] = yf_hist[field]
+    yf = yff.fetch_fundamentals(sym) if needs_fallback else None
+    if yf:
+        for field, val in (yf.get("latest") or {}).items():
+            if latest.get(field) is None:
+                latest[field] = val
+        yf_hist = yf.get("history") or {}
+        for field in _HISTORY_FIELDS:
+            if not history.get(field) and yf_hist.get(field):
+                history[field] = yf_hist[field]
+
+    # ── Profile assembly (independent of `needs_fallback`) ─────────────────
+    # The Company Overview panel needs name/blurb/website even for MC-well-
+    # covered names like RELIANCE. Prefer enrich_db (offline yfinance scrape,
+    # no per-request latency); fall back to the yfinance profile we already
+    # fetched IFF the ratio-fallback path ran. Never make a *second* live
+    # `.info()` call just to fill profile.
+    yf_profile = yf.get("profile") if yf else None
+    profile: Optional[dict] = None
+    if enr is not None or yf_profile is not None:
+        profile = {
+            "name": (enr.long_name if enr else None) or (yf_profile or {}).get("name"),
+            "blurb": (enr.long_business_summary if enr else None) or (yf_profile or {}).get("blurb"),
+            "sector": (enr.sector if enr else None) or (yf_profile or {}).get("sector"),
+            "industry": (enr.industry if enr else None) or (yf_profile or {}).get("industry"),
+            "website": (enr.website if enr else None) or (yf_profile or {}).get("website"),
+            "ceo": (yf_profile or {}).get("ceo"),
+        }
 
     available = bool(
         company is not None
@@ -166,7 +221,7 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
     else:
         company_dict = None
 
-    return {
+    result = {
         "available": available,
         "company": company_dict,
         "latest": latest,
@@ -174,3 +229,8 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
         "profile": profile,
         "source": "moneycontrol_with_yfinance_fallback",
     }
+    try:
+        redis_client.setex(cache_key, _RESP_CACHE_TTL, json.dumps(result))
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("financials cache write failed for %s", sym, exc_info=True)
+    return result

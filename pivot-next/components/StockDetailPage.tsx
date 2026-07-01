@@ -136,6 +136,17 @@ function fmtCr(n: number | null): string {
   return INR.format(n);
 }
 
+/** Format a value that is ALREADY in ₹ Crore (unlike fmtCr which expects raw rupees).
+ *  Used for Y-axis ticks and tooltip rows for metric=market_cap / metric=sales_margin.
+ *  Feeding a ₹-Cr value into fmtCr() would be off by 1e7. */
+function fmtCrAxis(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  const abs = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(2)} L Cr`;
+  return `${sign}₹${abs.toFixed(0)} Cr`;
+}
+
 function fmtPct(n: number, signed = true): string {
   const s = signed ? (n >= 0 ? "+" : "") : "";
   return `${s}${n.toFixed(2)}%`;
@@ -165,28 +176,44 @@ function brandGlyphHue(sector: string | null): string {
 // hairline border, and the date as a sub-row.
 // ---------------------------------------------------------------------------
 
+// Metric type is declared here (before GrowwTooltip) so the tooltip can
+// receive it as a prop. The METRIC_OPTIONS const in ChartCard references
+// this same type.
+type Metric = "Price" | "PE Ratio" | "Sales and Margin" | "Market Cap";
+
 type TooltipEntry = {
   dataKey?: string | number;
   name?: string | number;
   value?: number;
   color?: string;
+  /** Full data row for the hovered point — needed to read __margin for Sales and Margin. */
+  payload?: Record<string, unknown>;
 };
 
 function GrowwTooltip({
   active,
   payload,
   label,
-  isMetric,
+  metric,
+  rawPriceByDate,
 }: {
   active?: boolean;
   payload?: TooltipEntry[];
   label?: string;
-  /** When true, formats values as plain numbers (no ₹ prefix) for PE / EV metrics. */
-  isMetric?: boolean;
+  /** Active metric — drives value formatting (price/PE/market-cap/sales-margin). */
+  metric: Metric;
+  /** Raw (un-normalised) price lookup: symbol → date-string → real price.
+   *  Used in Price mode so the tooltip shows the actual ₹ value, not the
+   *  100-base-indexed chart value. */
+  rawPriceByDate?: Map<string, Map<string, number>>;
 }): React.ReactElement | null {
   // Drop the synthetic "__selValue" series — it only exists to paint the
   // drag-selection shaded Area and must not show as a tooltip row.
-  const rows = (payload ?? []).filter((e) => e.dataKey !== "__selValue");
+  // Also drop the __margin shadow keys (written into metricChartData rows for
+  // Sales and Margin; they're read via entry.payload below, not as own series).
+  const rows = (payload ?? []).filter(
+    (e) => e.dataKey !== "__selValue" && !String(e.dataKey ?? "").endsWith("__margin"),
+  );
   if (!active || rows.length === 0) return null;
   let dateLabel = label ?? "";
   try {
@@ -214,11 +241,29 @@ function GrowwTooltip({
       </div>
       {rows.map((entry, i) => {
         const v = Number(entry.value);
-        const formatted = Number.isNaN(v)
-          ? String(entry.value ?? "")
-          : isMetric
-            ? v.toFixed(2)
-            : `₹${v.toFixed(1)}`;
+        let formatted: string;
+        if (Number.isNaN(v)) {
+          formatted = String(entry.value ?? "");
+        } else if (metric === "Price") {
+          // Look up the real (un-normalised) price — the plotted value is
+          // a 100-base index so showing it raw would be wrong.
+          const raw = rawPriceByDate?.get(String(entry.dataKey))?.get(String(label));
+          formatted = raw !== undefined ? `₹${raw.toFixed(2)}` : `₹${v.toFixed(1)}`;
+        } else if (metric === "PE Ratio") {
+          formatted = `${v.toFixed(2)}x`;
+        } else if (metric === "Market Cap") {
+          formatted = fmtCrAxis(v);
+        } else {
+          // "Sales and Margin"
+          const rev = fmtCrAxis(v);
+          const margin = (entry.payload as Record<string, unknown> | undefined)?.[
+            `${String(entry.dataKey)}__margin`
+          ];
+          formatted =
+            typeof margin === "number" && Number.isFinite(margin)
+              ? `${rev} · ${margin.toFixed(1)}% margin`
+              : rev;
+        }
         return (
           <div
             key={i}
@@ -955,7 +1000,7 @@ function MergedOverviewCard({
       padding="22px 24px"
       className="flex h-full min-h-0 flex-col overflow-y-auto"
     >
-      <CompanyOverviewBody quote={quote} />
+      <CompanyOverviewBody quote={quote} financials={financials} />
 
       {/* Stats — folded into the same card. No section header. Sits
           beneath the Year Founded row separated by a slim gap. */}
@@ -971,29 +1016,46 @@ function MergedOverviewCard({
   );
 }
 
-function CompanyOverviewBody({ quote }: { quote: StockQuote }): React.ReactElement {
+function CompanyOverviewBody({
+  quote,
+  financials,
+}: {
+  quote: StockQuote;
+  financials: FinancialsResponse | null;
+}): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
-  const profile = COMPANY_PROFILES[quote.symbol.toUpperCase()];
+  // Live profile from the backend enrichment DB (pre-fetched by parent). Prefer
+  // this over the hardcoded COMPANY_PROFILES map; the hardcoded entries remain
+  // as a last-resort fallback for the 5 curated symbols when the backend has nothing.
+  const live = financials?.profile ?? null;
+  const fallback = COMPANY_PROFILES[quote.symbol.toUpperCase()];
   const blurb =
-    profile?.blurb ??
+    live?.blurb ??
+    fallback?.blurb ??
     `${quote.name} is publicly listed on ${quote.exchange}. Detailed company description and operating segment breakdown will be loaded from the fundamentals service.`;
+
+  // Normalize website to a bare domain — the live backend profile stores full
+  // URLs (e.g. "https://www.tcs.com"). Prefixing "https://" onto that would
+  // break the href ("https://https://…"). Strip any existing scheme first.
+  const rawWebsite = live?.website ?? fallback?.website ?? null;
+  const bareWebsite = rawWebsite?.replace(/^https?:\/\//, "") ?? null;
 
   // Match Fiscal.ai field set: Name / CEO / Website / Sector / Year Founded.
   // Anything we don't have falls back to "—" so the row spacing stays
   // consistent regardless of which symbol you land on.
   const facts: { label: string; value: React.ReactNode }[] = [
     { label: "Name", value: quote.name },
-    { label: "CEO", value: profile?.ceo ?? "—" },
+    { label: "CEO", value: live?.ceo ?? fallback?.ceo ?? "—" },
     {
       label: "Website",
-      value: profile?.website ? (
+      value: bareWebsite ? (
         <a
-          href={`https://${profile.website}`}
+          href={`https://${bareWebsite}`}
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: "var(--text-primary)", textDecoration: "none" }}
         >
-          {profile.website}
+          {bareWebsite}
         </a>
       ) : (
         "—"
@@ -1001,9 +1063,12 @@ function CompanyOverviewBody({ quote }: { quote: StockQuote }): React.ReactEleme
     },
     {
       label: "Sector",
-      value: profile?.industry ?? quote.sector ?? "—",
+      value: live?.sector ?? live?.industry ?? fallback?.industry ?? quote.sector ?? "—",
     },
-    { label: "Year Founded", value: profile?.yearFounded ?? "—" },
+    {
+      label: "Year Founded",
+      value: fallback && "yearFounded" in fallback ? (fallback.yearFounded ?? "—") : "—",
+    },
   ];
 
   // Truncate threshold mirrors the reference: ~2-3 lines of body copy
@@ -1273,14 +1338,12 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
 // Chart card — multi-line comparison
 // ---------------------------------------------------------------------------
 
-const METRIC_OPTIONS = [
+const METRIC_OPTIONS: readonly Metric[] = [
   "Price",
   "PE Ratio",
-  "EV/EBITDA",
   "Sales and Margin",
   "Market Cap",
-] as const;
-type Metric = (typeof METRIC_OPTIONS)[number];
+];
 
 function ChartCard({
   tickers,
@@ -1335,14 +1398,14 @@ function ChartCard({
   };
   const [metricSeries, setMetricSeries] = useState<MetricEntry[]>([]);
 
-  const isMetricMode = metric === "PE Ratio" || metric === "EV/EBITDA";
+  const isMetricMode = metric !== "Price";
 
   useEffect(() => {
     if (!isMetricMode) {
       setMetricSeries([]);
       return;
     }
-    const metricKey = metric === "PE Ratio" ? "pe" : "ev_ebitda";
+    const metricKey = metric === "PE Ratio" ? "pe" : metric === "Market Cap" ? "market_cap" : "sales_margin";
     let cancelled = false;
     setMetricSeries(tickers.map((s) => ({ symbol: s, state: { kind: "loading" } })));
     Promise.all(
@@ -1501,8 +1564,21 @@ function ChartCard({
     return { rows, baseline };
   }, [series, minDate, maxDate]);
 
-  // Metric-mode chart rows — absolute values, no normalisation. Only computed
-  // when metric is "PE Ratio" or "EV/EBITDA". Master timeline = primary ticker.
+  // Raw (un-normalised) price lookup: symbol → date-string → real ₹ price.
+  // Used by GrowwTooltip in Price mode so the hover value reflects the actual
+  // price rather than the 100-base-indexed chart value.
+  const rawPriceByDate = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    series.forEach((s) => {
+      if (s.state.kind !== "ok") return;
+      const m = new Map<string, number>();
+      s.state.data.points.forEach((p) => m.set(p.t, p.v));
+      map.set(s.symbol, m);
+    });
+    return map;
+  }, [series]);
+
+  // Metric-mode chart rows — absolute values, no normalisation. Master timeline = primary ticker.
   const metricChartData = useMemo(() => {
     if (!isMetricMode) return null;
     const okEntries = metricSeries.filter(
@@ -1512,17 +1588,27 @@ function ChartCard({
     if (okEntries.length === 0) return null;
     const primary = okEntries[0]!;
     const primaryPoints = primary.state.points;
+    // Build per-symbol lookup maps for both value and margin.
     const symMap = new Map<string, Map<string, number>>();
+    const marginMap = new Map<string, Map<string, number | null>>();
     okEntries.forEach((e) => {
       const m = new Map<string, number>();
-      e.state.points.forEach((p) => m.set(p.t, p.v));
+      const mg = new Map<string, number | null>();
+      e.state.points.forEach((p) => {
+        m.set(p.t, p.v);
+        mg.set(p.t, p.margin ?? null);
+      });
       symMap.set(e.symbol, m);
+      marginMap.set(e.symbol, mg);
     });
     const rows = primaryPoints.map((pt) => {
       const row: Record<string, string | number | null> = { t: pt.t };
       okEntries.forEach((e) => {
         const v = symMap.get(e.symbol)?.get(pt.t);
         row[e.symbol] = v !== undefined ? v : null;
+        // Write the __margin shadow key so the tooltip can annotate revenue
+        // with the net-profit-margin % (only meaningful for sales_margin).
+        row[`${e.symbol}__margin`] = marginMap.get(e.symbol)?.get(pt.t) ?? null;
       });
       return row;
     });
@@ -1933,27 +2019,49 @@ function ChartCard({
               onMouseLeave={handleChartMouseLeave}
               style={{ userSelect: "none" }}
             >
-              {/* Axes + grid stripped — the hover tooltip carries the
-                  value/date at any point so the static chrome was just
-                  clutter. XAxis/YAxis kept (zero height/width) only
-                  because Recharts needs them to bound the chart's
-                  internal coordinate space. */}
               <XAxis
                 dataKey="t"
-                tick={false}
-                axisLine={false}
+                tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                axisLine={{ stroke: "var(--glass-border)" }}
                 tickLine={false}
-                height={0}
+                height={22}
+                minTickGap={40}
+                tickFormatter={(t: string): string => {
+                  try {
+                    return format(parseISO(t), "MMM ''yy");
+                  } catch {
+                    return t;
+                  }
+                }}
               />
               <YAxis
                 domain={["auto", "auto"]}
-                tick={false}
-                axisLine={false}
+                tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                axisLine={{ stroke: "var(--glass-border)" }}
                 tickLine={false}
-                width={0}
+                width={54}
+                tickFormatter={(v: number): string => {
+                  if (isMetricMode) {
+                    if (metric === "PE Ratio") return `${v.toFixed(0)}x`;
+                    // Market Cap or Sales and Margin — values are already in ₹ Crore
+                    return fmtCrAxis(v);
+                  }
+                  // Price mode: convert normalized 100-base index back to real ₹
+                  if (tickers.length === 1) {
+                    const baseline = chartData.baseline[tickers[0]!];
+                    return baseline
+                      ? `₹${((v / 100) * baseline).toFixed(0)}`
+                      : v.toFixed(0);
+                  }
+                  // Comparison (2+ tickers): show % change from start of window
+                  const delta = v - 100;
+                  return `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`;
+                }}
               />
               <Tooltip
-                content={<GrowwTooltip isMetric={isMetricMode} />}
+                content={
+                  <GrowwTooltip metric={metric} rawPriceByDate={rawPriceByDate} />
+                }
                 cursor={{
                   stroke: "var(--text-tertiary)",
                   strokeWidth: 1,
@@ -2138,7 +2246,11 @@ function ChartCard({
                   }}
                   aria-label={`${sym} latest ${isMetricMode ? metric : "price"}`}
                 >
-                  {peerLtp !== null ? INR.format(peerLtp) : v.toFixed(2)}
+                  {peerLtp !== null
+                    ? INR.format(peerLtp)
+                    : (metric === "Market Cap" || metric === "Sales and Margin")
+                      ? fmtCrAxis(v)
+                      : v.toFixed(2)}
                 </span>
               );
             })}

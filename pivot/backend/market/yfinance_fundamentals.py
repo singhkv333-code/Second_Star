@@ -22,6 +22,7 @@ empty result and the caller falls back to "—".
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import math
@@ -36,6 +37,26 @@ from backend.market.yfinance_service import resolve_symbol
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = 3600  # mirror fetch_price_history; fundamentals move slowly
+
+# yfinance's underlying `requests` calls carry no default socket timeout, so a
+# single stalled network call can occupy a worker thread forever. This module
+# is now on the hot path for several callers (stock page, metric-series chart,
+# screener fallback) — enough concurrent hung calls exhausts the app's shared
+# thread pool and makes EVERY endpoint (including unrelated ones) unresponsive.
+# Bounding the wait here (2026-07-01, observed live: the dev server went fully
+# unresponsive, /docs included, after ~15min of concurrent yfinance-backed
+# requests) can't kill the underlying blocked socket call, but it frees the
+# calling request/thread after `_YF_TIMEOUT_S` instead of blocking indefinitely.
+_YF_TIMEOUT_S = 12.0
+
+
+def _fetch_ticker_bundle(yf_symbol: str) -> tuple[dict, Any, Any, Any]:
+    t = yf.Ticker(yf_symbol)
+    info = t.info or {}
+    income = t.income_stmt
+    balance = t.balance_sheet
+    cashflow = t.cashflow
+    return info, income, balance, cashflow
 
 _CR = 1e7  # rupees per crore
 
@@ -156,6 +177,7 @@ def _ratios_from_info(info: dict) -> dict[str, Optional[float]]:
 
     d2e = _safe(info.get("debtToEquity"))  # yfinance reports as a percent number
     return {
+        "pe": mult("trailingPE"),
         "roe": pct("returnOnEquity"),
         "roa": pct("returnOnAssets"),
         "net_profit_margin": pct("profitMargins"),
@@ -189,15 +211,22 @@ def fetch_fundamentals(symbol: str) -> dict:
         pass
 
     yf_symbol = resolve_symbol(symbol)
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        t = yf.Ticker(yf_symbol)
-        info = t.info or {}
-        income = t.income_stmt
-        balance = t.balance_sheet
-        cashflow = t.cashflow
+        future = executor.submit(_fetch_ticker_bundle, yf_symbol)
+        info, income, balance, cashflow = future.result(timeout=_YF_TIMEOUT_S)
+    except concurrent.futures.TimeoutError:
+        logger.warning(
+            "yfinance fundamentals TIMED OUT for %s after %.0fs — returning empty, not blocking the caller",
+            yf_symbol, _YF_TIMEOUT_S,
+        )
+        executor.shutdown(wait=False)  # let the stuck call die in the background, don't wait on it
+        return {}
     except Exception as e:  # noqa: BLE001 — yfinance throws assorted errors
         logger.warning("yfinance fundamentals failed for %s: %s", yf_symbol, str(e)[:160])
+        executor.shutdown(wait=False)
         return {}
+    executor.shutdown(wait=False)
 
     history: dict[str, list[dict]] = {}
     history.update(_history_from(income, _INCOME_MAP))

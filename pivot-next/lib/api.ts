@@ -177,7 +177,36 @@ export async function requestLegacy<T>(
   return _doRequest<T>(getLegacyBase(), path, options);
 }
 
+// In-flight GET de-duplication. Identical concurrent GETs (duplicate effect
+// runs, React StrictMode double-invokes in dev, several components fetching the
+// same resource) would otherwise race PAST the server-side cache and each pay
+// the full network/compute cost. We coalesce them into ONE request and hand
+// every caller the same result. Only GETs are coalesced — POST/PATCH/DELETE
+// have side effects and must never share. Entries are dropped the moment the
+// request settles, so this merges *concurrent* calls only, never caches across
+// time (freshness is unchanged).
+const _inflightGets = new Map<string, Promise<ApiResult<unknown>>>();
+
 async function _doRequest<T>(
+  base: string,
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  if ((options.method ?? "GET") !== "GET") {
+    return _performRequest<T>(base, path, options);
+  }
+  const key = buildUrl(base, path, options.query);
+  const existing = _inflightGets.get(key);
+  if (existing) return existing as Promise<ApiResult<T>>;
+  const p = _performRequest<T>(base, path, options);
+  _inflightGets.set(key, p as Promise<ApiResult<unknown>>);
+  void p.finally(() => {
+    _inflightGets.delete(key);
+  });
+  return p;
+}
+
+async function _performRequest<T>(
   base: string,
   path: string,
   options: RequestOptions = {},
@@ -232,8 +261,11 @@ async function _doRequest<T>(
         try {
           const refreshed = await _tryRefresh();
           if (refreshed) {
-            // Retry the original request once with the new token.
-            return _doRequest<T>(base, path, options);
+            // Retry the original request once with the new token. Call the
+            // worker directly (NOT the coalescing wrapper): this retry runs
+            // while the outer in-flight promise is still pending, so routing
+            // back through the wrapper would await its own promise → deadlock.
+            return _performRequest<T>(base, path, options);
           }
         } catch {
           // fall through to clearToken + redirect
@@ -757,11 +789,25 @@ export type FinancialsHistoryPoint = {
   unit: string | null;
 };
 
+/** Company profile (name/blurb/sector/industry/website/CEO) — sourced from the
+ *  yfinance-derived enrich DB first, live yfinance `.info` as a fallback.
+ *  Moneycontrol never carries these fields, so `profile` is null only when
+ *  neither source could resolve the company at all. */
+export type FinancialsProfile = {
+  name?: string | null;
+  blurb?: string | null;
+  sector?: string | null;
+  industry?: string | null;
+  website?: string | null;
+  ceo?: string | null;
+};
+
 export type FinancialsResponse = {
   available: boolean;
   company: FinancialsCompany | null;
   latest: Record<string, FinancialsLatestValue | null>;
   history: Record<string, FinancialsHistoryPoint[]>;
+  profile: FinancialsProfile | null;
   source: string;
 };
 
@@ -1043,26 +1089,37 @@ export function searchCompanies(
 }
 
 // ---------------------------------------------------------------------------
-// Metric series — `GET /api/markets/metric-series/{symbol}?metric=pe|ev_ebitda&range=…`
+// Metric series — `GET /api/markets/metric-series/{symbol}?metric=pe|market_cap|sales_margin&range=…`
 // Returns a time-series of the requested fundamental metric for the chart.
 // `available:false` + empty `points` when the data cannot be computed.
+// (EV/EBITDA was removed 2026-07: yfinance's shares/EBITDA/debt history is too
+// sparse for Indian tickers to ever plot, so the option always came back empty.)
 // ---------------------------------------------------------------------------
 
-export type MetricSeriesPoint = { t: string; v: number };
+export type MetricSeriesMetric = "pe" | "market_cap" | "sales_margin";
+
+export type MetricSeriesPoint = {
+  t: string;
+  v: number;
+  /** Only populated for metric="sales_margin" — net-profit-margin %, as-of the
+   *  same date as `v` (revenue, ₹ Cr). Shown as a tooltip annotation, not a
+   *  separate axis line. */
+  margin?: number | null;
+};
 
 export type MetricSeriesResponse = {
   symbol: string;
-  metric: "pe" | "ev_ebitda";
+  metric: MetricSeriesMetric;
   range: string;
   available: boolean;
   points: MetricSeriesPoint[];
   source: string;
 };
 
-/** `GET /api/markets/metric-series/{symbol}?metric=pe|ev_ebitda&range=…` — fundamental metric series. */
+/** `GET /api/markets/metric-series/{symbol}?metric=pe|market_cap|sales_margin&range=…` — fundamental metric series. */
 export function getMetricSeries(
   symbol: string,
-  metric: "pe" | "ev_ebitda",
+  metric: MetricSeriesMetric,
   range: SparklineRange,
 ): Promise<ApiResult<MetricSeriesResponse>> {
   return request<MetricSeriesResponse>(
