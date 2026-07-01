@@ -51,17 +51,23 @@ def _clean(returns: Sequence[float]) -> np.ndarray:
 
 def _block_bootstrap_paths(
     returns: np.ndarray, n_sims: int, block_size: int,
-    rng: np.random.Generator,
+    rng: np.random.Generator, length: Optional[int] = None,
 ) -> np.ndarray:
-    """``(n_sims, T)`` matrix of resampled return paths via the *circular*
+    """``(n_sims, out_len)`` matrix of resampled return paths via the *circular*
     block bootstrap — block start indices are random and wrap around the end
-    of the series (mod T), so every block keeps its internal autocorrelation."""
+    of the series (mod T), so every block keeps its internal autocorrelation.
+
+    ``length`` is the simulated path length (defaults to the sample length ``T``);
+    pass a shorter value to bootstrap from the full sample but simulate a single
+    horizon (e.g. one event occurrence rather than the whole concatenated history)."""
     t = len(returns)
-    n_blocks = int(np.ceil(t / block_size))
+    out_len = int(length) if length else t
+    out_len = max(1, out_len)
+    n_blocks = int(np.ceil(out_len / block_size))
     starts = rng.integers(0, t, size=(n_sims, n_blocks))
     offsets = np.arange(block_size)
     idx = (starts[:, :, None] + offsets[None, None, :]) % t
-    idx = idx.reshape(n_sims, n_blocks * block_size)[:, :t]
+    idx = idx.reshape(n_sims, n_blocks * block_size)[:, :out_len]
     return returns[idx]
 
 
@@ -125,6 +131,7 @@ def monte_carlo_terminal_distribution(
     block_size: Optional[int] = None,
     n_points: int = 120,
     seed: int = 1_234_567,
+    horizon: Optional[int] = None,
 ) -> Optional[dict]:
     """Block-bootstrap distribution of TERMINAL return % (for a "thousands of
     simulations" spread visual).
@@ -134,7 +141,11 @@ def monte_carlo_terminal_distribution(
     simulated terminal returns (``n_points`` evenly-spaced quantiles) plus the
     p05/p25/median/p75/p95 markers and ``prob_loss``. All percentages are
     signed. ``None`` for fewer than ``_MIN_OBS`` finite returns. Deterministic
-    for a given ``seed``."""
+    for a given ``seed``.
+
+    ``horizon`` is the simulated path length (defaults to the sample length); pass
+    a shorter horizon to model a SINGLE occurrence while still resampling blocks
+    from the full return history."""
     r = _clean(period_returns)
     n = len(r)
     if n < _MIN_OBS:
@@ -144,7 +155,7 @@ def monte_carlo_terminal_distribution(
     block_size = max(1, min(block_size, n))
 
     rng = np.random.default_rng(seed)
-    paths = _block_bootstrap_paths(r, n_sims, block_size, rng)  # (n_sims, n)
+    paths = _block_bootstrap_paths(r, n_sims, block_size, rng, length=horizon)
     equity = np.cumprod(1.0 + paths, axis=1)
     terminal = (equity[:, -1] - 1.0) * 100.0                    # terminal return %
 

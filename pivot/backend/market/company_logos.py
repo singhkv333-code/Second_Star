@@ -89,6 +89,80 @@ def get_logo_url(symbol_or_sc_id: str) -> Optional[str]:
     return result
 
 
+def get_logo_urls(symbols: list[str]) -> dict[str, Optional[str]]:
+    """Batch logo resolution for a page of symbols in ≤2 round-trips total.
+
+    ``get_logo_url`` resolves ONE name per call and, on a Redis miss, does a
+    financials ``get_company`` + an ``enrich_db`` lookup — so a cold page of N
+    rows fires ~2·N sequential (remote) DB round-trips, which is the screener
+    tab's cold-start cost. This collapses a whole page to: one Redis **MGET**,
+    ONE batched ``enrich`` website lookup for the cold misses, one Redis
+    **MSET**. Keyed by ``UPPER(symbol)``; an unresolved name maps to ``None``
+    (FE monogram), never a guessed/misattributed logo — same honest contract as
+    :func:`get_logo_url`. Never raises.
+
+    Note: the cold misses are resolved by **ticker** (the ``get_by_ticker``
+    fallback path), skipping the per-name sc_id hop; a name resolvable only via
+    sc_id degrades to a monogram rather than a per-row round-trip.
+    """
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for s in symbols:
+        k = (s or "").strip().upper()
+        if k and k not in seen:
+            seen.add(k)
+            uniq.append(k)
+    if not uniq:
+        return {}
+
+    out: dict[str, Optional[str]] = {}
+
+    # 1. One Redis MGET for the whole page (vs one GET per row).
+    try:
+        cached = redis_client.mget([_CACHE_PREFIX + k for k in uniq])
+    except Exception:  # noqa: BLE001
+        cached = [None] * len(uniq)
+    misses: list[str] = []
+    for k, v in zip(uniq, cached):
+        if v is None:
+            misses.append(k)
+            continue
+        val = v.decode() if isinstance(v, (bytes, bytearray)) else v
+        out[k] = None if val == _NONE_SENTINEL else val
+
+    if not misses:
+        return out
+
+    # 2. Resolve the cold misses' websites in ONE batched enrich query.
+    websites: dict[str, Optional[str]] = {}
+    try:
+        from backend.market import enrich_db
+
+        if enrich_db.is_enabled():
+            websites = enrich_db.get_websites_by_tickers(misses)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[company_logos] batch website lookup failed: %s", exc)
+        websites = {}
+
+    resolved: dict[str, Optional[str]] = {}
+    for k in misses:
+        domain = _domain_from_website(websites.get(k))
+        resolved[k] = logo_url_for_domain(domain) if domain else None
+    out.update(resolved)
+
+    # 3. One Redis MSET (pipeline) to warm the cache for next time.
+    try:
+        pipe = redis_client.pipeline()
+        for k, url in resolved.items():
+            pipe.set(_CACHE_PREFIX + k, url or _NONE_SENTINEL,
+                     ex=_CACHE_TTL_SECONDS)
+        pipe.execute()
+    except Exception:  # noqa: BLE001
+        pass
+
+    return out
+
+
 def _resolve_uncached(symbol_or_sc_id: str) -> Optional[str]:
     # Resolve ONLY from the company's REAL website domain
     # (enrich.company_profile.website). Rationale: img.logo.dev is keyed by

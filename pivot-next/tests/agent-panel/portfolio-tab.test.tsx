@@ -9,14 +9,32 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import * as api from "@/lib/api";
-import type { Holding, PortfolioSummary, PortfolioPerformanceResponse } from "@/lib/api";
+import type { Holding, PortfolioSummary } from "@/lib/api";
+import * as portfolioApi from "@/lib/portfolioApi";
+import type { PortfolioPerformance, PortfolioScoresResponse } from "@/lib/portfolioApi";
 
-const MOCK_PERF: PortfolioPerformanceResponse = {
+// PerformanceChart and PortfolioScores mount unconditionally (in parallel
+// with summary/holdings, not gated behind their success) and fetch through
+// lib/portfolioApi.ts — stub both to an "ok" response in every test so they
+// don't hit the network or render their own error+Retry button, which would
+// collide with assertions scoped to the top-level portfolio Retry button.
+const MOCK_PERF: PortfolioPerformance = {
   period: "1Y",
-  equity_curve: [
-    { date: "2024-01-01", value: 100000 },
-    { date: "2024-12-31", value: 115000 },
+  points: [
+    { t: "2024-01-01", v: 100000 },
+    { t: "2024-12-31", v: 115000 },
   ],
+  starting_value: 100000,
+  ending_value: 115000,
+  total_return: 15000,
+  total_return_pct: 15,
+};
+
+const MOCK_SCORES: PortfolioScoresResponse = {
+  diversification_score: null,
+  portfolio_score: null,
+  community_score: null,
+  reason: "no_holdings",
 };
 
 const SUMMARY: PortfolioSummary = {
@@ -48,11 +66,11 @@ const HOLDINGS: Holding[] = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  // Performance chart is always stubbed to avoid network calls in tests
-  vi.spyOn(api, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
-  vi.spyOn(api, "getIndexHistory").mockResolvedValue({
-    data: { symbol: "NIFTY50", period: "1Y", points: [] },
-  });
+  // Performance chart + scores are always stubbed to avoid real network
+  // calls in tests (both mount unconditionally, in parallel with
+  // summary/holdings — see PortfolioTab.tsx).
+  vi.spyOn(portfolioApi, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
+  vi.spyOn(portfolioApi, "getPortfolioScores").mockResolvedValue({ data: MOCK_SCORES });
 });
 
 describe("PortfolioTab", () => {

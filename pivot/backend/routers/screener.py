@@ -121,14 +121,24 @@ class ScreenerSectorsResponse(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-def _logo(symbol: str) -> Optional[str]:
-    """Fail-safe logo resolution — a single miss must never 500 the grid."""
-    try:
-        from backend.market.company_logos import get_logo_url
+def _logo_map(symbols: list[str]) -> dict[str, Optional[str]]:
+    """Batch logo resolution for a page in ≤2 round-trips (one Redis MGET + one
+    enrich query for cold misses), instead of ~2 remote DB queries PER row.
 
-        return get_logo_url(symbol)
-    except Exception:  # noqa: BLE001
-        return None
+    This is the screener cold-start fix: per-row ``get_logo_url`` fired an N+1
+    storm (financials ``get_company`` + ``enrich`` lookup per symbol) the first
+    time a page was loaded with an empty Redis cache. A failure degrades to no
+    logos (FE renders a monogram), never 500s the grid. Keyed by UPPER(symbol).
+    """
+    if not symbols:
+        return {}
+    try:
+        from backend.market.company_logos import get_logo_urls
+
+        return get_logo_urls(symbols)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[screener] logo batch failed: %s", exc)
+        return {}
 
 
 def _fetch_fundamentals_map(symbols: list[str]) -> dict[str, dict]:
@@ -239,7 +249,7 @@ def get_screener_stocks(
                 roe=roe,
                 div_yield=None,
                 one_year_pct=None,
-                logo_url=_logo(r.symbol),
+                logo_url=None,  # hydrated in ONE batch after sort+slice (below)
             )
         )
 
@@ -279,6 +289,13 @@ def get_screener_stocks(
 
     enriched = enriched[:limit]
 
+    # ── 4b. Hydrate logos for the FINAL page in ONE batch (cold-start fix) ──
+    # Per-row logo resolution was a cold-call N+1 (~2 remote DB queries × every
+    # row). Resolve only the symbols that survived the sort+slice, all at once.
+    logo_map = _logo_map([s.symbol for s in enriched])
+    for s in enriched:
+        s.logo_url = logo_map.get(s.symbol.upper())
+
     if not fmap:
         notes.append("fundamentals source unavailable — PE/ROE shown as —")
 
@@ -314,13 +331,14 @@ def search_screener(
         logger.warning("[screener] search failed q=%r: %s", q, exc)
         hits = []
 
+    logo_map = _logo_map([h.symbol for h in hits])
     return ScreenerSearchResponse(
         results=[
             ScreenerSearchResult(
                 symbol=h.symbol,
                 name=h.name,
                 sector=h.sector,
-                logo_url=_logo(h.symbol),
+                logo_url=logo_map.get(h.symbol.upper()),
                 has_fundamentals=h.has_fundamentals,
             )
             for h in hits

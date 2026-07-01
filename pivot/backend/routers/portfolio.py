@@ -11,7 +11,7 @@ from backend.auth.jwt_handler import get_user_id_from_token
 from backend.kite.auth import read_kite_access_token
 from backend.kite.portfolio import get_holdings, get_portfolio_summary, get_margins
 from backend.services.portfolio_cache import (
-    get_summary_cached, get_holdings_cached,
+    get_summary_cached, get_holdings_cached, cache_aside, scores_cache_key,
 )
 from backend.services import portfolio_scores as _scores
 from backend.agents.yield_scanner import get_all_yields, calculate_after_tax_yield
@@ -59,8 +59,12 @@ def get_kite_token(user_id: int, db: Session) -> str:
 @router.get("/summary")
 def portfolio_summary(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
     token = get_kite_token(user_id, db)
-    # WHY cached: dashboard polls + chat reads share this endpoint;
-    # 30s TTL collapses bursts.
+    # WHY cached: dashboard polls + chat reads share this endpoint; a
+    # short (10-15s) TTL collapses bursts without serving stale live
+    # numbers. No other endpoint depends on this one having run first —
+    # `/holdings`, `/scores`, and `/api/portfolio/performance` each derive
+    # their own holdings independently, so callers should fire all four
+    # concurrently rather than sequencing them.
     return get_summary_cached(user_id, token)
 
 
@@ -273,6 +277,28 @@ def _real_peer_scores(db: Session, exclude_user_id: int) -> list[float]:
     return [score for uid, score in by_user.items() if uid != exclude_user_id]
 
 
+def compute_portfolio_scores(db: Session, user_id: int) -> dict:
+    """Compute the three transparent portfolio scores for ``user_id``.
+
+    Lifted from the ``/portfolio/scores`` inline closure so the cache-warm
+    background task (:mod:`services.cache_warm`) can populate the same
+    ``scores_cache_key(user_id)`` entry the route reads from, without
+    reimplementing the peer-scan + compute in a second place. Route and
+    warmer share this one function; the cache-aside key/TTL are unchanged.
+    """
+    token = get_kite_token(user_id, db)
+    holdings = [dict(h) for h in get_holdings_cached(user_id, token)]
+    account, nav_snapshots = _account_and_snapshots(user_id, db)
+    peer_scores = _real_peer_scores(db, exclude_user_id=user_id)
+    return _scores.compute_scores(
+        holdings=holdings,
+        sector_of=lambda sym: SECTOR_MAP.get(sym, "Other"),
+        account=account,
+        nav_snapshots=nav_snapshots,
+        peer_scores=peer_scores,
+    )
+
+
 @router.get("/scores", response_model=PortfolioScoresResponse)
 def portfolio_scores(
     user_id: int = Depends(get_user_id), db: Session = Depends(get_db),
@@ -290,16 +316,16 @@ def portfolio_scores(
 
     Returns all three scores as ``null`` with ``reason="no_holdings"`` when
     the user has no holdings with positive market value.
-    """
-    token = get_kite_token(user_id, db)
-    holdings = [dict(h) for h in get_holdings_cached(user_id, token)]
-    account, nav_snapshots = _account_and_snapshots(user_id, db)
-    peer_scores = _real_peer_scores(db, exclude_user_id=user_id)
 
-    return _scores.compute_scores(
-        holdings=holdings,
-        sector_of=lambda sym: SECTOR_MAP.get(sym, "Other"),
-        account=account,
-        nav_snapshots=nav_snapshots,
-        peer_scores=peer_scores,
+    Short-TTL Redis cached (see ``services/portfolio_cache.py``) so a
+    dashboard mount that fires this alongside `/summary`/`/holdings`/
+    `/api/portfolio/performance` doesn't pay the peer-scan + compute cost
+    more than once per TTL window. This endpoint has no dependency on
+    `/summary` or `/holdings` having run first — it derives its own
+    holdings (via the shared `get_holdings_cached`), so callers should
+    fire all four endpoints concurrently rather than sequencing them.
+    """
+    return cache_aside(
+        scores_cache_key(user_id),
+        lambda: compute_portfolio_scores(db, user_id),
     )

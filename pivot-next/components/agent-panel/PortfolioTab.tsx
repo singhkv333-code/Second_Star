@@ -152,18 +152,25 @@ type PortfolioView = "overview" | "history";
 export function PortfolioTab(): React.ReactElement {
   const [view, setView] = useState<PortfolioView>("overview");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
-  // Bumped on every (re)load so the PortfolioScores panel re-fetches its
-  // /portfolio/scores data in lockstep with the summary + holdings (e.g. when
-  // the trading mode flips or the user retries).
+  // Bumped on mode-changes and retries so PerformanceChart + PortfolioScores
+  // re-fetch in lockstep with the summary + holdings. NOT bumped on initial
+  // mount — children fire their own useEffect([reloadKey]) on mount, so
+  // bumping here on mount caused a redundant second fetch (the 3x regression).
   const [scoresReloadKey, setScoresReloadKey] = useState(0);
   // Re-fetch whenever the global trading mode flips: getPortfolioSummary /
   // getPortfolioHoldings are mode-aware, so this swaps the page between real
   // and paper data with no other change.
   const mode = useTradingMode();
+  // Tracks the mode value from the previous effect run so we can distinguish
+  // a genuine mode change (needs a key bump) from the initial mount (where
+  // prevMode === mode and we must NOT bump — children already fetch at key=0).
+  const prevModeRef = useRef(mode);
 
-  const load = (): void => {
+  // Fetches summary + holdings only; does NOT bump scoresReloadKey. Called by
+  // the mode-change effect on every run (including initial mount) and indirectly
+  // by `load()` below for full reloads (Retry button).
+  const loadSummary = (): void => {
     setState({ kind: "loading" });
-    setScoresReloadKey((k) => k + 1);
     Promise.all([getPortfolioSummary(), getPortfolioHoldings()])
       .then(([sumRes, holdRes]) => {
         if (isError(sumRes)) { setState({ kind: "error", message: sumRes.error.message }); return; }
@@ -176,7 +183,26 @@ export function PortfolioTab(): React.ReactElement {
       });
   };
 
-  useEffect(() => { load(); }, [mode]);
+  // Full reload: bumps scoresReloadKey so PerformanceChart + PortfolioScores
+  // re-fetch in lockstep. Used by the Retry button only (not by the effect).
+  const load = (): void => {
+    setScoresReloadKey((k) => k + 1);
+    loadSummary();
+  };
+
+  useEffect(() => {
+    // On initial mount prevModeRef.current === mode (both hold the initial
+    // value), so changed=false and we only call loadSummary(). Under React
+    // StrictMode the effect fires twice with the same mode, so both runs also
+    // see changed=false — no spurious key bump. On a genuine mode flip
+    // changed=true and we bump so children re-fetch under the new mode.
+    const changed = prevModeRef.current !== mode;
+    prevModeRef.current = mode;
+    loadSummary();
+    if (changed) {
+      setScoresReloadKey((k) => k + 1);
+    }
+  }, [mode]);
 
   return (
     <div data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
@@ -283,14 +309,25 @@ export function PortfolioTab(): React.ReactElement {
         </div>
       )}
 
+      {/* Performance + Scores are independent GETs (getPortfolioPerformance /
+          getPortfolioScores) — mount them unconditionally so their own fetch
+          effects fire in the same tick as `load()`'s summary+holdings
+          request, instead of waiting for `state` to become "ok" first. That
+          conditional-mount gate was a frontend-side sequential dependency:
+          scores/performance only started once summary+holdings had already
+          round-tripped. `summary`/`holdings` are only used for header/footer
+          display here, so a null summary renders a lightweight skeleton in
+          their place until the top-level fetch resolves. */}
+      {view === "overview" && (
+        <PerformanceChart
+          summary={state.kind === "ok" ? state.summary : null}
+          holdings={state.kind === "ok" ? state.holdings : []}
+          reloadKey={scoresReloadKey}
+        />
+      )}
+
       {view === "overview" && state.kind === "ok" && (
         <>
-          <PerformanceChart
-            summary={state.summary}
-            holdings={state.holdings}
-            reloadKey={scoresReloadKey}
-          />
-
           {/* Mobile-only P&L strip above the holdings (on desktop these
               figures already live in the top bar). */}
           <PnlStripMobile summary={state.summary} />
@@ -331,9 +368,10 @@ export function PortfolioTab(): React.ReactElement {
           </Section>
 
           <AssetAllocation holdings={state.holdings} />
-          <PortfolioScores reloadKey={scoresReloadKey} />
         </>
       )}
+
+      {view === "overview" && <PortfolioScores reloadKey={scoresReloadKey} />}
     </div>
   );
 }
@@ -399,7 +437,24 @@ function Card({
 // with Invested + Holdings as a quiet sub-line. Lives inside the chart's
 // header so there's no separate competing box. Total/Day P&L stay in the
 // global top bar, so they're not repeated here.
-function PortfolioValueHead({ summary }: { summary: PortfolioSummary }): React.ReactElement {
+//
+// `summary` is `null` while the parent's summary+holdings fetch is still in
+// flight — PerformanceChart now mounts immediately (in parallel with that
+// fetch) rather than waiting for it, so this renders a skeleton in place of
+// the real figure until it resolves.
+function PortfolioValueHead({
+  summary,
+}: {
+  summary: PortfolioSummary | null;
+}): React.ReactElement {
+  if (!summary) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Skeleton style={{ height: 36, width: 160 }} />
+        <Skeleton style={{ height: 14, width: 200 }} />
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <span
@@ -467,7 +522,7 @@ function PerformanceChart({
   holdings,
   reloadKey,
 }: {
-  summary: PortfolioSummary;
+  summary: PortfolioSummary | null;
   holdings: Holding[];
   reloadKey: number;
 }): React.ReactElement {
@@ -964,7 +1019,7 @@ function PerformanceFooter({
   summary,
   holdings,
 }: {
-  summary: PortfolioSummary;
+  summary: PortfolioSummary | null;
   holdings: Holding[];
 }): React.ReactElement {
   const stats = useMemo(() => {
@@ -1003,6 +1058,13 @@ function PerformanceFooter({
       topSectorPct,
     };
   }, [holdings]);
+
+  // Parent summary+holdings fetch still in flight (distinct from "no
+  // holdings" below, which is a real, resolved empty state) — a slim
+  // skeleton instead of the real footer or a premature empty message.
+  if (!summary) {
+    return <Skeleton style={{ marginTop: 10, height: 13, width: 260 }} />;
+  }
 
   if (!stats) {
     return (
@@ -2223,12 +2285,14 @@ function ScoreCard({
 // Loading skeleton
 // ---------------------------------------------------------------------------
 
+// Covers only the Holdings + Asset Allocation sections — both are derived
+// from `state` (summary/holdings) with no independent fetch of their own, so
+// they still gate on `state.kind === "ok"`. Performance and Scores are no
+// longer part of this skeleton: they mount unconditionally (in parallel with
+// this fetch, not after it) and render their own loading state.
 function PortfolioLoading(): React.ReactElement {
   return (
     <div className="flex flex-col" style={{ gap: 28 }} data-testid="portfolio-loading">
-      <Card padding="22px 24px">
-        <Skeleton style={{ height: 190, width: "100%" }} />
-      </Card>
       <Card padding={0} style={{ overflow: "hidden" }}>
         <Skeleton style={{ height: 40, width: "100%" }} />
         {[0, 1, 2, 3, 4].map((i) => (
@@ -2237,10 +2301,6 @@ function PortfolioLoading(): React.ReactElement {
       </Card>
       <Card>
         <Skeleton style={{ height: 220, width: 220 }} />
-      </Card>
-      <Card padding="22px 24px">
-        <Skeleton style={{ height: 8, width: "100%", marginBottom: 12 }} />
-        <Skeleton style={{ height: 8, width: "100%" }} />
       </Card>
     </div>
   );

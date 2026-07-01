@@ -78,6 +78,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  getMe,
   getPortfolioSummary,
   getWorkflow,
   listConversations,
@@ -291,35 +292,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     // TopHeader.jsx::getInitial(user) pattern (first letter of name
     // or email, uppercase, fallback "U").
     //
-    // AppBootstrap wires its `setAuthTokenProvider` in a sibling
-    // useEffect that runs AFTER this one (React fires child effects
-    // before parent effects). So we cannot use `getMe()` here — its
-    // bearer token reader is empty at this moment. Read the JWT
-    // straight from localStorage and call /auth/me with an explicit
-    // header instead.
-    void (async () => {
-      let token: string | null = null;
-      try { token = localStorage.getItem("pivot_jwt"); } catch { token = null; }
-      if (!token) return;
-      try {
-        const base =
-          (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-          "http://127.0.0.1:8000";
-        const trimmed = base.replace(/\/api\/?$/, "");
-        const res = await fetch(`${trimmed}/auth/me`, {
-          headers: {
-            Accept: "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as { full_name?: string | null; email?: string | null };
-        const src = (data.full_name && data.full_name.trim()) || data.email || "";
-        const letter = src.trim()[0];
-        if (letter) setAccountInitial(letter.toUpperCase());
-      } catch { /* silent */ }
-    })();
+    // AppShell only mounts once AppBootstrap's own effect has already run
+    // (it gates children behind a "ready" phase reached only after
+    // `setAuthTokenProvider` is wired), so `getMe()` already has a token
+    // reader by the time this fires. Going through the shared `getMe()`
+    // (instead of a bespoke fetch) also means this coalesces with
+    // DashboardTab's own `getMe()` mount call via lib/api.ts's in-flight
+    // GET de-dupe, instead of firing a second, uncoalesced /auth/me request.
+    void getMe().then((result) => {
+      if (isError(result)) return;
+      const { full_name, email } = result.data;
+      const src = (full_name && full_name.trim()) || email || "";
+      const letter = src.trim()[0];
+      if (letter) setAccountInitial(letter.toUpperCase());
+    });
 
     // Detect a broker OAuth return trip — the backend bounces here with
     // ?broker=connected (or ?broker=error&reason=…). We also honor the legacy

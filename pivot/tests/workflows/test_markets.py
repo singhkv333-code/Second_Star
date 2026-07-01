@@ -209,6 +209,9 @@ def test_sparkline_unauth(client: TestClient) -> None:
 def test_sparkline_happy_path(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
+    """Bypass the sparkline Redis cache (symbol+range+interval keyed) so
+    this always exercises the live (mocked) yfinance fetch path, not a
+    stale entry left by a prior run of this same test."""
     series = pd.DataFrame(
         {"Close": [100.0, 102.5, 101.0, 103.5, 105.0]},
         index=pd.to_datetime([
@@ -217,6 +220,10 @@ def test_sparkline_happy_path(
         ]),
     )
     with patch(
+        "backend.routers.markets.redis_client.get", return_value=None
+    ), patch(
+        "backend.routers.markets.redis_client.setex", return_value=None
+    ), patch(
         "backend.routers.markets.yf.Ticker",
         return_value=_FakeTicker(info={}, hist=series),
     ):
@@ -236,11 +243,16 @@ def test_sparkline_happy_path(
 def test_sparkline_default_range_is_1y(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
+    """Bypass the sparkline Redis cache — see the happy-path test above."""
     series = pd.DataFrame(
         {"Close": [100.0, 110.0]},
         index=pd.to_datetime(["2025-05-01", "2026-05-01"]),
     )
     with patch(
+        "backend.routers.markets.redis_client.get", return_value=None
+    ), patch(
+        "backend.routers.markets.redis_client.setex", return_value=None
+    ), patch(
         "backend.routers.markets.yf.Ticker",
         return_value=_FakeTicker(info={}, hist=series),
     ):

@@ -27,7 +27,7 @@ const TOKEN_KEY = "pivot_jwt";
 
 /** Routes that render without the auth gate: the /design showcase, public
  *  marketing pages, and the auth routes themselves. */
-const UNGATED_PATHS = ["/design", "/waitlist", "/login", "/signup"];
+const UNGATED_PATHS = ["/design", "/waitlist", "/login", "/signup", "/view-pack"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 

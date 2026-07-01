@@ -65,7 +65,7 @@ import {
   type FinancialsHistoryPoint,
   type MetricSeriesResponse,
 } from "@/lib/api";
-import { isError } from "@/lib/types";
+import { isError, type ApiResult } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { CompanyLogo } from "@/components/CompanyLogo";
@@ -88,6 +88,59 @@ type SeriesEntry = {
 };
 
 const RANGE_OPTIONS: SparklineRange[] = ["1D", "1W", "1M", "6M", "1Y", "5Y"];
+
+// ---------------------------------------------------------------------------
+// Sparkline cache + adjacent-range prefetch
+//
+// getSparkline has no client-side cache today, so every range-button click
+// (including re-clicking a range already viewed this session) pays a fresh
+// ~1.2s network round trip. `sparklineCache` is a module-level map keyed by
+// "symbol|range" that persists for the life of the tab — a repeat click is
+// then instant. Only successful responses are cached; errors are never
+// cached so a later click still retries against the network.
+// ---------------------------------------------------------------------------
+
+const sparklineCache = new Map<string, SparklineResponse>();
+
+function sparklineCacheKey(symbol: string, range: SparklineRange): string {
+  return `${symbol}|${range}`;
+}
+
+function getSparklineCached(
+  symbol: string,
+  range: SparklineRange,
+): Promise<ApiResult<SparklineResponse>> {
+  const key = sparklineCacheKey(symbol, range);
+  const hit = sparklineCache.get(key);
+  if (hit) return Promise.resolve({ data: hit });
+  return getSparkline(symbol, range).then((res) => {
+    if (!isError(res)) sparklineCache.set(key, res.data);
+    return res;
+  });
+}
+
+/** The 1-2 ranges a user most often clicks next, per current range — used to
+ *  warm the cache in the background once the active range finishes loading.
+ *  Deliberately NOT "every other range": keep the prefetch lightweight. */
+const ADJACENT_RANGES: Record<SparklineRange, SparklineRange[]> = {
+  "1D": ["1W"],
+  "1W": ["1M", "1D"],
+  "1M": ["1W", "6M"],
+  "6M": ["1Y", "1M"],
+  "1Y": ["6M", "5Y"],
+  "5Y": ["1Y", "1M"],
+};
+
+/** Fire-and-forget background warm-up of the cache for likely-next ranges.
+ *  Never touches component state and swallows failures — this is a pure
+ *  optimization, not a user-facing fetch. */
+function prefetchAdjacentRanges(tickers: string[], range: SparklineRange): void {
+  for (const adjacent of ADJACENT_RANGES[range] ?? []) {
+    for (const sym of tickers) {
+      void getSparklineCached(sym, adjacent).catch(() => {});
+    }
+  }
+}
 
 /** Distinct, color-blind-friendly palette for comparison series. The
  *  base ticker uses --color-profit (green); peers cycle through the
@@ -382,7 +435,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
     setSeries(tickers.map((s) => ({ symbol: s, state: { kind: "loading" } })));
     Promise.all(
       tickers.map(async (s) => {
-        const res = await getSparkline(s, range).catch(() => null);
+        const res = await getSparklineCached(s, range).catch(() => null);
         if (cancelled) return null;
         if (!res || isError(res)) {
           return { symbol: s, state: { kind: "error" as const } } as SeriesEntry;
@@ -395,6 +448,8 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
     ).then((items) => {
       if (cancelled) return;
       setSeries(items.filter((i): i is SeriesEntry => i !== null));
+      // Warm the cache for the ranges most likely to be clicked next.
+      prefetchAdjacentRanges(tickers, range);
     });
     return () => { cancelled = true; };
   }, [tickers, range]);

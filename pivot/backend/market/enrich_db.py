@@ -127,3 +127,38 @@ def get_by_sc_id(sc_id: str) -> Optional[CompanyEnrichment]:
         return _row_to_obj(row) if row else None
     finally:
         db.close()
+
+
+def get_websites_by_tickers(tickers: list[str]) -> dict[str, Optional[str]]:
+    """Batch-resolve ``{UPPER(ticker): website}`` for many NSE tickers in ONE
+    query — the latency fast-path for page-level logo resolution.
+
+    ``get_by_ticker`` answers one name per call; resolving a whole screener page
+    that way is an N-query round-trip storm against the (remote) enrich DB. This
+    resolves them all at once with the SAME matching as ``get_by_ticker``
+    (case-insensitive ticker; on a duplicate ticker the largest-market-cap row
+    wins via ``DISTINCT ON``). Disabled DB / empty input → ``{}``. Tickers absent
+    from the result simply have no enrichment (caller leaves the logo ``None``).
+    """
+    if EnrichSessionLocal is None or not tickers:
+        return {}
+    norm = sorted({t.strip().upper() for t in tickers if t and t.strip()})
+    if not norm:
+        return {}
+    db = EnrichSessionLocal()
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT ON (upper(ticker))
+                       upper(ticker) AS tkr, website
+                FROM enrich.v_company_enriched
+                WHERE upper(ticker) = ANY(:tkrs)
+                ORDER BY upper(ticker), market_cap DESC NULLS LAST
+                """
+            ),
+            {"tkrs": norm},
+        ).fetchall()
+        return {r._mapping["tkr"]: r._mapping["website"] for r in rows}
+    finally:
+        db.close()

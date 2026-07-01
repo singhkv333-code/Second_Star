@@ -20,6 +20,7 @@ python-multipart==0.0.12
 
 # Cache
 redis==5.1.1
+certifi==2026.4.22  # CA bundle for the Azure Managed Redis TLS connection (rediss://)
 
 # HTTP client (for Sarvam AI, external APIs)
 httpx==0.27.2

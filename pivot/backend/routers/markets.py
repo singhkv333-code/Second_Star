@@ -6,10 +6,13 @@ Three endpoints:
   - GET /api/markets/quote/{symbol}        → full snapshot (OHLC, 52w, mcap, P/E)
   - GET /api/markets/sparkline/{symbol}    → historical close series for the price chart
 
-All three use yfinance under the hood (already in requirements.txt). yfinance is
-keyless and works for NSE symbols via the `.NS` suffix; we cache nothing for v1
-because the dashboard refreshes on tab change rather than polling, and the
-stock-snapshot card is a per-click fetch.
+All three prefer Kite (when a session + instrument mapping exist) and fall
+back to yfinance otherwise — always for indices (`^`-prefixed symbols), which
+skip Kite entirely. yfinance is keyless and works for NSE symbols via the
+`.NS` suffix. Every yfinance fallback path is Redis-cached (short TTLs — see
+`_INDEX_LEVEL_TTL_S`, `_QUOTE_CACHE_TTL_SECONDS`, `_YF_SERIES_TTL_S`) so a
+burst of repeat requests doesn't pay a live `.history()`/`.info` round-trip
+each time.
 
 When yfinance returns nothing (network blip, unknown symbol, rate-limit), the
 endpoints raise the canonical `not_yet_available` error envelope so the
@@ -463,6 +466,25 @@ _RANGE_MAP: dict[str, tuple[str, str]] = {
     "5Y": ("5y", "1mo"),
 }
 
+# Redis TTL for the yfinance-fallback series cache (sparkline + OHLC),
+# keyed by range. This fallback fires for any symbol with no active Kite
+# session and ALWAYS for indices (which skip Kite entirely — see the
+# `sym.startswith("^")` guards below), so an uncached hit was taking
+# 3.3-3.7s per request. Short TTLs for the intraday ranges (5m/30m bars
+# that move during market hours); longer TTLs for the daily/weekly/monthly
+# bar ranges, which don't change intraday. Mirrors the Kite-primary cache
+# style in `backend/kite/historical.py` (get_kite_historical's 30-min TTL).
+_YF_SERIES_TTL_S: dict[str, int] = {
+    "1D": 60,     # 5m bars — refresh roughly as often as a new bar forms
+    "1W": 120,    # 30m bars
+    "1M": 900,    # daily bars — 15 min is plenty
+    "6M": 1800,   # daily bars
+    "1Y": 1800,   # weekly bars
+    "5Y": 1800,   # monthly bars
+}
+_SPARKLINE_YF_CACHE_PREFIX = "sparkline:yf:v1:"
+_OHLC_YF_CACHE_PREFIX = "ohlc:yf:v1:"
+
 
 @router.get(
     "/sparkline/{symbol}",
@@ -510,6 +532,20 @@ def get_sparkline(
         except Exception as e:  # noqa: BLE001 — fall through to yfinance
             pass
 
+    # yfinance fallback (no Kite session, unmapped instrument, or an
+    # index — indices skip Kite entirely). This path is otherwise an
+    # uncached live `.history()` call (~3.3-3.7s cold); cache the
+    # assembled response so repeat requests for the same symbol/range
+    # are near-instant. Keyed on symbol+exchange+range+interval so
+    # different ranges never collide.
+    _sp_key = f"{_SPARKLINE_YF_CACHE_PREFIX}{exchange}:{sym}:{range}:{interval}"
+    try:
+        _sp_raw = redis_client.get(_sp_key)
+        if _sp_raw:
+            return SparklineResponse.model_validate_json(_sp_raw)
+    except Exception as e:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("[markets] sparkline cache read failed for %s: %s", _sp_key, e)
+
     # [C4] route through the shared resolver so index aliases / shorthand
     # map to real yfinance tickers (was: naive ".NS" suffix → dead
     # NIFTY.NS / SENSEX.NS → "no historical data"). Keep explicit BSE
@@ -545,9 +581,16 @@ def get_sparkline(
         for ts, close in hist["Close"].items()
         if close is not None and not _is_nan(close)
     ]
-    return SparklineResponse(
+    response = SparklineResponse(
         symbol=sym, range=range, interval=interval, points=points,
     )
+    try:
+        redis_client.setex(
+            _sp_key, _YF_SERIES_TTL_S.get(range, 300), response.model_dump_json(),
+        )
+    except Exception as e:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("[markets] sparkline cache write failed for %s: %s", _sp_key, e)
+    return response
 
 
 @router.get(
@@ -600,6 +643,16 @@ def get_ohlc(
             pass
 
     # yfinance fallback — same symbol resolution as the sparkline path.
+    # Also uncached upstream (~3.3-3.7s cold); cache the assembled
+    # response so repeat requests for the same symbol/range are fast.
+    _oh_key = f"{_OHLC_YF_CACHE_PREFIX}{exchange}:{sym}:{range}:{interval}"
+    try:
+        _oh_raw = redis_client.get(_oh_key)
+        if _oh_raw:
+            return OhlcResponse.model_validate_json(_oh_raw)
+    except Exception as e:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("[markets] ohlc cache read failed for %s: %s", _oh_key, e)
+
     from backend.market.yfinance_service import (
         resolve_symbol, INDEX_TICKERS, NAME_TO_TICKER,
     )
@@ -641,10 +694,17 @@ def get_ohlc(
             404, "not_found",
             f"no usable OHLC bars for {sym}.{exchange} (range={range})",
         )
-    return OhlcResponse(
+    response = OhlcResponse(
         symbol=sym, range=range, interval=interval,
         source="yfinance", bars=bars,
     )
+    try:
+        redis_client.setex(
+            _oh_key, _YF_SERIES_TTL_S.get(range, 300), response.model_dump_json(),
+        )
+    except Exception as e:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("[markets] ohlc cache write failed for %s: %s", _oh_key, e)
+    return response
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

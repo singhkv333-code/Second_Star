@@ -23,7 +23,9 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import (
+    APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status,
+)
 from sqlalchemy.orm import Session
 
 from backend.auth.audit import write_audit
@@ -235,6 +237,7 @@ def me(
 def login(
     credentials: UserLogin,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """Login with email/password and return JWT tokens.
@@ -243,6 +246,13 @@ def login(
     the pair out for 15 min and return 429 with a Retry-After header.
     All bad-credential paths return the same uniform 401 message so the
     response can't be used to enumerate accounts.
+
+    On success, schedules a fire-and-forget background task that proactively
+    warms the user's portfolio/views/markets Redis caches (see
+    :mod:`services.cache_warm`) so the FE's dashboard-mount burst hits warm
+    entries instead of paying the first-request compute/network cost. Failure
+    or slowness inside the warm task NEVER affects this response — it is
+    strictly additive.
     """
     ip = _client_ip(request)
     ua = _user_agent(request)
@@ -296,6 +306,18 @@ def login(
         db, event="login", success=True, email=email,
         user_id=user.id, ip=ip, user_agent=ua,
     )
+
+    # Fire-and-forget cache warm. Runs AFTER the response is sent (that's
+    # BackgroundTasks' contract), so a slow yfinance / broker fetch inside
+    # the warmer NEVER shows up as login latency to the user. The task
+    # itself is broadly-except'd (see cache_warm.warm_user_cache), so any
+    # failure is logged and swallowed — the login response has already been
+    # committed by then either way.
+    try:
+        from backend.services.cache_warm import warm_user_cache
+        background_tasks.add_task(warm_user_cache, int(user.id))
+    except Exception as e:  # noqa: BLE001 — cache warm must never break login
+        logger.debug("failed to schedule cache warm for user %s: %s", user.id, e)
 
     return TokenResponse(
         access_token=access_token,
