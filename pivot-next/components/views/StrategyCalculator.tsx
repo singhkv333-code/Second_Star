@@ -95,6 +95,7 @@ export function StrategyCalculator({
   const rets = (expression.episodes ?? [])
     .map((e) => e.return_pct)
     .filter((r): r is number => typeof r === "number");
+  const hasEpisodes = rets.length >= 2;
   const n = expression.n_episodes ?? rets.length;
   const nPos =
     expression.n_positive ?? rets.filter((r) => r > 0).length;
@@ -102,6 +103,7 @@ export function StrategyCalculator({
     horizonLabel ?? expression.exit_period ?? expression.time_horizon ?? "the horizon";
 
   const clamp = (v: number) => Math.max(MIN_AMT, Math.min(MAX_AMT, Math.round(v)));
+  const sliderPct = Math.round(((amount - MIN_AMT) / (MAX_AMT - MIN_AMT)) * 100);
 
   return (
     <div
@@ -219,30 +221,44 @@ export function StrategyCalculator({
           </button>
         </div>
 
-        {/* slider */}
+        {/* slider — gradient track (fill + calm remainder) + styled thumb, so it
+            stays light in both themes instead of a heavy black default track. */}
         <input
           type="range"
+          className="vm-calc-slider"
           min={MIN_AMT}
           max={MAX_AMT}
           step={5000}
           value={amount}
           onChange={(e) => setAmount(clamp(Number(e.target.value)))}
           aria-label="Amount slider"
-          style={{ width: "100%", accentColor: c.blue, cursor: "pointer" }}
+          style={{
+            width: "100%",
+            height: 6,
+            WebkitAppearance: "none",
+            appearance: "none",
+            borderRadius: 999,
+            cursor: "pointer",
+            background: `linear-gradient(to right, ${c.blue} ${sliderPct}%, color-mix(in srgb, var(--text-tertiary) 18%, transparent) ${sliderPct}%)`,
+          }}
         />
+        <style>{`
+          .vm-calc-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:999px;background:var(--pivot-blue);cursor:pointer;border:2px solid var(--bg-base);}
+          .vm-calc-slider::-moz-range-thumb{width:16px;height:16px;border:2px solid var(--bg-base);border-radius:999px;background:var(--pivot-blue);cursor:pointer;}
+        `}</style>
       </div>
 
       {/* the chart */}
       {isOption ? (
         <OptionPayoffChart om={om!} amount={amount} c={c} />
-      ) : (
+      ) : hasEpisodes ? (
         <EpisodeOutcomeChart rets={rets} amount={amount} c={c} />
-      )}
+      ) : null}
 
       {/* the numbers — the honest triplet, live-rescaled */}
       {isOption ? (
         <OptionNumbers om={om!} amount={amount} horizon={horizon} />
-      ) : (
+      ) : hasEpisodes ? (
         <BasketNumbers
           rets={rets}
           amount={amount}
@@ -250,6 +266,19 @@ export function StrategyCalculator({
           nPos={nPos}
           horizon={horizon}
         />
+      ) : (
+        <p
+          style={{
+            margin: 0,
+            fontFamily: "var(--font-display)",
+            fontSize: 13,
+            color: "var(--text-tertiary)",
+            lineHeight: 1.5,
+          }}
+        >
+          No finished per-occurrence history yet for this strategy — there&rsquo;s
+          nothing to size here.
+        </p>
       )}
 
       {/* the honest line */}
@@ -464,7 +493,7 @@ function BasketNumbers({
         value={
           <span style={{ color: typical >= 0 ? "var(--color-profit)" : "var(--color-loss)" }}>
             {typical >= 0 ? "+" : "−"}
-            {inr(Math.abs(typical)).replace("−", "")}
+            {inr(Math.abs(typical))}
           </span>
         }
         valueSize="lg"
@@ -526,7 +555,7 @@ function OptionNumbers({
       />
       <Stat
         label="Most you can make"
-        value={<span style={{ color: "var(--color-profit)" }}>+{inr(maxProfit).replace("₹", "₹")}</span>}
+        value={<span style={{ color: "var(--color-profit)" }}>+{inr(maxProfit)}</span>}
         valueSize="lg"
         sub={`capped · ${pct(om.max_profit_pct, 0)} of capital`}
       />

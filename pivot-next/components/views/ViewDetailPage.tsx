@@ -462,6 +462,7 @@ export function ViewDetailPage({
     setCompareOn(false);
     setDeployError(null);
     setDeployingId(null);
+    setDeepDiveId(null);
     if (detailOverride) {
       setView(detailOverride);
       setFollowState({

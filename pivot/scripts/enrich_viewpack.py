@@ -303,6 +303,9 @@ def main() -> None:
                                   "trust_verdict", "historical_alignment",
                                   "monte_carlo", "curve_basis"):
                             e[k] = m[k]
+                        # Keep the detail-caption count in lock-step with the
+                        # recomputed episode count (they used to disagree 32 vs 31).
+                        e["curve_n_episodes"] = m["n_episodes"]
                         e["option_model"] = None
                         log.append(f"{vid:9} {tier:12} {kind:11} {m['weight_scheme']:12} "
                                    f"ret={m['strategy_total_pct']} n={m['n_episodes']}")
@@ -321,6 +324,12 @@ def main() -> None:
                 ulabel = view_underlying_label if usym == view_underlying else None
                 om = _option_metrics(rets, usym, ulabel, bullish, tier, horizon)
                 e["option_model"] = om
+                # An option tier's own historical return is "priced at deploy"
+                # (no offline option price path) — clear the stale pre-existing
+                # numbers so nothing misattributes the underlying's move to it.
+                e["strategy_total_pct"] = None
+                e["worst_drop_pct"] = None
+                e["curve_n_episodes"] = None
                 # MC for the option tier from the underlying's real window returns.
                 if usym in cols:
                     common = rets[usym].dropna()

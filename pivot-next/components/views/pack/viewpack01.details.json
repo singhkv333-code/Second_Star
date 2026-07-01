@@ -1811,7 +1811,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 0.3,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": 31,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -3300,7 +3300,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 0.2,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": 31,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -4068,12 +4068,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": 13.63,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 32,
     "pct_episodes_beat": 53,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "High-payoff bet on Infosys",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -4746,7 +4746,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -7149,7 +7149,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 0.4,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": 31,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -9246,12 +9246,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": 16.22,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 31,
     "pct_episodes_beat": 52,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "High-payoff bet on Persistent",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -9924,7 +9924,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 31,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -14663,12 +14663,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": -4.02,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 32,
     "pct_episodes_beat": 44,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "High-payoff bet on NTPC",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -15341,7 +15341,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -17784,7 +17784,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 0.7,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": 9,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -19119,7 +19119,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 0.6,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": 9,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -19733,12 +19733,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": 17.67,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 32,
     "pct_episodes_beat": 53,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "High-payoff bet on Mahindra",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -20411,7 +20411,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -22216,7 +22216,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 0.2,
-    "curve_n_episodes": 38,
+    "curve_n_episodes": 32,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -22991,12 +22991,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": 12.57,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 38,
     "pct_episodes_beat": 50,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "High-payoff bet on oil rising",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -23354,7 +23354,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 38,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -26432,12 +26432,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": 15.21,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 32,
     "pct_episodes_beat": 59,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "Tiny bet that pays huge if Nifty hits 30,000",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -27110,7 +27110,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 32,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -28768,7 +28768,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 0.3,
-    "curve_n_episodes": 19,
+    "curve_n_episodes": 20,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -29459,12 +29459,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": 57.99,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 19,
     "pct_episodes_beat": 74,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "High-payoff bet on gold rising",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -29822,7 +29822,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 19,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -32497,7 +32497,7 @@
     "underlying_symbol": null,
     "curve_basis": "in_position_episodes",
     "risk_return_ratio": 1.0,
-    "curve_n_episodes": 18,
+    "curve_n_episodes": 4,
     "episode_boundaries": [],
     "episodes": [
      {
@@ -33073,12 +33073,12 @@
     "trust_badge": "Priced at deploy",
     "members": [],
     "n_names": null,
-    "strategy_total_pct": 32.95,
+    "strategy_total_pct": null,
     "nifty_total_pct": null,
     "excess_return_pct": null,
     "n_episodes": 18,
     "pct_episodes_beat": 61,
-    "worst_drop_pct": -100.0,
+    "worst_drop_pct": null,
     "strategy_name": "High-payoff bet on BSE",
     "strategy_type": "Options (defined-risk)",
     "option_legs": [
@@ -33751,7 +33751,7 @@
     "underlying_symbol": null,
     "curve_basis": "modeled_option",
     "risk_return_ratio": null,
-    "curve_n_episodes": 18,
+    "curve_n_episodes": null,
     "episode_boundaries": [],
     "episodes": [
      {

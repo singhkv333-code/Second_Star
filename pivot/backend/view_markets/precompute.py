@@ -717,6 +717,8 @@ def _compute_expression(
         sigma = option_model.realized_vol_annual(
             engine.rets[present[0]].dropna().values
         )
+        if sigma and sigma > 0.9:
+            sigma = 0.28  # guard an illiquid/absurd realised vol → stated default
         if sigma:
             width, atm = _TIER_OPTION_SHAPE.get(tier, (7.0, 0.0))
             option_payload = option_model.model_vertical_spread(

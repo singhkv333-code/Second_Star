@@ -181,8 +181,9 @@ export function StrategyDeepDive({
       {/* 1 · calculator */}
       <StrategyCalculator expression={e} />
 
-      {/* 2 · Monte Carlo — where it may go */}
-      {e.monte_carlo && (
+      {/* 2 · Monte Carlo — where it may go (gate on the same data-sufficiency the
+          chart uses, so we never render an empty titled card). */}
+      {e.monte_carlo && (e.monte_carlo.terminal_pct?.length ?? 0) >= 5 && (
         <Section
           title="Where it could go"
           subtitle="Re-running the strategy on thousands of resampled histories — the spread of terminal outcomes, not a single guess."

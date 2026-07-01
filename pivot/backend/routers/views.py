@@ -746,19 +746,26 @@ def _best_expression(
     if is_curated and tier is None:
         return None  # developing: no finished hero
 
-    # Highest AVERAGE-per-occurrence return among expressions with a real number.
-    scored: list[tuple[float, ViewExpression]] = []
+    # Highest AVERAGE-per-occurrence return among expressions with a real number,
+    # but REAL-backtested tiers rank ahead of option/underlying-basis ones. An
+    # option tier's episode returns are the UNDERLYING's move (curve rides the
+    # underlying; its own return is "priced at deploy"), so leading the card with
+    # it would misattribute the underlying's return — and its best_episode — to
+    # the option. Prefer a backtested basket/pair/hedge; fall back to an option
+    # only when nothing else has a number.
+    scored: list[tuple[int, float, ViewExpression]] = []
     for e in exprs:
         cfg = e.config if isinstance(e.config, dict) else {}
         pre = precompute.expression_precompute(str(e.id))
         tot = _headline_numbers(pre, cfg)["strategy_total_pct"]
         if tot is None:
             continue
-        scored.append((tot, e))
+        backtested = 0 if _not_backtested(_str_enum(e.expression_kind), pre) else 1
+        scored.append((backtested, tot, e))
     if not scored:
         return None
-    scored.sort(key=lambda t: t[0], reverse=True)
-    return _best_from_expression(view, scored[0][1])
+    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return _best_from_expression(view, scored[0][2])
 
 
 def _confidence_score_letter(score_frac: Optional[float]) -> tuple[Optional[int], Optional[str]]:
