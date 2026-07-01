@@ -274,6 +274,14 @@ class ViewSummary(BaseModel):
     plain_summary: Optional[str] = None
     # 7-8-word Polymarket-style headline (curated, else the raw title).
     short_title: Optional[str] = None
+    # Calm YES/NO presentation-only reading, hoisted onto the SUMMARY so the
+    # gallery card can render its two-button (Yes/No) affordance without a
+    # detail fetch. ``None`` today on the live path (no curated stance source
+    # wired yet — never fabricate); the /view-pack demo JSON carries the real
+    # copy. Forward reference: the Stance model is defined further down, so
+    # ViewSummary is model_rebuild()'d after it. Same field/type as ViewDetail —
+    # the two surfaces stay in lock-step once a live source is wired.
+    stance: Optional["Stance"] = None
 
 
 class TransmissionEdge(BaseModel):
@@ -395,6 +403,12 @@ class StanceNoSide(StanceSide):
 class Stance(BaseModel):
     yes: StanceSide
     no: StanceNoSide
+
+
+# ViewSummary references Stance via a forward reference (Stance is defined
+# after it, since ViewDetail extends ViewSummary). Resolve it now that Stance
+# exists so the `stance` field validates.
+ViewSummary.model_rebuild()
 
 
 class ViewDetail(ViewSummary):
@@ -845,6 +859,10 @@ def _build_summary(
         plain_one_liner=plain.get("plain_one_liner"),
         plain_summary=plain.get("plain_summary"),
         short_title=plain_copy.short_title(str(view.id)) or view.title,
+        # None today (no live stance source) — the FE degrades to a plain "View
+        # details" card when absent. Wired here so the summary lights up the
+        # same day a live stance source lands in _stance_for_view.
+        stance=_stance_for_view(view),
     )
 
 
@@ -1139,7 +1157,9 @@ def get_view(
         bullets=list(extras.get("bullets") or []),
         similar_views=similar,
         fundamental_comparison=fundamental,
-        stance=_stance_for_view(view),
+        # stance already arrives via **summary.model_dump() — the summary now
+        # carries it (same _stance_for_view source), so passing it again here
+        # would be a duplicate keyword. Detail and summary stay in lock-step.
     )
     _cache_set_model(cache_key, detail, _DETAIL_CACHE_TTL_S)
     return detail
