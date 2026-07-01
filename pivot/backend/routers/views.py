@@ -383,6 +383,13 @@ class ExpressionDetail(BaseModel):
     historical_alignment: Optional[ConfidenceBlock] = None
     # "Thousands of simulations" terminal-return distribution; null when N/A.
     monte_carlo: Optional[MonteCarlo] = None
+    # REAL per-tier weighting scheme actually used (min_variance / risk_parity /
+    # factor / equal) — the substance behind genuinely different tiers.
+    weight_scheme: Optional[str] = None
+    # REAL modelled Black–Scholes payoff for the option tier (max loss/profit/
+    # breakeven/POP/greeks/payoff-curve). Passthrough of the computed dict; null
+    # for non-option kinds.
+    option_model: Optional[dict[str, Any]] = None
 
 
 class StanceSide(BaseModel):
@@ -954,6 +961,12 @@ def _expression_detail(view: MarketView, e: ViewExpression) -> ExpressionDetail:
         exit_period=pre.get("exit_period"),
         historical_alignment=_historical_alignment(pre),
         monte_carlo=_monte_carlo(pre),
+        weight_scheme=pre.get("weight_scheme"),
+        option_model=(
+            pre.get("option_model")
+            if isinstance(pre.get("option_model"), dict)
+            else None
+        ),
     )
 
 

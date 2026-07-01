@@ -75,10 +75,11 @@ import numpy as np
 # importing the yfinance layer directly, mirroring the app's import order.
 import backend.core.data.historical  # noqa: F401
 from backend.market.yfinance_service import canonical_symbol
+from backend.services import weighting as _weighting
 from backend.services.backtest.validation.monte_carlo import (
     monte_carlo_terminal_distribution,
 )
-from backend.view_markets import confidence, plain_copy
+from backend.view_markets import confidence, option_model, plain_copy
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,73 @@ _EXIT_PERIOD: dict[str, str] = {
     ),
 }
 
+# ── tier differentiation (the substance fix) ──────────────────────────────────
+# The tiers used to share ONE equal-weight long book (``{m: 1.0}``), so
+# Conservative/Balanced/Aggressive differed only by the hedge overlay. We now
+# weight each tier's long book with a REAL scheme computed from the returns
+# matrix (verified non-fallback on the curated members), so the tiers hold the
+# same names in genuinely different proportions AND recompute genuinely different
+# returns/drawdowns. The ladder mirrors the spec tier knobs (defensive → balanced
+# → momentum) using only schemes computable offline from returns (``mcap`` needs
+# market caps we don't have here and would honestly fall back to equal, so it is
+# intentionally not used):
+#   conservative → min_variance  (capital-preserving, lowest-vol tilt)
+#   balanced     → risk_parity   (equal risk contribution across names)
+#   aggressive   → factor         (momentum/quality tilt; concentrates on strength)
+_TIER_SCHEME: dict[str, str] = {
+    "conservative": "min_variance",
+    "balanced": "risk_parity",
+    "aggressive": "factor",
+}
+# Hard single-name cap per tier (spec §5/§4.3). Only applied when feasible
+# (cap × n_names ≥ 1); on the small curated baskets a 0.10/0.15 cap is infeasible
+# and is skipped rather than forced into an invalid distribution.
+_TIER_CAP: dict[str, float] = {
+    "conservative": 0.10, "balanced": 0.15, "aggressive": 0.20,
+}
+# Thesis direction of each view's OPTION expression (weak IT guidance → bearish;
+# a normal monsoon → bullish). Fixes the old hardcoded bull-call-spread.
+_VIEW_BULLISH: dict[str, bool] = {
+    plain_copy.VIEW_IT: False,        # weak-guidance print → bear put spread
+    plain_copy.VIEW_MONSOON: True,    # normal sowing season → bull call spread
+    plain_copy.VIEW_CRUDE: True,
+}
+# Per-tier defined-risk vertical shape (strike width % / long-strike offset %):
+# conservative wider & cheaper (higher POP, lower payoff ratio); aggressive tight
+# ATM (lower POP, higher payoff ratio).
+_TIER_OPTION_SHAPE: dict[str, tuple[float, float]] = {
+    "conservative": (10.0, 0.0),
+    "balanced": (7.0, 0.0),
+    "aggressive": (5.0, 0.0),
+}
+
+
+def _apply_cap(weights: dict[str, float], cap: float) -> dict[str, float]:
+    """Water-fill a single-name cap onto ``weights`` (renormalised to 1). No-op if
+    the cap is infeasible (cap × n < 1)."""
+    w = {k: float(v) for k, v in weights.items()}
+    syms = list(w)
+    # Skip unless the cap leaves genuine headroom above equal-weight (cap > 1/n).
+    # When cap == 1/n the only capped distribution summing to 1 is equal-weight,
+    # so capping there would silently FLATTEN a real scheme back to equal.
+    if not syms or cap * len(syms) < 1.0 + 1e-6:
+        return w
+    for _ in range(len(syms)):
+        over = [s for s in syms if w[s] > cap + 1e-9]
+        if not over:
+            break
+        excess = sum(w[s] - cap for s in over)
+        for s in over:
+            w[s] = cap
+        under = [s for s in syms if w[s] < cap - 1e-9]
+        pool = sum(w[s] for s in under)
+        if pool <= 0:
+            break
+        for s in under:
+            w[s] += excess * (w[s] / pool)
+    tot = sum(w.values()) or 1.0
+    return {s: v / tot for s, v in w.items()}
+
 
 def _blank() -> dict[str, Any]:
     return {
@@ -161,6 +229,13 @@ def _blank() -> dict[str, Any]:
         "exit_period": None,
         "historical_alignment": None,
         "monte_carlo": None,
+        # per-tier weighting (the substance fix): the REAL scheme used + any
+        # honest fallback reason. None on empty/developing expressions.
+        "weight_scheme": None,
+        "weight_fallback": None,
+        # REAL modelled option payoff (Black–Scholes) for the option tier — max
+        # loss/profit/breakeven/POP/greeks/payoff-curve. None for non-option kinds.
+        "option_model": None,
         # AVERAGE return over the event's past occurrences (NOT compounded across
         # them) — the honest headline a single deployment can actually earn.
         "avg_episode_return_pct": None,
@@ -399,38 +474,83 @@ class _Engine:
     def _long_ew(self, present: list[str]):
         return _v3f.ew_factor(self.rets, present)
 
-    def _leg(self, view_id: str, kind: str, present: list[str]):
+    def _long_weighted(self, present: list[str], weights: dict[str, float]):
+        """Weighted daily return series of the long book (falls back to equal
+        weight if the weights are empty/degenerate)."""
+        import pandas as pd
+
+        w = pd.Series({m: float(weights.get(m, 0.0)) for m in present}, dtype=float)
+        if w.sum() <= 0:
+            return self._long_ew(present)
+        w = w / w.sum()
+        return self.rets[present].fillna(0.0).mul(w, axis=1).sum(axis=1)
+
+    def tier_weights(
+        self, present: list[str], tier: str,
+    ) -> tuple[dict[str, float], str, Optional[str]]:
+        """REAL per-tier target weights over ``present`` (summing to 1) using a
+        scheme computed from the returns matrix, plus the scheme actually used and
+        any honest fallback reason. Equal-weight for <2 names or an unknown tier."""
+        scheme = _TIER_SCHEME.get(tier)
+        if scheme is None or len(present) < 2:
+            n = len(present) or 1
+            return {m: 1.0 / n for m in present}, "equal", None
+        price_history = {
+            m: (1.0 + self.rets[m].dropna()).cumprod() for m in present
+        }
+        res = _weighting.compute_weights_detailed(
+            present, scheme, price_history=price_history,
+        )
+        weights = {m: float(res.weights.get(m, 0.0)) for m in present}
+        tot = sum(weights.values()) or 1.0
+        weights = {m: v / tot for m, v in weights.items()}
+        cap = _TIER_CAP.get(tier)
+        if cap:
+            weights = _apply_cap(weights, cap)
+        return weights, res.scheme_used, res.fallback_reason
+
+    def _leg(
+        self, view_id: str, kind: str, present: list[str],
+        weights: dict[str, float],
+    ):
         """Return (src_df, weights_or_leg, curve_basis, underlying_symbol) for the
         in-position curve, reconstructing the EXACT v3 leg for this kind/view.
-        ``present`` are member tickers that exist in the matrix."""
+        ``present`` are member tickers that exist in the matrix; ``weights`` is the
+        tier's REAL long-book weighting, applied to the basket and to the long leg
+        of a pair/hedge (so tiers hold the same names in different proportions)."""
         if kind in ("basket", "multi_asset"):
-            return self.rets, {m: 1.0 for m in present}, "in_position_episodes", None
+            return self.rets, dict(weights), "in_position_episodes", None
 
         if kind == "hedge":
             src = self.rets.copy()
-            src["__LEG__"] = (self._long_ew(present) - self.r_nifty).reindex(src.index)
+            src["__LEG__"] = (
+                self._long_weighted(present, weights) - self.r_nifty
+            ).reindex(src.index)
             return src, "__LEG__", "in_position_episodes", None
 
         if kind == "pair":
             src = self.rets.copy()
             if view_id == plain_copy.VIEW_IT:
-                # IT balanced: long basket / short IT_f (rotation-neutral).
-                src["__LEG__"] = (self._long_ew(present) - self.it_f).reindex(src.index)
+                # IT balanced: weighted long basket / short IT_f (rotation-neutral).
+                src["__LEG__"] = (
+                    self._long_weighted(present, weights) - self.it_f
+                ).reindex(src.index)
             else:
                 # Monsoon balanced: 0.5·long − 0.5·Nifty dollar-neutral pair
                 # (mirror monsoon_v3 exactly, incl. its fillna(0) Nifty handling).
                 src["NIFTY"] = self.r_nifty.reindex(self.rets.index)
-                long_leg = _v3e._port_daily(src, {m: 1.0 for m in present})
+                long_leg = _v3e._port_daily(src, dict(weights))
                 src["__LEG__"] = 0.5 * long_leg - 0.5 * src["NIFTY"].fillna(0.0)
             return src, "__LEG__", "in_position_episodes", None
 
         if kind == "option_strategy":
             # No faithful historical option payoff path exists offline → the
-            # HONEST fallback is the single underlying's own in-position path.
+            # HONEST fallback is the single underlying's own in-position path
+            # (the modelled Black–Scholes payoff is attached separately).
             return self.rets, present[0], "underlying", present[0]
 
         # Unknown kind → treat as a long basket (never fabricate).
-        return self.rets, {m: 1.0 for m in present}, "in_position_episodes", None
+        return self.rets, dict(weights), "in_position_episodes", None
 
     def _benchmark_per_episode_pct(self, episodes) -> list[float]:
         """Nifty buy-hold total return % within each episode window (same order
@@ -504,53 +624,62 @@ def _historical_alignment(cfg: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 def _episode_holdings(
     engine: _Engine, view_id: str, kind: str, present: list[str],
-    avg_bench_pct: Optional[float],
+    avg_bench_pct: Optional[float], weights: dict[str, float],
+    option_payload: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
-    """Per-holding rows with position + weight + REAL in-position return.
+    """Per-holding rows with position + REAL weight + REAL in-position return.
 
-    basket/multi_asset → each long member equal-weighted (100/n). pair/hedge →
-    the long members (weight null) plus ONE 'Nifty 50' row, position short (the
-    short leg is the index, never a per-stock short). option_strategy → the
-    illustrative legs as long/short holdings (no fabricated per-leg return)."""
+    basket/multi_asset → each long member at its REAL per-tier weight. pair/hedge
+    → the weighted long members plus ONE short-leg row (the IT sector factor for
+    the IT pair, else the Nifty index — never a per-stock short). option_strategy
+    → the modelled, direction-correct legs (no fabricated per-leg return)."""
     if kind == "option_strategy":
-        legs = plain_copy._build_option_legs("bull_call_spread") or []
+        legs = (option_payload or {}).get("legs") or []
         leg_sym = canonical_symbol(present[0]) if present else None
         out: list[dict[str, Any]] = []
         for leg in legs:
             action = str(leg.get("action", "")).strip()
             pos = "long" if action.upper() == "BUY" else "short"
-            rule = leg.get("strike_rule")
+            label = leg.get("strike_label")
             name = f"{action.title()} {leg.get('option_type', '')}".strip()
-            if rule:
-                name = f"{name} ({rule})"
+            if label:
+                name = f"{name} ({label})"
             out.append({
                 "name": name, "symbol": leg_sym,
                 "return_pct": None, "position": pos, "weight_pct": None,
             })
         return out
 
-    n = len(present)
-    ew_weight = round(100.0 / n, 1) if (kind in ("basket", "multi_asset") and n) else None
-    out = []
+    out: list[dict[str, Any]] = []
     for sym, ret in engine._member_holdings(engine.episodes.get(view_id) or [], present):
+        w = weights.get(sym)
         out.append({
             "name": plain_copy.stock_name(sym) or sym,
             "symbol": canonical_symbol(sym),
             "return_pct": round(ret, 1),
             "position": "long",
-            "weight_pct": ew_weight,
+            "weight_pct": round(w * 100.0, 1) if w is not None else None,
         })
     if kind in ("pair", "hedge"):
+        # The short leg is the IT sector factor for the IT pair, else the Nifty
+        # index. For the IT pair we do NOT surface the Nifty number on an
+        # "IT sector" row (it would mislabel the short) — its own return is null.
+        it_pair = kind == "pair" and view_id == plain_copy.VIEW_IT
         out.append({
-            "name": _NIFTY_DISPLAY, "symbol": _NIFTY_SYMBOL,
-            "return_pct": round(avg_bench_pct, 1) if avg_bench_pct is not None else None,
+            "name": "IT sector (short)" if it_pair else _NIFTY_DISPLAY,
+            "symbol": None if it_pair else _NIFTY_SYMBOL,
+            "return_pct": (
+                None if it_pair
+                else (round(avg_bench_pct, 1) if avg_bench_pct is not None else None)
+            ),
             "position": "short", "weight_pct": None,
         })
     return out
 
 
 def _compute_expression(
-    engine: Optional[_Engine], view_id: str, kind: str, cfg: dict[str, Any],
+    engine: Optional[_Engine], view_id: str, kind: str, tier: str,
+    cfg: dict[str, Any],
 ) -> dict[str, Any]:
     """Episode-gated, in-position concatenated curve + detail-page extras for one
     expression. Returns honest empties (with exit_period populated; trust /
@@ -573,7 +702,31 @@ def _compute_expression(
     if not present:
         return base
 
-    src, weights_or_leg, curve_basis, underlying = engine._leg(view_id, kind, present)
+    # REAL per-tier weights (the substance fix) — genuinely different proportions
+    # per tier, computed from the returns matrix, replacing the old {m: 1.0}.
+    weights, scheme_used, weight_fallback = engine.tier_weights(present, tier)
+    src, weights_or_leg, curve_basis, underlying = engine._leg(
+        view_id, kind, present, weights,
+    )
+
+    # REAL modelled Black–Scholes payoff for the option tier (max loss/profit/
+    # breakeven/POP/greeks/payoff-curve). The historical return stays honestly
+    # "priced at deploy" (no offline option price path). None if vol is unestimable.
+    option_payload: Optional[dict[str, Any]] = None
+    if kind == "option_strategy" and present:
+        sigma = option_model.realized_vol_annual(
+            engine.rets[present[0]].dropna().values
+        )
+        if sigma:
+            width, atm = _TIER_OPTION_SHAPE.get(tier, (7.0, 0.0))
+            option_payload = option_model.model_vertical_spread(
+                bullish=_VIEW_BULLISH.get(view_id, True),
+                sigma_annual=sigma,
+                horizon_days=_HOLD_BARS,
+                width_pct=width,
+                atm_offset_pct=atm,
+                underlying_label=plain_copy.stock_name(present[0]) or present[0],
+            )
 
     res = _v3e.backtest_exits(
         episodes, src, weights_or_leg, engine.r_nifty,
@@ -640,7 +793,9 @@ def _compute_expression(
         else None
     )
 
-    holdings = _episode_holdings(engine, view_id, kind, present, avg_bench)
+    holdings = _episode_holdings(
+        engine, view_id, kind, present, avg_bench, weights, option_payload,
+    )
 
     # Monte-Carlo terminal-return distribution for a SINGLE occurrence: bootstrap
     # from the full episode-gated daily-return sample, but simulate a path of one
@@ -708,6 +863,9 @@ def _compute_expression(
         "n_positive": n_positive,
         "trust_verdict": trust_verdict,
         "historical_alignment": own_alignment,
+        "weight_scheme": scheme_used,
+        "weight_fallback": weight_fallback,
+        "option_model": option_payload,
     }
 
 
@@ -743,7 +901,8 @@ def compute_all(db) -> dict[str, Any]:
         for e in exprs:
             cfg = e.config if isinstance(e.config, dict) else {}
             kind = _str_enum(e.expression_kind)
-            payload = _compute_expression(engine, vid, kind, cfg)
+            tier = _str_enum(e.tier)
+            payload = _compute_expression(engine, vid, kind, tier, cfg)
             out["expressions"][str(e.id)] = payload
             n_pts = len(payload["equity_curve"])
             status = (
