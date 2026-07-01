@@ -254,7 +254,9 @@ function StanceCard({
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        border: "1px solid var(--glass-border)",
+        // A muted (no-clean-trade) side gets a DASHED border so it reads as
+        // categorically "not a live position" at a glance — not just a paler pill.
+        border: `1px ${muted ? "dashed" : "solid"} var(--glass-border)`,
         borderRadius: "var(--radius-lg)",
         background: "var(--bg-base)",
         padding: 18,
@@ -324,6 +326,11 @@ function StanceBlock({
           verdict={stance.no.verdict}
           summary={stance.no.summary}
           muted={!noHasTrade}
+          footnote={
+            noHasTrade
+              ? undefined
+              : "Nothing to arm — sitting this one out is the call."
+          }
         />
       </div>
     </div>

@@ -37,6 +37,7 @@ import {
   statusLabel,
   statusDotColor,
   trustBadge,
+  verdictColor,
 } from "./view-format";
 
 const CARD_HEIGHT = 360;
@@ -240,7 +241,7 @@ export function ViewCard({
                 fontFamily: "var(--font-display)",
                 fontSize: 13,
                 fontWeight: 500,
-                color: "var(--text-tertiary)",
+                color: verdictColor(be!.trust_verdict),
                 lineHeight: 1.3,
               }}
             >
@@ -250,7 +251,7 @@ export function ViewCard({
                   width: 6,
                   height: 6,
                   borderRadius: "50%",
-                  background: "var(--text-tertiary)",
+                  background: verdictColor(be!.trust_verdict),
                   flexShrink: 0,
                 }}
               />

@@ -228,6 +228,18 @@ export function BenchmarkComparison({
     expr.strategy_name ?? expr.plain_label ?? tierLabel(expr.tier);
   const isOption = expr.curve_basis === "underlying";
 
+  // How many cards actually land in the grid (the "how well it lined up" card is
+  // always present, +1). A single-holding strategy drops the donut+heatmap, which
+  // can leave just ONE card — if we let auto-fit stretch it to a full-width 1fr it
+  // reads as a half-empty box. So when only one card renders, cap it to a normal
+  // card width and left-align it instead of stretching.
+  const gridCardCount =
+    (hasHoldings ? 1 : 0) +
+    (hasHoldingReturns ? 1 : 0) +
+    (hasMc ? 1 : 0) +
+    (hasRatios ? 1 : 0) +
+    1;
+
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -265,7 +277,11 @@ export function BenchmarkComparison({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
+          gridTemplateColumns:
+            gridCardCount <= 1
+              ? "minmax(min(100%, 340px), 560px)"
+              : "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
+          justifyContent: "start",
           gap: 16,
           alignItems: "stretch",
         }}

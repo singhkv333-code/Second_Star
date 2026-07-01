@@ -218,22 +218,31 @@ export function AllocationPie({
                   lineHeight: 1.3,
                   minWidth: 0,
                   flexShrink: 1,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
               >
                 {legName(d.name)}
               </span>
-              <span
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  letterSpacing: "0.04em",
-                  color: d.short ? c.loss : c.tertiary,
-                  flexShrink: 0,
-                }}
-              >
-                {d.short ? "SHORT" : "LONG"}
-              </span>
+              {/* Only tag positions when the basket actually MIXES long & short —
+                  on an all-long basket the repeated "LONG" is noise and it crowds
+                  out the names. When there is a short leg, tag every row so the
+                  short is unmistakable. */}
+              {nShort > 0 && (
+                <span
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    color: d.short ? c.loss : c.tertiary,
+                    flexShrink: 0,
+                  }}
+                >
+                  {d.short ? "SHORT" : "LONG"}
+                </span>
+              )}
               <span
                 style={{
                   marginLeft: "auto",

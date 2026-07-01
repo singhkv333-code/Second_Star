@@ -140,7 +140,7 @@ export function ReturnsHeatmap({
                   minWidth: 0,
                 }}
               >
-                {h.name}
+                {(h.symbol || h.name).replace(/\.(NS|BO)$/i, "")}
               </span>
               <span
                 style={{
