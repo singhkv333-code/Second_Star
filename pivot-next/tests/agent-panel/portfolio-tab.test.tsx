@@ -71,6 +71,10 @@ beforeEach(() => {
   // summary/holdings — see PortfolioTab.tsx).
   vi.spyOn(portfolioApi, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
   vi.spyOn(portfolioApi, "getPortfolioScores").mockResolvedValue({ data: MOCK_SCORES });
+  // Per-row company logos are fetched via useCompanyLogos → getCompanyLogos on
+  // every holdings render — stub to an empty map so the table falls back to
+  // monograms instead of hitting the network (a relative URL throws in jsdom).
+  vi.spyOn(api, "getCompanyLogos").mockResolvedValue({});
 });
 
 describe("PortfolioTab", () => {
@@ -86,21 +90,18 @@ describe("PortfolioTab", () => {
     vi.spyOn(api, "getPortfolioHoldings").mockResolvedValue({ data: HOLDINGS });
     render(<PortfolioTab />);
 
+    // Holdings table + rows are the stable post-load anchor in the merged
+    // overview view (the old single "portfolio-metrics" strip was replaced by
+    // an Overview/History toggle + P&L strip during the portfolioApi refactor).
     await waitFor(() =>
-      expect(screen.getByTestId("portfolio-metrics")).toBeInTheDocument(),
+      expect(screen.getByTestId("holdings-table")).toBeInTheDocument(),
     );
-    // Metric strip
-    expect(screen.getByText(/Portfolio value/)).toBeInTheDocument();
-    expect(screen.getByText(/Day P&L/)).toBeInTheDocument();
-    expect(screen.getByText(/Total P&L/)).toBeInTheDocument();
-    // Holdings table
-    const table = screen.getByTestId("holdings-table");
-    expect(table).toBeInTheDocument();
     expect(screen.getByTestId("holding-INFY")).toBeInTheDocument();
     expect(screen.getByTestId("holding-TCS")).toBeInTheDocument();
     expect(screen.getByTestId("holding-HDFCBANK")).toBeInTheDocument();
-    // Performance chart is rendered
-    expect(screen.getByTestId("performance-chart")).toBeInTheDocument();
+    // Metric labels (Day / Total P&L) render in the summary strip
+    expect(screen.getAllByText(/Day P&L|Today's P&L/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Total P&L/).length).toBeGreaterThan(0);
   });
 
   it("default sort is value desc — HDFCBANK (largest value) first", async () => {
@@ -184,7 +185,7 @@ describe("PortfolioTab", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     await waitFor(() =>
-      expect(screen.getByTestId("portfolio-metrics")).toBeInTheDocument(),
+      expect(screen.getByTestId("holdings-table")).toBeInTheDocument(),
     );
     expect(sumSpy).toHaveBeenCalledTimes(2);
     expect(holdSpy).toHaveBeenCalledTimes(2);
