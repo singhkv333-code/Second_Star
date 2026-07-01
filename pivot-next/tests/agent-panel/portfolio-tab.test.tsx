@@ -13,10 +13,14 @@ import type { Holding, PortfolioSummary, PortfolioPerformanceResponse } from "@/
 
 const MOCK_PERF: PortfolioPerformanceResponse = {
   period: "1Y",
-  equity_curve: [
-    { date: "2024-01-01", value: 100000 },
-    { date: "2024-12-31", value: 115000 },
+  points: [
+    { t: "2024-01-01T00:00:00", v: 100000 },
+    { t: "2024-12-31T00:00:00", v: 115000 },
   ],
+  starting_value: 100000,
+  ending_value: 115000,
+  total_return: 15000,
+  total_return_pct: 15,
 };
 
 const SUMMARY: PortfolioSummary = {
@@ -51,7 +55,7 @@ beforeEach(() => {
   // Performance chart is always stubbed to avoid network calls in tests
   vi.spyOn(api, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
   vi.spyOn(api, "getIndexHistory").mockResolvedValue({
-    data: { symbol: "NIFTY50", period: "1Y", points: [] },
+    data: { symbol: "NIFTY50", range: "1Y", interval: "1wk", points: [] },
   });
 });
 
@@ -69,12 +73,8 @@ describe("PortfolioTab", () => {
     render(<PortfolioTab />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("portfolio-metrics")).toBeInTheDocument(),
+      expect(screen.getByTestId("holdings-table")).toBeInTheDocument(),
     );
-    // Metric strip
-    expect(screen.getByText(/Portfolio value/)).toBeInTheDocument();
-    expect(screen.getByText(/Day P&L/)).toBeInTheDocument();
-    expect(screen.getByText(/Total P&L/)).toBeInTheDocument();
     // Holdings table
     const table = screen.getByTestId("holdings-table");
     expect(table).toBeInTheDocument();
@@ -166,7 +166,7 @@ describe("PortfolioTab", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     await waitFor(() =>
-      expect(screen.getByTestId("portfolio-metrics")).toBeInTheDocument(),
+      expect(screen.getByTestId("holdings-table")).toBeInTheDocument(),
     );
     expect(sumSpy).toHaveBeenCalledTimes(2);
     expect(holdSpy).toHaveBeenCalledTimes(2);

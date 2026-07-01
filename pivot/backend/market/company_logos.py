@@ -1,13 +1,19 @@
 """Company logo resolution (logo.dev), keyed by domain.
 
 Resolution order for a user symbol/ticker:
-  1. ``mc.companies.logo_url`` — the precomputed img.logo.dev URL the
-     enrichment job already wrote (2.8k+ companies). Authoritative.
+  1. Curated override (``logo_domain_overrides.json``) — a hand/script-built
+     symbol→correct-domain map that corrects the symbols whose guessed domain
+     points at the wrong brand. Highest priority.
   2. Derived from ``enrich.company_profile.website`` — extract the bare
-     domain and build the img.logo.dev URL on the fly. This lifts coverage
-     to every company that has a website in the enrichment DB (~5k) even
-     where the precomputed column is null.
-  3. ``None`` — the frontend falls back to a first-letter monogram.
+     domain and build the img.logo.dev URL on the fly. The real website
+     domain returns the correct logo or a neutral monogram, never a
+     different company.
+  3. ``mc.companies.logo_url`` — the precomputed img.logo.dev URL (2.8k+
+     companies), whose domain was guessed from the name. Last resort: it is
+     correct for most large caps and the override map (step 1) fixes the
+     known-wrong ones, so it beats a monogram where the enrichment DB has
+     no website row.
+  4. ``None`` — the frontend falls back to a first-letter monogram.
 
 Everything fails closed: a disabled / unreachable DB, a missing token, or
 any exception returns ``None`` rather than raising, so a logo lookup can
@@ -19,7 +25,9 @@ footer (see pivot-next AppFooter). The pk_ token is publishable.
 """
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -28,11 +36,48 @@ from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Bumped on each resolution-logic change so a week's worth of cached values
+# (including *misses* cached as the none-sentinel) is ignored rather than
+# served stale: v2 = override layer landed; v3 = precomputed-column fallback
+# restored, so symbols that had regressed to a monogram re-resolve at once.
 _CACHE_TTL_SECONDS = 7 * 24 * 3600  # logos change rarely; cache a week
-_CACHE_PREFIX = "company_logo:"
+_CACHE_PREFIX = "company_logo:v3:"
+# Curated symbol→domain corrections, loaded once. See _load_overrides.
+_OVERRIDES_PATH = Path(__file__).with_name("logo_domain_overrides.json")
 # Sentinel cached for "we looked, found nothing" so a miss doesn't re-hit
 # the DBs every quote. Distinct from a real URL.
 _NONE_SENTINEL = "\x00none"
+
+
+def _load_overrides() -> dict[str, str]:
+    """Load the curated symbol(UPPER)→bare-domain override map. The naive
+    ``<name>.com`` guess baked into ``mc.companies.logo_url`` is wrong for
+    many Indian listings (``reliance.com``/``ntpc.com`` resolve to foreign
+    brands on logo.dev); these corrections take priority. Fails closed to an
+    empty map so a bad/missing file can never break logo resolution."""
+    try:
+        raw = json.loads(_OVERRIDES_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[company_logos] overrides load failed err=%s", exc)
+        return {}
+    out: dict[str, str] = {}
+    for sym, dom in raw.items():
+        if sym.startswith("_") or not isinstance(dom, str):
+            continue  # skip "_comment" and any non-string value
+        out[sym.strip().upper()] = dom.strip().lower()
+    return out
+
+
+# Loaded once at import; small file, stable for the process lifetime.
+_DOMAIN_OVERRIDES: dict[str, str] = _load_overrides()
+
+
+def override_logo_url(symbol: str) -> Optional[str]:
+    """img.logo.dev URL for a symbol whose domain we've curated, else None.
+    Lets list/search callers apply the same correction as get_logo_url
+    without paying a DB round-trip for the precomputed (wrong) column."""
+    domain = _DOMAIN_OVERRIDES.get((symbol or "").strip().upper())
+    return logo_url_for_domain(domain) if domain else None
 
 
 def logo_url_for_domain(domain: str) -> Optional[str]:
@@ -90,25 +135,29 @@ def get_logo_url(symbol_or_sc_id: str) -> Optional[str]:
 
 
 def _resolve_uncached(symbol_or_sc_id: str) -> Optional[str]:
-    # Resolve ONLY from the company's REAL website domain
-    # (enrich.company_profile.website). Rationale: img.logo.dev is keyed by
-    # domain and NEVER 404s — an unknown domain returns a generated
-    # placeholder, and a *wrong* domain that happens to belong to another
-    # company returns THAT company's logo. The precomputed
+    # 0) curated override — the corrected real domain for symbols whose name
+    #    resolves to the wrong brand on logo.dev. Highest priority.
+    override = override_logo_url(symbol_or_sc_id)
+    if override:
+        return override
+
+    # Prefer the company's REAL website domain (enrich.company_profile.website).
+    # Rationale: img.logo.dev is keyed by domain and NEVER 404s — an unknown
+    # domain returns a generated placeholder, and a *wrong* domain that happens
+    # to belong to another company returns THAT company's logo. The precomputed
     # mc.companies.logo_url column was built by guessing a domain from the
-    # (often abbreviated) name — e.g. Britannia -> bi.com, NTPC -> ntpc.com,
-    # Kotak -> kotakbank.com — so it frequently served a different company's
-    # logo. Using the real website domain means logo.dev returns either the
-    # correct logo or a neutral monogram, but NEVER a different company. When
-    # we have no real domain we return None so the FE renders its own clean
-    # monogram rather than a misattributed logo.
+    # (often abbreviated) name — e.g. Britannia -> bi.com — so it can serve a
+    # different company's logo. The real website domain returns the correct
+    # logo or a neutral monogram, but never a different company.
     sc_id: Optional[str] = None
+    precomputed: Optional[str] = None
     try:
         from backend.market.financials_db import get_company
 
         company = get_company(symbol_or_sc_id)
         if company is not None:
             sc_id = company.sc_id
+            precomputed = getattr(company, "logo_url", None)
     except Exception as exc:  # noqa: BLE001
         logger.debug("[company_logos] financials lookup failed sym=%s err=%s",
                      symbol_or_sc_id, exc)
@@ -129,4 +178,10 @@ def _resolve_uncached(symbol_or_sc_id: str) -> Optional[str]:
         logger.debug("[company_logos] enrich lookup failed sym=%s err=%s",
                      symbol_or_sc_id, exc)
 
-    return None
+    # Last resort: the precomputed mc.companies.logo_url. Its domain was guessed
+    # from the name so it's occasionally the wrong brand — but the curated
+    # override map above already corrects the known-wrong symbols, and for the
+    # large-cap majority (HDFCBANK -> hdfcbank.com, TCS -> tcs.com, …) the guess
+    # is correct. Serving that is better than a monogram for every symbol the
+    # enrichment DB has no website row for. Wrong ones → add to the override map.
+    return precomputed or None

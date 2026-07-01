@@ -49,6 +49,7 @@ import {
 } from "@/lib/portfolioApi";
 import { useTradingMode } from "@/lib/trading-mode";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
+import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 
 // ---------------------------------------------------------------------------
 // Static reference maps (Quartr parity)
@@ -1303,9 +1304,45 @@ function brandGlyphHue(key?: string): string {
   return "#94a3b8";
 }
 
-function HoldingGlyph({ symbol, hueKey }: { symbol: string; hueKey?: string }): React.ReactElement {
+function HoldingGlyph({
+  symbol,
+  hueKey,
+  logoUrl,
+}: {
+  symbol: string;
+  hueKey?: string;
+  logoUrl?: string | null;
+}): React.ReactElement {
   const initial = symbol.trim()[0]?.toUpperCase() ?? "•";
   const hue = brandGlyphHue(hueKey);
+  const [errored, setErrored] = useState(false);
+
+  // Real company logo (img.logo.dev, resolved by the backend) when we have a
+  // URL and it loads; otherwise the sector-tinted first-letter monogram.
+  if (logoUrl && !errored) {
+    return (
+      <img
+        src={logoUrl}
+        alt=""
+        aria-hidden="true"
+        width={34}
+        height={34}
+        loading="lazy"
+        onError={() => setErrored(true)}
+        style={{
+          width: 34,
+          height: 34,
+          flexShrink: 0,
+          borderRadius: "var(--radius-sm)",
+          objectFit: "contain",
+          background: "var(--surface-1, #fff)",
+          border: "1px solid var(--glass-border)",
+          padding: 4,
+        }}
+      />
+    );
+  }
+
   return (
     <div
       aria-hidden="true"
@@ -1335,6 +1372,10 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
     key: "pnl",
     dir: "desc",
   });
+
+  // Batch-resolve a real company logo per holding (cached + de-duped across
+  // renders). A miss falls back to the sector-tinted monogram in HoldingGlyph.
+  const logos = useCompanyLogos(holdings.map((h) => h.tradingsymbol));
 
   const sorted = useMemo(() => {
     const items = [...holdings];
@@ -1418,7 +1459,11 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
         </thead>
         <tbody>
           {sorted.map((h) => (
-            <HoldingRow key={`${h.exchange}:${h.tradingsymbol}`} holding={h} />
+            <HoldingRow
+              key={`${h.exchange}:${h.tradingsymbol}`}
+              holding={h}
+              logoUrl={logos[h.tradingsymbol.toUpperCase()]}
+            />
           ))}
         </tbody>
       </table>
@@ -1430,7 +1475,13 @@ function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElemen
 // HoldingRow — one <tr> per holding, wired to useLiveQuote for LTP.
 // ---------------------------------------------------------------------------
 
-function HoldingRow({ holding: h }: { holding: Holding }): React.ReactElement {
+function HoldingRow({
+  holding: h,
+  logoUrl,
+}: {
+  holding: Holding;
+  logoUrl?: string | null;
+}): React.ReactElement {
   const liveQuote = useLiveQuote(h.tradingsymbol);
   const ltp = liveQuote.ltp ?? h.last_price;
   const value = ltp * h.quantity;
@@ -1450,7 +1501,7 @@ function HoldingRow({ holding: h }: { holding: Holding }): React.ReactElement {
     >
       <td style={{ padding: "16px 18px" }}>
         <div className="inline-flex items-center" style={{ gap: 12 }}>
-          <HoldingGlyph symbol={h.tradingsymbol} hueKey={sector} />
+          <HoldingGlyph symbol={h.tradingsymbol} hueKey={sector} logoUrl={logoUrl} />
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             <Link
               href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}

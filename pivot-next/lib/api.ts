@@ -1042,6 +1042,32 @@ export function searchCompanies(
   });
 }
 
+/** symbol (UPPER) → img.logo.dev URL, or null when none is known. */
+export type CompanyLogoMap = Record<string, string | null>;
+
+/**
+ * `GET /api/companies/logos?symbols=A,B,C` — batch logo lookup for list/table
+ * surfaces (screener, portfolio holdings). Returns a symbol→URL map (URL null
+ * when no logo is known). Resolves to `{}` on any error so callers can fall
+ * back to monograms without special-casing failures.
+ */
+export async function getCompanyLogos(symbols: string[]): Promise<CompanyLogoMap> {
+  const list = Array.from(
+    new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean)),
+  );
+  if (list.length === 0) return {};
+  try {
+    const res = await request<{ logos: CompanyLogoMap }>("/companies/logos", {
+      query: { symbols: list.join(",") },
+    });
+    return isError(res) ? {} : res.data.logos;
+  } catch {
+    // Network failure / fetch throw — logos are purely decorative, so a miss
+    // must never break the table. Callers fall back to monograms.
+    return {};
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Metric series — `GET /api/markets/metric-series/{symbol}?metric=pe|ev_ebitda&range=…`
 // Returns a time-series of the requested fundamental metric for the chart.
@@ -1603,14 +1629,21 @@ export function createConversation(body?: {
 
 export type PortfolioPerformancePeriod = "1M" | "3M" | "6M" | "1Y" | "5Y";
 
-export type PortfolioPerformancePoint = { date: string; value: number };
+/** A single point on the portfolio value curve. `t` is an ISO timestamp,
+ *  `v` is the portfolio value (₹) at that time. Matches the backend
+ *  `PerfPoint` model in routers/portfolio_perf.py. */
+export type PortfolioPerformancePoint = { t: string; v: number };
 
 export type PortfolioPerformanceResponse = {
   period: string;
-  equity_curve: PortfolioPerformancePoint[];
+  points: PortfolioPerformancePoint[];
+  starting_value: number;
+  ending_value: number;
+  total_return: number;
+  total_return_pct: number;
 };
 
-/** `GET /api/portfolio/performance?period=1M|3M|6M|1Y|5Y` — portfolio equity curve. */
+/** `GET /api/portfolio/performance?period=1M|3M|6M|1Y|5Y` — portfolio value curve. */
 export function getPortfolioPerformance(
   period: PortfolioPerformancePeriod = "1Y",
 ): Promise<ApiResult<PortfolioPerformanceResponse>> {
@@ -1629,11 +1662,14 @@ export type IndexHistorySymbol =
   | "BANKNIFTY"
   | "NIFTYMIDCAP100";
 
-export type IndexHistoryPoint = { date: string; close: number };
+/** A single benchmark-index close point — `t` ISO timestamp, `v` close
+ *  level. Mirrors the backend `SparklinePoint` (routers/markets.py). */
+export type IndexHistoryPoint = { t: string; v: number };
 
 export type IndexHistoryResponse = {
   symbol: string;
-  period: string;
+  range: string;
+  interval: string;
   points: IndexHistoryPoint[];
 };
 

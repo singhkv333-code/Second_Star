@@ -16,20 +16,23 @@ export const ETF_CATEGORIES = [
   'Equity — Broad', 'Equity — Sector', 'Debt', 'Gold', 'International',
 ];
 
+// `logoDomain` is the issuing fund-house (AMC) brand domain — the ETF
+// tickers aren't in the equity company DB, so the screener builds a
+// logo.dev URL from this directly (mirrors Groww's AMC logo column).
 export const ETFS = [
-  { ticker: 'NIFTYBEES',   exch: 'NSE', category: 'Equity — Broad',   last:  248.90, day_change_pct:  0.61, aum: 28400, expense_ratio: 0.04, one_year_pct: 10.4, three_year_pct: 14.8, tracking_error: 0.04 },
-  { ticker: 'BANKBEES',    exch: 'NSE', category: 'Equity — Sector',  last:  484.20, day_change_pct:  0.42, aum:  9200, expense_ratio: 0.18, one_year_pct:  9.8, three_year_pct: 12.4, tracking_error: 0.06 },
-  { ticker: 'JUNIORBEES',  exch: 'NSE', category: 'Equity — Broad',   last:  712.40, day_change_pct:  1.12, aum:  4800, expense_ratio: 0.15, one_year_pct: 24.5, three_year_pct: 22.1, tracking_error: 0.08 },
-  { ticker: 'ITBEES',      exch: 'NSE', category: 'Equity — Sector',  last:   42.18, day_change_pct: -0.84, aum:  1800, expense_ratio: 0.20, one_year_pct: 14.2, three_year_pct:  9.6, tracking_error: 0.07 },
-  { ticker: 'PHARMABEES',  exch: 'NSE', category: 'Equity — Sector',  last:   24.60, day_change_pct:  0.32, aum:   980, expense_ratio: 0.20, one_year_pct: 26.4, three_year_pct: 18.2, tracking_error: 0.09 },
-  { ticker: 'GOLDBEES',    exch: 'NSE', category: 'Gold',             last:   62.40, day_change_pct:  0.28, aum:  9800, expense_ratio: 0.55, one_year_pct: 14.6, three_year_pct: 13.2, tracking_error: 0.12 },
-  { ticker: 'LIQUIDBEES',  exch: 'NSE', category: 'Debt',             last: 1000.00, day_change_pct:  0.02, aum:  6200, expense_ratio: 0.65, one_year_pct:  6.8, three_year_pct:  5.9, tracking_error: 0.05 },
-  { ticker: 'MAFANG',      exch: 'NSE', category: 'International',    last:   84.20, day_change_pct:  1.84, aum:  2100, expense_ratio: 0.50, one_year_pct: 32.8, three_year_pct: 18.5, tracking_error: 0.18 },
-  { ticker: 'MON100',      exch: 'NSE', category: 'International',    last:  168.50, day_change_pct:  1.42, aum:  9400, expense_ratio: 0.50, one_year_pct: 28.6, three_year_pct: 16.8, tracking_error: 0.15 },
-  { ticker: 'CPSEETF',     exch: 'NSE', category: 'Equity — Broad',   last:   84.10, day_change_pct:  0.94, aum: 36000, expense_ratio: 0.05, one_year_pct: 38.4, three_year_pct: 24.6, tracking_error: 0.06 },
-  { ticker: 'BHARATBOND',  exch: 'NSE', category: 'Debt',             last: 1245.30, day_change_pct: -0.05, aum: 18400, expense_ratio: 0.0005, one_year_pct: 7.2, three_year_pct:  6.4, tracking_error: 0.02 },
-  { ticker: 'NEXT50',      exch: 'NSE', category: 'Equity — Broad',   last:   71.40, day_change_pct:  1.04, aum:  1600, expense_ratio: 0.10, one_year_pct: 22.8, three_year_pct: 18.4, tracking_error: 0.08 },
-  { ticker: 'PSUBANKBEES', exch: 'NSE', category: 'Equity — Sector',  last:   84.60, day_change_pct:  1.28, aum:  3200, expense_ratio: 0.45, one_year_pct: 41.2, three_year_pct: 28.6, tracking_error: 0.14 },
+  { ticker: 'NIFTYBEES',   exch: 'NSE', category: 'Equity — Broad',   last:  248.90, day_change_pct:  0.61, aum: 28400, expense_ratio: 0.04, one_year_pct: 10.4, three_year_pct: 14.8, tracking_error: 0.04, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'BANKBEES',    exch: 'NSE', category: 'Equity — Sector',  last:  484.20, day_change_pct:  0.42, aum:  9200, expense_ratio: 0.18, one_year_pct:  9.8, three_year_pct: 12.4, tracking_error: 0.06, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'JUNIORBEES',  exch: 'NSE', category: 'Equity — Broad',   last:  712.40, day_change_pct:  1.12, aum:  4800, expense_ratio: 0.15, one_year_pct: 24.5, three_year_pct: 22.1, tracking_error: 0.08, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'ITBEES',      exch: 'NSE', category: 'Equity — Sector',  last:   42.18, day_change_pct: -0.84, aum:  1800, expense_ratio: 0.20, one_year_pct: 14.2, three_year_pct:  9.6, tracking_error: 0.07, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'PHARMABEES',  exch: 'NSE', category: 'Equity — Sector',  last:   24.60, day_change_pct:  0.32, aum:   980, expense_ratio: 0.20, one_year_pct: 26.4, three_year_pct: 18.2, tracking_error: 0.09, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'GOLDBEES',    exch: 'NSE', category: 'Gold',             last:   62.40, day_change_pct:  0.28, aum:  9800, expense_ratio: 0.55, one_year_pct: 14.6, three_year_pct: 13.2, tracking_error: 0.12, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'LIQUIDBEES',  exch: 'NSE', category: 'Debt',             last: 1000.00, day_change_pct:  0.02, aum:  6200, expense_ratio: 0.65, one_year_pct:  6.8, three_year_pct:  5.9, tracking_error: 0.05, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'MAFANG',      exch: 'NSE', category: 'International',    last:   84.20, day_change_pct:  1.84, aum:  2100, expense_ratio: 0.50, one_year_pct: 32.8, three_year_pct: 18.5, tracking_error: 0.18, logoDomain: 'miraeassetmf.co.in' },
+  { ticker: 'MON100',      exch: 'NSE', category: 'International',    last:  168.50, day_change_pct:  1.42, aum:  9400, expense_ratio: 0.50, one_year_pct: 28.6, three_year_pct: 16.8, tracking_error: 0.15, logoDomain: 'motilaloswalmf.com' },
+  { ticker: 'CPSEETF',     exch: 'NSE', category: 'Equity — Broad',   last:   84.10, day_change_pct:  0.94, aum: 36000, expense_ratio: 0.05, one_year_pct: 38.4, three_year_pct: 24.6, tracking_error: 0.06, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'BHARATBOND',  exch: 'NSE', category: 'Debt',             last: 1245.30, day_change_pct: -0.05, aum: 18400, expense_ratio: 0.0005, one_year_pct: 7.2, three_year_pct:  6.4, tracking_error: 0.02, logoDomain: 'edelweissmf.com' },
+  { ticker: 'NEXT50',      exch: 'NSE', category: 'Equity — Broad',   last:   71.40, day_change_pct:  1.04, aum:  1600, expense_ratio: 0.10, one_year_pct: 22.8, three_year_pct: 18.4, tracking_error: 0.08, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'PSUBANKBEES', exch: 'NSE', category: 'Equity — Sector',  last:   84.60, day_change_pct:  1.28, aum:  3200, expense_ratio: 0.45, one_year_pct: 41.2, three_year_pct: 28.6, tracking_error: 0.14, logoDomain: 'nipponindiaim.com' },
 ];
 
 // ── Indices ──────────────────────────────────────────────
@@ -37,22 +40,25 @@ export const INDEX_CATEGORIES = [
   'Broad', 'Sector', 'Strategy', 'Volatility',
 ];
 
+// `logoDomain` is the exchange that publishes the index — NSE for the
+// NIFTY family + India VIX, BSE for the SENSEX — so the screener shows the
+// bourse mark beside each index instead of a bare monogram.
 export const INDICES = [
-  { ticker: 'NIFTY 50',           category: 'Broad',      last: 24142.10, day_change_pct: -0.16, one_year_pct: 12.8, ytd_pct:  6.4, pe: 22.4, dy: 1.30, members: 50 },
-  { ticker: 'SENSEX',             category: 'Broad',      last: 79486.32, day_change_pct: -0.15, one_year_pct: 13.1, ytd_pct:  6.2, pe: 23.1, dy: 1.20, members: 30 },
-  { ticker: 'BANK NIFTY',         category: 'Sector',     last: 52317.85, day_change_pct:  0.28, one_year_pct: 14.6, ytd_pct:  9.2, pe: 17.4, dy: 0.90, members: 12 },
-  { ticker: 'NIFTY MIDCAP 100',   category: 'Broad',      last: 57902.04, day_change_pct:  0.71, one_year_pct: 32.4, ytd_pct: 18.6, pe: 36.2, dy: 0.80, members: 100 },
-  { ticker: 'NIFTY SMALLCAP 100', category: 'Broad',      last: 18420.50, day_change_pct:  1.24, one_year_pct: 41.8, ytd_pct: 22.4, pe: 28.6, dy: 0.60, members: 100 },
-  { ticker: 'NIFTY IT',           category: 'Sector',     last: 34128.20, day_change_pct: -1.04, one_year_pct:  6.8, ytd_pct: -3.4, pe: 28.4, dy: 2.20, members: 10 },
-  { ticker: 'NIFTY PHARMA',       category: 'Sector',     last: 21845.10, day_change_pct:  0.38, one_year_pct: 24.6, ytd_pct: 11.2, pe: 32.8, dy: 0.85, members: 20 },
-  { ticker: 'NIFTY AUTO',         category: 'Sector',     last: 22640.40, day_change_pct:  0.94, one_year_pct: 21.4, ytd_pct: 10.8, pe: 27.2, dy: 0.95, members: 15 },
-  { ticker: 'NIFTY FMCG',         category: 'Sector',     last: 56120.80, day_change_pct: -0.42, one_year_pct:  4.2, ytd_pct: -1.8, pe: 42.4, dy: 1.85, members: 15 },
-  { ticker: 'NIFTY ENERGY',       category: 'Sector',     last: 41280.60, day_change_pct:  1.22, one_year_pct: 18.6, ytd_pct:  8.4, pe: 14.6, dy: 2.40, members: 10 },
-  { ticker: 'NIFTY 500',          category: 'Broad',      last: 22340.10, day_change_pct:  0.18, one_year_pct: 18.2, ytd_pct: 10.4, pe: 24.8, dy: 1.10, members: 500 },
-  { ticker: 'NIFTY NEXT 50',      category: 'Broad',      last: 71428.30, day_change_pct:  1.04, one_year_pct: 22.8, ytd_pct: 13.2, pe: 28.6, dy: 1.40, members: 50 },
-  { ticker: 'NIFTY ALPHA 50',     category: 'Strategy',   last: 48420.20, day_change_pct:  0.84, one_year_pct: 36.4, ytd_pct: 18.6, pe: 32.4, dy: 0.70, members: 50 },
-  { ticker: 'NIFTY LOWVOL 50',    category: 'Strategy',   last: 19840.40, day_change_pct:  0.22, one_year_pct: 14.8, ytd_pct:  7.4, pe: 26.2, dy: 1.55, members: 50 },
-  { ticker: 'INDIA VIX',          category: 'Volatility', last:    13.82, day_change_pct:  4.20, one_year_pct: -8.4, ytd_pct: -12.6, pe: null, dy: null, members: null },
+  { ticker: 'NIFTY 50',           category: 'Broad',      last: 24142.10, day_change_pct: -0.16, one_year_pct: 12.8, ytd_pct:  6.4, pe: 22.4, dy: 1.30, members: 50, logoDomain: 'nseindia.com' },
+  { ticker: 'SENSEX',             category: 'Broad',      last: 79486.32, day_change_pct: -0.15, one_year_pct: 13.1, ytd_pct:  6.2, pe: 23.1, dy: 1.20, members: 30, logoDomain: 'bseindia.com' },
+  { ticker: 'BANK NIFTY',         category: 'Sector',     last: 52317.85, day_change_pct:  0.28, one_year_pct: 14.6, ytd_pct:  9.2, pe: 17.4, dy: 0.90, members: 12, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY MIDCAP 100',   category: 'Broad',      last: 57902.04, day_change_pct:  0.71, one_year_pct: 32.4, ytd_pct: 18.6, pe: 36.2, dy: 0.80, members: 100, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY SMALLCAP 100', category: 'Broad',      last: 18420.50, day_change_pct:  1.24, one_year_pct: 41.8, ytd_pct: 22.4, pe: 28.6, dy: 0.60, members: 100, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY IT',           category: 'Sector',     last: 34128.20, day_change_pct: -1.04, one_year_pct:  6.8, ytd_pct: -3.4, pe: 28.4, dy: 2.20, members: 10, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY PHARMA',       category: 'Sector',     last: 21845.10, day_change_pct:  0.38, one_year_pct: 24.6, ytd_pct: 11.2, pe: 32.8, dy: 0.85, members: 20, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY AUTO',         category: 'Sector',     last: 22640.40, day_change_pct:  0.94, one_year_pct: 21.4, ytd_pct: 10.8, pe: 27.2, dy: 0.95, members: 15, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY FMCG',         category: 'Sector',     last: 56120.80, day_change_pct: -0.42, one_year_pct:  4.2, ytd_pct: -1.8, pe: 42.4, dy: 1.85, members: 15, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY ENERGY',       category: 'Sector',     last: 41280.60, day_change_pct:  1.22, one_year_pct: 18.6, ytd_pct:  8.4, pe: 14.6, dy: 2.40, members: 10, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY 500',          category: 'Broad',      last: 22340.10, day_change_pct:  0.18, one_year_pct: 18.2, ytd_pct: 10.4, pe: 24.8, dy: 1.10, members: 500, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY NEXT 50',      category: 'Broad',      last: 71428.30, day_change_pct:  1.04, one_year_pct: 22.8, ytd_pct: 13.2, pe: 28.6, dy: 1.40, members: 50, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY ALPHA 50',     category: 'Strategy',   last: 48420.20, day_change_pct:  0.84, one_year_pct: 36.4, ytd_pct: 18.6, pe: 32.4, dy: 0.70, members: 50, logoDomain: 'nseindia.com' },
+  { ticker: 'NIFTY LOWVOL 50',    category: 'Strategy',   last: 19840.40, day_change_pct:  0.22, one_year_pct: 14.8, ytd_pct:  7.4, pe: 26.2, dy: 1.55, members: 50, logoDomain: 'nseindia.com' },
+  { ticker: 'INDIA VIX',          category: 'Volatility', last:    13.82, day_change_pct:  4.20, one_year_pct: -8.4, ytd_pct: -12.6, pe: null, dy: null, members: null, logoDomain: 'nseindia.com' },
 ];
 
 // ── Mutual Funds ─────────────────────────────────────────
@@ -62,19 +68,22 @@ export const FUND_CATEGORIES = [
   'Hybrid', 'Debt — Liquid', 'Debt — Short Duration', 'ELSS',
 ];
 
+// `logoDomain` is the AMC (fund-house) brand domain — funds carry no ticker
+// in the equity company DB, so the screener builds the logo.dev URL from
+// this so each fund shows its house mark, exactly like Groww's MF list.
 export const MUTUAL_FUNDS = [
-  { ticker: 'PARAGFLEXI',    name: 'Parag Parikh Flexi Cap',          category: 'Equity — Flexicap',      nav:  72.84, aum:  64200, expense_ratio: 0.62, three_year_pct: 22.4, five_year_pct: 25.8, one_year_pct: 28.6 },
-  { ticker: 'AXISBLUECHIP',  name: 'Axis Bluechip',                   category: 'Equity — Largecap',      nav:  62.40, aum:  31800, expense_ratio: 1.62, three_year_pct: 12.6, five_year_pct: 14.8, one_year_pct: 18.2 },
-  { ticker: 'MIRAEELSS',     name: 'Mirae Asset ELSS Tax Saver',      category: 'ELSS',                   nav:  48.20, aum:  22400, expense_ratio: 1.65, three_year_pct: 18.6, five_year_pct: 19.4, one_year_pct: 24.5 },
-  { ticker: 'CANARARNBL',    name: 'Canara Robeco Bluechip Equity',   category: 'Equity — Largecap',      nav:  58.40, aum:  14200, expense_ratio: 1.65, three_year_pct: 14.2, five_year_pct: 17.6, one_year_pct: 21.4 },
-  { ticker: 'NIPPSMALL',     name: 'Nippon India Small Cap',          category: 'Equity — Smallcap',      nav: 184.20, aum:  56800, expense_ratio: 1.40, three_year_pct: 32.4, five_year_pct: 31.6, one_year_pct: 41.8 },
-  { ticker: 'KOTAKEMERG',    name: 'Kotak Emerging Equity',           category: 'Equity — Midcap',        nav: 134.60, aum:  48400, expense_ratio: 1.46, three_year_pct: 24.5, five_year_pct: 25.2, one_year_pct: 32.4 },
-  { ticker: 'HDFCBALANCED',  name: 'HDFC Balanced Advantage',         category: 'Hybrid',                 nav: 348.20, aum:  86400, expense_ratio: 1.30, three_year_pct: 16.4, five_year_pct: 14.8, one_year_pct: 19.6 },
-  { ticker: 'ICICILIQ',      name: 'ICICI Pru Liquid',                category: 'Debt — Liquid',          nav: 384.20, aum:  56000, expense_ratio: 0.20, three_year_pct:  6.4, five_year_pct:  5.6, one_year_pct:  7.2 },
-  { ticker: 'AXISTREASURY',  name: 'Axis Treasury Advantage',         category: 'Debt — Short Duration',  nav:  31.80, aum:   8400, expense_ratio: 0.34, three_year_pct:  6.8, five_year_pct:  6.2, one_year_pct:  7.4 },
-  { ticker: 'SBISMALLCAP',   name: 'SBI Small Cap',                   category: 'Equity — Smallcap',      nav: 162.40, aum:  31600, expense_ratio: 1.62, three_year_pct: 26.4, five_year_pct: 27.8, one_year_pct: 36.2 },
-  { ticker: 'MIRAEEMRG',     name: 'Mirae Asset Emerging Bluechip',   category: 'Equity — Flexicap',      nav: 138.40, aum:  34200, expense_ratio: 1.62, three_year_pct: 22.8, five_year_pct: 23.4, one_year_pct: 31.4 },
-  { ticker: 'QUANTSML',      name: 'Quant Small Cap',                 category: 'Equity — Smallcap',      nav: 286.40, aum:  21800, expense_ratio: 1.45, three_year_pct: 38.6, five_year_pct: 36.4, one_year_pct: 48.6 },
+  { ticker: 'PARAGFLEXI',    name: 'Parag Parikh Flexi Cap',          category: 'Equity — Flexicap',      nav:  72.84, aum:  64200, expense_ratio: 0.62, three_year_pct: 22.4, five_year_pct: 25.8, one_year_pct: 28.6, logoDomain: 'ppfas.com' },
+  { ticker: 'AXISBLUECHIP',  name: 'Axis Bluechip',                   category: 'Equity — Largecap',      nav:  62.40, aum:  31800, expense_ratio: 1.62, three_year_pct: 12.6, five_year_pct: 14.8, one_year_pct: 18.2, logoDomain: 'axismf.com' },
+  { ticker: 'MIRAEELSS',     name: 'Mirae Asset ELSS Tax Saver',      category: 'ELSS',                   nav:  48.20, aum:  22400, expense_ratio: 1.65, three_year_pct: 18.6, five_year_pct: 19.4, one_year_pct: 24.5, logoDomain: 'miraeassetmf.co.in' },
+  { ticker: 'CANARARNBL',    name: 'Canara Robeco Bluechip Equity',   category: 'Equity — Largecap',      nav:  58.40, aum:  14200, expense_ratio: 1.65, three_year_pct: 14.2, five_year_pct: 17.6, one_year_pct: 21.4, logoDomain: 'canararobeco.com' },
+  { ticker: 'NIPPSMALL',     name: 'Nippon India Small Cap',          category: 'Equity — Smallcap',      nav: 184.20, aum:  56800, expense_ratio: 1.40, three_year_pct: 32.4, five_year_pct: 31.6, one_year_pct: 41.8, logoDomain: 'nipponindiaim.com' },
+  { ticker: 'KOTAKEMERG',    name: 'Kotak Emerging Equity',           category: 'Equity — Midcap',        nav: 134.60, aum:  48400, expense_ratio: 1.46, three_year_pct: 24.5, five_year_pct: 25.2, one_year_pct: 32.4, logoDomain: 'kotakmf.com' },
+  { ticker: 'HDFCBALANCED',  name: 'HDFC Balanced Advantage',         category: 'Hybrid',                 nav: 348.20, aum:  86400, expense_ratio: 1.30, three_year_pct: 16.4, five_year_pct: 14.8, one_year_pct: 19.6, logoDomain: 'hdfcfund.com' },
+  { ticker: 'ICICILIQ',      name: 'ICICI Pru Liquid',                category: 'Debt — Liquid',          nav: 384.20, aum:  56000, expense_ratio: 0.20, three_year_pct:  6.4, five_year_pct:  5.6, one_year_pct:  7.2, logoDomain: 'icicipruamc.com' },
+  { ticker: 'AXISTREASURY',  name: 'Axis Treasury Advantage',         category: 'Debt — Short Duration',  nav:  31.80, aum:   8400, expense_ratio: 0.34, three_year_pct:  6.8, five_year_pct:  6.2, one_year_pct:  7.4, logoDomain: 'axismf.com' },
+  { ticker: 'SBISMALLCAP',   name: 'SBI Small Cap',                   category: 'Equity — Smallcap',      nav: 162.40, aum:  31600, expense_ratio: 1.62, three_year_pct: 26.4, five_year_pct: 27.8, one_year_pct: 36.2, logoDomain: 'sbimf.com' },
+  { ticker: 'MIRAEEMRG',     name: 'Mirae Asset Emerging Bluechip',   category: 'Equity — Flexicap',      nav: 138.40, aum:  34200, expense_ratio: 1.62, three_year_pct: 22.8, five_year_pct: 23.4, one_year_pct: 31.4, logoDomain: 'miraeassetmf.co.in' },
+  { ticker: 'QUANTSML',      name: 'Quant Small Cap',                 category: 'Equity — Smallcap',      nav: 286.40, aum:  21800, expense_ratio: 1.45, three_year_pct: 38.6, five_year_pct: 36.4, one_year_pct: 48.6, logoDomain: 'quantmutual.com' },
 ];
 
 export const MARKET_CAP_TIERS = [

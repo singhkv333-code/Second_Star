@@ -57,7 +57,6 @@ import AssistantMessage from "@/components/chat/AssistantMessage";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
 import { IpoListCard } from "@/components/chat/IpoListCard";
 import { IpoListedCard } from "@/components/chat/IpoListedCard";
-import { OptionChainCard } from "@/components/chat/OptionChainCard";
 import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
 import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCard";
 import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
@@ -1708,7 +1707,7 @@ export function ChatDemo({
                     </div>
                   )}
                   <div className="flex justify-start">
-                    <OptionChainCard payload={msg.payload} />
+                    <OptionChainLauncherCard underlying={msg.payload.underlying} />
                   </div>
                 </div>
               );

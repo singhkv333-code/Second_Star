@@ -47,6 +47,17 @@ class CompanySearchResponse(BaseModel):
     results: list[CompanySearchResult]
 
 
+class CompanyLogosResponse(BaseModel):
+    # symbol (UPPER) → img.logo.dev URL, or null when none is known. Callers
+    # render a first-letter monogram for null entries.
+    logos: dict[str, Optional[str]]
+
+
+# Cap the batch so a crafted query can't fan out into an unbounded number of
+# logo lookups. A single screener/portfolio table never shows this many rows.
+_MAX_LOGO_SYMBOLS = 200
+
+
 @router.get("/search", response_model=CompanySearchResponse)
 def search_companies(
     q: str = Query(..., min_length=1, max_length=100),
@@ -82,3 +93,40 @@ def search_companies(
             for h in hits
         ]
     )
+
+
+@router.get("/logos", response_model=CompanyLogosResponse)
+def company_logos(
+    symbols: str = Query(
+        ...,
+        max_length=4000,
+        description="Comma-separated symbols/tickers (e.g. RELIANCE,TCS,INFY)",
+    ),
+    authorization: Optional[str] = Header(None),
+) -> CompanyLogosResponse:
+    """Batch logo lookup for list/table surfaces (screener, portfolio).
+
+    Reuses the shared, Redis-cached, fail-safe ``get_logo_url`` resolver so the
+    screener and holdings tables get the same logos as the stock detail page in
+    one round-trip. Unknown symbols map to ``null`` → FE monogram fallback.
+    """
+    _auth(authorization)
+    from backend.market.company_logos import get_logo_url
+
+    # De-dupe (preserving order) and cap the batch.
+    seen: dict[str, None] = {}
+    for raw in symbols.split(","):
+        sym = raw.strip().upper()
+        if sym and sym not in seen:
+            seen[sym] = None
+        if len(seen) >= _MAX_LOGO_SYMBOLS:
+            break
+
+    out: dict[str, Optional[str]] = {}
+    for sym in seen:
+        try:
+            out[sym] = get_logo_url(sym)
+        except Exception:  # noqa: BLE001 — never let one bad symbol 500 the batch
+            out[sym] = None
+
+    return CompanyLogosResponse(logos=out)

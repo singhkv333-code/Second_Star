@@ -4,17 +4,21 @@
 // Index / Mutual-Fund screens remain mock (screenerData.ts) and unchanged in
 // look — no live endpoints back them yet, so they stay client-filtered.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   SlidersHorizontal,
   X,
   Search,
+  Plus,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
   Loader2,
 } from "lucide-react";
 import {
+  STOCKS,
   MARKET_CAP_TIERS,
   ETFS,
   ETF_CATEGORIES,
@@ -24,14 +28,18 @@ import {
   FUND_CATEGORIES,
 } from "./screenerData";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import {
+  useWatchlists,
+  setActiveWatchlist,
+  addToWatchlist,
+  removeFromWatchlist,
+} from "@/lib/watchlists";
 import { isError } from "@/lib/types";
 import {
   getScreenerStocks,
   getScreenerSectors,
-  searchScreener,
   type ScreenerStock,
   type ScreenerSector,
-  type ScreenerSearchResult,
   type ScreenerSortBy,
   type ScreenerMcapTier,
 } from "@/lib/screenerApi";
@@ -611,16 +619,9 @@ function StocksScreen({
         }
       />
 
-      {/* Prominent search across the FULL universe */}
-      <StockSearchBox
-        onPick={(hit) => {
-          // Selecting a search result narrows the rail to its sector so the
-          // table scopes to where that name lives (the grid is a curated
-          // subset; search explores everything).
-          if (hit.sector) setFilter("sector", hit.sector);
-        }}
-        sectorLabel={(key) => sectorLabel(key)}
-      />
+      {/* Watchlist — stocks-only, sits between the title row and preset
+          chips. Five numbered slots, medium cards (ticker · last ₹ · day Δ). */}
+      <WatchlistStrip />
 
       {/* Preset chips */}
       <div
@@ -702,192 +703,410 @@ function sortValue(row: ScreenerStock, key: ScreenerSortBy): number | string | n
   return row.market_cap_cr;
 }
 
-// ── Stock search box (debounced, full universe) ───────────
-function StockSearchBox({
-  onPick,
-  sectorLabel,
+// ── Watchlist strip ──────────────────────────────────────
+// Five fixed numbered watchlists (Kite-style), sitting between the title
+// row and the preset chips. The user toggles between slots 1–5 with a
+// compact numbered switch on the right; each slot renders a row of medium
+// cards (ticker · last ₹ · day Δ) and can be grown via the "+ Add" menu.
+// An empty slot shows just the Add tile. State lives in the shared watchlist
+// store (lib/watchlists) so it stays in sync with the stock-page bookmark;
+// card numbers come from the static STOCKS universe.
+type WatchStock = (typeof STOCKS)[number];
+
+const WEIGHT_MEDIUM = "var(--weight-medium)" as React.CSSProperties["fontWeight"];
+const WEIGHT_DISPLAY = "var(--weight-display)" as React.CSSProperties["fontWeight"];
+
+function WatchlistStrip(): React.ReactElement {
+  const { lists: watchlists, activeId } = useWatchlists();
+
+  const active = watchlists.find((w) => w.id === activeId) || watchlists[0]!;
+
+  const items = useMemo(
+    () =>
+      (active?.tickers || [])
+        .map((t) => STOCKS.find((s) => s.ticker === t))
+        .filter((s): s is WatchStock => Boolean(s)),
+    [active],
+  );
+
+  return (
+    <div
+      className="screener-watchlist"
+      style={{
+        padding: "0 32px 14px",
+        flexShrink: 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {/* Header: label on the left, numbered 1–5 slot switch on the right. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: WEIGHT_DISPLAY,
+            fontSize: 13,
+            letterSpacing: "-0.01em",
+            color: "var(--text-primary)",
+          }}
+        >
+          Watchlist {activeId}
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Borderless segmented switch — active slot is a solid pill, the
+            rest are plain numerals (matches the chart range toggle). */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {watchlists.map((w) => {
+            const isActive = w.id === activeId;
+            const count = w.tickers.length;
+            return (
+              <button
+                key={w.id}
+                onClick={() => setActiveWatchlist(w.id)}
+                title={count ? `${count} stock${count === 1 ? "" : "s"}` : "Empty"}
+                style={{
+                  padding: "6px 14px",
+                  border: "none",
+                  borderRadius: "var(--radius-pill)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  fontVariantNumeric: "tabular-nums",
+                  cursor: "pointer",
+                  background: isActive ? "var(--text-primary)" : "transparent",
+                  color: isActive
+                    ? "var(--bg-primary)"
+                    : count
+                      ? "var(--text-secondary)"
+                      : "var(--text-tertiary)",
+                  transition:
+                    "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) e.currentTarget.style.color = "var(--text-primary)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive)
+                    e.currentTarget.style.color = count
+                      ? "var(--text-secondary)"
+                      : "var(--text-tertiary)";
+                }}
+              >
+                {w.id}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Cards for the active slot + the inline add-stock menu. An empty
+          slot shows only the Add tile. */}
+      <div
+        className="screener-watchlist-cards"
+        style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch" }}
+      >
+        {items.map((s) => (
+          <WatchCard
+            key={s.ticker}
+            s={s}
+            onRemove={() => removeFromWatchlist(s.ticker, activeId)}
+          />
+        ))}
+
+        <AddStockMenu
+          existing={active?.tickers || []}
+          onAdd={(t) => addToWatchlist(t, activeId)}
+        />
+      </div>
+    </div>
+  );
+}
+
+// A single watchlist stock card: ticker, full last price (₹), and day Δ
+// coloured profit/loss. Subtle hover lift; a remove (×) appears on hover so
+// the card stays clean at rest.
+function WatchCard({
+  s,
+  onRemove,
 }: {
-  onPick: (hit: ScreenerSearchResult) => void;
-  sectorLabel: (key: string) => string;
+  s: WatchStock;
+  onRemove: () => void;
 }): React.ReactElement {
-  const [q, setQ] = useState("");
+  const [hover, setHover] = useState(false);
+  const pos = s.day_change_pct >= 0;
+  return (
+    <Link
+      href={`/stock/${encodeURIComponent(s.ticker)}`}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position: "relative",
+        minWidth: 160,
+        padding: "12px 14px",
+        background: hover ? "var(--bg-elevated)" : "var(--bg-secondary)",
+        border: "none",
+        borderRadius: "var(--radius-md)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        cursor: "pointer",
+        textDecoration: "none",
+        transition: "background-color 0.2s var(--ease-quartr)",
+      }}
+    >
+      <button
+        type="button"
+        aria-label={`Remove ${s.ticker} from watchlist`}
+        title="Remove"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onRemove();
+        }}
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 8,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 14,
+          height: 14,
+          padding: 0,
+          background: "transparent",
+          border: "none",
+          color: "var(--text-tertiary)",
+          cursor: "pointer",
+          opacity: hover ? 1 : 0,
+          pointerEvents: hover ? "auto" : "none",
+          transition:
+            "opacity 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = "var(--text-primary)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = "var(--text-tertiary)";
+        }}
+      >
+        <X size={13} strokeWidth={2.25} aria-hidden="true" />
+      </button>
+      <div
+        style={{
+          fontFamily: "var(--font-ui)",
+          fontSize: 12,
+          fontWeight: WEIGHT_MEDIUM,
+          color: "var(--text-primary)",
+          paddingRight: 16,
+        }}
+      >
+        {s.ticker}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: WEIGHT_MEDIUM,
+            fontSize: 15,
+            color: "var(--text-primary)",
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {fmtINR(s.last)}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 11.5,
+            fontWeight: WEIGHT_MEDIUM,
+            color: pos ? "var(--color-profit)" : "var(--color-loss)",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {pos ? "+" : ""}
+          {s.day_change_pct.toFixed(2)}%
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+// "+ Add" tile that opens a small searchable popover of the STOCKS universe
+// (minus what's already in the active list) so the user can grow the list.
+function AddStockMenu({
+  existing,
+  onAdd,
+}: {
+  existing: string[];
+  onAdd: (ticker: string) => void;
+}): React.ReactElement {
   const [open, setOpen] = useState(false);
-  const [results, setResults] = useState<ScreenerSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [q, setQ] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
 
-  // Debounced search.
-  useEffect(() => {
-    const term = q.trim();
-    if (term.length < 1) {
-      setResults([]);
-      setSearching(false);
-      return;
-    }
-    setSearching(true);
-    const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      searchScreener(term, 15, ctrl.signal).then((res) => {
-        if (ctrl.signal.aborted) return;
-        if (isError(res)) {
-          if (res.error.code !== "aborted") setResults([]);
-        } else {
-          setResults(res.data.results);
-        }
-        setSearching(false);
-      });
-    }, 220);
-    return () => {
-      clearTimeout(t);
-      ctrl.abort();
-    };
-  }, [q]);
-
-  // Dismiss on outside click.
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
+        setQ("");
       }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const pick = (hit: ScreenerSearchResult) => {
-    onPick(hit);
-    setQ("");
-    setResults([]);
-    setOpen(false);
-  };
-
-  const showDropdown = open && q.trim().length > 0;
+  const candidates = useMemo(() => {
+    const have = new Set(existing);
+    const term = q.trim().toUpperCase();
+    return STOCKS.filter((s) => !have.has(s.ticker))
+      .filter(
+        (s) =>
+          !term ||
+          s.ticker.includes(term) ||
+          (s.sector || "").toUpperCase().includes(term),
+      )
+      .slice(0, 50);
+  }, [existing, q]);
 
   return (
-    <div
-      className="screener-search"
-      style={{ padding: "0 32px 14px", flexShrink: 0 }}
-    >
-      <div ref={boxRef} style={{ position: "relative", maxWidth: 520 }}>
+    <div ref={ref} style={{ position: "relative", display: "flex" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label="Add stock to watchlist"
+        title="Add stock"
+        style={{
+          // Match a stock card's footprint so the tile stays the same size
+          // whether or not the slot has cards next to it.
+          minWidth: 92,
+          minHeight: 67,
+          alignSelf: "stretch",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "12px 14px",
+          background: "transparent",
+          border: "1px dashed var(--glass-border-focus)",
+          borderRadius: "var(--radius-md)",
+          color: "var(--text-tertiary)",
+          cursor: "pointer",
+          transition:
+            "color 0.2s var(--ease-quartr), border-color 0.2s var(--ease-quartr)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = "var(--text-primary)";
+          e.currentTarget.style.borderColor = "var(--text-primary)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = "var(--text-tertiary)";
+          e.currentTarget.style.borderColor = "var(--glass-border-focus)";
+        }}
+      >
+        <Plus size={24} strokeWidth={2} aria-hidden="true" />
+      </button>
+
+      {open && (
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "0 14px",
-            height: 40,
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 20,
+            width: 260,
             background: "var(--bg-primary)",
             border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-pill)",
-            transition: "border-color 0.2s var(--ease-quartr)",
+            borderRadius: "var(--radius-md)",
+            boxShadow:
+              "0 1px 2px rgba(0,0,0,0.06), 0 12px 30px -8px rgba(0,0,0,0.22)",
+            padding: 8,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
           }}
         >
-          <Search size={16} strokeWidth={2} color="var(--text-tertiary)" aria-hidden="true" />
-          <input
-            type="text"
-            value={q}
-            placeholder="Search all stocks by name or symbol…"
-            onChange={(e) => {
-              setQ(e.target.value);
-              setOpen(true);
-            }}
-            onFocus={() => setOpen(true)}
-            aria-label="Search all stocks"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-ui)",
-              fontSize: 13.5,
-            }}
-          />
-          {searching ? (
-            <Loader2
-              size={15}
-              className="animate-spin"
-              color="var(--text-tertiary)"
-              aria-hidden="true"
-            />
-          ) : q.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQ("");
-                setResults([]);
-              }}
-              aria-label="Clear search"
-              style={{
-                display: "inline-flex",
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                color: "var(--text-tertiary)",
-              }}
-            >
-              <X size={15} strokeWidth={2} aria-hidden="true" />
-            </button>
-          ) : null}
-        </div>
-
-        {showDropdown && (
           <div
-            role="listbox"
-            className="quartr-no-scrollbar"
             style={{
-              position: "absolute",
-              top: "calc(100% + 6px)",
-              left: 0,
-              right: 0,
-              zIndex: 20,
-              maxHeight: 340,
-              overflowY: "auto",
-              background: "var(--bg-elevated, var(--bg-primary))",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "7px 10px",
+              background: "var(--bg-base)",
               border: "1px solid var(--glass-border)",
-              borderRadius: "var(--radius-md)",
-              boxShadow: "0 12px 40px -8px rgba(0,0,0,0.35)",
-              padding: 6,
+              borderRadius: "var(--radius-sm)",
             }}
           >
-            {searching && results.length === 0 ? (
+            <Search
+              size={14}
+              strokeWidth={2}
+              aria-hidden="true"
+              style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
+            />
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search symbol or sector"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 12.5,
+              }}
+            />
+          </div>
+
+          <div
+            className="quartr-no-scrollbar"
+            style={{
+              maxHeight: 240,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {candidates.length === 0 ? (
               <div
                 style={{
-                  padding: "16px 12px",
-                  fontSize: 12.5,
-                  color: "var(--text-tertiary)",
+                  padding: "14px 10px",
+                  textAlign: "center",
                   fontFamily: "var(--font-ui)",
+                  fontSize: 12,
+                  color: "var(--text-tertiary)",
                 }}
               >
-                Searching…
-              </div>
-            ) : results.length === 0 ? (
-              <div
-                style={{
-                  padding: "16px 12px",
-                  fontSize: 12.5,
-                  color: "var(--text-tertiary)",
-                  fontFamily: "var(--font-ui)",
-                }}
-              >
-                No matches for &ldquo;{q.trim()}&rdquo;
+                No matches
               </div>
             ) : (
-              results.map((hit) => (
+              candidates.map((s) => (
                 <button
-                  key={hit.symbol}
+                  key={s.ticker}
                   type="button"
-                  role="option"
-                  aria-selected={false}
-                  onClick={() => pick(hit)}
+                  onClick={() => {
+                    onAdd(s.ticker);
+                    setQ("");
+                  }}
                   style={{
-                    width: "100%",
                     display: "flex",
                     alignItems: "center",
-                    gap: 12,
+                    justifyContent: "space-between",
+                    gap: 8,
                     padding: "8px 10px",
                     background: "transparent",
                     border: "none",
@@ -902,65 +1121,49 @@ function StockSearchBox({
                     e.currentTarget.style.background = "transparent";
                   }}
                 >
-                  <CompanyLogo
-                    logoUrl={hit.logo_url}
-                    name={hit.name}
-                    symbol={hit.symbol}
-                    hue={sectorHue(hit.sector)}
-                    size={32}
-                  />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontFamily: "var(--font-ui)",
-                          fontSize: 13,
-                          fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-                          color: "var(--text-primary)",
-                        }}
-                      >
-                        {hit.symbol}
-                      </span>
-                      {hit.has_fundamentals && (
-                        <span
-                          style={{
-                            fontSize: 9,
-                            color: "var(--text-tertiary)",
-                            fontFamily: "var(--font-mono)",
-                            letterSpacing: "0.06em",
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          Fundamentals
-                        </span>
-                      )}
-                    </div>
-                    <div
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
                       style={{
                         fontFamily: "var(--font-ui)",
-                        fontSize: 11.5,
+                        fontSize: 12.5,
+                        fontWeight: WEIGHT_MEDIUM,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {s.ticker}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-ui)",
+                        fontSize: 10.5,
                         color: "var(--text-tertiary)",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                       }}
                     >
-                      {hit.name}
-                      {hit.sector ? ` · ${sectorLabel(hit.sector)}` : ""}
-                    </div>
-                  </div>
+                      {s.sector || "—"}
+                    </span>
+                  </span>
+                  <Plus
+                    size={14}
+                    strokeWidth={2.5}
+                    aria-hidden="true"
+                    style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
+                  />
                 </button>
               ))
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1222,6 +1425,7 @@ function StockResultsTable({
   onResetFilters: () => void;
   hasFilters: boolean;
 }): React.ReactElement {
+  const router = useRouter();
   return (
     <div
       className="screener-results quartr-no-scrollbar"
@@ -1343,7 +1547,12 @@ function StockResultsTable({
             rows.map((row) => (
               <tr
                 key={row.symbol}
-                style={{ background: "transparent", transition: "background-color 0.15s var(--ease-quartr)" }}
+                onClick={() => router.push(`/stock/${encodeURIComponent(row.symbol)}`)}
+                style={{
+                  background: "transparent",
+                  cursor: "pointer",
+                  transition: "background-color 0.15s var(--ease-quartr)",
+                }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "var(--bg-secondary)";
                 }}
