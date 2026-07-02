@@ -386,7 +386,8 @@ def fetch_fundamentals(symbol: str, *, basis: str = "consolidated") -> dict:
         out["resolved"] = True
         out["sc_id"] = company.sc_id
         out["name"] = company.name
-        out["sector"] = company.sector
+        # sector is NOT read from mc.companies (that column is 100% NULL) — it
+        # is filled from the enrich DB by _apply_enrichment() below.
 
         available = 0
         for key, metric in _METRICS:

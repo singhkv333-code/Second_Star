@@ -162,3 +162,31 @@ def get_websites_by_tickers(tickers: list[str]) -> dict[str, Optional[str]]:
         return {r._mapping["tkr"]: r._mapping["website"] for r in rows}
     finally:
         db.close()
+
+
+def get_sectors_by_sc_ids(sc_ids: list[str]) -> dict[str, Optional[str]]:
+    """Batch-resolve ``{sc_id: sector}`` for many companies in ONE query.
+
+    The autosuggest / screener rows carry no sector of their own —
+    ``mc.companies.sector`` is 100% NULL, so the real sector lives here in the
+    enrich DB. This resolves a whole result page's sectors at once (keyed by
+    the Moneycontrol ``sc_id``, which is the join key across the two DBs)
+    instead of an N-query storm. Disabled DB / empty input → ``{}``; an sc_id
+    absent from enrich simply has no sector (caller leaves it ``None``)."""
+    if EnrichSessionLocal is None or not sc_ids:
+        return {}
+    ids = sorted({s for s in sc_ids if s})
+    if not ids:
+        return {}
+    db = EnrichSessionLocal()
+    try:
+        rows = db.execute(
+            text(
+                "SELECT sc_id, sector FROM enrich.v_company_enriched "
+                "WHERE sc_id = ANY(:ids)"
+            ),
+            {"ids": ids},
+        ).fetchall()
+        return {r._mapping["sc_id"]: r._mapping["sector"] for r in rows}
+    finally:
+        db.close()

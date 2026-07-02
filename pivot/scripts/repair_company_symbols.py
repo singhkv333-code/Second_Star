@@ -227,7 +227,41 @@ def main():
             c.execute(text("UPDATE mc.companies SET nse_symbol=:v WHERE sc_id=:s"),
                       {"v": sym, "s": sc})
     print(f"  APPLIED: nse_symbol set on {len(changed)} rows.")
+
+    # Guard: a newly-assigned symbol can collide with a PRE-EXISTING nse_symbol
+    # this run didn't touch. For any symbol on >1 sc_id, keep it on the row with
+    # the most statement_lines (the real primary listing) and NULL the rest.
+    nulled = _resolve_collisions(fin, backup, bpath)
+    if nulled:
+        print(f"  collision guard: NULLed {nulled} duplicate-symbol loser rows.")
     print(f"  revert with: python scripts/repair_company_symbols.py --revert {bpath}")
+
+
+def _resolve_collisions(fin, backup: dict, bpath: str) -> int:
+    with fin.connect() as c:
+        dups = [r[0] for r in c.execute(text(
+            "SELECT upper(nse_symbol) FROM mc.companies "
+            "WHERE nse_symbol IS NOT NULL AND nse_symbol<>'' "
+            "GROUP BY 1 HAVING count(*)>1"))]
+        to_null = []
+        for s in dups:
+            rows = c.execute(text(
+                "SELECT co.sc_id, co.nse_symbol, (SELECT count(*) FROM "
+                "mc.statement_lines sl WHERE sl.sc_id=co.sc_id) f "
+                "FROM mc.companies co WHERE upper(nse_symbol)=:s ORDER BY f DESC"),
+                {"s": s}).fetchall()
+            to_null += [(r[0], r[1]) for r in rows[1:]]  # keep rows[0]
+    if not to_null:
+        return 0
+    # Extend the same backup file so --revert restores these too.
+    backup["previous"].extend({"sc_id": sc, "nse_symbol": old} for sc, old in to_null)
+    with open(bpath, "w") as f:
+        json.dump(backup, f, indent=2)
+    with fin.begin() as c:
+        for sc, _ in to_null:
+            c.execute(text("UPDATE mc.companies SET nse_symbol=NULL WHERE sc_id=:s"),
+                      {"s": sc})
+    return len(to_null)
 
 
 if __name__ == "__main__":

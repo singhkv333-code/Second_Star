@@ -369,6 +369,14 @@ def resolve_symbol(symbol: str, *, session: Session | None = None) -> str | None
 
 
 def get_company(symbol_or_sc_id: str, *, session: Session | None = None) -> Company | None:
+    """Resolve a symbol to its mc.companies row.
+
+    NOTE: ``sector``, ``bse_code`` and ``market_cap`` are 100% NULL in
+    ``mc.companies`` — they are carried on the dataclass for shape only. The
+    real sector / market-cap come from the enrich DB (``enrich_db``); callers
+    that display them (financials router, analysis tools, autosuggest) source
+    them there, never from these dead columns.
+    """
     owns = session is None
     s = session or _session()
     try:
@@ -496,7 +504,6 @@ def search_companies(
                        company_name,
                        nse_symbol,
                        ticker,
-                       sector,
                        logo_url
                 FROM mc.companies
                 WHERE upper(company_name) LIKE :prefix
@@ -543,10 +550,21 @@ def search_companies(
         # each group).
         ordered = sorted(rows, key=lambda r: 0 if r[0] in have else 1)
 
+        # Sector is NOT read from mc.companies (that column is 100% NULL); the
+        # real sector lives in the enrich DB. Resolve the whole page's sectors
+        # in ONE cross-DB batch (fail-safe: no enrich → all None).
+        sectors: dict[str, "str | None"] = {}
+        try:
+            from backend.market import enrich_db
+            if enrich_db.is_enabled():
+                sectors = enrich_db.get_sectors_by_sc_ids([r[0] for r in ordered])
+        except Exception:  # noqa: BLE001 — sector is decorative on this path
+            sectors = {}
+
         out: list[CompanyHit] = []
         seen: set[str] = set()
         for r in ordered:
-            sc_id, name, nse_symbol, ticker, sector, logo_url = r
+            sc_id, name, nse_symbol, ticker, logo_url = r
             has_fund = sc_id in have
             # Navigable symbol: the verified nse_symbol first; a scraper
             # `ticker` only when the row actually has fundamentals (shells like
@@ -569,7 +587,7 @@ def search_companies(
                     sc_id=sc_id,
                     symbol=sym,
                     name=name,
-                    sector=sector,
+                    sector=sectors.get(sc_id),
                     has_fundamentals=has_fund,
                     logo_url=logo_url,
                 )
