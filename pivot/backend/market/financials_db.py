@@ -304,18 +304,36 @@ def resolve_symbol(symbol: str, *, session: Session | None = None) -> str | None
         sym = symbol.strip()
         if not sym:
             return None
+        # Priority: exact sc_id > verified nse_symbol > scraper ticker >
+        # bse_code > exact name. nse_symbol OUTRANKS ticker because the
+        # scraper `ticker` column is polluted (e.g. Jay Electric and Bharat
+        # Hotels both carry ticker='BHEL' while the real BHEL sits under a
+        # verified nse_symbol). Within a ticker collision, a row that actually
+        # has statement data wins over a fundamentals-less shell.
         row = s.execute(
             text(
                 """
-                SELECT sc_id FROM mc.companies WHERE sc_id = :s
-                UNION ALL
-                SELECT sc_id FROM mc.companies WHERE upper(ticker) = upper(:s)
-                UNION ALL
-                SELECT sc_id FROM mc.companies WHERE upper(nse_symbol) = upper(:s)
-                UNION ALL
-                SELECT sc_id FROM mc.companies WHERE bse_code = :s
-                UNION ALL
-                SELECT sc_id FROM mc.companies WHERE upper(company_name) = upper(:s)
+                SELECT sc_id FROM (
+                    SELECT sc_id, 1 AS pri, 0 AS f
+                      FROM mc.companies WHERE sc_id = :s
+                    UNION ALL
+                    SELECT sc_id, 2, 0
+                      FROM mc.companies WHERE upper(nse_symbol) = upper(:s)
+                    UNION ALL
+                    SELECT c.sc_id, 3,
+                           CASE WHEN EXISTS (
+                               SELECT 1 FROM mc.statement_lines sl
+                               WHERE sl.sc_id = c.sc_id
+                           ) THEN 0 ELSE 1 END
+                      FROM mc.companies c WHERE upper(c.ticker) = upper(:s)
+                    UNION ALL
+                    SELECT sc_id, 4, 0
+                      FROM mc.companies WHERE bse_code = :s
+                    UNION ALL
+                    SELECT sc_id, 5, 0
+                      FROM mc.companies WHERE upper(company_name) = upper(:s)
+                ) x
+                ORDER BY pri, f
                 LIMIT 1
                 """
             ),
@@ -476,7 +494,8 @@ def search_companies(
                 """
                 SELECT sc_id,
                        company_name,
-                       COALESCE(nse_symbol, ticker, sc_id) AS symbol,
+                       nse_symbol,
+                       ticker,
                        sector,
                        logo_url
                 FROM mc.companies
@@ -527,20 +546,32 @@ def search_companies(
         out: list[CompanyHit] = []
         seen: set[str] = set()
         for r in ordered:
-            if not r[2]:
+            sc_id, name, nse_symbol, ticker, sector, logo_url = r
+            has_fund = sc_id in have
+            # Navigable symbol: the verified nse_symbol first; a scraper
+            # `ticker` only when the row actually has fundamentals (shells like
+            # 'Jay Electric'/'Bharat Hotels' carry a stolen ticker='BHEL' but
+            # zero statements, so they must NOT contribute a navigable symbol
+            # that would collide with — or masquerade as — the real company).
+            # The MC `sc_id` is NEVER a symbol: '/stock/BHE' and
+            # '/stock/HARIS54268' can't resolve a quote and dead-end the page.
+            nav = (nse_symbol or "").strip() or (
+                (ticker or "").strip() if has_fund else ""
+            )
+            if not nav:
                 continue
-            sym = str(r[2]).upper()
+            sym = nav.upper()
             if sym in seen:
                 continue
             seen.add(sym)
             out.append(
                 CompanyHit(
-                    sc_id=r[0],
+                    sc_id=sc_id,
                     symbol=sym,
-                    name=r[1],
-                    sector=r[3],
-                    has_fundamentals=r[0] in have,
-                    logo_url=r[4],
+                    name=name,
+                    sector=sector,
+                    has_fundamentals=has_fund,
+                    logo_url=logo_url,
                 )
             )
             if len(out) >= limit:
