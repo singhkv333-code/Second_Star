@@ -1504,14 +1504,50 @@ export type ForwardModel = {
   assumptions: string[];
 };
 
-/** One leg of a lite_basket entry ticket (whole-share, real prices). */
+/** One leg of a lite_basket entry ticket (whole-share, real prices). An
+ *  etf_core_plus_names ticket mixes an ETF "core" leg (units) with 1-share
+ *  "satellite" legs of the strategy's own names. */
 export type EntryLeg = {
   symbol: string;
-  shares: number;
+  shares?: number;
+  units?: number;
   price: number;
   cost: number;
-  weight_target: number;
-  weight_actual: number;
+  weight_target?: number;
+  weight_actual?: number;
+  tracks?: string | null;
+  role?: "core" | "satellite" | null;
+};
+
+/**
+ * The cheapest honest small option ticket — a far-OTM LONG single option (or
+ * strangle for two-sided shock views) sized to the ₹ budget. A DIFFERENT
+ * structure from the tier's own, never presented as the same trade. `rolled`
+ * means the ticket is shorter-dated than the view (re-bought each expiry).
+ */
+export type EntrySmallTicket = {
+  structure: string;
+  underlying?: string | null;
+  otm_offset_pct?: number | null;
+  strike_label?: string | null;
+  lot_size?: number | null;
+  est_premium_per_lot_inr: number;
+  breakeven_move_pct?: number | null;
+  pop_pct?: number | null;
+  rolled?: boolean;
+  horizon_days?: number | null;
+  note?: string | null;
+};
+
+/** The same option structure priced on a same-theme underlying with a
+ *  smaller lot notional — a cheaper full-structure alternative. */
+export type EntryOptionAlternate = {
+  underlying: string;
+  label: string;
+  lot_size: number;
+  structure: string;
+  est_premium_per_lot_inr: number;
+  pop_pct?: number | null;
 };
 
 /** ETF substitute or alternative for an entry ticket. */
@@ -1539,15 +1575,35 @@ export type EntryDropped = { symbol: string; reason: string };
  */
 export type EntryBlock = {
   kind: string;
-  basis: "lite_basket" | "etf_substitute" | "option_premium" | "priced_at_deploy" | "margin_required" | "unaffordable";
+  basis: "lite_basket" | "etf_core_plus_names" | "etf_substitute" | "option_premium" | "priced_at_deploy" | "margin_required" | "unaffordable";
   min_entry_inr: number | null;
   legs?: EntryLeg[] | null;
   etf?: EntryEtf | null;
   etf_alternative?: EntryEtf | null;
   dropped?: EntryDropped[] | null;
   lot_size?: number | null;
+  small_ticket?: EntrySmallTicket | null;
+  option_alternates?: EntryOptionAlternate[] | null;
   note: string;
   as_of?: string | null;
+};
+
+/**
+ * The four comparable outcome metrics, all from the SAME per-occurrence
+ * return distribution: average gain / average loss (means of the positive and
+ * negative occurrences) and max gain / max loss (best and worst single
+ * occurrence). `basis: "modelled"` marks option tiers where max gain/loss
+ * come from the payoff model and averages honestly stay null (no history).
+ */
+export type GainLoss = {
+  avg_gain_pct: number | null;
+  avg_loss_pct: number | null;
+  max_gain_pct: number | null;
+  max_loss_pct: number | null;
+  max_gain_uncapped?: boolean;
+  n_gain: number | null;
+  n_loss: number | null;
+  basis: "episodes" | "modelled";
 };
 
 /** A sibling view surfaced as "similar" on the detail page. */
@@ -1630,6 +1686,8 @@ export type BestExpression = {
   pct_positive?: number | null;
   /** Integer count of positive-outcome occurrences (out of n_episodes). */
   n_positive?: number | null;
+  /** The four comparable outcome metrics of the best expression. */
+  gain_loss?: GainLoss | null;
   // Real backend-computed curve for the gallery mini-line (null when no history).
   equity_curve: EquityPoint[] | null;
 };
@@ -1937,6 +1995,9 @@ export type ExpressionDetail = {
    * honest ticket size. Null when no entry was computed.
    */
   entry?: EntryBlock | null;
+  /** The four comparable outcome metrics (avg/max gain and loss) from the
+   *  same per-occurrence distribution; modelled analogue for option tiers. */
+  gain_loss?: GainLoss | null;
   /** Top-level trust verdict hoisted from scores.backtest for quick rendering. */
   trust_verdict?: TrustVerdict | null;
 };

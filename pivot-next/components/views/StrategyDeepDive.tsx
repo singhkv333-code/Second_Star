@@ -283,24 +283,39 @@ function EntrySection({ entry }: { entry: EntryBlock }): React.ReactElement {
         </div>
       )}
 
-      {/* lite_basket: list the legs */}
-      {entry.basis === "lite_basket" && entry.legs && entry.legs.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {entry.legs.map((leg, i) => (
-            <div
-              key={i}
-              style={{
-                fontFamily: FONT,
-                fontSize: 13,
-                fontVariantNumeric: "tabular-nums",
-                color: "var(--text-primary)",
-              }}
-            >
-              {leg.shares} × {leg.symbol} @ {fmtInr(leg.price)}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* lite_basket / etf_core_plus_names: list the legs. A core leg is ETF
+          units; a satellite leg is one whole share of the strategy's own name. */}
+      {(entry.basis === "lite_basket" || entry.basis === "etf_core_plus_names") &&
+        entry.legs &&
+        entry.legs.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {entry.legs.map((leg, i) => (
+              <div
+                key={i}
+                style={{
+                  fontFamily: FONT,
+                  fontSize: 13,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "var(--text-primary)",
+                }}
+              >
+                {leg.units ?? leg.shares} × {leg.symbol} @ {fmtInr(leg.price)}
+                {leg.role === "core" && leg.tracks && (
+                  <span style={{ color: "var(--text-tertiary)" }}>
+                    {" "}
+                    — the core; tracks {leg.tracks}
+                  </span>
+                )}
+                {leg.role === "satellite" && (
+                  <span style={{ color: "var(--text-tertiary)" }}>
+                    {" "}
+                    — the strategy's own pick
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
       {/* dropped names */}
       {(entry.dropped ?? []).length > 0 && (
@@ -351,6 +366,91 @@ function EntrySection({ entry }: { entry: EntryBlock }): React.ReactElement {
             {entry.etf_alternative.units} × {entry.etf_alternative.symbol} @ {fmtInr(entry.etf_alternative.price)}
             <span style={{ color: "var(--text-tertiary)" }}> — tracks {entry.etf_alternative.tracks}</span>
           </div>
+        </div>
+      )}
+
+      {/* small_ticket: the budget-sized far-OTM long single — a DIFFERENT
+          structure, framed as the longshot it is, never as the same trade. */}
+      {entry.small_ticket && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            padding: "10px 12px",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md)",
+          }}
+        >
+          <span
+            style={{
+              fontFamily: FONT,
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            Longshot ticket: ≈{fmtInr(entry.small_ticket.est_premium_per_lot_inr)}
+            {" — "}
+            {entry.small_ticket.structure === "long_strangle"
+              ? "a far-out-of-the-money strangle"
+              : entry.small_ticket.structure === "long_put"
+                ? "a single far-out-of-the-money put"
+                : "a single far-out-of-the-money call"}
+            {entry.small_ticket.underlying
+              ? ` on ${entry.small_ticket.underlying}`
+              : ""}
+          </span>
+          {entry.small_ticket.pop_pct != null && (
+            <span
+              style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}
+            >
+              Modelled odds of finishing profitable: ~
+              {entry.small_ticket.pop_pct}% — most of these expire worthless;
+              the premium is the most you can lose.
+            </span>
+          )}
+          {entry.small_ticket.note && (
+            <span
+              style={{
+                fontFamily: FONT,
+                fontSize: 12,
+                color: "var(--text-tertiary)",
+                lineHeight: 1.45,
+              }}
+            >
+              {entry.small_ticket.note}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* option_alternates: the same structure on cheaper same-theme lots */}
+      {(entry.option_alternates ?? []).length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
+            Same structure, cheaper lot:
+          </span>
+          {(entry.option_alternates ?? []).map((a, i) => (
+            <span
+              key={i}
+              style={{
+                fontFamily: FONT,
+                fontSize: 13,
+                fontVariantNumeric: "tabular-nums",
+                color: "var(--text-primary)",
+              }}
+            >
+              {a.label} — ≈{fmtInr(a.est_premium_per_lot_inr)}/lot
+              {a.pop_pct != null && (
+                <span style={{ color: "var(--text-tertiary)" }}>
+                  {" "}
+                  (modelled odds ~{a.pop_pct}%)
+                </span>
+              )}
+            </span>
+          ))}
         </div>
       )}
 
@@ -599,7 +699,35 @@ export function StrategyDeepDive({
                 value={e.pct_positive != null ? `${e.pct_positive.toFixed(0)}%` : "—"}
                 sub={e.n_positive != null && e.n_episodes ? `${e.n_positive} of ${e.n_episodes}` : undefined}
               />
-              <Stat label="Worst drop" value={<span style={{ color: "var(--color-loss)" }}>{pct(e.worst_drop_pct)}</span>} sub="deepest single occurrence" />
+              {e.gain_loss?.avg_gain_pct != null && (
+                <Stat
+                  label="Avg gain"
+                  value={<span style={{ color: "var(--color-profit)" }}>{pct(e.gain_loss.avg_gain_pct)}</span>}
+                  sub={e.gain_loss.n_gain != null ? `across ${e.gain_loss.n_gain} winning runs` : undefined}
+                />
+              )}
+              {e.gain_loss?.avg_loss_pct != null && (
+                <Stat
+                  label="Avg loss"
+                  value={<span style={{ color: "var(--color-loss)" }}>{pct(e.gain_loss.avg_loss_pct)}</span>}
+                  sub={e.gain_loss.n_loss != null ? `across ${e.gain_loss.n_loss} losing runs` : undefined}
+                />
+              )}
+              {e.gain_loss?.max_gain_pct != null && (
+                <Stat
+                  label="Max gain"
+                  value={<span style={{ color: "var(--color-profit)" }}>{pct(e.gain_loss.max_gain_pct)}</span>}
+                  sub="best single occurrence"
+                />
+              )}
+              {e.gain_loss?.max_loss_pct != null && (
+                <Stat
+                  label="Max loss"
+                  value={<span style={{ color: e.gain_loss.max_loss_pct < 0 ? "var(--color-loss)" : "var(--color-profit)" }}>{pct(e.gain_loss.max_loss_pct)}</span>}
+                  sub="worst single occurrence"
+                />
+              )}
+              <Stat label="Worst drop" value={<span style={{ color: "var(--color-loss)" }}>{pct(e.worst_drop_pct)}</span>} sub="deepest slide inside a run" />
               <Stat label="Reward : risk" value={e.risk_return_ratio != null ? e.risk_return_ratio.toFixed(1) : "—"} sub="return ÷ worst drop" />
               <Stat label="Track record" value={<span style={{ fontSize: 15 }}>{e.trust_badge ?? "—"}</span>} valueSize="md" sub={e.n_episodes ? `${e.n_episodes} occurrences` : undefined} />
             </>

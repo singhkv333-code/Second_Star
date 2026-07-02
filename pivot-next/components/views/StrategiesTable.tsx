@@ -4,19 +4,22 @@
  * StrategiesTable — the real, roomy strategies TABLE on a View detail page
  * (replaces the old stacked expression cards).
  *
- * Columns: Name | Type | Risk | Max drop | Avg profit | (View details)
- * "Avg profit" is the AVERAGE over the event's past occurrences (mean per
- * occurrence) — never compounded across occurrences. Benchmark-relative
- * numbers (vs Nifty / excess return) are never rendered here — only the
- * strategy's own return.
+ * Columns: Name | Risk | Avg gain | Avg loss | Max gain | Max loss | (Details)
+ * The four numeric columns are COMPARABLE — all from the same per-occurrence
+ * return distribution: avg gain/loss are the means of the positive and
+ * negative occurrences; max gain/loss the single best and worst. Benchmark-
+ * relative numbers (vs Nifty / excess return) are never rendered here — only
+ * the strategy's own outcomes. Strategy type + entry ticket live under the
+ * name.
  * Rows: the view's expressions. Numeric columns are right-aligned + tabular.
- * Each row has a "View details" button that expands an in-table panel showing
+ * Each row has a "Details" button that expands an in-table panel showing
  * the strategy's plain_why, plain_risk, what-you'd-hold (basket members or the
  * honest option-legs note), capital intensity, and a Deploy CTA.
  *
  * Option / derivative expressions have no offline historical backtest (there
- * is no offline option chain) — those rows render "Priced at deploy" instead
- * of a fabricated max-drop number or a trust word (see isNotBacktested()).
+ * is no offline option chain) — their max gain/loss come from the payoff
+ * MODEL (asterisked, explained in the footer) and their averages honestly
+ * stay "—" (see isNotBacktested()).
  *
  * DESIGN LAW (v2): ROUNDED (outer card var(--radius-lg); chips/buttons
  * var(--radius-md)), BORDER-ONLY (no grey fills), plain language (no jargon),
@@ -41,13 +44,25 @@ function fmtInr(n: number): string {
 
 /** One-line entry ticket text for a row. */
 function entryTicket(entry: EntryBlock): string | null {
-  if (entry.basis === "lite_basket" || entry.basis === "etf_substitute") {
+  if (
+    entry.basis === "lite_basket" ||
+    entry.basis === "etf_core_plus_names" ||
+    entry.basis === "etf_substitute"
+  ) {
     if (entry.min_entry_inr != null) return `From ${fmtInr(entry.min_entry_inr)}`;
   }
-  if (entry.basis === "option_premium") {
-    if (entry.min_entry_inr != null) return `≈${fmtInr(entry.min_entry_inr)}/lot`;
+  if (entry.basis === "option_premium" || entry.basis === "priced_at_deploy") {
+    const own =
+      entry.min_entry_inr != null
+        ? `≈${fmtInr(entry.min_entry_inr)}/lot`
+        : "Priced at deploy";
+    // The budget-sized far-OTM single is a DIFFERENT structure — say "longshot",
+    // never present it as the same trade at a lower price.
+    const small = entry.small_ticket
+      ? ` · longshot from ${fmtInr(entry.small_ticket.est_premium_per_lot_inr)}`
+      : "";
+    return own + small;
   }
-  if (entry.basis === "priced_at_deploy") return "Priced at deploy";
   if (entry.basis === "margin_required") return "Needs margin";
   return null;
 }
@@ -56,7 +71,7 @@ const FONT = "var(--font-display)";
 
 // Grid template shared by the header row and every data row so columns align.
 const GRID =
-  "minmax(150px, 1.5fr) minmax(110px, 1.1fr) 96px 92px 92px 116px";
+  "minmax(170px, 1.6fr) 88px 84px 84px 84px 84px 96px";
 
 function HeaderCell({
   children,
@@ -94,25 +109,44 @@ function isNotBacktested(expr: ExpressionDetail): boolean {
   );
 }
 
-// A small muted, border-only, rounded chip used in place of a fabricated
-// number for tiers that have no historical backtest.
-function PricedAtDeployChip(): React.ReactElement {
+// One right-aligned cell of the four comparable gain/loss columns. Modelled
+// values (option payoff bounds, no history) carry an asterisk explained in
+// the footer; an uncapped modelled max gain says so instead of a fake cap.
+function GainLossCell({
+  value,
+  modelled,
+  uncapped,
+}: {
+  value: number | null | undefined;
+  modelled: boolean;
+  uncapped?: boolean;
+}): React.ReactElement {
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontFamily: FONT,
-        fontSize: 13,
-        fontWeight: 500,
-        color: "var(--text-tertiary)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-md)",
-        padding: "3px 9px",
-        whiteSpace: "nowrap",
-      }}
-    >
-      Priced at deploy
+    <span style={{ textAlign: "right" }}>
+      {uncapped ? (
+        <span
+          style={{
+            fontFamily: FONT,
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--color-profit)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Open-ended*
+        </span>
+      ) : value == null ? (
+        <span
+          style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}
+        >
+          —
+        </span>
+      ) : (
+        <Num size="md" weight={600} color={signColor(value)}>
+          {fmtPct(value)}
+          {modelled ? "*" : ""}
+        </Num>
+      )}
     </span>
   );
 }
@@ -229,10 +263,11 @@ export function StrategiesTable({
         }}
       >
         <HeaderCell>Strategy</HeaderCell>
-        <HeaderCell>Type</HeaderCell>
         <HeaderCell>Risk</HeaderCell>
-        <HeaderCell align="right">Max drop</HeaderCell>
-        <HeaderCell align="right">Avg profit</HeaderCell>
+        <HeaderCell align="right">Avg gain</HeaderCell>
+        <HeaderCell align="right">Avg loss</HeaderCell>
+        <HeaderCell align="right">Max gain</HeaderCell>
+        <HeaderCell align="right">Max loss</HeaderCell>
         <HeaderCell align="right">{""}</HeaderCell>
       </div>
 
@@ -289,9 +324,12 @@ export function StrategiesTable({
                 >
                   {name}
                 </span>
-                {expr.entry && (() => {
-                  const ticket = entryTicket(expr.entry);
-                  return ticket ? (
+                {(() => {
+                  const ticket = expr.entry ? entryTicket(expr.entry) : null;
+                  const sub = [type !== "—" ? type : null, ticket]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return sub ? (
                     <span
                       style={{
                         fontFamily: FONT,
@@ -301,22 +339,11 @@ export function StrategiesTable({
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {ticket}
+                      {sub}
                     </span>
                   ) : null;
                 })()}
               </div>
-              <span
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 13,
-                  fontWeight: 400,
-                  color: "var(--text-secondary)",
-                  lineHeight: 1.35,
-                }}
-              >
-                {type}
-              </span>
               <span
                 style={{
                   fontFamily: FONT,
@@ -327,24 +354,22 @@ export function StrategiesTable({
               >
                 {tierLabel(expr.tier)}
               </span>
-              <span style={{ textAlign: "right" }}>
-                {notBacktested ? (
-                  <PricedAtDeployChip />
-                ) : (
-                  <Num size="md" weight={600} color="var(--color-loss)">
-                    {fmtPct(expr.worst_drop_pct)}
-                  </Num>
-                )}
-              </span>
-              <span style={{ textAlign: "right" }}>
-                <Num
-                  size="md"
-                  weight={600}
-                  color={signColor(expr.strategy_total_pct)}
-                >
-                  {fmtPct(expr.strategy_total_pct)}
-                </Num>
-              </span>
+              {(() => {
+                const gl = expr.gain_loss ?? null;
+                const modelled = gl?.basis === "modelled";
+                return (
+                  <>
+                    <GainLossCell value={gl?.avg_gain_pct} modelled={modelled} />
+                    <GainLossCell value={gl?.avg_loss_pct} modelled={modelled} />
+                    <GainLossCell
+                      value={gl?.max_gain_pct}
+                      modelled={modelled}
+                      uncapped={gl?.max_gain_uncapped}
+                    />
+                    <GainLossCell value={gl?.max_loss_pct} modelled={modelled} />
+                  </>
+                );
+              })()}
               <span
                 style={{ display: "flex", justifyContent: "flex-end" }}
               >
@@ -515,8 +540,11 @@ export function StrategiesTable({
             lineHeight: 1.4,
           }}
         >
-          Avg profit is the average each time this has happened before — not
-          added up across occurrences.
+          Avg gain / avg loss are the average winning and losing outcomes
+          across past occurrences; max gain / max loss are the single best and
+          worst. Nothing is added up across occurrences. * marks modelled
+          option payoff bounds — there is no history for an option structure,
+          and the final pricing is set at deploy.
         </span>
         {holdWindow && (
           <span
