@@ -376,9 +376,10 @@ function pickDefault(
     const m = exprs.find((e) => e.id === headlineId);
     if (m) return m;
   }
-  const cons = exprs.find(
-    (e) => e.tier === "conservative" && e.strategy_total_pct != null,
-  );
+  // Prefer conservative tier — fall back to highest return. For views with no
+  // historical return (e.g. shock_no_analogs), the conservative tier still
+  // wins so the default matches the gallery card's headline expression.
+  const cons = exprs.find((e) => e.tier === "conservative");
   if (cons) return cons;
   return [...exprs].sort(
     (a, b) => (b.strategy_total_pct ?? -Infinity) - (a.strategy_total_pct ?? -Infinity),
@@ -798,6 +799,21 @@ export function ViewDetailPage({
                   {selectedExpr?.strategy_name ?? "Strategy"}, ₹1,00,000
                   invested per occurrence ·{" "}
                   {selectedExpr?.trust_badge ?? "Unproven"} — this is
+                  analysis, not financial advice.
+                </>
+              ) : selectedExpr?.forward_model ? (
+                <>
+                  No historical track record for this view. The forward model
+                  projects{" "}
+                  <strong>
+                    {(() => {
+                      const n = selectedExpr.forward_model.expected_net_pct;
+                      const s = n > 0 ? "+" : n < 0 ? "−" : "";
+                      return `${s}${Math.abs(n).toFixed(1)}%`;
+                    })()}
+                    {" "}modeled
+                  </strong>{" "}
+                  (net of costs, scenario-based — not a track record). This is
                   analysis, not financial advice.
                 </>
               ) : (

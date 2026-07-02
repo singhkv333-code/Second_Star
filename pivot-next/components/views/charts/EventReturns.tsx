@@ -41,11 +41,15 @@ export function EventReturns({
   episodes,
   positiveEpisodes,
   benchmarkLabel: _benchmarkLabel = "Nifty",
+  evidenceBasis = null,
 }: {
   episodes?: EventEpisode[] | null;
   positiveEpisodes?: number | null;
   /** Accepted for caller compatibility — no benchmark figure is ever rendered. */
   benchmarkLabel?: string;
+  /** "rolling_windows" episodes are history sliced into windows, NOT distinct
+      events — the copy must never call them events (doctrine A2). */
+  evidenceBasis?: "rolling_windows" | "shock_no_analogs" | null;
 }): React.ReactElement | null {
   const c = useTokenColors({
     profit: "--color-profit",
@@ -95,7 +99,9 @@ export function EventReturns({
             letterSpacing: "-0.01em",
           }}
         >
-          Positive in {pos} of {n} past events
+          {evidenceBasis === "rolling_windows"
+            ? `Positive in ${pos} of ${n} rolling windows`
+            : `Positive in ${pos} of ${n} past events`}
         </span>
         <span
           style={{
@@ -104,7 +110,9 @@ export function EventReturns({
             color: c.tertiary,
           }}
         >
-          Return after the event
+          {evidenceBasis === "rolling_windows"
+            ? "Return over each window — history sliced into windows, not distinct events"
+            : "Return after the event"}
         </span>
       </div>
 

@@ -1463,6 +1463,93 @@ export type OptionLeg = {
   strike_offset: number | null;
 };
 
+/** Beta regression block embedded in a ForwardModel. */
+export type ForwardModelBeta = {
+  beta: number;
+  t_stat: number | null;
+  r2: number;
+  n_weeks: number;
+  basis: "regression" | "stated_direct";
+};
+
+/** Driver-scenario projections inside a ForwardModel. */
+export type ForwardModelScenario = {
+  yes_driver_move_pct: number;
+  no_driver_move_pct: number;
+  yes_book_move_pct: number;
+  no_book_move_pct: number;
+};
+
+/**
+ * Forward scenario model for an expression — present when there is no
+ * historical track record (no_history: true) or as a supplement to history.
+ * All numbers are computed; never fabricated. Labeled "modeled" in the UI
+ * to clearly distinguish from historical track-record numbers.
+ */
+export type ForwardModel = {
+  method: string;
+  no_history: boolean;
+  driver: string;
+  beta: ForwardModelBeta;
+  p_yes: number;
+  p_source: string;
+  scenario: ForwardModelScenario;
+  expected_gross_pct: number;
+  expected_net_pct: number;
+  band_pct: { p05: number; p25: number; p50: number; p75: number };
+  sigma_horizon_pct: number;
+  shrinkage: number;
+  costs_bps: number;
+  horizon_days: number;
+  assumptions: string[];
+};
+
+/** One leg of a lite_basket entry ticket (whole-share, real prices). */
+export type EntryLeg = {
+  symbol: string;
+  shares: number;
+  price: number;
+  cost: number;
+  weight_target: number;
+  weight_actual: number;
+};
+
+/** ETF substitute or alternative for an entry ticket. */
+export type EntryEtf = {
+  symbol: string;
+  units: number;
+  price: number;
+  cost: number;
+  tracks: string;
+  as_of: string;
+};
+
+/** Dropped basket member with reason. */
+export type EntryDropped = { symbol: string; reason: string };
+
+/**
+ * Affordable entry block for an expression — how to get into the strategy
+ * at the smallest honest ticket size. Basis determines the display path:
+ * - "lite_basket": real whole-share legs + optionally an ETF alternative
+ * - "etf_substitute": the basket is unaffordable; use an ETF proxy instead
+ * - "option_premium": the upfront premium per lot
+ * - "priced_at_deploy": live market price needed at deploy time
+ * - "margin_required": short leg needs margin; no clean small-ticket entry
+ * - "unaffordable": no affordable path was found
+ */
+export type EntryBlock = {
+  kind: string;
+  basis: "lite_basket" | "etf_substitute" | "option_premium" | "priced_at_deploy" | "margin_required" | "unaffordable";
+  min_entry_inr: number | null;
+  legs?: EntryLeg[] | null;
+  etf?: EntryEtf | null;
+  etf_alternative?: EntryEtf | null;
+  dropped?: EntryDropped[] | null;
+  lot_size?: number | null;
+  note: string;
+  as_of?: string | null;
+};
+
 /** A sibling view surfaced as "similar" on the detail page. */
 export type SimilarView = {
   id: string;
@@ -1543,8 +1630,8 @@ export type BestExpression = {
   pct_positive?: number | null;
   /** Integer count of positive-outcome occurrences (out of n_episodes). */
   n_positive?: number | null;
-  // Real backend-computed curve for the gallery mini-line (may be empty).
-  equity_curve: EquityPoint[];
+  // Real backend-computed curve for the gallery mini-line (null when no history).
+  equity_curve: EquityPoint[] | null;
 };
 
 /** Shape returned by GET /api/views (list item). */
@@ -1595,6 +1682,20 @@ export type ViewSummary = {
    */
   best_episode_pct?: number | null;
   best_episode_label?: string | null;
+  /**
+   * How the evidence was assembled. "rolling_windows" = overlapping historical
+   * windows (not distinct events); "shock_no_analogs" = an event class with no
+   * comparable history (forward model only, no track record).
+   */
+  evidence_basis?: "rolling_windows" | "shock_no_analogs" | null;
+  /** Cheapest honest entry into any tier of this view, in INR (whole rupees). */
+  min_entry_inr?: number | null;
+  /** Forward-scenario expected net return (p50), net of shrinkage + costs. */
+  forward_expected_net_pct?: number | null;
+  /** Forward-scenario percentile band (p05/p25/p50/p75). */
+  forward_band_pct?: { p05: number; p25: number; p50: number; p75: number } | null;
+  /** Source description for the forward probability estimate. */
+  forward_p_source?: string | null;
 };
 
 /** One edge in the causal transmission map, ordered by seq. */
@@ -1713,16 +1814,20 @@ export type OptionModelPayoffPoint = { move_pct: number; pnl_pct: number };
 
 /** REAL Black–Scholes model of the option tier's defined-risk vertical. Every
  *  number is computed (max loss/profit are % of the capital deployed); the
- *  historical return stays "priced at deploy" — this is the payoff SHAPE. */
+ *  historical return stays "priced at deploy" — this is the payoff SHAPE.
+ *
+ *  For long_straddle structures: direction = "two_sided", width_pct = null,
+ *  max_profit_uncapped = true, all legs are BUY. */
 export type OptionModel = {
-  structure: string; // "bull_call_spread" | "bear_put_spread"
-  direction: "bullish" | "bearish";
+  structure: string; // "bull_call_spread" | "bear_put_spread" | "long_straddle"
+  direction: "bullish" | "bearish" | "two_sided";
   underlying_label: string | null;
   legs: OptionModelLeg[];
   net_premium_pct: number;
-  width_pct: number;
+  width_pct: number | null; // null for long_straddle
   max_loss_pct: number; // -100 (the debit) for a defined-risk spread
-  max_profit_pct: number; // % of capital deployed
+  max_profit_pct: number; // % of capital deployed (effectively uncapped for straddle)
+  max_profit_uncapped?: boolean | null; // true for long_straddle
   breakeven_move_pct: number;
   pop_pct: number; // lognormal probability of profit at expiry
   net_greeks: { delta: number; gamma: number; vega: number; theta: number };
@@ -1785,8 +1890,8 @@ export type ExpressionDetail = {
   /** One-line note describing the option structure (null when no legs). */
   option_legs_note: string | null;
   // ── real computed chart + per-holding returns ──
-  /** Real backend-computed strategy-vs-benchmark curve (may be empty). */
-  equity_curve: EquityPoint[];
+  /** Real backend-computed strategy-vs-benchmark curve (null when no history). */
+  equity_curve: EquityPoint[] | null;
   /** Per-name returns for a basket (empty for non-basket expressions). */
   holdings: Holding[];
   /** Underlying symbol for an option structure (null for baskets). */
@@ -1816,6 +1921,24 @@ export type ExpressionDetail = {
   /** REAL modelled Black–Scholes option payoff for the option tier
    *  (null for non-option kinds). */
   option_model?: OptionModel | null;
+  /**
+   * How the evidence was assembled:
+   * - "rolling_windows": overlapping historical windows (not distinct events)
+   * - "shock_no_analogs": event class with no comparable history (forward model only)
+   */
+  evidence_basis?: "rolling_windows" | "shock_no_analogs" | null;
+  /**
+   * Forward scenario model — present when there is no historical track record
+   * or as a supplement to history. Always labeled "modeled" in the UI.
+   */
+  forward_model?: ForwardModel | null;
+  /**
+   * Affordable entry block — how to get into the strategy at the smallest
+   * honest ticket size. Null when no entry was computed.
+   */
+  entry?: EntryBlock | null;
+  /** Top-level trust verdict hoisted from scores.backtest for quick rendering. */
+  trust_verdict?: TrustVerdict | null;
 };
 
 /** Full view detail returned by GET /api/views/{id}. */

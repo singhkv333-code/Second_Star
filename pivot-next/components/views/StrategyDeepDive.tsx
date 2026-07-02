@@ -32,7 +32,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { ExpressionDetail } from "@/lib/types";
+import type { ExpressionDetail, ForwardModel, EntryBlock } from "@/lib/types";
 import { MonteCarloDistribution, type MonteCarlo } from "./charts/MonteCarloDistribution";
 import { StrategyCalculator } from "./StrategyCalculator";
 import { Num, Stat } from "./Stat";
@@ -91,6 +91,315 @@ function Section({
   );
 }
 
+// ---------------------------------------------------------------------------
+// ForwardModelSection — "If it goes your way" (modeled, never historical).
+// Renders only when forward_model is present. All numbers are computed by the
+// backend scenario model; labeled "modeled" throughout so they are never
+// confused with a track record.
+// ---------------------------------------------------------------------------
+
+function ForwardModelSection({ fm }: { fm: ForwardModel }): React.ReactElement {
+  const net = fm.expected_net_pct;
+  const sign = net > 0 ? "+" : net < 0 ? "−" : "";
+  const absNet = Math.abs(net).toFixed(1);
+  const band = fm.band_pct;
+  const pYesPct = Math.round(fm.p_yes * 100);
+
+  // Horizontal percentile band: p05 | p25 | p50 | p75
+  // Normalize to a 0-100 scale for the visual bar.
+  const vals = [band.p05, band.p25, band.p50, band.p75];
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const span = maxV - minV || 1;
+  const toPos = (v: number): string => `${((v - minV) / span) * 100}%`;
+
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <Section
+      title="If it goes your way"
+      subtitle="A scenario model — not a track record. Labeled 'modeled' throughout."
+    >
+      {/* Lead: p50 expected net */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span
+          style={{
+            fontFamily: FONT,
+            fontSize: 28,
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            fontVariantNumeric: "tabular-nums",
+            color: net >= 0 ? "var(--color-profit)" : "var(--color-loss)",
+          }}
+        >
+          {sign}{absNet}%
+        </span>
+        <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
+          modeled, net of costs
+        </span>
+      </div>
+
+      {/* Probability line */}
+      <p style={{ margin: 0, fontFamily: FONT, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+        <strong style={{ fontVariantNumeric: "tabular-nums" }}>{pYesPct}%</strong>
+        {" priced in — "}
+        {fm.p_source}
+      </p>
+
+      {/* Percentile band */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
+          Scenario range (p05 → p75, net)
+        </span>
+        <div style={{ position: "relative", height: 20, background: "color-mix(in srgb, var(--text-tertiary) 10%, transparent)", borderRadius: 4 }}>
+          {/* p05 → p75 fill */}
+          <div
+            style={{
+              position: "absolute",
+              left: toPos(band.p05),
+              width: `${((band.p75 - band.p05) / span) * 100}%`,
+              height: "100%",
+              background: "color-mix(in srgb, var(--pivot-blue) 25%, transparent)",
+              borderRadius: 4,
+            }}
+          />
+          {/* p25 → p75 fill (darker) */}
+          <div
+            style={{
+              position: "absolute",
+              left: toPos(band.p25),
+              width: `${((band.p75 - band.p25) / span) * 100}%`,
+              height: "100%",
+              background: "color-mix(in srgb, var(--pivot-blue) 40%, transparent)",
+              borderRadius: 4,
+            }}
+          />
+          {/* p50 marker */}
+          <div
+            style={{
+              position: "absolute",
+              left: toPos(band.p50),
+              width: 2,
+              height: "100%",
+              background: "var(--pivot-blue)",
+              borderRadius: 1,
+              transform: "translateX(-1px)",
+            }}
+          />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontFamily: FONT,
+            fontSize: 12,
+            fontVariantNumeric: "tabular-nums",
+            color: "var(--text-tertiary)",
+          }}
+        >
+          <span>{pct(band.p05)} p05</span>
+          <span>{pct(band.p25)} p25</span>
+          <span>{pct(band.p50)} p50</span>
+          <span>{pct(band.p75)} p75</span>
+        </div>
+      </div>
+
+      {/* Assumptions — collapsible quiet list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            alignSelf: "flex-start",
+            fontFamily: FONT,
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--text-tertiary)",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: 0,
+            textDecoration: "underline",
+            textDecorationStyle: "dotted",
+          }}
+        >
+          How this was modeled {open ? "▲" : "▼"}
+        </button>
+        {open && (
+          <ul
+            style={{
+              margin: 0,
+              paddingLeft: 18,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}
+          >
+            {fm.assumptions.map((a, i) => (
+              <li
+                key={i}
+                style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}
+              >
+                {a}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EntrySection — "Getting in small" — the smallest honest entry ticket.
+// ---------------------------------------------------------------------------
+
+function EntrySection({ entry }: { entry: EntryBlock }): React.ReactElement {
+  const fmtInr = (n: number): string => "₹" + Math.round(n).toLocaleString("en-IN");
+
+  return (
+    <Section
+      title="Getting in small"
+      subtitle="The cheapest honest way to enter this strategy today."
+    >
+      {/* Headline: min_entry_inr */}
+      {entry.min_entry_inr != null && (
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span
+            style={{
+              fontFamily: FONT,
+              fontSize: 24,
+              fontWeight: 700,
+              letterSpacing: "-0.01em",
+              fontVariantNumeric: "tabular-nums",
+              color: "var(--text-primary)",
+            }}
+          >
+            {fmtInr(entry.min_entry_inr)}
+          </span>
+          <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
+            {entry.basis === "option_premium" ? "per lot (upfront premium)" : "to enter"}
+          </span>
+        </div>
+      )}
+
+      {/* lite_basket: list the legs */}
+      {entry.basis === "lite_basket" && entry.legs && entry.legs.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {entry.legs.map((leg, i) => (
+            <div
+              key={i}
+              style={{
+                fontFamily: FONT,
+                fontSize: 13,
+                fontVariantNumeric: "tabular-nums",
+                color: "var(--text-primary)",
+              }}
+            >
+              {leg.shares} × {leg.symbol} @ {fmtInr(leg.price)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* dropped names */}
+      {(entry.dropped ?? []).length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
+            Not included at this ticket size:
+          </span>
+          {(entry.dropped ?? []).map((d, i) => (
+            <span
+              key={i}
+              style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.4 }}
+            >
+              {d.symbol} — {d.reason}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* etf_substitute: show the ETF line */}
+      {entry.basis === "etf_substitute" && entry.etf && (
+        <div
+          style={{
+            fontFamily: FONT,
+            fontSize: 13,
+            fontVariantNumeric: "tabular-nums",
+            color: "var(--text-primary)",
+          }}
+        >
+          {entry.etf.units} × {entry.etf.symbol} @ {fmtInr(entry.etf.price)}
+          <span style={{ color: "var(--text-tertiary)" }}> — tracks {entry.etf.tracks}</span>
+        </div>
+      )}
+
+      {/* etf_alternative (offered alongside lite_basket) */}
+      {entry.etf_alternative && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
+            Or simpler:
+          </span>
+          <div
+            style={{
+              fontFamily: FONT,
+              fontSize: 13,
+              fontVariantNumeric: "tabular-nums",
+              color: "var(--text-primary)",
+            }}
+          >
+            {entry.etf_alternative.units} × {entry.etf_alternative.symbol} @ {fmtInr(entry.etf_alternative.price)}
+            <span style={{ color: "var(--text-tertiary)" }}> — tracks {entry.etf_alternative.tracks}</span>
+          </div>
+        </div>
+      )}
+
+      {/* note (always present) */}
+      <p
+        style={{
+          margin: 0,
+          fontFamily: FONT,
+          fontSize: 13,
+          color: "var(--text-secondary)",
+          lineHeight: 1.55,
+        }}
+      >
+        {entry.note}
+      </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WeakTrackingWarning — amber callout for a "Heads-up: this bundle..." warning.
+// ---------------------------------------------------------------------------
+
+function WeakTrackingWarning({ text }: { text: string }): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        padding: "12px 14px",
+        border: "1px solid color-mix(in srgb, var(--color-warn) 45%, transparent)",
+        borderRadius: "var(--radius-lg)",
+        background: "color-mix(in srgb, var(--color-warn) 8%, var(--bg-base))",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: FONT,
+          fontSize: 13,
+          color: "var(--text-secondary)",
+          lineHeight: 1.55,
+        }}
+      >
+        {text}
+      </span>
+    </div>
+  );
+}
+
 export function StrategyDeepDive({
   expression,
   viewTitle,
@@ -112,9 +421,23 @@ export function StrategyDeepDive({
   const e = expression;
   const om = e.option_model ?? null;
   const isOption = !!om;
+  const isStraddle = om?.structure === "long_straddle";
   const longHoldings = (e.holdings ?? []).filter((h) => h.position !== "short");
   const shortHolding = (e.holdings ?? []).find((h) => h.position === "short");
   const name = e.strategy_name ?? e.plain_label ?? tierLabel(e.tier);
+
+  // evidence_basis logic:
+  // - "shock_no_analogs" with no episodes → skip the track record section
+  // - "rolling_windows" → add caption to track record section
+  const evidenceBasis = e.evidence_basis ?? null;
+  const hasNoAnalogs = evidenceBasis === "shock_no_analogs";
+  const hasEpisodes = (e.episodes?.length ?? 0) >= 2;
+  const showEpisodes = hasEpisodes && !hasNoAnalogs;
+
+  // Weak-tracking warnings (lines starting "Heads-up:")
+  const weakWarning = (e.warnings ?? []).find((w) =>
+    w.toLowerCase().startsWith("heads-up:")
+  ) ?? null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -178,6 +501,9 @@ export function StrategyDeepDive({
         </div>
       </div>
 
+      {/* Weak-tracking callout — near the top so it's seen before the stats */}
+      {weakWarning && <WeakTrackingWarning text={weakWarning} />}
+
       {/* 1 · calculator */}
       <StrategyCalculator expression={e} />
 
@@ -196,13 +522,22 @@ export function StrategyDeepDive({
         </Section>
       )}
 
-      {/* 3 · every past occurrence — the event study */}
-      {(e.episodes?.length ?? 0) >= 2 && (
+      {/* 2.5 · Forward model — "If it goes your way" (modeled, not historical) */}
+      {e.forward_model && <ForwardModelSection fm={e.forward_model} />}
+
+      {/* 3 · every past occurrence — the event study.
+          Skipped entirely for shock_no_analogs (no comparable history exists). */}
+      {showEpisodes && (
         <Section
           title="Every past occurrence"
           subtitle={`How the strategy did each of the ${e.episodes!.length} times, versus buying the index over the same window.`}
         >
           <EpisodeBars episodes={e.episodes!} c={c} />
+          {evidenceBasis === "rolling_windows" && (
+            <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
+              Based on rolling windows of history — not distinct events.
+            </span>
+          )}
         </Section>
       )}
 
@@ -212,7 +547,7 @@ export function StrategyDeepDive({
           title="The options structure"
           subtitle={om!.assumptions}
         >
-          <OptionStructure om={om!} />
+          <OptionStructure om={om!} isStraddle={isStraddle} />
         </Section>
       ) : longHoldings.length > 0 ? (
         <Section
@@ -238,10 +573,18 @@ export function StrategyDeepDive({
         >
           {isOption ? (
             <>
-              <Stat label="Max profit" value={<span style={{ color: "var(--color-profit)" }}>{pct(om!.max_profit_pct, 0)}</span>} sub="of capital, capped" />
+              <Stat
+                label="Max profit"
+                value={
+                  <span style={{ color: "var(--color-profit)" }}>
+                    {om!.max_profit_uncapped ? "Uncapped" : pct(om!.max_profit_pct, 0)}
+                  </span>
+                }
+                sub={om!.max_profit_uncapped ? "moves with the underlying" : "of capital, capped"}
+              />
               <Stat label="Max loss" value={<span style={{ color: "var(--color-loss)" }}>{pct(om!.max_loss_pct, 0)}</span>} sub="the premium paid" />
               <Stat label="Chance of profit" value={`${om!.pop_pct.toFixed(0)}%`} sub="lognormal, at expiry" />
-              <Stat label="Breakeven" value={pct(om!.breakeven_move_pct)} sub="underlying move" />
+              <Stat label="Breakeven move" value={isStraddle ? `±${pct(om!.breakeven_move_pct)}` : pct(om!.breakeven_move_pct)} sub="underlying must move" />
               <Stat label="Modelled vol" value={`${om!.vol_used_pct.toFixed(0)}%`} sub="realised, annualised" />
             </>
           ) : (
@@ -263,6 +606,9 @@ export function StrategyDeepDive({
           )}
         </div>
       </Section>
+
+      {/* 6 · Entry block — "Getting in small" */}
+      {e.entry && <EntrySection entry={e.entry} />}
 
       <p style={{ margin: 0, fontFamily: FONT, fontSize: 13, lineHeight: 1.5, color: "var(--text-tertiary)" }}>
         Pivot arms the trigger and prepares the orders — you review and place every order yourself. This is analysis, not financial advice.
@@ -372,15 +718,35 @@ function EpisodeBars({
   );
 }
 
-/** Option legs + net greeks. */
+/** Option legs + net greeks. Handles both standard spreads and long_straddle
+ *  (two BUY legs: CE + PE at ATM). Pass isStraddle=true to label it correctly. */
 function OptionStructure({
   om,
+  isStraddle = false,
 }: {
   om: NonNullable<ExpressionDetail["option_model"]>;
+  isStraddle?: boolean;
 }): React.ReactElement {
   const g = om.net_greeks;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {isStraddle && (
+        <span
+          style={{
+            fontFamily: FONT,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--pivot-blue)",
+            background: "color-mix(in srgb, var(--pivot-blue) 8%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--pivot-blue) 25%, transparent)",
+            borderRadius: "var(--radius-md)",
+            padding: "4px 10px",
+            alignSelf: "flex-start",
+          }}
+        >
+          Both directions (straddle) — profits from a large move either way
+        </span>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {om.legs.map((leg, i) => (
           <div

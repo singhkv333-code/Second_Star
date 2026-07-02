@@ -56,6 +56,11 @@ import {
   endsLabel,
 } from "./view-format";
 
+/** Format INR with Indian grouping (no paise). e.g. 808 → "₹808", 10000 → "₹10,000" */
+function fmtInr(n: number): string {
+  return "₹" + Math.round(n).toLocaleString("en-IN");
+}
+
 const CARD_HEIGHT = 376;
 const FONT = "var(--font-display)";
 
@@ -258,6 +263,10 @@ export function ViewCard({
 
   const be = view.best_expression as BestExpressionWithPositive | null;
   const hasReturn = be != null && be.total_return_pct != null;
+  // When total_return_pct is null but we have a forward model number, use it
+  // labelled "modeled" so the card still shows a lead number.
+  const forwardNet = view.forward_expected_net_pct;
+  const hasForwardOnly = !hasReturn && forwardNet != null;
   const curve = be?.equity_curve;
   const curveValues =
     Array.isArray(curve) && curve.length >= 2
@@ -369,8 +378,11 @@ export function ViewCard({
       {/* ── (c.5) the most interesting return — the standout past occurrence ─ */}
       {/* Honest by construction: labelled "best past run" (a single real past
           occurrence, never a promise), and the Yes button below carries the
-          TYPICAL return so the two are always seen together. */}
-      {typeof view.best_episode_pct === "number" && (
+          TYPICAL return so the two are always seen together.
+          When there is no historical track record (shock_no_analogs / null
+          best_episode_pct) but a forward model exists, show that instead —
+          clearly labelled "modeled" so it is never confused with history. */}
+      {typeof view.best_episode_pct === "number" ? (
         <div
           style={{
             display: "flex",
@@ -398,7 +410,32 @@ export function ViewCard({
             best past run
           </span>
         </div>
-      )}
+      ) : hasForwardOnly ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 7,
+            marginTop: 12,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: FONT,
+              fontVariantNumeric: "tabular-nums",
+              fontSize: 24,
+              fontWeight: 800,
+              letterSpacing: "-0.02em",
+              color: (forwardNet ?? 0) >= 0 ? "var(--color-profit)" : "var(--color-loss)",
+            }}
+          >
+            {fmtPct(forwardNet)}
+          </span>
+          <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
+            modeled
+          </span>
+        </div>
+      ) : null}
 
       {/* ── (d) return path — the belief's own curve ─────────────────── */}
       {/* The curve lives in a flex-grow region and is vertically centred, so it
@@ -430,7 +467,13 @@ export function ViewCard({
           <StanceButton
             tone="yes"
             word="Yes"
-            secondary={hasReturn ? fmtPct(be!.total_return_pct) : "See the basket"}
+            secondary={
+              hasReturn
+                ? fmtPct(be!.total_return_pct)
+                : hasForwardOnly
+                  ? `${fmtPct(forwardNet)} modeled`
+                  : "See the basket"
+            }
             ariaLabel={`Yes — ${stance.yes.verdict}. Open the view.`}
             onOpen={() => onOpen(view.id, "yes")}
           />
@@ -517,7 +560,7 @@ export function ViewCard({
 
       <Hairline style={{ marginTop: 16, marginBottom: 12 }} />
 
-      {/* ── (f) footer — trust + track record | Follow ───────────────── */}
+      {/* ── (f) footer — trust + track record · min entry | Follow ──────── */}
       <div className="flex items-center justify-between gap-3">
         <span
           className="inline-flex items-center gap-1.5"
@@ -556,6 +599,25 @@ export function ViewCard({
             </>
           ) : (
             <span style={{ color: "var(--text-tertiary)" }}>Recent idea</span>
+          )}
+          {/* "From ₹808" — cheapest honest entry into any tier of this view */}
+          {typeof view.min_entry_inr === "number" && (
+            <span
+              style={{
+                marginLeft: 4,
+                fontFamily: FONT,
+                fontSize: 12,
+                fontWeight: 500,
+                color: "var(--text-tertiary)",
+                border: "1px solid var(--glass-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "1px 6px",
+                fontVariantNumeric: "tabular-nums",
+                flexShrink: 0,
+              }}
+            >
+              {`From ${fmtInr(view.min_entry_inr)}`}
+            </span>
           )}
         </span>
         <FollowButton

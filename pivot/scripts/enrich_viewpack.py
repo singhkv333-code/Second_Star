@@ -677,8 +677,24 @@ def main() -> None:
                                    f"fwd={fw['expected_net_pct'] if fw else '-'} "
                                    f"entry={entry.get('min_entry_inr')}")
                         continue
-                # index-proxy basket (nifty30k): ride the driver honestly
+                # index-proxy basket (nifty30k): recompute from the REAL index
+                # series — the curated-era numbers had unverifiable provenance.
                 if vid == "nifty30k":
+                    import pandas as pd
+                    drv_frame = pd.DataFrame({"^NSEI": _v3u.series("NIFTY")})
+                    m = _basket_metrics(drv_frame, nifty, ["^NSEI"], tier, kind, horizon)
+                    if m:
+                        for h in m["holdings"]:
+                            h["name"] = h["name"] or _NIFTY_DISPLAY
+                        for k in ("weight_scheme", "equity_curve", "holdings",
+                                  "strategy_total_pct", "worst_drop_pct",
+                                  "risk_return_ratio", "n_episodes", "episodes",
+                                  "positive_episodes", "pct_positive", "n_positive",
+                                  "trust_verdict", "historical_alignment",
+                                  "monte_carlo", "curve_basis"):
+                            e[k] = m[k]
+                        e["curve_n_episodes"] = m["n_episodes"]
+                        e["option_model"] = None
                     drv = _v3u.series("NIFTY")
                     sigma_book = _book_sigma(drv)
                     beta = _fwd.driver_beta(drv, drv)

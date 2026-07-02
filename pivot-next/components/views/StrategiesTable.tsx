@@ -25,7 +25,7 @@
 
 import * as React from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
-import type { ExpressionDetail } from "@/lib/types";
+import type { ExpressionDetail, EntryBlock } from "@/lib/types";
 import { Num } from "@/components/views/Stat";
 import {
   tierLabel,
@@ -33,6 +33,24 @@ import {
   signColor,
   capitalLabel,
 } from "@/components/views/view-format";
+
+/** Format INR with Indian grouping (no paise). */
+function fmtInr(n: number): string {
+  return "₹" + Math.round(n).toLocaleString("en-IN");
+}
+
+/** One-line entry ticket text for a row. */
+function entryTicket(entry: EntryBlock): string | null {
+  if (entry.basis === "lite_basket" || entry.basis === "etf_substitute") {
+    if (entry.min_entry_inr != null) return `From ${fmtInr(entry.min_entry_inr)}`;
+  }
+  if (entry.basis === "option_premium") {
+    if (entry.min_entry_inr != null) return `≈${fmtInr(entry.min_entry_inr)}/lot`;
+  }
+  if (entry.basis === "priced_at_deploy") return "Priced at deploy";
+  if (entry.basis === "margin_required") return "Needs margin";
+  return null;
+}
 
 const FONT = "var(--font-display)";
 
@@ -102,6 +120,10 @@ function PricedAtDeployChip(): React.ReactElement {
 // A plain word "what you'd hold" line for the expanded panel.
 function holdSentence(expr: ExpressionDetail): string {
   if (expr.option_legs && expr.option_legs.length > 0) {
+    // Long straddle: both legs are BUY (CE + PE) — never assume one BUY + one SELL.
+    if (expr.option_model?.structure === "long_straddle") {
+      return "Both directions (straddle) — you profit from a large move either way. Exact strikes and premium are set at deploy.";
+    }
     return (
       expr.option_legs_note ??
       "An options structure — the exact strikes are set when you deploy."
@@ -255,17 +277,35 @@ export function StrategiesTable({
                 cursor: onSelect ? "pointer" : "default",
               }}
             >
-              <span
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  lineHeight: 1.35,
-                }}
-              >
-                {name}
-              </span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {name}
+                </span>
+                {expr.entry && (() => {
+                  const ticket = entryTicket(expr.entry);
+                  return ticket ? (
+                    <span
+                      style={{
+                        fontFamily: FONT,
+                        fontSize: 12,
+                        fontWeight: 400,
+                        color: "var(--text-tertiary)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {ticket}
+                    </span>
+                  ) : null;
+                })()}
+              </div>
               <span
                 style={{
                   fontFamily: FONT,

@@ -168,21 +168,24 @@ function RatioRow({
   );
 }
 
-/** Plain-words read of a 0-100 alignment score (no jargon, never a promise). */
+/** Plain-words read of a 0-100 alignment score (no jargon, never a promise).
+ *  View-agnostic copy: this renders on EVERY view (gold, AI, EV …), so it must
+ *  never name one view's flavour (the old text said "monsoon seasons"
+ *  everywhere — a copy artifact the revamp plan flagged). */
 function alignmentWords(score: number | null | undefined): string {
   if (score === null || score === undefined) {
-    return "Not enough track record yet — judge this once more seasons play out.";
+    return "Not enough track record yet — judge this once more history plays out.";
   }
   if (score >= 80) {
-    return "This kind of strategy has lined up strongly with past monsoon seasons — but it is still judged on only a handful of episodes, so treat it as encouraging, not a promise.";
+    return "This kind of strategy has lined up strongly with its past occurrences — but it is still judged on only a handful of them, so treat it as encouraging, not a promise.";
   }
   if (score >= 65) {
-    return "This kind of strategy has lined up reasonably well with past seasons. Judged on only a handful of episodes, so treat it as encouraging rather than a promise.";
+    return "This kind of strategy has lined up reasonably well with its past occurrences. Judged on only a handful, so treat it as encouraging rather than a promise.";
   }
   if (score >= 50) {
-    return "A mixed match with past seasons — it has worked some years and not others. Treat it with caution.";
+    return "A mixed match with the past — it has worked some periods and not others. Treat it with caution.";
   }
-  return "A weak match with past seasons — the history does not back this strongly yet.";
+  return "A weak match with the past — the history does not back this strongly yet.";
 }
 
 export function BenchmarkComparison({
@@ -418,6 +421,7 @@ export function BenchmarkComparison({
           episodes={episodes}
           positiveEpisodes={expr.positive_episodes}
           benchmarkLabel={benchLabel}
+          evidenceBasis={expr.evidence_basis ?? null}
         />
       )}
     </section>
