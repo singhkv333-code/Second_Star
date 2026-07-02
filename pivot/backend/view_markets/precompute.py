@@ -177,13 +177,22 @@ _VIEW_BULLISH: dict[str, bool] = {
     plain_copy.VIEW_MONSOON: True,    # normal sowing season → bull call spread
     plain_copy.VIEW_CRUDE: True,
 }
-# Per-tier defined-risk vertical shape (strike width % / long-strike offset %):
-# conservative wider & cheaper (higher POP, lower payoff ratio); aggressive tight
-# ATM (lower POP, higher payoff ratio).
-_TIER_OPTION_SHAPE: dict[str, tuple[float, float]] = {
-    "conservative": (10.0, 0.0),
-    "balanced": (7.0, 0.0),
-    "aggressive": (5.0, 0.0),
+# Per-tier width multiplier on the underlying's REAL expected move (σ√T) —
+# replaces the old fixed 10/7/5% widths so a calm index and a wild single
+# stock stop getting the same spread. Conservative wider & cheaper (higher
+# POP, lower payoff ratio); aggressive tight ATM.
+_TIER_WIDTH_MULT: dict[str, float] = {
+    "conservative": 1.2,
+    "balanced": 0.9,
+    "aggressive": 0.7,
+}
+# Vol estimates use the trailing ~3 years — today's regime, not 2010-era or
+# Covid-crash history.
+_VOL_WINDOW_BARS = 756
+# ETF substitution category per view (only where the exposure genuinely
+# matches the catalog entry — never a stretch).
+_VIEW_ETF_CATEGORY: dict[str, Optional[str]] = {
+    plain_copy.VIEW_MONSOON: "consumption",
 }
 
 
@@ -236,6 +245,9 @@ def _blank() -> dict[str, Any]:
         # REAL modelled option payoff (Black–Scholes) for the option tier — max
         # loss/profit/breakeven/POP/greeks/payoff-curve. None for non-option kinds.
         "option_model": None,
+        # Real minimum-entry ticket (lite whole-share basket / catalog ETF /
+        # option premium × lot / honest boundary). None when unbuilt.
+        "entry": None,
         # AVERAGE return over the event's past occurrences (NOT compounded across
         # them) — the honest headline a single deployment can actually earn.
         "avg_episode_return_pct": None,
@@ -452,6 +464,7 @@ class _Engine:
 
     def __init__(self) -> None:
         self.rets = _v3u.returns_matrix()
+        self.px = _v3u.close_matrix()
         self.idx = self.rets.index
         self.r_nifty = _v3u.series("NIFTY").reindex(self.idx)
         it_syms = [s for s in _v3f.it_symbols(_v3u.industry_map())
@@ -715,20 +728,26 @@ def _compute_expression(
     option_payload: Optional[dict[str, Any]] = None
     if kind == "option_strategy" and present:
         sigma = option_model.realized_vol_annual(
-            engine.rets[present[0]].dropna().values
+            engine.rets[present[0]].dropna().tail(_VOL_WINDOW_BARS).values
         )
         if sigma and sigma > 0.9:
             sigma = 0.28  # guard an illiquid/absurd realised vol → stated default
         if sigma:
-            width, atm = _TIER_OPTION_SHAPE.get(tier, (7.0, 0.0))
+            # Strike width from the underlying's REAL expected move over the
+            # hold, scaled by the tier's risk posture (no fixed 10/7/5%).
+            width = option_model.width_for_vol(
+                sigma, _HOLD_BARS, mult=_TIER_WIDTH_MULT.get(tier, 0.9),
+            )
             option_payload = option_model.model_vertical_spread(
                 bullish=_VIEW_BULLISH.get(view_id, True),
                 sigma_annual=sigma,
                 horizon_days=_HOLD_BARS,
                 width_pct=width,
-                atm_offset_pct=atm,
+                atm_offset_pct=0.0,
                 underlying_label=plain_copy.stock_name(present[0]) or present[0],
             )
+
+    entry_block = _entry_for(engine, view_id, kind, present, weights, option_payload)
 
     res = _v3e.backtest_exits(
         episodes, src, weights_or_leg, engine.r_nifty,
@@ -868,7 +887,68 @@ def _compute_expression(
         "weight_scheme": scheme_used,
         "weight_fallback": weight_fallback,
         "option_model": option_payload,
+        "entry": entry_block,
     }
+
+
+def _nfo_lot_size(underlying: str) -> Optional[int]:
+    """Best-effort contract lot from the instrument master; honest None when
+    the DB/session is unavailable."""
+    try:
+        from backend.database import SessionLocal
+        from backend.market.instrument_master import get_lot_size
+        db = SessionLocal()
+        try:
+            return get_lot_size(db, underlying.replace(".NS", ""))
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _entry_for(
+    engine: "_Engine", view_id: str, kind: str, present: list[str],
+    weights: dict[str, float], option_payload: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """The real minimum-entry ticket for a live-view expression (same engine
+    as the pack: lite whole-share basket → catalog ETF → honest boundary)."""
+    try:
+        from backend.view_markets import affordability as _afford
+        from backend.view_markets import etf_catalog as _etfcat
+
+        as_of = str(engine.px.index[-1].date()) if len(engine.px.index) else None
+        if kind == "option_strategy":
+            opt = None
+            if option_payload and present:
+                sym = present[0]
+                ser = engine.px[sym].dropna() if sym in engine.px.columns else None
+                spot = float(ser.iloc[-1]) if ser is not None and len(ser) else None
+                lot = _nfo_lot_size(sym)
+                if spot and lot:
+                    opt = _afford.option_entry(
+                        spot=spot,
+                        premium_pct_of_spot=option_payload["net_premium_pct"],
+                        lot_size=lot,
+                    )
+            return _afford.entry_block(kind=kind, option=opt, as_of=as_of)
+        if kind == "pair":
+            return _afford.entry_block(kind="pair")
+        prices = {}
+        for s in present:
+            ser = engine.px[s].dropna() if s in engine.px.columns else None
+            if ser is not None and len(ser):
+                prices[s] = float(ser.iloc[-1])
+        etf_cat = _VIEW_ETF_CATEGORY.get(view_id)
+        etf = _etfcat.entry(etf_cat) if etf_cat else None
+        block = _afford.entry_block(kind=kind, weights=dict(weights),
+                                    prices=prices, etf=etf, as_of=as_of)
+        for leg in block.get("legs", []) or []:
+            leg["symbol"] = str(leg["symbol"]).replace(".NS", "")
+        for d in block.get("dropped", []) or []:
+            d["symbol"] = str(d["symbol"]).replace(".NS", "")
+        return block
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ── orchestration ─────────────────────────────────────────────────────────────

@@ -397,6 +397,9 @@ class ExpressionDetail(BaseModel):
     # breakeven/POP/greeks/payoff-curve). Passthrough of the computed dict; null
     # for non-option kinds.
     option_model: Optional[dict[str, Any]] = None
+    # Real minimum-entry ticket (lite whole-share basket / catalog ETF route /
+    # option premium × lot / honest boundary). Passthrough; null when unbuilt.
+    entry: Optional[dict[str, Any]] = None
 
 
 class StanceSide(BaseModel):
@@ -998,6 +1001,11 @@ def _expression_detail(view: MarketView, e: ViewExpression) -> ExpressionDetail:
         option_model=(
             pre.get("option_model")
             if isinstance(pre.get("option_model"), dict)
+            else None
+        ),
+        entry=(
+            pre.get("entry")
+            if isinstance(pre.get("entry"), dict)
             else None
         ),
     )

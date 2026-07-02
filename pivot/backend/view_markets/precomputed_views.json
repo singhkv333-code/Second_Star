@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-01T18:55:23.550158+00:00",
+  "generated_at": "2026-07-02T16:55:40.273530+00:00",
   "base_value": 100000.0,
   "benchmark": "^NSEI",
   "curve_method": "average_occurrence_normalised",
@@ -14,102 +14,102 @@
         },
         {
           "t": "1",
-          "strategy": 98187.67,
+          "strategy": 98191.95,
           "benchmark": 99596.46
         },
         {
           "t": "2",
-          "strategy": 97782.44,
+          "strategy": 97787.47,
           "benchmark": 99155.87
         },
         {
           "t": "3",
-          "strategy": 98465.24,
+          "strategy": 98476.01,
           "benchmark": 98859.05
         },
         {
           "t": "4",
-          "strategy": 98646.97,
+          "strategy": 98663.24,
           "benchmark": 98902.65
         },
         {
           "t": "5",
-          "strategy": 99256.1,
+          "strategy": 99277.62,
           "benchmark": 99198.06
         },
         {
           "t": "6",
-          "strategy": 100127.95,
+          "strategy": 100154.66,
           "benchmark": 99689.69
         },
         {
           "t": "7",
-          "strategy": 101225.74,
+          "strategy": 101267.25,
           "benchmark": 99634.14
         },
         {
           "t": "8",
-          "strategy": 101019.42,
+          "strategy": 101066.59,
           "benchmark": 99309.03
         },
         {
           "t": "9",
-          "strategy": 101583.9,
+          "strategy": 101630.13,
           "benchmark": 99414.96
         },
         {
           "t": "10",
-          "strategy": 101741.58,
+          "strategy": 101788.76,
           "benchmark": 99568.55
         },
         {
           "t": "11",
-          "strategy": 103181.9,
+          "strategy": 103216.44,
           "benchmark": 99713.6
         },
         {
           "t": "12",
-          "strategy": 103699.59,
+          "strategy": 103730.89,
           "benchmark": 99335.57
         },
         {
           "t": "13",
-          "strategy": 104440.55,
+          "strategy": 104478.83,
           "benchmark": 99197.67
         },
         {
           "t": "14",
-          "strategy": 103948.27,
+          "strategy": 103986.09,
           "benchmark": 99310.68
         },
         {
           "t": "15",
-          "strategy": 104472.55,
+          "strategy": 104514.9,
           "benchmark": 99294.0
         },
         {
           "t": "16",
-          "strategy": 105288.01,
+          "strategy": 105322.2,
           "benchmark": 99453.16
         },
         {
           "t": "17",
-          "strategy": 104372.76,
+          "strategy": 104397.49,
           "benchmark": 99373.1
         },
         {
           "t": "18",
-          "strategy": 104650.36,
+          "strategy": 104664.62,
           "benchmark": 99603.53
         },
         {
           "t": "19",
-          "strategy": 105045.93,
+          "strategy": 105057.49,
           "benchmark": 99706.95
         },
         {
           "t": "20",
-          "strategy": 105829.3,
+          "strategy": 105835.4,
           "benchmark": 99497.38
         }
       ],
@@ -119,7 +119,7 @@
           "symbol": "RECLTD",
           "return_pct": 5.8,
           "position": "long",
-          "weight_pct": 37.7
+          "weight_pct": 37.3
         },
         {
           "name": "Adani Power",
@@ -133,21 +133,21 @@
           "symbol": "JPPOWER",
           "return_pct": 6.6,
           "position": "long",
-          "weight_pct": 12.0
+          "weight_pct": 11.8
         },
         {
           "name": "RVNL",
           "symbol": "RVNL",
           "return_pct": 7.5,
           "position": "long",
-          "weight_pct": 11.9
+          "weight_pct": 12.3
         },
         {
           "name": "Engineers India",
           "symbol": "ENGINERSIN",
           "return_pct": 6.6,
           "position": "long",
-          "weight_pct": 24.8
+          "weight_pct": 25.0
         }
       ],
       "risk_return_ratio": 2.6,
@@ -180,7 +180,7 @@
         {
           "label": "Q4FY23 weak FY24 guide",
           "date": "Apr 2023",
-          "return_pct": 20.5,
+          "return_pct": 20.8,
           "benchmark_pct": 2.8,
           "positive": true
         },
@@ -194,7 +194,7 @@
         {
           "label": "Q2FY24 soft growth",
           "date": "Oct 2023",
-          "return_pct": 7.5,
+          "return_pct": 7.4,
           "benchmark_pct": -2.1,
           "positive": true
         },
@@ -208,7 +208,7 @@
         {
           "label": "Q3FY25 guidance cut",
           "date": "Jan 2025",
-          "return_pct": -6.3,
+          "return_pct": -6.2,
           "benchmark_pct": 0.7,
           "positive": false
         }
@@ -223,140 +223,187 @@
         "n_sims": 2000,
         "block_size": 5,
         "terminal_pct": [
-          -27.05,
-          -17.57,
-          -15.43,
-          -13.83,
-          -12.84,
-          -12.14,
+          -26.98,
+          -17.58,
+          -15.41,
+          -13.88,
+          -12.86,
+          -12.13,
           -11.36,
-          -10.64,
-          -10.3,
-          -9.79,
-          -9.27,
-          -8.88,
-          -8.47,
-          -8.11,
-          -7.61,
-          -7.15,
-          -6.5,
+          -10.65,
+          -10.31,
+          -9.71,
+          -9.29,
+          -8.9,
+          -8.5,
+          -8.12,
+          -7.63,
+          -7.13,
+          -6.48,
           -6.15,
-          -5.85,
-          -5.47,
-          -5.14,
-          -4.79,
-          -4.41,
-          -4.12,
-          -3.84,
-          -3.48,
-          -3.23,
-          -2.98,
+          -5.84,
+          -5.43,
+          -5.13,
+          -4.78,
+          -4.37,
+          -4.15,
+          -3.83,
+          -3.5,
+          -3.24,
+          -2.96,
           -2.75,
-          -2.55,
-          -2.29,
-          -2.02,
-          -1.69,
-          -1.34,
-          -1.17,
+          -2.5,
+          -2.23,
+          -2.08,
+          -1.66,
+          -1.36,
+          -1.1,
           -0.93,
-          -0.77,
-          -0.45,
-          -0.18,
-          0.07,
-          0.29,
-          0.57,
-          0.87,
-          1.06,
-          1.41,
-          1.56,
-          1.87,
-          2.15,
-          2.43,
+          -0.78,
+          -0.48,
+          -0.15,
+          0.04,
+          0.26,
+          0.56,
+          0.89,
+          1.08,
+          1.36,
+          1.62,
+          1.88,
+          2.19,
+          2.42,
           2.6,
           2.77,
-          3.09,
-          3.33,
-          3.51,
-          3.77,
-          3.99,
-          4.21,
-          4.42,
-          4.57,
-          4.87,
-          5.03,
-          5.27,
-          5.48,
+          3.1,
+          3.37,
+          3.58,
+          3.8,
+          4.0,
+          4.2,
+          4.38,
+          4.58,
+          4.85,
+          5.02,
+          5.25,
+          5.49,
           5.79,
-          6.11,
-          6.44,
-          6.71,
-          6.87,
-          7.1,
-          7.32,
-          7.51,
-          7.82,
+          6.05,
+          6.41,
+          6.72,
+          6.88,
+          7.08,
+          7.31,
+          7.52,
+          7.79,
           8.06,
           8.3,
-          8.47,
-          8.67,
-          8.9,
-          9.05,
+          8.48,
+          8.74,
+          8.89,
+          9.11,
           9.37,
-          9.6,
-          9.83,
+          9.66,
+          9.79,
           10.04,
-          10.27,
-          10.63,
-          11.01,
+          10.31,
+          10.68,
+          11.03,
           11.26,
-          11.59,
-          11.89,
-          12.18,
-          12.48,
-          12.72,
-          13.02,
-          13.34,
-          13.67,
-          14.0,
-          14.47,
-          14.81,
-          15.24,
-          15.55,
-          15.97,
-          16.49,
-          16.82,
-          17.25,
-          17.83,
-          18.49,
-          18.91,
-          19.46,
-          19.93,
-          20.51,
-          20.98,
-          21.69,
-          22.38,
-          23.2,
-          24.01,
-          25.45,
-          27.2,
-          29.47,
+          11.62,
+          11.9,
+          12.19,
+          12.53,
+          12.73,
+          13.09,
+          13.3,
+          13.65,
+          13.94,
+          14.53,
+          14.84,
+          15.17,
+          15.52,
+          16.04,
+          16.44,
+          16.87,
+          17.26,
+          17.82,
+          18.56,
+          18.99,
+          19.4,
+          19.85,
+          20.53,
+          21.1,
+          21.76,
+          22.4,
+          23.21,
+          24.12,
+          25.49,
+          27.24,
+          29.55,
           31.79,
-          34.71,
-          46.35
+          34.64,
+          46.45
         ],
         "p05": -11.37,
-        "p25": -2.33,
-        "median": 4.95,
-        "p75": 12.55,
-        "p95": 24.07,
+        "p25": -2.3,
+        "median": 4.94,
+        "p75": 12.58,
+        "p95": 24.13,
         "prob_loss": 0.325
       },
       "weight_scheme": "min_variance",
       "weight_fallback": null,
       "option_model": null,
-      "avg_episode_return_pct": 5.83,
+      "entry": {
+        "kind": "basket",
+        "as_of": "2026-07-02",
+        "basis": "lite_basket",
+        "min_entry_inr": 951.0,
+        "legs": [
+          {
+            "symbol": "RECLTD",
+            "shares": 1,
+            "price": 363.35,
+            "cost": 363.35,
+            "weight_target": 0.3731,
+            "weight_actual": 0.382
+          },
+          {
+            "symbol": "ENGINERSIN",
+            "shares": 1,
+            "price": 240.62,
+            "cost": 240.62,
+            "weight_target": 0.2496,
+            "weight_actual": 0.253
+          },
+          {
+            "symbol": "ADANIPOWER",
+            "shares": 1,
+            "price": 223.5,
+            "cost": 223.5,
+            "weight_target": 0.1364,
+            "weight_actual": 0.235
+          },
+          {
+            "symbol": "JPPOWER",
+            "shares": 7,
+            "price": 17.66,
+            "cost": 123.62,
+            "weight_target": 0.1175,
+            "weight_actual": 0.13
+          }
+        ],
+        "dropped": [
+          {
+            "symbol": "RVNL",
+            "reason": "weight too small to buy one share at \u20b9236"
+          }
+        ],
+        "note": "A pared-down version of the same basket \u2014 4 of 5 names, whole shares only, so weights drift a little from the full strategy."
+      },
+      "avg_episode_return_pct": 5.84,
       "avg_episode_benchmark_pct": -0.5,
-      "avg_episode_excess_pct": 6.33,
+      "avg_episode_excess_pct": 6.34,
       "pct_positive": 62.5,
       "n_positive": 5,
       "trust_verdict": "unproven"
@@ -370,102 +417,102 @@
         },
         {
           "t": "1",
-          "strategy": 98819.43,
+          "strategy": 98819.61,
           "benchmark": 99596.46
         },
         {
           "t": "2",
-          "strategy": 98690.6,
+          "strategy": 98688.02,
           "benchmark": 99155.87
         },
         {
           "t": "3",
-          "strategy": 100018.65,
+          "strategy": 100027.32,
           "benchmark": 98859.05
         },
         {
           "t": "4",
-          "strategy": 100299.96,
+          "strategy": 100314.78,
           "benchmark": 98902.65
         },
         {
           "t": "5",
-          "strategy": 100603.26,
+          "strategy": 100619.8,
           "benchmark": 99198.06
         },
         {
           "t": "6",
-          "strategy": 100953.31,
+          "strategy": 100965.86,
           "benchmark": 99689.69
         },
         {
           "t": "7",
-          "strategy": 101864.44,
+          "strategy": 101880.81,
           "benchmark": 99634.14
         },
         {
           "t": "8",
-          "strategy": 101837.01,
+          "strategy": 101862.33,
           "benchmark": 99309.03
         },
         {
           "t": "9",
-          "strategy": 102909.48,
+          "strategy": 102941.12,
           "benchmark": 99414.96
         },
         {
           "t": "10",
-          "strategy": 103004.01,
+          "strategy": 103034.45,
           "benchmark": 99568.55
         },
         {
           "t": "11",
-          "strategy": 104199.48,
+          "strategy": 104234.82,
           "benchmark": 99713.6
         },
         {
           "t": "12",
-          "strategy": 104876.98,
+          "strategy": 104916.6,
           "benchmark": 99335.57
         },
         {
           "t": "13",
-          "strategy": 105849.15,
+          "strategy": 105898.5,
           "benchmark": 99197.67
         },
         {
           "t": "14",
-          "strategy": 105164.46,
+          "strategy": 105198.64,
           "benchmark": 99310.68
         },
         {
           "t": "15",
-          "strategy": 105434.16,
+          "strategy": 105467.77,
           "benchmark": 99294.0
         },
         {
           "t": "16",
-          "strategy": 106125.97,
+          "strategy": 106153.09,
           "benchmark": 99453.16
         },
         {
           "t": "17",
-          "strategy": 105537.78,
+          "strategy": 105552.69,
           "benchmark": 99373.1
         },
         {
           "t": "18",
-          "strategy": 105281.28,
+          "strategy": 105286.42,
           "benchmark": 99603.53
         },
         {
           "t": "19",
-          "strategy": 105541.92,
+          "strategy": 105553.71,
           "benchmark": 99706.95
         },
         {
           "t": "20",
-          "strategy": 106154.68,
+          "strategy": 106156.06,
           "benchmark": 99497.38
         }
       ],
@@ -475,21 +522,21 @@
           "symbol": "RECLTD",
           "return_pct": 5.8,
           "position": "long",
-          "weight_pct": 28.7
+          "weight_pct": 28.9
         },
         {
           "name": "Adani Power",
           "symbol": "ADANIPOWER",
           "return_pct": 6.1,
           "position": "long",
-          "weight_pct": 31.2
+          "weight_pct": 31.4
         },
         {
           "name": "JP Power",
           "symbol": "JPPOWER",
           "return_pct": 6.6,
           "position": "long",
-          "weight_pct": 4.9
+          "weight_pct": 4.3
         },
         {
           "name": "RVNL",
@@ -503,7 +550,7 @@
           "symbol": "ENGINERSIN",
           "return_pct": 6.6,
           "position": "long",
-          "weight_pct": 33.4
+          "weight_pct": 33.6
         },
         {
           "name": "Nifty 50",
@@ -522,7 +569,7 @@
         {
           "label": "TCS Q4FY22 print",
           "date": "Apr 2022",
-          "return_pct": 1.6,
+          "return_pct": 1.7,
           "benchmark_pct": -10.6,
           "positive": true
         },
@@ -543,7 +590,7 @@
         {
           "label": "Q4FY23 weak FY24 guide",
           "date": "Apr 2023",
-          "return_pct": 17.7,
+          "return_pct": 17.8,
           "benchmark_pct": 2.8,
           "positive": true
         },
@@ -557,7 +604,7 @@
         {
           "label": "Q2FY24 soft growth",
           "date": "Oct 2023",
-          "return_pct": 8.4,
+          "return_pct": 8.1,
           "benchmark_pct": -2.1,
           "positive": true
         },
@@ -586,138 +633,185 @@
         "n_sims": 2000,
         "block_size": 5,
         "terminal_pct": [
-          -24.26,
-          -15.08,
-          -13.66,
-          -12.66,
-          -11.42,
-          -10.33,
-          -9.77,
-          -9.12,
-          -8.66,
-          -8.17,
-          -7.32,
-          -6.96,
-          -6.48,
+          -24.3,
+          -15.07,
+          -13.7,
+          -12.68,
+          -11.46,
+          -10.42,
+          -9.82,
+          -9.14,
+          -8.68,
+          -8.18,
+          -7.38,
+          -6.95,
+          -6.45,
           -6.12,
-          -5.85,
-          -5.58,
-          -5.08,
-          -4.72,
-          -4.46,
-          -3.99,
-          -3.68,
-          -3.31,
-          -3.08,
-          -2.8,
-          -2.39,
-          -2.21,
-          -1.75,
-          -1.5,
-          -1.23,
-          -1.06,
-          -0.82,
-          -0.48,
+          -5.84,
+          -5.55,
+          -5.13,
+          -4.75,
+          -4.42,
+          -4.02,
+          -3.64,
+          -3.32,
+          -3.1,
+          -2.82,
+          -2.43,
+          -2.17,
+          -1.78,
+          -1.51,
+          -1.25,
+          -1.05,
+          -0.8,
+          -0.51,
           -0.27,
-          0.03,
-          0.23,
-          0.46,
-          0.72,
-          1.07,
+          0.04,
+          0.25,
+          0.47,
+          0.77,
+          1.11,
           1.24,
-          1.52,
-          1.75,
-          2.01,
-          2.23,
-          2.45,
-          2.63,
+          1.49,
+          1.76,
+          2.0,
+          2.2,
+          2.38,
+          2.66,
           2.84,
-          3.02,
-          3.29,
-          3.48,
-          3.73,
-          3.84,
-          4.12,
-          4.28,
-          4.45,
-          4.66,
-          4.8,
-          4.95,
+          3.05,
+          3.27,
+          3.45,
+          3.67,
+          3.82,
+          4.11,
+          4.3,
+          4.48,
+          4.65,
+          4.81,
+          4.92,
           5.15,
-          5.4,
-          5.58,
-          5.82,
-          6.02,
-          6.17,
-          6.36,
-          6.55,
-          6.73,
-          6.95,
-          7.17,
-          7.37,
-          7.48,
-          7.64,
+          5.36,
+          5.57,
+          5.8,
+          6.01,
+          6.13,
+          6.35,
+          6.53,
+          6.71,
+          6.92,
+          7.12,
+          7.35,
+          7.53,
+          7.67,
           7.9,
-          8.04,
-          8.17,
-          8.54,
-          8.74,
-          8.85,
-          9.06,
-          9.31,
-          9.45,
-          9.75,
-          9.97,
-          10.16,
-          10.32,
-          10.62,
+          8.08,
+          8.2,
+          8.43,
+          8.73,
+          8.89,
+          9.05,
+          9.29,
+          9.49,
+          9.71,
+          9.96,
+          10.19,
+          10.34,
+          10.61,
           10.81,
-          11.08,
-          11.3,
-          11.64,
-          11.89,
-          12.1,
-          12.5,
-          12.7,
-          13.12,
-          13.45,
-          13.83,
-          14.06,
-          14.31,
-          14.74,
-          14.99,
-          15.31,
-          15.66,
-          16.01,
-          16.29,
-          16.72,
-          17.22,
+          11.03,
+          11.29,
+          11.6,
+          11.88,
+          12.15,
+          12.48,
+          12.72,
+          13.17,
+          13.47,
+          13.8,
+          14.05,
+          14.34,
+          14.69,
+          15.06,
+          15.38,
+          15.6,
+          15.99,
+          16.34,
+          16.8,
+          17.17,
           17.56,
-          18.25,
-          18.84,
-          19.31,
-          19.81,
-          20.52,
-          21.43,
-          22.51,
-          23.43,
-          24.37,
-          25.51,
-          28.13,
-          32.38,
-          43.54
+          18.27,
+          18.85,
+          19.35,
+          19.86,
+          20.66,
+          21.49,
+          22.58,
+          23.53,
+          24.38,
+          25.7,
+          28.31,
+          32.47,
+          43.6
         ],
-        "p05": -9.83,
-        "p25": -0.85,
-        "median": 5.69,
-        "p75": 11.92,
-        "p95": 22.52,
-        "prob_loss": 0.2745
+        "p05": -9.87,
+        "p25": -0.87,
+        "median": 5.7,
+        "p75": 11.9,
+        "p95": 22.65,
+        "prob_loss": 0.275
       },
       "weight_scheme": "factor",
       "weight_fallback": null,
       "option_model": null,
-      "avg_episode_return_pct": 6.16,
+      "entry": {
+        "kind": "hedge",
+        "as_of": "2026-07-02",
+        "basis": "lite_basket",
+        "min_entry_inr": 880.0,
+        "legs": [
+          {
+            "symbol": "ENGINERSIN",
+            "shares": 1,
+            "price": 240.62,
+            "cost": 240.62,
+            "weight_target": 0.3359,
+            "weight_actual": 0.2733
+          },
+          {
+            "symbol": "ADANIPOWER",
+            "shares": 1,
+            "price": 223.5,
+            "cost": 223.5,
+            "weight_target": 0.3135,
+            "weight_actual": 0.2538
+          },
+          {
+            "symbol": "RECLTD",
+            "shares": 1,
+            "price": 363.35,
+            "cost": 363.35,
+            "weight_target": 0.2892,
+            "weight_actual": 0.4127
+          },
+          {
+            "symbol": "JPPOWER",
+            "shares": 3,
+            "price": 17.66,
+            "cost": 52.98,
+            "weight_target": 0.0431,
+            "weight_actual": 0.0602
+          }
+        ],
+        "dropped": [
+          {
+            "symbol": "RVNL",
+            "reason": "weight too small to buy one share at \u20b9236"
+          }
+        ],
+        "note": "A pared-down version of the same basket \u2014 4 of 5 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk)."
+      },
+      "avg_episode_return_pct": 6.15,
       "avg_episode_benchmark_pct": -0.5,
       "avg_episode_excess_pct": 6.66,
       "pct_positive": 75.0,
@@ -733,102 +827,102 @@
         },
         {
           "t": "1",
-          "strategy": 99136.76,
+          "strategy": 99140.48,
           "benchmark": 99596.46
         },
         {
           "t": "2",
-          "strategy": 99288.5,
+          "strategy": 99291.95,
           "benchmark": 99155.87
         },
         {
           "t": "3",
-          "strategy": 100285.01,
+          "strategy": 100289.43,
           "benchmark": 98859.05
         },
         {
           "t": "4",
-          "strategy": 100978.7,
+          "strategy": 100987.23,
           "benchmark": 98902.65
         },
         {
           "t": "5",
-          "strategy": 101678.69,
+          "strategy": 101689.17,
           "benchmark": 99198.06
         },
         {
           "t": "6",
-          "strategy": 102151.06,
+          "strategy": 102161.61,
           "benchmark": 99689.69
         },
         {
           "t": "7",
-          "strategy": 103315.87,
+          "strategy": 103336.33,
           "benchmark": 99634.14
         },
         {
           "t": "8",
-          "strategy": 103637.44,
+          "strategy": 103660.31,
           "benchmark": 99309.03
         },
         {
           "t": "9",
-          "strategy": 103872.82,
+          "strategy": 103898.28,
           "benchmark": 99414.96
         },
         {
           "t": "10",
-          "strategy": 103121.67,
+          "strategy": 103145.71,
           "benchmark": 99568.55
         },
         {
           "t": "11",
-          "strategy": 104098.14,
+          "strategy": 104112.76,
           "benchmark": 99713.6
         },
         {
           "t": "12",
-          "strategy": 105290.05,
+          "strategy": 105300.16,
           "benchmark": 99335.57
         },
         {
           "t": "13",
-          "strategy": 106479.45,
+          "strategy": 106494.63,
           "benchmark": 99197.67
         },
         {
           "t": "14",
-          "strategy": 105325.5,
+          "strategy": 105339.49,
           "benchmark": 99310.68
         },
         {
           "t": "15",
-          "strategy": 105616.18,
+          "strategy": 105633.33,
           "benchmark": 99294.0
         },
         {
           "t": "16",
-          "strategy": 106594.62,
+          "strategy": 106605.29,
           "benchmark": 99453.16
         },
         {
           "t": "17",
-          "strategy": 105702.24,
+          "strategy": 105705.18,
           "benchmark": 99373.1
         },
         {
           "t": "18",
-          "strategy": 105951.42,
+          "strategy": 105956.12,
           "benchmark": 99603.53
         },
         {
           "t": "19",
-          "strategy": 106084.71,
+          "strategy": 106087.41,
           "benchmark": 99706.95
         },
         {
           "t": "20",
-          "strategy": 106226.87,
+          "strategy": 106230.8,
           "benchmark": 99497.38
         }
       ],
@@ -838,14 +932,14 @@
           "symbol": "RECLTD",
           "return_pct": 5.8,
           "position": "long",
-          "weight_pct": 31.7
+          "weight_pct": 31.4
         },
         {
           "name": "Adani Power",
           "symbol": "ADANIPOWER",
           "return_pct": 6.1,
           "position": "long",
-          "weight_pct": 19.2
+          "weight_pct": 19.1
         },
         {
           "name": "JP Power",
@@ -859,14 +953,14 @@
           "symbol": "RVNL",
           "return_pct": 7.5,
           "position": "long",
-          "weight_pct": 16.3
+          "weight_pct": 16.4
         },
         {
           "name": "Engineers India",
           "symbol": "ENGINERSIN",
           "return_pct": 6.6,
           "position": "long",
-          "weight_pct": 16.7
+          "weight_pct": 17.0
         },
         {
           "name": "IT sector (short)",
@@ -899,14 +993,14 @@
         {
           "label": "Q3FY23 slowdown",
           "date": "Jan 2023",
-          "return_pct": -15.5,
+          "return_pct": -15.4,
           "benchmark_pct": -2.1,
           "positive": false
         },
         {
           "label": "Q4FY23 weak FY24 guide",
           "date": "Apr 2023",
-          "return_pct": 15.1,
+          "return_pct": 15.2,
           "benchmark_pct": 2.8,
           "positive": true
         },
@@ -920,7 +1014,7 @@
         {
           "label": "Q2FY24 soft growth",
           "date": "Oct 2023",
-          "return_pct": 10.5,
+          "return_pct": 10.4,
           "benchmark_pct": -2.1,
           "positive": true
         },
@@ -949,137 +1043,144 @@
         "n_sims": 2000,
         "block_size": 5,
         "terminal_pct": [
-          -20.44,
-          -15.12,
-          -13.0,
-          -12.26,
-          -11.32,
-          -10.48,
-          -9.73,
-          -9.26,
-          -8.76,
-          -8.28,
-          -7.84,
-          -7.17,
-          -6.53,
-          -6.06,
-          -5.75,
-          -5.44,
-          -5.1,
-          -4.61,
-          -4.33,
+          -20.4,
+          -15.07,
+          -12.94,
+          -12.25,
+          -11.31,
+          -10.45,
+          -9.7,
+          -9.27,
+          -8.7,
+          -8.25,
+          -7.81,
+          -7.15,
+          -6.51,
+          -6.05,
+          -5.7,
+          -5.45,
+          -5.07,
+          -4.6,
+          -4.32,
           -4.0,
-          -3.71,
-          -3.43,
-          -3.15,
-          -2.9,
+          -3.68,
+          -3.45,
+          -3.14,
+          -2.88,
           -2.65,
-          -2.29,
-          -2.01,
-          -1.74,
-          -1.45,
-          -1.31,
-          -1.01,
-          -0.79,
-          -0.62,
-          -0.35,
-          0.04,
-          0.39,
-          0.65,
-          0.8,
-          1.05,
-          1.19,
-          1.57,
-          1.79,
+          -2.27,
+          -1.99,
+          -1.73,
+          -1.47,
+          -1.29,
+          -0.98,
+          -0.82,
+          -0.6,
+          -0.34,
+          0.03,
+          0.37,
+          0.64,
+          0.78,
+          1.03,
+          1.2,
+          1.6,
+          1.83,
           1.94,
-          2.05,
-          2.22,
-          2.56,
-          2.7,
-          2.95,
-          3.15,
-          3.42,
-          3.58,
-          3.87,
-          4.0,
-          4.24,
-          4.49,
-          4.7,
-          5.01,
-          5.17,
-          5.49,
+          2.07,
+          2.24,
+          2.52,
+          2.73,
+          2.96,
+          3.18,
+          3.47,
+          3.61,
+          3.84,
+          3.98,
+          4.23,
+          4.51,
+          4.76,
+          4.99,
+          5.18,
+          5.46,
           5.71,
-          6.02,
-          6.23,
+          6.03,
+          6.25,
           6.36,
           6.59,
           6.82,
-          7.01,
-          7.24,
-          7.48,
-          7.64,
-          7.79,
-          8.07,
-          8.35,
-          8.53,
-          8.71,
-          8.98,
-          9.26,
-          9.53,
-          9.74,
-          9.92,
+          7.0,
+          7.27,
+          7.44,
+          7.63,
+          7.82,
+          8.1,
+          8.34,
+          8.52,
+          8.72,
+          8.97,
+          9.28,
+          9.54,
+          9.7,
+          9.95,
           10.14,
           10.39,
-          10.7,
-          11.01,
-          11.22,
+          10.69,
+          10.98,
+          11.2,
           11.44,
-          11.71,
-          11.92,
-          12.13,
-          12.41,
-          12.63,
-          12.95,
-          13.22,
-          13.48,
-          13.77,
-          14.05,
-          14.47,
-          14.95,
-          15.24,
-          15.46,
-          15.74,
+          11.72,
+          11.91,
+          12.08,
+          12.4,
+          12.69,
+          12.97,
+          13.2,
+          13.49,
+          13.75,
+          14.06,
+          14.51,
+          14.96,
+          15.22,
+          15.47,
+          15.75,
           16.19,
-          16.63,
-          17.0,
-          17.39,
-          17.74,
+          16.57,
+          17.04,
+          17.38,
+          17.76,
           18.24,
-          18.67,
-          19.07,
-          19.63,
-          20.08,
-          20.75,
-          21.18,
-          21.72,
-          22.54,
-          23.51,
-          24.47,
-          25.59,
-          27.71,
-          30.83,
-          37.91
+          18.75,
+          19.03,
+          19.7,
+          20.09,
+          20.76,
+          21.12,
+          21.73,
+          22.47,
+          23.57,
+          24.51,
+          25.66,
+          27.65,
+          30.78,
+          38.05
         ],
         "p05": -9.76,
-        "p25": -1.04,
-        "median": 5.85,
-        "p75": 12.72,
-        "p95": 22.55,
-        "prob_loss": 0.284
+        "p25": -1.07,
+        "median": 5.88,
+        "p75": 12.74,
+        "p95": 22.51,
+        "prob_loss": 0.2845
       },
       "weight_scheme": "risk_parity",
       "weight_fallback": null,
       "option_model": null,
+      "entry": {
+        "kind": "pair",
+        "as_of": null,
+        "basis": "margin_required",
+        "min_entry_inr": null,
+        "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
+      },
       "avg_episode_return_pct": 6.23,
       "avg_episode_benchmark_pct": -0.5,
       "avg_episode_excess_pct": 6.73,
@@ -1096,327 +1197,327 @@
         },
         {
           "t": "1",
-          "strategy": 100527.83,
+          "strategy": 100535.43,
           "benchmark": 100186.89
         },
         {
           "t": "2",
-          "strategy": 101517.02,
+          "strategy": 101521.21,
           "benchmark": 100677.15
         },
         {
           "t": "3",
-          "strategy": 101307.61,
+          "strategy": 101313.27,
           "benchmark": 100783.29
         },
         {
           "t": "4",
-          "strategy": 101262.78,
+          "strategy": 101294.43,
           "benchmark": 100654.85
         },
         {
           "t": "5",
-          "strategy": 101384.07,
+          "strategy": 101412.86,
           "benchmark": 100363.43
         },
         {
           "t": "6",
-          "strategy": 101280.68,
+          "strategy": 101309.77,
           "benchmark": 100078.61
         },
         {
           "t": "7",
-          "strategy": 101719.58,
+          "strategy": 101742.85,
           "benchmark": 100322.31
         },
         {
           "t": "8",
-          "strategy": 101551.46,
+          "strategy": 101578.44,
           "benchmark": 100434.11
         },
         {
           "t": "9",
-          "strategy": 102189.35,
+          "strategy": 102206.59,
           "benchmark": 100872.39
         },
         {
           "t": "10",
-          "strategy": 102952.68,
+          "strategy": 102954.97,
           "benchmark": 101128.94
         },
         {
           "t": "11",
-          "strategy": 102927.69,
+          "strategy": 102935.79,
           "benchmark": 100840.41
         },
         {
           "t": "12",
-          "strategy": 103092.19,
+          "strategy": 103093.7,
           "benchmark": 100743.08
         },
         {
           "t": "13",
-          "strategy": 103239.86,
+          "strategy": 103238.09,
           "benchmark": 100445.91
         },
         {
           "t": "14",
-          "strategy": 103562.24,
+          "strategy": 103566.02,
           "benchmark": 100857.46
         },
         {
           "t": "15",
-          "strategy": 103134.52,
+          "strategy": 103137.68,
           "benchmark": 100728.28
         },
         {
           "t": "16",
-          "strategy": 103594.68,
+          "strategy": 103586.92,
           "benchmark": 100891.42
         },
         {
           "t": "17",
-          "strategy": 104168.51,
+          "strategy": 104154.0,
           "benchmark": 101139.67
         },
         {
           "t": "18",
-          "strategy": 103967.27,
+          "strategy": 103952.13,
           "benchmark": 101199.03
         },
         {
           "t": "19",
-          "strategy": 104480.48,
+          "strategy": 104464.08,
           "benchmark": 101779.11
         },
         {
           "t": "20",
-          "strategy": 105246.4,
+          "strategy": 105226.92,
           "benchmark": 101598.75
         },
         {
           "t": "21",
-          "strategy": 106392.76,
+          "strategy": 106361.44,
           "benchmark": 102261.23
         },
         {
           "t": "22",
-          "strategy": 106977.98,
+          "strategy": 106947.47,
           "benchmark": 102216.35
         },
         {
           "t": "23",
-          "strategy": 107156.07,
+          "strategy": 107125.33,
           "benchmark": 102210.28
         },
         {
           "t": "24",
-          "strategy": 107067.7,
+          "strategy": 107039.4,
           "benchmark": 102415.29
         },
         {
           "t": "25",
-          "strategy": 107203.01,
+          "strategy": 107180.9,
           "benchmark": 102664.94
         },
         {
           "t": "26",
-          "strategy": 107784.22,
+          "strategy": 107760.21,
           "benchmark": 102488.86
         },
         {
           "t": "27",
-          "strategy": 108476.23,
+          "strategy": 108445.64,
           "benchmark": 103164.31
         },
         {
           "t": "28",
-          "strategy": 108511.65,
+          "strategy": 108474.27,
           "benchmark": 103341.79
         },
         {
           "t": "29",
-          "strategy": 108570.88,
+          "strategy": 108530.52,
           "benchmark": 103367.78
         },
         {
           "t": "30",
-          "strategy": 108601.91,
+          "strategy": 108552.12,
           "benchmark": 103143.39
         },
         {
           "t": "31",
-          "strategy": 108397.95,
+          "strategy": 108368.59,
           "benchmark": 103620.72
         },
         {
           "t": "32",
-          "strategy": 108653.96,
+          "strategy": 108626.29,
           "benchmark": 103578.29
         },
         {
           "t": "33",
-          "strategy": 108500.12,
+          "strategy": 108468.55,
           "benchmark": 103648.08
         },
         {
           "t": "34",
-          "strategy": 108058.29,
+          "strategy": 108019.48,
           "benchmark": 103607.23
         },
         {
           "t": "35",
-          "strategy": 108234.74,
+          "strategy": 108186.92,
           "benchmark": 103558.02
         },
         {
           "t": "36",
-          "strategy": 108209.84,
+          "strategy": 108155.44,
           "benchmark": 103209.52
         },
         {
           "t": "37",
-          "strategy": 108221.94,
+          "strategy": 108174.48,
           "benchmark": 103611.58
         },
         {
           "t": "38",
-          "strategy": 108498.58,
+          "strategy": 108455.12,
           "benchmark": 104313.09
         },
         {
           "t": "39",
-          "strategy": 108105.78,
+          "strategy": 108049.24,
           "benchmark": 104302.26
         },
         {
           "t": "40",
-          "strategy": 107664.28,
+          "strategy": 107609.92,
           "benchmark": 103966.59
         },
         {
           "t": "41",
-          "strategy": 107405.12,
+          "strategy": 107352.44,
           "benchmark": 103657.85
         },
         {
           "t": "42",
-          "strategy": 107140.97,
+          "strategy": 107115.96,
           "benchmark": 103538.44
         },
         {
           "t": "43",
-          "strategy": 107484.9,
+          "strategy": 107466.32,
           "benchmark": 103222.93
         },
         {
           "t": "44",
-          "strategy": 108129.69,
+          "strategy": 108123.71,
           "benchmark": 103727.09
         },
         {
           "t": "45",
-          "strategy": 108289.98,
+          "strategy": 108280.72,
           "benchmark": 103806.52
         },
         {
           "t": "46",
-          "strategy": 108420.08,
+          "strategy": 108413.32,
           "benchmark": 103901.22
         },
         {
           "t": "47",
-          "strategy": 109049.13,
+          "strategy": 109039.3,
           "benchmark": 103868.65
         },
         {
           "t": "48",
-          "strategy": 109149.77,
+          "strategy": 109142.37,
           "benchmark": 103605.08
         },
         {
           "t": "49",
-          "strategy": 108905.37,
+          "strategy": 108897.51,
           "benchmark": 103343.78
         },
         {
           "t": "50",
-          "strategy": 108499.35,
+          "strategy": 108475.45,
           "benchmark": 102747.01
         },
         {
           "t": "51",
-          "strategy": 108569.29,
+          "strategy": 108538.15,
           "benchmark": 102478.31
         },
         {
           "t": "52",
-          "strategy": 108989.41,
+          "strategy": 108956.49,
           "benchmark": 102725.19
         },
         {
           "t": "53",
-          "strategy": 109011.76,
+          "strategy": 108982.78,
           "benchmark": 102969.35
         },
         {
           "t": "54",
-          "strategy": 108853.76,
+          "strategy": 108806.83,
           "benchmark": 102822.06
         },
         {
           "t": "55",
-          "strategy": 108975.6,
+          "strategy": 108929.99,
           "benchmark": 102790.3
         },
         {
           "t": "56",
-          "strategy": 109771.9,
+          "strategy": 109740.09,
           "benchmark": 103178.09
         },
         {
           "t": "57",
-          "strategy": 109961.33,
+          "strategy": 109921.25,
           "benchmark": 102870.97
         },
         {
           "t": "58",
-          "strategy": 110373.14,
+          "strategy": 110328.82,
           "benchmark": 102330.12
         },
         {
           "t": "59",
-          "strategy": 110614.46,
+          "strategy": 110579.3,
           "benchmark": 102736.65
         },
         {
           "t": "60",
-          "strategy": 110535.16,
+          "strategy": 110513.77,
           "benchmark": 102871.86
         },
         {
           "t": "61",
-          "strategy": 110346.28,
+          "strategy": 110323.7,
           "benchmark": 102259.18
         },
         {
           "t": "62",
-          "strategy": 110179.01,
+          "strategy": 110169.24,
           "benchmark": 102076.7
         },
         {
           "t": "63",
-          "strategy": 109935.99,
+          "strategy": 109925.61,
           "benchmark": 101647.76
         },
         {
           "t": "64",
-          "strategy": 110435.45,
+          "strategy": 110441.7,
           "benchmark": 103160.44
         },
         {
           "t": "65",
-          "strategy": 111471.63,
+          "strategy": 111467.36,
           "benchmark": 103884.42
         }
       ],
@@ -1426,42 +1527,42 @@
           "symbol": "BRITANNIA",
           "return_pct": 20.8,
           "position": "long",
-          "weight_pct": 19.4
+          "weight_pct": 19.5
         },
         {
           "name": "MRF",
           "symbol": "MRF",
           "return_pct": 2.5,
           "position": "long",
-          "weight_pct": 19.6
+          "weight_pct": 18.8
         },
         {
           "name": "Marico",
           "symbol": "MARICO",
           "return_pct": 12.7,
           "position": "long",
-          "weight_pct": 21.5
+          "weight_pct": 21.2
         },
         {
           "name": "Apollo Tyres",
           "symbol": "APOLLOTYRE",
           "return_pct": 1.5,
           "position": "long",
-          "weight_pct": 1.1
+          "weight_pct": 2.1
         },
         {
           "name": "Godrej Consumer",
           "symbol": "GODREJCP",
           "return_pct": 11.8,
           "position": "long",
-          "weight_pct": 11.0
+          "weight_pct": 11.2
         },
         {
           "name": "HUL",
           "symbol": "HINDUNILVR",
           "return_pct": 10.9,
           "position": "long",
-          "weight_pct": 27.4
+          "weight_pct": 27.2
         }
       ],
       "risk_return_ratio": 8.2,
@@ -1480,14 +1581,14 @@
         {
           "label": "2011 monsoon",
           "date": "Jun\u2013Aug 2011",
-          "return_pct": 4.5,
+          "return_pct": 4.4,
           "benchmark_pct": -10.6,
           "positive": true
         },
         {
           "label": "2016 monsoon",
           "date": "Jun\u2013Aug 2016",
-          "return_pct": 13.6,
+          "return_pct": 13.7,
           "benchmark_pct": 7.4,
           "positive": true
         },
@@ -1506,140 +1607,177 @@
         "n_sims": 2000,
         "block_size": 6,
         "terminal_pct": [
-          -10.99,
-          -5.23,
-          -3.75,
-          -2.78,
-          -2.15,
-          -1.43,
-          -0.93,
-          -0.18,
-          0.35,
-          0.63,
-          1.04,
+          -11.0,
+          -5.26,
+          -3.84,
+          -2.99,
+          -2.06,
+          -1.37,
+          -0.83,
+          -0.21,
+          0.27,
+          0.65,
+          1.01,
           1.34,
-          1.74,
+          1.69,
           2.06,
-          2.26,
-          2.55,
-          2.76,
-          3.17,
-          3.44,
-          3.61,
-          3.84,
-          4.12,
-          4.4,
-          4.68,
+          2.36,
+          2.52,
+          2.86,
+          3.16,
+          3.46,
+          3.68,
+          3.91,
+          4.13,
+          4.42,
+          4.59,
           4.95,
-          5.19,
-          5.43,
-          5.59,
-          5.78,
-          5.91,
-          6.11,
-          6.33,
-          6.56,
-          6.76,
-          7.0,
-          7.11,
-          7.38,
-          7.63,
-          7.85,
-          7.96,
-          8.09,
-          8.3,
-          8.44,
-          8.6,
-          8.74,
-          8.93,
+          5.17,
+          5.38,
+          5.57,
+          5.73,
+          5.92,
+          6.17,
+          6.36,
+          6.58,
+          6.81,
+          6.98,
+          7.15,
+          7.34,
+          7.6,
+          7.78,
+          7.95,
+          8.12,
+          8.26,
+          8.47,
+          8.58,
+          8.71,
+          8.94,
           9.14,
           9.29,
-          9.41,
-          9.54,
-          9.67,
-          9.87,
-          10.06,
-          10.21,
-          10.44,
-          10.59,
+          9.43,
+          9.53,
+          9.73,
+          9.86,
+          10.02,
+          10.18,
+          10.34,
+          10.61,
           10.83,
-          11.0,
-          11.15,
-          11.27,
-          11.39,
-          11.58,
-          11.72,
-          11.82,
-          11.97,
+          11.03,
+          11.16,
+          11.26,
+          11.42,
+          11.57,
+          11.65,
+          11.8,
+          11.92,
           12.11,
-          12.32,
-          12.47,
-          12.68,
-          12.91,
-          13.09,
-          13.22,
-          13.34,
-          13.48,
-          13.8,
-          14.03,
-          14.19,
-          14.33,
-          14.54,
-          14.77,
-          14.95,
-          15.22,
-          15.41,
-          15.63,
-          15.81,
-          16.07,
-          16.23,
-          16.38,
-          16.54,
-          16.87,
-          17.15,
-          17.36,
-          17.58,
-          17.8,
-          17.95,
-          18.37,
-          18.6,
-          18.76,
-          18.89,
-          19.22,
-          19.52,
+          12.34,
+          12.45,
+          12.64,
+          12.87,
+          13.03,
+          13.2,
+          13.31,
+          13.56,
+          13.78,
+          13.98,
+          14.18,
+          14.34,
+          14.52,
+          14.71,
+          14.98,
+          15.14,
+          15.38,
+          15.6,
+          15.79,
+          16.0,
+          16.22,
+          16.32,
+          16.6,
+          16.75,
+          17.05,
+          17.37,
+          17.55,
+          17.71,
+          17.9,
+          18.35,
+          18.56,
+          18.73,
+          18.85,
+          19.19,
+          19.56,
           19.76,
-          19.99,
-          20.51,
-          20.91,
-          21.35,
-          21.98,
-          22.48,
-          22.77,
-          23.26,
-          23.69,
-          24.24,
-          24.99,
-          25.58,
-          26.38,
-          27.34,
-          28.46,
-          30.71,
-          33.99,
-          42.38
+          19.96,
+          20.38,
+          20.93,
+          21.33,
+          21.97,
+          22.39,
+          22.86,
+          23.22,
+          23.66,
+          24.17,
+          24.95,
+          25.52,
+          26.25,
+          27.12,
+          28.53,
+          30.81,
+          33.97,
+          41.91
         ],
-        "p05": -1.03,
-        "p25": 6.07,
-        "median": 11.34,
-        "p75": 16.89,
-        "p95": 25.58,
-        "prob_loss": 0.061
+        "p05": -0.97,
+        "p25": 6.12,
+        "median": 11.31,
+        "p75": 16.84,
+        "p95": 25.54,
+        "prob_loss": 0.0615
       },
       "weight_scheme": "min_variance",
       "weight_fallback": null,
       "option_model": null,
+      "entry": {
+        "kind": "basket",
+        "as_of": "2026-07-02",
+        "basis": "etf_substitute",
+        "min_entry_inr": 914.06,
+        "etf": {
+          "symbol": "CONSUMBEES",
+          "units": 7,
+          "price": 130.58,
+          "cost": 914.06,
+          "tracks": "Nifty India Consumption",
+          "as_of": "2026-07-02"
+        },
+        "dropped": [
+          {
+            "symbol": "BRITANNIA",
+            "reason": "one share \u2248 \u20b95,156 exceeds the \u20b91,000 budget"
+          },
+          {
+            "symbol": "MRF",
+            "reason": "one share \u2248 \u20b9127,900 exceeds the \u20b91,000 budget"
+          },
+          {
+            "symbol": "GODREJCP",
+            "reason": "one share \u2248 \u20b91,012 exceeds the \u20b91,000 budget"
+          },
+          {
+            "symbol": "HINDUNILVR",
+            "reason": "one share \u2248 \u20b92,121 exceeds the \u20b91,000 budget"
+          },
+          {
+            "symbol": "APOLLOTYRE",
+            "reason": "weight too small to buy one share at \u20b9430"
+          }
+        ],
+        "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 7 unit(s) of CONSUMBEES (Nifty India Consumption) \u2014 the same exposure, one instrument."
+      },
       "avg_episode_return_pct": 11.47,
       "avg_episode_benchmark_pct": 3.88,
-      "avg_episode_excess_pct": 7.59,
+      "avg_episode_excess_pct": 7.58,
       "pct_positive": 100.0,
       "n_positive": 4,
       "trust_verdict": "insufficient_data"
@@ -1986,7 +2124,7 @@
           "weight_pct": null
         },
         {
-          "name": "Sell CE (+5%)",
+          "name": "Sell CE (+4%)",
           "symbol": "BRITANNIA",
           "return_pct": null,
           "position": "short",
@@ -2180,23 +2318,23 @@
           {
             "action": "SELL",
             "option_type": "CE",
-            "strike_pct": 105.0,
-            "strike_label": "+5%"
+            "strike_pct": 103.9,
+            "strike_label": "+4%"
           }
         ],
-        "net_premium_pct": 1.89,
-        "width_pct": 5.0,
+        "net_premium_pct": 1.52,
+        "width_pct": 3.9,
         "max_loss_pct": -100.0,
-        "max_profit_pct": 164.6,
-        "breakeven_move_pct": 1.89,
-        "pop_pct": 41.0,
+        "max_profit_pct": 156.8,
+        "breakeven_move_pct": 1.52,
+        "pop_pct": 41.8,
         "net_greeks": {
-          "delta": 0.2644,
-          "gamma": 0.00864,
-          "vega": 0.0171,
-          "theta": -0.0117
+          "delta": 0.2626,
+          "gamma": 0.01012,
+          "vega": 0.0159,
+          "theta": -0.0098
         },
-        "vol_used_pct": 24.9,
+        "vol_used_pct": 19.8,
         "horizon_days": 20,
         "payoff": [
           {
@@ -2305,107 +2443,115 @@
           },
           {
             "move_pct": 1.0,
-            "pnl_pct": -47.1
+            "pnl_pct": -34.2
           },
           {
             "move_pct": 2.0,
-            "pnl_pct": 5.8
+            "pnl_pct": 31.7
           },
           {
             "move_pct": 3.0,
-            "pnl_pct": 58.8
+            "pnl_pct": 97.5
           },
           {
             "move_pct": 4.0,
-            "pnl_pct": 111.7
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 5.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 6.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 7.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 8.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 9.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 10.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 11.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 12.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 13.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 14.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 15.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 16.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 17.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 18.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 19.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 20.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 21.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 22.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 23.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 24.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           },
           {
             "move_pct": 25.0,
-            "pnl_pct": 164.6
+            "pnl_pct": 156.8
           }
         ],
         "basis": "modelled_bs",
         "assumptions": "Modelled with Black\u2013Scholes at the underlying's realised volatility and a stated risk-free rate on a reference spot of 100; final strikes and premia are set at deploy. Max loss is capped at the debit paid."
+      },
+      "entry": {
+        "kind": "option_strategy",
+        "as_of": "2026-07-02",
+        "basis": "option_premium",
+        "min_entry_inr": 9796.0,
+        "lot_size": 125,
+        "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
       },
       "avg_episode_return_pct": 20.37,
       "avg_episode_benchmark_pct": 3.88,
@@ -2423,147 +2569,147 @@
         },
         {
           "t": "1",
-          "strategy": 99964.81,
+          "strategy": 99965.52,
           "benchmark": 100186.89
         },
         {
           "t": "2",
-          "strategy": 100146.64,
+          "strategy": 100148.08,
           "benchmark": 100677.15
         },
         {
           "t": "3",
-          "strategy": 100004.72,
+          "strategy": 100005.69,
           "benchmark": 100783.29
         },
         {
           "t": "4",
-          "strategy": 100144.74,
+          "strategy": 100146.89,
           "benchmark": 100654.85
         },
         {
           "t": "5",
-          "strategy": 100303.4,
+          "strategy": 100306.25,
           "benchmark": 100363.43
         },
         {
           "t": "6",
-          "strategy": 100410.84,
+          "strategy": 100412.55,
           "benchmark": 100078.61
         },
         {
           "t": "7",
-          "strategy": 100471.65,
+          "strategy": 100474.08,
           "benchmark": 100322.31
         },
         {
           "t": "8",
-          "strategy": 100332.21,
+          "strategy": 100334.83,
           "benchmark": 100434.11
         },
         {
           "t": "9",
-          "strategy": 100403.76,
+          "strategy": 100403.91,
           "benchmark": 100872.39
         },
         {
           "t": "10",
-          "strategy": 100577.53,
+          "strategy": 100577.13,
           "benchmark": 101128.94
         },
         {
           "t": "11",
-          "strategy": 100719.63,
+          "strategy": 100717.95,
           "benchmark": 100840.41
         },
         {
           "t": "12",
-          "strategy": 100826.2,
+          "strategy": 100824.42,
           "benchmark": 100743.08
         },
         {
           "t": "13",
-          "strategy": 100977.71,
+          "strategy": 100977.34,
           "benchmark": 100445.91
         },
         {
           "t": "14",
-          "strategy": 100950.08,
+          "strategy": 100951.24,
           "benchmark": 100857.46
         },
         {
           "t": "15",
-          "strategy": 100775.22,
+          "strategy": 100776.27,
           "benchmark": 100728.28
         },
         {
           "t": "16",
-          "strategy": 100843.08,
+          "strategy": 100844.26,
           "benchmark": 100891.42
         },
         {
           "t": "17",
-          "strategy": 100922.75,
+          "strategy": 100923.83,
           "benchmark": 101139.67
         },
         {
           "t": "18",
-          "strategy": 100799.06,
+          "strategy": 100798.09,
           "benchmark": 101199.03
         },
         {
           "t": "19",
-          "strategy": 100796.56,
+          "strategy": 100795.27,
           "benchmark": 101779.11
         },
         {
           "t": "20",
-          "strategy": 101270.36,
+          "strategy": 101268.49,
           "benchmark": 101598.75
         },
         {
           "t": "21",
-          "strategy": 101373.77,
+          "strategy": 101373.76,
           "benchmark": 102261.23
         },
         {
           "t": "22",
-          "strategy": 101625.52,
+          "strategy": 101626.89,
           "benchmark": 102216.35
         },
         {
           "t": "23",
-          "strategy": 101825.87,
+          "strategy": 101825.51,
           "benchmark": 102210.28
         },
         {
           "t": "24",
-          "strategy": 101734.49,
+          "strategy": 101734.16,
           "benchmark": 102415.29
         },
         {
           "t": "25",
-          "strategy": 101698.35,
+          "strategy": 101699.5,
           "benchmark": 102664.94
         },
         {
           "t": "26",
-          "strategy": 102036.74,
+          "strategy": 102037.66,
           "benchmark": 102488.86
         },
         {
           "t": "27",
-          "strategy": 101991.92,
+          "strategy": 101994.46,
           "benchmark": 103164.31
         },
         {
           "t": "28",
-          "strategy": 101929.45,
+          "strategy": 101931.14,
           "benchmark": 103341.79
         },
         {
           "t": "29",
-          "strategy": 101962.66,
+          "strategy": 101963.56,
           "benchmark": 103367.78
         },
         {
@@ -2573,27 +2719,27 @@
         },
         {
           "t": "31",
-          "strategy": 101856.15,
+          "strategy": 101855.61,
           "benchmark": 103620.72
         },
         {
           "t": "32",
-          "strategy": 101958.37,
+          "strategy": 101960.0,
           "benchmark": 103578.29
         },
         {
           "t": "33",
-          "strategy": 101873.43,
+          "strategy": 101874.26,
           "benchmark": 103648.08
         },
         {
           "t": "34",
-          "strategy": 101687.8,
+          "strategy": 101688.25,
           "benchmark": 103607.23
         },
         {
           "t": "35",
-          "strategy": 101784.23,
+          "strategy": 101783.66,
           "benchmark": 103558.02
         },
         {
@@ -2603,147 +2749,147 @@
         },
         {
           "t": "37",
-          "strategy": 101720.42,
+          "strategy": 101718.51,
           "benchmark": 103611.58
         },
         {
           "t": "38",
-          "strategy": 101543.8,
+          "strategy": 101540.68,
           "benchmark": 104313.09
         },
         {
           "t": "39",
-          "strategy": 101297.06,
+          "strategy": 101292.53,
           "benchmark": 104302.26
         },
         {
           "t": "40",
-          "strategy": 101273.25,
+          "strategy": 101269.84,
           "benchmark": 103966.59
         },
         {
           "t": "41",
-          "strategy": 101317.81,
+          "strategy": 101314.05,
           "benchmark": 103657.85
         },
         {
           "t": "42",
-          "strategy": 101304.74,
+          "strategy": 101301.79,
           "benchmark": 103538.44
         },
         {
           "t": "43",
-          "strategy": 101687.82,
+          "strategy": 101681.54,
           "benchmark": 103222.93
         },
         {
           "t": "44",
-          "strategy": 101812.91,
+          "strategy": 101804.24,
           "benchmark": 103727.09
         },
         {
           "t": "45",
-          "strategy": 101842.69,
+          "strategy": 101832.76,
           "benchmark": 103806.52
         },
         {
           "t": "46",
-          "strategy": 101881.43,
+          "strategy": 101869.97,
           "benchmark": 103901.22
         },
         {
           "t": "47",
-          "strategy": 102272.66,
+          "strategy": 102256.73,
           "benchmark": 103868.65
         },
         {
           "t": "48",
-          "strategy": 102499.83,
+          "strategy": 102482.03,
           "benchmark": 103605.08
         },
         {
           "t": "49",
-          "strategy": 102524.3,
+          "strategy": 102507.68,
           "benchmark": 103343.78
         },
         {
           "t": "50",
-          "strategy": 102543.72,
+          "strategy": 102528.88,
           "benchmark": 102747.01
         },
         {
           "t": "51",
-          "strategy": 102666.96,
+          "strategy": 102650.53,
           "benchmark": 102478.31
         },
         {
           "t": "52",
-          "strategy": 102691.44,
+          "strategy": 102674.36,
           "benchmark": 102725.19
         },
         {
           "t": "53",
-          "strategy": 102606.21,
+          "strategy": 102589.4,
           "benchmark": 102969.35
         },
         {
           "t": "54",
-          "strategy": 102504.75,
+          "strategy": 102487.84,
           "benchmark": 102822.06
         },
         {
           "t": "55",
-          "strategy": 102601.32,
+          "strategy": 102583.21,
           "benchmark": 102790.3
         },
         {
           "t": "56",
-          "strategy": 102811.81,
+          "strategy": 102796.11,
           "benchmark": 103178.09
         },
         {
           "t": "57",
-          "strategy": 102971.11,
+          "strategy": 102956.3,
           "benchmark": 102870.97
         },
         {
           "t": "58",
-          "strategy": 103365.81,
+          "strategy": 103350.43,
           "benchmark": 102330.12
         },
         {
           "t": "59",
-          "strategy": 103367.06,
+          "strategy": 103352.27,
           "benchmark": 102736.65
         },
         {
           "t": "60",
-          "strategy": 103298.2,
+          "strategy": 103283.55,
           "benchmark": 102871.86
         },
         {
           "t": "61",
-          "strategy": 103531.67,
+          "strategy": 103515.13,
           "benchmark": 102259.18
         },
         {
           "t": "62",
-          "strategy": 103604.15,
+          "strategy": 103587.47,
           "benchmark": 102076.7
         },
         {
           "t": "63",
-          "strategy": 103729.62,
+          "strategy": 103713.41,
           "benchmark": 101647.76
         },
         {
           "t": "64",
-          "strategy": 103199.98,
+          "strategy": 103184.92,
           "benchmark": 103160.44
         },
         {
           "t": "65",
-          "strategy": 103318.7,
+          "strategy": 103300.23,
           "benchmark": 103884.42
         }
       ],
@@ -2753,42 +2899,42 @@
           "symbol": "BRITANNIA",
           "return_pct": 20.8,
           "position": "long",
-          "weight_pct": 23.4
+          "weight_pct": 23.0
         },
         {
           "name": "MRF",
           "symbol": "MRF",
           "return_pct": 2.5,
           "position": "long",
-          "weight_pct": 18.6
+          "weight_pct": 18.5
         },
         {
           "name": "Marico",
           "symbol": "MARICO",
           "return_pct": 12.7,
           "position": "long",
-          "weight_pct": 18.7
+          "weight_pct": 18.6
         },
         {
           "name": "Apollo Tyres",
           "symbol": "APOLLOTYRE",
           "return_pct": 1.5,
           "position": "long",
-          "weight_pct": 10.3
+          "weight_pct": 10.4
         },
         {
           "name": "Godrej Consumer",
           "symbol": "GODREJCP",
           "return_pct": 11.8,
           "position": "long",
-          "weight_pct": 13.5
+          "weight_pct": 13.6
         },
         {
           "name": "HUL",
           "symbol": "HINDUNILVR",
           "return_pct": 10.9,
           "position": "long",
-          "weight_pct": 15.5
+          "weight_pct": 15.8
         },
         {
           "name": "Nifty 50",
@@ -2798,7 +2944,7 @@
           "weight_pct": null
         }
       ],
-      "risk_return_ratio": 4.3,
+      "risk_return_ratio": 4.2,
       "underlying_symbol": null,
       "curve_basis": "in_position_episodes",
       "n_episodes": 4,
@@ -2807,7 +2953,7 @@
         {
           "label": "2010 monsoon",
           "date": "Jun\u2013Aug 2010",
-          "return_pct": 2.6,
+          "return_pct": 2.5,
           "benchmark_pct": 8.7,
           "positive": true
         },
@@ -2828,7 +2974,7 @@
         {
           "label": "2021 monsoon",
           "date": "Jun\u2013Aug 2021",
-          "return_pct": 0.3,
+          "return_pct": 0.4,
           "benchmark_pct": 10.0,
           "positive": true
         }
@@ -2840,140 +2986,147 @@
         "n_sims": 2000,
         "block_size": 6,
         "terminal_pct": [
-          -8.09,
-          -3.86,
-          -3.08,
-          -2.72,
+          -8.12,
+          -3.85,
+          -3.09,
+          -2.71,
           -2.44,
-          -2.18,
-          -1.92,
+          -2.2,
+          -1.94,
           -1.74,
-          -1.61,
-          -1.32,
-          -1.09,
+          -1.62,
+          -1.35,
+          -1.08,
           -0.92,
-          -0.8,
-          -0.64,
+          -0.81,
+          -0.66,
           -0.53,
-          -0.32,
-          -0.24,
-          -0.14,
+          -0.34,
+          -0.26,
+          -0.15,
           -0.06,
-          0.05,
-          0.2,
-          0.27,
-          0.4,
-          0.49,
-          0.57,
-          0.69,
-          0.85,
-          0.95,
-          1.05,
-          1.09,
-          1.17,
-          1.25,
-          1.36,
-          1.46,
+          0.04,
+          0.19,
+          0.28,
+          0.37,
+          0.47,
+          0.56,
+          0.71,
+          0.83,
+          0.94,
+          1.03,
+          1.07,
+          1.16,
+          1.23,
+          1.35,
+          1.45,
           1.54,
-          1.61,
+          1.59,
           1.67,
-          1.75,
+          1.72,
           1.81,
-          1.87,
-          1.97,
-          2.06,
-          2.13,
-          2.22,
-          2.31,
-          2.37,
-          2.43,
-          2.49,
-          2.57,
-          2.65,
-          2.7,
-          2.75,
-          2.8,
-          2.85,
-          2.93,
+          1.86,
+          1.96,
+          2.04,
+          2.1,
+          2.2,
+          2.29,
+          2.36,
+          2.42,
+          2.48,
+          2.54,
+          2.62,
+          2.69,
+          2.73,
+          2.77,
+          2.84,
+          2.91,
           2.98,
-          3.07,
-          3.15,
-          3.22,
-          3.27,
-          3.32,
-          3.38,
-          3.44,
-          3.51,
-          3.6,
-          3.69,
-          3.75,
-          3.79,
-          3.88,
-          3.93,
-          3.98,
-          4.04,
-          4.12,
-          4.19,
-          4.28,
-          4.39,
-          4.45,
-          4.54,
-          4.61,
+          3.05,
+          3.13,
+          3.18,
+          3.26,
+          3.31,
+          3.37,
+          3.43,
+          3.5,
+          3.57,
+          3.66,
+          3.72,
+          3.78,
+          3.86,
+          3.91,
+          3.97,
+          4.03,
+          4.11,
+          4.18,
+          4.25,
+          4.36,
+          4.44,
+          4.52,
+          4.59,
           4.69,
-          4.78,
-          4.86,
-          4.91,
-          5.02,
-          5.09,
-          5.15,
-          5.26,
-          5.36,
-          5.46,
-          5.53,
-          5.63,
+          4.76,
+          4.83,
+          4.9,
+          4.99,
+          5.06,
+          5.12,
+          5.25,
+          5.34,
+          5.43,
+          5.51,
+          5.61,
           5.68,
           5.79,
-          5.89,
-          5.99,
-          6.12,
-          6.24,
-          6.3,
-          6.42,
-          6.51,
-          6.63,
+          5.87,
+          5.96,
+          6.09,
+          6.21,
+          6.29,
+          6.4,
+          6.5,
+          6.61,
           6.79,
-          6.91,
-          7.04,
-          7.17,
-          7.28,
-          7.47,
-          7.6,
-          7.71,
-          7.92,
-          8.11,
-          8.27,
-          8.52,
-          8.8,
-          9.02,
+          6.89,
+          7.03,
+          7.14,
+          7.27,
+          7.42,
+          7.55,
+          7.68,
+          7.88,
+          8.09,
+          8.24,
+          8.48,
+          8.74,
+          9.01,
           9.26,
-          9.83,
-          10.36,
-          11.4,
-          16.88
+          9.8,
+          10.32,
+          11.38,
+          16.87
         ],
         "p05": -1.94,
-        "p25": 1.13,
-        "median": 3.3,
-        "p75": 5.56,
-        "p95": 8.81,
-        "prob_loss": 0.156
+        "p25": 1.12,
+        "median": 3.29,
+        "p75": 5.54,
+        "p95": 8.77,
+        "prob_loss": 0.1565
       },
       "weight_scheme": "risk_parity",
       "weight_fallback": null,
       "option_model": null,
-      "avg_episode_return_pct": 3.32,
+      "entry": {
+        "kind": "pair",
+        "as_of": null,
+        "basis": "margin_required",
+        "min_entry_inr": null,
+        "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
+      },
+      "avg_episode_return_pct": 3.3,
       "avg_episode_benchmark_pct": 3.88,
-      "avg_episode_excess_pct": -0.56,
+      "avg_episode_excess_pct": -0.58,
       "pct_positive": 100.0,
       "n_positive": 4,
       "trust_verdict": "insufficient_data"
@@ -2994,6 +3147,7 @@
       "weight_scheme": null,
       "weight_fallback": null,
       "option_model": null,
+      "entry": null,
       "avg_episode_return_pct": null,
       "avg_episode_benchmark_pct": null,
       "avg_episode_excess_pct": null,
@@ -3017,6 +3171,7 @@
       "weight_scheme": null,
       "weight_fallback": null,
       "option_model": null,
+      "entry": null,
       "avg_episode_return_pct": null,
       "avg_episode_benchmark_pct": null,
       "avg_episode_excess_pct": null,
@@ -3040,6 +3195,7 @@
       "weight_scheme": null,
       "weight_fallback": null,
       "option_model": null,
+      "entry": null,
       "avg_episode_return_pct": null,
       "avg_episode_benchmark_pct": null,
       "avg_episode_excess_pct": null,
