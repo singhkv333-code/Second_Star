@@ -387,6 +387,53 @@ def get_company(symbol_or_sc_id: str, *, session: Session | None = None) -> Comp
             s.close()
 
 
+def get_logo_urls_by_symbols(
+    symbols: list[str], *, session: Session | None = None
+) -> dict[str, str | None]:
+    """Batch-fetch the precomputed ``mc.companies.logo_url`` for a page of
+    symbols in ONE query, keyed by ``UPPER(symbol)``.
+
+    Used by :func:`backend.market.company_logos.get_logo_urls` as the last-resort
+    fallback so a whole page resolves the precomputed column without an N+1 of
+    per-symbol :func:`get_company` calls. Matches by ``UPPER(nse_symbol)`` or
+    ``UPPER(ticker)``; on the residual RELIANCE-style collision the canonical
+    ``nse_symbol`` holder wins (same dedup as
+    ``fundamentals_screen.fetch_gate_inputs``). A symbol with no row (or a NULL
+    ``logo_url``) is simply absent from the map — the caller treats absent as
+    "no precomputed logo". Never raises to the caller beyond the DB layer."""
+    syms = [str(s).strip().upper() for s in symbols if str(s).strip()]
+    if not syms:
+        return {}
+    owns = session is None
+    s = session or _session()
+    try:
+        rows = s.execute(
+            text(
+                """
+                SELECT UPPER(COALESCE(c.nse_symbol, c.ticker)) AS sym,
+                       c.logo_url,
+                       c.nse_symbol
+                FROM mc.companies c
+                WHERE c.is_active
+                  AND UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:syms)
+                """
+            ),
+            {"syms": syms},
+        ).fetchall()
+        out: dict[str, str | None] = {}
+        has_canonical: dict[str, bool] = {}
+        for sym, logo_url, nse_symbol in rows:
+            # Prefer the canonical nse_symbol holder on a symbol collision.
+            if sym in has_canonical and has_canonical[sym] and nse_symbol is None:
+                continue
+            out[sym] = logo_url
+            has_canonical[sym] = nse_symbol is not None
+        return out
+    finally:
+        if owns:
+            s.close()
+
+
 @dataclass(frozen=True)
 class CompanyHit:
     """A single autosuggest result. `symbol` is the navigable trading symbol

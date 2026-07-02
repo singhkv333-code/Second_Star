@@ -39,9 +39,12 @@ logger = logging.getLogger(__name__)
 # Bumped on each resolution-logic change so a week's worth of cached values
 # (including *misses* cached as the none-sentinel) is ignored rather than
 # served stale: v2 = override layer landed; v3 = precomputed-column fallback
-# restored, so symbols that had regressed to a monogram re-resolve at once.
+# restored; v4 = the BATCH path (get_logo_urls, used by the screener/portfolio
+# grids) now applies the SAME full ladder as the single path — before v4 it did
+# enrich-website ONLY, so any symbol with just an override or just a precomputed
+# logo (RELIANCE, ICICIBANK, SBIN, …) was cached as a monogram miss for a week.
 _CACHE_TTL_SECONDS = 7 * 24 * 3600  # logos change rarely; cache a week
-_CACHE_PREFIX = "company_logo:v3:"
+_CACHE_PREFIX = "company_logo:v4:"
 # Curated symbol→domain corrections, loaded once. See _load_overrides.
 _OVERRIDES_PATH = Path(__file__).with_name("logo_domain_overrides.json")
 # Sentinel cached for "we looked, found nothing" so a miss doesn't re-hit
@@ -178,24 +181,63 @@ def get_logo_urls(symbols: list[str]) -> dict[str, Optional[str]]:
     if not misses:
         return out
 
-    # 2. Resolve the cold misses' websites in ONE batched enrich query.
-    websites: dict[str, Optional[str]] = {}
-    try:
-        from backend.market import enrich_db
-
-        if enrich_db.is_enabled():
-            websites = enrich_db.get_websites_by_tickers(misses)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("[company_logos] batch website lookup failed: %s", exc)
-        websites = {}
-
+    # Resolve the cold misses through the SAME ladder as _resolve_uncached
+    # (override → enrich website → precomputed column), just batched. Before v4
+    # this path did the enrich step ONLY, so a symbol whose logo lived in the
+    # override map or the precomputed column (RELIANCE, ICICIBANK, SBIN, …)
+    # resolved to a monogram and got cached as a miss for a week.
     resolved: dict[str, Optional[str]] = {}
+
+    # 2. Curated overrides — in-memory, free, highest priority.
+    remaining: list[str] = []
     for k in misses:
-        domain = _domain_from_website(websites.get(k))
-        resolved[k] = logo_url_for_domain(domain) if domain else None
+        ov = override_logo_url(k)
+        if ov:
+            resolved[k] = ov
+        else:
+            remaining.append(k)
+
+    # 3. Batched enrich websites for the rest (the real domain is preferred over
+    #    the precomputed guess — see _resolve_uncached's rationale).
+    if remaining:
+        websites: dict[str, Optional[str]] = {}
+        try:
+            from backend.market import enrich_db
+
+            if enrich_db.is_enabled():
+                websites = enrich_db.get_websites_by_tickers(remaining)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[company_logos] batch website lookup failed: %s", exc)
+            websites = {}
+        still: list[str] = []
+        for k in remaining:
+            domain = _domain_from_website(websites.get(k))
+            if domain:
+                resolved[k] = logo_url_for_domain(domain)
+            else:
+                still.append(k)
+        remaining = still
+
+    # 4. Last resort: the precomputed mc.companies.logo_url column, batched.
+    if remaining:
+        precomp: dict[str, Optional[str]] = {}
+        try:
+            from backend.market.financials_db import get_logo_urls_by_symbols
+
+            precomp = get_logo_urls_by_symbols(remaining)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[company_logos] batch precomputed lookup failed: %s", exc)
+            precomp = {}
+        for k in remaining:
+            resolved[k] = precomp.get(k)  # may be None → FE monogram
+
+    # Every miss must be represented (None default) so a confirmed miss is
+    # cached as the sentinel and not re-resolved every page load.
+    for k in misses:
+        resolved.setdefault(k, None)
     out.update(resolved)
 
-    # 3. One Redis MSET (pipeline) to warm the cache for next time.
+    # 5. One Redis MSET (pipeline) to warm the cache for next time.
     try:
         pipe = redis_client.pipeline()
         for k, url in resolved.items():
