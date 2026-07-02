@@ -33,6 +33,8 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True)
 
 NIFTY500_CSV = os.path.join(CACHE_DIR, "nifty500.csv")
+NSE_EQUITIES_CSV = os.path.join(CACHE_DIR, "nse_equities.csv")   # full listed set (Kite dump)
+NSE_ETFS_CSV = os.path.join(CACHE_DIR, "nse_etfs.csv")           # all NSE ETFs (Kite dump)
 CLOSE_ALL = os.path.join(CACHE_DIR, "close_all.parquet")
 VOL_ALL = os.path.join(CACHE_DIR, "vol_all.parquet")
 DRIVERS = os.path.join(CACHE_DIR, "drivers.parquet")
@@ -40,7 +42,11 @@ COVERAGE_JSON = os.path.join(CACHE_DIR, "coverage.json")
 
 NIFTY = "^NSEI"
 BRENT = "BZ=F"
-_DRIVER_TICKERS = {"NIFTY": NIFTY, "BRENT": BRENT}
+GOLD = "GC=F"
+USDINR = "INR=X"
+_DRIVER_TICKERS = {
+    "NIFTY": NIFTY, "BRENT": BRENT, "GOLD": GOLD, "USDINR": USDINR,
+}
 
 START = "2010-01-01"
 BAD_TICK = 0.5          # |daily simple return| > 0.5 == bad tick (v2 rule)
@@ -74,6 +80,39 @@ def sector_symbols(industry: str) -> list[str]:
     """All NIFTY-500 tickers whose Industry tag == ``industry`` (exact match)."""
     df = load_universe()
     return df.loc[df["Industry"] == industry, "ticker"].tolist()
+
+
+# ── extended universe (all NSE listed + ETFs, from the Kite cash dump) ────────
+def load_equities_ext() -> pd.DataFrame:
+    """NIFTY-500 ∪ the full plain-series NSE listed set (``nse_equities.csv``,
+    written by ``scripts/build_universe.py`` from the Kite cash dump). Extras
+    carry ``Industry=""`` (the exchange dump has no sector tag) and
+    ``in_nifty500=False``. Falls back to the NIFTY-500 alone if the extended
+    file has not been built yet."""
+    base = load_universe()
+    base["in_nifty500"] = True
+    if not os.path.exists(NSE_EQUITIES_CSV):
+        return base
+    ext = pd.read_csv(NSE_EQUITIES_CSV)
+    ext["Symbol"] = ext["Symbol"].astype(str).str.strip()
+    ext["ticker"] = ext["Symbol"] + ".NS"
+    ext = ext[~ext["Symbol"].isin(set(base["Symbol"]))]
+    ext["Industry"] = ""
+    ext["in_nifty500"] = False
+    cols = ["Company", "Industry", "Symbol", "ticker", "in_nifty500"]
+    ext = ext.rename(columns={"Name": "Company"})
+    return pd.concat([base[cols], ext[cols]], ignore_index=True)
+
+
+def etf_universe() -> pd.DataFrame:
+    """All NSE-listed ETFs (``nse_etfs.csv`` from the Kite cash dump), with a
+    yfinance ``ticker`` column. Empty frame if not built yet."""
+    if not os.path.exists(NSE_ETFS_CSV):
+        return pd.DataFrame(columns=["Symbol", "Name", "ticker"])
+    df = pd.read_csv(NSE_ETFS_CSV)
+    df["Symbol"] = df["Symbol"].astype(str).str.strip()
+    df["ticker"] = df["Symbol"] + ".NS"
+    return df
 
 
 # ── fetch + cache (chunked, retry, idempotent) ────────────────────────────────
@@ -190,6 +229,78 @@ def fetch_bars(symbols: Optional[list[str]] = None, *, start: str = START,
     with open(COVERAGE_JSON, "w") as f:
         json.dump(rep, f, indent=2)
     return rep
+
+
+def fetch_extra(symbols: list[str], *, namespace: str, start: str = START,
+                end: Optional[str] = None, chunk: int = 50, retries: int = 3,
+                force: bool = False) -> dict:
+    """Fetch bars for symbols OUTSIDE the base universe (ETFs, extended NSE
+    names) into their own chunk namespace (``close_<ns>_NN.parquet``) and MERGE
+    the new columns into CLOSE_ALL/VOL_ALL **without dropping** the existing
+    matrix columns (``fetch_bars`` rebuilds the matrix from its own chunks only,
+    so calling it with a different symbol list would clobber the cache)."""
+    symbols = list(dict.fromkeys(symbols))
+    chunks = [symbols[i:i + chunk] for i in range(0, len(symbols), chunk)]
+    close_parts: list[pd.DataFrame] = []
+    vol_parts: list[pd.DataFrame] = []
+    for ci, batch in enumerate(chunks):
+        cpath = os.path.join(CACHE_DIR, f"close_{namespace}_{ci:02d}.parquet")
+        vpath = os.path.join(CACHE_DIR, f"vol_{namespace}_{ci:02d}.parquet")
+        if (not force) and os.path.exists(cpath):
+            close_parts.append(pd.read_parquet(cpath))
+            if os.path.exists(vpath):
+                vol_parts.append(pd.read_parquet(vpath))
+            print(f"  [{namespace} {ci+1}/{len(chunks)}] cached ({len(batch)} tkrs)")
+            continue
+        print(f"  [{namespace} {ci+1}/{len(chunks)}] downloading {len(batch)} tickers...")
+        close, vol = _download_chunk(batch, start, end, retries)
+        if close.shape[1] > 0:
+            close.to_parquet(cpath)
+            close_parts.append(close)
+            if vol.shape[1] > 0:
+                vol.to_parquet(vpath)
+                vol_parts.append(vol)
+
+    def _merge(existing_path: str, parts: list[pd.DataFrame]) -> pd.DataFrame:
+        new = pd.concat(parts, axis=1) if parts else pd.DataFrame()
+        if new.shape[1]:
+            new = new.loc[:, ~new.columns.duplicated()]
+        if os.path.exists(existing_path):
+            base = pd.read_parquet(existing_path)
+            keep_new = [c for c in new.columns if c not in base.columns]
+            merged = pd.concat([base, new[keep_new]], axis=1).sort_index()
+        else:
+            merged = new.sort_index()
+        merged.to_parquet(existing_path)
+        return merged
+
+    close_all = _merge(CLOSE_ALL, close_parts)
+    if vol_parts:
+        _merge(VOL_ALL, vol_parts)
+    have = [c for c in symbols if c in close_all.columns
+            and close_all[c].notna().sum() > MIN_OBS]
+    rep = {"namespace": namespace, "requested": len(symbols), "fetched": len(have),
+           "missing": [c for c in symbols if c not in close_all.columns]}
+    print(f"  [{namespace}] merged: {rep['fetched']}/{rep['requested']} usable")
+    return rep
+
+
+def fetch_drivers(*, force: bool = False, start: str = START,
+                  end: Optional[str] = None, retries: int = 3) -> list[str]:
+    """Ensure every ``_DRIVER_TICKERS`` column exists in drivers.parquet,
+    merging new drivers (gold, USDINR, …) without dropping the existing ones."""
+    want = list(_DRIVER_TICKERS.values())
+    have = pd.read_parquet(DRIVERS) if os.path.exists(DRIVERS) else pd.DataFrame()
+    need = want if force else [t for t in want if t not in have.columns]
+    if need:
+        print(f"  [drivers] downloading {need} ...")
+        dcl, _ = _download_chunk(need, start, end, retries)
+        if dcl.shape[1] > 0:
+            keep = [c for c in dcl.columns if force or c not in have.columns]
+            have = pd.concat([have.drop(columns=[c for c in keep if c in have.columns]),
+                              dcl[keep]], axis=1).sort_index()
+            have.to_parquet(DRIVERS)
+    return [c for c in want if c in have.columns]
 
 
 # ── matrices / series exposed to the rest of the engine ───────────────────────
