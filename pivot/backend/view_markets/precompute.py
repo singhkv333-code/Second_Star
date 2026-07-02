@@ -80,6 +80,8 @@ from backend.services.backtest.validation.monte_carlo import (
     monte_carlo_terminal_distribution,
 )
 from backend.view_markets import confidence, option_model, plain_copy
+from backend.view_markets import episode_stats as _estats
+from backend.view_markets import option_universe as _ouniv
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +250,9 @@ def _blank() -> dict[str, Any]:
         # Real minimum-entry ticket (lite whole-share basket / catalog ETF /
         # option premium × lot / honest boundary). None when unbuilt.
         "entry": None,
+        # The four comparable metrics (avg/max gain and loss) from the same
+        # per-occurrence distribution; modelled analogue for option tiers.
+        "gain_loss": None,
         # AVERAGE return over the event's past occurrences (NOT compounded across
         # them) — the honest headline a single deployment can actually earn.
         "avg_episode_return_pct": None,
@@ -852,6 +857,7 @@ def _compute_expression(
         n_positive: Optional[int] = None
         trust_verdict: Optional[str] = None
         own_alignment: Optional[dict[str, Any]] = None
+        gain_loss = _estats.modelled_option_stats(option_payload)
     else:
         pct_positive = (
             round(positive_episodes / n_episodes * 100.0, 1) if n_episodes else None
@@ -861,6 +867,7 @@ def _compute_expression(
         trust_verdict, own_alignment = _trust_from_distribution(
             n_episodes, pct_positive, median_ret,
         )
+        gain_loss = _estats.gain_loss_stats([float(r) for r in strat_pe])
 
     return {
         **base,
@@ -888,22 +895,27 @@ def _compute_expression(
         "weight_fallback": weight_fallback,
         "option_model": option_payload,
         "entry": entry_block,
+        "gain_loss": gain_loss,
     }
 
 
 def _nfo_lot_size(underlying: str) -> Optional[int]:
-    """Best-effort contract lot from the instrument master; honest None when
-    the DB/session is unavailable."""
+    """Best-effort contract lot: the live instrument master first, then the
+    dated exchange snapshot (option_universe.json). Honest None when both
+    are unavailable."""
     try:
         from backend.database import SessionLocal
         from backend.market.instrument_master import get_lot_size
         db = SessionLocal()
         try:
-            return get_lot_size(db, underlying.replace(".NS", ""))
+            lot = get_lot_size(db, underlying.replace(".NS", ""))
+            if lot:
+                return lot
         finally:
             db.close()
     except Exception:  # noqa: BLE001
-        return None
+        pass
+    return _ouniv.lot_for(underlying)
 
 
 def _entry_for(
@@ -919,6 +931,7 @@ def _entry_for(
         as_of = str(engine.px.index[-1].date()) if len(engine.px.index) else None
         if kind == "option_strategy":
             opt = None
+            small = None
             if option_payload and present:
                 sym = present[0]
                 ser = engine.px[sym].dropna() if sym in engine.px.columns else None
@@ -930,7 +943,31 @@ def _entry_for(
                         premium_pct_of_spot=option_payload["net_premium_pct"],
                         lot_size=lot,
                     )
-            return _afford.entry_block(kind=kind, option=opt, as_of=as_of)
+                    # A budget-sized far-OTM long single as the small-ticket
+                    # alternative; shrink time when the view-length ticket
+                    # can't fit (premium ~ sqrt(T)) and say so.
+                    sigma = option_model.realized_vol_annual(
+                        engine.rets[sym].dropna().tail(_VOL_WINDOW_BARS)
+                    ) if sym in engine.rets.columns else None
+                    bullish = (option_payload.get("direction") != "bearish")
+                    horizon = int(option_payload.get("horizon_days") or 126)
+                    for days in (horizon, 42, 21):
+                        small = option_model.affordable_ticket(
+                            bullish=bullish, sigma_annual=sigma or 0.28,
+                            horizon_days=days, spot=spot, lot=lot,
+                            budget_inr=_afford.ENTRY_BUDGET_INR,
+                            underlying=plain_copy.stock_name(sym))
+                        if small:
+                            if days < horizon:
+                                small["rolled"] = True
+                                small["note"] = (
+                                    f"A ~{max(1, round(days / 21))}-month option "
+                                    "on a longer view — you would re-buy it each "
+                                    "expiry and premiums compound. " + small["note"]
+                                )
+                            break
+            return _afford.entry_block(kind=kind, option=opt,
+                                       small_ticket=small, as_of=as_of)
         if kind == "pair":
             return _afford.entry_block(kind="pair")
         prices = {}

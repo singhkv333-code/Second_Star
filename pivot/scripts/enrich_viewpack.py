@@ -51,9 +51,11 @@ from backend.services.backtest.validation.monte_carlo import (
     monte_carlo_terminal_distribution,
 )
 from backend.view_markets import affordability as _afford
+from backend.view_markets import episode_stats as _estats
 from backend.view_markets import etf_catalog as _etfcat
 from backend.view_markets import forward_model as _fwd
 from backend.view_markets import option_model
+from backend.view_markets import option_universe as _ouniv
 from backend.view_markets.precompute import (
     BASE_VALUE,
     _apply_cap,
@@ -176,6 +178,23 @@ _EVIDENCE_BASIS = {
     "relative": "rolling_windows",
     "event": "rolling_windows",
     "shock": "shock_no_analogs",
+}
+
+# Same-theme NFO underlyings scanned for a CHEAPER lot on the same structure.
+# Every candidate is runtime-verified (lot in the option universe AND a price
+# in the matrix) — a name that fails either check simply never appears.
+_OPTION_CANDIDATES: dict[str, list[tuple[str, str]]] = {
+    "ai_jobs":   [("KPITTECH.NS", "KPIT Technologies"), ("TCS.NS", "TCS"),
+                  ("HCLTECH.NS", "HCL Technologies")],
+    "ai_search": [("KPITTECH.NS", "KPIT Technologies"), ("COFORGE.NS", "Coforge"),
+                  ("INFY.NS", "Infosys")],
+    "nuclear":   [("POWERGRID.NS", "Power Grid"), ("TATAPOWER.NS", "Tata Power"),
+                  ("NHPC.NS", "NHPC")],
+    "ev":        [("TMPV.NS", "Tata Motors PV"), ("EXIDEIND.NS", "Exide Industries"),
+                  ("SONACOMS.NS", "Sona BLW")],
+    "mideast":   [("ONGC.NS", "ONGC"), ("BPCL.NS", "BPCL")],
+    "fintech":   [("ANGELONE.NS", "Angel One"), ("MCX.NS", "MCX"),
+                  ("CDSL.NS", "CDSL")],
 }
 
 
@@ -342,6 +361,7 @@ def _basket_metrics(rets, nifty, present, tier, kind, horizon):
         "holdings": holdings,
         "strategy_total_pct": round(avg_ret, 2) if avg_ret is not None else None,
         "worst_drop_pct": round(worst, 1),
+        "gain_loss": _estats.gain_loss_stats(per_ep),
         "risk_return_ratio": rr, "n_episodes": n,
         "episodes": episodes, "positive_episodes": n_pos,
         "pct_positive": pct_pos, "n_positive": n_pos,
@@ -387,6 +407,7 @@ def _pair_metrics(rets, nifty, longs, shorts, horizon):
         "equity_curve": curve,
         "strategy_total_pct": round(_mean(per_ep), 2),
         "worst_drop_pct": round(worst, 1) if worst is not None else None,
+        "gain_loss": _estats.gain_loss_stats(per_ep),
         "n_episodes": n, "n_positive": n_pos, "positive_episodes": n_pos,
         "pct_positive": pct_pos,
         "trust_verdict": verdict, "historical_alignment": align,
@@ -495,6 +516,93 @@ def _option_block(rets, spec: dict[str, Any], horizon: int) -> Optional[dict[str
         width_pct=float(width), atm_offset_pct=float(o.get("offset", 0.0)),
         underlying_label=o["label"],
     )
+
+
+def _small_ticket(spec: dict[str, Any], o: dict[str, Any], rets, spot: Optional[float],
+                  lot: Optional[int], horizon: int) -> Optional[dict[str, Any]]:
+    """The cheapest honest small option ticket for the view — a LONG single
+    far-OTM option (or two, for two-sided shock views) sized to the ₹ budget.
+    A different structure from the tier's own, carried alongside it."""
+    if not (spot and lot) or o["underlying"] == "GOLD":
+        return None
+    sigma = _sigma_for(rets, o["underlying"]) or 0.28
+    if o["structure"] == "straddle":
+        halves = []
+        for bull in (True, False):
+            t = option_model.affordable_ticket(
+                bullish=bull, sigma_annual=sigma, horizon_days=horizon,
+                spot=spot, lot=lot, budget_inr=_afford.ENTRY_BUDGET_INR / 2,
+                underlying=o["label"])
+            if not t:
+                return None
+            halves.append(t)
+        ce, pe = halves
+        return {
+            "structure": "long_strangle",
+            "underlying": o["label"],
+            "otm_offset_pct": max(ce["otm_offset_pct"], pe["otm_offset_pct"]),
+            "lot_size": int(lot),
+            "est_premium_per_lot_inr": round(
+                ce["est_premium_per_lot_inr"] + pe["est_premium_per_lot_inr"]),
+            "pop_pct": round(min(100.0, ce["pop_pct"] + pe["pop_pct"]), 1),
+            "basis": "modelled_bs",
+            "note": ("A far-out-of-the-money strangle — one cheap call plus one "
+                     "cheap put. Pays only on a violent move either way; most "
+                     "expire worthless."),
+        }
+    # Time is the second lever: when the view-length ticket can't fit the
+    # budget even far OTM, a near-month option can (premium ~ sqrt(T)). It is
+    # a DIFFERENT trade — you re-buy each expiry — and the note says so.
+    for days in (horizon, 42, 21):
+        t = option_model.affordable_ticket(
+            bullish=spec["bullish"], sigma_annual=sigma, horizon_days=days,
+            spot=spot, lot=lot, budget_inr=_afford.ENTRY_BUDGET_INR,
+            underlying=o["label"])
+        if t:
+            if days < horizon:
+                t["rolled"] = True
+                t["note"] = (
+                    f"A ~{max(1, round(days / 21))}-month option on a longer "
+                    "view — you would re-buy it each expiry, premiums compound, "
+                    "and any single ticket can expire before the move comes. "
+                    + t["note"]
+                )
+            return t
+    return None
+
+
+def _option_alternates(vid: str, spec: dict[str, Any], o: dict[str, Any],
+                       rets, px, horizon: int) -> list[dict[str, Any]]:
+    """The SAME structure priced on same-theme underlyings with smaller lot
+    notionals — real premium-x-lot estimates, cheapest first."""
+    out: list[dict[str, Any]] = []
+    for sym, label in _OPTION_CANDIDATES.get(vid, []):
+        lot = _ouniv.lot_for(sym)
+        spot = _spot_for(px, sym)
+        sigma = _sigma_for(rets, sym)
+        if not (lot and spot and sigma):
+            continue
+        if o["structure"] == "straddle":
+            alt = option_model.model_long_straddle(
+                sigma_annual=sigma, horizon_days=horizon, underlying_label=label)
+        else:
+            width = option_model.width_for_vol(
+                sigma, horizon, mult=o.get("width_mult", 0.8))
+            alt = option_model.model_vertical_spread(
+                bullish=spec["bullish"], sigma_annual=sigma, horizon_days=horizon,
+                width_pct=float(width), atm_offset_pct=float(o.get("offset", 0.0)),
+                underlying_label=label)
+        cost = option_model.structure_premium_inr(alt, spot=spot, lot=lot)
+        if cost is None:
+            continue
+        out.append({
+            "underlying": canonical_symbol(sym), "label": label,
+            "lot_size": int(lot), "structure": alt["structure"],
+            "est_premium_per_lot_inr": round(cost),
+            "pop_pct": alt.get("pop_pct"),
+        })
+    out.sort(key=lambda a: a["est_premium_per_lot_inr"])
+    return out
 
 
 def _forward_block(rets, spec: dict[str, Any], book_daily, sigma_annual,
@@ -622,6 +730,7 @@ def main() -> None:
                     e["equity_curve"] = None
                     e["strategy_total_pct"] = None
                     e["worst_drop_pct"] = None
+                    e["gain_loss"] = None
                     e["n_episodes"] = 0
                     e["n_positive"] = None
                     e["positive_episodes"] = None
@@ -654,6 +763,7 @@ def main() -> None:
                         e["holdings"] = _named(m["holdings"], e)
                         for k in ("weight_scheme", "equity_curve",
                                   "strategy_total_pct", "worst_drop_pct",
+                                  "gain_loss",
                                   "risk_return_ratio", "n_episodes", "episodes",
                                   "positive_episodes", "pct_positive", "n_positive",
                                   "trust_verdict", "historical_alignment",
@@ -688,6 +798,7 @@ def main() -> None:
                             h["name"] = h["name"] or _NIFTY_DISPLAY
                         for k in ("weight_scheme", "equity_curve", "holdings",
                                   "strategy_total_pct", "worst_drop_pct",
+                                  "gain_loss",
                                   "risk_return_ratio", "n_episodes", "episodes",
                                   "positive_episodes", "pct_positive", "n_positive",
                                   "trust_verdict", "historical_alignment",
@@ -739,6 +850,7 @@ def main() -> None:
                     if longs and shorts else None
                 if m:
                     for k in ("equity_curve", "strategy_total_pct", "worst_drop_pct",
+                              "gain_loss",
                               "n_episodes", "episodes", "positive_episodes",
                               "pct_positive", "n_positive", "trust_verdict",
                               "historical_alignment", "monte_carlo", "curve_basis"):
@@ -772,15 +884,40 @@ def main() -> None:
                 e["worst_drop_pct"] = None
                 e["curve_n_episodes"] = None
                 e["evidence_basis"] = basis
-                # true rupee minimum: net premium × contract lot (when known)
+                e["gain_loss"] = _estats.modelled_option_stats(om)
+                # true rupee minimum: net premium × contract lot. Live lots
+                # first; the dated exchange snapshot when no session is up.
                 lot = live_ctx["lots"].get(o.get("lot_key")) if o.get("lot_key") else None
+                if not lot and o.get("lot_key"):
+                    lot = _ouniv.lot_for(o["lot_key"])
                 spot = _spot_for(px, o["underlying"])
                 opt_entry = None
                 if om and lot and spot and o["underlying"] != "GOLD":
                     opt_entry = _afford.option_entry(
                         spot=spot, premium_pct_of_spot=om["net_premium_pct"],
                         lot_size=lot)
+                small = _small_ticket(spec, o, rets, spot, lot, horizon)
+                if small is None:
+                    # The spec underlying can't honestly fit the budget (fat
+                    # lot x high vol) — try the same-theme candidates with
+                    # smaller lot notionals before giving up.
+                    for csym, clabel in _OPTION_CANDIDATES.get(vid, []):
+                        clot, cspot = _ouniv.lot_for(csym), _spot_for(px, csym)
+                        if not (clot and cspot):
+                            continue
+                        small = _small_ticket(
+                            spec, {**o, "underlying": csym, "label": clabel},
+                            rets, cspot, clot, horizon)
+                        if small:
+                            break
+                alts = _option_alternates(vid, spec, o, rets, px, horizon)
+                own_cost = (opt_entry or {}).get("premium_per_lot_inr")
+                if own_cost:
+                    alts = [a for a in alts
+                            if a["est_premium_per_lot_inr"] < own_cost]
                 entry = _afford.entry_block(kind="option_strategy", option=opt_entry,
+                                            small_ticket=small,
+                                            option_alternates=alts[:2] or None,
                                             as_of=str(px.index[-1].date()))
                 e["entry"] = entry
                 _note_entry(entry)
@@ -829,7 +966,8 @@ def main() -> None:
                 # the stale windowed numbers must NOT survive on the card
                 be = s.get("best_expression") or {}
                 for k in ("total_return_pct", "worst_drop_pct", "n_episodes",
-                          "pct_positive", "n_positive", "equity_curve"):
+                          "pct_positive", "n_positive", "equity_curve",
+                          "gain_loss"):
                     be[k] = None
                 be["trust_verdict"] = "insufficient_data"
                 s["best_expression"] = be
@@ -840,6 +978,7 @@ def main() -> None:
         be.update({
             "total_return_pct": best.get("strategy_total_pct"),
             "worst_drop_pct": best.get("worst_drop_pct"),
+            "gain_loss": best.get("gain_loss"),
             "n_episodes": best.get("n_episodes"),
             "pct_positive": best.get("pct_positive"),
             "n_positive": best.get("n_positive"),

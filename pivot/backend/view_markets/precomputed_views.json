@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-02T16:55:40.273530+00:00",
+  "generated_at": "2026-07-02T19:52:13.991011+00:00",
   "base_value": 100000.0,
   "benchmark": "^NSEI",
   "curve_method": "average_occurrence_normalised",
@@ -358,23 +358,23 @@
         "kind": "basket",
         "as_of": "2026-07-02",
         "basis": "lite_basket",
-        "min_entry_inr": 951.0,
+        "min_entry_inr": 1914.0,
         "legs": [
           {
             "symbol": "RECLTD",
-            "shares": 1,
+            "shares": 2,
             "price": 363.35,
-            "cost": 363.35,
+            "cost": 726.7,
             "weight_target": 0.3731,
-            "weight_actual": 0.382
+            "weight_actual": 0.3796
           },
           {
             "symbol": "ENGINERSIN",
-            "shares": 1,
+            "shares": 2,
             "price": 240.62,
-            "cost": 240.62,
+            "cost": 481.24,
             "weight_target": 0.2496,
-            "weight_actual": 0.253
+            "weight_actual": 0.2514
           },
           {
             "symbol": "ADANIPOWER",
@@ -382,24 +382,36 @@
             "price": 223.5,
             "cost": 223.5,
             "weight_target": 0.1364,
-            "weight_actual": 0.235
+            "weight_actual": 0.1167
+          },
+          {
+            "symbol": "RVNL",
+            "shares": 1,
+            "price": 235.69,
+            "cost": 235.69,
+            "weight_target": 0.1233,
+            "weight_actual": 0.1231
           },
           {
             "symbol": "JPPOWER",
-            "shares": 7,
+            "shares": 14,
             "price": 17.66,
-            "cost": 123.62,
+            "cost": 247.24,
             "weight_target": 0.1175,
-            "weight_actual": 0.13
+            "weight_actual": 0.1291
           }
         ],
-        "dropped": [
-          {
-            "symbol": "RVNL",
-            "reason": "weight too small to buy one share at \u20b9236"
-          }
-        ],
-        "note": "A pared-down version of the same basket \u2014 4 of 5 names, whole shares only, so weights drift a little from the full strategy."
+        "dropped": [],
+        "note": "A pared-down version of the same basket \u2014 5 of 5 names, whole shares only, so weights drift a little from the full strategy."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 14.82,
+        "avg_loss_pct": -9.14,
+        "max_gain_pct": 23.55,
+        "max_loss_pct": -12.77,
+        "n_gain": 5,
+        "n_loss": 3,
+        "basis": "episodes"
       },
       "avg_episode_return_pct": 5.84,
       "avg_episode_benchmark_pct": -0.5,
@@ -768,39 +780,39 @@
         "kind": "hedge",
         "as_of": "2026-07-02",
         "basis": "lite_basket",
-        "min_entry_inr": 880.0,
+        "min_entry_inr": 1984.0,
         "legs": [
           {
             "symbol": "ENGINERSIN",
-            "shares": 1,
+            "shares": 3,
             "price": 240.62,
-            "cost": 240.62,
+            "cost": 721.86,
             "weight_target": 0.3359,
-            "weight_actual": 0.2733
+            "weight_actual": 0.3639
           },
           {
             "symbol": "ADANIPOWER",
-            "shares": 1,
+            "shares": 2,
             "price": 223.5,
-            "cost": 223.5,
+            "cost": 447.0,
             "weight_target": 0.3135,
-            "weight_actual": 0.2538
+            "weight_actual": 0.2253
           },
           {
             "symbol": "RECLTD",
-            "shares": 1,
+            "shares": 2,
             "price": 363.35,
-            "cost": 363.35,
+            "cost": 726.7,
             "weight_target": 0.2892,
-            "weight_actual": 0.4127
+            "weight_actual": 0.3663
           },
           {
             "symbol": "JPPOWER",
-            "shares": 3,
+            "shares": 5,
             "price": 17.66,
-            "cost": 52.98,
+            "cost": 88.3,
             "weight_target": 0.0431,
-            "weight_actual": 0.0602
+            "weight_actual": 0.0445
           }
         ],
         "dropped": [
@@ -810,6 +822,15 @@
           }
         ],
         "note": "A pared-down version of the same basket \u2014 4 of 5 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk)."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 11.38,
+        "avg_loss_pct": -9.52,
+        "max_gain_pct": 21.95,
+        "max_loss_pct": -13.93,
+        "n_gain": 6,
+        "n_loss": 2,
+        "basis": "episodes"
       },
       "avg_episode_return_pct": 6.15,
       "avg_episode_benchmark_pct": -0.5,
@@ -1180,6 +1201,15 @@
         "basis": "margin_required",
         "min_entry_inr": null,
         "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 11.07,
+        "avg_loss_pct": -8.29,
+        "max_gain_pct": 17.0,
+        "max_loss_pct": -15.41,
+        "n_gain": 6,
+        "n_loss": 2,
+        "basis": "episodes"
       },
       "avg_episode_return_pct": 6.23,
       "avg_episode_benchmark_pct": -0.5,
@@ -1741,39 +1771,62 @@
       "entry": {
         "kind": "basket",
         "as_of": "2026-07-02",
-        "basis": "etf_substitute",
-        "min_entry_inr": 914.06,
-        "etf": {
-          "symbol": "CONSUMBEES",
-          "units": 7,
-          "price": 130.58,
-          "cost": 914.06,
-          "tracks": "Nifty India Consumption",
-          "as_of": "2026-07-02"
-        },
+        "basis": "etf_core_plus_names",
+        "min_entry_inr": 1883.0,
+        "legs": [
+          {
+            "symbol": "CONSUMBEES",
+            "units": 8,
+            "price": 130.58,
+            "cost": 1044.64,
+            "tracks": "Nifty India Consumption",
+            "role": "core"
+          },
+          {
+            "symbol": "MARICO",
+            "shares": 1,
+            "price": 837.9,
+            "cost": 837.9,
+            "role": "satellite",
+            "weight_target": 0.2117
+          }
+        ],
         "dropped": [
           {
             "symbol": "BRITANNIA",
-            "reason": "one share \u2248 \u20b95,156 exceeds the \u20b91,000 budget"
+            "reason": "one share \u2248 \u20b95,156 exceeds the \u20b92,000 budget"
           },
           {
             "symbol": "MRF",
-            "reason": "one share \u2248 \u20b9127,900 exceeds the \u20b91,000 budget"
-          },
-          {
-            "symbol": "GODREJCP",
-            "reason": "one share \u2248 \u20b91,012 exceeds the \u20b91,000 budget"
+            "reason": "one share \u2248 \u20b9127,900 exceeds the \u20b92,000 budget"
           },
           {
             "symbol": "HINDUNILVR",
-            "reason": "one share \u2248 \u20b92,121 exceeds the \u20b91,000 budget"
+            "reason": "one share \u2248 \u20b92,121 exceeds the \u20b92,000 budget"
           },
           {
             "symbol": "APOLLOTYRE",
             "reason": "weight too small to buy one share at \u20b9430"
           }
         ],
-        "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 7 unit(s) of CONSUMBEES (Nifty India Consumption) \u2014 the same exposure, one instrument."
+        "note": "An ETF core plus the strategy's own top picks: 8 units of CONSUMBEES (Nifty India Consumption) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of MARICO.NS keeps the strategy's specific tilt.",
+        "etf_alternative": {
+          "symbol": "CONSUMBEES",
+          "units": 7,
+          "price": 130.58,
+          "cost": 914.06,
+          "tracks": "Nifty India Consumption",
+          "as_of": "2026-07-02"
+        }
+      },
+      "gain_loss": {
+        "avg_gain_pct": 11.47,
+        "avg_loss_pct": null,
+        "max_gain_pct": 15.38,
+        "max_loss_pct": 4.4,
+        "n_gain": 4,
+        "n_loss": 0,
+        "basis": "episodes"
       },
       "avg_episode_return_pct": 11.47,
       "avg_episode_benchmark_pct": 3.88,
@@ -2551,7 +2604,32 @@
         "basis": "option_premium",
         "min_entry_inr": 9796.0,
         "lot_size": 125,
-        "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+        "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+        "small_ticket": {
+          "structure": "long_call",
+          "underlying": "Britannia",
+          "otm_offset_pct": 7.6,
+          "strike_label": "+8%",
+          "lot_size": 125,
+          "est_premium_per_lot_inr": 1983.0,
+          "breakeven_move_pct": 7.91,
+          "pop_pct": 9.6,
+          "delta": 0.116,
+          "vol_used_pct": 19.8,
+          "horizon_days": 20,
+          "basis": "modelled_bs",
+          "note": "A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays."
+        }
+      },
+      "gain_loss": {
+        "avg_gain_pct": null,
+        "avg_loss_pct": null,
+        "max_gain_pct": 156.8,
+        "max_loss_pct": -100.0,
+        "max_gain_uncapped": false,
+        "n_gain": null,
+        "n_loss": null,
+        "basis": "modelled"
       },
       "avg_episode_return_pct": 20.37,
       "avg_episode_benchmark_pct": 3.88,
@@ -3124,6 +3202,15 @@
         "min_entry_inr": null,
         "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
       },
+      "gain_loss": {
+        "avg_gain_pct": 3.3,
+        "avg_loss_pct": null,
+        "max_gain_pct": 7.01,
+        "max_loss_pct": 0.36,
+        "n_gain": 4,
+        "n_loss": 0,
+        "basis": "episodes"
+      },
       "avg_episode_return_pct": 3.3,
       "avg_episode_benchmark_pct": 3.88,
       "avg_episode_excess_pct": -0.58,
@@ -3148,6 +3235,7 @@
       "weight_fallback": null,
       "option_model": null,
       "entry": null,
+      "gain_loss": null,
       "avg_episode_return_pct": null,
       "avg_episode_benchmark_pct": null,
       "avg_episode_excess_pct": null,
@@ -3172,6 +3260,7 @@
       "weight_fallback": null,
       "option_model": null,
       "entry": null,
+      "gain_loss": null,
       "avg_episode_return_pct": null,
       "avg_episode_benchmark_pct": null,
       "avg_episode_excess_pct": null,
@@ -3196,6 +3285,7 @@
       "weight_fallback": null,
       "option_model": null,
       "entry": null,
+      "gain_loss": null,
       "avg_episode_return_pct": null,
       "avg_episode_benchmark_pct": null,
       "avg_episode_excess_pct": null,

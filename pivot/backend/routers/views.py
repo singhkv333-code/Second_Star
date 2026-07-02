@@ -400,6 +400,10 @@ class ExpressionDetail(BaseModel):
     # Real minimum-entry ticket (lite whole-share basket / catalog ETF route /
     # option premium × lot / honest boundary). Passthrough; null when unbuilt.
     entry: Optional[dict[str, Any]] = None
+    # The four comparable metrics — avg gain / avg loss / max gain / max loss —
+    # from the same per-occurrence distribution (modelled analogue for option
+    # tiers, basis-labelled). Passthrough; null when there is no history.
+    gain_loss: Optional[dict[str, Any]] = None
 
 
 class StanceSide(BaseModel):
@@ -1006,6 +1010,11 @@ def _expression_detail(view: MarketView, e: ViewExpression) -> ExpressionDetail:
         entry=(
             pre.get("entry")
             if isinstance(pre.get("entry"), dict)
+            else None
+        ),
+        gain_loss=(
+            pre.get("gain_loss")
+            if isinstance(pre.get("gain_loss"), dict)
             else None
         ),
     )

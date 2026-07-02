@@ -669,7 +669,16 @@
     }
    ],
    "pct_positive": 64.5,
-   "n_positive": 20
+   "n_positive": 20,
+   "gain_loss": {
+    "avg_gain_pct": 20.08,
+    "avg_loss_pct": -8.87,
+    "max_gain_pct": 64.78,
+    "max_loss_pct": -31.15,
+    "n_gain": 20,
+    "n_loss": 11,
+    "basis": "episodes"
+   }
   },
   "expression_count": 3,
   "transmission_count": 2,
@@ -693,7 +702,7 @@
   "best_episode_pct": 64.8,
   "best_episode_label": "6-mo window ended Nov 2020",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 808,
+  "min_entry_inr": 1997,
   "forward_expected_net_pct": 0.6,
   "forward_band_pct": {
    "p25": -9.6,
@@ -1373,7 +1382,16 @@
     }
    ],
    "pct_positive": 67.7,
-   "n_positive": 21
+   "n_positive": 21,
+   "gain_loss": {
+    "avg_gain_pct": 31.5,
+    "avg_loss_pct": -10.62,
+    "max_gain_pct": 95.36,
+    "max_loss_pct": -23.81,
+    "n_gain": 21,
+    "n_loss": 10,
+    "basis": "episodes"
+   }
   },
   "expression_count": 3,
   "transmission_count": 2,
@@ -2077,7 +2095,16 @@
     }
    ],
    "pct_positive": 68.8,
-   "n_positive": 22
+   "n_positive": 22,
+   "gain_loss": {
+    "avg_gain_pct": 16.6,
+    "avg_loss_pct": -8.2,
+    "max_gain_pct": 57.97,
+    "max_loss_pct": -24.26,
+    "n_gain": 22,
+    "n_loss": 10,
+    "basis": "episodes"
+   }
   },
   "expression_count": 3,
   "transmission_count": 2,
@@ -2101,7 +2128,7 @@
   "best_episode_pct": 58.0,
   "best_episode_label": "6-mo window ended Jun 2024",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 885,
+  "min_entry_inr": 1926,
   "forward_expected_net_pct": 1.4,
   "forward_band_pct": {
    "p25": -8.4,
@@ -2781,7 +2808,16 @@
     }
    ],
    "pct_positive": 77.8,
-   "n_positive": 7
+   "n_positive": 7,
+   "gain_loss": {
+    "avg_gain_pct": 20.95,
+    "avg_loss_pct": -5.93,
+    "max_gain_pct": 53.31,
+    "max_loss_pct": -6.32,
+    "n_gain": 7,
+    "n_loss": 2,
+    "basis": "episodes"
+   }
   },
   "expression_count": 3,
   "transmission_count": 2,
@@ -2805,7 +2841,7 @@
   "best_episode_pct": 53.3,
   "best_episode_label": "6-mo window ended Jun 2024",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 821,
+  "min_entry_inr": 1844,
   "forward_expected_net_pct": 1.4,
   "forward_band_pct": {
    "p25": -8.1,
@@ -2849,7 +2885,8 @@
    "worst_drop_pct": null,
    "equity_curve": null,
    "pct_positive": null,
-   "n_positive": null
+   "n_positive": null,
+   "gain_loss": null
   },
   "expression_count": 2,
   "transmission_count": 2,
@@ -2873,7 +2910,7 @@
   "best_episode_pct": null,
   "best_episode_label": null,
   "evidence_basis": "shock_no_analogs",
-  "min_entry_inr": 886,
+  "min_entry_inr": 1951,
   "forward_expected_net_pct": 0.3,
   "forward_band_pct": {
    "p25": -8.1,
@@ -4183,7 +4220,16 @@
     }
    ],
    "pct_positive": 75.0,
-   "n_positive": 12
+   "n_positive": 12,
+   "gain_loss": {
+    "avg_gain_pct": 19.39,
+    "avg_loss_pct": -10.31,
+    "max_gain_pct": 71.16,
+    "max_loss_pct": -22.78,
+    "n_gain": 12,
+    "n_loss": 4,
+    "basis": "episodes"
+   }
   },
   "expression_count": 2,
   "transmission_count": 2,
@@ -4572,7 +4618,16 @@
     }
    ],
    "pct_positive": 70.0,
-   "n_positive": 14
+   "n_positive": 14,
+   "gain_loss": {
+    "avg_gain_pct": 11.36,
+    "avg_loss_pct": -5.58,
+    "max_gain_pct": 19.11,
+    "max_loss_pct": -8.97,
+    "n_gain": 14,
+    "n_loss": 6,
+    "basis": "episodes"
+   }
   },
   "expression_count": 2,
   "transmission_count": 2,
@@ -4596,7 +4651,7 @@
   "best_episode_pct": 19.1,
   "best_episode_label": "3-mo window ended Sep 2023",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 824,
+  "min_entry_inr": 1887,
   "forward_expected_net_pct": -0.0,
   "forward_band_pct": {
    "p25": -6.8,
@@ -5591,7 +5646,16 @@
     }
    ],
    "pct_positive": 50.0,
-   "n_positive": 2
+   "n_positive": 2,
+   "gain_loss": {
+    "avg_gain_pct": 70.03,
+    "avg_loss_pct": -5.78,
+    "max_gain_pct": 95.32,
+    "max_loss_pct": -10.89,
+    "n_gain": 2,
+    "n_loss": 2,
+    "basis": "episodes"
+   }
   },
   "expression_count": 2,
   "transmission_count": 2,
@@ -5615,7 +5679,7 @@
   "best_episode_pct": 95.3,
   "best_episode_label": "9-mo window ended Dec 2024",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 832,
+  "min_entry_inr": 1960,
   "forward_expected_net_pct": 2.2,
   "forward_band_pct": {
    "p25": -12.5,

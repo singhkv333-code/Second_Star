@@ -2218,43 +2218,66 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
-     "basis": "etf_substitute",
-     "min_entry_inr": 808.38,
-     "etf": {
+     "basis": "etf_core_plus_names",
+     "min_entry_inr": 1997.0,
+     "legs": [
+      {
+       "symbol": "ITBEES",
+       "units": 61,
+       "price": 29.94,
+       "cost": 1826.34,
+       "tracks": "Nifty IT",
+       "role": "core"
+      },
+      {
+       "symbol": "WIPRO",
+       "shares": 1,
+       "price": 170.6,
+       "cost": 170.6,
+       "role": "satellite",
+       "weight_target": 0.2139
+      }
+     ],
+     "dropped": [
+      {
+       "symbol": "TCS",
+       "reason": "one share \u2248 \u20b92,040 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "PERSISTENT",
+       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "TECHM",
+       "reason": "weight too small to buy one share at \u20b91,409"
+      },
+      {
+       "symbol": "HCLTECH",
+       "reason": "weight too small to buy one share at \u20b91,080"
+      },
+      {
+       "symbol": "COFORGE",
+       "reason": "weight too small to buy one share at \u20b91,484"
+      }
+     ],
+     "note": "An ETF core plus the strategy's own top picks: 61 units of ITBEES (Nifty IT) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of WIPRO.NS keeps the strategy's specific tilt.",
+     "etf_alternative": {
       "symbol": "ITBEES",
       "units": 27,
       "price": 29.94,
       "cost": 808.38,
       "tracks": "Nifty IT",
       "as_of": "2026-07-02"
-     },
-     "dropped": [
-      {
-       "symbol": "TCS",
-       "reason": "one share \u2248 \u20b92,040 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "INFY",
-       "reason": "one share \u2248 \u20b91,010 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "HCLTECH",
-       "reason": "one share \u2248 \u20b91,080 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "PERSISTENT",
-       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "COFORGE",
-       "reason": "one share \u2248 \u20b91,484 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "TECHM",
-       "reason": "one share \u2248 \u20b91,409 exceeds the \u20b91,000 budget"
-      }
-     ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 27 unit(s) of ITBEES (Nifty IT) \u2014 the same exposure, one instrument."
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 20.08,
+     "avg_loss_pct": -8.87,
+     "max_gain_pct": 64.78,
+     "max_loss_pct": -31.15,
+     "n_gain": 20,
+     "n_loss": 11,
+     "basis": "episodes"
     }
    },
    {
@@ -3790,43 +3813,66 @@
     "entry": {
      "kind": "hedge",
      "as_of": "2026-07-02",
-     "basis": "etf_substitute",
-     "min_entry_inr": 808.38,
-     "etf": {
+     "basis": "etf_core_plus_names",
+     "min_entry_inr": 1999.0,
+     "legs": [
+      {
+       "symbol": "ITBEES",
+       "units": 33,
+       "price": 29.94,
+       "cost": 988.02,
+       "tracks": "Nifty IT",
+       "role": "core"
+      },
+      {
+       "symbol": "INFY",
+       "shares": 1,
+       "price": 1010.5,
+       "cost": 1010.5,
+       "role": "satellite",
+       "weight_target": 0.15
+      }
+     ],
+     "dropped": [
+      {
+       "symbol": "TCS",
+       "reason": "one share \u2248 \u20b92,040 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "PERSISTENT",
+       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "HCLTECH",
+       "reason": "weight too small to buy one share at \u20b91,080"
+      },
+      {
+       "symbol": "TECHM",
+       "reason": "weight too small to buy one share at \u20b91,409"
+      },
+      {
+       "symbol": "COFORGE",
+       "reason": "weight too small to buy one share at \u20b91,484"
+      }
+     ],
+     "note": "An ETF core plus the strategy's own top picks: 33 units of ITBEES (Nifty IT) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of INFY.NS keeps the strategy's specific tilt. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
+     "etf_alternative": {
       "symbol": "ITBEES",
       "units": 27,
       "price": 29.94,
       "cost": 808.38,
       "tracks": "Nifty IT",
       "as_of": "2026-07-02"
-     },
-     "dropped": [
-      {
-       "symbol": "TCS",
-       "reason": "one share \u2248 \u20b92,040 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "INFY",
-       "reason": "one share \u2248 \u20b91,010 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "HCLTECH",
-       "reason": "one share \u2248 \u20b91,080 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "PERSISTENT",
-       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "COFORGE",
-       "reason": "one share \u2248 \u20b91,484 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "TECHM",
-       "reason": "one share \u2248 \u20b91,409 exceeds the \u20b91,000 budget"
-      }
-     ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 27 unit(s) of ITBEES (Nifty IT) \u2014 the same exposure, one instrument. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk)."
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 13.76,
+     "avg_loss_pct": -7.72,
+     "max_gain_pct": 36.11,
+     "max_loss_pct": -22.89,
+     "n_gain": 18,
+     "n_loss": 13,
+     "basis": "episodes"
     }
    },
    {
@@ -5523,7 +5569,51 @@
      "basis": "option_premium",
      "min_entry_inr": 15481.0,
      "lot_size": 400,
-     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+     "small_ticket": {
+      "structure": "long_call",
+      "underlying": "Infosys",
+      "otm_offset_pct": 16.0,
+      "strike_label": "+16%",
+      "lot_size": 400,
+      "est_premium_per_lot_inr": 1970.0,
+      "breakeven_move_pct": 16.49,
+      "pop_pct": 7.9,
+      "delta": 0.103,
+      "vol_used_pct": 25.5,
+      "horizon_days": 42,
+      "basis": "modelled_bs",
+      "note": "A ~2-month option on a longer view \u2014 you would re-buy it each expiry, premiums compound, and any single ticket can expire before the move comes. A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays.",
+      "rolled": true
+     },
+     "option_alternates": [
+      {
+       "underlying": "TCS",
+       "label": "TCS",
+       "lot_size": 175,
+       "structure": "bull_call_spread",
+       "est_premium_per_lot_inr": 12387,
+       "pop_pct": 46.5
+      },
+      {
+       "underlying": "HCLTECH",
+       "label": "HCL Technologies",
+       "lot_size": 350,
+       "structure": "bull_call_spread",
+       "est_premium_per_lot_inr": 14257,
+       "pop_pct": 45.5
+      }
+     ]
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 134.8,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": false,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -5551,10 +5641,10 @@
   "caveat": "If the whole market falls, the bundle usually falls too.",
   "evidence_basis": "rolling_windows",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "theme",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  },
  "ai_search": {
@@ -7749,14 +7839,19 @@
      "dropped": [
       {
        "symbol": "PERSISTENT",
-       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "COFORGE",
-       "reason": "one share \u2248 \u20b91,484 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 budget"
       }
      ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 27 unit(s) of ITBEES (Nifty IT) \u2014 the same exposure, one instrument."
+     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 27 unit(s) of ITBEES (Nifty IT) \u2014 one instrument, but each unit itself holds the full index basket."
+    },
+    "gain_loss": {
+     "avg_gain_pct": 31.5,
+     "avg_loss_pct": -10.62,
+     "max_gain_pct": 95.36,
+     "max_loss_pct": -23.81,
+     "n_gain": 21,
+     "n_loss": 10,
+     "basis": "episodes"
     }
    },
    {
@@ -9258,6 +9353,15 @@
      "basis": "margin_required",
      "min_entry_inr": null,
      "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
+    },
+    "gain_loss": {
+     "avg_gain_pct": 18.79,
+     "avg_loss_pct": -10.19,
+     "max_gain_pct": 49.25,
+     "max_loss_pct": -22.97,
+     "n_gain": 20,
+     "n_loss": 11,
+     "basis": "episodes"
     }
    },
    {
@@ -10947,7 +11051,51 @@
      "basis": "option_premium",
      "min_entry_inr": 23700.0,
      "lot_size": 100,
-     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+     "small_ticket": {
+      "structure": "long_call",
+      "underlying": "Persistent Systems",
+      "otm_offset_pct": 24.2,
+      "strike_label": "+24%",
+      "lot_size": 100,
+      "est_premium_per_lot_inr": 1998.0,
+      "breakeven_move_pct": 24.66,
+      "pop_pct": 5.7,
+      "delta": 0.078,
+      "vol_used_pct": 33.9,
+      "horizon_days": 42,
+      "basis": "modelled_bs",
+      "note": "A ~2-month option on a longer view \u2014 you would re-buy it each expiry, premiums compound, and any single ticket can expire before the move comes. A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays.",
+      "rolled": true
+     },
+     "option_alternates": [
+      {
+       "underlying": "KPITTECH",
+       "label": "KPIT Technologies",
+       "lot_size": 425,
+       "structure": "bull_call_spread",
+       "est_premium_per_lot_inr": 16497,
+       "pop_pct": 41.4
+      },
+      {
+       "underlying": "INFY",
+       "label": "Infosys",
+       "lot_size": 400,
+       "structure": "bull_call_spread",
+       "est_premium_per_lot_inr": 17825,
+       "pop_pct": 44.1
+      }
+     ]
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 161.9,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": false,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -10975,10 +11123,10 @@
   "caveat": "Both the adopters and the incumbents can fall together in a tech sell-off.",
   "evidence_basis": "rolling_windows",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "relative",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  },
  "nuclear": {
@@ -13224,49 +13372,49 @@
      "kind": "basket",
      "as_of": "2026-07-02",
      "basis": "lite_basket",
-     "min_entry_inr": 885.0,
+     "min_entry_inr": 1975.0,
      "legs": [
       {
        "symbol": "POWERGRID",
-       "shares": 1,
+       "shares": 3,
        "price": 286.3,
-       "cost": 286.3,
+       "cost": 858.9,
        "weight_target": 0.4938,
-       "weight_actual": 0.3236
+       "weight_actual": 0.4349
       },
       {
        "symbol": "NTPC",
-       "shares": 1,
+       "shares": 2,
        "price": 355.65,
-       "cost": 355.65,
+       "cost": 711.3,
        "weight_target": 0.284,
-       "weight_actual": 0.402
+       "weight_actual": 0.3602
       },
       {
        "symbol": "NHPC",
-       "shares": 3,
+       "shares": 5,
        "price": 80.92,
-       "cost": 242.76,
+       "cost": 404.6,
        "weight_target": 0.2077,
-       "weight_actual": 0.2744
+       "weight_actual": 0.2049
       }
      ],
      "dropped": [
       {
        "symbol": "LT",
-       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b92,000 budget"
       },
       {
        "symbol": "SIEMENS",
-       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b92,000 budget"
       },
       {
        "symbol": "ABB",
-       "reason": "one share \u2248 \u20b97,050 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b97,050 exceeds the \u20b92,000 budget"
       },
       {
        "symbol": "THERMAX",
-       "reason": "one share \u2248 \u20b95,170 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b95,170 exceeds the \u20b92,000 budget"
       },
       {
        "symbol": "TATAPOWER",
@@ -13282,6 +13430,15 @@
       "tracks": "Nifty Power",
       "as_of": "2026-07-02"
      }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 16.6,
+     "avg_loss_pct": -8.2,
+     "max_gain_pct": 57.97,
+     "max_loss_pct": -24.26,
+     "n_gain": 22,
+     "n_loss": 10,
+     "basis": "episodes"
     }
    },
    {
@@ -14839,7 +14996,7 @@
      "kind": "hedge",
      "as_of": "2026-07-02",
      "basis": "lite_basket",
-     "min_entry_inr": 885.0,
+     "min_entry_inr": 1926.0,
      "legs": [
       {
        "symbol": "NTPC",
@@ -14847,7 +15004,7 @@
        "price": 355.65,
        "cost": 355.65,
        "weight_target": 0.2418,
-       "weight_actual": 0.402
+       "weight_actual": 0.1847
       },
       {
        "symbol": "POWERGRID",
@@ -14855,44 +15012,52 @@
        "price": 286.3,
        "cost": 286.3,
        "weight_target": 0.2245,
-       "weight_actual": 0.3236
+       "weight_actual": 0.1486
+      },
+      {
+       "symbol": "TATAPOWER",
+       "shares": 1,
+       "price": 385.75,
+       "cost": 385.75,
+       "weight_target": 0.2089,
+       "weight_actual": 0.2003
       },
       {
        "symbol": "NHPC",
-       "shares": 3,
+       "shares": 6,
        "price": 80.92,
-       "cost": 242.76,
+       "cost": 485.52,
        "weight_target": 0.2055,
-       "weight_actual": 0.2744
+       "weight_actual": 0.2521
+      },
+      {
+       "symbol": "BHEL",
+       "shares": 1,
+       "price": 412.8,
+       "cost": 412.8,
+       "weight_target": 0.1192,
+       "weight_actual": 0.2143
       }
      ],
      "dropped": [
       {
        "symbol": "LT",
-       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b92,000 budget"
       },
       {
        "symbol": "SIEMENS",
-       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b92,000 budget"
       },
       {
        "symbol": "ABB",
-       "reason": "one share \u2248 \u20b97,050 exceeds the \u20b91,000 budget"
+       "reason": "one share \u2248 \u20b97,050 exceeds the \u20b92,000 budget"
       },
       {
        "symbol": "THERMAX",
-       "reason": "one share \u2248 \u20b95,170 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "TATAPOWER",
-       "reason": "weight too small to buy one share at \u20b9386"
-      },
-      {
-       "symbol": "BHEL",
-       "reason": "weight too small to buy one share at \u20b9413"
+       "reason": "one share \u2248 \u20b95,170 exceeds the \u20b92,000 budget"
       }
      ],
-     "note": "A pared-down version of the same basket \u2014 3 of 9 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
+     "note": "A pared-down version of the same basket \u2014 5 of 9 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
      "etf_alternative": {
       "symbol": "GROWWPOWER",
       "units": 67,
@@ -14901,6 +15066,15 @@
       "tracks": "Nifty Power",
       "as_of": "2026-07-02"
      }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 14.13,
+     "avg_loss_pct": -7.58,
+     "max_gain_pct": 43.8,
+     "max_loss_pct": -12.42,
+     "n_gain": 15,
+     "n_loss": 17,
+     "basis": "episodes"
     }
    },
    {
@@ -16597,7 +16771,33 @@
      "basis": "option_premium",
      "min_entry_inr": 29021.0,
      "lot_size": 1500,
-     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+     "small_ticket": {
+      "structure": "long_call",
+      "underlying": "NTPC",
+      "otm_offset_pct": 17.7,
+      "strike_label": "+18%",
+      "lot_size": 1500,
+      "est_premium_per_lot_inr": 1985.0,
+      "breakeven_move_pct": 18.07,
+      "pop_pct": 6.3,
+      "delta": 0.081,
+      "vol_used_pct": 25.7,
+      "horizon_days": 42,
+      "basis": "modelled_bs",
+      "note": "A ~2-month option on a longer view \u2014 you would re-buy it each expiry, premiums compound, and any single ticket can expire before the move comes. A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays.",
+      "rolled": true
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 166.7,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": false,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -16625,10 +16825,10 @@
   "caveat": "The wider power theme has historically barely beaten the market \u2014 treat it as a narrative, not a proven edge.",
   "evidence_basis": "rolling_windows",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "theme",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  },
  "ev": {
@@ -18696,39 +18896,74 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
-     "basis": "etf_substitute",
-     "min_entry_inr": 820.56,
-     "etf": {
+     "basis": "etf_core_plus_names",
+     "min_entry_inr": 1985.0,
+     "legs": [
+      {
+       "symbol": "GROWWEV",
+       "units": 31,
+       "price": 31.56,
+       "cost": 978.36,
+       "tracks": "Nifty EV & New Age Automotive",
+       "role": "core"
+      },
+      {
+       "symbol": "EXIDEIND",
+       "shares": 1,
+       "price": 390.0,
+       "cost": 390.0,
+       "role": "satellite",
+       "weight_target": 0.1522
+      },
+      {
+       "symbol": "SONACOMS",
+       "shares": 1,
+       "price": 616.3,
+       "cost": 616.3,
+       "role": "satellite",
+       "weight_target": 0.0809
+      }
+     ],
+     "dropped": [
+      {
+       "symbol": "M&M",
+       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "TVSMOTOR",
+       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "BOSCHLTD",
+       "reason": "one share \u2248 \u20b939,995 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "SONACOMS",
+       "reason": "weight too small to buy one share at \u20b9616"
+      },
+      {
+       "symbol": "MOTHERSON",
+       "reason": "weight too small to buy one share at \u20b9149"
+      }
+     ],
+     "note": "An ETF core plus the strategy's own top picks: 31 units of GROWWEV (Nifty EV & New Age Automotive) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of EXIDEIND.NS, SONACOMS.NS keeps the strategy's specific tilt.",
+     "etf_alternative": {
       "symbol": "GROWWEV",
       "units": 26,
       "price": 31.56,
       "cost": 820.56,
       "tracks": "Nifty EV & New Age Automotive",
       "as_of": "2026-07-02"
-     },
-     "dropped": [
-      {
-       "symbol": "M&M",
-       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "TVSMOTOR",
-       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "BOSCHLTD",
-       "reason": "one share \u2248 \u20b939,995 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "UNOMINDA",
-       "reason": "one share \u2248 \u20b91,099 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "SONACOMS",
-       "reason": "weight too small to buy one share at \u20b9616"
-      }
-     ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 26 unit(s) of GROWWEV (Nifty EV & New Age Automotive) \u2014 the same exposure, one instrument."
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 20.95,
+     "avg_loss_pct": -5.93,
+     "max_gain_pct": 53.31,
+     "max_loss_pct": -6.32,
+     "n_gain": 7,
+     "n_loss": 2,
+     "basis": "episodes"
     }
    },
    {
@@ -20108,39 +20343,70 @@
     "entry": {
      "kind": "hedge",
      "as_of": "2026-07-02",
-     "basis": "etf_substitute",
-     "min_entry_inr": 820.56,
-     "etf": {
+     "basis": "lite_basket",
+     "min_entry_inr": 1844.0,
+     "legs": [
+      {
+       "symbol": "EXIDEIND",
+       "shares": 2,
+       "price": 390.0,
+       "cost": 780.0,
+       "weight_target": 0.2727,
+       "weight_actual": 0.423
+      },
+      {
+       "symbol": "SONACOMS",
+       "shares": 1,
+       "price": 616.3,
+       "cost": 616.3,
+       "weight_target": 0.2652,
+       "weight_actual": 0.3342
+      },
+      {
+       "symbol": "MOTHERSON",
+       "shares": 3,
+       "price": 149.28,
+       "cost": 447.84,
+       "weight_target": 0.204,
+       "weight_actual": 0.2428
+      }
+     ],
+     "dropped": [
+      {
+       "symbol": "M&M",
+       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "TVSMOTOR",
+       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "BOSCHLTD",
+       "reason": "one share \u2248 \u20b939,995 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "UNOMINDA",
+       "reason": "weight too small to buy one share at \u20b91,099"
+      }
+     ],
+     "note": "A pared-down version of the same basket \u2014 3 of 7 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
+     "etf_alternative": {
       "symbol": "GROWWEV",
       "units": 26,
       "price": 31.56,
       "cost": 820.56,
       "tracks": "Nifty EV & New Age Automotive",
       "as_of": "2026-07-02"
-     },
-     "dropped": [
-      {
-       "symbol": "M&M",
-       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "TVSMOTOR",
-       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "BOSCHLTD",
-       "reason": "one share \u2248 \u20b939,995 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "UNOMINDA",
-       "reason": "one share \u2248 \u20b91,099 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "SONACOMS",
-       "reason": "weight too small to buy one share at \u20b9616"
-      }
-     ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 26 unit(s) of GROWWEV (Nifty EV & New Age Automotive) \u2014 the same exposure, one instrument. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk)."
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 15.84,
+     "avg_loss_pct": -3.44,
+     "max_gain_pct": 38.43,
+     "max_loss_pct": -7.62,
+     "n_gain": 6,
+     "n_loss": 3,
+     "basis": "episodes"
     }
    },
    {
@@ -21837,7 +22103,43 @@
      "basis": "option_premium",
      "min_entry_inr": 30790.0,
      "lot_size": 200,
-     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+     "small_ticket": {
+      "structure": "long_call",
+      "underlying": "Mahindra & Mahindra",
+      "otm_offset_pct": 21.7,
+      "strike_label": "+22%",
+      "lot_size": 200,
+      "est_premium_per_lot_inr": 1998.0,
+      "breakeven_move_pct": 22.02,
+      "pop_pct": 4.9,
+      "delta": 0.065,
+      "vol_used_pct": 28.9,
+      "horizon_days": 42,
+      "basis": "modelled_bs",
+      "note": "A ~2-month option on a longer view \u2014 you would re-buy it each expiry, premiums compound, and any single ticket can expire before the move comes. A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays.",
+      "rolled": true
+     },
+     "option_alternates": [
+      {
+       "underlying": "TMPV",
+       "label": "Tata Motors PV",
+       "lot_size": 800,
+       "structure": "bull_call_spread",
+       "est_premium_per_lot_inr": 15046,
+       "pop_pct": 39.1
+      }
+     ]
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 187.9,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": false,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -21865,10 +22167,10 @@
   "caveat": "A market-wide fall still drags the bundle down, even if the EV story stays intact.",
   "evidence_basis": "rolling_windows",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "theme",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  },
  "mideast": {
@@ -22913,7 +23215,7 @@
      "kind": "basket",
      "as_of": "2026-07-02",
      "basis": "lite_basket",
-     "min_entry_inr": 886.0,
+     "min_entry_inr": 1951.0,
      "legs": [
       {
        "symbol": "BPCL",
@@ -22921,7 +23223,7 @@
        "price": 303.35,
        "cost": 303.35,
        "weight_target": 0.2837,
-       "weight_actual": 0.3422
+       "weight_actual": 0.1555
       },
       {
        "symbol": "GAIL",
@@ -22929,33 +23231,42 @@
        "price": 174.08,
        "cost": 348.16,
        "weight_target": 0.2335,
-       "weight_actual": 0.3928
+       "weight_actual": 0.1785
       },
       {
        "symbol": "ONGC",
-       "shares": 1,
+       "shares": 2,
        "price": 234.85,
-       "cost": 234.85,
+       "cost": 469.7,
        "weight_target": 0.1851,
-       "weight_actual": 0.265
+       "weight_actual": 0.2408
+      },
+      {
+       "symbol": "OIL",
+       "shares": 1,
+       "price": 417.45,
+       "cost": 417.45,
+       "weight_target": 0.1644,
+       "weight_actual": 0.214
+      },
+      {
+       "symbol": "BEL",
+       "shares": 1,
+       "price": 411.85,
+       "cost": 411.85,
+       "weight_target": 0.1332,
+       "weight_actual": 0.2111
       }
      ],
      "dropped": [
       {
        "symbol": "HAL",
-       "reason": "one share \u2248 \u20b94,397 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "OIL",
-       "reason": "weight too small to buy one share at \u20b9417"
-      },
-      {
-       "symbol": "BEL",
-       "reason": "weight too small to buy one share at \u20b9412"
+       "reason": "one share \u2248 \u20b94,397 exceeds the \u20b92,000 budget"
       }
      ],
-     "note": "A pared-down version of the same basket \u2014 3 of 6 names, whole shares only, so weights drift a little from the full strategy."
-    }
+     "note": "A pared-down version of the same basket \u2014 5 of 6 names, whole shares only, so weights drift a little from the full strategy."
+    },
+    "gain_loss": null
    },
    {
     "id": "mideast-aggressive",
@@ -24379,7 +24690,45 @@
      "basis": "option_premium",
      "min_entry_inr": 82900.0,
      "lot_size": 65,
-     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+     "small_ticket": {
+      "structure": "long_strangle",
+      "underlying": "Nifty 50",
+      "otm_offset_pct": 15.6,
+      "lot_size": 65,
+      "est_premium_per_lot_inr": 1968,
+      "pop_pct": 5.0,
+      "basis": "modelled_bs",
+      "note": "A far-out-of-the-money strangle \u2014 one cheap call plus one cheap put. Pays only on a violent move either way; most expire worthless."
+     },
+     "option_alternates": [
+      {
+       "underlying": "ONGC",
+       "label": "ONGC",
+       "lot_size": 2250,
+       "structure": "long_straddle",
+       "est_premium_per_lot_inr": 60979,
+       "pop_pct": 42.6
+      },
+      {
+       "underlying": "BPCL",
+       "label": "BPCL",
+       "lot_size": 1975,
+       "structure": "long_straddle",
+       "est_premium_per_lot_inr": 73212,
+       "pop_pct": 42.6
+      }
+     ]
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 369.3,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": true,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -24407,10 +24756,10 @@
   "caveat": "If nothing escalates, there's no clear trade \u2014 don't force one.",
   "evidence_basis": "shock_no_analogs",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "shock",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  },
  "nifty30k": {
@@ -27120,7 +27469,16 @@
     "evidence_basis": "rolling_windows",
     "weight_scheme": "equal",
     "trust_verdict": "promising",
-    "option_model": null
+    "option_model": null,
+    "gain_loss": {
+     "avg_gain_pct": 19.39,
+     "avg_loss_pct": -10.31,
+     "max_gain_pct": 71.16,
+     "max_loss_pct": -22.78,
+     "n_gain": 12,
+     "n_loss": 4,
+     "basis": "episodes"
+    }
    },
    {
     "id": "nifty30k-aggressive",
@@ -28685,7 +29043,33 @@
      "basis": "option_premium",
      "min_entry_inr": 31263.0,
      "lot_size": 65,
-     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+     "small_ticket": {
+      "structure": "long_call",
+      "underlying": "Nifty 50",
+      "otm_offset_pct": 10.2,
+      "strike_label": "+10%",
+      "lot_size": 65,
+      "est_premium_per_lot_inr": 1928.0,
+      "breakeven_move_pct": 10.32,
+      "pop_pct": 4.8,
+      "delta": 0.056,
+      "vol_used_pct": 13.1,
+      "horizon_days": 42,
+      "basis": "modelled_bs",
+      "note": "A ~2-month option on a longer view \u2014 you would re-buy it each expiry, premiums compound, and any single ticket can expire before the move comes. A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays.",
+      "rolled": true
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 197.9,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": false,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -28713,10 +29097,10 @@
   "caveat": "A jump this big is rare \u2014 treat any high-payoff bet like a lottery ticket, not a plan.",
   "evidence_basis": "rolling_windows",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "event",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  },
  "gold": {
@@ -30209,27 +30593,62 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
-     "basis": "etf_substitute",
-     "min_entry_inr": 823.83,
-     "etf": {
+     "basis": "etf_core_plus_names",
+     "min_entry_inr": 1887.0,
+     "legs": [
+      {
+       "symbol": "GOLDBEES",
+       "units": 10,
+       "price": 117.69,
+       "cost": 1176.9,
+       "tracks": "Domestic gold price",
+       "role": "core"
+      },
+      {
+       "symbol": "MANAPPURAM",
+       "shares": 1,
+       "price": 320.15,
+       "cost": 320.15,
+       "role": "satellite",
+       "weight_target": 0.0886
+      },
+      {
+       "symbol": "KALYANKJIL",
+       "shares": 1,
+       "price": 389.65,
+       "cost": 389.65,
+       "role": "satellite",
+       "weight_target": 0.0722
+      }
+     ],
+     "dropped": [
+      {
+       "symbol": "TITAN",
+       "reason": "one share \u2248 \u20b94,420 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "MUTHOOTFIN",
+       "reason": "one share \u2248 \u20b93,003 exceeds the \u20b92,000 budget"
+      }
+     ],
+     "note": "An ETF core plus the strategy's own top picks: 10 units of GOLDBEES (Domestic gold price) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of MANAPPURAM.NS, KALYANKJIL.NS keeps the strategy's specific tilt.",
+     "etf_alternative": {
       "symbol": "GOLDBEES",
       "units": 7,
       "price": 117.69,
       "cost": 823.83,
       "tracks": "Domestic gold price",
       "as_of": "2026-07-02"
-     },
-     "dropped": [
-      {
-       "symbol": "TITAN",
-       "reason": "one share \u2248 \u20b94,420 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "MUTHOOTFIN",
-       "reason": "one share \u2248 \u20b93,003 exceeds the \u20b91,000 budget"
-      }
-     ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 7 unit(s) of GOLDBEES (Domestic gold price) \u2014 the same exposure, one instrument."
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 11.36,
+     "avg_loss_pct": -5.58,
+     "max_gain_pct": 19.11,
+     "max_loss_pct": -8.97,
+     "n_gain": 14,
+     "n_loss": 6,
+     "basis": "episodes"
     }
    },
    {
@@ -31520,6 +31939,16 @@
      "basis": "priced_at_deploy",
      "min_entry_inr": null,
      "note": "Minimum = one lot's net premium, fixed when the strikes are picked at deploy."
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 160.4,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": false,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -31547,10 +31976,10 @@
   "caveat": "Gold can pull back sharply, dragging the gold-linked bundle down with it.",
   "evidence_basis": "rolling_windows",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "event",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  },
  "fintech": {
@@ -33903,47 +34332,70 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
-     "basis": "etf_substitute",
-     "min_entry_inr": 832.5,
-     "etf": {
+     "basis": "etf_core_plus_names",
+     "min_entry_inr": 1960.0,
+     "legs": [
+      {
+       "symbol": "MOCAPITAL",
+       "units": 21,
+       "price": 55.5,
+       "cost": 1165.5,
+       "tracks": "Nifty Capital Markets",
+       "role": "core"
+      },
+      {
+       "symbol": "CAMS",
+       "shares": 1,
+       "price": 794.95,
+       "cost": 794.95,
+       "role": "satellite",
+       "weight_target": 0.1896
+      }
+     ],
+     "dropped": [
+      {
+       "symbol": "BSE",
+       "reason": "one share \u2248 \u20b93,887 exceeds the \u20b92,000 budget"
+      },
+      {
+       "symbol": "CAMS",
+       "reason": "weight too small to buy one share at \u20b9795"
+      },
+      {
+       "symbol": "POLICYBZR",
+       "reason": "weight too small to buy one share at \u20b91,647"
+      },
+      {
+       "symbol": "PAYTM",
+       "reason": "weight too small to buy one share at \u20b91,143"
+      },
+      {
+       "symbol": "CDSL",
+       "reason": "weight too small to buy one share at \u20b91,308"
+      },
+      {
+       "symbol": "KFINTECH",
+       "reason": "weight too small to buy one share at \u20b9886"
+      }
+     ],
+     "note": "An ETF core plus the strategy's own top picks: 21 units of MOCAPITAL (Nifty Capital Markets) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of CAMS.NS keeps the strategy's specific tilt.",
+     "etf_alternative": {
       "symbol": "MOCAPITAL",
       "units": 15,
       "price": 55.5,
       "cost": 832.5,
       "tracks": "Nifty Capital Markets",
       "as_of": "2026-07-02"
-     },
-     "dropped": [
-      {
-       "symbol": "PAYTM",
-       "reason": "one share \u2248 \u20b91,143 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "POLICYBZR",
-       "reason": "one share \u2248 \u20b91,647 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "BSE",
-       "reason": "one share \u2248 \u20b93,887 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "CDSL",
-       "reason": "one share \u2248 \u20b91,308 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "AFFLE",
-       "reason": "one share \u2248 \u20b91,421 exceeds the \u20b91,000 budget"
-      },
-      {
-       "symbol": "KFINTECH",
-       "reason": "weight too small to buy one share at \u20b9886"
-      },
-      {
-       "symbol": "ANGELONE",
-       "reason": "weight too small to buy one share at \u20b9330"
-      }
-     ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 15 unit(s) of MOCAPITAL (Nifty Capital Markets) \u2014 the same exposure, one instrument."
+     }
+    },
+    "gain_loss": {
+     "avg_gain_pct": 70.03,
+     "avg_loss_pct": -5.78,
+     "max_gain_pct": 95.32,
+     "max_loss_pct": -10.89,
+     "n_gain": 2,
+     "n_loss": 2,
+     "basis": "episodes"
     }
    },
    {
@@ -35542,7 +35994,51 @@
      "basis": "option_premium",
      "min_entry_inr": 73610.0,
      "lot_size": 375,
-     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy."
+     "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+     "small_ticket": {
+      "structure": "long_call",
+      "underlying": "Angel One",
+      "otm_offset_pct": 29.0,
+      "strike_label": "+29%",
+      "lot_size": 2500,
+      "est_premium_per_lot_inr": 1985.0,
+      "breakeven_move_pct": 29.24,
+      "pop_pct": 3.1,
+      "delta": 0.044,
+      "vol_used_pct": 48.6,
+      "horizon_days": 21,
+      "basis": "modelled_bs",
+      "note": "A ~1-month option on a longer view \u2014 you would re-buy it each expiry, premiums compound, and any single ticket can expire before the move comes. A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays.",
+      "rolled": true
+     },
+     "option_alternates": [
+      {
+       "underlying": "CDSL",
+       "label": "CDSL",
+       "lot_size": 475,
+       "structure": "bull_call_spread",
+       "est_premium_per_lot_inr": 31612,
+       "pop_pct": 37.9
+      },
+      {
+       "underlying": "ANGELONE",
+       "label": "Angel One",
+       "lot_size": 2500,
+       "structure": "bull_call_spread",
+       "est_premium_per_lot_inr": 41916,
+       "pop_pct": 37.3
+      }
+     ]
+    },
+    "gain_loss": {
+     "avg_gain_pct": null,
+     "avg_loss_pct": null,
+     "max_gain_pct": 197.1,
+     "max_loss_pct": -100.0,
+     "max_gain_uncapped": false,
+     "n_gain": null,
+     "n_loss": null,
+     "basis": "modelled"
     }
    }
   ],
@@ -35570,10 +36066,10 @@
   "caveat": "These are young, volatile names \u2014 a few outsized winners drive the average, so any single window can disappoint.",
   "evidence_basis": "rolling_windows",
   "generated": {
-   "on": "2026-07-02",
+   "on": "2026-07-03",
    "engine": "enrich_viewpack v2 (spec-conditioned)",
    "taxonomy": "theme",
-   "universe_cols": 2143
+   "universe_cols": 2160
   }
  }
 }
