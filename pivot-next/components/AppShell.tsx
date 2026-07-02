@@ -39,6 +39,7 @@ import {
   Monitor,
   Moon,
   PieChart,
+  Pin,
   Plug,
   Plus,
   Search,
@@ -757,6 +758,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 ? "relative flex h-full w-full min-h-0"
                 : "hidden"
             }
+            style={{
+              // Compress the chat surface when a side editor is open so
+              // draft cards / backtest charts stay visible instead of
+              // hiding behind the fixed-position panel. AgentPanel
+              // publishes its live width into --side-panel-width (0px
+              // when closed / below lg).
+              paddingRight: "var(--side-panel-width, 0px)",
+              transition: "padding-right 300ms cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
           >
               <div
                 className="mx-auto flex h-full w-full min-h-0 flex-col px-4 lg:px-6"
@@ -837,7 +847,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         {/* Quartr's right rail is exactly 320px with padding 24/20.
             w-80 = 320px; px:20 py:24 mirrors Quartr's padding so the
             cards line up with the same horizontal margins. */}
-        {!children && active === "chat" && !chatActive && (
+        {/* Also hidden while a side editor is open: the panel overlays this
+            exact strip, and keeping the rail mounted double-reserved the
+            right edge (rail width + panel compression) — the chat column
+            ended up centered far left of the visible area. */}
+        {!children && active === "chat" && !chatActive && !panelOpen && (
           <aside
             className="hidden w-80 shrink-0 min-h-0 overflow-y-auto xl:block"
             style={{ padding: "24px 20px" }}
@@ -1798,6 +1812,22 @@ function Sidebar({
   mobileOpen: boolean;
   onMobileClose: () => void;
 }): React.ReactElement {
+  // Pinned conversations — a per-device preference kept in localStorage.
+  // Pinned entries float in their own section above Recent; unpinning
+  // returns them to the recency-ordered list.
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => readPinnedIds());
+  const togglePin = (id: string): void => {
+    setPinnedIds((prev) => {
+      const next = prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : [...prev, id];
+      writePinnedIds(next);
+      return next;
+    });
+  };
+  const pinnedConvs = conversations.filter((c) => pinnedIds.includes(c.id));
+  const recentConvs = conversations.filter((c) => !pinnedIds.includes(c.id));
+
   // On lg+ the sidebar sits inline (in the flex row) — same look as before.
   // Below lg it becomes a fixed slide-in drawer driven by `mobileOpen`.
   // We do NOT use `hidden` so the transform transition stays smooth.
@@ -1936,21 +1966,29 @@ function Sidebar({
           New chat
         </button>
 
-        <div
-          style={{
-            padding: "0 10px",
-            fontSize: 11,
-            fontFamily: "var(--font-ui)",
-            fontWeight: 500,
-            color: "var(--text-tertiary)",
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-          }}
-        >
-          Your conversations
-        </div>
+        {/* Pinned conversations float above Recent; pin state is a
+            per-device preference (localStorage), toggled from the hover
+            pin on each row. */}
+        {pinnedConvs.length > 0 && (
+          <>
+            <div style={convHeaderStyle}>Pinned</div>
+            <div className="flex flex-col" style={{ gap: 2 }}>
+              {pinnedConvs.map((conv) => (
+                <ConversationRow
+                  key={conv.id}
+                  conv={conv}
+                  pinned={true}
+                  onOpen={() => onSelectConversation(conv.id)}
+                  onTogglePin={() => togglePin(conv.id)}
+                />
+              ))}
+            </div>
+          </>
+        )}
 
-        {conversations.length === 0 ? (
+        <div style={convHeaderStyle}>Recent</div>
+
+        {recentConvs.length === 0 && pinnedConvs.length === 0 ? (
           <div
             style={{
               padding: "0 10px",
@@ -1962,45 +2000,145 @@ function Sidebar({
           </div>
         ) : (
           <div className="flex flex-col" style={{ gap: 2 }}>
-            {conversations.map((conv) => (
-              <button
+            {recentConvs.map((conv) => (
+              <ConversationRow
                 key={conv.id}
-                type="button"
-                onClick={() => onSelectConversation(conv.id)}
-                aria-label={`Open conversation: ${conv.preview}`}
-                style={{
-                  padding: "7px 10px",
-                  background: "transparent",
-                  border: "none",
-                  borderRadius: "var(--radius-sm)",
-                  color: "var(--text-secondary)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: 12.5,
-                  fontWeight: 500,
-                  textAlign: "left",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  cursor: "pointer",
-                  transition:
-                    "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--text-primary)";
-                  e.currentTarget.style.background = "var(--surface-active)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                {conv.preview}
-              </button>
+                conv={conv}
+                pinned={false}
+                onOpen={() => onSelectConversation(conv.id)}
+                onTogglePin={() => togglePin(conv.id)}
+              />
             ))}
           </div>
         )}
       </div>
     </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Conversation rows — pinnable history entries under Pinned / Recent.
+// ---------------------------------------------------------------------------
+
+const convHeaderStyle: React.CSSProperties = {
+  padding: "0 10px",
+  fontSize: 11,
+  fontFamily: "var(--font-ui)",
+  fontWeight: 500,
+  color: "var(--text-tertiary)",
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+};
+
+const PINNED_LS_KEY = "pivot.pinnedConversations";
+
+function readPinnedIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PINNED_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedIds(ids: string[]): void {
+  try {
+    window.localStorage.setItem(PINNED_LS_KEY, JSON.stringify(ids));
+  } catch {
+    /* storage unavailable — pin just won't persist */
+  }
+}
+
+function ConversationRow({
+  conv,
+  pinned,
+  onOpen,
+  onTogglePin,
+}: {
+  conv: ConvEntry;
+  pinned: boolean;
+  onOpen: () => void;
+  onTogglePin: () => void;
+}): React.ReactElement {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      className="flex items-center"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        borderRadius: "var(--radius-sm)",
+        background: hovered ? "var(--surface-active)" : "transparent",
+        transition: "background-color 0.2s var(--ease-quartr)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open conversation: ${conv.preview}`}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: "7px 4px 7px 10px",
+          background: "transparent",
+          border: "none",
+          color: hovered ? "var(--text-primary)" : "var(--text-secondary)",
+          fontFamily: "var(--font-ui)",
+          fontSize: 12.5,
+          fontWeight: 500,
+          textAlign: "left",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          cursor: "pointer",
+          transition: "color 0.2s var(--ease-quartr)",
+        }}
+      >
+        {conv.preview}
+      </button>
+      {/* Pin toggle — hover-revealed on unpinned rows, always visible
+          (filled) on pinned ones so pinned state reads at a glance. */}
+      {(hovered || pinned) && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin();
+          }}
+          aria-label={pinned ? "Unpin conversation" : "Pin conversation"}
+          title={pinned ? "Unpin" : "Pin"}
+          className="inline-flex shrink-0 items-center justify-center"
+          style={{
+            width: 24,
+            height: 24,
+            marginRight: 4,
+            background: "transparent",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            color: pinned ? "var(--text-primary)" : "var(--text-tertiary)",
+            cursor: "pointer",
+            transition: "color 0.2s var(--ease-quartr)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--text-primary)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = pinned
+              ? "var(--text-primary)"
+              : "var(--text-tertiary)";
+          }}
+        >
+          <Pin
+            size={12.5}
+            strokeWidth={2}
+            aria-hidden="true"
+            fill={pinned ? "currentColor" : "none"}
+          />
+        </button>
+      )}
+    </div>
   );
 }
 

@@ -129,6 +129,11 @@ class ScreenerStock(BaseModel):
 
 class ScreenerStocksResponse(BaseModel):
     count: int
+    # Total rows matching the filters ACROSS the whole universe — the FE's
+    # "Showing N of M" + infinite-scroll cutoff. count stays the page size
+    # for back-compat.
+    total: int = 0
+    offset: int = 0
     results: list[ScreenerStock]
     # FE hint: which row metrics are not served by this endpoint at all, so the
     # grid renders "—" rather than treating a null as "screened out".
@@ -206,14 +211,13 @@ def _fetch_fundamentals_map(symbols: list[str]) -> dict[str, dict]:
 
 
 def _fundamentals_map_cached() -> dict[str, dict]:
-    """Full-universe roe/pe map, Redis-cached (see ``_FUND_CACHE_KEY``).
+    """Whole-universe roe/pe map, Redis-cached (see ``_FUND_CACHE_KEY``).
 
-    Reads the warm cache first (one Redis GET); on a miss, runs the expensive
-    ``fetch_gate_inputs`` ONCE for the *entire* universe and warms the cache so
-    the next caller — no matter which filter/sort they use — is served from
-    Redis. Fails open at every step: a cache/DB error degrades to a direct
-    fetch or an empty map (all-null fundamentals), never a 500. The map is keyed
-    by UPPER(symbol), so callers pick out just the symbols they need.
+    Read-only view of whatever is warm: the endpoint synchronously tops up
+    just the PAGE it is serving (bounded ~1-2s worst case) and kicks a
+    background chunked warm for the rest — with a ~2,500-name universe a
+    synchronous full fetch here would block a request for the better part of
+    a minute. Keyed by UPPER(symbol). Fails open to an empty map.
     """
     try:
         raw = redis_client.get(_FUND_CACHE_KEY)
@@ -222,19 +226,7 @@ def _fundamentals_map_cached() -> dict[str, dict]:
             return json.loads(data)
     except Exception as exc:  # noqa: BLE001 — cache read is best-effort
         logger.debug("[screener] fundamentals cache read failed: %s", exc)
-
-    fmap = _fetch_fundamentals_map([r.symbol for r in _SECTOR_UNIVERSE])
-
-    # Only warm the cache on a real result — never cache an empty map from a
-    # transient DB outage, or we'd serve "no fundamentals" for the next 30 min.
-    if fmap:
-        try:
-            redis_client.set(
-                _FUND_CACHE_KEY, json.dumps(fmap), ex=_FUND_CACHE_TTL_SECONDS
-            )
-        except Exception as exc:  # noqa: BLE001 — cache write is best-effort
-            logger.debug("[screener] fundamentals cache write failed: %s", exc)
-    return fmap
+    return {}
 
 
 # ── Live market metrics (price / day change / 1-year return) ──────────
@@ -431,6 +423,233 @@ def _label_for_sector(canonical: str) -> str:
     return canonical.replace("_", " ").title()
 
 
+# ── Full market universe ──────────────────────────────────────────────
+# The grid used to serve ONLY the ~80-name curated sector_universe, so any
+# filter shrank an already tiny list. The universe is now every company with
+# a verified NSE symbol (mc.companies.nse_symbol — backfilled 2026-07-02),
+# enriched with full name / sector / market-cap from the pivot_enrich DB.
+# Cached in Redis for a day (listings/mcap drift slowly); served paginated.
+
+_UNIVERSE_CACHE_KEY = "screener:universe:v2"
+_UNIVERSE_TTL_SECONDS = 24 * 60 * 60
+_universe_lock = threading.Lock()
+
+# Background full-universe fundamentals warm (chunked) — one at a time.
+_fund_warm_lock = threading.Lock()
+_fund_warm_running = False
+_FUND_WARM_CHUNK = 250
+
+# Background page-metrics warm — small on-demand batches, merged into the
+# shared metrics map.
+_page_metrics_lock = threading.Lock()
+_page_metrics_running = False
+
+
+def _sector_slug(label: str) -> str:
+    return "_".join((label or "other").strip().lower().split()) or "other"
+
+
+def _load_full_universe() -> list[dict]:
+    """Build the whole-market universe by merging the two source DBs.
+
+    financials (mc.companies): the verified NSE symbol per sc_id.
+    pivot_enrich: full company name, yfinance sector, market cap (₹ absolute).
+
+    Cross-DB join happens here in Python (different physical DBs). Rows
+    without enrichment still appear (sector "Other", mcap null) — honest
+    presence beats silent omission. Sorted by market cap DESC, nulls last,
+    so page 1 is the large caps."""
+    from sqlalchemy import text as _text
+
+    from backend.database import EnrichSessionLocal, FinancialsSessionLocal
+
+    fin = FinancialsSessionLocal()
+    try:
+        sym_rows = fin.execute(
+            _text(
+                "SELECT sc_id, upper(nse_symbol) AS sym, company_name "
+                "FROM mc.companies "
+                "WHERE nse_symbol IS NOT NULL AND nse_symbol <> ''"
+            )
+        ).fetchall()
+    finally:
+        fin.close()
+
+    enrich: dict[str, dict] = {}
+    if EnrichSessionLocal is not None:
+        edb = EnrichSessionLocal()
+        try:
+            for r in edb.execute(
+                _text(
+                    "SELECT sc_id, long_name, sector, market_cap "
+                    "FROM enrich.v_company_enriched"
+                )
+            ).fetchall():
+                m = r._mapping
+                enrich[m["sc_id"]] = {
+                    "name": m["long_name"],
+                    "sector": m["sector"],
+                    "mcap": float(m["market_cap"]) if m["market_cap"] else None,
+                }
+        finally:
+            edb.close()
+
+    seen: set[str] = set()
+    out: list[dict] = []
+    for row in sym_rows:
+        sc_id, sym, mc_name = row[0], row[1], row[2]
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        e = enrich.get(sc_id) or {}
+        label = (e.get("sector") or "Other").strip() or "Other"
+        mcap = e.get("mcap")
+        out.append({
+            "symbol": sym,
+            "name": (e.get("name") or mc_name or sym).strip(),
+            "sector": _sector_slug(label),
+            "sector_label": label,
+            # yfinance market cap is absolute ₹; 1 crore = 1e7.
+            "mcap_cr": int(mcap / 1e7) if mcap else None,
+        })
+    out.sort(key=lambda r: (r["mcap_cr"] is None, -(r["mcap_cr"] or 0)))
+    return out
+
+
+def _full_universe() -> list[dict]:
+    """Redis-cached whole-market universe. On a cold cache the build costs
+    two cross-DB queries (~1-2s); everyone after reads the warm entry."""
+    try:
+        raw = redis_client.get(_UNIVERSE_CACHE_KEY)
+        if raw:
+            data = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
+            parsed = json.loads(data)
+            if isinstance(parsed, list) and parsed:
+                return parsed
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[screener] universe cache read failed: %s", exc)
+
+    with _universe_lock:
+        # Re-check under the lock — another request may have just warmed it.
+        try:
+            raw = redis_client.get(_UNIVERSE_CACHE_KEY)
+            if raw:
+                data = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
+                parsed = json.loads(data)
+                if isinstance(parsed, list) and parsed:
+                    return parsed
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            uni = _load_full_universe()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[screener] full universe build failed: %s", exc)
+            # Degrade to the curated universe rather than an empty grid.
+            uni = [
+                {
+                    "symbol": r.symbol,
+                    "name": r.name or r.symbol,
+                    "sector": r.sector,
+                    "sector_label": _label_for_sector(r.sector),
+                    "mcap_cr": r.mcap_cr,
+                }
+                for r in _SECTOR_UNIVERSE
+            ]
+        if uni:
+            try:
+                redis_client.set(
+                    _UNIVERSE_CACHE_KEY, json.dumps(uni), ex=_UNIVERSE_TTL_SECONDS
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[screener] universe cache write failed: %s", exc)
+        return uni
+
+
+def _merge_fundamentals_cache(new_entries: dict[str, dict]) -> None:
+    """Read-merge-write the shared fundamentals map (best-effort)."""
+    if not new_entries:
+        return
+    try:
+        raw = redis_client.get(_FUND_CACHE_KEY)
+        cur = json.loads(raw.decode() if isinstance(raw, (bytes, bytearray)) else raw) if raw else {}
+    except Exception:  # noqa: BLE001
+        cur = {}
+    cur.update(new_entries)
+    try:
+        redis_client.set(_FUND_CACHE_KEY, json.dumps(cur), ex=_FUND_CACHE_TTL_SECONDS)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[screener] fundamentals cache merge failed: %s", exc)
+
+
+def _kick_full_fundamentals_warm(symbols: list[str]) -> None:
+    """Warm PE/ROE for the WHOLE universe in background chunks, merging into
+    the shared map after each chunk so results improve while the user browses.
+    Single-flight; never raises."""
+    global _fund_warm_running
+    with _fund_warm_lock:
+        if _fund_warm_running:
+            return
+        _fund_warm_running = True
+
+    def _run() -> None:
+        global _fund_warm_running
+        try:
+            for i in range(0, len(symbols), _FUND_WARM_CHUNK):
+                chunk = symbols[i : i + _FUND_WARM_CHUNK]
+                fmap = _fetch_fundamentals_map(chunk)
+                _merge_fundamentals_cache(fmap)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[screener] fundamentals warm failed: %s", exc)
+        finally:
+            with _fund_warm_lock:
+                _fund_warm_running = False
+
+    threading.Thread(target=_run, name="screener-fund-warm", daemon=True).start()
+
+
+def _kick_page_metrics_warm(symbols: list[str]) -> None:
+    """Warm price/1y metrics for a page's symbols in the background and merge
+    them into the shared metrics map. Small batches (≤ a page) so a deep-scroll
+    session progressively fills without ever blocking a request."""
+    global _page_metrics_running
+    syms = [s for s in symbols if s]
+    if not syms:
+        return
+    with _page_metrics_lock:
+        if _page_metrics_running:
+            return
+        _page_metrics_running = True
+
+    def _run() -> None:
+        global _page_metrics_running
+        try:
+            metrics, source = _compute_market_metrics(syms)
+            if metrics:
+                try:
+                    raw = redis_client.get(_METRICS_CACHE_KEY)
+                    parsed = (
+                        json.loads(raw.decode() if isinstance(raw, (bytes, bytearray)) else raw)
+                        if raw
+                        else {"m": {}, "src": source}
+                    )
+                    parsed.setdefault("m", {}).update(metrics)
+                    # Keep the strongest source label we've seen.
+                    if source == "kite" or parsed.get("src") == "warming":
+                        parsed["src"] = source
+                    redis_client.set(
+                        _METRICS_CACHE_KEY, json.dumps(parsed), ex=_METRICS_TTL_SECONDS
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("[screener] page metrics merge failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[screener] page metrics warm failed: %s", exc)
+        finally:
+            with _page_metrics_lock:
+                _page_metrics_running = False
+
+    threading.Thread(target=_run, name="screener-page-metrics", daemon=True).start()
+
+
 # ── Stocks endpoint ───────────────────────────────────────────────────
 
 
@@ -451,24 +670,34 @@ def get_screener_stocks(
         None, description="min 1y return %% — not served (always filters to none)"
     ),
     sort_by: str = Query("market_cap_cr"),
-    limit: int = Query(100, ge=1, le=300),
+    sort_dir: Optional[str] = Query(
+        None, pattern="^(asc|desc)$",
+        description="override the default direction for the sort field",
+    ),
+    limit: int = Query(60, ge=1, le=300),
+    offset: int = Query(0, ge=0),
     _user_id: int = Depends(require_user),
 ) -> ScreenerStocksResponse:
     notes: list[str] = []
 
-    # ── 1. Start from the curated universe, apply the cheap filters first ──
-    rows = list(_SECTOR_UNIVERSE)
+    # ── 1. Start from the WHOLE market universe (every verified NSE name),
+    # apply the cheap filters first. Paginated below — the FE loads pages
+    # incrementally, but filters/sorts always run over the full universe.
+    universe = _full_universe()
+    rows = universe
 
     if sector:
-        normalized = normalize_sector(sector)
-        if normalized is None:
-            notes.append(f"unknown sector {sector!r} — sector filter ignored")
-        elif normalized == "metals":
-            # "metals" promotes steel (steel IS a metal in the user's model),
-            # matching services.sector_universe.query_screener semantics.
-            rows = [r for r in rows if r.sector in ("metals", "steel")]
+        want = _sector_slug(sector)
+        # Back-compat: canonical curated keys (e.g. "private_bank") won't
+        # match yfinance sector slugs — fall back to a substring match so
+        # old links degrade gracefully instead of to zero rows.
+        matched = [r for r in rows if r["sector"] == want]
+        if not matched:
+            matched = [r for r in rows if want in r["sector"]]
+        if matched:
+            rows = matched
         else:
-            rows = [r for r in rows if r.sector == normalized]
+            notes.append(f"unknown sector {sector!r} — sector filter ignored")
 
     if mcap_tier:
         tier = _MCAP_TIER_ALIASES.get(mcap_tier.strip().lower())
@@ -477,15 +706,26 @@ def get_screener_stocks(
         else:
             lo, hi = _MCAP_TIERS[tier]
             if lo is not None:
-                rows = [r for r in rows if r.mcap_cr >= lo]
+                rows = [r for r in rows if (r["mcap_cr"] or 0) >= lo]
             if hi is not None:
-                rows = [r for r in rows if r.mcap_cr < hi]
+                rows = [r for r in rows if (r["mcap_cr"] or 0) < hi]
 
     # ── 2. Hydrate fundamentals + market metrics from the Redis-cached maps ──
-    # (Filtering happens in memory below; one warm cache entry serves every
-    # sector/cap/valuation/sort combination — see _fundamentals_map_cached.)
+    # Fundamentals for a ~2,500-name universe warm in background chunks; the
+    # page being served is topped up synchronously below so the visible rows
+    # always carry real PE/ROE.
     fmap = _fundamentals_map_cached()
     mmap, msource = _market_metrics_cached()  # price/change/1y map + its source
+
+    # Coverage-driven warm: if a meaningful slice of the universe has no
+    # fundamentals yet, kick the chunked background warm (single-flight).
+    if len(fmap) < len(universe) * 0.9:
+        _kick_full_fundamentals_warm([r["symbol"] for r in universe])
+        if pe_max is not None or roe_min is not None or sort_by in ("pe", "roe"):
+            notes.append(
+                "fundamentals are still warming for the full market — more rows "
+                "will match this filter shortly"
+            )
 
     def _metric(sym: str, key: str) -> Optional[float]:
         rec = fmap.get(sym.upper())
@@ -503,8 +743,8 @@ def get_screener_stocks(
 
     enriched: list[ScreenerStock] = []
     for r in rows:
-        pe = _metric(r.symbol, "pe")
-        roe = _metric(r.symbol, "roe")
+        pe = _metric(r["symbol"], "pe")
+        roe = _metric(r["symbol"], "roe")
 
         # Fundamental filters: a row whose metric is null is EXCLUDED when a
         # threshold on that metric is set (we can't assert it passes), but kept
@@ -518,15 +758,15 @@ def get_screener_stocks(
 
         enriched.append(
             ScreenerStock(
-                symbol=r.symbol,
-                name=r.name or r.symbol,
-                sector=r.sector,
-                market_cap_cr=r.mcap_cr,
-                price=_mkt(r.symbol, "price"),
-                change_pct=_mkt(r.symbol, "change_pct"),
+                symbol=r["symbol"],
+                name=r["name"] or r["symbol"],
+                sector=r["sector"],
+                market_cap_cr=r["mcap_cr"],
+                price=_mkt(r["symbol"], "price"),
+                change_pct=_mkt(r["symbol"], "change_pct"),
                 pe=pe,
                 roe=roe,
-                one_year_pct=_mkt(r.symbol, "one_year_pct"),
+                one_year_pct=_mkt(r["symbol"], "one_year_pct"),
                 div_yield=None,
                 logo_url=None,  # hydrated in ONE batch after sort+slice (below)
             )
@@ -554,11 +794,14 @@ def get_screener_stocks(
         sf = "market_cap_cr"
 
     if sf in ("symbol", "name"):
-        enriched.sort(key=lambda s: (getattr(s, sf) or "").lower())
+        enriched.sort(
+            key=lambda s: (getattr(s, sf) or "").lower(),
+            reverse=sort_dir == "desc",
+        )
     else:
-        # Numeric metrics: descending (top first), nulls last regardless of
-        # direction so a missing PE/ROE never floats to the top of the grid.
-        desc = sf != "pe"  # cheaper P/E first is the natural "cheap" sort
+        # Numeric metrics: descending (top first) by default, nulls last
+        # regardless of direction so a missing PE/ROE never floats to the top.
+        desc = (sort_dir == "desc") if sort_dir else (sf != "pe")
         enriched.sort(
             key=lambda s: (
                 getattr(s, sf) is None,
@@ -566,17 +809,41 @@ def get_screener_stocks(
             )
         )
 
-    enriched = enriched[:limit]
+    total = len(enriched)
+    enriched = enriched[offset : offset + limit]
 
-    # ── 4b. Hydrate logos for the FINAL page in ONE batch (cold-start fix) ──
+    # ── 4b. Page top-up: synchronously fetch PE/ROE for JUST the visible
+    # page's symbols that the warm map doesn't cover yet (bounded ≤ limit —
+    # the same latency class the old 80-name fetch had), and merge the
+    # result back so the next pages/callers benefit.
+    missing = [s.symbol for s in enriched if s.symbol.upper() not in fmap]
+    if missing:
+        topup = _fetch_fundamentals_map(missing)
+        if topup:
+            _merge_fundamentals_cache(topup)
+            for s in enriched:
+                rec = topup.get(s.symbol.upper())
+                if rec:
+                    if s.pe is None and rec.get("pe") is not None:
+                        s.pe = round(float(rec["pe"]), 2)
+                    if s.roe is None and rec.get("roe") is not None:
+                        s.roe = round(float(rec["roe"]), 2)
+
+    # Prices for the page fill in from a small background batch (never
+    # blocks the request) merged into the shared metrics map.
+    page_missing_mkt = [
+        s.symbol for s in enriched if s.symbol.upper() not in mmap
+    ]
+    if page_missing_mkt:
+        _kick_page_metrics_warm(page_missing_mkt)
+
+    # ── 4c. Hydrate logos for the FINAL page in ONE batch (cold-start fix) ──
     # Per-row logo resolution was a cold-call N+1 (~2 remote DB queries × every
     # row). Resolve only the symbols that survived the sort+slice, all at once.
     logo_map = _logo_map([s.symbol for s in enriched])
     for s in enriched:
         s.logo_url = logo_map.get(s.symbol.upper())
 
-    if not fmap:
-        notes.append("fundamentals source unavailable — PE shown as —")
     if msource == "warming":
         notes.append(
             "live prices warming up — price / day change / 1-year return fill in "
@@ -592,6 +859,8 @@ def get_screener_stocks(
 
     return ScreenerStocksResponse(
         count=len(enriched),
+        total=total,
+        offset=offset,
         results=enriched,
         null_metrics=["div_yield"],
         note="; ".join(notes),
@@ -648,16 +917,19 @@ def search_screener(
 def get_screener_sectors(
     _user_id: int = Depends(require_user),
 ) -> ScreenerSectorsResponse:
-    counts: dict[str, int] = {}
-    for r in _SECTOR_UNIVERSE:
-        counts[r.sector] = counts.get(r.sector, 0) + 1
+    """Sector rail derived from the FULL market universe (enrich sectors),
+    so the filter counts agree with what /stocks actually serves."""
+    counts: dict[str, tuple[str, int]] = {}
+    for r in _full_universe():
+        key = r["sector"]
+        label = r.get("sector_label") or _label_for_sector(key)
+        prev = counts.get(key)
+        counts[key] = (label, (prev[1] if prev else 0) + 1)
 
     sectors = [
-        ScreenerSector(
-            sector=name,
-            label=_label_for_sector(name),
-            count=counts.get(name, 0),
+        ScreenerSector(sector=key, label=label, count=n)
+        for key, (label, n) in sorted(
+            counts.items(), key=lambda kv: -kv[1][1]
         )
-        for name in known_sectors()
     ]
     return ScreenerSectorsResponse(sectors=sectors)

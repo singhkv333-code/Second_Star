@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StockHoverActions } from "@/components/StockHoverActions";
 import {
   getPortfolioHoldings,
   getPortfolioSummary,
@@ -1550,6 +1551,8 @@ function HoldingRow({
   const sector = SECTOR_MAP[h.tradingsymbol];
   const pnlPos = h.pnl >= 0;
   const dayPos = h.day_change_percentage >= 0;
+  // Kite-style quick-action bar, revealed while the row is hovered.
+  const [hovered, setHovered] = useState(false);
 
   return (
     <tr
@@ -1557,11 +1560,31 @@ function HoldingRow({
         borderBottom: "1px solid var(--glass-border)",
         transition: "background 150ms",
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--bg-secondary)";
+        setHovered(true);
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        setHovered(false);
+      }}
       data-testid={`holding-${h.tradingsymbol}`}
     >
-      <td style={{ padding: "16px 18px" }}>
+      <td style={{ padding: "16px 18px", position: "relative" }}>
+        {hovered && (
+          <StockHoverActions
+            symbol={h.tradingsymbol}
+            logoUrl={logoUrl}
+            className="absolute"
+            style={{
+              top: "50%",
+              transform: "translateY(-50%)",
+              left: "100%",
+              marginLeft: 6,
+              zIndex: 5,
+            }}
+          />
+        )}
         <div className="inline-flex items-center" style={{ gap: 12 }}>
           <HoldingGlyph symbol={h.tradingsymbol} hueKey={sector} logoUrl={logoUrl} />
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>

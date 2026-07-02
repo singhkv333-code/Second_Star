@@ -27,6 +27,7 @@ import {
   FUND_CATEGORIES,
 } from "./screenerData";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import { StockHoverActions } from "@/components/StockHoverActions";
 import {
   useWatchlists,
   setActiveWatchlist,
@@ -42,6 +43,7 @@ import {
   type ScreenerStocksResponse,
   type ScreenerSector,
   type ScreenerMcapTier,
+  type ScreenerSortBy,
 } from "@/lib/screenerApi";
 
 // ── Formatters ───────────────────────────────────────────
@@ -310,18 +312,37 @@ const STOCK_PRESETS: {
 const _stocksCache = new Map<string, ScreenerStocksResponse>();
 let _sectorsCache: ScreenerSector[] | null = null;
 
-/** Server-side query params for a filter combo. Sorting is done client-side
- *  over the full fetched page (the ~80-name universe fits in one request), so
- *  neither the sort key nor its direction is part of the params/cache key —
- *  changing the sort re-orders in place and never refetches. */
-function buildStockParams(filters: StockFilters): ScreenerStocksParams {
+/** The grid now serves the WHOLE market (~4.6k names) incrementally — pages
+ *  of PAGE_SIZE, appended by an infinite-scroll sentinel. Filters and the
+ *  server-sortable keys run over the full universe on the backend; the
+ *  price-ish columns (no full-universe source) sort client-side over the
+ *  loaded rows. */
+const PAGE_SIZE = 60;
+
+/** Sort keys the backend can order the FULL universe by. The rest
+ *  (price / change / 1-Y) only exist for warmed symbols, so they sort
+ *  client-side over what's loaded. */
+const SERVER_SORT_KEYS: Partial<Record<StockSortKey, ScreenerSortBy>> = {
+  symbol: "symbol",
+  market_cap_cr: "market_cap_cr",
+  pe: "pe",
+};
+
+function buildStockParams(
+  filters: StockFilters,
+  sort?: StockSort,
+  offset = 0,
+): ScreenerStocksParams {
+  const serverKey = sort ? SERVER_SORT_KEYS[sort.key] : undefined;
   return {
     sector: filters.sector || undefined,
     mcap_tier: filters.mcap_tier || undefined,
     pe_max: filters.pe_max !== "" ? Number(filters.pe_max) : undefined,
     roe_min: filters.roe_min !== "" ? Number(filters.roe_min) : undefined,
-    sort_by: "market_cap_cr", // stable server default; client re-sorts below
-    limit: 200,
+    sort_by: serverKey ?? "market_cap_cr",
+    sort_dir: serverKey && sort ? (sort.dir === 1 ? "asc" : "desc") : undefined,
+    limit: PAGE_SIZE,
+    offset,
   };
 }
 
@@ -331,6 +352,9 @@ function stocksCacheKey(p: ScreenerStocksParams): string {
     p.mcap_tier ?? "",
     p.pe_max ?? "",
     p.roe_min ?? "",
+    p.sort_by ?? "",
+    p.sort_dir ?? "",
+    p.offset ?? 0,
     p.limit ?? 0,
   ]);
 }
@@ -531,9 +555,11 @@ function StocksScreen({
 
   // Seed state from the session cache so a return trip to the tab paints the
   // last-seen rows on the FIRST frame (no skeleton). The initial params match
-  // the effect's first run exactly (empty filters).
+  // the effect's first run exactly (empty filters, default sort, page 0).
   const _initialStocks = _stocksCache.get(
-    stocksCacheKey(buildStockParams(EMPTY_STOCK_FILTERS)),
+    stocksCacheKey(
+      buildStockParams(EMPTY_STOCK_FILTERS, { key: "market_cap_cr", dir: -1 }),
+    ),
   );
   const [rows, setRows] = useState<ScreenerStock[]>(
     () => _initialStocks?.results ?? [],
@@ -541,6 +567,10 @@ function StocksScreen({
   const [note, setNote] = useState(() => _initialStocks?.note ?? "");
   const [loading, setLoading] = useState(() => _initialStocks === undefined);
   const [error, setError] = useState<string | null>(null);
+  // Whole-universe row count for the active filters ("Showing N of M" +
+  // the infinite-scroll cutoff).
+  const [total, setTotal] = useState(() => _initialStocks?.total ?? 0);
+  const [loadingMore, setLoadingMore] = useState(false);
   // Bumped by the "metrics warming" poll to re-run the fetch effect (and its
   // background revalidation) until live price/change/1-Y columns fill in.
   const [reloadTick, setReloadTick] = useState(0);
@@ -563,17 +593,21 @@ function StocksScreen({
     return () => ctrl.abort();
   }, []);
 
-  // ── Load stocks whenever filters change (stale-while-revalidate) ──
+  // ── Load page 0 whenever filters / server-sort change (SWR) ──
   // On a cache hit we paint immediately and refresh silently in the background;
-  // on a miss we show the skeleton. Either way we always revalidate so cached
-  // rows never go stale. Sorting is client-side (below), so it's not a dep.
+  // on a miss we show the skeleton. Changing to a server-sortable key refetches
+  // (the ORDER spans the whole universe); the price-ish keys re-sort loaded
+  // rows client-side and don't appear in the params, so they never refetch.
+  const serverSortKey = SERVER_SORT_KEYS[sort.key] ?? null;
+  const serverSortDir = serverSortKey ? sort.dir : null;
   useEffect(() => {
-    const params = buildStockParams(filters);
+    const params = buildStockParams(filters, sort, 0);
     const key = stocksCacheKey(params);
     const cached = _stocksCache.get(key);
 
     if (cached) {
       setRows(cached.results);
+      setTotal(cached.total ?? cached.results.length);
       setNote(cached.note || "");
       setError(null);
       setLoading(false);
@@ -591,18 +625,42 @@ function StocksScreen({
         if (!cached) {
           setError(res.error.message || "Could not load stocks.");
           setRows([]);
+          setTotal(0);
           setNote("");
         }
       } else {
         _stocksCache.set(key, res.data);
         setRows(res.data.results);
+        setTotal(res.data.total ?? res.data.results.length);
         setNote(res.data.note || "");
         setError(null);
       }
       setLoading(false);
     });
     return () => ctrl.abort();
-  }, [filters, reloadTick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, serverSortKey, serverSortDir, reloadTick]);
+
+  // ── Infinite scroll: append the next page when the sentinel shows ──
+  const loadMore = useCallback((): void => {
+    if (loadingMore || loading) return;
+    setLoadingMore(true);
+    const params = buildStockParams(filters, sort, rows.length);
+    getScreenerStocks(params).then((res) => {
+      if (!isError(res)) {
+        setRows((prev) => {
+          // Dedupe on append — a filter change racing a slow page fetch
+          // must not duplicate symbols.
+          const seen = new Set(prev.map((r) => r.symbol));
+          return [...prev, ...res.data.results.filter((r) => !seen.has(r.symbol))];
+        });
+        setTotal(res.data.total ?? total);
+        if (res.data.note) setNote(res.data.note);
+      }
+      setLoadingMore(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, sort, rows.length, loadingMore, loading, total]);
 
   // Metrics warming poll — the backend serves price/change/1-Y from a cache it
   // fills on a background thread, so a cold grid arrives with those columns
@@ -620,17 +678,19 @@ function StocksScreen({
     const t = setTimeout(() => {
       warmTriesRef.current += 1;
       // Drop the cache entry so the revalidation actually hits the server.
-      _stocksCache.delete(stocksCacheKey(buildStockParams(filters)));
+      _stocksCache.delete(stocksCacheKey(buildStockParams(filters, sort, 0)));
       setReloadTick((x) => x + 1);
     }, 5000);
     return () => clearTimeout(t);
-  }, [rows, filters]);
+  }, [rows, filters, sort]);
 
-  // Client-side sort over the fetched page (whole universe fits in one request).
-  // Missing values always sink to the bottom, regardless of direction, so an
-  // unpriced or unrated row never floats to the top.
+  // Sort: the server orders the whole universe for its supported keys (the
+  // loaded pages are already in order); the price-ish columns sort
+  // client-side over the LOADED rows. Missing values always sink to the
+  // bottom so an unpriced/unrated row never floats to the top.
   const displayRows = useMemo(() => {
     const { key, dir } = sort;
+    if (SERVER_SORT_KEYS[key]) return rows;
     const valued = rows.filter((r) => sortValue(r, key) != null);
     const nulls = rows.filter((r) => sortValue(r, key) == null);
     valued.sort((a, b) => {
@@ -691,7 +751,7 @@ function StocksScreen({
       sectors={sectors}
       mobileOpen={mobileFiltersOpen}
       onMobileClose={() => setMobileFiltersOpen(() => false)}
-      resultCount={rows.length}
+      resultCount={total}
     />
   );
 
@@ -710,6 +770,7 @@ function StocksScreen({
             <span style={{ color: "var(--color-loss)" }}>Couldn&apos;t load stocks</span>
           ) : (
             <>
+              Showing{" "}
               <span
                 style={{
                   color: "var(--text-primary)",
@@ -718,7 +779,7 @@ function StocksScreen({
               >
                 {rows.length}
               </span>{" "}
-              stock{rows.length === 1 ? "" : "s"} match
+              of {total.toLocaleString("en-IN")} stock{total === 1 ? "" : "s"}
               {activeFilterCount > 0 &&
                 ` · ${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} active`}
             </>
@@ -796,6 +857,10 @@ function StocksScreen({
           sectorLabel={sectorLabel}
           onResetFilters={reset}
           hasFilters={activeFilterCount > 0}
+          total={total}
+          hasMore={rows.length < total}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
         />
       </div>
     </>
@@ -1532,6 +1597,10 @@ function StockResultsTable({
   sectorLabel,
   onResetFilters,
   hasFilters,
+  total,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   rows: ScreenerStock[];
   loading: boolean;
@@ -1542,8 +1611,31 @@ function StockResultsTable({
   sectorLabel: (key: string) => string;
   onResetFilters: () => void;
   hasFilters: boolean;
+  /** Whole-universe row count for the active filters. */
+  total: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }): React.ReactElement {
   const router = useRouter();
+  // Kite-style quick-action bar target — the symbol of the hovered row.
+  const [hoverSym, setHoverSym] = useState<string | null>(null);
+  // Infinite scroll — when the sentinel below the table enters the scroll
+  // viewport, pull the next page. Depends on onLoadMore identity so a
+  // filter change re-arms with the fresh closure.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onLoadMore();
+      },
+      { root: el.closest(".screener-results"), rootMargin: "400px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore, onLoadMore]);
   return (
     <div
       className="screener-results quartr-no-scrollbar"
@@ -1673,6 +1765,7 @@ function StockResultsTable({
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "var(--bg-secondary)";
+                  setHoverSym(row.symbol);
                   // Warm the stock-page route (RSC payload + the Recharts chart
                   // bundle) on hover so the click→chart transition is instant
                   // instead of cold-loading the whole page + chart lib.
@@ -1680,6 +1773,7 @@ function StockResultsTable({
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "transparent";
+                  setHoverSym((s) => (s === row.symbol ? null : s));
                 }}
               >
                 {STOCK_COLUMNS.map((c) => (
@@ -1690,9 +1784,28 @@ function StockResultsTable({
                       textAlign: c.align,
                       color: "var(--text-primary)",
                       fontFamily: c.align === "right" ? "var(--font-mono)" : "var(--font-ui)",
+                      // The symbol cell hosts the hover quick-action bar.
+                      ...(c.id === "symbol" ? { position: "relative" as const } : {}),
                     }}
                   >
                     {renderStockCell(row, c, sectorLabel)}
+                    {/* Kite-style quick actions — overlay the columns to the
+                        right of the name while this row is hovered. */}
+                    {c.id === "symbol" && hoverSym === row.symbol && (
+                      <StockHoverActions
+                        symbol={row.symbol}
+                        name={row.name}
+                        logoUrl={row.logo_url}
+                        className="absolute"
+                        style={{
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          left: "100%",
+                          marginLeft: 6,
+                          zIndex: 5,
+                        }}
+                      />
+                    )}
                   </td>
                 ))}
               </tr>
@@ -1700,6 +1813,51 @@ function StockResultsTable({
           )}
         </tbody>
       </table>
+
+      {/* Infinite-scroll sentinel + progress footer. The observer pulls the
+          next page ~400px before this becomes visible, so scrolling feels
+          continuous; the footer is the honest "how much of the market am I
+          looking at" indicator. */}
+      {!loading && !error && rows.length > 0 && (
+        <div
+          ref={sentinelRef}
+          data-testid="screener-load-more"
+          style={{
+            padding: "14px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            fontSize: 11.5,
+            color: "var(--text-tertiary)",
+            fontFamily: "var(--font-ui)",
+          }}
+        >
+          {loadingMore ? (
+            <>Loading more…</>
+          ) : hasMore ? (
+            <button
+              type="button"
+              onClick={onLoadMore}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--glass-border)",
+                borderRadius: "var(--radius-pill)",
+                padding: "6px 14px",
+                fontSize: 11.5,
+                color: "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                cursor: "pointer",
+              }}
+            >
+              Load more ({rows.length.toLocaleString("en-IN")} of{" "}
+              {total.toLocaleString("en-IN")})
+            </button>
+          ) : (
+            <>All {total.toLocaleString("en-IN")} shown</>
+          )}
+        </div>
+      )}
 
       {!loading && !error && note && (
         <div

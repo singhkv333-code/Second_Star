@@ -110,6 +110,24 @@ export function AgentPanel({
     return () => mq.removeEventListener("change", handler);
   }, []);
 
+  // Publish the panel's effective width as a global CSS variable so the
+  // chat surface can compress instead of being hidden behind the overlay
+  // (draft cards / backtest charts stayed covered before). Desktop only —
+  // below lg the panel is 100vw/50vw via globals.css and the chat isn't
+  // usable alongside it anyway. Cleared on close/unmount.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (open && isDesktop) {
+      root.style.setProperty("--side-panel-width", `${panelWidth}px`);
+    } else {
+      root.style.setProperty("--side-panel-width", "0px");
+    }
+    return () => {
+      root.style.setProperty("--side-panel-width", "0px");
+    };
+  }, [open, isDesktop, panelWidth]);
+
   // Esc-to-close.
   useEffect(() => {
     if (!open) return;

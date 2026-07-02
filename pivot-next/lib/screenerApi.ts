@@ -52,6 +52,10 @@ export type ScreenerStock = {
 
 export type ScreenerStocksResponse = {
   count: number;
+  /** Total rows matching the filters across the WHOLE universe (paging). */
+  total: number;
+  /** Echo of the requested offset for this page. */
+  offset: number;
   results: ScreenerStock[];
   /** Row metrics this endpoint does not serve — render "—", not "screened out". */
   null_metrics: string[];
@@ -97,7 +101,11 @@ export type ScreenerStocksParams = {
   dy_min?: number;
   ret_min?: number;
   sort_by?: ScreenerSortBy;
+  /** Overrides the field's default direction (server nulls always sink). */
+  sort_dir?: "asc" | "desc";
   limit?: number;
+  /** Page start — the grid loads the whole universe incrementally. */
+  offset?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -229,7 +237,9 @@ export function getScreenerStocks(
       dy_min: params.dy_min,
       ret_min: params.ret_min,
       sort_by: params.sort_by,
+      sort_dir: params.sort_dir,
       limit: params.limit,
+      offset: params.offset,
     },
     signal,
   );

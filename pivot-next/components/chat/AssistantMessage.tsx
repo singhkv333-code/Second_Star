@@ -4,6 +4,7 @@ import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import { SmartMarkdownTable } from "@/components/chat/SmartMarkdownTable";
 
 type Props = {
   text: string;
@@ -128,24 +129,12 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
               {children}
             </pre>
           ),
-          table: ({ children }) => (
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full border-collapse text-sm">{children}</table>
-            </div>
-          ),
-          thead: ({ children }) => (
-            <thead className="bg-muted/50 text-left">{children}</thead>
-          ),
-          th: ({ children }) => (
-            <th className="border-b border-border px-3 py-2 font-medium text-foreground">
-              {children}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td className="border-b border-border/60 px-3 py-2 align-top text-foreground">
-              {children}
-            </td>
-          ),
+          // Tables render through SmartMarkdownTable: sortable numeric/name
+          // columns, ink-black header, per-cell borders, company cells
+          // linked to /stock/[symbol], Kite-style hover quick actions.
+          // It consumes the raw hast node and re-renders the table itself,
+          // so the thead/th/td component overrides below never fire.
+          table: ({ node }) => <SmartMarkdownTable node={node} />,
         }}
       >
         {text}
