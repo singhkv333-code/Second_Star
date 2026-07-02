@@ -298,6 +298,185 @@ def model_long_straddle(
     }
 
 
+def model_long_strangle(
+    *,
+    sigma_annual: float,
+    horizon_days: int,
+    offset_pct: float,
+    r: float = DEFAULT_R,
+    underlying_label: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Model an OTM long strangle (BUY call at +offset, BUY put at −offset) —
+    the cheaper two-sided structure for shock views. Same honesty contract as
+    the straddle: max loss is the full premium, profit uncapped beyond either
+    breakeven, POP is the lognormal probability of finishing outside them."""
+    if sigma_annual <= 0 or horizon_days <= 0 or offset_pct < 0:
+        return None
+    s = 100.0
+    kc, kp = s * (1.0 + offset_pct / 100.0), s * (1.0 - offset_pct / 100.0)
+    t = horizon_days / 252.0
+    sigma = float(sigma_annual)
+
+    call = bs_price(s, kc, t, r, sigma, True)
+    put = bs_price(s, kp, t, r, sigma, False)
+    prem = max(call + put, 1e-6)
+    be_up, be_dn = kc + prem, kp - prem
+    pop = (_terminal_prob_above(s, be_up, t, r, sigma)
+           + (1.0 - _terminal_prob_above(s, be_dn, t, r, sigma)))
+    gc, gp = bs_greeks(s, kc, t, r, sigma, True), bs_greeks(s, kp, t, r, sigma, False)
+
+    payoff: list[dict[str, float]] = []
+    steps = 51
+    for i in range(steps):
+        move = -25.0 + 50.0 * i / (steps - 1)
+        term = s * (1.0 + move / 100.0)
+        pnl_pts = max(term - kc, 0.0) + max(kp - term, 0.0) - prem
+        payoff.append({"move_pct": round(move, 2),
+                       "pnl_pct": round(pnl_pts / prem * 100.0, 1)})
+
+    return {
+        "structure": "long_strangle",
+        "direction": "two_sided",
+        "underlying_label": underlying_label,
+        "legs": [
+            {"action": "BUY", "option_type": "CE",
+             "strike_pct": round(kc, 1), "strike_label": f"+{offset_pct:.0f}%"},
+            {"action": "BUY", "option_type": "PE",
+             "strike_pct": round(kp, 1), "strike_label": f"-{offset_pct:.0f}%"},
+        ],
+        "net_premium_pct": round(prem, 2),
+        "width_pct": round(offset_pct * 2.0, 1),
+        "max_loss_pct": -100.0,
+        "max_profit_pct": max(p["pnl_pct"] for p in payoff),
+        "max_profit_uncapped": True,
+        "breakeven_move_pct": round(max(be_up - s, s - be_dn) / s * 100.0, 2),
+        "pop_pct": round(pop * 100.0, 1),
+        "net_greeks": {
+            "delta": round(gc["delta"] + gp["delta"], 4),
+            "gamma": round(gc["gamma"] + gp["gamma"], 5),
+            "vega": round(gc["vega"] + gp["vega"], 4),
+            "theta": round(gc["theta"] + gp["theta"], 4),
+        },
+        "vol_used_pct": round(sigma * 100.0, 1),
+        "horizon_days": int(horizon_days),
+        "payoff": payoff,
+        "basis": "modelled_bs",
+        "assumptions": (
+            "Modelled with Black–Scholes at the underlying's realised volatility "
+            "and a stated risk-free rate on a reference spot of 100; final strikes "
+            "and premia are set at deploy. Max loss is capped at the premium paid; "
+            "profit is uncapped beyond either breakeven (shown over a ±25% move)."
+        ),
+    }
+
+
+def structure_premium_inr(
+    payload: Optional[dict[str, Any]],
+    *,
+    spot: float,
+    lot: Optional[int],
+) -> Optional[float]:
+    """Rupee cost of one lot of a modelled structure: net premium (% of a
+    normalised spot of 100) scaled to the real spot x lot. ``None`` when the
+    lot is unknown — stated, not guessed."""
+    if not payload or not lot or spot <= 0:
+        return None
+    prem_pct = payload.get("net_premium_pct")
+    if prem_pct is None or prem_pct <= 0:
+        return None
+    return float(prem_pct) / 100.0 * float(spot) * int(lot)
+
+
+# The furthest OTM strike the affordable-ticket search will consider. Beyond
+# ~25-30% OTM a listed strike rarely exists and the model premium stops being
+# meaningful — the honest answer past this point is "no affordable ticket".
+_MAX_OTM_OFFSET_PCT = 30.0
+
+
+def affordable_ticket(
+    *,
+    bullish: bool,
+    sigma_annual: float,
+    horizon_days: int,
+    spot: float,
+    lot: Optional[int],
+    budget_inr: float,
+    r: float = DEFAULT_R,
+    underlying: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """The cheapest honest option ticket: a LONG single option (CE if bullish,
+    PE if bearish) at the nearest-to-money strike whose premium x lot fits
+    ``budget_inr``.
+
+    Why long-single: under India's peak-margin rules only a pure long option
+    truly costs just its premium — any structure with a short leg (spreads,
+    condors) blocks SPAN margin far above a small ticket. So the small-ticket
+    search space is strike distance, not structure.
+
+    Returns the strike offset, estimated premium/lot, delta and the lognormal
+    probability of finishing past the breakeven — so the caller can SAY how
+    much of a longshot the ticket is. ``None`` when even the furthest sane
+    strike doesn't fit the budget (never a fabricated cheap ticket).
+    """
+    if (sigma_annual <= 0 or horizon_days <= 0 or spot <= 0
+            or not lot or budget_inr <= 0):
+        return None
+    s = 100.0
+    t = horizon_days / 252.0
+    sigma = float(sigma_annual)
+
+    def _cost(offset: float) -> float:
+        k = s * (1.0 + offset / 100.0) if bullish else s * (1.0 - offset / 100.0)
+        prem_pct = bs_price(s, k, t, r, sigma, bullish)
+        return prem_pct / 100.0 * spot * lot
+
+    if _cost(_MAX_OTM_OFFSET_PCT) > budget_inr:
+        return None
+    # Bisect for the smallest offset that fits the budget (cost is monotonic
+    # decreasing in OTM distance).
+    lo_off, hi_off = 0.0, _MAX_OTM_OFFSET_PCT
+    if _cost(0.0) <= budget_inr:
+        hi_off = 0.0
+    for _ in range(40):
+        if hi_off - lo_off < 0.05:
+            break
+        mid = (lo_off + hi_off) / 2.0
+        if _cost(mid) <= budget_inr:
+            hi_off = mid
+        else:
+            lo_off = mid
+    offset = round(hi_off, 1)
+
+    k = s * (1.0 + offset / 100.0) if bullish else s * (1.0 - offset / 100.0)
+    prem_pct = bs_price(s, k, t, r, sigma, bullish)
+    prem_inr = prem_pct / 100.0 * spot * lot
+    breakeven = k + prem_pct if bullish else k - prem_pct
+    pop = (_terminal_prob_above(s, breakeven, t, r, sigma) if bullish
+           else 1.0 - _terminal_prob_above(s, breakeven, t, r, sigma))
+    greeks = bs_greeks(s, k, t, r, sigma, bullish)
+
+    return {
+        "structure": "long_call" if bullish else "long_put",
+        "underlying": underlying,
+        "otm_offset_pct": offset,
+        "strike_label": ("ATM" if offset < 0.5
+                         else f"{'+' if bullish else '-'}{offset:.0f}%"),
+        "lot_size": int(lot),
+        "est_premium_per_lot_inr": round(prem_inr, 0),
+        "breakeven_move_pct": round(abs(breakeven - s), 2),
+        "pop_pct": round(pop * 100.0, 1),
+        "delta": round(greeks["delta"], 3),
+        "vol_used_pct": round(sigma * 100.0, 1),
+        "horizon_days": int(horizon_days),
+        "basis": "modelled_bs",
+        "note": (
+            "A single long option — the only structure whose true cash need is "
+            "just the premium (short legs block SPAN margin). The further the "
+            "strike, the cheaper the ticket and the less likely it pays."
+        ),
+    }
+
+
 def realized_vol_annual(daily_returns) -> Optional[float]:
     """Annualised realised vol from a daily-return series/iterable. ``None`` if
     fewer than ~20 finite observations (too thin to be meaningful)."""

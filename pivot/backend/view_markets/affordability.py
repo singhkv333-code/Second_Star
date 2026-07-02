@@ -33,11 +33,20 @@ from typing import Any, Optional
 # The product floor the user set: strategies should be enterable around here.
 ENTRY_FLOOR_INR = 800.0
 ENTRY_TARGET_INR = 1000.0
+# The small-ticket ceiling: spend up to here when the extra rupees buy real
+# diversification (holding the strategy's own names instead of stacking units
+# of a single instrument).
+ENTRY_BUDGET_INR = 2000.0
 
 # A lite basket is only offered when it still resembles the full strategy.
 _MIN_LITE_NAMES = 3
 _MAX_WEIGHT_DRIFT = 0.18        # max abs per-name drift (actual vs target)
 _MIN_DEPLOYED_FRAC = 0.65       # ≥65% of the budget must actually be invested
+
+# Core-satellite split: roughly half the budget buys the category ETF (the
+# broad exposure), the rest buys whole shares of the strategy's own top names.
+_CORE_FRAC = 0.5
+_MAX_SATELLITES = 3
 
 
 @dataclass
@@ -69,7 +78,7 @@ def lite_allocation(
     weights: dict[str, float],
     prices: dict[str, float],
     *,
-    budget: float = ENTRY_TARGET_INR,
+    budget: float = ENTRY_BUDGET_INR,
 ) -> LiteAllocation:
     """Integer-share allocation of ``budget`` toward ``weights`` at ``prices``.
 
@@ -155,6 +164,57 @@ def etf_route(
     }
 
 
+def core_satellite(
+    weights: dict[str, float],
+    prices: dict[str, float],
+    etf: dict[str, Any],
+    *,
+    budget: float = ENTRY_BUDGET_INR,
+) -> Optional[dict[str, Any]]:
+    """ETF core + own-name satellites — the anti-unit-stacking route.
+
+    When the strategy's names are too pricey to hold faithfully at a small
+    ticket, don't collapse to N units of one instrument: spend ~half the
+    budget on the category ETF (the broad exposure — each unit is itself a
+    diversified basket) and the rest on whole shares of the strategy's own
+    highest-weight names that fit. Returns ``None`` when no satellite fits
+    (a pure ETF route is then the honest answer)."""
+    px_etf = etf.get("last_price")
+    if px_etf is None or px_etf <= 0 or px_etf > budget * (_CORE_FRAC + 0.2):
+        return None
+    core_units = max(1, int(budget * _CORE_FRAC // px_etf))
+    core_cost = core_units * float(px_etf)
+
+    remaining = budget - core_cost
+    sats: list[dict[str, Any]] = []
+    for sym in sorted(weights, key=lambda s: -weights.get(s, 0.0)):
+        if len(sats) >= _MAX_SATELLITES:
+            break
+        px = prices.get(sym)
+        if px is None or not math.isfinite(px) or px <= 0 or px > remaining:
+            continue
+        sats.append({"symbol": sym, "shares": 1, "price": round(px, 2),
+                     "cost": round(px, 2), "role": "satellite",
+                     "weight_target": round(weights.get(sym, 0.0), 4)})
+        remaining -= px
+    if not sats:
+        return None
+    # Leftover cash tops up the core so the ticket deploys properly.
+    extra_units = int(remaining // px_etf)
+    core_units += extra_units
+    core_cost = core_units * float(px_etf)
+    total = core_cost + sum(s["cost"] for s in sats)
+    return {
+        "etf_leg": {
+            "symbol": etf.get("symbol"), "units": core_units,
+            "price": round(float(px_etf), 2), "cost": round(core_cost, 2),
+            "tracks": etf.get("tracks"), "role": "core",
+        },
+        "satellites": sats,
+        "total_cost": round(total, 2),
+    }
+
+
 def option_entry(
     *,
     spot: float,
@@ -181,6 +241,8 @@ def entry_block(
     prices: Optional[dict[str, float]] = None,
     etf: Optional[dict[str, Any]] = None,
     option: Optional[dict[str, Any]] = None,
+    small_ticket: Optional[dict[str, Any]] = None,
+    option_alternates: Optional[list[dict[str, Any]]] = None,
     as_of: Optional[str] = None,
 ) -> dict[str, Any]:
     """The per-expression ``entry`` block the pack/serving layer attaches.
@@ -215,6 +277,25 @@ def entry_block(
             if etf_leg:
                 block["etf_alternative"] = etf_leg
             return block
+        cs = core_satellite(weights, prices, etf) if etf else None
+        if cs:
+            sat_syms = ", ".join(s["symbol"] for s in cs["satellites"])
+            block.update({
+                "basis": "etf_core_plus_names",
+                "min_entry_inr": round(cs["total_cost"], 0),
+                "legs": [cs["etf_leg"], *cs["satellites"]],
+                "dropped": lite.dropped,
+                "note": (
+                    f"An ETF core plus the strategy's own top picks: "
+                    f"{cs['etf_leg']['units']} units of {cs['etf_leg']['symbol']} "
+                    f"({cs['etf_leg']['tracks']}) carry the broad exposure — each "
+                    f"unit is itself a diversified basket — and one share each of "
+                    f"{sat_syms} keeps the strategy's specific tilt." + hedge_note
+                ),
+            })
+            if etf_leg:
+                block["etf_alternative"] = etf_leg
+            return block
         if etf_leg:
             block.update({
                 "basis": "etf_substitute",
@@ -224,8 +305,8 @@ def entry_block(
                 "note": (
                     f"The full basket needs bigger capital to hold faithfully; the "
                     f"cheapest honest way in is {etf_leg['units']} unit(s) of "
-                    f"{etf_leg['symbol']} ({etf_leg['tracks']}) — the same exposure, "
-                    "one instrument." + hedge_note
+                    f"{etf_leg['symbol']} ({etf_leg['tracks']}) — one instrument, "
+                    "but each unit itself holds the full index basket." + hedge_note
                 ),
             })
             return block
@@ -254,6 +335,12 @@ def entry_block(
                 "note": "Minimum = one lot's net premium, fixed when the strikes are "
                         "picked at deploy.",
             })
+        if small_ticket:
+            # A DIFFERENT structure (single long far-OTM option) that fits a
+            # small budget — carried alongside, never sold as the same trade.
+            block["small_ticket"] = small_ticket
+        if option_alternates:
+            block["option_alternates"] = option_alternates
         return block
 
     if kind == "pair":

@@ -1,0 +1,1636 @@
+{
+ "generated_on": "2026-07-03",
+ "source": "Kite full instruments dump (front-expiry lot per underlying)",
+ "exchanges": {
+  "NFO": {
+   "360ONE": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 127,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ABB": {
+    "lot": 125,
+    "kind": "stock",
+    "n_contracts": 355,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ABCAPITAL": {
+    "lot": 3100,
+    "kind": "stock",
+    "n_contracts": 143,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ADANIENSOL": {
+    "lot": 675,
+    "kind": "stock",
+    "n_contracts": 219,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ADANIENT": {
+    "lot": 309,
+    "kind": "stock",
+    "n_contracts": 257,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ADANIGREEN": {
+    "lot": 600,
+    "kind": "stock",
+    "n_contracts": 317,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ADANIPORTS": {
+    "lot": 475,
+    "kind": "stock",
+    "n_contracts": 161,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ADANIPOWER": {
+    "lot": 3550,
+    "kind": "stock",
+    "n_contracts": 219,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ALKEM": {
+    "lot": 125,
+    "kind": "stock",
+    "n_contracts": 205,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "AMBER": {
+    "lot": 100,
+    "kind": "stock",
+    "n_contracts": 184,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "AMBUJACEM": {
+    "lot": 1050,
+    "kind": "stock",
+    "n_contracts": 187,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ANGELONE": {
+    "lot": 2500,
+    "kind": "stock",
+    "n_contracts": 173,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "APLAPOLLO": {
+    "lot": 350,
+    "kind": "stock",
+    "n_contracts": 219,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "APOLLOHOSP": {
+    "lot": 125,
+    "kind": "stock",
+    "n_contracts": 230,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ASHOKLEY": {
+    "lot": 5000,
+    "kind": "stock",
+    "n_contracts": 175,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ASIANPAINT": {
+    "lot": 250,
+    "kind": "stock",
+    "n_contracts": 254,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ASTRAL": {
+    "lot": 425,
+    "kind": "stock",
+    "n_contracts": 155,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "AUBANK": {
+    "lot": 1000,
+    "kind": "stock",
+    "n_contracts": 226,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "AUROPHARMA": {
+    "lot": 550,
+    "kind": "stock",
+    "n_contracts": 168,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "AXISBANK": {
+    "lot": 625,
+    "kind": "stock",
+    "n_contracts": 259,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BAJAJ-AUTO": {
+    "lot": 75,
+    "kind": "stock",
+    "n_contracts": 177,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BAJAJFINSV": {
+    "lot": 250,
+    "kind": "stock",
+    "n_contracts": 189,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BAJAJHLDNG": {
+    "lot": 50,
+    "kind": "stock",
+    "n_contracts": 207,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BAJFINANCE": {
+    "lot": 750,
+    "kind": "stock",
+    "n_contracts": 196,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BANDHANBNK": {
+    "lot": 3600,
+    "kind": "stock",
+    "n_contracts": 162,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BANKBARODA": {
+    "lot": 2925,
+    "kind": "stock",
+    "n_contracts": 226,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BANKINDIA": {
+    "lot": 5200,
+    "kind": "stock",
+    "n_contracts": 185,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BANKNIFTY": {
+    "lot": 30,
+    "kind": "index",
+    "n_contracts": 1370,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2027-03-30"
+   },
+   "BDL": {
+    "lot": 350,
+    "kind": "stock",
+    "n_contracts": 155,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BEL": {
+    "lot": 1425,
+    "kind": "stock",
+    "n_contracts": 170,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BHARATFORG": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 178,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BHARTIARTL": {
+    "lot": 475,
+    "kind": "stock",
+    "n_contracts": 154,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BHEL": {
+    "lot": 2625,
+    "kind": "stock",
+    "n_contracts": 341,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BIOCON": {
+    "lot": 2500,
+    "kind": "stock",
+    "n_contracts": 151,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BLUESTARCO": {
+    "lot": 325,
+    "kind": "stock",
+    "n_contracts": 231,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BOSCHLTD": {
+    "lot": 25,
+    "kind": "stock",
+    "n_contracts": 316,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BPCL": {
+    "lot": 1975,
+    "kind": "stock",
+    "n_contracts": 164,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BRITANNIA": {
+    "lot": 125,
+    "kind": "stock",
+    "n_contracts": 199,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "BSE": {
+    "lot": 375,
+    "kind": "stock",
+    "n_contracts": 154,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CAMS": {
+    "lot": 750,
+    "kind": "stock",
+    "n_contracts": 154,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CANBK": {
+    "lot": 6750,
+    "kind": "stock",
+    "n_contracts": 271,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CDSL": {
+    "lot": 475,
+    "kind": "stock",
+    "n_contracts": 140,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CGPOWER": {
+    "lot": 850,
+    "kind": "stock",
+    "n_contracts": 181,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CHOLAFIN": {
+    "lot": 625,
+    "kind": "stock",
+    "n_contracts": 185,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CIPLA": {
+    "lot": 375,
+    "kind": "stock",
+    "n_contracts": 243,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "COALINDIA": {
+    "lot": 1350,
+    "kind": "stock",
+    "n_contracts": 212,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "COCHINSHIP": {
+    "lot": 400,
+    "kind": "stock",
+    "n_contracts": 211,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "COFORGE": {
+    "lot": 375,
+    "kind": "stock",
+    "n_contracts": 137,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "COLPAL": {
+    "lot": 225,
+    "kind": "stock",
+    "n_contracts": 232,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CONCOR": {
+    "lot": 1250,
+    "kind": "stock",
+    "n_contracts": 206,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CROMPTON": {
+    "lot": 1800,
+    "kind": "stock",
+    "n_contracts": 209,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "CUMMINSIND": {
+    "lot": 200,
+    "kind": "stock",
+    "n_contracts": 197,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DABUR": {
+    "lot": 1250,
+    "kind": "stock",
+    "n_contracts": 182,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DALBHARAT": {
+    "lot": 325,
+    "kind": "stock",
+    "n_contracts": 183,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DELHIVERY": {
+    "lot": 2075,
+    "kind": "stock",
+    "n_contracts": 173,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DIVISLAB": {
+    "lot": 100,
+    "kind": "stock",
+    "n_contracts": 221,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DIXON": {
+    "lot": 50,
+    "kind": "stock",
+    "n_contracts": 239,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DLF": {
+    "lot": 825,
+    "kind": "stock",
+    "n_contracts": 253,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DMART": {
+    "lot": 150,
+    "kind": "stock",
+    "n_contracts": 167,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "DRREDDY": {
+    "lot": 625,
+    "kind": "stock",
+    "n_contracts": 254,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "EICHERMOT": {
+    "lot": 100,
+    "kind": "stock",
+    "n_contracts": 267,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ETERNAL": {
+    "lot": 2425,
+    "kind": "stock",
+    "n_contracts": 216,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "EXIDEIND": {
+    "lot": 1800,
+    "kind": "stock",
+    "n_contracts": 289,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "FEDERALBNK": {
+    "lot": 5000,
+    "kind": "stock",
+    "n_contracts": 211,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "FINNIFTY": {
+    "lot": 60,
+    "kind": "index",
+    "n_contracts": 710,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "FORCEMOT": {
+    "lot": 25,
+    "kind": "stock",
+    "n_contracts": 97,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "FORTIS": {
+    "lot": 775,
+    "kind": "stock",
+    "n_contracts": 183,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "GAIL": {
+    "lot": 3150,
+    "kind": "stock",
+    "n_contracts": 328,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "GLENMARK": {
+    "lot": 375,
+    "kind": "stock",
+    "n_contracts": 250,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "GMRAIRPORT": {
+    "lot": 6975,
+    "kind": "stock",
+    "n_contracts": 200,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "GODFRYPHLP": {
+    "lot": 275,
+    "kind": "stock",
+    "n_contracts": 225,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "GODREJCP": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 213,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "GODREJPROP": {
+    "lot": 275,
+    "kind": "stock",
+    "n_contracts": 198,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "GRASIM": {
+    "lot": 250,
+    "kind": "stock",
+    "n_contracts": 240,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HAL": {
+    "lot": 150,
+    "kind": "stock",
+    "n_contracts": 187,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HAVELLS": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 294,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HCLTECH": {
+    "lot": 350,
+    "kind": "stock",
+    "n_contracts": 300,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HDFCAMC": {
+    "lot": 300,
+    "kind": "stock",
+    "n_contracts": 296,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HDFCBANK": {
+    "lot": 550,
+    "kind": "stock",
+    "n_contracts": 329,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HDFCLIFE": {
+    "lot": 1100,
+    "kind": "stock",
+    "n_contracts": 248,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HEROMOTOCO": {
+    "lot": 150,
+    "kind": "stock",
+    "n_contracts": 204,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HINDALCO": {
+    "lot": 700,
+    "kind": "stock",
+    "n_contracts": 210,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HINDPETRO": {
+    "lot": 2025,
+    "kind": "stock",
+    "n_contracts": 189,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HINDUNILVR": {
+    "lot": 300,
+    "kind": "stock",
+    "n_contracts": 223,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HINDZINC": {
+    "lot": 1225,
+    "kind": "stock",
+    "n_contracts": 297,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "HUDCO": {
+    "lot": 2775,
+    "kind": "stock",
+    "n_contracts": 73,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-04-28"
+   },
+   "HYUNDAI": {
+    "lot": 275,
+    "kind": "stock",
+    "n_contracts": 174,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ICICIBANK": {
+    "lot": 700,
+    "kind": "stock",
+    "n_contracts": 253,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ICICIGI": {
+    "lot": 325,
+    "kind": "stock",
+    "n_contracts": 180,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ICICIPRULI": {
+    "lot": 925,
+    "kind": "stock",
+    "n_contracts": 244,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "IDEA": {
+    "lot": 71475,
+    "kind": "stock",
+    "n_contracts": 54,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "IDFCFIRSTB": {
+    "lot": 9275,
+    "kind": "stock",
+    "n_contracts": 150,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "IEX": {
+    "lot": 3750,
+    "kind": "stock",
+    "n_contracts": 248,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "INDHOTEL": {
+    "lot": 1000,
+    "kind": "stock",
+    "n_contracts": 256,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "INDIANB": {
+    "lot": 1000,
+    "kind": "stock",
+    "n_contracts": 177,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "INDIGO": {
+    "lot": 150,
+    "kind": "stock",
+    "n_contracts": 215,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "INDUSINDBK": {
+    "lot": 700,
+    "kind": "stock",
+    "n_contracts": 172,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "INDUSTOWER": {
+    "lot": 1700,
+    "kind": "stock",
+    "n_contracts": 157,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "INFY": {
+    "lot": 400,
+    "kind": "stock",
+    "n_contracts": 275,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "INOXWIND": {
+    "lot": 3575,
+    "kind": "stock",
+    "n_contracts": 257,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "IOC": {
+    "lot": 4875,
+    "kind": "stock",
+    "n_contracts": 297,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "IREDA": {
+    "lot": 3450,
+    "kind": "stock",
+    "n_contracts": 325,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "IRFC": {
+    "lot": 4250,
+    "kind": "stock",
+    "n_contracts": 202,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ITC": {
+    "lot": 1600,
+    "kind": "stock",
+    "n_contracts": 225,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "JINDALSTEL": {
+    "lot": 625,
+    "kind": "stock",
+    "n_contracts": 231,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "JIOFIN": {
+    "lot": 2350,
+    "kind": "stock",
+    "n_contracts": 199,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "JSWENERGY": {
+    "lot": 1000,
+    "kind": "stock",
+    "n_contracts": 219,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "JSWSTEEL": {
+    "lot": 675,
+    "kind": "stock",
+    "n_contracts": 224,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "JUBLFOOD": {
+    "lot": 1250,
+    "kind": "stock",
+    "n_contracts": 224,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "KALYANKJIL": {
+    "lot": 1175,
+    "kind": "stock",
+    "n_contracts": 180,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "KAYNES": {
+    "lot": 100,
+    "kind": "stock",
+    "n_contracts": 207,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "KEI": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 201,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "KFINTECH": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 178,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "KOTAKBANK": {
+    "lot": 2000,
+    "kind": "stock",
+    "n_contracts": 260,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "KPITTECH": {
+    "lot": 425,
+    "kind": "stock",
+    "n_contracts": 153,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LAURUSLABS": {
+    "lot": 850,
+    "kind": "stock",
+    "n_contracts": 202,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LICHSGFIN": {
+    "lot": 1000,
+    "kind": "stock",
+    "n_contracts": 205,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LICI": {
+    "lot": 700,
+    "kind": "stock",
+    "n_contracts": 330,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LODHA": {
+    "lot": 450,
+    "kind": "stock",
+    "n_contracts": 238,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LT": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 362,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LTF": {
+    "lot": 2250,
+    "kind": "stock",
+    "n_contracts": 134,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LTM": {
+    "lot": 150,
+    "kind": "stock",
+    "n_contracts": 190,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "LUPIN": {
+    "lot": 425,
+    "kind": "stock",
+    "n_contracts": 176,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "M&M": {
+    "lot": 200,
+    "kind": "stock",
+    "n_contracts": 293,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MANAPPURAM": {
+    "lot": 3000,
+    "kind": "stock",
+    "n_contracts": 144,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MANKIND": {
+    "lot": 225,
+    "kind": "stock",
+    "n_contracts": 219,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MARICO": {
+    "lot": 1200,
+    "kind": "stock",
+    "n_contracts": 226,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MARUTI": {
+    "lot": 50,
+    "kind": "stock",
+    "n_contracts": 259,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MAXHEALTH": {
+    "lot": 525,
+    "kind": "stock",
+    "n_contracts": 187,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MAZDOCK": {
+    "lot": 200,
+    "kind": "stock",
+    "n_contracts": 282,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MCX": {
+    "lot": 625,
+    "kind": "stock",
+    "n_contracts": 188,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MFSL": {
+    "lot": 400,
+    "kind": "stock",
+    "n_contracts": 173,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MIDCPNIFTY": {
+    "lot": 120,
+    "kind": "index",
+    "n_contracts": 1004,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MOTHERSON": {
+    "lot": 6150,
+    "kind": "stock",
+    "n_contracts": 298,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MOTILALOFS": {
+    "lot": 775,
+    "kind": "stock",
+    "n_contracts": 165,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MPHASIS": {
+    "lot": 275,
+    "kind": "stock",
+    "n_contracts": 252,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "MUTHOOTFIN": {
+    "lot": 275,
+    "kind": "stock",
+    "n_contracts": 143,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NAM-INDIA": {
+    "lot": 625,
+    "kind": "stock",
+    "n_contracts": 132,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NATIONALUM": {
+    "lot": 3750,
+    "kind": "stock",
+    "n_contracts": 205,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NAUKRI": {
+    "lot": 375,
+    "kind": "stock",
+    "n_contracts": 184,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NBCC": {
+    "lot": 6500,
+    "kind": "stock",
+    "n_contracts": 181,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NESTLEIND": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 281,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NHPC": {
+    "lot": 6400,
+    "kind": "stock",
+    "n_contracts": 166,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NIFTY": {
+    "lot": 65,
+    "kind": "index",
+    "n_contracts": 2066,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2030-12-31"
+   },
+   "NIFTYNXT50": {
+    "lot": 25,
+    "kind": "index",
+    "n_contracts": 1500,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NMDC": {
+    "lot": 6750,
+    "kind": "stock",
+    "n_contracts": 176,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NTPC": {
+    "lot": 1500,
+    "kind": "stock",
+    "n_contracts": 278,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NUVAMA": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 151,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "NYKAA": {
+    "lot": 3125,
+    "kind": "stock",
+    "n_contracts": 192,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "OBEROIRLTY": {
+    "lot": 350,
+    "kind": "stock",
+    "n_contracts": 170,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "OFSS": {
+    "lot": 75,
+    "kind": "stock",
+    "n_contracts": 358,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "OIL": {
+    "lot": 1400,
+    "kind": "stock",
+    "n_contracts": 161,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ONGC": {
+    "lot": 2250,
+    "kind": "stock",
+    "n_contracts": 264,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PAGEIND": {
+    "lot": 15,
+    "kind": "stock",
+    "n_contracts": 280,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PATANJALI": {
+    "lot": 900,
+    "kind": "stock",
+    "n_contracts": 152,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PAYTM": {
+    "lot": 725,
+    "kind": "stock",
+    "n_contracts": 458,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PERSISTENT": {
+    "lot": 100,
+    "kind": "stock",
+    "n_contracts": 213,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PETRONET": {
+    "lot": 1900,
+    "kind": "stock",
+    "n_contracts": 223,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PFC": {
+    "lot": 1300,
+    "kind": "stock",
+    "n_contracts": 222,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PGEL": {
+    "lot": 950,
+    "kind": "stock",
+    "n_contracts": 142,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PHOENIXLTD": {
+    "lot": 350,
+    "kind": "stock",
+    "n_contracts": 182,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PIDILITIND": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 257,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PIIND": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 276,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PNB": {
+    "lot": 8000,
+    "kind": "stock",
+    "n_contracts": 218,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PNBHOUSING": {
+    "lot": 650,
+    "kind": "stock",
+    "n_contracts": 243,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "POLICYBZR": {
+    "lot": 350,
+    "kind": "stock",
+    "n_contracts": 166,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "POLYCAB": {
+    "lot": 125,
+    "kind": "stock",
+    "n_contracts": 169,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "POWERGRID": {
+    "lot": 1900,
+    "kind": "stock",
+    "n_contracts": 219,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "POWERINDIA": {
+    "lot": 50,
+    "kind": "stock",
+    "n_contracts": 166,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PPLPHARMA": {
+    "lot": 2625,
+    "kind": "stock",
+    "n_contracts": 58,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-04-28"
+   },
+   "PREMIERENE": {
+    "lot": 575,
+    "kind": "stock",
+    "n_contracts": 189,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "PRESTIGE": {
+    "lot": 450,
+    "kind": "stock",
+    "n_contracts": 157,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "RBLBANK": {
+    "lot": 3175,
+    "kind": "stock",
+    "n_contracts": 107,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "RECLTD": {
+    "lot": 1400,
+    "kind": "stock",
+    "n_contracts": 193,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "RELIANCE": {
+    "lot": 500,
+    "kind": "stock",
+    "n_contracts": 221,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "RVNL": {
+    "lot": 1525,
+    "kind": "stock",
+    "n_contracts": 142,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SAIL": {
+    "lot": 4700,
+    "kind": "stock",
+    "n_contracts": 148,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SAMMAANCAP": {
+    "lot": 4300,
+    "kind": "stock",
+    "n_contracts": 112,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SBICARD": {
+    "lot": 800,
+    "kind": "stock",
+    "n_contracts": 148,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SBILIFE": {
+    "lot": 375,
+    "kind": "stock",
+    "n_contracts": 193,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SBIN": {
+    "lot": 750,
+    "kind": "stock",
+    "n_contracts": 267,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SHREECEM": {
+    "lot": 25,
+    "kind": "stock",
+    "n_contracts": 175,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SHRIRAMFIN": {
+    "lot": 825,
+    "kind": "stock",
+    "n_contracts": 220,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SIEMENS": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 176,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SOLARINDS": {
+    "lot": 50,
+    "kind": "stock",
+    "n_contracts": 203,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SONACOMS": {
+    "lot": 1225,
+    "kind": "stock",
+    "n_contracts": 234,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SRF": {
+    "lot": 200,
+    "kind": "stock",
+    "n_contracts": 227,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SUNPHARMA": {
+    "lot": 350,
+    "kind": "stock",
+    "n_contracts": 401,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SUPREMEIND": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 149,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SUZLON": {
+    "lot": 9025,
+    "kind": "stock",
+    "n_contracts": 141,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "SWIGGY": {
+    "lot": 1300,
+    "kind": "stock",
+    "n_contracts": 123,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TATACONSUM": {
+    "lot": 550,
+    "kind": "stock",
+    "n_contracts": 226,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TATAELXSI": {
+    "lot": 100,
+    "kind": "stock",
+    "n_contracts": 173,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TATAPOWER": {
+    "lot": 1450,
+    "kind": "stock",
+    "n_contracts": 208,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TATASTEEL": {
+    "lot": 5500,
+    "kind": "stock",
+    "n_contracts": 229,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TATATECH": {
+    "lot": 800,
+    "kind": "stock",
+    "n_contracts": 88,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-04-28"
+   },
+   "TCS": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 251,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TECHM": {
+    "lot": 600,
+    "kind": "stock",
+    "n_contracts": 152,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TIINDIA": {
+    "lot": 200,
+    "kind": "stock",
+    "n_contracts": 317,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TITAN": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 227,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TMPV": {
+    "lot": 800,
+    "kind": "stock",
+    "n_contracts": 161,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TORNTPHARM": {
+    "lot": 250,
+    "kind": "stock",
+    "n_contracts": 193,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TORNTPOWER": {
+    "lot": 425,
+    "kind": "stock",
+    "n_contracts": 174,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-04-28"
+   },
+   "TRENT": {
+    "lot": 100,
+    "kind": "stock",
+    "n_contracts": 192,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "TVSMOTOR": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 319,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ULTRACEMCO": {
+    "lot": 50,
+    "kind": "stock",
+    "n_contracts": 232,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "UNIONBANK": {
+    "lot": 4425,
+    "kind": "stock",
+    "n_contracts": 152,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "UNITDSPR": {
+    "lot": 400,
+    "kind": "stock",
+    "n_contracts": 256,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "UNOMINDA": {
+    "lot": 550,
+    "kind": "stock",
+    "n_contracts": 114,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "UPL": {
+    "lot": 1355,
+    "kind": "stock",
+    "n_contracts": 235,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "VBL": {
+    "lot": 1125,
+    "kind": "stock",
+    "n_contracts": 209,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "VEDL": {
+    "lot": 1150,
+    "kind": "stock",
+    "n_contracts": 205,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "VMM": {
+    "lot": 4850,
+    "kind": "stock",
+    "n_contracts": 248,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "VOLTAS": {
+    "lot": 375,
+    "kind": "stock",
+    "n_contracts": 183,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "WAAREEENER": {
+    "lot": 175,
+    "kind": "stock",
+    "n_contracts": 135,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "WIPRO": {
+    "lot": 3000,
+    "kind": "stock",
+    "n_contracts": 157,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "YESBANK": {
+    "lot": 31100,
+    "kind": "stock",
+    "n_contracts": 61,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   },
+   "ZYDUSLIFE": {
+    "lot": 900,
+    "kind": "stock",
+    "n_contracts": 164,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-30"
+   }
+  },
+  "BFO": {
+   "BANKEX": {
+    "lot": 30,
+    "kind": "index",
+    "n_contracts": 1584,
+    "first_expiry": "2026-04-30",
+    "last_expiry": "2026-06-25"
+   },
+   "SENSEX": {
+    "lot": 20,
+    "kind": "index",
+    "n_contracts": 3710,
+    "first_expiry": "2026-04-30",
+    "last_expiry": "2030-12-26"
+   },
+   "SENSEX50": {
+    "lot": 75,
+    "kind": "index",
+    "n_contracts": 620,
+    "first_expiry": "2026-04-30",
+    "last_expiry": "2026-06-25"
+   }
+  },
+  "MCX": {
+   "COPPER": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 418,
+    "first_expiry": "2026-05-22",
+    "last_expiry": "2026-07-24"
+   },
+   "CRUDEOIL": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 1118,
+    "first_expiry": "2026-05-14",
+    "last_expiry": "2026-07-16"
+   },
+   "CRUDEOILM": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 1116,
+    "first_expiry": "2026-05-14",
+    "last_expiry": "2026-07-16"
+   },
+   "GOLD": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 7076,
+    "first_expiry": "2026-04-30",
+    "last_expiry": "2027-03-29"
+   },
+   "GOLDM": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 840,
+    "first_expiry": "2026-04-28",
+    "last_expiry": "2026-06-26"
+   },
+   "MCXBULLDEX": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 640,
+    "first_expiry": "2026-05-27",
+    "last_expiry": "2026-07-29"
+   },
+   "NATGASMINI": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 366,
+    "first_expiry": "2026-05-22",
+    "last_expiry": "2026-06-23"
+   },
+   "NATURALGAS": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 366,
+    "first_expiry": "2026-05-22",
+    "last_expiry": "2026-06-23"
+   },
+   "SILVER": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 5112,
+    "first_expiry": "2026-05-26",
+    "last_expiry": "2027-02-26"
+   },
+   "SILVERM": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 5094,
+    "first_expiry": "2026-05-26",
+    "last_expiry": "2027-02-19"
+   },
+   "ZINC": {
+    "lot": 1,
+    "kind": "commodity",
+    "n_contracts": 178,
+    "first_expiry": "2026-05-22",
+    "last_expiry": "2026-07-24"
+   }
+  }
+ }
+}

@@ -57,7 +57,8 @@ def test_entry_block_prefers_faithful_lite_basket():
     block = aff.entry_block(kind="basket", weights=weights, prices=prices,
                             as_of="2026-07-02")
     assert block["basis"] == "lite_basket"
-    assert block["min_entry_inr"] is not None and block["min_entry_inr"] <= 1000
+    assert block["min_entry_inr"] is not None
+    assert block["min_entry_inr"] <= aff.ENTRY_BUDGET_INR
     assert len(block["legs"]) == 3
 
 
@@ -166,3 +167,123 @@ def test_etf_catalog_lookup_real_file():
     it = etf_catalog.etf_for("Information Technology")
     assert it and it["last_price"] > 0
     assert etf_catalog.etf_for("nonexistent-theme-xyz") is None
+
+
+# ── revamp round 2: cheap options, core-satellite, 4 comparable metrics ──────
+from backend.view_markets import episode_stats, option_universe
+
+
+def test_affordable_ticket_fits_budget_and_states_odds():
+    t = option_model.affordable_ticket(
+        bullish=True, sigma_annual=0.18, horizon_days=126,
+        spot=683.0, lot=425, budget_inr=2000.0, underlying="KPITTECH")
+    assert t is not None
+    assert t["est_premium_per_lot_inr"] <= 2000.0
+    assert t["structure"] == "long_call"
+    assert 0 < t["pop_pct"] < 100
+    assert t["otm_offset_pct"] > 0            # ATM on this lot cannot fit 2k
+
+
+def test_affordable_ticket_honest_none_when_impossible():
+    # Huge lot on a huge spot: even 30% OTM won't fit a tiny budget.
+    t = option_model.affordable_ticket(
+        bullish=True, sigma_annual=0.45, horizon_days=252,
+        spot=85000.0, lot=500, budget_inr=500.0)
+    assert t is None
+
+
+def test_affordable_ticket_atm_when_budget_is_big():
+    t = option_model.affordable_ticket(
+        bullish=False, sigma_annual=0.2, horizon_days=126,
+        spot=100.0, lot=10, budget_inr=1e9)
+    assert t["otm_offset_pct"] == 0.0
+    assert t["structure"] == "long_put"
+
+
+def test_strangle_is_cheaper_than_straddle():
+    kw = dict(sigma_annual=0.14, horizon_days=126)
+    straddle = option_model.model_long_straddle(**kw)
+    strangle = option_model.model_long_strangle(offset_pct=5.0, **kw)
+    assert strangle["net_premium_pct"] < straddle["net_premium_pct"]
+    assert strangle["max_loss_pct"] == -100.0
+    assert strangle["max_profit_uncapped"] is True
+    assert len(strangle["legs"]) == 2
+
+
+def test_structure_premium_inr_scales_by_spot_and_lot():
+    payload = {"net_premium_pct": 2.0}
+    cost = option_model.structure_premium_inr(payload, spot=26000.0, lot=65)
+    assert cost == pytest.approx(0.02 * 26000 * 65)
+    assert option_model.structure_premium_inr(payload, spot=26000.0, lot=None) is None
+
+
+def test_core_satellite_route_mixes_etf_and_names():
+    # MID exceeds the budget outright; BIG alone is a 1-name (unfaithful) lite —
+    # so the route must blend an ETF core with a BIG satellite share.
+    weights = {"BIG": 0.6, "MID": 0.4}
+    prices = {"BIG": 950.0, "MID": 5000.0}
+    etf = {"symbol": "ITBEES", "last_price": 30.0, "tracks": "Nifty IT",
+           "as_of": "2026-07-02"}
+    block = aff.entry_block(kind="basket", weights=weights, prices=prices,
+                            etf=etf, as_of="2026-07-02")
+    assert block["basis"] == "etf_core_plus_names"
+    roles = [l.get("role") for l in block["legs"]]
+    assert roles.count("core") == 1 and roles.count("satellite") >= 1
+    assert block["min_entry_inr"] <= aff.ENTRY_BUDGET_INR
+    core = next(l for l in block["legs"] if l.get("role") == "core")
+    assert core["symbol"] == "ITBEES"
+
+
+def test_entry_block_falls_back_to_pure_etf_when_no_satellite_fits():
+    weights = {"HUGE": 1.0}
+    prices = {"HUGE": 50000.0}
+    etf = {"symbol": "NIFTYBEES", "last_price": 274.0, "tracks": "Nifty 50",
+           "as_of": "2026-07-02"}
+    block = aff.entry_block(kind="basket", weights=weights, prices=prices,
+                            etf=etf, as_of="2026-07-02")
+    assert block["basis"] == "etf_substitute"
+
+
+def test_entry_block_carries_small_ticket_for_options():
+    st = {"structure": "long_call", "est_premium_per_lot_inr": 1900.0,
+          "pop_pct": 18.0, "underlying": "KPITTECH"}
+    block = aff.entry_block(
+        kind="option_strategy",
+        option={"premium_per_lot_inr": 23700.0, "lot_size": 400},
+        small_ticket=st, as_of="2026-07-02")
+    assert block["min_entry_inr"] == 23700.0      # the structure's own cost
+    assert block["small_ticket"]["est_premium_per_lot_inr"] == 1900.0
+
+
+def test_gain_loss_stats_four_metrics():
+    s = episode_stats.gain_loss_stats([5.0, -2.0, 8.0, -6.0, 1.0])
+    assert s["avg_gain_pct"] == pytest.approx((5 + 8 + 1) / 3, abs=0.01)
+    assert s["avg_loss_pct"] == pytest.approx(-4.0, abs=0.01)
+    assert s["max_gain_pct"] == 8.0
+    assert s["max_loss_pct"] == -6.0
+    assert s["n_gain"] == 3 and s["n_loss"] == 2
+    assert s["basis"] == "episodes"
+
+
+def test_gain_loss_stats_empty_and_one_sided():
+    assert episode_stats.gain_loss_stats([]) is None
+    s = episode_stats.gain_loss_stats([3.0, 4.0])
+    assert s["avg_loss_pct"] is None and s["max_loss_pct"] == 3.0
+
+
+def test_modelled_option_stats_never_pretends_history():
+    s = episode_stats.modelled_option_stats(
+        {"max_profit_pct": 120.0, "max_loss_pct": -100.0,
+         "max_profit_uncapped": True})
+    assert s["basis"] == "modelled"
+    assert s["avg_gain_pct"] is None and s["avg_loss_pct"] is None
+    assert s["max_gain_pct"] == 120.0 and s["max_loss_pct"] == -100.0
+
+
+def test_option_universe_snapshot_lookups():
+    assert option_universe.lot_for("NIFTY") == 65
+    assert option_universe.lot_for("INFY.NS") == 400
+    row = option_universe.entry("GOLD", exchange="MCX")
+    assert row is None or row["kind"] == "commodity"
+    assert option_universe.lot_for("NOT_A_REAL_UNDERLYING") is None
+    assert "KPITTECH" in option_universe.underlyings("NFO", kind="stock")
