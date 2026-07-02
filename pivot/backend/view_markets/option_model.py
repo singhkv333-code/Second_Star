@@ -213,6 +213,91 @@ def model_vertical_spread(
     }
 
 
+def width_for_vol(sigma_annual: float, horizon_days: int, *,
+                  mult: float = 0.8, lo: float = 3.0, hi: float = 15.0) -> float:
+    """Strike width scaled to the underlying's EXPECTED move over the horizon
+    (σ√T), instead of a one-size-fits-all +5%: a 40%-vol name gets a wider
+    spread than a 12%-vol index. Clamped to a sane retail band."""
+    if sigma_annual <= 0 or horizon_days <= 0:
+        return lo
+    exp_move_pct = sigma_annual * math.sqrt(horizon_days / 252.0) * 100.0
+    return round(min(hi, max(lo, exp_move_pct * mult)), 1)
+
+
+def model_long_straddle(
+    *,
+    sigma_annual: float,
+    horizon_days: int,
+    r: float = DEFAULT_R,
+    underlying_label: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Model an ATM long straddle (BUY call + BUY put, same strike) on a
+    normalised underlying of 100 — the defined-risk two-sided structure for
+    shock/uncertainty views where the DIRECTION is the unknown.
+
+    Max loss is the full premium (−100% of capital); profit is uncapped on
+    either side, so ``max_profit_pct`` is reported over the displayed ±25%
+    move range and labelled as such. POP is the lognormal probability the
+    underlying finishes OUTSIDE the breakeven straddle width.
+    """
+    if sigma_annual <= 0 or horizon_days <= 0:
+        return None
+    s, k = 100.0, 100.0
+    t = horizon_days / 252.0
+    sigma = float(sigma_annual)
+
+    call = bs_price(s, k, t, r, sigma, True)
+    put = bs_price(s, k, t, r, sigma, False)
+    prem = max(call + put, 1e-6)
+    be_up, be_dn = k + prem, k - prem
+    pop = (_terminal_prob_above(s, be_up, t, r, sigma)
+           + (1.0 - _terminal_prob_above(s, be_dn, t, r, sigma)))
+    gc, gp = bs_greeks(s, k, t, r, sigma, True), bs_greeks(s, k, t, r, sigma, False)
+
+    payoff: list[dict[str, float]] = []
+    steps = 51
+    for i in range(steps):
+        move = -25.0 + 50.0 * i / (steps - 1)
+        term = s * (1.0 + move / 100.0)
+        pnl_pts = max(term - k, 0.0) + max(k - term, 0.0) - prem
+        payoff.append({"move_pct": round(move, 2),
+                       "pnl_pct": round(pnl_pts / prem * 100.0, 1)})
+    max_profit_display = max(p["pnl_pct"] for p in payoff)
+
+    return {
+        "structure": "long_straddle",
+        "direction": "two_sided",
+        "underlying_label": underlying_label,
+        "legs": [
+            {"action": "BUY", "option_type": "CE", "strike_pct": 100.0, "strike_label": "ATM"},
+            {"action": "BUY", "option_type": "PE", "strike_pct": 100.0, "strike_label": "ATM"},
+        ],
+        "net_premium_pct": round(prem, 2),
+        "width_pct": None,
+        "max_loss_pct": -100.0,
+        "max_profit_pct": max_profit_display,   # over the displayed ±25% range
+        "max_profit_uncapped": True,
+        "breakeven_move_pct": round(prem / s * 100.0, 2),
+        "pop_pct": round(pop * 100.0, 1),
+        "net_greeks": {
+            "delta": round(gc["delta"] + gp["delta"], 4),
+            "gamma": round(gc["gamma"] + gp["gamma"], 5),
+            "vega": round(gc["vega"] + gp["vega"], 4),
+            "theta": round(gc["theta"] + gp["theta"], 4),
+        },
+        "vol_used_pct": round(sigma * 100.0, 1),
+        "horizon_days": int(horizon_days),
+        "payoff": payoff,
+        "basis": "modelled_bs",
+        "assumptions": (
+            "Modelled with Black–Scholes at the underlying's realised volatility "
+            "and a stated risk-free rate on a reference spot of 100; final strikes "
+            "and premia are set at deploy. Max loss is capped at the premium paid; "
+            "profit is uncapped beyond either breakeven (shown over a ±25% move)."
+        ),
+    }
+
+
 def realized_vol_annual(daily_returns) -> Optional[float]:
     """Annualised realised vol from a daily-return series/iterable. ``None`` if
     fewer than ~20 finite observations (too thin to be meaningful)."""
