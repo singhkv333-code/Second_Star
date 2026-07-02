@@ -39,6 +39,8 @@ import {
   getScreenerStocks,
   getScreenerSectors,
   type ScreenerStock,
+  type ScreenerStocksParams,
+  type ScreenerStocksResponse,
   type ScreenerSector,
   type ScreenerSortBy,
   type ScreenerMcapTier,
@@ -285,6 +287,51 @@ const STOCK_PRESETS: {
   { id: "cheap", label: "Cheap (P/E < 20)", set: () => ({ pe_max: "20" }) },
 ];
 
+// ─────────────────────────────────────────────────────────
+// Session caches (stale-while-revalidate)
+//
+// The Screener tab UNMOUNTS when you switch away — AppShell mounts non-chat
+// tabs only while active (unlike Chat, which stays mounted and hidden). Without
+// a cache, every return trip re-fires the stocks + sectors fetch and shows a
+// skeleton for the whole round-trip, so tab switching never feels instant.
+//
+// These module-level caches survive tab switches (same pattern as the stock
+// page's `sparklineCache` and `useCompanyLogos`): a revisit paints the last
+// result INSTANTLY and silently revalidates in the background, swapping in the
+// fresh rows only when they arrive. Sectors come from a static universe (no DB)
+// and never change within a session, so they're fetched once.
+// ─────────────────────────────────────────────────────────
+const _stocksCache = new Map<string, ScreenerStocksResponse>();
+let _sectorsCache: ScreenerSector[] | null = null;
+
+/** Server-side query params for a filter+sort combo. The `dir` of the sort is
+ *  applied client-side (see `displayRows`), so it's intentionally NOT part of
+ *  the key — ascending/descending reuse the same fetched page. */
+function buildStockParams(
+  filters: StockFilters,
+  sortKey: ScreenerSortBy,
+): ScreenerStocksParams {
+  return {
+    sector: filters.sector || undefined,
+    mcap_tier: filters.mcap_tier || undefined,
+    pe_max: filters.pe_max !== "" ? Number(filters.pe_max) : undefined,
+    roe_min: filters.roe_min !== "" ? Number(filters.roe_min) : undefined,
+    sort_by: sortKey,
+    limit: 200,
+  };
+}
+
+function stocksCacheKey(p: ScreenerStocksParams): string {
+  return JSON.stringify([
+    p.sector ?? "",
+    p.mcap_tier ?? "",
+    p.pe_max ?? "",
+    p.roe_min ?? "",
+    p.sort_by ?? "",
+    p.limit ?? 0,
+  ]);
+}
+
 // ── Component ────────────────────────────────────────────
 export function ScreenerPage(): React.ReactElement {
   const [screenId, setScreenId] = useState<ScreenId>("stocks");
@@ -479,48 +526,72 @@ function StocksScreen({
   const [activePreset, setActivePreset] = useState<string | null>("all");
   const [sort, setSort] = useState<StockSort>({ key: "market_cap_cr", dir: -1 });
 
-  const [rows, setRows] = useState<ScreenerStock[]>([]);
-  const [note, setNote] = useState("");
-  const [loading, setLoading] = useState(true);
+  // Seed state from the session cache so a return trip to the tab paints the
+  // last-seen rows on the FIRST frame (no skeleton). The initial params match
+  // the effect's first run exactly (empty filters + market_cap_cr sort).
+  const _initialStocks = _stocksCache.get(
+    stocksCacheKey(buildStockParams(EMPTY_STOCK_FILTERS, "market_cap_cr")),
+  );
+  const [rows, setRows] = useState<ScreenerStock[]>(
+    () => _initialStocks?.results ?? [],
+  );
+  const [note, setNote] = useState(() => _initialStocks?.note ?? "");
+  const [loading, setLoading] = useState(() => _initialStocks === undefined);
   const [error, setError] = useState<string | null>(null);
 
-  const [sectors, setSectors] = useState<ScreenerSector[]>([]);
+  const [sectors, setSectors] = useState<ScreenerSector[]>(
+    () => _sectorsCache ?? [],
+  );
 
-  // ── Load sectors once ──
+  // ── Load sectors once per session (static universe → cache forever) ──
   useEffect(() => {
+    if (_sectorsCache) return; // already have them — no refetch on remount
     const ctrl = new AbortController();
     getScreenerSectors(ctrl.signal).then((res) => {
       if (ctrl.signal.aborted) return;
-      if (!isError(res)) setSectors(res.data.sectors);
+      if (!isError(res)) {
+        _sectorsCache = res.data.sectors;
+        setSectors(res.data.sectors);
+      }
     });
     return () => ctrl.abort();
   }, []);
 
-  // ── Load stocks whenever filters/sort change (server-side) ──
+  // ── Load stocks whenever filters/sort change (stale-while-revalidate) ──
+  // On a cache hit we paint immediately and refresh silently in the background;
+  // on a miss we show the skeleton. Either way we always revalidate so cached
+  // rows never go stale.
   useEffect(() => {
+    const params = buildStockParams(filters, sort.key);
+    const key = stocksCacheKey(params);
+    const cached = _stocksCache.get(key);
+
+    if (cached) {
+      setRows(cached.results);
+      setNote(cached.note || "");
+      setError(null);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
+
     const ctrl = new AbortController();
-    setLoading(true);
-    setError(null);
-    getScreenerStocks(
-      {
-        sector: filters.sector || undefined,
-        mcap_tier: filters.mcap_tier || undefined,
-        pe_max: filters.pe_max !== "" ? Number(filters.pe_max) : undefined,
-        roe_min: filters.roe_min !== "" ? Number(filters.roe_min) : undefined,
-        sort_by: sort.key,
-        limit: 200,
-      },
-      ctrl.signal,
-    ).then((res) => {
+    getScreenerStocks(params, ctrl.signal).then((res) => {
       if (ctrl.signal.aborted) return;
       if (isError(res)) {
         if (res.error.code === "aborted") return;
-        setError(res.error.message || "Could not load stocks.");
-        setRows([]);
-        setNote("");
+        // Only surface an error if we had nothing cached to fall back on.
+        if (!cached) {
+          setError(res.error.message || "Could not load stocks.");
+          setRows([]);
+          setNote("");
+        }
       } else {
+        _stocksCache.set(key, res.data);
         setRows(res.data.results);
         setNote(res.data.note || "");
+        setError(null);
       }
       setLoading(false);
     });
@@ -1555,6 +1626,10 @@ function StockResultsTable({
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "var(--bg-secondary)";
+                  // Warm the stock-page route (RSC payload + the Recharts chart
+                  // bundle) on hover so the click→chart transition is instant
+                  // instead of cold-loading the whole page + chart lib.
+                  router.prefetch(`/stock/${encodeURIComponent(row.symbol)}`);
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "transparent";

@@ -33,12 +33,14 @@ user_id=1). Read-only; nothing here writes.
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from backend.cache import redis_client
 from backend.routers._deps import require_user
 from backend.services.sector_universe import (
     _UNIVERSE as _SECTOR_UNIVERSE,
@@ -49,6 +51,16 @@ from backend.services.sector_universe import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/screener", tags=["Screener"])
+
+# Full-universe fundamentals (roe/pe) are the screener's whole latency cost:
+# ``fetch_gate_inputs`` is a multi-CTE query against Azure Postgres (Central
+# India) that measures ~1.3-2.5s for the 80-name universe. The values change at
+# most quarterly, so we cache the WHOLE-universe map in Redis and let every
+# /stocks request (any sector/cap/valuation filter, any sort) read that one warm
+# entry and filter it in memory — turning a per-request 1.3-2.5s DB round-trip
+# into a ~single-ms Redis GET after the first caller warms it.
+_FUND_CACHE_KEY = "screener:fundamentals:v1"
+_FUND_CACHE_TTL_SECONDS = 30 * 60  # 30 min — generous for quarterly data
 
 
 # ── Market-cap tiers ──────────────────────────────────────────────────
@@ -159,6 +171,38 @@ def _fetch_fundamentals_map(symbols: list[str]) -> dict[str, dict]:
         return {}
 
 
+def _fundamentals_map_cached() -> dict[str, dict]:
+    """Full-universe roe/pe map, Redis-cached (see ``_FUND_CACHE_KEY``).
+
+    Reads the warm cache first (one Redis GET); on a miss, runs the expensive
+    ``fetch_gate_inputs`` ONCE for the *entire* universe and warms the cache so
+    the next caller — no matter which filter/sort they use — is served from
+    Redis. Fails open at every step: a cache/DB error degrades to a direct
+    fetch or an empty map (all-null fundamentals), never a 500. The map is keyed
+    by UPPER(symbol), so callers pick out just the symbols they need.
+    """
+    try:
+        raw = redis_client.get(_FUND_CACHE_KEY)
+        if raw:
+            data = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
+            return json.loads(data)
+    except Exception as exc:  # noqa: BLE001 — cache read is best-effort
+        logger.debug("[screener] fundamentals cache read failed: %s", exc)
+
+    fmap = _fetch_fundamentals_map([r.symbol for r in _SECTOR_UNIVERSE])
+
+    # Only warm the cache on a real result — never cache an empty map from a
+    # transient DB outage, or we'd serve "no fundamentals" for the next 30 min.
+    if fmap:
+        try:
+            redis_client.set(
+                _FUND_CACHE_KEY, json.dumps(fmap), ex=_FUND_CACHE_TTL_SECONDS
+            )
+        except Exception as exc:  # noqa: BLE001 — cache write is best-effort
+            logger.debug("[screener] fundamentals cache write failed: %s", exc)
+    return fmap
+
+
 def _label_for_sector(canonical: str) -> str:
     return canonical.replace("_", " ").title()
 
@@ -213,9 +257,10 @@ def get_screener_stocks(
             if hi is not None:
                 rows = [r for r in rows if r.mcap_cr < hi]
 
-    # ── 2. Hydrate fundamentals for the (already sector/cap-filtered) set ──
-    symbols = [r.symbol for r in rows]
-    fmap = _fetch_fundamentals_map(symbols)
+    # ── 2. Hydrate fundamentals from the Redis-cached full-universe map ──
+    # (Filtering happens in memory below; one warm cache entry serves every
+    # sector/cap/valuation/sort combination — see _fundamentals_map_cached.)
+    fmap = _fundamentals_map_cached()
 
     def _metric(sym: str, key: str) -> Optional[float]:
         rec = fmap.get(sym.upper())
