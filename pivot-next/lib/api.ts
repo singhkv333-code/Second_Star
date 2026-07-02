@@ -51,6 +51,7 @@ import type {
   StepTypeCatalog,
   UpdateWorkflowRequest,
   ViewDetail,
+  ViewPositionItem,
   ViewSummary,
   Workflow,
   WorkflowStatus,
@@ -2148,7 +2149,7 @@ export function getView(id: string): Promise<ApiResult<ViewDetail>> {
  */
 export function deployExpression(
   expressionId: string,
-  body?: { activate?: boolean; timing_mode?: string },
+  body?: { activate?: boolean; timing_mode?: string; capital_inr?: number },
 ): Promise<
   ApiResult<{
     workflow_id: string;
@@ -2197,6 +2198,59 @@ export function backtestExpression(
     `/views/expressions/${encodeURIComponent(expressionId)}/backtest`,
     { method: "POST", body: {} },
   );
+}
+
+// ── My Views — the per-user position ledger ─────────────────────────────────
+
+/**
+ * `GET /api/views/positions` — every view the user has put a position behind
+ * (open first, newest first), each with its live return since entry.
+ */
+export function listViewPositions(): Promise<
+  ApiResult<{ items: ViewPositionItem[] }>
+> {
+  return request<{ items: ViewPositionItem[] }>("/views/positions");
+}
+
+/**
+ * `PATCH /api/views/positions/{position_id}` — edit the exit plan
+ * (take-profit / stop-loss %) or the declared position size. Send an explicit
+ * `null` to clear a level. Ledger levels only — nothing is auto-executed.
+ */
+export function updateViewPosition(
+  positionId: string,
+  body: {
+    take_profit_pct?: number | null;
+    stop_loss_pct?: number | null;
+    capital_inr?: number | null;
+  },
+): Promise<ApiResult<ViewPositionItem>> {
+  return request<ViewPositionItem>(
+    `/views/positions/${encodeURIComponent(positionId)}`,
+    { method: "PATCH", body },
+  );
+}
+
+/**
+ * `POST /api/views/positions/{position_id}/exit` — record a partial
+ * (pct < 100) or full exit of the OPEN fraction at current marks.
+ * Register-not-execute: the response's `note` reminds the user to place the
+ * actual exit orders in their own broker app.
+ */
+export function exitViewPosition(
+  positionId: string,
+  pct: number,
+): Promise<
+  ApiResult<{ position: ViewPositionItem; exited_pct: number; note: string }>
+> {
+  return request<{
+    position: ViewPositionItem;
+    exited_pct: number;
+    note: string;
+  }>(`/views/positions/${encodeURIComponent(positionId)}/exit`, {
+    method: "POST",
+    body: { pct },
+  });
 }
 
 /**

@@ -12,8 +12,11 @@
  */
 
 import * as React from "react";
+import { ArrowLeft } from "lucide-react";
 import { ViewCard } from "@/components/views/ViewCard";
 import { ViewDetailPage } from "@/components/views/ViewDetailPage";
+import { MyViews } from "@/components/views/MyViews";
+import { MyViewsButton } from "@/components/views/ViewsTab";
 import type { ViewSummary, ViewDetail, StanceIntent } from "@/lib/types";
 import summariesRaw from "@/components/views/pack/viewpack01.summaries.json";
 import detailsRaw from "@/components/views/pack/viewpack01.details.json";
@@ -26,6 +29,7 @@ const FONT = "var(--font-display)";
 export default function ViewPackPage(): React.ReactElement {
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [openStance, setOpenStance] = React.useState<StanceIntent | null>(null);
+  const [showMine, setShowMine] = React.useState(false);
   const detail = openId ? (DETAILS[openId] ?? null) : null;
 
   const openView = React.useCallback(
@@ -70,44 +74,80 @@ export default function ViewPackPage(): React.ReactElement {
             }}
             onOpenWorkflowById={() => {}}
           />
+        ) : showMine ? (
+          <div className="flex flex-col" style={{ gap: 20 }}>
+            <button
+              type="button"
+              onClick={() => setShowMine(false)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                alignSelf: "flex-start",
+                background: "none",
+                border: "none",
+                padding: 0,
+                fontFamily: FONT,
+                fontSize: 13.5,
+                fontWeight: 600,
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+              }}
+            >
+              <ArrowLeft size={14} aria-hidden />
+              All views
+            </button>
+            <MyViews onBrowse={() => setShowMine(false)} />
+          </div>
         ) : (
           <>
-            <div style={{ marginBottom: 28 }}>
-              <div
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: "var(--text-tertiary)",
-                  marginBottom: 4,
-                }}
-              >
-                View Pack 01
+            <div
+              style={{
+                marginBottom: 28,
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 16,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: "var(--text-tertiary)",
+                    marginBottom: 4,
+                  }}
+                >
+                  View Pack 01
+                </div>
+                <h1
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: 30,
+                    fontWeight: 600,
+                    letterSpacing: "-0.02em",
+                    color: "var(--text-primary)",
+                    margin: "0 0 8px",
+                  }}
+                >
+                  Views
+                </h1>
+                <p
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: 15,
+                    color: "var(--text-secondary)",
+                    margin: 0,
+                    maxWidth: 720,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Beliefs, expressed as deployable strategies — with the return each one has paid.
+                </p>
               </div>
-              <h1
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 30,
-                  fontWeight: 600,
-                  letterSpacing: "-0.02em",
-                  color: "var(--text-primary)",
-                  margin: "0 0 8px",
-                }}
-              >
-                Views
-              </h1>
-              <p
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 15,
-                  color: "var(--text-secondary)",
-                  margin: 0,
-                  maxWidth: 720,
-                  lineHeight: 1.5,
-                }}
-              >
-                Beliefs, expressed as deployable strategies — with the return each one has paid.
-              </p>
+              <MyViewsButton onClick={() => setShowMine(true)} />
             </div>
             <div
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch"

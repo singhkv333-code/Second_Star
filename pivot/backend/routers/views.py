@@ -33,13 +33,15 @@ from backend.models import (
     ViewExpectation,
     ViewExpression,
     ViewFollow,
+    ViewPosition,
+    ViewPositionStatus,
     ViewStatus,
     ViewTransmission,
     ViewType,
     Workflow,
 )
 from backend.routers._errors import http_error, not_found, validation_error
-from backend.view_markets import plain_copy, precompute
+from backend.view_markets import plain_copy, positions as positions_svc, precompute
 from backend.view_markets.deployment.compare import compare_tiers
 from backend.view_markets.deployment.deploy import deploy_expression
 from backend.view_markets.deployment.backtest import backtest_expression
@@ -1078,6 +1080,241 @@ def list_views(
     return resp
 
 
+# ── My Views — the per-user position ledger ─────────────────────────────────
+#
+# Registered BEFORE GET /views/{view_id} so the literal "positions" segment is
+# never captured as a view id. Everything here is register-not-execute ledger
+# arithmetic (see backend.view_markets.positions): Pivot records what the user
+# armed and how it is doing — it never places, resizes, or exits an order.
+
+
+class PositionLegOut(BaseModel):
+    symbol: Optional[str] = None
+    side: str = "long"
+    weight: Optional[float] = None
+    entry_price: Optional[float] = None
+    last_price: Optional[float] = None
+    return_pct: Optional[float] = None
+
+
+class ViewPositionOut(BaseModel):
+    id: str
+    view_id: str
+    expression_id: str
+    workflow_id: Optional[str] = None
+    # The view, at a glance (dateless question title + resolution state).
+    view_title: Optional[str] = None
+    view_status: Optional[str] = None
+    view_resolved: bool = False
+    resolution_date: Optional[datetime] = None
+    # The strategy identity (fun name + tier), same source the detail page uses.
+    tier: Optional[str] = None
+    expression_kind: Optional[str] = None
+    strategy_name: Optional[str] = None
+    # The ledger.
+    status: str
+    entry_at: Optional[datetime] = None
+    exited_at: Optional[datetime] = None
+    capital_inr: Optional[float] = None
+    open_fraction: float = 1.0
+    take_profit_pct: Optional[float] = None
+    stop_loss_pct: Optional[float] = None
+    take_profit_hit: bool = False
+    stop_loss_hit: bool = False
+    # Live, up-to-date performance (None = honestly unpriceable, never 0).
+    return_pct: Optional[float] = None
+    unrealized_pnl_inr: Optional[float] = None
+    open_value_inr: Optional[float] = None
+    realized_pnl_inr: Optional[float] = None
+    legs: list[PositionLegOut] = Field(default_factory=list)
+    exits: list[dict[str, Any]] = Field(default_factory=list)
+    note: Optional[str] = None
+
+
+class PositionsResponse(BaseModel):
+    items: list[ViewPositionOut]
+
+
+class PositionUpdateRequest(BaseModel):
+    """Partial update — only the fields the user actually sent are applied
+    (an explicit null CLEARS that level)."""
+    take_profit_pct: Optional[float] = None
+    stop_loss_pct: Optional[float] = None
+    capital_inr: Optional[float] = None
+
+
+class PositionExitRequest(BaseModel):
+    pct: float = Field(gt=0, le=100)
+
+
+class PositionExitResponse(BaseModel):
+    position: ViewPositionOut
+    exited_pct: float
+    note: str
+
+
+def _require_user(user_id: Optional[int]) -> int:
+    if user_id is None:
+        raise http_error(401, "unauthorized", "sign in to see your views")
+    return user_id
+
+
+def _position_out(db: Session, pos: ViewPosition) -> ViewPositionOut:
+    """One ledger row + its live snapshot, joined to the view/expression copy."""
+    view = pos.view or db.get(MarketView, pos.view_id)
+    expr = pos.expression or db.get(ViewExpression, pos.expression_id)
+
+    view_title = None
+    view_status = None
+    resolved = False
+    resolution_date = None
+    if view is not None:
+        extras = plain_copy.view_extras(view)
+        view_title = extras.get("short_title") or view.title
+        view_status = _str_enum(view.status)
+        resolved = view_status in ("resolved", "archived")
+        resolution_date = view.resolution_date
+
+    tier = _str_enum(expr.tier) if expr is not None else None
+    kind = _str_enum(expr.expression_kind) if expr is not None else None
+    strategy_name = None
+    if view is not None and expr is not None:
+        strategy_name = plain_copy.strategy_identity(view, expr).get(
+            "strategy_name"
+        )
+
+    snap = positions_svc.position_snapshot(pos)
+    return ViewPositionOut(
+        id=str(pos.id),
+        view_id=str(pos.view_id),
+        expression_id=str(pos.expression_id),
+        workflow_id=str(pos.workflow_id) if pos.workflow_id else None,
+        view_title=view_title,
+        view_status=view_status,
+        view_resolved=resolved,
+        resolution_date=resolution_date,
+        tier=tier,
+        expression_kind=kind,
+        strategy_name=strategy_name,
+        status=_str_enum(pos.status),
+        entry_at=pos.entry_at,
+        exited_at=pos.exited_at,
+        capital_inr=pos.capital_inr,
+        open_fraction=float(pos.open_fraction or 0.0),
+        take_profit_pct=pos.take_profit_pct,
+        stop_loss_pct=pos.stop_loss_pct,
+        take_profit_hit=snap["take_profit_hit"],
+        stop_loss_hit=snap["stop_loss_hit"],
+        return_pct=snap["return_pct"],
+        unrealized_pnl_inr=snap["unrealized_pnl_inr"],
+        open_value_inr=snap["open_value_inr"],
+        realized_pnl_inr=snap["realized_pnl_inr"],
+        legs=[PositionLegOut(**leg) for leg in snap["legs"]],
+        exits=list(pos.exits or []),
+        note=pos.note,
+    )
+
+
+def _load_position_or_404(
+    db: Session, position_id: str, user_id: int
+) -> ViewPosition:
+    pos = (
+        db.query(ViewPosition)
+        .filter(
+            ViewPosition.id == position_id,
+            ViewPosition.user_id == user_id,
+        )
+        .one_or_none()
+    )
+    if pos is None:
+        raise not_found(f"position {position_id} not found")
+    return pos
+
+
+@router.get("/views/positions", response_model=PositionsResponse)
+def list_positions(
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> PositionsResponse:
+    """Every view the user has put a position behind — open first, newest
+    first — each with its live return since entry."""
+    _require_flag()
+    uid = _require_user(user_id)
+    rows = (
+        db.query(ViewPosition)
+        .filter(ViewPosition.user_id == uid)
+        .order_by(ViewPosition.entry_at.desc())
+        .all()
+    )
+    rows.sort(key=lambda p: _str_enum(p.status) != "open")  # open first, stable
+    return PositionsResponse(items=[_position_out(db, p) for p in rows])
+
+
+@router.patch("/views/positions/{position_id}", response_model=ViewPositionOut)
+def update_position(
+    position_id: str,
+    body: PositionUpdateRequest,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> ViewPositionOut:
+    """Edit the user's exit plan (take-profit / stop-loss levels) or declared
+    position size. Only the fields present in the request are touched; an
+    explicit null clears that field. Levels are LEDGER levels — nothing is
+    auto-executed."""
+    _require_flag()
+    uid = _require_user(user_id)
+    pos = _load_position_or_404(db, position_id, uid)
+
+    sent = body.model_fields_set
+    if "take_profit_pct" in sent:
+        tp = body.take_profit_pct
+        if tp is not None and tp <= 0:
+            raise validation_error("take_profit_pct must be positive")
+        pos.take_profit_pct = tp
+    if "stop_loss_pct" in sent:
+        sl = body.stop_loss_pct
+        if sl is not None and sl <= 0:
+            raise validation_error(
+                "stop_loss_pct must be positive (the loss magnitude, e.g. 8)"
+            )
+        pos.stop_loss_pct = sl
+    if "capital_inr" in sent:
+        cap = body.capital_inr
+        if cap is not None and cap <= 0:
+            raise validation_error("capital_inr must be positive")
+        pos.capital_inr = cap
+
+    db.commit()
+    return _position_out(db, pos)
+
+
+@router.post(
+    "/views/positions/{position_id}/exit", response_model=PositionExitResponse
+)
+def exit_position(
+    position_id: str,
+    body: PositionExitRequest,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> PositionExitResponse:
+    """Record a partial (pct < 100) or full exit of the OPEN fraction at
+    current marks. Register-not-execute: this updates the ledger and reminds
+    the user to place the actual orders in their own broker app."""
+    _require_flag()
+    uid = _require_user(user_id)
+    pos = _load_position_or_404(db, position_id, uid)
+    try:
+        result = positions_svc.apply_exit(db, pos, pct_of_open=body.pct)
+    except ValueError as exc:
+        raise validation_error(str(exc)) from exc
+    db.commit()
+    return PositionExitResponse(
+        position=_position_out(db, pos),
+        exited_pct=float(result["exited_pct"]),
+        note=str(result["note"]),
+    )
+
+
 def _load_view_or_404(db: Session, view_id: str) -> MarketView:
     view = db.query(MarketView).filter(MarketView.id == view_id).one_or_none()
     if view is None:
@@ -1223,6 +1460,58 @@ def _load_expression_or_404(db: Session, expression_id: str) -> ViewExpression:
 class DeployRequest(BaseModel):
     activate: bool = False
     timing_mode: Optional[str] = None
+    # The user-declared position size for the My Views ledger (never invented;
+    # a missing capital just means the ledger shows % returns without rupees).
+    capital_inr: Optional[float] = Field(default=None, gt=0)
+
+
+def _ensure_position(
+    db: Session,
+    expression: ViewExpression,
+    user_id: Optional[int],
+    *,
+    capital_inr: Optional[float],
+    workflow_id: Optional[str],
+) -> None:
+    """Create the My Views ledger row for this (user, expression) if the user
+    doesn't already hold an OPEN one — deploys are idempotent on the ledger.
+    Best-effort: a ledger hiccup must never fail the deploy itself."""
+    if user_id is None:
+        return
+    try:
+        existing = (
+            db.query(ViewPosition)
+            .filter(
+                ViewPosition.user_id == user_id,
+                ViewPosition.expression_id == str(expression.id),
+                ViewPosition.status == ViewPositionStatus.open,
+            )
+            .first()
+        )
+        if existing is not None:
+            return
+        view = _load_view(db, expression)
+        if view is None:
+            return
+        positions_svc.create_position(
+            db,
+            view,
+            expression,
+            user_id=user_id,
+            capital_inr=capital_inr,
+            workflow_id=workflow_id,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("view position ledger create failed", exc_info=True)
+
+
+def _load_view(db: Session, expression: ViewExpression) -> Optional[MarketView]:
+    view = getattr(expression, "view", None)
+    if view is not None:
+        return view
+    if expression.view_id:
+        return db.get(MarketView, str(expression.view_id))
+    return None
 
 
 @router.post("/views/expressions/{expression_id}/deploy", response_model=DeployResponse)
@@ -1247,6 +1536,16 @@ def deploy(
         )
         if wf is not None:
             steps_count = len(wf.steps) if wf.steps is not None else 0
+            # Re-deploy of an existing draft still lands on the ledger —
+            # the user pressed Deploy, so My Views must show it.
+            _ensure_position(
+                db,
+                expression,
+                user_id,
+                capital_inr=req.capital_inr,
+                workflow_id=str(wf.id),
+            )
+            db.commit()
             return DeployResponse(
                 workflow_id=str(wf.id),
                 status=_str_enum(wf.status),
@@ -1264,6 +1563,15 @@ def deploy(
         )
     except ValueError as exc:
         raise validation_error(str(exc)) from exc
+
+    # The fresh deploy lands on the My Views ledger (best-effort, same txn).
+    _ensure_position(
+        db,
+        expression,
+        user_id,
+        capital_inr=req.capital_inr,
+        workflow_id=str(result.get("workflow_id") or "") or None,
+    )
 
     db.commit()
     return DeployResponse(

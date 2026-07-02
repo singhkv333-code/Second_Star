@@ -760,6 +760,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 <AgentsTab
                   onOpenWorkflow={openWorkflow}
                   onEditWithChat={editWorkflowWithChat}
+                  onBrowseViews={() => goTab("views")}
                 />
               )}
             </div>

@@ -16,13 +16,14 @@
  */
 
 import * as React from "react";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowLeft, Briefcase, RefreshCw } from "lucide-react";
 import { listViews } from "@/lib/api";
 import { isError } from "@/lib/types";
 import type { ViewSummary, StanceIntent } from "@/lib/types";
 import { ViewCard } from "./ViewCard";
 import { ViewFilters, DEFAULT_FILTERS, type FiltersState } from "./ViewFilters";
 import { ViewDetailPage } from "./ViewDetailPage";
+import { MyViews } from "./MyViews";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,6 +74,8 @@ export function ViewsTab({
   // Threaded to the detail page so it scrolls to + highlights that stance.
   const [selectedStance, setSelectedStance] =
     React.useState<StanceIntent | null>(null);
+  // "gallery" = the curated grid; "mine" = the user's My Views ledger.
+  const [mode, setMode] = React.useState<"gallery" | "mine">("gallery");
   const [filters, setFilters] = React.useState<FiltersState>(DEFAULT_FILTERS);
   const [state, setState] = React.useState<FetchState>({ kind: "loading" });
 
@@ -135,6 +138,47 @@ export function ViewsTab({
     );
   }
 
+  // ── My Views mode — the user's deployment ledger ──────────────────────────
+  if (mode === "mine") {
+    return (
+      <div
+        className="views-tab flex flex-col"
+        style={{ gap: 20 }}
+        data-testid="views-tab"
+      >
+        <button
+          type="button"
+          onClick={() => setMode("gallery")}
+          data-testid="my-views-back"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            alignSelf: "flex-start",
+            background: "none",
+            border: "none",
+            padding: 0,
+            fontFamily: "var(--font-display)",
+            fontSize: 13.5,
+            fontWeight: 600,
+            color: "var(--text-secondary)",
+            cursor: "pointer",
+          }}
+        >
+          <ArrowLeft size={14} aria-hidden />
+          All views
+        </button>
+        <MyViews
+          onOpenView={(id) => {
+            setMode("gallery");
+            openView(id);
+          }}
+          onBrowse={() => setMode("gallery")}
+        />
+      </div>
+    );
+  }
+
   // ── Grid mode ─────────────────────────────────────────────────────────────
   return (
     <div
@@ -142,33 +186,43 @@ export function ViewsTab({
       style={{ gap: 24 }}
       data-testid="views-tab"
     >
-      {/* Page heading */}
-      <div>
-        <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 28,
-            fontWeight: 600,
-            letterSpacing: "-0.02em",
-            color: "var(--text-primary)",
-            margin: "0 0 6px 0",
-            lineHeight: 1.2,
-          }}
-        >
-          Views
-        </h1>
-        <p
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 15,
-            fontWeight: 400,
-            color: "var(--text-secondary)",
-            margin: 0,
-            lineHeight: 1.5,
-          }}
-        >
-          Beliefs, expressed as deployable strategies — with the return each one has paid.
-        </p>
+      {/* Page heading + the My Views entry (a proper rectangular button) */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
+        }}
+      >
+        <div>
+          <h1
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 28,
+              fontWeight: 600,
+              letterSpacing: "-0.02em",
+              color: "var(--text-primary)",
+              margin: "0 0 6px 0",
+              lineHeight: 1.2,
+            }}
+          >
+            Views
+          </h1>
+          <p
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 15,
+              fontWeight: 400,
+              color: "var(--text-secondary)",
+              margin: 0,
+              lineHeight: 1.5,
+            }}
+          >
+            Beliefs, expressed as deployable strategies — with the return each one has paid.
+          </p>
+        </div>
+        <MyViewsButton onClick={() => setMode("mine")} />
       </div>
 
       {/* Filters */}
@@ -211,6 +265,49 @@ export function ViewsTab({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MyViewsButton — the rectangular entry to the user's deployment ledger.
+// Exported so the /view-pack showcase renders the identical affordance.
+// ---------------------------------------------------------------------------
+
+export function MyViewsButton({
+  onClick,
+}: {
+  onClick: () => void;
+}): React.ReactElement {
+  const [hover, setHover] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      data-testid="my-views-button"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 0,
+        padding: "10px 18px",
+        borderRadius: "var(--radius-md)",
+        border: `1px solid ${hover ? "var(--glass-border-hover)" : "var(--glass-border)"}`,
+        background: "var(--bg-base)",
+        fontFamily: "var(--font-display)",
+        fontSize: 13.5,
+        fontWeight: 600,
+        letterSpacing: "-0.01em",
+        color: "var(--text-primary)",
+        cursor: "pointer",
+        transition: "border-color 160ms var(--ease-quartr)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Briefcase size={14} aria-hidden />
+      My Views
+    </button>
   );
 }
 

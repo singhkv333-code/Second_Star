@@ -1788,6 +1788,11 @@ class ExpectationSource(str, enum.Enum):
     model = "model"
 
 
+class ViewPositionStatus(str, enum.Enum):
+    open = "open"
+    exited = "exited"
+
+
 class MarketView(Base):
     """One curated (or, later, user-authored) market belief.
 
@@ -2009,3 +2014,70 @@ class ViewFollow(Base):
     )
 
     view = relationship("MarketView", back_populates="follows")
+
+
+class ViewPosition(Base):
+    """One user's live ledger entry for a deployed view expression ("My Views").
+
+    Created when the user deploys an expression (register-not-execute: the
+    ledger records what the user has armed/expressed — Pivot never places the
+    orders). ``legs`` snapshots the tradeable legs at entry
+    (``[{symbol, side, weight, entry_price|null}]``; an unpriceable leg keeps
+    ``entry_price = null`` and is excluded from the live return — never a
+    fabricated mark). Option/hedge expressions carry NO priced legs (strikes
+    are set at deploy in the broker) so their return renders "Priced at
+    deploy" instead of a number.
+
+    ``open_fraction`` walks 1.0 → 0.0 through partial exits; each exit is
+    appended to ``exits`` (``[{at, pct_of_open, return_pct, realized_pnl_inr}]``)
+    and accrues ``realized_pnl_inr`` when ``capital_inr`` is known.
+    ``take_profit_pct`` / ``stop_loss_pct`` are the user's exit plan — levels
+    on the ledger compared against the live return at read time (no
+    auto-execution, ever). ``capital_inr`` is user-declared sizing (nullable —
+    we never invent a notional). ``workflow_id`` is a SOFT ref to the armed
+    workflow draft."""
+    __tablename__ = "view_positions"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True,
+    )
+    view_id = Column(
+        String(36), ForeignKey("market_views.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    expression_id = Column(
+        String(36), ForeignKey("view_expressions.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    workflow_id = Column(String(36), nullable=True)  # SOFT ref (cross-domain)
+    status = Column(
+        SQLEnum(ViewPositionStatus, name="view_position_status",
+                native_enum=False),
+        nullable=False, default=ViewPositionStatus.open,
+    )
+    capital_inr = Column(Float, nullable=True)   # user-declared, never invented
+    open_fraction = Column(Float, nullable=False, default=1.0)
+    take_profit_pct = Column(Float, nullable=True)
+    stop_loss_pct = Column(Float, nullable=True)  # positive % (loss magnitude)
+    legs = Column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=False, default=list,
+    )
+    exits = Column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=False, default=list,
+    )
+    realized_pnl_inr = Column(Float, nullable=True)
+    note = Column(Text, nullable=True)  # honesty note (e.g. priced-at-deploy)
+    entry_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    exited_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    view = relationship("MarketView")
+    expression = relationship("ViewExpression")

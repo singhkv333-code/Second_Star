@@ -3,13 +3,15 @@
 /**
  * AgentsTab — agent catalog grid.
  *
- * Two surfaces behind a top toggle:
+ * Three surfaces behind a top toggle:
  *   • Equity agents (workflows) — real summary header + per-agent cards whose
  *     sparkline/return/run-stats come from GET /api/workflows/{id}/performance
  *     (lazy-loaded per card). Delete via DELETE /api/workflows/{id}.
  *   • Options strategies — the user's registered F&O strategies from
  *     GET /users/option-strategies, each its own card. "Delete" maps to the
  *     withdraw endpoint POST /option-strategies/{id}/withdraw.
+ *   • My Views — the user's deployed view positions (the same ledger the
+ *     Views tab opens), from GET /api/views/positions.
  *
  * All numbers are real. When an agent has no run/NAV history the card shows
  * "No runs yet" instead of a fabricated sparkline; empty sections show honest
@@ -64,6 +66,7 @@ import {
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { AgentsSummaryHeader } from "./AgentsSummaryHeader";
+import { MyViews } from "@/components/views/MyViews";
 
 const BRAND_GREEN = "#4CAF50";
 
@@ -79,9 +82,11 @@ export type AgentsTabProps = {
    * so the chat surface can target this EXACT agent for amendment.
    */
   onEditWithChat?: (workflow: Workflow) => void;
+  /** "Browse views" from the Views surface — jump to the Views tab. */
+  onBrowseViews?: () => void;
 };
 
-type Surface = "equity" | "options";
+type Surface = "equity" | "options" | "views";
 type Filter = "all" | WorkflowStatus;
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -179,7 +184,11 @@ function deriveCadence(wf: WorkflowSummary): string {
 // AgentsTab
 // ---------------------------------------------------------------------------
 
-export function AgentsTab({ onOpenWorkflow, onEditWithChat }: AgentsTabProps): React.ReactElement {
+export function AgentsTab({
+  onOpenWorkflow,
+  onEditWithChat,
+  onBrowseViews,
+}: AgentsTabProps): React.ReactElement {
   const [surface, setSurface] = useState<Surface>("equity");
   const [filter, setFilter] = useState<Filter>("all");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
@@ -414,20 +423,23 @@ export function AgentsTab({ onOpenWorkflow, onEditWithChat }: AgentsTabProps): R
             </div>
           )}
         </>
-      ) : (
+      ) : surface === "options" ? (
         <OptionsStrategiesSection
           state={optionsState}
           deletingId={deletingId}
           onRetry={loadOptions}
           onWithdraw={handleWithdrawOption}
         />
+      ) : (
+        // The user's deployed views — same ledger the Views tab opens.
+        <MyViews embedded onBrowse={onBrowseViews} />
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// SurfaceToggle — Equity agents vs Options strategies
+// SurfaceToggle — Equity agents · Options strategies · My Views
 // ---------------------------------------------------------------------------
 
 function SurfaceToggle({
@@ -440,6 +452,7 @@ function SurfaceToggle({
   const OPTIONS: { key: Surface; label: string }[] = [
     { key: "equity", label: "Equity agents" },
     { key: "options", label: "Options strategies" },
+    { key: "views", label: "Views" },
   ];
   return (
     <div

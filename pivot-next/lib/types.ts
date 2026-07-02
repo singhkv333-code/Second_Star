@@ -1848,6 +1848,63 @@ export type ViewDetail = ViewSummary & {
   caveat?: string | null;
 };
 
+// ── My Views — the per-user position ledger ─────────────────────────────────
+
+/** One ledger leg with its live mark (nulls = honestly unpriceable). */
+export type ViewPositionLeg = {
+  symbol: string | null;
+  side: "long" | "short" | string;
+  weight: number | null;
+  entry_price: number | null;
+  last_price: number | null;
+  return_pct: number | null;
+};
+
+/**
+ * Shape returned by GET /api/views/positions — one deployed view expression
+ * on the user's ledger, with its live return since entry. Register-not-execute:
+ * the ledger records; the user places/exits orders in their own broker app.
+ */
+export type ViewPositionItem = {
+  id: string;
+  view_id: string;
+  expression_id: string;
+  workflow_id: string | null;
+  /** The view at a glance — dateless question title + resolution state. */
+  view_title: string | null;
+  view_status: string | null;
+  view_resolved: boolean;
+  resolution_date: string | null;
+  tier: string | null;
+  expression_kind: string | null;
+  /** Fun plain strategy name, e.g. "Slow & Steady rural bundle". */
+  strategy_name: string | null;
+  status: "open" | "exited" | string;
+  entry_at: string | null;
+  exited_at: string | null;
+  /** User-declared size — null means % returns only (never invented). */
+  capital_inr: number | null;
+  /** 1.0 → 0.0 through partial exits. */
+  open_fraction: number;
+  take_profit_pct: number | null;
+  stop_loss_pct: number | null;
+  take_profit_hit: boolean;
+  stop_loss_hit: boolean;
+  /** Live weighted return since entry (null = unpriceable, never 0). */
+  return_pct: number | null;
+  unrealized_pnl_inr: number | null;
+  open_value_inr: number | null;
+  realized_pnl_inr: number | null;
+  legs: ViewPositionLeg[];
+  exits: Array<{
+    at?: string;
+    pct_of_open?: number;
+    return_pct?: number | null;
+    realized_pnl_inr?: number | null;
+  }>;
+  note: string | null;
+};
+
 /** Result of POST /api/views/{id}/compare — ranked tier recommendation. */
 export type CompareResult = {
   recommended_tier: ExpressionTier;
