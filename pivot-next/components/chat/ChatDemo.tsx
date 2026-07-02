@@ -62,6 +62,16 @@ import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCa
 import { PortfolioGreeksCard } from "@/components/chat/PortfolioGreeksCard";
 import { ClarifyCard } from "@/components/chat/ClarifyCard";
 import { StrategyBuilderCard } from "@/components/chat/StrategyBuilderCard";
+import {
+  AttachmentChips,
+  ComposerPlusMenu,
+  MentionDropdown,
+  attachmentKey,
+  detectMentionQuery,
+  toWireAttachment,
+  type ChatAttachment,
+} from "@/components/chat/ComposerContext";
+import type { CompanySearchResult } from "@/lib/api";
 import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
 import { useActiveDraft } from "@/components/agent-panel/active-draft-context";
 
@@ -139,6 +149,12 @@ async function* streamChat(
    * workflow — in that case the backend falls back to its Redis state.
    */
   editorDraft?: WorkflowDraft | null,
+  /**
+   * Composer context attachments (the "+" menu / "@" mentions) — the
+   * securities, positions and agents the user tagged. The backend weaves
+   * them into the prompt as a grounding block. Empty/absent = none.
+   */
+  attachments?: Array<Record<string, unknown>> | null,
 ): AsyncGenerator<SseEvent> {
   const base =
     (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
@@ -178,6 +194,8 @@ async function* streamChat(
       // Editor-draft sync: when the editor is open on an unsaved draft,
       // send it so the backend amends exactly what the user sees.
       ...(editorDraft ? { editor_draft: editorDraft } : {}),
+      // Composer context attachments — omitted entirely when none.
+      ...(attachments && attachments.length ? { attachments } : {}),
     }),
     cache: "no-store",
     signal,
@@ -589,6 +607,18 @@ type ChatDemoProps = {
    * without needing the user to click "Open in editor" again.
    */
   onDraftFromChat?: (draft: Workflow) => void;
+  /**
+   * Resume a persisted conversation from the sidebar: adopt its id as the
+   * session id (so the backend appends to the same thread) and seed the
+   * message list + rolling history from the stored transcript. Cards are
+   * not persisted — resumed threads render as plain text turns.
+   */
+  resume?: ResumeConversation;
+};
+
+export type ResumeConversation = {
+  id: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
 export type ChatDemoSeed = {
@@ -612,12 +642,13 @@ export type ChatDemoSeed = {
  * workflow draft (PDF report). Per-mount fixes that root cause.
  */
 function newSessionId(): string {
-  // crypto.randomUUID is available in modern browsers; fall back
-  // to a low-entropy random string for very old environments.
+  // Bare UUID (36 chars) — this doubles as the Postgres conversations PK
+  // (String(36)), so no prefix: the old `s_` prefix pushed it to 38 chars
+  // and the turn would silently skip persistence.
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `s_${crypto.randomUUID()}`;
+    return crypto.randomUUID();
   }
-  return `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export function ChatDemo({
@@ -631,13 +662,28 @@ export function ChatDemo({
   demoSeed,
   onDemoSeedConsumed,
   onDraftFromChat,
+  resume,
 }: ChatDemoProps): React.ReactElement {
   // Read the active draft context so we can attach editor_draft on outgoing
   // requests when the panel is open on an unsaved draft.
   const { activeEditorDraft, panelOpenWithDraft } = useActiveDraft();
   const [intent, setIntent] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() =>
+    // Resumed conversations seed the visible thread from the stored
+    // transcript (text turns only — cards aren't persisted).
+    (resume?.messages ?? [])
+      .filter((m) => m.content)
+      .map((m) =>
+        m.role === "user"
+          ? { kind: "user" as const, text: m.content }
+          : { kind: "assistant" as const, text: m.content },
+      ),
+  );
   const [loading, setLoading] = useState(false);
+  // Composer context attachments — securities (@ / + menu), positions,
+  // agents. Persist across turns (they're conversation context, not
+  // one-shot uploads); the user dismisses via the chip's X.
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   // Reply-by-selecting state. `reply` is the snippet the user committed
   // to reply to (shown as a quote chip above the composer + sent with
   // the next message). `selectionReply` is the transient floating
@@ -651,12 +697,19 @@ export function ChatDemo({
   // the pills below the composer. Persists across turns so the user
   // can stay "in agent mode" while iterating on a workflow.
   const [mode, setMode] = useState<ChatMode>(null);
-  // Rolling history for the backend's conversation context
-  const historyRef = useRef<ChatHistoryMessage[]>([]);
+  // Rolling history for the backend's conversation context. A resumed
+  // conversation seeds it from the stored transcript (last 20 turns).
+  const historyRef = useRef<ChatHistoryMessage[]>(
+    (resume?.messages ?? [])
+      .filter((m) => m.content)
+      .map((m) => ({ role: m.role, content: m.content }))
+      .slice(-20),
+  );
   // Stable per-session id. Generated lazily inside useRef so it survives
-  // re-renders but is regenerated on a fresh mount.
+  // re-renders but is regenerated on a fresh mount. Resuming a sidebar
+  // conversation adopts ITS id so the backend appends to the same thread.
   const sessionIdRef = useRef<string>("");
-  if (!sessionIdRef.current) sessionIdRef.current = newSessionId();
+  if (!sessionIdRef.current) sessionIdRef.current = resume?.id ?? newSessionId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Scroll container — kept pinned to the bottom while messages stream
   // in, the same auto-follow behaviour ChatGPT/Claude use.
@@ -802,21 +855,31 @@ export function ChatDemo({
     return () => window.removeEventListener("pivot:focus-composer", onFocus);
   }, []);
 
-  // "Edit with chat" entry point (dispatched from the Agents grid). Drops a
-  // pre-written amendment prompt for a saved agent into the composer WITHOUT
-  // auto-submitting, so the user can finish the sentence ("…raise the qty to
-  // 20") and send. Pins the mode to "agent" so the classifier routes the
-  // follow-up to the workflow tool rather than a generic answer.
+  // "Edit with chat" entry point (dispatched from the Agents grid). Selects
+  // the agent as a composer attachment chip (and optionally seeds text)
+  // WITHOUT auto-submitting, so the user says what they want changed and
+  // sends. Pins the mode to "agent" so the classifier routes the follow-up
+  // to the workflow tool rather than a generic answer.
   useEffect(() => {
     const onSeed = (e: Event): void => {
       const detail = (e as CustomEvent<{
         text?: string;
         mode?: ChatMode;
         draft?: WorkflowDraft;
+        attach?: ChatAttachment;
       }>).detail;
-      if (!detail?.text) return;
-      setIntent(detail.text);
+      if (!detail || (!detail.text && !detail.attach)) return;
+      if (detail.text) setIntent(detail.text);
       if (detail.mode !== undefined) setMode(detail.mode);
+      // Select the agent as a context chip — the backend gets it as an
+      // attachment on every turn while selected.
+      if (detail.attach) {
+        const att = detail.attach;
+        setAttachments((prev) => {
+          const key = attachmentKey(att);
+          return prev.some((p) => attachmentKey(p) === key) ? prev : [...prev, att];
+        });
+      }
       // Stash the exact agent to amend (if supplied) — consumed once on the
       // next submit so the backend targets THIS workflow's steps.
       seededEditDraftRef.current = detail.draft ?? null;
@@ -833,6 +896,49 @@ export function ChatDemo({
     window.addEventListener("pivot:seed-composer", onSeed);
     return () => window.removeEventListener("pivot:seed-composer", onSeed);
   }, []);
+
+  // ── Composer context attachments ─────────────────────────────────────
+
+  const addAttachment = (att: ChatAttachment): void => {
+    setAttachments((prev) => {
+      const key = attachmentKey(att);
+      return prev.some((p) => attachmentKey(p) === key) ? prev : [...prev, att];
+    });
+    textareaRef.current?.focus();
+  };
+
+  const removeAttachment = (key: string): void => {
+    setAttachments((prev) => prev.filter((p) => attachmentKey(p) !== key));
+  };
+
+  /** "+ menu → Select an agent": attach the chip, pin agent mode, seed the
+   * exact workflow as the next turn's edit target, and open the editor
+   * panel alongside — the same selected-for-editing state as the Agents
+   * grid's "Edit with chat". */
+  const handleAgentPicked = (workflow: Workflow): void => {
+    addAttachment({
+      kind: "agent",
+      workflow_id: workflow.id,
+      name: workflow.name,
+      description: workflow.description ?? "",
+      status: workflow.status,
+    });
+    setMode("agent");
+    seededEditDraftRef.current = {
+      workflow_id: workflow.id,
+      name: workflow.name,
+      description: workflow.description ?? "",
+      steps: workflow.steps.map((s) => ({
+        step_type: s.step_type,
+        label: s.label,
+        config: s.config,
+      })),
+      rationale: "",
+      warnings: [],
+      _render_hint: "workflow_draft_card",
+    } as WorkflowDraft;
+    onOpenEditor(workflow);
+  };
 
   // Esc aborts an in-flight response (only armed while a stream is running,
   // so it never swallows Esc from dialogs/menus when the chat is idle).
@@ -1220,6 +1326,9 @@ export function ChatDemo({
         modeOverride ?? mode,
         quote,
         editorDraft,
+        // Context attachments ride every turn while their chips are
+        // active — the backend grounds the LLM on them.
+        attachments.map(toWireAttachment),
       );
 
       for await (const event of gen) {
@@ -1306,6 +1415,11 @@ export function ChatDemo({
             ].slice(-20);
 
             resolveStreamingMessage(event, streamingIdx);
+            // The backend persisted this turn — nudge the sidebar's
+            // conversation list to refresh (new thread/title/ordering).
+            try {
+              window.dispatchEvent(new CustomEvent("pivot:conversations-changed"));
+            } catch { /* non-browser env */ }
             break;
         }
       }
@@ -1901,6 +2015,10 @@ export function ChatDemo({
           onModeChange={setMode}
           reply={reply}
           onClearReply={() => setReply(null)}
+          attachments={attachments}
+          onAddAttachment={addAttachment}
+          onRemoveAttachment={removeAttachment}
+          onAgentPicked={handleAgentPicked}
         />
       </div>
 
@@ -2393,6 +2511,10 @@ function ChatComposer({
   onModeChange,
   reply,
   onClearReply,
+  attachments,
+  onAddAttachment,
+  onRemoveAttachment,
+  onAgentPicked,
 }: {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -2409,6 +2531,11 @@ function ChatComposer({
    * chip above the input. Null when there's no pending reply. */
   reply: string | null;
   onClearReply: () => void;
+  /** Context attachments (securities / positions / agents) + handlers. */
+  attachments: ChatAttachment[];
+  onAddAttachment: (a: ChatAttachment) => void;
+  onRemoveAttachment: (key: string) => void;
+  onAgentPicked: (workflow: Workflow) => void;
 }): React.ReactElement {
   // The right-side button is in one of three states:
   //   • idle     — empty input, button is dim, disabled
@@ -2416,6 +2543,77 @@ function ChatComposer({
   //   • loading  — response in flight, button shows Square (stop)
   const canSend = !!value.trim() && !loading;
   const showStop = loading;
+
+  // ── "@" mention typeahead ────────────────────────────────────────────
+  // Open while the text immediately before the caret is an in-progress
+  // `@query`. Selection inserts `@SYMBOL ` into the text AND records a
+  // structured security attachment (chip + backend grounding).
+  const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
+  const [mentionHighlight, setMentionHighlight] = useState(0);
+  // Result list mirrored into a ref so the textarea's keydown handler can
+  // resolve Enter/Tab synchronously without re-subscribing.
+  const mentionResultsRef = useRef<CompanySearchResult[]>([]);
+
+  const syncMention = (text: string): void => {
+    const el = textareaRef.current;
+    const caret = el ? el.selectionStart ?? text.length : text.length;
+    setMention(detectMentionQuery(text, caret));
+  };
+
+  const pickMention = (r: CompanySearchResult): void => {
+    const el = textareaRef.current;
+    if (!mention || !el) return;
+    const caret = el.selectionStart ?? value.length;
+    const next =
+      value.slice(0, mention.start) + `@${r.symbol} ` + value.slice(caret);
+    onChange(next);
+    onAddAttachment({
+      kind: "security",
+      symbol: r.symbol,
+      name: r.name,
+      logo_url: r.logo_url,
+    });
+    setMention(null);
+    // Restore focus + place the caret right after the inserted tag.
+    const pos = mention.start + r.symbol.length + 2;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const handleComposerKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+  ): void => {
+    if (mention) {
+      const results = mentionResultsRef.current;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setMention(null);
+        return;
+      }
+      if (results.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setMentionHighlight((i) => (i + 1) % results.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setMentionHighlight((i) => (i - 1 + results.length) % results.length);
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          const r = results[Math.min(mentionHighlight, results.length - 1)];
+          if (r) pickMention(r);
+          return;
+        }
+      }
+    }
+    onKeyDown(e);
+  };
 
   // Phone vs. desktop placeholder text. `isMobile` defaults to false on
   // SSR/first paint and snaps to true via useEffect on phone — so for a
@@ -2551,19 +2749,46 @@ function ChatComposer({
           centering; the send button itself is self-end (see below) so it
           drops to the bottom only once the textarea grows multiline. */}
       <div
-        className="flex items-center gap-1.5 p-1 pl-[14px] sm:gap-2 sm:p-1.5 sm:pl-[18px]"
+        className="relative"
         style={{
           background: "var(--bg-primary)",
           borderRadius: "var(--radius-xl)",
           border: `1px solid var(--glass-border)`,
         }}
       >
+        {/* "@" typeahead — anchored above the pill while a mention is
+            in progress at the caret. */}
+        {mention && (
+          <MentionDropdown
+            query={mention.query}
+            highlighted={mentionHighlight}
+            onHighlight={setMentionHighlight}
+            onResults={(rs) => {
+              mentionResultsRef.current = rs;
+            }}
+            onPick={pickMention}
+            onClose={() => setMention(null)}
+          />
+        )}
+
+        {/* Context chips — the securities/positions/agents tagged for
+            this conversation, docked inside the pill above the input. */}
+        <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
+
+        <div className="flex items-center gap-1 p-1 pl-1.5 sm:gap-1.5 sm:p-1.5 sm:pl-2">
+        {/* "+" — add context (securities, agents, positions; research/web
+            stubs). Sits at the left edge like ChatGPT/Claude. */}
+        <ComposerPlusMenu onAttach={onAddAttachment} onAgentPicked={onAgentPicked} />
 
         <Textarea
           ref={textareaRef}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
+          onChange={(e) => {
+            onChange(e.target.value);
+            syncMention(e.target.value);
+          }}
+          onKeyDown={handleComposerKeyDown}
+          onClick={() => syncMention(value)}
           placeholder={placeholder}
           rows={1}
           className={cn(
@@ -2636,6 +2861,7 @@ function ChatComposer({
             />
           )}
         </button>
+        </div>
       </div>
 
       {/* Mode pills — Automation / Agent / Backtest (extras kept). Quartr-styled

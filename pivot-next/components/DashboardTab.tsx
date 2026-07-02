@@ -34,7 +34,7 @@ import {
   type UserProfile,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
-import { ChatDemo, type ChatDemoSeed } from "@/components/chat/ChatDemo";
+import { ChatDemo, type ChatDemoSeed, type ResumeConversation } from "@/components/chat/ChatDemo";
 import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
 import type { Workflow as WorkflowT } from "@/lib/types";
 
@@ -55,6 +55,8 @@ type DashboardTabProps = {
    * AppShell uses this to push the draft into the bound editor.
    */
   onDraftFromChat?: (draft: WorkflowT) => void;
+  /** Resume a persisted sidebar conversation (forwarded to ChatDemo). */
+  resume?: ResumeConversation;
 };
 
 type MeState =
@@ -204,6 +206,7 @@ export function DashboardTab({
   onOpenCalendar,
   onChatActiveChange,
   onDraftFromChat,
+  resume,
 }: DashboardTabProps): React.ReactElement {
   const [me, setMe] = useState<MeState>({ kind: "loading" });
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
@@ -380,6 +383,7 @@ export function DashboardTab({
         demoSeed={demoSeed}
         onDemoSeedConsumed={() => setDemoSeed(undefined)}
         onDraftFromChat={onDraftFromChat}
+        resume={resume}
       />
     </div>
   );

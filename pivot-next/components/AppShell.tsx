@@ -82,11 +82,13 @@ import {
   getMe,
   getPortfolioSummary,
   getWorkflow,
+  listConversationMessages,
   listConversations,
   logoutUser,
   setAccountMode,
   type PortfolioSummary,
 } from "@/lib/api";
+import type { ResumeConversation } from "@/components/chat/ChatDemo";
 import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
 import {
@@ -256,6 +258,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // Bumped by the "New chat" button to remount DashboardTab/ChatDemo
   // and start a fresh session (clears messages + conversation_id).
   const [chatResetKey, setChatResetKey] = useState(0);
+  // Set when the user opens a sidebar conversation — ChatDemo remounts
+  // with this thread's id + transcript so the chat continues in place.
+  const [resumeConv, setResumeConv] = useState<ResumeConversation | undefined>(
+    undefined,
+  );
   // Mobile (<lg) only — controls the slide-in sidebar drawer.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Keyboard shortcuts panel (opened via Ctrl/⌘+/ or the account menu).
@@ -420,6 +427,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   const startNewChat = useCallback((): void => {
     setChatActive(false);
+    setResumeConv(undefined);
     setChatResetKey((k) => k + 1);
     setMobileNavOpen(false);
     setActive("chat");
@@ -430,6 +438,51 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       router.push(`/#chat`);
     }
   }, [pathname, router]);
+
+  // Sidebar conversation click — fetch the stored transcript, then remount
+  // the chat surface on that thread (same id → the backend appends to it;
+  // the transcript seeds the visible messages + rolling LLM history).
+  const openConversation = useCallback(
+    async (convId: string): Promise<void> => {
+      setMobileNavOpen(false);
+      const res = await listConversationMessages(convId, { limit: 200 });
+      const messages = isError(res)
+        ? []
+        : res.data.items
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+            }));
+      setResumeConv({ id: convId, messages });
+      setChatActive(messages.length > 0);
+      setChatResetKey((k) => k + 1);
+      setActive("chat");
+      if (typeof window !== "undefined") {
+        if (pathname === "/") {
+          window.history.replaceState(null, "", `#chat`);
+        } else {
+          router.push(`/#chat`);
+        }
+      }
+    },
+    [pathname, router],
+  );
+
+  // Keep the sidebar list fresh: ChatDemo pings this event after every
+  // completed turn (the backend persisted it), and we refetch on focus
+  // return so another tab's chats appear too.
+  useEffect(() => {
+    const refresh = (): void => {
+      void fetchConversations().then(setConversations);
+    };
+    window.addEventListener("pivot:conversations-changed", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("pivot:conversations-changed", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
 
   const goTab = useCallback((key: TabKey): void => {
     setActive(key);
@@ -463,23 +516,19 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     openWorkflow(result.data);
   }, [openWorkflow]);
 
-  // "Edit with chat" — jump to the chat surface and seed the composer with a
-  // pre-written amendment prompt for the chosen agent. The user finishes the
-  // sentence and sends; the agent tool returns an amended draft which opens
-  // the editor via the normal onDraftFromChat path. Mode is pinned to "agent"
-  // so the follow-up routes to the workflow tool.
+  // "Edit with chat" — jump to the chat surface with the chosen agent
+  // SELECTED (a context chip in the composer) and the side editor open on
+  // that agent, so the user just says what they want changed. No canned
+  // sentence to finish — the selection + editor carry the targeting.
   //
-  // Targeting (TASK FE-2 item 3): we carry the FULL workflow (incl. steps) on
-  // the seed event so the chat surface attaches it as the `editor_draft` of
-  // the NEXT outgoing turn. The backend seeds its active_draft from that exact
-  // payload, so the amendment lands on THIS agent's steps — it never has to
-  // guess which agent from the free-text name (which mis-targeted before when
-  // two agents shared a similar name).
+  // Targeting: the FULL workflow (incl. steps) rides the seed event so the
+  // chat surface attaches it as the `editor_draft` of the NEXT outgoing
+  // turn. The backend seeds its active_draft from that exact payload, so
+  // the amendment lands on THIS agent's steps — it never has to guess
+  // which agent from the free-text name (which mis-targeted before when
+  // two agents shared a similar name). Mode is pinned to "agent" so the
+  // follow-up routes to the workflow tool.
   const editWorkflowWithChat = useCallback((workflow: Workflow): void => {
-    const summary = workflow.description?.trim();
-    const text = summary
-      ? `Edit my agent “${workflow.name}” — it currently does: ${summary}. I'd like to `
-      : `Edit my agent “${workflow.name}”. I'd like to `;
     const seededDraft = {
       // Anchor the seed to THIS exact agent so Save & Activate updates it in
       // place rather than registering a duplicate (the id is threaded through
@@ -497,16 +546,29 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       _render_hint: "workflow_draft_card" as const,
     };
     goTab("chat");
+    // Open the side editor on the agent being edited — the user sees the
+    // steps they're talking about while they chat.
+    openWorkflow(workflow);
     // Wait a frame so the chat surface is the active pane before we drop the
-    // seed in and focus the composer.
+    // selection in and focus the composer.
     requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("pivot:seed-composer", {
-          detail: { text, mode: "agent", draft: seededDraft },
+          detail: {
+            mode: "agent",
+            draft: seededDraft,
+            attach: {
+              kind: "agent",
+              workflow_id: workflow.id,
+              name: workflow.name,
+              description: workflow.description ?? "",
+              status: workflow.status,
+            },
+          },
         }),
       );
     });
-  }, [goTab]);
+  }, [goTab, openWorkflow]);
 
   // True when the panel is open and actively bound to an unsaved draft.
   const panelOpenWithDraft = panelOpen && activeEditorDraft !== null;
@@ -671,6 +733,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             active={active}
             onTabChange={goTab}
             onNewChat={startNewChat}
+            onSelectConversation={(id) => void openConversation(id)}
             conversations={conversations}
             mobileOpen={mobileNavOpen}
             onMobileClose={() => setMobileNavOpen(false)}
@@ -717,6 +780,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   onDraftFromChat={(draft) => {
                     setActiveEditorDraft(draft);
                   }}
+                  resume={resumeConv}
                 />
               </div>
             </div>
@@ -1720,6 +1784,7 @@ function Sidebar({
   active,
   onTabChange,
   onNewChat,
+  onSelectConversation,
   conversations,
   mobileOpen,
   onMobileClose,
@@ -1727,6 +1792,8 @@ function Sidebar({
   active: TabKey;
   onTabChange: (key: TabKey) => void;
   onNewChat: () => void;
+  /** Open a persisted conversation in the chat surface. */
+  onSelectConversation: (id: string) => void;
   conversations: ConvEntry[];
   mobileOpen: boolean;
   onMobileClose: () => void;
@@ -1899,7 +1966,7 @@ function Sidebar({
               <button
                 key={conv.id}
                 type="button"
-                onClick={() => onTabChange("chat")}
+                onClick={() => onSelectConversation(conv.id)}
                 aria-label={`Open conversation: ${conv.preview}`}
                 style={{
                   padding: "7px 10px",

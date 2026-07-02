@@ -484,6 +484,11 @@ function SymbolSparkline({
         if (cancelled) return;
         if (isError(result)) {
           setSpark({ kind: "hidden" });
+        } else if (!Array.isArray(result.data.points)) {
+          // Defensive: a malformed/unexpected payload (e.g. a proxy error
+          // body) must hide the sparkline, not crash the whole chat tree
+          // on `spark.points.length` below.
+          setSpark({ kind: "hidden" });
         } else {
           setSpark({ kind: "ok", points: result.data.points });
         }

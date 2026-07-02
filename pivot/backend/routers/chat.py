@@ -56,6 +56,18 @@ class ChatRequest(BaseModel):
     # None / absent = legacy Redis active_draft flow, byte-for-byte
     # unchanged.
     editor_draft: Optional[dict] = None
+    # Composer context attachments — the "+" menu and "@" mentions in the
+    # FE composer. Each item is one of:
+    #   {"kind": "security", "symbol": "TCS", "name": "Tata Consultancy…"}
+    #   {"kind": "position", "symbol": "RELIANCE", "quantity": 10,
+    #    "avg_price": 1300.5, "last_price": 1321.2, "pnl": 207.0,
+    #    "book": "portfolio"|"paper"}
+    #   {"kind": "agent", "workflow_id": "…", "name": "…",
+    #    "description": "…", "status": "active"}
+    # They are woven into the prompt as a labelled context block (same
+    # mechanism as quoted_text) so the LLM treats them as the subject of
+    # the message. None / absent = no attachments, prompt unchanged.
+    attachments: Optional[list[dict]] = None
 
 
 # ---- Helpers -----------------------------------------------------------
@@ -85,6 +97,157 @@ def _with_reply_context(message: str, quoted_text: Optional[str]) -> str:
         f"{quoted_block}\n\n"
         f"Their reply:\n{message}"
     )
+
+
+# Bounds for the attachment context block — a guard against a crafted
+# payload blowing up the prompt. Attachments beyond the cap are dropped.
+_MAX_ATTACHMENTS = 8
+_MAX_ATTACH_FIELD = 300
+
+
+def _fmt_attachment(att: dict) -> Optional[str]:
+    """One human-readable line per attachment, or None for junk."""
+    if not isinstance(att, dict):
+        return None
+
+    def _s(key: str) -> str:
+        v = att.get(key)
+        return str(v)[:_MAX_ATTACH_FIELD].strip() if v is not None else ""
+
+    kind = _s("kind").lower()
+    if kind == "security":
+        sym, name = _s("symbol").upper(), _s("name")
+        if not sym:
+            return None
+        return f"- Security: {sym}" + (f" ({name})" if name else "")
+    if kind == "position":
+        sym = _s("symbol").upper()
+        if not sym:
+            return None
+        bits = [f"- Position: {sym}"]
+        qty, avg, ltp, pnl = (att.get(k) for k in ("quantity", "avg_price", "last_price", "pnl"))
+        try:
+            if qty is not None:
+                bits.append(f"{float(qty):g} sh")
+            if avg is not None:
+                bits.append(f"avg ₹{float(avg):,.2f}")
+            if ltp is not None:
+                bits.append(f"LTP ₹{float(ltp):,.2f}")
+            if pnl is not None:
+                bits.append(f"P&L ₹{float(pnl):+,.2f}")
+        except (TypeError, ValueError):
+            pass
+        book = _s("book")
+        if book:
+            bits.append(f"[{book} book]")
+        return " · ".join([bits[0]] + bits[1:]) if len(bits) > 1 else bits[0]
+    if kind == "agent":
+        name = _s("name")
+        if not name:
+            return None
+        status, desc, wf_id = _s("status"), _s("description"), _s("workflow_id")
+        line = f"- Agent: “{name}”"
+        if status:
+            line += f" ({status})"
+        if wf_id:
+            line += f" [workflow_id={wf_id}]"
+        if desc:
+            line += f" — {desc}"
+        return line
+    return None
+
+
+def _with_attachment_context(message: str, attachments: Optional[list]) -> str:
+    """Prefix `message` with the composer's context attachments.
+
+    Same mechanism as `_with_reply_context`: the block reads as grounding
+    ("the user tagged these"), never as a new instruction. Returns the
+    message unchanged when there are no valid attachments.
+    """
+    lines = []
+    for att in (attachments or [])[:_MAX_ATTACHMENTS]:
+        line = _fmt_attachment(att)
+        if line:
+            lines.append(line)
+    if not lines:
+        return message
+    block = "\n".join(lines)
+    return (
+        "The user attached the following context to this message (tagged via "
+        "the composer). Treat these as the specific subject(s) being discussed "
+        "— resolve pronouns like 'it'/'this' to them, and use their exact "
+        "symbols/ids when calling tools:\n"
+        f"{block}\n\n"
+        f"User message:\n{message}"
+    )
+
+
+# ---- Conversation persistence -------------------------------------------
+
+# Client session ids are UUID-ish strings; the conversations PK is a
+# String(36). Anything else (legacy "u{id}" keys, forged payloads) is
+# simply not persisted — chat still works, it just won't appear in the
+# sidebar history.
+_CONV_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{8,36}$")
+
+
+def _persist_turn(
+    user_id: int,
+    raw_conv_id: Optional[str],
+    user_msg: str,
+    assistant_text: str,
+    render_hint: Optional[str] = None,
+) -> None:
+    """Write the (user, assistant) turn into the Postgres conversations
+    tables so the sidebar history survives reloads and re-logins.
+
+    Uses its OWN session — the streaming generator outlives the request-
+    scoped Depends(get_db) session. Failures are logged and swallowed:
+    persistence must never break a chat turn.
+    """
+    conv_id = (raw_conv_id or "").strip()
+    if not _CONV_ID_RE.match(conv_id) or not user_msg:
+        return
+    try:
+        from backend.database import SessionLocal
+        from backend.models import Conversation, ConversationMessage
+
+        db = SessionLocal()
+        try:
+            convo = (
+                db.query(Conversation).filter(Conversation.id == conv_id).first()
+            )
+            if convo is not None and convo.user_id != user_id:
+                # Forged/colliding id — never write into another user's thread.
+                return
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            if convo is None:
+                convo = Conversation(
+                    id=conv_id,
+                    user_id=user_id,
+                    # First user message doubles as the sidebar title.
+                    title=user_msg[:80] or None,
+                )
+                db.add(convo)
+            db.add(ConversationMessage(
+                conversation_id=conv_id, role="user", content=user_msg[:8000],
+            ))
+            if assistant_text or render_hint:
+                db.add(ConversationMessage(
+                    conversation_id=conv_id,
+                    role="assistant",
+                    content=(assistant_text or "")[:16000],
+                    tool_payload=(
+                        {"_render_hint": render_hint} if render_hint else None
+                    ),
+                ))
+            convo.last_message_at = now
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("conversation persistence failed for conv %s", conv_id)
 
 
 def _auth(authorization: str) -> int:
@@ -459,6 +622,9 @@ async def chat(
     # Reply-by-selecting: weave the highlighted excerpt into the message
     # the LLM sees (slash shortcuts above already ran on the raw text).
     llm_msg = _with_reply_context(last_msg, request.quoted_text)
+    # Composer context attachments (+ menu / @ mentions) — prepend as a
+    # labelled grounding block, same mechanism as the reply quote.
+    llm_msg = _with_attachment_context(llm_msg, request.attachments)
 
     turn = await _chat_service.handle(
         llm_msg, conv_id, ctx,
@@ -495,6 +661,14 @@ async def chat(
     # basket, squareoff, SIP create, etc.).
     if turn.logiccard and not raw_data.get("_render_hint"):
         raw_data = {**raw_data, "_render_hint": "logic_card"}
+
+    # Persist the turn so the sidebar conversation history survives
+    # reloads/re-login. Uses the RAW client conversation id (the FE lists
+    # conversations by it); failures never break the response.
+    _persist_turn(
+        user_id, request.conversation_id, last_msg, turn.response or "",
+        render_hint=(raw_data or {}).get("_render_hint"),
+    )
 
     return {
         "response": turn.response,
@@ -600,11 +774,18 @@ async def chat_stream(
                 "latency_breakdown": {},
             }
             yield f"data: {json.dumps(done_event, default=str)}\n\n"
+            _persist_turn(
+                user_id, request.conversation_id, last_msg, text,
+                render_hint=(raw or {}).get("_render_hint"),
+            )
             return
         try:
             # Reply-by-selecting: inline the highlighted excerpt for the
             # LLM (the slash shortcut above ran on the raw text).
             llm_msg = _with_reply_context(last_msg, request.quoted_text)
+            # Composer context attachments (+ menu / @ mentions) — same
+            # grounding-block mechanism as the reply quote.
+            llm_msg = _with_attachment_context(llm_msg, request.attachments)
             async for event in _chat_service.handle_stream(
                 llm_msg, conv_id, ctx,
                 history_override=history,  # always honour FE-sent window
@@ -624,6 +805,13 @@ async def chat_stream(
                     if event.get("logiccard") and not (raw_data or {}).get("_render_hint"):
                         raw_data = {**(raw_data or {}), "_render_hint": "logic_card"}
                     event = {**event, "raw_data": raw_data or None}
+                    # Persist the completed turn (raw client conv id, so
+                    # the sidebar lists it). Never breaks the stream.
+                    _persist_turn(
+                        user_id, request.conversation_id, last_msg,
+                        event.get("response") or "",
+                        render_hint=(raw_data or {}).get("_render_hint"),
+                    )
                 yield f"data: {json.dumps(event, default=str)}\n\n"
         except Exception as e:
             logger.exception("chat_stream gen failed: %s", e)
