@@ -53,6 +53,7 @@ import {
   statusDotColor,
   trustBadge,
   verdictColor,
+  endsLabel,
 } from "./view-format";
 
 const CARD_HEIGHT = 376;
@@ -265,6 +266,8 @@ export function ViewCard({
   const stance = view.stance ?? null;
   const noHasTrade = stance?.no.has_trade === true;
   const title = view.short_title ?? view.plain_one_liner ?? view.title;
+  // Titles are dateless by design — the contract-end date lives here instead.
+  const ends = endsLabel(view.resolution_date);
 
   return (
     <ViewSurface
@@ -321,6 +324,12 @@ export function ViewCard({
             }}
           />
           {statusLabel(view.status)}
+          {ends && (
+            <span style={{ color: "var(--text-tertiary)" }}>
+              {"· "}
+              {ends}
+            </span>
+          )}
         </span>
       </div>
 

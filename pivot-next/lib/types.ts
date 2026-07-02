@@ -1576,7 +1576,7 @@ export type ViewSummary = {
   // Layman content layer (the belief in plain English).
   plain_one_liner: string | null;
   plain_summary: string | null;
-  /** Punchy plain-English headline for the card, e.g. "Cheaper oil lifts India's importers". */
+  /** Punchy, dateless question for the card, e.g. "Will cheaper oil lift India's importers?". */
   short_title: string | null;
   /**
    * Presentation-only Yes/No stance for the gallery card's two-button
@@ -1776,7 +1776,7 @@ export type ExpressionDetail = {
   /** Integer count of positive-outcome occurrences (out of n_episodes). */
   n_positive?: number | null;
   // ── honest strategy identity ──
-  /** Plain strategy name, e.g. "Rural-demand basket". */
+  /** Fun plain strategy name, e.g. "Slow & Steady rural bundle". */
   strategy_name: string | null;
   /** Plain strategy type, e.g. "Basket" / "Pair" / "Call spread". */
   strategy_type: string | null;

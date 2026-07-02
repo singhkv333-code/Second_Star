@@ -38,7 +38,7 @@ import { StrategiesTable } from "@/components/views/StrategiesTable";
 import { StrategyDeepDive } from "@/components/views/StrategyDeepDive";
 import { BenchmarkComparison } from "@/components/views/BenchmarkComparison";
 import { SimilarViews } from "@/components/views/SimilarViews";
-import { tierLabel } from "@/components/views/view-format";
+import { tierLabel, endsLabel } from "@/components/views/view-format";
 
 const FONT = "var(--font-display)";
 
@@ -687,6 +687,22 @@ export function ViewDetailPage({
           >
             {view.short_title ?? view.plain_one_liner ?? "—"}
           </h1>
+
+          {/* ── 2.2 · CONTRACT END — titles are dateless; the deadline lives
+                 here (and as the "Ends …" chip on the gallery card). ── */}
+          {endsLabel(view.resolution_date) && (
+            <p
+              style={{
+                fontFamily: FONT,
+                fontSize: 14,
+                fontWeight: 500,
+                color: "var(--text-tertiary)",
+                margin: "-6px 0 0",
+              }}
+            >
+              {endsLabel(view.resolution_date).replace(/^Ends/, "Contract ends")}
+            </p>
+          )}
 
           {/* ── 2.5 · STANCE (YES / NO reading) ── */}
           {view.stance && (

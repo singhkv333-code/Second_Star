@@ -276,6 +276,27 @@ export function fmtDate(iso: string | null | undefined): string {
   }
 }
 
+/**
+ * "Ends 30 Sep" (adds the year only when it isn't the current year) — the
+ * contract-end chip for a view's resolution_date. Titles stay dateless; this
+ * is the ONE place the deadline lives. Empty string when there's no date.
+ */
+export function endsLabel(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    const text = new Intl.DateTimeFormat("en-IN", {
+      day: "numeric",
+      month: "short",
+      ...(sameYear ? {} : { year: "numeric" }),
+    }).format(d);
+    return `Ends ${text}`;
+  } catch {
+    return "";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Label helpers
 // ---------------------------------------------------------------------------

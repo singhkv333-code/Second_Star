@@ -453,8 +453,8 @@ def test_new_enrichment_fields_present_and_real_or_null(client, db):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    # View-level crisp copy.
-    assert body["short_title"] == "Weak IT guidance rotates money into domestic stocks"
+    # View-level crisp copy — a simple, dateless question.
+    assert body["short_title"] == "Will weak IT results lift domestic stocks?"
     assert len(body["short_title"].split()) <= 8
     assert body["description"]
     assert len(body["bullets"]) == 3
@@ -467,7 +467,7 @@ def test_new_enrichment_fields_present_and_real_or_null(client, db):
 
     cons = next(e for e in body["expressions"] if e["tier"] == "conservative")
     # Honest, differentiated strategy identity (NOT "basket"/"basket").
-    assert cons["strategy_name"] == "Domestic-rotation basket"
+    assert cons["strategy_name"] == "Proudly Homegrown bundle"
     assert cons["strategy_type"] == "Basket"
     assert cons["option_legs"] is None
     # The balanced/aggressive tiers are genuinely a DIFFERENT construction.
@@ -517,7 +517,7 @@ def test_option_legs_built_for_option_expression(client, db):
         e for e in body["expressions"] if e["expression_kind"] == "option_strategy"
     )
     assert opt["strategy_type"] == "Options (defined-risk)"
-    assert opt["strategy_name"] == "Bull call spread"
+    assert opt["strategy_name"] == "Boldly Bullish call spread"
     assert opt["option_legs"] and len(opt["option_legs"]) == 2
     # Honest: legs are RULES (atm / delta), not invented numbers.
     actions = {leg["action"] for leg in opt["option_legs"]}

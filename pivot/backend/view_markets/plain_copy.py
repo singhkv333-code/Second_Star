@@ -39,7 +39,7 @@ _DISCLAIMER = "This is analysis, not financial advice."
 
 VIEW_COPY: dict[str, dict[str, Any]] = {
     VIEW_MONSOON: {
-        "short_title": "A good monsoon lifts rural-economy stocks",
+        "short_title": "Will a good monsoon lift rural stocks?",
         "description": (
             "A healthy monsoon raises rural incomes, which historically lifts "
             "the companies that sell to rural India — tractors, two-wheelers, "
@@ -81,7 +81,7 @@ VIEW_COPY: dict[str, dict[str, Any]] = {
         "headline_tier": "conservative",
     },
     VIEW_IT: {
-        "short_title": "Weak IT guidance rotates money into domestic stocks",
+        "short_title": "Will weak IT results lift domestic stocks?",
         "description": (
             "When India's large IT exporters warn of a weak quarter, money has "
             "tended to rotate out of IT and into home-grown sectors that don't "
@@ -123,7 +123,7 @@ VIEW_COPY: dict[str, dict[str, Any]] = {
         "headline_tier": "conservative",
     },
     VIEW_CRUDE: {
-        "short_title": "Cheaper oil lifts India's importers",
+        "short_title": "Will cheaper oil lift India's importers?",
         "description": (
             "India imports most of its oil, so a sharp fall in crude — often as "
             "geopolitical tensions cool — lowers fuel and input costs and widens "
@@ -176,7 +176,7 @@ VIEW_COPY: dict[str, dict[str, Any]] = {
 
 EXPRESSION_COPY: dict[tuple[str, str], dict[str, Optional[str]]] = {
     (VIEW_MONSOON, "conservative"): {
-        "plain_label": "Steady — equal-weighted basket of 6 rural stocks",
+        "plain_label": "Slow & Steady — a bundle of 6 rural stocks",
         "plain_one_liner": (
             "Buy an equal-weighted basket of 6 rural-economy stocks and hold "
             "through the monsoon season (you decide the amount)."
@@ -193,7 +193,7 @@ EXPRESSION_COPY: dict[tuple[str, str], dict[str, Optional[str]]] = {
         ),
     },
     (VIEW_IT, "conservative"): {
-        "plain_label": "Steady — equal-weighted basket of 5 domestic stocks",
+        "plain_label": "Slow & Steady — a bundle of 5 homegrown stocks",
         "plain_one_liner": (
             "Buy an equal-weighted basket of 5 domestic, less export-dependent "
             "stocks and hold for a few weeks around the IT print (you decide "
@@ -210,7 +210,7 @@ EXPRESSION_COPY: dict[tuple[str, str], dict[str, Optional[str]]] = {
         ),
     },
     (VIEW_CRUDE, "conservative"): {
-        "plain_label": "Cheaper-oil beneficiary basket (still being refined)",
+        "plain_label": "Slow & Steady oil-savers bundle (still being refined)",
         "plain_one_liner": (
             "A cheaper-oil beneficiary basket is still being refined - only "
             "one name (Asian Paints) clearly passed our strict test, so this "
@@ -719,26 +719,28 @@ _STRATEGY_TYPE_BY_KIND = {
     "option_strategy": "Options (defined-risk)",
 }
 
-# Curated proper names per (view, tier). Differentiates Conservative (a real
-# basket) from Balanced (the long-basket / short-Nifty market-neutral pair).
+# Curated fun names per (view, tier). Adjective-led and easy — the tier
+# archetype is learnable across views (Slow & Steady → Calm & Cushioned →
+# Boldly …) while the suffix still says what the strategy holds. Never
+# "basket"/"basket" duplicates.
 STRATEGY_NAME: dict[tuple[str, str], str] = {
-    (VIEW_MONSOON, "conservative"): "Rural-demand basket",
-    (VIEW_MONSOON, "balanced"): "Long basket / short Nifty hedge",
-    (VIEW_MONSOON, "aggressive"): "Bull call spread",
-    (VIEW_IT, "conservative"): "Domestic-rotation basket",
-    (VIEW_IT, "balanced"): "Long basket / short Nifty hedge",
-    (VIEW_IT, "aggressive"): "Domestic basket, Nifty-hedged",
-    (VIEW_CRUDE, "conservative"): "Cheaper-oil beneficiary basket",
-    (VIEW_CRUDE, "balanced"): "Long basket / short Nifty hedge",
-    (VIEW_CRUDE, "aggressive"): "Leveraged oil-down basket",
+    (VIEW_MONSOON, "conservative"): "Slow & Steady rural bundle",
+    (VIEW_MONSOON, "balanced"): "Calm & Cushioned rural pair",
+    (VIEW_MONSOON, "aggressive"): "Boldly Bullish call spread",
+    (VIEW_IT, "conservative"): "Proudly Homegrown bundle",
+    (VIEW_IT, "balanced"): "Calm & Cushioned homegrown pair",
+    (VIEW_IT, "aggressive"): "Boldly Hedged homegrown bundle",
+    (VIEW_CRUDE, "conservative"): "Slow & Steady oil-savers bundle",
+    (VIEW_CRUDE, "balanced"): "Calm & Cushioned oil-savers pair",
+    (VIEW_CRUDE, "aggressive"): "Boldly Levered oil-savers bet",
 }
 
 _NAME_BY_KIND = {
-    "basket": "Equal-weighted basket",
-    "multi_asset": "Leveraged directional basket",
-    "pair": "Long basket / short Nifty hedge",
-    "hedge": "Basket with Nifty hedge",
-    "option_strategy": "Defined-risk options",
+    "basket": "Slow & Steady bundle",
+    "multi_asset": "Boldly Levered bundle",
+    "pair": "Calm & Cushioned pair",
+    "hedge": "Calm & Cushioned bundle",
+    "option_strategy": "Boldly Bullish options bet",
 }
 
 _OPTION_LEGS_NOTE = (
@@ -797,7 +799,7 @@ def strategy_identity(view: Any, expr: Any) -> dict[str, Any]:
         if legs:
             option_legs = legs
             option_note = _OPTION_LEGS_NOTE
-            name = STRATEGY_NAME.get((vid, tier)) or "Bull call spread"
+            name = STRATEGY_NAME.get((vid, tier)) or "Boldly Bullish call spread"
         else:
             name = "Defined-risk options"
     else:
