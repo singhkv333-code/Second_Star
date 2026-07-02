@@ -15,7 +15,6 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
-  Loader2,
 } from "lucide-react";
 import {
   STOCKS,
@@ -42,7 +41,6 @@ import {
   type ScreenerStocksParams,
   type ScreenerStocksResponse,
   type ScreenerSector,
-  type ScreenerSortBy,
   type ScreenerMcapTier,
 } from "@/lib/screenerApi";
 
@@ -55,8 +53,6 @@ function fmtCr(v: number | null | undefined): string {
 }
 const fmtPct = (v: number | null | undefined): string =>
   v == null ? "—" : `${v.toFixed(2)}%`;
-const fmtPct1 = (v: number | null | undefined): string =>
-  v == null ? "—" : `${v.toFixed(1)}%`;
 const fmtNum1 = (v: number | null | undefined): string =>
   v == null ? "—" : v.toFixed(1);
 const fmtINR = (v: number | null | undefined): string =>
@@ -257,7 +253,17 @@ const SCREEN_LABELS: Record<ScreenId, string> = {
 // ─────────────────────────────────────────────────────────
 // Stocks (LIVE) state shapes
 // ─────────────────────────────────────────────────────────
-type StockSort = { key: ScreenerSortBy; dir: 1 | -1 };
+// All columns are sortable client-side over the fetched page (the universe
+// fits in one request), so the sort key spans the display columns — not just
+// the server's sort fields.
+type StockSortKey =
+  | "symbol"
+  | "market_cap_cr"
+  | "price"
+  | "change_pct"
+  | "pe"
+  | "one_year_pct";
+type StockSort = { key: StockSortKey; dir: 1 | -1 };
 
 type StockFilters = {
   sector: string; // canonical key or "" for all
@@ -304,19 +310,17 @@ const STOCK_PRESETS: {
 const _stocksCache = new Map<string, ScreenerStocksResponse>();
 let _sectorsCache: ScreenerSector[] | null = null;
 
-/** Server-side query params for a filter+sort combo. The `dir` of the sort is
- *  applied client-side (see `displayRows`), so it's intentionally NOT part of
- *  the key — ascending/descending reuse the same fetched page. */
-function buildStockParams(
-  filters: StockFilters,
-  sortKey: ScreenerSortBy,
-): ScreenerStocksParams {
+/** Server-side query params for a filter combo. Sorting is done client-side
+ *  over the full fetched page (the ~80-name universe fits in one request), so
+ *  neither the sort key nor its direction is part of the params/cache key —
+ *  changing the sort re-orders in place and never refetches. */
+function buildStockParams(filters: StockFilters): ScreenerStocksParams {
   return {
     sector: filters.sector || undefined,
     mcap_tier: filters.mcap_tier || undefined,
     pe_max: filters.pe_max !== "" ? Number(filters.pe_max) : undefined,
     roe_min: filters.roe_min !== "" ? Number(filters.roe_min) : undefined,
-    sort_by: sortKey,
+    sort_by: "market_cap_cr", // stable server default; client re-sorts below
     limit: 200,
   };
 }
@@ -327,7 +331,6 @@ function stocksCacheKey(p: ScreenerStocksParams): string {
     p.mcap_tier ?? "",
     p.pe_max ?? "",
     p.roe_min ?? "",
-    p.sort_by ?? "",
     p.limit ?? 0,
   ]);
 }
@@ -528,9 +531,9 @@ function StocksScreen({
 
   // Seed state from the session cache so a return trip to the tab paints the
   // last-seen rows on the FIRST frame (no skeleton). The initial params match
-  // the effect's first run exactly (empty filters + market_cap_cr sort).
+  // the effect's first run exactly (empty filters).
   const _initialStocks = _stocksCache.get(
-    stocksCacheKey(buildStockParams(EMPTY_STOCK_FILTERS, "market_cap_cr")),
+    stocksCacheKey(buildStockParams(EMPTY_STOCK_FILTERS)),
   );
   const [rows, setRows] = useState<ScreenerStock[]>(
     () => _initialStocks?.results ?? [],
@@ -538,6 +541,9 @@ function StocksScreen({
   const [note, setNote] = useState(() => _initialStocks?.note ?? "");
   const [loading, setLoading] = useState(() => _initialStocks === undefined);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the "metrics warming" poll to re-run the fetch effect (and its
+  // background revalidation) until live price/change/1-Y columns fill in.
+  const [reloadTick, setReloadTick] = useState(0);
 
   const [sectors, setSectors] = useState<ScreenerSector[]>(
     () => _sectorsCache ?? [],
@@ -557,12 +563,12 @@ function StocksScreen({
     return () => ctrl.abort();
   }, []);
 
-  // ── Load stocks whenever filters/sort change (stale-while-revalidate) ──
+  // ── Load stocks whenever filters change (stale-while-revalidate) ──
   // On a cache hit we paint immediately and refresh silently in the background;
   // on a miss we show the skeleton. Either way we always revalidate so cached
-  // rows never go stale.
+  // rows never go stale. Sorting is client-side (below), so it's not a dep.
   useEffect(() => {
-    const params = buildStockParams(filters, sort.key);
+    const params = buildStockParams(filters);
     const key = stocksCacheKey(params);
     const cached = _stocksCache.get(key);
 
@@ -596,18 +602,48 @@ function StocksScreen({
       setLoading(false);
     });
     return () => ctrl.abort();
-  }, [filters.sector, filters.mcap_tier, filters.pe_max, filters.roe_min, sort.key]);
+  }, [filters, reloadTick]);
 
-  // The backend only orders descending-natural per field (PE ascending). When
-  // the user flips a header to ascending we reverse client-side over the
-  // already-fetched, null-aware ordering — cheap and keeps null-last intact.
+  // Metrics warming poll — the backend serves price/change/1-Y from a cache it
+  // fills on a background thread, so a cold grid arrives with those columns
+  // empty. While they're missing, re-revalidate a few times (5s apart) so they
+  // fill in without the user having to refresh. Self-limiting: stops the moment
+  // prices land, and hard-caps at 6 tries so a truly dead source can't loop.
+  const warmTriesRef = useRef(0);
+  useEffect(() => {
+    const warming = rows.length > 0 && rows.every((r) => r.price == null);
+    if (!warming) {
+      warmTriesRef.current = 0;
+      return;
+    }
+    if (warmTriesRef.current >= 6) return;
+    const t = setTimeout(() => {
+      warmTriesRef.current += 1;
+      // Drop the cache entry so the revalidation actually hits the server.
+      _stocksCache.delete(stocksCacheKey(buildStockParams(filters)));
+      setReloadTick((x) => x + 1);
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [rows, filters]);
+
+  // Client-side sort over the fetched page (whole universe fits in one request).
+  // Missing values always sink to the bottom, regardless of direction, so an
+  // unpriced or unrated row never floats to the top.
   const displayRows = useMemo(() => {
-    if (sort.dir === -1) return rows;
-    // Ascending: keep the null group at the bottom, reverse only the valued head.
-    const valued = rows.filter((r) => sortValue(r, sort.key) != null);
-    const nulls = rows.filter((r) => sortValue(r, sort.key) == null);
-    return [...valued.slice().reverse(), ...nulls];
-  }, [rows, sort.dir, sort.key]);
+    const { key, dir } = sort;
+    const valued = rows.filter((r) => sortValue(r, key) != null);
+    const nulls = rows.filter((r) => sortValue(r, key) == null);
+    valued.sort((a, b) => {
+      const av = sortValue(a, key)!;
+      const bv = sortValue(b, key)!;
+      const cmp =
+        typeof av === "string" || typeof bv === "string"
+          ? String(av).localeCompare(String(bv))
+          : (av as number) - (bv as number);
+      return dir === 1 ? cmp : -cmp;
+    });
+    return [...valued, ...nulls];
+  }, [rows, sort]);
 
   const setFilter = useCallback(
     <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => {
@@ -630,7 +666,7 @@ function StocksScreen({
     [],
   );
 
-  const toggleSort = useCallback((key: ScreenerSortBy) => {
+  const toggleSort = useCallback((key: StockSortKey) => {
     setSort((prev) =>
       prev.key === key
         ? { key, dir: prev.dir === -1 ? 1 : -1 }
@@ -766,12 +802,22 @@ function StocksScreen({
   );
 }
 
-function sortValue(row: ScreenerStock, key: ScreenerSortBy): number | string | null {
-  if (key === "symbol") return row.symbol;
-  if (key === "name") return row.name;
-  if (key === "pe") return row.pe;
-  if (key === "roe") return row.roe;
-  return row.market_cap_cr;
+function sortValue(row: ScreenerStock, key: StockSortKey): number | string | null {
+  switch (key) {
+    case "symbol":
+      return row.symbol;
+    case "price":
+      return row.price;
+    case "change_pct":
+      return row.change_pct;
+    case "pe":
+      return row.pe;
+    case "one_year_pct":
+      return row.one_year_pct;
+    case "market_cap_cr":
+    default:
+      return row.market_cap_cr;
+  }
 }
 
 // ── Watchlist strip ──────────────────────────────────────
@@ -1241,19 +1287,20 @@ function AddStockMenu({
 
 // ── Stock filter rail (single-select sector + mcap tier + valuation) ──
 type StockColumn = {
-  id: ScreenerSortBy | "div_yield" | "one_year_pct";
+  id: StockSortKey;
   label: string;
   align: Align;
   sortable: boolean;
 };
 
+// Column order per product spec: Symbol · Mkt Cap · Price · Change · P/E · 1-Y.
 const STOCK_COLUMNS: StockColumn[] = [
   { id: "symbol", label: "Symbol", align: "left", sortable: true },
   { id: "market_cap_cr", label: "Mkt Cap", align: "right", sortable: true },
+  { id: "price", label: "Price", align: "right", sortable: true },
+  { id: "change_pct", label: "Change", align: "right", sortable: true },
   { id: "pe", label: "P/E", align: "right", sortable: true },
-  { id: "roe", label: "ROE", align: "right", sortable: true },
-  { id: "div_yield", label: "Div Yield", align: "right", sortable: false },
-  { id: "one_year_pct", label: "1-Y Return", align: "right", sortable: false },
+  { id: "one_year_pct", label: "1-Y Return", align: "right", sortable: true },
 ];
 
 function StockFilterRail({
@@ -1491,7 +1538,7 @@ function StockResultsTable({
   error: string | null;
   note: string;
   sort: StockSort;
-  onSort: (key: ScreenerSortBy) => void;
+  onSort: (key: StockSortKey) => void;
   sectorLabel: (key: string) => string;
   onResetFilters: () => void;
   hasFilters: boolean;
@@ -1520,7 +1567,7 @@ function StockResultsTable({
               return (
                 <th
                   key={c.id}
-                  onClick={() => c.sortable && onSort(c.id as ScreenerSortBy)}
+                  onClick={() => c.sortable && onSort(c.id)}
                   style={{
                     ...th,
                     textAlign: c.align,
@@ -1713,17 +1760,35 @@ function renderStockCell(
       );
     case "market_cap_cr":
       return fmtCr(row.market_cap_cr);
+    case "price":
+      return fmtINR(row.price);
+    case "change_pct":
+      return <SignedPct v={row.change_pct} />;
     case "pe":
       return fmtNum1(row.pe);
-    case "roe":
-      return fmtPct1(row.roe);
-    case "div_yield":
-      return fmtPct(row.div_yield);
     case "one_year_pct":
-      return fmtPct(row.one_year_pct);
+      return <SignedPct v={row.one_year_pct} />;
     default:
       return "—";
   }
+}
+
+/** Signed, profit/loss-coloured percent (em-dash when null). Used for the
+ *  Change and 1-Y Return columns. */
+function SignedPct({ v }: { v: number | null | undefined }): React.ReactNode {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const pos = v >= 0;
+  return (
+    <span
+      style={{
+        color: pos ? "var(--color-profit)" : "var(--color-loss)",
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {pos ? "+" : ""}
+      {v.toFixed(2)}%
+    </span>
+  );
 }
 
 function SkeletonRows({ cols }: { cols: number }): React.ReactElement {

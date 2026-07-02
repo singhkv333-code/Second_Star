@@ -163,6 +163,18 @@ def warm_user_cache(user_id: int) -> None:
             # 404 when the flag is disabled is EXPECTED, not an error.
             logger.debug("cache_warm: views list skipped: %s", e)
 
+        # ── (b2) Screener market metrics (GLOBAL) ─────────────────────
+        # Kick the universe price / day-change / 1-year-return warm so the
+        # Screener grid is populated by the time the user opens it. Fires a
+        # background thread internally and no-ops if already warm — never
+        # blocks the login response.
+        try:
+            from backend.routers.screener import warm_screener_metrics
+
+            warm_screener_metrics()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("cache_warm: screener metrics warm skipped: %s", e)
+
         # ── (c) Per-holding quote + sparkline ─────────────────────────
         # Populates quote:yf:v1:{exchange}:{sym} and
         # sparkline:yf:v1:{exchange}:{sym}:5Y:{interval} via the exact

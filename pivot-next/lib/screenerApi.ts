@@ -36,12 +36,17 @@ export type ScreenerStock = {
   /** canonical sector key, e.g. "private_bank" */
   sector: string;
   market_cap_cr: number | null;
+  /** Last price (₹). Kite-primary when a live session exists, else delayed
+   *  yfinance; null while the market-metrics cache is warming. */
+  price: number | null;
+  /** Day change (%), signed. Same source/nullability as `price`. */
+  change_pct: number | null;
   pe: number | null;
   roe: number | null;
-  /** Always null on this path — see `null_metrics`. */
-  div_yield: number | null;
-  /** Always null on this path — see `null_metrics`. */
+  /** 1-year price return (%), signed. Same source/nullability as `price`. */
   one_year_pct: number | null;
+  /** No source on this path — always null (kept for contract stability). */
+  div_yield: number | null;
   logo_url: string | null;
 };
 
