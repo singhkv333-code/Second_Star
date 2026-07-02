@@ -191,6 +191,11 @@ def entry_block(
     """
     block: dict[str, Any] = {"kind": kind, "as_of": as_of}
 
+    hedge_note = (
+        " Note: the index-hedge short leg needs margin at your broker — at a "
+        "small ticket you hold the long side without the hedge (more market risk)."
+        if kind == "hedge" else ""
+    )
     if kind in ("basket", "hedge", "multi_asset") and weights and prices:
         lite = lite_allocation(weights, prices)
         etf_leg = etf_route(etf) if etf else None
@@ -203,7 +208,8 @@ def entry_block(
                 "note": (
                     "A pared-down version of the same basket — "
                     f"{lite.n_names} of {lite.n_names + len(lite.dropped)} names, "
-                    "whole shares only, so weights drift a little from the full strategy."
+                    "whole shares only, so weights drift a little from the full "
+                    "strategy." + hedge_note
                 ),
             })
             if etf_leg:
@@ -219,7 +225,7 @@ def entry_block(
                     f"The full basket needs bigger capital to hold faithfully; the "
                     f"cheapest honest way in is {etf_leg['units']} unit(s) of "
                     f"{etf_leg['symbol']} ({etf_leg['tracks']}) — the same exposure, "
-                    "one instrument."
+                    "one instrument." + hedge_note
                 ),
             })
             return block

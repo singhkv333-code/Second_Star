@@ -90,7 +90,16 @@ def driver_beta(
         "t_stat": round(beta / se, 2) if se > 0 else None,
         "r2": round(r2, 3),
         "n_weeks": n,
+        "basis": "regression",
     }
+
+
+def stated_direct_beta() -> dict[str, Any]:
+    """The identity 'beta' for themes with no honest driver proxy: the
+    scenario is stated DIRECTLY on the strategy book, and the output says so
+    instead of dressing an assumption up as a regression."""
+    return {"beta": 1.0, "t_stat": None, "r2": None, "n_weeks": None,
+            "basis": "stated_direct"}
 
 
 def scenario_forward(
@@ -153,8 +162,13 @@ def scenario_forward(
         "assumptions": [
             f"Driver scenario is a stated assumption: YES → {driver} "
             f"{driver_move_yes_pct:+.0f}%, NO → {driver_move_no_pct:+.0f}%.",
-            f"Book sensitivity is a real regression: beta {beta_block['beta']} "
-            f"(t={beta_block.get('t_stat')}, {beta_block.get('n_weeks')} weeks).",
+            (
+                "Scenario is stated directly on the strategy book — no driver "
+                "regression exists for this theme."
+                if beta_block.get("basis") == "stated_direct"
+                else f"Book sensitivity is a real regression: beta {beta_block['beta']} "
+                     f"(t={beta_block.get('t_stat')}, {beta_block.get('n_weeks')} weeks)."
+            ),
             f"Probability {p:.0%} — {p_source}.",
             f"The modelled edge is shrunk {shrinkage:.0%} toward zero and "
             f"{round_trip_bps:.0f}bps round-trip costs are subtracted before display.",
