@@ -550,22 +550,27 @@ def search_companies(
         # each group).
         ordered = sorted(rows, key=lambda r: 0 if r[0] in have else 1)
 
-        # Sector is NOT read from mc.companies (that column is 100% NULL); the
-        # real sector lives in the enrich DB. Resolve the whole page's sectors
-        # in ONE cross-DB batch (fail-safe: no enrich → all None).
-        sectors: dict[str, "str | None"] = {}
+        # Neither sector NOR a full name is read from mc.companies: the sector
+        # column is 100% NULL and company_name is truncated to 15 chars ("BHEL"
+        # for "Bharat Heavy Electricals Limited"). Both come from the enrich DB.
+        # Resolve the whole page in ONE cross-DB batch (fail-safe: no enrich →
+        # fall back to the mc name / no sector).
+        profiles: dict[str, dict] = {}
         try:
             from backend.market import enrich_db
             if enrich_db.is_enabled():
-                sectors = enrich_db.get_sectors_by_sc_ids([r[0] for r in ordered])
-        except Exception:  # noqa: BLE001 — sector is decorative on this path
-            sectors = {}
+                profiles = enrich_db.get_profiles_by_sc_ids([r[0] for r in ordered])
+        except Exception:  # noqa: BLE001 — enrich enrichment is decorative here
+            profiles = {}
 
         out: list[CompanyHit] = []
         seen: set[str] = set()
         for r in ordered:
             sc_id, name, nse_symbol, ticker, logo_url = r
             has_fund = sc_id in have
+            prof = profiles.get(sc_id) or {}
+            # Prefer the full enrich long_name over the truncated mc name.
+            display_name = (prof.get("long_name") or "").strip() or name
             # Navigable symbol: the verified nse_symbol first; a scraper
             # `ticker` only when the row actually has fundamentals (shells like
             # 'Jay Electric'/'Bharat Hotels' carry a stolen ticker='BHEL' but
@@ -586,8 +591,8 @@ def search_companies(
                 CompanyHit(
                     sc_id=sc_id,
                     symbol=sym,
-                    name=name,
-                    sector=sectors.get(sc_id),
+                    name=display_name,
+                    sector=prof.get("sector"),
                     has_fundamentals=has_fund,
                     logo_url=logo_url,
                 )

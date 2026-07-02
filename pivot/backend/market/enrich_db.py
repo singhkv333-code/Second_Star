@@ -190,3 +190,36 @@ def get_sectors_by_sc_ids(sc_ids: list[str]) -> dict[str, Optional[str]]:
         return {r._mapping["sc_id"]: r._mapping["sector"] for r in rows}
     finally:
         db.close()
+
+
+def get_profiles_by_sc_ids(sc_ids: list[str]) -> dict[str, dict]:
+    """Batch-resolve ``{sc_id: {"sector":.., "long_name":..}}`` in ONE query.
+
+    Used by the autosuggest hot path to fill BOTH the real sector and a full,
+    un-truncated display name (``mc.companies.company_name`` is truncated to 15
+    chars — "BHEL" for "Bharat Heavy Electricals Limited"). Disabled DB / empty
+    input → ``{}``; an sc_id absent from enrich is simply missing (caller keeps
+    the mc fallbacks)."""
+    if EnrichSessionLocal is None or not sc_ids:
+        return {}
+    ids = sorted({s for s in sc_ids if s})
+    if not ids:
+        return {}
+    db = EnrichSessionLocal()
+    try:
+        rows = db.execute(
+            text(
+                "SELECT sc_id, sector, long_name FROM enrich.v_company_enriched "
+                "WHERE sc_id = ANY(:ids)"
+            ),
+            {"ids": ids},
+        ).fetchall()
+        return {
+            r._mapping["sc_id"]: {
+                "sector": r._mapping["sector"],
+                "long_name": r._mapping["long_name"],
+            }
+            for r in rows
+        }
+    finally:
+        db.close()
