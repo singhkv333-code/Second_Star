@@ -6310,6 +6310,10 @@ class ChatService:
             hop_drafted_card = False
             hop_error = False
             hop_find_tool = False
+            # Screen turns: the ranked rows ARE the reply — rendered
+            # deterministically below (render_screen_markdown), skipping the
+            # narration hop (measured ~7s warm / the whole cold-cache tail).
+            hop_screen_data: Optional[dict] = None
 
             for tc in response.tool_calls or []:
                 trace.event("tool.invoke", tool=tc.get("name"),
@@ -6452,6 +6456,11 @@ class ChatService:
                     # / defended view / interpretation add real value.)
                     if guarded.name in _STASH_DRAFT_TOOLS:
                         hop_drafted_card = True
+                    # A successful screen with rows → deterministic table
+                    # reply below (same values verbatim), no narration hop.
+                    if (guarded.name == "screen_fundamentals"
+                            and guarded.data and guarded.data.get("results")):
+                        hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
                     # find_tool lazy-load: union the candidate tool
@@ -6683,6 +6692,40 @@ class ChatService:
                     raw_data=raw_data,
                     latency_breakdown=breakdown,
                 )
+
+            # Screen turn finalized deterministically — the ranked rows are
+            # the reply, rendered verbatim (render_screen_markdown), so the
+            # narration hop (whose only job was restating them as a table)
+            # is skipped. Gated to single-tool turns so a multi-tool turn's
+            # extra context is never silently dropped.
+            if (hop_screen_data is not None and not hop_error
+                    and not hop_find_tool
+                    and tools_called == ["screen_fundamentals"]):
+                from backend.services.fundamentals_screen import (
+                    render_screen_markdown,
+                )
+                text_out = render_screen_markdown(hop_screen_data) or ""
+                if text_out:
+                    self.store.append(conv_id, message, text_out)
+                    self.store.clear_pending(conv_id)
+                    total = int((time.monotonic() - turn_started) * 1000)
+                    breakdown["total"] = total
+                    breakdown["narration_hop_skipped"] = 1
+                    _log_timing(client.provider_name, message, total,
+                                breakdown, tools=tools_called,
+                                note="screen_table_no_narration")
+                    trace.event("turn.end", total_ms=total,
+                                tools_called=tools_called,
+                                reason="screen_table_no_narration")
+                    trace.end()
+                    return ChatTurn(
+                        response=text_out,
+                        tools_called=tools_called,
+                        logiccard=logiccard,
+                        latency_ms=total,
+                        raw_data=raw_data,
+                        latency_breakdown=breakdown,
+                    )
 
             # back to top of loop — model now sees tool results
 
@@ -7915,6 +7958,9 @@ class ChatService:
             hop_drafted_card = False
             hop_error = False
             hop_find_tool = False
+            # Stream mirror: screen rows render deterministically (no
+            # narration hop) — see handle() for the rationale.
+            hop_screen_data: Optional[dict] = None
 
             for tc in tool_calls:
                 yield {"type": "tool_start", "name": tc.get("name", "")}
@@ -8042,6 +8088,10 @@ class ChatService:
                     # Workflow/order draft card → no narration hop (mirror).
                     if guarded.name in _STASH_DRAFT_TOOLS:
                         hop_drafted_card = True
+                    # Screen rows → deterministic table reply (mirror).
+                    if (guarded.name == "screen_fundamentals"
+                            and guarded.data and guarded.data.get("results")):
+                        hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
                     # Mirror of handle(): lazy-load find_tool matches
@@ -8253,6 +8303,40 @@ class ChatService:
                     "latency_breakdown": breakdown,
                 }
                 return
+
+            # Screen turn finalized deterministically (stream mirror of
+            # handle()) — the ranked rows render verbatim; no narration hop.
+            if (hop_screen_data is not None and not hop_error
+                    and not hop_find_tool
+                    and tools_called == ["screen_fundamentals"]):
+                from backend.services.fundamentals_screen import (
+                    render_screen_markdown,
+                )
+                text_out = render_screen_markdown(hop_screen_data) or ""
+                if text_out:
+                    self.store.append(conv_id, message, text_out)
+                    self.store.clear_pending(conv_id)
+                    total = int((time.monotonic() - turn_started) * 1000)
+                    breakdown["total"] = total
+                    breakdown["narration_hop_skipped"] = 1
+                    yield {"type": "delta", "text": text_out}
+                    _log_timing(client.provider_name, message, total,
+                                breakdown, tools=tools_called,
+                                note="stream-screen_table_no_narration")
+                    trace.event("turn.end", total_ms=total,
+                                tools_called=tools_called,
+                                reason="screen_table_no_narration")
+                    trace.end()
+                    yield {
+                        "type": "done",
+                        "response": text_out,
+                        "tools_called": tools_called,
+                        "logiccard": logiccard,
+                        "raw_data": raw_data or None,
+                        "latency_ms": total,
+                        "latency_breakdown": breakdown,
+                    }
+                    return
 
             # next iteration of the loop will stream the next hop
 

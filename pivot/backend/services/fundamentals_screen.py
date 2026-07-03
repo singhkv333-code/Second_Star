@@ -344,6 +344,7 @@ def screen_from_enrich(
         "count": len(results),
         "results": results,
         "applied_filters": [dict(f) for f in valid_filters],
+        "sorted_by": {"field": sf, "dir": sort_dir},
         "note": "; ".join(notes),
     }
 
@@ -858,8 +859,132 @@ def screen_by_fundamentals(
         "count": len(results),
         "results": results,
         "applied_filters": valid_filters,
+        "sorted_by": {"field": sort_field, "dir": sort_dir},
         "note": "; ".join(notes),
     }
+
+
+# ── Deterministic screen reply (skips the LLM narration hop) ────────────────
+# The chat loop's second LLM hop on a screen turn is a ~43k-token re-prefill
+# whose only job is to restate the tool's rows as a markdown table — it was
+# measured at ~7s warm (and the whole cold-cache tail on a bad day). The rows
+# are already exact tool values, so the reply is rendered HERE, verbatim and
+# deterministic; chat_service returns it directly and skips the hop.
+
+_METRIC_LABELS: dict[str, str] = {
+    "pe": "P/E", "roe": "ROE", "roce": "ROCE", "de": "D/E", "payout": "Payout",
+}
+_PCT_METRICS = frozenset({"roe", "roce", "payout"})
+
+# (field, dir) -> (headline word for the #1 row, one-line framing).
+_RANK_FRAMES: dict[tuple[str, str], tuple[str, str]] = {
+    ("pe", "asc"): ("Cheapest", "This is a valuation screen, not a quality "
+                    "ranking — a lower P/E only means cheaper on earnings, "
+                    "not automatically better."),
+    ("pe", "desc"): ("Richest-valued", "Ranked most-expensive-first on "
+                     "earnings — a high P/E can mean growth expectations or "
+                     "overvaluation."),
+    ("roe", "desc"): ("Highest ROE", "Ranked by return on equity — a "
+                      "profitability screen, not a buy list."),
+    ("roce", "desc"): ("Highest ROCE", "Ranked by return on capital employed "
+                       "— a capital-efficiency screen, not a buy list."),
+    ("de", "asc"): ("Least levered", "Ranked by lowest debt-to-equity — a "
+                    "balance-sheet screen, not a buy list."),
+    ("payout", "desc"): ("Highest payout", "Ranked by dividend payout ratio "
+                         "(share of profit paid out), not dividend yield."),
+}
+
+
+def _inr_cr(v: float | int | None) -> str:
+    """Indian-grouped ₹-crore ('₹2,81,115 Cr')."""
+    if v is None:
+        return "—"
+    n = f"{int(round(float(v))):,}"
+    # Re-group western 1,234,567 → Indian 12,34,567.
+    digits = n.replace(",", "")
+    if len(digits) > 3:
+        head, tail = digits[:-3], digits[-3:]
+        parts = []
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            parts.insert(0, head)
+        n = ",".join(parts + [tail])
+    return f"₹{n} Cr"
+
+
+def _fmt_metric(field: str, v: float | None) -> str:
+    if v is None:
+        return "—"
+    return f"{v:.2f}%" if field in _PCT_METRICS else f"{v:.2f}"
+
+
+def render_screen_markdown(data: dict) -> str | None:
+    """Render a screen result as the final chat reply (markdown), or None when
+    the result isn't cleanly renderable (empty → let the LLM narrate the note).
+    Quotes tool values verbatim — never derives or invents."""
+    results = data.get("results") or []
+    if not results:
+        return None
+    sb = data.get("sorted_by") or {}
+    field = sb.get("field")
+    if field not in _METRIC_LABELS:
+        return None
+    dir_ = "asc" if (sb.get("dir") or "desc") == "asc" else "desc"
+    label = _METRIC_LABELS[field]
+    head_word, framing = _RANK_FRAMES.get(
+        (field, dir_),
+        (f"Top by {label}",
+         f"Ranked by {label} ({'ascending' if dir_ == 'asc' else 'descending'})."),
+    )
+
+    sector = (results[0].get("sector") or "").strip()
+    title = (f"{sector.replace('_', ' ').title()} — ranked by {label}"
+             if sector else f"Fundamental screen — ranked by {label}")
+
+    # Columns: the ranked metric first, then any other metrics present, then
+    # market cap when the row carries one (enrich-backed sector screens do).
+    extra_metrics = [m for m in _METRIC_LABELS
+                     if m != field and results[0].get(m) is not None]
+    has_mcap = results[0].get("market_cap_cr") is not None
+
+    cols = ["Rank", "Company", label] + [_METRIC_LABELS[m] for m in extra_metrics]
+    aligns = ["---:", "---", "---:"] + ["---:"] * len(extra_metrics)
+    if has_mcap:
+        cols.append("Market cap")
+        aligns.append("---:")
+
+    lines = [f"## {title}", "", framing, ""]
+    filt = data.get("applied_filters") or []
+    if filt:
+        shown = " · ".join(
+            f"{_METRIC_LABELS.get(f['field'], f['field'])} {f['op']} {f['value']:g}"
+            for f in filt if f.get("field") in _METRIC_LABELS
+        )
+        if shown:
+            lines += [f"Filters applied: {shown}", ""]
+    lines.append("| " + " | ".join(cols) + " |")
+    lines.append("|" + "|".join(aligns) + "|")
+    for i, r in enumerate(results, 1):
+        row = [str(i), f"{r.get('name') or r['symbol']} (`{r['symbol']}`)",
+               _fmt_metric(field, r.get(field))]
+        row += [_fmt_metric(m, r.get(m)) for m in extra_metrics]
+        if has_mcap:
+            row.append(_inr_cr(r.get("market_cap_cr")))
+        lines.append("| " + " | ".join(row) + " |")
+
+    top = results[0]
+    top_val = _fmt_metric(field, top.get(field))
+    if field == "pe":
+        top_line = f"**{head_word}:** `{top['symbol']}` at {top_val}× P/E."
+    else:
+        top_line = f"**{head_word}:** `{top['symbol']}` at {top_val} {label}."
+    lines += ["", top_line]
+    note = (data.get("note") or "").strip()
+    if note:
+        lines += ["", f"_{note}_"]
+    return "\n".join(lines)
 
 
 # ── Batch gate-input fetch (latency path for the strategy builder) ──────────
