@@ -700,26 +700,35 @@ async def execute_with_completeness(
     # names an interval, so the spliced value is kept and the tool runs.
     _tf_named = _message_names_interval(user_message)
     if tool_name in _INTERVAL_GATED_TOOLS:
+        # Inject into ONLY the interval/timeframe field(s) THIS tool actually
+        # declares — some tools use "interval", some "timeframe". Injecting a
+        # field the handler doesn't accept crashes it (e.g.
+        # hydrate_threshold_order has no `interval` kwarg).
+        _gated_props = (_schema_for_tool(tool_name) or {}).get("properties") or {}
+        _iv_fields = [f for f in ("interval", "timeframe") if f in _gated_props]
         if not _tf_named:
             # User didn't name a bar interval. Per system_core.md's clarify
             # priority (size/exit > threshold > bar-interval), the interval is
             # the LOWEST-priority gap AND has a safe standard default — so we
-            # DEFAULT it to daily rather than dropping it to force an "always
-            # ask timeframe" question. Asking it first preempted the real gap
-            # (a missing exit, quantity, or "define cheap") and over-asked
-            # fully-specified backtests. The reply states the daily assumption;
+            # DEFAULT it to "1d" (the canonical enum value; the word "daily" is
+            # NOT enum-valid) rather than dropping it to force an "always ask
+            # timeframe" question. Asking it first preempted the real gap (a
+            # missing exit, quantity, or "define cheap") and over-asked fully-
+            # specified backtests. The reply states the daily assumption;
             # register-not-execute means nothing fires silently, and the user
-            # can amend to any interval. If the MODEL already inferred an
-            # interval (e.g. "scalp" → 15m), trust its reasoning and keep it.
-            if "interval" not in args and "timeframe" not in args:
-                args = {**args, "interval": "daily", "timeframe": "daily"}
-        elif "interval" not in args and "timeframe" not in args:
+            # can amend. If the MODEL already inferred an interval ("scalp" →
+            # 15m), trust its reasoning and keep it.
+            if not any(f in args for f in _iv_fields):
+                for f in _iv_fields:
+                    args = {**args, f: "1d"}
+        elif not any(f in args for f in _iv_fields):
             # User DID name a timeframe but the model dropped it. Extract and
             # inject it so we don't ask a redundant, misguiding question
             # ("which timeframe?" right after they said "on the daily").
             _iv = _extract_interval_from_text(user_message)
             if _iv:
-                args = {**args, "interval": _iv, "timeframe": _iv}
+                for f in _iv_fields:
+                    args = {**args, f: _iv}
     # propose_workflow buries the timeframe inside its step tree, so we can't
     # strip a top-level arg. Pass the "did the user name a timeframe?" signal
     # down as a private flag; the handler raises-to-ask if it builds an

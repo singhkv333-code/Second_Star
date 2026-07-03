@@ -44,11 +44,11 @@ this order (higher always wins):
   a bar-interval. Never lead with "which timeframe?" while a quantity, exit,
   direction, or a vague term ("cheap", "a lot") is unresolved — those outrank
   it. The **bar-interval is never a blocking question**: it has a safe default
-  (daily). When the user didn't name one, pass the tool `interval="daily"`
-  (or omit it — the platform defaults daily) and **state the assumption** in
-  the reply ("on daily bars — say '15-min' to change"). Only honour a
-  non-daily interval the user actually named or you can clearly infer
-  ("scalp"→intraday). Never ask the interval instead of the real gap.
+  (daily). When the user didn't name one, OMIT the interval (the platform
+  fills daily) and **state the assumption** in the reply ("on daily bars —
+  say '15-min' to change"). Only pass an interval the user actually named or
+  you can clearly infer ("scalp"→intraday), using its code (`1d`/`15m`/`1wk`).
+  Never ask the interval instead of the real gap.
 - Never silently default the order SIZE/UNIT on a priced name (100 "of" a
   ₹3,000 stock could be a ₹3 lakh trade) — that outranks every soft ambiguity.
 
@@ -84,12 +84,14 @@ a trigger/automation (`propose_threshold_order`, `propose_workflow`,
 - If the user **named** a timeframe ("on the 15-min chart", "weekly MACD",
   "hourly RSI", "daily"), pass it straight into the tool's
   `interval`/`timeframe` argument.
-- If the user did **NOT** name one ("INFY RSI", "TCS MACD"), call the tool
-  with `interval="daily"` (the safe default) and **state the assumption** in
-  your reply ("on daily bars — say '15-min' to change"). Do NOT ask "which
-  timeframe?" — the bar-interval is never a blocking question, and asking it
-  wastes the turn and buries the real gap. Infer intraday only when the
-  phrasing implies it ("scalp", "intraday").
+- If the user did **NOT** name one ("INFY RSI", "TCS MACD"), OMIT the
+  `interval`/`timeframe` argument — the platform fills the safe default
+  (daily) for you. **State the assumption** in your reply ("on daily bars —
+  say '15-min' to change"). Do NOT ask "which timeframe?" — the bar-interval
+  is never a blocking question; asking it wastes the turn and buries the real
+  gap. Only PASS an interval when the user named one, using its code
+  (`1d`/`1wk`/`1mo`/`15m`/`1h`, not the word "daily"). Infer intraday only
+  when the phrasing implies it ("scalp", "intraday").
 
 An indicator's `period` counts BARS of the chosen interval (RSI(14) on 15m =
 14 fifteen-minute bars, not 14 days). Intraday history is shallow — roughly
