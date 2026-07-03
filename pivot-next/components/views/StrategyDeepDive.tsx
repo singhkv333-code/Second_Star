@@ -309,7 +309,7 @@ function EntrySection({ entry }: { entry: EntryBlock }): React.ReactElement {
                 {leg.role === "satellite" && (
                   <span style={{ color: "var(--text-tertiary)" }}>
                     {" "}
-                    — the strategy's own pick
+                    — the strategy&rsquo;s own pick
                   </span>
                 )}
                 {leg.event_mean_pct != null && (
