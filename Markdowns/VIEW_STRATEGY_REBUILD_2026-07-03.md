@@ -105,3 +105,24 @@ buying stocks, not more NIFTYBEES-class units).
 - The crude research rationale text (24.5%/12 episodes) vs the live
   64-trigger headline should be reconciled in the DB copy at the next
   curation pass.
+
+## 6. Card-copy reconciliation (round 2, same day)
+
+The computed stats changed but persisted card PROSE still quoted old
+numbers — worse, the /view-pack `historical_strength` was a template
+artifact: every one of the 8 views shipped the IDENTICAL monsoon-derived
+"4 episodes. Strategy 45.55% vs NIFTY … beats NIFTY in 100.0%" line
+(fabrication by copy-paste, plus re-introduced benchmark-beating framing).
+
+Fixed both surfaces:
+- **DB views**: all 9 expressions' `historical_strength` regenerated from
+  their live computed per-occurrence stats ("64 past occurrences. Average
+  +1.71% per occurrence … positive in 41 of 64"), with the deploy-time
+  research battery (PSR/DSR/MinTRL) kept as dated provenance; crude's
+  `risk_profile` now marks its beta/maxDD as "the filtered research subset
+  (12 episodes; card stats use all 64 unfiltered triggers)".
+- **/view-pack**: `_strength_text()` in the enricher derives the line per
+  expression — rolling-window views state average per WINDOW + positive
+  count ("windows are calendar slices, not distinct events"); the shock
+  view claims NO track record (forward model only); option tiers state the
+  modelled-payoff basis. No benchmark-beating framing anywhere.

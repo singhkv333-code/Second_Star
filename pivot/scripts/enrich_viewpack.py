@@ -631,6 +631,53 @@ def _forward_block(rets, spec: dict[str, Any], book_daily, sigma_annual,
     )
 
 
+def _strength_text(e: dict[str, Any], taxonomy: str) -> Optional[str]:
+    """Per-expression ``historical_strength`` derived from the expression's
+    OWN computed stats — replacing the first-generation template artifact
+    (every view carried the same monsoon-derived '4 episodes. Strategy
+    45.55% vs NIFTY…' line, a fabrication by copy-paste). Rules:
+
+    * option tiers   → modelled payoff, no historical track record claimed.
+    * shock views    → no analogs, no track record claimed (forward model).
+    * window views   → average per-WINDOW return + positive count, labelled
+      as calendar slices; NO benchmark-beating framing (presentation rule).
+    * no stats       → None (the FE omits the line) — never a template.
+    """
+    kind = e.get("expression_kind")
+    if kind == "option_strategy":
+        return (
+            "Modelled option payoff (Black–Scholes) — options have no honest "
+            "historical track record here; the premium and odds are priced at "
+            "deploy."
+        )
+    if taxonomy == "shock":
+        return (
+            "No comparable historical analogs (unscheduled shock) — no track "
+            "record claimed. The forward scenario model states the "
+            "probability-weighted, cost-adjusted return band instead."
+        )
+    n = e.get("n_episodes") or 0
+    avg = e.get("strategy_total_pct")
+    if not n or avg is None:
+        return None
+    n_pos = e.get("positive_episodes")
+    bench = e.get("nifty_total_pct")
+    parts = [
+        f"{n} rolling windows.",
+        f"Average {avg:+.2f}% per window"
+        + (f" (Nifty {bench:+.2f}% over the same windows)" if bench is not None else "")
+        + " — the average for one deployment, never compounded across windows",
+    ]
+    if n_pos is not None:
+        parts[-1] += f"; positive in {n_pos} of {n}."
+    else:
+        parts[-1] += "."
+    parts.append(
+        "Windows are calendar slices of history, not distinct events (stated)."
+    )
+    return " ".join(parts)
+
+
 _WEAK_TRACK_PREFIX = "Heads-up: this bundle has historically tracked"
 
 
@@ -981,6 +1028,13 @@ def main() -> None:
                            f"on {o['label']:22} width={om.get('width_pct') if om else '-'} "
                            f"POP%={om.get('pop_pct') if om else '-'} "
                            f"entry={entry.get('min_entry_inr')}")
+
+        # historical_strength derived from each expression's OWN stats —
+        # kills the copy-pasted "4 episodes. Strategy 45.55% vs NIFTY…"
+        # template artifact that shipped identical fabricated text on
+        # every view (and reintroduced benchmark-beating framing).
+        for ex in v.get("expressions", []):
+            ex["historical_strength"] = _strength_text(ex, spec["taxonomy"])
 
         # best expression (highest positive-rate then return) for the card
         scored = [
