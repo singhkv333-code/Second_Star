@@ -746,10 +746,15 @@ tool("screen_fundamentals",
      "with P/E under 25', 'show me stocks with ROE > 18', 'low debt high ROE "
      "names', 'cheap banking stocks', 'screen for payout > 40%'. This is the "
      "MANY-company tool; for ONE company's PE/ROE use fetch_fundamentals. "
-     "Fields: pe, roe, roce, de (debt/equity), payout. market_cap is NOT "
-     "screenable. Sector is optional + coarse: pharma, bank, it, energy, auto, "
-     "metal, finance, chemicals, fmcg, infra, textiles. Data is basic and may "
-     "include small-caps; never invent names or numbers.\n\n"
+     "Fields: pe, roe, roce, de (debt/equity), payout. market_cap is NOT a "
+     "screenable field, but a real market-cap FLOOR/TIER is applied via "
+     "market_cap_tier (see below). Sector is optional + coarse: pharma, bank, "
+     "it, energy, auto, autoancillary, metal, finance, chemicals, fmcg, infra, "
+     "textiles. NOTE: 'auto' = vehicle MAKERS (cars/2-3 wheelers/tractors/CVs, "
+     "e.g. Maruti, Tata Motors, M&M, Bajaj, Hero) — use 'autoancillary' ONLY "
+     "when the user explicitly wants auto PARTS / component suppliers. A bare "
+     "sector ranking (no number given) automatically floors out micro-caps so "
+     "recognizable names lead. Never invent names or numbers.\n\n"
      "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the "
      "user to pick a threshold first): 'cheap banking stocks' → sector=bank, "
      "sort_by={field:pe,dir:asc}; 'best dividend payers' → sort_by="
@@ -773,13 +778,14 @@ tool("screen_fundamentals",
                          "value": {"type": "number"}},
                          "required": ["field", "op", "value"]}},
          "sector":  {"type": "string",
-                     "enum": ["pharma", "bank", "it", "energy", "auto", "metal",
-                              "finance", "chemicals", "fmcg", "infra", "textiles"]},
+                     "enum": ["pharma", "bank", "it", "energy", "auto",
+                              "autoancillary", "metal", "finance", "chemicals",
+                              "fmcg", "infra", "textiles"]},
          "market_cap_tier": {"type": "string", "enum": ["large", "mid", "small"],
-                     "description": "Restrict to large/mid/small-cap NSE names. "
-                     "Emit 'large' whenever the user says large-cap / bluechip / "
-                     "'big companies'. Backed by a curated NIFTY universe "
-                     "because the DB has no market-cap field."},
+                     "description": "Restrict to large/mid/small-cap names by "
+                     "REAL market cap (large ≥ ₹50k Cr, mid ₹20k–50k Cr, small "
+                     "< ₹20k Cr). Emit 'large' whenever the user says large-cap "
+                     "/ bluechip / 'big companies'."},
          "sort_by": {"type": "object", "properties": {
                          "field": {"type": "string",
                                    "enum": ["pe", "roe", "roce", "de", "payout"]},

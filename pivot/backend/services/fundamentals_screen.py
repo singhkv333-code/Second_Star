@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -71,6 +72,280 @@ _CAP_TIER_ALIASES = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+# ── Real market cap from the enrich DB ─────────────────────────────────────
+# The financials DB has no market-cap column, but the enrich DB
+# (enrich.company_profile.market_cap, ~5k names, raw rupees) does, keyed by the
+# SAME sc_id as mc.companies. We snapshot the whole cap map once (cheap; ~5k
+# rows) and derive tier/floor membership in memory, so a cap-tiered or
+# recognizable-names screen restricts to REAL market caps across the full
+# universe instead of the ~80-name curated whitelist (which, at the strict
+# recency floor, left "large-cap auto" returning a single name). Fails open: if
+# enrich is down the caller falls back to the curated whitelist.
+_MCAP_CACHE: dict[str, object] = {"ts": 0.0, "map": {}}
+_MCAP_TTL_S = 3600  # market caps drift slowly; refresh hourly per process
+
+# tier -> (min_cr inclusive, max_cr exclusive), ₹ crore. Matches sector_universe.
+_CAP_TIER_RANGES: dict[str, tuple[float | None, float | None]] = {
+    "large": (50_000, None),
+    "mid": (20_000, 50_000),
+    "small": (None, 20_000),
+}
+# Floor (₹ crore) applied to a BARE sector ranking (a "best/cheapest in <sector>"
+# ask with no explicit numeric filter and no cap word) so obscure micro-cap
+# names don't dominate the ranking — the user means recognizable companies.
+_DEFAULT_SECTOR_FLOOR_CR = 3_000
+
+
+def _load_market_caps() -> dict[str, float]:
+    """{sc_id: market_cap_in_crore} from enrich.company_profile, cached ~1h.
+    Fails open to the last snapshot (or {}) so a cap filter degrades to a no-op
+    rather than erroring the screen."""
+    now = time.time()
+    cached: dict[str, float] = _MCAP_CACHE["map"]  # type: ignore[assignment]
+    if cached and now - float(_MCAP_CACHE["ts"]) < _MCAP_TTL_S:
+        return cached
+    out: dict[str, float] = {}
+    try:
+        from backend.market.enrich_db import EnrichSessionLocal, is_enabled
+
+        if is_enabled():
+            s = EnrichSessionLocal()
+            try:
+                rows = s.execute(
+                    text(
+                        "SELECT sc_id, market_cap FROM enrich.company_profile "
+                        "WHERE market_cap IS NOT NULL AND market_cap > 0"
+                    )
+                ).fetchall()
+            finally:
+                s.close()
+            for sc_id, mc in rows:
+                if sc_id is not None and mc:
+                    out[str(sc_id)] = float(mc) / 1e7  # rupees -> ₹ crore
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[screen] market-cap load failed: %s", exc)
+        return cached or {}
+    if out:
+        _MCAP_CACHE["map"] = out
+        _MCAP_CACHE["ts"] = now
+    return out or cached or {}
+
+
+def _sc_ids_in_cap_range(
+    min_cr: float | None, max_cr: float | None
+) -> list[str]:
+    """sc_ids whose enrich market cap (₹ crore) is in [min_cr, max_cr). Empty
+    list means "enrich has no usable caps" — caller decides the fallback."""
+    caps = _load_market_caps()
+    out: list[str] = []
+    for sc_id, cr in caps.items():
+        if min_cr is not None and cr < min_cr:
+            continue
+        if max_cr is not None and cr >= max_cr:
+            continue
+        out.append(sc_id)
+    return out
+
+
+# ── Enrich-backed SECTOR screen (clean sectors + real P/E) ─────────────────
+# The Moneycontrol `mc` DB classifies sectors via a scraped `industry_slug`
+# that is badly polluted for recognizable names — Tata Motors sits under the
+# junk slug `tatamotorscom` (symbol TMCV), Eicher/Ashok Leyland have impostor
+# rows tagged `financeinvestments`, and its P/E source (Earnings Yield) is
+# sparse for large caps. So "best P/E in auto" over mc returned obscure micro-
+# cap ancillaries with no OEMs. The enrich DB (yfinance) has CLEAN industry
+# labels + real trailing P/E (4.1k names) + real market cap, so a SECTOR screen
+# is served from enrich instead. Coarse sector -> yfinance industry names:
+_ENRICH_SECTOR_INDUSTRIES: dict[str, list[str]] = {
+    "auto": ["Auto Manufacturers", "Auto & Truck Dealerships",
+             "Recreational Vehicles"],
+    "autoancillary": ["Auto Parts"],
+    "bank": ["Banks - Regional", "Banks - Diversified"],
+    "pharma": ["Drug Manufacturers - Specialty & Generic",
+               "Drug Manufacturers - General", "Biotechnology",
+               "Pharmaceutical Retailers", "Medical Devices",
+               "Medical Care Facilities", "Diagnostics & Research",
+               "Healthcare Plans", "Medical Instruments & Supplies"],
+    "it": ["Information Technology Services", "Software - Application",
+           "Software - Infrastructure"],
+    "energy": ["Oil & Gas Refining & Marketing", "Oil & Gas Integrated",
+               "Oil & Gas E&P", "Oil & Gas Equipment & Services",
+               "Thermal Coal", "Utilities - Renewable", "Solar",
+               "Utilities - Independent Power Producers",
+               "Utilities - Regulated Electric"],
+    "metal": ["Steel", "Aluminum", "Other Industrial Metals & Mining",
+              "Copper", "Gold", "Coking Coal"],
+    "finance": ["Credit Services", "Capital Markets", "Asset Management",
+                "Mortgage Finance", "Insurance - Life",
+                "Insurance - Property & Casualty", "Insurance - Diversified",
+                "Financial Data & Stock Exchanges"],
+    "chemicals": ["Specialty Chemicals", "Chemicals", "Agricultural Inputs"],
+    "fmcg": ["Packaged Foods", "Confectioners", "Household & Personal Products",
+             "Beverages - Non-Alcoholic", "Beverages - Wineries & Distilleries",
+             "Farm Products", "Food Distribution", "Tobacco"],
+    "infra": ["Engineering & Construction", "Building Materials",
+              "Building Products & Equipment", "Real Estate - Development",
+              "Infrastructure Operations"],
+    "textiles": ["Textile Manufacturing", "Apparel Manufacturing",
+                 "Footwear & Accessories"],
+}
+
+# Screen field -> (enrich raw_info key, scale). yfinance stores ROE/payout as
+# fractions (0.18) so ×100 to a percent; P/E is already a ratio. de/roce have no
+# clean enrich key, so a screen referencing them stays on the mc path.
+_ENRICH_METRIC_KEYS: dict[str, tuple[str, float]] = {
+    "pe": ("trailingPE", 1.0),
+    "roe": ("returnOnEquity", 100.0),
+    "payout": ("payoutRatio", 100.0),
+}
+
+
+def _enrich_plausible(field: str, col: str) -> str:
+    """SQL plausibility bound for `col` (excludes data-quality outliers)."""
+    if field == "pe":
+        return f"{col} > 0 AND {col} <= 500"
+    if field == "roe":
+        return f"{col} BETWEEN -200 AND 200"
+    if field == "payout":
+        return f"{col} BETWEEN 0 AND 100"
+    return "TRUE"
+
+
+def _enrich_can_serve(sector: str | None, metric_fields: set[str]) -> bool:
+    """True when a sector screen's every referenced metric is one enrich serves
+    cleanly — so we route to the clean-sector/real-P/E enrich path."""
+    if not sector:
+        return False
+    if sector.strip().lower() not in _ENRICH_SECTOR_INDUSTRIES:
+        return False
+    return all(m in _ENRICH_METRIC_KEYS for m in metric_fields if m)
+
+
+def _enrich_metric_sql(field: str) -> str:
+    """A guarded numeric extraction of an enrich raw_info metric (NULL when the
+    key is absent or non-numeric, so a bad value can't error the cast)."""
+    key, scale = _ENRICH_METRIC_KEYS[field]
+    expr = (
+        f"CASE WHEN raw_info->>'{key}' ~ '^-?[0-9]+(\\.[0-9]+)?$' "
+        f"THEN (raw_info->>'{key}')::float * {scale} END"
+    )
+    return expr
+
+
+def screen_from_enrich(
+    *,
+    sector: str,
+    valid_filters: list[dict],
+    sort_field: str | None,
+    sort_dir: str,
+    tier: str | None,
+    apply_default_floor: bool,
+    limit: int,
+    notes: list[str],
+) -> dict | None:
+    """Serve a SECTOR screen from the enrich (yfinance) DB — clean industry
+    labels + real trailing P/E + real market cap. Returns the standard screen
+    dict, or None to fall back to the mc path (enrich disabled / no rows)."""
+    industries = _ENRICH_SECTOR_INDUSTRIES.get(sector.strip().lower())
+    if not industries:
+        return None
+    try:
+        from backend.market.enrich_db import EnrichSessionLocal, is_enabled
+
+        if not is_enabled():
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+
+    metric_fields = list({f["field"] for f in valid_filters} | ({sort_field} if sort_field else set()))
+    if not metric_fields:
+        metric_fields = ["roe"]
+    # Build the SELECT with a guarded numeric column per metric.
+    select_metrics = ", ".join(f"{_enrich_metric_sql(m)} AS val_{m}" for m in metric_fields)
+
+    where: list[str] = ["industry = ANY(:inds)", "ticker IS NOT NULL"]
+    params: dict = {"inds": industries, "lim": max(1, min(int(limit), 100))}
+
+    # Cap constraint: real market cap (rupees) via tier or the bare-sector floor.
+    if tier == "large":
+        where.append("market_cap >= :cap_lo")
+        params["cap_lo"] = 50_000 * 1e7
+    elif tier == "mid":
+        where.append("market_cap >= :cap_lo AND market_cap < :cap_hi")
+        params["cap_lo"], params["cap_hi"] = 20_000 * 1e7, 50_000 * 1e7
+    elif tier == "small":
+        where.append("(market_cap IS NULL OR market_cap < :cap_hi)")
+        params["cap_hi"] = 20_000 * 1e7
+    elif apply_default_floor:
+        where.append("market_cap >= :cap_lo")
+        params["cap_lo"] = _DEFAULT_SECTOR_FLOOR_CR * 1e7
+        notes.append(
+            f"showing names above ~₹{_DEFAULT_SECTOR_FLOOR_CR:,} Cr market cap "
+            "(say 'include small caps' to widen)"
+        )
+
+    # Dedup impostor rows: one row per ticker, best-matched name wins.
+    inner = f"""
+        SELECT DISTINCT ON (UPPER(ticker))
+               ticker, COALESCE(long_name, company_name) AS name, industry,
+               market_cap, {select_metrics}
+        FROM enrich.company_profile
+        WHERE {" AND ".join(where)}
+        ORDER BY UPPER(ticker), match_score DESC NULLS LAST, market_cap DESC NULLS LAST
+    """
+
+    outer_where: list[str] = []
+    for f in valid_filters:
+        m = f["field"]
+        params_key = f"f_{m}"
+        outer_where.append(f"val_{m} {f['op']} :{params_key}")
+        params[params_key] = f["value"]
+    # Plausibility bounds on every metric in play.
+    for m in metric_fields:
+        outer_where.append(_enrich_plausible(m, f"val_{m}"))
+    sf = sort_field if sort_field in metric_fields else metric_fields[0]
+    order = "ASC" if sort_dir == "asc" else "DESC"
+    sql = f"""
+        SELECT ticker, name, industry, market_cap,
+               {", ".join(f"val_{m}" for m in metric_fields)}
+        FROM ({inner}) t
+        {"WHERE " + " AND ".join(outer_where) if outer_where else ""}
+        ORDER BY val_{sf} {order} NULLS LAST
+        LIMIT :lim
+    """
+    s = EnrichSessionLocal()
+    try:
+        rows = s.execute(text(sql), params).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[screen] enrich sector path failed, falling back: %s", exc)
+        return None
+    finally:
+        s.close()
+
+    col = {"ticker": 0, "name": 1, "industry": 2, "market_cap": 3}
+    metric_idx = {m: 4 + i for i, m in enumerate(metric_fields)}
+    results: list[dict] = []
+    for r in rows:
+        rec: dict = {
+            "symbol": r[0],
+            "name": r[1],
+            "sector": sector.strip().lower(),
+            "market_cap_cr": round(float(r[3]) / 1e7) if r[3] else None,
+        }
+        for m in metric_fields:
+            v = r[metric_idx[m]]
+            rec[m] = round(float(v), 2) if v is not None else None
+        results.append(rec)
+
+    notes.append("sector + P/E from company profiles (yfinance) — not the MC ratios DB")
+    return {
+        "count": len(results),
+        "results": results,
+        "applied_filters": [dict(f) for f in valid_filters],
+        "note": "; ".join(notes),
+    }
 
 
 # ── Field resolution ──────────────────────────────────────────────────────
@@ -153,7 +428,11 @@ _SLUG_SECTOR_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^pharmaceuticals|^healthcare|^hospital|^diagnostics"), "pharma"),
     (re.compile(r"^computerssoftware|^itconsulting|^itenabledservices|^itnetworking"), "it"),
     (re.compile(r"^refineries|^oildrilling|^oilexploration|^gasdistribution|^powergeneration"), "energy"),
-    (re.compile(r"^automobiles|^autoancillaries|^automobile|^auto"), "auto"),
+    # Ancillary rule FIRST (more specific) so parts makers aren't mislabeled
+    # "auto"; OEM makers (cars / 2-3 wheelers / tractors / CVs) are the "auto"
+    # sector the user means by "automobile sector".
+    (re.compile(r"^autoancillar"), "auto ancillary"),
+    (re.compile(r"^automobile|^auto23wheelers|^autocarsjeeps|^autotractors|^autolcvshcvs|^auto"), "auto"),
     (re.compile(r"^steel|^metalsnonferrous|^metalsferrous|^mining|^aluminium|^castingsforgings"), "metal"),
     (re.compile(r"^finance"), "finance"),
     (re.compile(r"^chemicals|^fertilisers|^pesticidesagrochemicals"), "chemicals"),
@@ -170,7 +449,13 @@ _SECTOR_SLUG_PREFIXES: dict[str, list[str]] = {
     "pharma": ["pharmaceuticals%", "healthcare%", "hospital%", "diagnostics%"],
     "it": ["computerssoftware%", "itconsulting%", "itenabledservices%", "itnetworking%"],
     "energy": ["refineries%", "oildrilling%", "oilexploration%", "gasdistribution%", "powergeneration%"],
-    "auto": ["automobiles%", "autoancillaries%", "automobile%", "auto%"],
+    # "auto" = OEM vehicle makers (cars / 2-3 wheelers / tractors / CVs) — what
+    # a user means by "the automobile sector". Auto-ANCILLARY parts makers (155
+    # names, mostly micro-cap) are a SEPARATE key so "best P/E in auto" surfaces
+    # Maruti/M&M/Tata Motors/Bajaj/Hero/Eicher, not obscure parts suppliers.
+    "auto": ["automobile%", "auto23wheelers%", "autocarsjeeps%",
+             "autotractors%", "autolcvshcvs%"],
+    "autoancillary": ["autoancillaries%", "autoancillar%"],
     "metal": ["steel%", "metalsnonferrous%", "metalsferrous%", "mining%", "aluminium%", "castingsforgings%"],
     "finance": ["finance%"],
     "chemicals": ["chemicals%", "fertilisers%", "pesticidesagrochemicals%"],
@@ -183,11 +468,21 @@ _SECTOR_SLUG_PREFIXES: dict[str, list[str]] = {
 # filing is within ~2 fiscal years. Without it, dormant shells with stale
 # 2006-2012 rows (and nonsense ratios) leak into every result.
 _RECENCY_YEARS = 2
+# The DISPLAY screen uses a laxer 3-year floor: many large caps' earnings-yield
+# snapshot (from which P/E is derived) lags their balance-sheet by a year, so a
+# 2-year floor silently drops most recognizable names (e.g. only 1 large-cap
+# auto name survived). 3 years recovers them while still excluding dead shells.
+_SCREEN_RECENCY_YEARS = 3
 
 
 def _default_min_period_end() -> date:
     today = date.today()
     return date(today.year - _RECENCY_YEARS, 1, 1)
+
+
+def _screen_min_period_end() -> date:
+    today = date.today()
+    return date(today.year - _SCREEN_RECENCY_YEARS, 1, 1)
 
 
 def _normalise_field(field: str) -> str:
@@ -248,7 +543,7 @@ def screen_by_fundamentals(
     tier = _CAP_TIER_ALIASES.get((market_cap_tier or "").strip().lower())
 
     if min_period_end == "default":
-        floor: date | None = _default_min_period_end()
+        floor: date | None = _screen_min_period_end()
     elif isinstance(min_period_end, str):
         floor = date.fromisoformat(min_period_end)
     else:
@@ -316,6 +611,27 @@ def screen_by_fundamentals(
         }
 
     metric_fields = list({f["field"] for f in valid_filters} | {sort_field})
+
+    # ── 2b. Route SECTOR screens to the enrich DB (clean sectors + real P/E) ─
+    # when every referenced metric is one enrich serves cleanly (pe/roe/payout).
+    # The mc `industry_slug` is too polluted for a recognizable sector list
+    # (see _ENRICH_SECTOR_INDUSTRIES). A bare sector ranking (no explicit numeric
+    # filter, no cap word) gets a recognizable-name floor so micro-caps don't
+    # dominate. Falls through to the mc path on any enrich miss.
+    if _enrich_can_serve(sector, {m for m in metric_fields if m}):
+        apply_default_floor = (not valid_filters) and (tier is None)
+        enr = screen_from_enrich(
+            sector=sector,  # type: ignore[arg-type]
+            valid_filters=valid_filters,
+            sort_field=sort_field,
+            sort_dir=sort_dir,
+            tier=tier,
+            apply_default_floor=apply_default_floor,
+            limit=limit,
+            notes=list(notes),
+        )
+        if enr is not None and enr.get("results"):
+            return enr
 
     # ── 3. Build one CTE per metric: latest row per sc_id, basis-preferred ─
     params: dict = {"floor": floor}
@@ -403,23 +719,49 @@ def screen_by_fundamentals(
                 f"{', '.join(sorted(_SECTOR_SLUG_PREFIXES))}) — sector filter ignored"
             )
 
-    # ── 5a. Market-cap tier whitelist (P5) ───────────────────────────────
-    # The DB has no market-cap field, so "large cap"/"bluechip" is honoured
-    # by restricting to the curated cap universe. Without this the cap word
-    # is silently dropped and micro-cap artifacts dominate the ranking.
-    if tier in ("large", "mid"):
-        syms = _LARGE_CAP_SYMS if tier == "large" else (_LARGE_CAP_SYMS | _MID_CAP_SYMS)
-        params["cap_syms"] = list(syms)
-        where_parts.append("UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:cap_syms)")
-        notes.append(
-            f"restricted to curated {tier}-cap universe (~{len(syms)} NSE names; "
-            "DB has no market-cap field)"
-        )
-    elif tier == "small":
-        notes.append(
-            "small-cap filter is approximate — no curated small-cap list, "
-            "so cap is not strictly enforced"
-        )
+    # ── 5a. Market-cap tier / floor via REAL caps from the enrich DB ─────
+    # Restrict by actual market cap (enrich.company_profile.market_cap, keyed by
+    # the same sc_id) so "large cap" surfaces every genuine large cap — not just
+    # the ~80-name curated whitelist (which, at the recency floor, left
+    # "large-cap auto" returning ONE name). Three ways a cap constraint applies:
+    #   (1) explicit tier word (large/mid/small) → that tier's ₹-cr range;
+    #   (2) a BARE sector ranking (sector + sort, no numeric filter, no tier) →
+    #       a recognizable-name floor so micro-caps don't dominate the ranking;
+    #   (3) otherwise → no cap constraint (an explicit "PE < 25" wants all matches).
+    cap_applied = False
+    if tier:
+        lo, hi = _CAP_TIER_RANGES[tier]
+        cap_sc_ids = _sc_ids_in_cap_range(lo, hi)
+        if cap_sc_ids:
+            params["cap_sc_ids"] = cap_sc_ids
+            where_parts.append("c.sc_id = ANY(:cap_sc_ids)")
+            cap_applied = True
+            rng = (
+                f"≥ ₹{lo:,.0f} Cr" if hi is None
+                else (f"< ₹{hi:,.0f} Cr" if lo is None
+                      else f"₹{lo:,.0f}–{hi:,.0f} Cr")
+            )
+            notes.append(f"restricted to {tier}-cap ({rng} market cap, ~{len(cap_sc_ids)} names)")
+        elif tier in ("large", "mid"):
+            # Enrich unavailable → fall back to the curated symbol whitelist.
+            syms = _LARGE_CAP_SYMS if tier == "large" else (_LARGE_CAP_SYMS | _MID_CAP_SYMS)
+            params["cap_syms"] = list(syms)
+            where_parts.append("UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:cap_syms)")
+            cap_applied = True
+            notes.append(f"restricted to curated {tier}-cap universe (~{len(syms)} names)")
+        else:
+            notes.append("small-cap filter is approximate — cap not strictly enforced")
+    if (not cap_applied and sector and not valid_filters):
+        # Bare "best/cheapest in <sector>" ask — floor out the micro-caps the
+        # user didn't mean, so recognizable names lead. Disclosed in the note.
+        floor_ids = _sc_ids_in_cap_range(_DEFAULT_SECTOR_FLOOR_CR, None)
+        if floor_ids:
+            params["cap_sc_ids"] = floor_ids
+            where_parts.append("c.sc_id = ANY(:cap_sc_ids)")
+            notes.append(
+                f"showing names above ~₹{_DEFAULT_SECTOR_FLOOR_CR:,} Cr market cap "
+                "(say 'include small caps' to widen)"
+            )
 
     # ── 5b. Plausibility bounds — exclude data-quality artifacts ─────────
     # Tiny-equity firms report nonsense ratios (ROE 666%, etc.) that
