@@ -39,7 +39,10 @@ if settings.app_env == "test":
     )
 else:
     financials_engine = create_engine(
-        settings.financials_dsn,
+        # Prefer the read replica when configured (FINANCIALS_READ_DSN) —
+        # the app only ever READS mc.*, so the whole engine can point at a
+        # replica while the primary keeps serving scraper/dev writes.
+        settings.financials_read_dsn or settings.financials_dsn,
         poolclass=QueuePool,
         pool_size=5,
         max_overflow=10,

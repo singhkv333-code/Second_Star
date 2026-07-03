@@ -560,6 +560,26 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         coalesce=True,
     )
 
+    # Global-cache warmer (2026-07-03 perf pass) — re-warms the screener
+    # fundamentals/metrics, views list, and top-symbol financials on a
+    # cadence shorter than their TTLs, so no user ever pays a cold fill.
+    # `warm_global_data_caches` is a MODULE-LEVEL function (APScheduler
+    # gotcha: closures kill the whole scheduler). First run fires shortly
+    # after startup via `next_run_time`.
+    from backend.services.data_warmer import warm_global_data_caches
+    from datetime import datetime as _dt, timedelta as _td
+    scheduler.add_job(
+        warm_global_data_caches,
+        trigger="interval",
+        minutes=8,
+        id="pivot_data_warmer",
+        name="Pivot — global data-cache warmer",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=_dt.now() + _td(seconds=20),
+    )
+
     # Scheduled-macro watcher — only when the feature flag is on. Gated at
     # registration (not self-gated inside) so the job doesn't even exist
     # when disabled; tests call `_poll_scheduled_macro_triggers` directly.

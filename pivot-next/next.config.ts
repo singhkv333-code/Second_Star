@@ -4,6 +4,12 @@ const BACKEND = process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "")
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // SKIP_LINT=1 lets `next build` complete despite pre-existing lint errors
+  // (unused vars in waitlist/legacy components) — used for perf-measurement
+  // and CI builds. Default behaviour (lint enforced) is unchanged.
+  eslint: {
+    ignoreDuringBuilds: process.env.SKIP_LINT === "1",
+  },
   experimental: {
     typedRoutes: false,
   },

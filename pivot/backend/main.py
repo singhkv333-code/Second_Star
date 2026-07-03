@@ -85,6 +85,12 @@ app.add_middleware(
 # preflight (OPTIONS) responses also carry an X-Request-ID header.
 app.add_middleware(RequestContextMiddleware)
 
+# Gzip large JSON payloads (screener grid, instrument lists, financials
+# histories) — pure win on transfer time for anything over ~1.5 KB; small
+# responses skip compression entirely.
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
+app.add_middleware(GZipMiddleware, minimum_size=1500)
+
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(chat_router)
@@ -428,6 +434,20 @@ def _maybe_autostart_kite_ticker() -> None:
             if "incorrect" in msg or "tokenexception" in msg or "access_token" in msg:
                 token_invalid = True
             logger.info(f"Kite ticker autostart: holdings seed failed: {e}")
+
+        # Seed the curated sector universe too (2026-07-03 perf pass) — with
+        # only holdings seeded, an account with few/no holdings left the tick
+        # cache empty, so every quote fell through to a slow REST/yfinance
+        # path. ~80 extra subscriptions is nothing against the 3,000-per-
+        # connection WS budget and makes screener/stock-page quotes live.
+        try:
+            from backend.services.sector_universe import _UNIVERSE
+            have = {s.upper() for s in seeds}
+            seeds.extend(
+                r.symbol for r in _UNIVERSE if r.symbol.upper() not in have
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.info(f"Kite ticker autostart: universe seed skipped: {e}")
 
         if token_invalid:
             # Stale token (typically expired at 7:30 IST or rotated

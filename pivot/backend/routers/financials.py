@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -25,11 +27,46 @@ router = APIRouter(prefix="/api/financials", tags=["Financials"])
 logger = logging.getLogger(__name__)
 
 # Fundamentals change quarterly, so the assembled response is safe to cache for a
-# while. This makes repeat navigation to a stock page (and re-mounts) effectively
-# instant instead of re-querying Azure Postgres each time. Bump the version suffix
-# in the key when the payload shape changes.
-_RESP_CACHE_TTL = 1800  # 30 minutes
-_RESP_CACHE_PREFIX = "financials:resp:v1:"
+# long time. Stale-while-revalidate (2026-07-03 perf pass): entries live for
+# _RESP_HARD_TTL, but once older than _RESP_SOFT_TTL a read returns the stale
+# payload IMMEDIATELY and refreshes on a background thread — so no user ever
+# pays the ~1.7s Azure+yfinance assembly after the very first fill. Bump the
+# version suffix when the payload shape changes.
+_RESP_SOFT_TTL = 1800        # 30 min — background-refresh threshold
+_RESP_HARD_TTL = 6 * 3600    # 6 h — absolute expiry
+_RESP_CACHE_PREFIX = "financials:resp:v2:"
+
+# One in-flight background refresh per symbol.
+_refresh_inflight: set[str] = set()
+_refresh_lock = threading.Lock()
+
+
+def _write_financials_cache(sym: str, payload: dict) -> None:
+    try:
+        redis_client.setex(
+            f"{_RESP_CACHE_PREFIX}{sym}", _RESP_HARD_TTL,
+            json.dumps({"_swr_v": payload, "_swr_ts": time.time()}),
+        )
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("financials cache write failed for %s", sym, exc_info=True)
+
+
+def _kick_financials_refresh(sym: str) -> None:
+    with _refresh_lock:
+        if sym in _refresh_inflight:
+            return
+        _refresh_inflight.add(sym)
+
+    def _run() -> None:
+        try:
+            _write_financials_cache(sym, _build_financials_payload(sym))
+        except Exception:  # noqa: BLE001 — stale keeps serving
+            logger.debug("financials SWR refresh failed for %s", sym, exc_info=True)
+        finally:
+            with _refresh_lock:
+                _refresh_inflight.discard(sym)
+
+    threading.Thread(target=_run, name=f"fin-swr:{sym}", daemon=True).start()
 
 
 def _auth(authorization: Optional[str]) -> int:
@@ -88,14 +125,31 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
         raise HTTPException(status_code=400, detail="symbol is required")
 
     # ── response cache (public fundamentals — same for every user) ─────────
+    # SWR: fresh → return; stale (> soft TTL) → return stale NOW + refresh in
+    # the background; miss → build inline (the only path that ever waits).
     cache_key = f"{_RESP_CACHE_PREFIX}{sym}"
     try:
         cached = redis_client.get(cache_key)
         if cached:
-            return json.loads(cached)
+            if isinstance(cached, (bytes, bytearray)):
+                cached = cached.decode()
+            env = json.loads(cached)
+            if isinstance(env, dict) and "_swr_v" in env:
+                if time.time() - float(env.get("_swr_ts") or 0) > _RESP_SOFT_TTL:
+                    _kick_financials_refresh(sym)
+                return env["_swr_v"]
     except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
         logger.debug("financials cache read miss/error for %s", sym, exc_info=True)
 
+    result = _build_financials_payload(sym)
+    _write_financials_cache(sym, result)
+    return result
+
+
+def _build_financials_payload(sym: str) -> dict:
+    """Assemble the full financials response for ``sym`` (MC primary +
+    yfinance fallback + enrich profile). Pure function of the symbol — no
+    request-scoped state — so the SWR refresher can run it on a thread."""
     company = fdb.get_company(sym)
 
     # ── Enrichment DB (yfinance-scraped profile: name/blurb/website/sector) ─
@@ -221,7 +275,7 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
     else:
         company_dict = None
 
-    result = {
+    return {
         "available": available,
         "company": company_dict,
         "latest": latest,
@@ -229,8 +283,3 @@ def get_financials(symbol: str, authorization: Optional[str] = Header(None)) -> 
         "profile": profile,
         "source": "moneycontrol_with_yfinance_fallback",
     }
-    try:
-        redis_client.setex(cache_key, _RESP_CACHE_TTL, json.dumps(result))
-    except Exception:  # noqa: BLE001 — cache write is best-effort
-        logger.debug("financials cache write failed for %s", sym, exc_info=True)
-    return result

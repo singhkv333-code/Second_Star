@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from typing import Any, Callable, Optional
 
 from backend.cache import redis_client
@@ -43,6 +45,54 @@ logger = logging.getLogger(__name__)
 
 
 _TTL_S = 12  # 10-15s per-user live financial data (see module docstring)
+
+# ── Stale-while-revalidate (2026-07-03 perf pass) ─────────────────────────
+# The FE polls /portfolio/summary every 30s and re-reads on tab switches —
+# with a hard 12s TTL every one of those reads was a cache MISS that paid the
+# full broker/compute path (~600-1100ms measured). SWR splits freshness from
+# availability: entries live for _HARD_TTL_S, but once older than _TTL_S the
+# read RETURNS THE STALE VALUE IMMEDIATELY and kicks a background refresh, so
+# the caller never waits on compute while data stays ≤ ~12s + compute stale.
+_HARD_TTL_S = 120
+# Per-key in-flight guard so a burst of stale reads spawns ONE refresh.
+_refresh_inflight: set[str] = set()
+_refresh_lock = threading.Lock()
+
+
+def _swr_read(key: str) -> tuple[Optional[Any], bool]:
+    """(payload, is_stale). Unwraps the SWR envelope; legacy raw entries are
+    treated as fresh (they expire within the old 12s TTL anyway)."""
+    raw = _read(key)
+    if raw is None:
+        return None, False
+    if isinstance(raw, dict) and "_swr_v" in raw:
+        age = time.time() - float(raw.get("_swr_ts") or 0)
+        return raw["_swr_v"], age > _TTL_S
+    return raw, False
+
+
+def _swr_write(key: str, value: Any) -> None:
+    _write(key, {"_swr_v": value, "_swr_ts": time.time()}, ttl_s=_HARD_TTL_S)
+
+
+def _kick_refresh(key: str, compute: Callable[[], Any]) -> None:
+    """Run compute() on a daemon thread and rewrite the envelope. One in-flight
+    refresh per key; failures leave the stale entry serving until hard expiry."""
+    with _refresh_lock:
+        if key in _refresh_inflight:
+            return
+        _refresh_inflight.add(key)
+
+    def _run() -> None:
+        try:
+            _swr_write(key, compute())
+        except Exception as e:  # noqa: BLE001 — stale keeps serving
+            logger.debug("portfolio SWR refresh failed for %s: %s", key, e)
+        finally:
+            with _refresh_lock:
+                _refresh_inflight.discard(key)
+
+    threading.Thread(target=_run, name=f"swr:{key[:40]}", daemon=True).start()
 _SUMMARY_PREFIX = "portfolio:summary:"
 _HOLDINGS_PREFIX = "portfolio:holdings:"
 _SCORES_PREFIX = "portfolio:scores:"
@@ -87,24 +137,28 @@ def get_summary_cached(user_id: int, kite_token: str) -> dict:
     from backend.kite.portfolio import get_portfolio_summary
 
     key = f"{_SUMMARY_PREFIX}{user_id}"
-    cached = _read(key)
+    cached, stale = _swr_read(key)
     if cached is not None:
+        if stale:
+            _kick_refresh(key, lambda: get_portfolio_summary(kite_token))
         return cached
     fresh = get_portfolio_summary(kite_token)
-    _write(key, fresh)
+    _swr_write(key, fresh)
     return fresh
 
 
 def get_holdings_cached(user_id: int, kite_token: str) -> list[dict]:
-    """Return holdings list, served from cache when fresh."""
+    """Return holdings list, served from cache when fresh (SWR — see above)."""
     from backend.kite.portfolio import get_holdings
 
     key = f"{_HOLDINGS_PREFIX}{user_id}"
-    cached = _read(key)
+    cached, stale = _swr_read(key)
     if cached is not None:
+        if stale:
+            _kick_refresh(key, lambda: get_holdings(kite_token))
         return cached
     fresh = get_holdings(kite_token)
-    _write(key, fresh)
+    _swr_write(key, fresh)
     return fresh
 
 
@@ -119,12 +173,19 @@ def cache_aside(key: str, compute: Callable[[], Any], ttl_s: int = _TTL_S) -> An
     passes it in; this function only owns the read-through-cache/write
     mechanics. Errors in the cache layer are non-fatal — `compute()` is
     always the fallback of record.
+
+    SWR note: unlike get_summary_cached/get_holdings_cached, this CANNOT
+    refresh in a background thread — `compute` closes over request-scoped
+    state (the FastAPI DB session), which is torn down when the request
+    returns and is not thread-safe. Instead the entry serves (possibly
+    stale) for the full hard TTL and the first post-expiry request pays
+    the recompute — one payer per ~2 min instead of one per 12s.
     """
-    cached = _read(key)
+    cached, _stale = _swr_read(key)
     if cached is not None:
         return cached
     fresh = compute()
-    _write(key, fresh, ttl_s=ttl_s)
+    _swr_write(key, fresh)
     return fresh
 
 

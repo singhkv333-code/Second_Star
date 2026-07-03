@@ -287,6 +287,19 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Keep-alive tabs (2026-07-03 perf pass): non-chat tabs used to UNMOUNT on
+  // switch-away, so every return re-fetched everything behind a skeleton
+  // (~300-800ms measured per revisit). Tabs now mount lazily on FIRST visit
+  // and stay mounted-but-hidden afterwards — the pattern Chat always used —
+  // so a revisit repaints instantly from live DOM, like a proper SPA.
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(
+    () => new Set<TabKey>([DEFAULT_TAB]),
+  );
+  useEffect(() => {
+    setVisitedTabs((prev) =>
+      prev.has(active) ? prev : new Set(prev).add(active),
+    );
+  }, [active]);
 
   // Hash + theme init
   useEffect(() => {
@@ -835,49 +848,80 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 />
               </div>
             </div>
-          {/* Non-chat surfaces — conditionally mounted (re-fetch on mount). */}
-          {children ? (
+          {/* Non-chat surfaces — KEEP-ALIVE: each pane mounts on its first
+              visit and then stays mounted-but-hidden (display:none), so tab
+              switches never re-fetch or re-skeleton. Wrapper classes per tab
+              are unchanged; only the mount/hide policy moved. */}
+          {children && (
             // Custom main-pane content (e.g. stock detail page).
             <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
               {children}
             </div>
-          ) : active === "chat" ? null : active === "calendar" ? (
+          )}
+          {visitedTabs.has("calendar") && (
             // Calendar gets full pane height (the day panel + month grid
             // consume vertical space; no outer scroll). Mobile tightens.
-            <div className="flex-1 min-h-0 px-4 pt-4 lg:px-8 lg:pt-6 flex flex-col overflow-hidden">
+            <div
+              className={
+                !children && active === "calendar"
+                  ? "flex-1 min-h-0 px-4 pt-4 lg:px-8 lg:pt-6 flex flex-col overflow-hidden"
+                  : "hidden"
+              }
+            >
               <CalendarTab onOpenWorkflow={openWorkflowById} />
             </div>
-          ) : active === "screener" ? (
-            // Screener also owns its own height (filter rail + results
-            // grid take the full pane). The results table is intentionally
-            // wider than phone viewports and scrolls inside its own
-            // `screener-results` container, so we clip horizontal here so
-            // the whole page doesn't grow with it.
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          )}
+          {visitedTabs.has("screener") && (
+            // Screener owns its own height (filter rail + results grid take
+            // the full pane); horizontal clipped so the wide table scrolls
+            // inside its own container.
+            <div
+              className={
+                !children && active === "screener"
+                  ? "flex-1 min-h-0 flex flex-col overflow-hidden"
+                  : "hidden"
+              }
+            >
               <ScreenerPage />
             </div>
-          ) : active === "portfolio" ? (
-            // Portfolio takes the full pane width — same padding pattern
-            // as Quartr's PortfolioTab in frontend-quartr/.../Dashboard.jsx
-            // ("padding: 24px 32px"). Sections scroll inside. Mobile tightens.
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
+          )}
+          {visitedTabs.has("portfolio") && (
+            // Portfolio takes the full pane width; sections scroll inside.
+            <div
+              className={
+                !children && active === "portfolio"
+                  ? "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8"
+                  : "hidden"
+              }
+            >
               <PortfolioTab />
             </div>
-          ) : active === "views" ? (
+          )}
+          {visitedTabs.has("views") && (
             // Views tab — curated market beliefs grid + detail page.
-            // Same scrollable wrapper as agents/portfolio.
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
+            <div
+              className={
+                !children && active === "views"
+                  ? "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8"
+                  : "hidden"
+              }
+            >
               <ViewsTab onOpenWorkflowById={openWorkflowById} />
             </div>
-          ) : (
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8">
-              {active === "agents" && (
-                <AgentsTab
-                  onOpenWorkflow={openWorkflow}
-                  onEditWithChat={editWorkflowWithChat}
-                  onBrowseViews={() => goTab("views")}
-                />
-              )}
+          )}
+          {visitedTabs.has("agents") && (
+            <div
+              className={
+                !children && active === "agents"
+                  ? "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8"
+                  : "hidden"
+              }
+            >
+              <AgentsTab
+                onOpenWorkflow={openWorkflow}
+                onEditWithChat={editWorkflowWithChat}
+                onBrowseViews={() => goTab("views")}
+              />
             </div>
           )}
         </main>
@@ -1052,7 +1096,7 @@ function TopHeader({
         onClick={onBrandClick}
         aria-label="Go to Pivot chat"
         data-testid="brand-home-link"
-        className="brand-slot flex shrink-0 items-center pl-0 lg:pl-1"
+        className="brand-slot flex shrink-0 items-center pl-1 lg:pl-2"
         style={{
           gap: 0,
           fontFamily: "var(--font-experiment)",
@@ -1071,8 +1115,8 @@ function TopHeader({
             black (light) and white (dark) automatically, with no raster
             asset or per-theme file swap. */}
         <PivotMark size={19} className="shrink-0" title="Pivot" />
-        {/* Small gap between the mark and the serif wordmark. */}
-        <span style={{ marginLeft: 8 }}>pivot</span>
+        {/* Tight gap between the mark and the serif wordmark. */}
+        <span style={{ marginLeft: 4 }}>Pivot</span>
       </button>
 
       {/* Search — Quartr pill, sized + bordered, no Tailwind background.

@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     # (mc.companies, mc.statement_lines, mc.daily_prices). Maintained by
     # pivot-mc-scraper. Backend only reads — never writes.
     financials_dsn: str = "postgresql://pivot_user:pivot_password@localhost:5432/financials"
+    # Optional READ-REPLICA DSN for the financials DB. When set, the app's
+    # entire read path (FinancialsSessionLocal — the app never writes to
+    # mc.*) binds here instead of `financials_dsn`, so app traffic can move
+    # to an Azure read replica while the primary stays reserved for the
+    # scraper/dev writes. Provision the replica in Azure (Flexible Server →
+    # Replication → Add replica), then set FINANCIALS_READ_DSN in .env —
+    # no code change needed. Empty string = use the primary DSN.
+    financials_read_dsn: str = ""
     # Read-only DSN for the yfinance-enriched company profiles DB
     # (enrich.company_profile / enrich.v_company_enriched: profile, sector,
     # promoter-holding proxy, ticker). Separate DB `pivot_enrich`, built by
