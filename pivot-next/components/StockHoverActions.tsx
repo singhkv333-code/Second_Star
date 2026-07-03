@@ -97,9 +97,9 @@ export function StockHoverActions({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 4,
-        padding: 3,
-        borderRadius: 10,
+        gap: 2,
+        padding: 2,
+        borderRadius: 9,
         background: "var(--bg-elevated)",
         border: "1px solid var(--glass-border)",
         boxShadow: "0 4px 16px rgba(0,0,0,0.14)",
@@ -135,8 +135,8 @@ export function StockHoverActions({
         aria-hidden="true"
         style={{
           width: 1,
-          height: 16,
-          margin: "0 2px",
+          height: 14,
+          margin: "0 1px",
           background: "var(--glass-border)",
         }}
       />
@@ -148,7 +148,7 @@ export function StockHoverActions({
           router.push(`/stock/${encodeURIComponent(sym)}`);
         }}
       >
-        <LineChart size={13.5} strokeWidth={2} aria-hidden="true" />
+        <LineChart size={13} strokeWidth={2} aria-hidden="true" />
       </IconButton>
       <IconButton
         title={`${sym} option chain`}
@@ -163,7 +163,7 @@ export function StockHoverActions({
           );
         }}
       >
-        <LayoutGrid size={13.5} strokeWidth={2} aria-hidden="true" />
+        <LayoutGrid size={13} strokeWidth={2} aria-hidden="true" />
       </IconButton>
       <IconButton
         title={`Ask Pivot about ${sym}`}
@@ -179,7 +179,7 @@ export function StockHoverActions({
           });
         }}
       >
-        <MessageCircle size={13.5} strokeWidth={2} aria-hidden="true" />
+        <MessageCircle size={13} strokeWidth={2} aria-hidden="true" />
       </IconButton>
     </div>
   );
@@ -204,9 +204,9 @@ function TradeButton({
       onClick={onClick}
       className="inline-flex items-center justify-center"
       style={{
-        width: 24,
-        height: 24,
-        borderRadius: 7,
+        width: 22,
+        height: 22,
+        borderRadius: 6,
         border: "none",
         background: bg,
         color: "#fff",
@@ -247,9 +247,9 @@ function IconButton({
       onClick={onClick}
       className="inline-flex items-center justify-center"
       style={{
-        width: 24,
-        height: 24,
-        borderRadius: 7,
+        width: 22,
+        height: 22,
+        borderRadius: 6,
         border: "none",
         background: "transparent",
         color: "var(--text-secondary)",

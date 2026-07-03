@@ -1621,7 +1621,7 @@ function HoldingRow({
               // axis for every row, never crossing into the qty column.
               right: 10,
               top: "50%",
-              marginTop: -16,
+              marginTop: -14,
               zIndex: 5,
             }}
           />

@@ -341,7 +341,7 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                               // crossing into the next column's values.
                               right: 8,
                               top: "50%",
-                              marginTop: -15,
+                              marginTop: -14,
                               padding: 2,
                               zIndex: 5,
                             }}

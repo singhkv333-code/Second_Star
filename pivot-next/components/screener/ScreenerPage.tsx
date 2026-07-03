@@ -1786,13 +1786,23 @@ function StockResultsTable({
                       fontFamily: c.align === "right" ? "var(--font-mono)" : "var(--font-ui)",
                     }}
                   >
-                    {c.id === "symbol" ? (
-                      // Symbol cell: the quick-action bar is PINNED to this
-                      // cell's right edge — the same X on every row (Kite
-                      // pattern) — and absolutely positioned so the row's
-                      // height/layout never shifts on hover.
-                      <div style={{ position: "relative", minWidth: 0 }}>
-                        {renderStockCell(row, c, sectorLabel)}
+                    {c.id === "market_cap_cr" ? (
+                      // Kite's actual hover behaviour: on the hovered row
+                      // the MKT CAP value is hidden and the quick-action
+                      // bar takes its place, right-aligned on the value's
+                      // own axis. Name/number overlap is impossible at any
+                      // window width because bar and value never coexist.
+                      // `visibility` (not display) keeps the cell width —
+                      // zero layout shift.
+                      <div style={{ position: "relative" }}>
+                        <span
+                          style={{
+                            visibility:
+                              hoverSym === row.symbol ? "hidden" : "visible",
+                          }}
+                        >
+                          {renderStockCell(row, c, sectorLabel)}
+                        </span>
                         {hoverSym === row.symbol && (
                           <StockHoverActions
                             symbol={row.symbol}
@@ -1800,14 +1810,9 @@ function StockResultsTable({
                             logoUrl={row.logo_url}
                             className="absolute"
                             style={{
-                              // Pinned to the SYMBOL column's right edge —
-                              // one constant axis for every row, and it can
-                              // never cross into the MKT CAP column (a
-                              // left-anchored fixed offset overflowed into
-                              // the numbers on wide windows).
-                              right: 12,
+                              right: 0,
                               top: "50%",
-                              marginTop: -16,
+                              marginTop: -14,
                               zIndex: 5,
                             }}
                           />
