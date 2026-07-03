@@ -336,10 +336,10 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                             name={cell.trim()}
                             className="absolute"
                             style={{
+                              // Pinned to the name column's right edge —
+                              // one constant axis for every row, never
+                              // crossing into the next column's values.
                               right: 8,
-                              // Margin-based vertical centering (bar is
-                              // ~30px tall incl. padding+border) — robust
-                              // against anything that touches `transform`.
                               top: "50%",
                               marginTop: -15,
                               padding: 2,

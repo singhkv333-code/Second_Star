@@ -1617,9 +1617,9 @@ function HoldingRow({
             logoUrl={logoUrl}
             className="absolute"
             style={{
+              // Pinned to the symbol column's right edge — one constant
+              // axis for every row, never crossing into the qty column.
               right: 10,
-              // Margin-based centering (bar ≈ 32px tall) — robust against
-              // transform being overridden.
               top: "50%",
               marginTop: -16,
               zIndex: 5,

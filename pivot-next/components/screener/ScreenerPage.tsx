@@ -1800,9 +1800,12 @@ function StockResultsTable({
                             logoUrl={row.logo_url}
                             className="absolute"
                             style={{
-                              right: 4,
-                              // Margin-based centering (bar ≈ 32px tall) —
-                              // robust against transform being overridden.
+                              // Pinned to the SYMBOL column's right edge —
+                              // one constant axis for every row, and it can
+                              // never cross into the MKT CAP column (a
+                              // left-anchored fixed offset overflowed into
+                              // the numbers on wide windows).
+                              right: 12,
                               top: "50%",
                               marginTop: -16,
                               zIndex: 5,
