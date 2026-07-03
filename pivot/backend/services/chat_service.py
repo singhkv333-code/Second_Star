@@ -5606,18 +5606,19 @@ class ChatService:
                     tool_choice=agent_tool_choice,
                 )
 
-        # Reasoning-effort: "minimal" on every turn. The A/B against
-        # "low" on Azure gpt-5.4-mini showed `minimal` (mapped to
-        # `none` on the wire by LLMAzureOpenAI._translate_reasoning_effort)
-        # strictly dominated `low` — higher hit-rate, ~30% lower p50,
-        # half the output tokens (no reasoning trace billed). On
-        # OpenAI's gpt-5 family `minimal` is the cheapest accepted
-        # value and the same dominance holds in practice. Bumping to
-        # "low"/"medium"/"high" universally is the wrong direction
-        # — for Pivot's tool-heavy turns, extra reasoning tokens
-        # mostly bias the model toward asking clarification questions
-        # instead of just calling the right tool.
-        effort: ReasoningEffort = "minimal"
+        # Reasoning-effort: "low" on every turn (bumped one level up from
+        # "minimal"). Prior A/B on Azure gpt-5.4-mini had "minimal" (mapped
+        # to `none` on the wire by LLMAzureOpenAI._translate_reasoning_effort)
+        # dominating "low" — higher hit-rate, ~30% lower p50, half the
+        # output tokens (no reasoning trace billed). We are deliberately
+        # trading some of that back: the ambiguity eval showed reasoning
+        # tokens at 0 on every turn and a class of clarify-priority /
+        # over-build misses that a little reasoning budget should help.
+        # KNOWN TRADEOFF (documented in the old A/B): extra reasoning
+        # tokens bias the model toward asking clarification questions
+        # rather than just calling the tool — watch p50 latency, output
+        # tokens, and the JUST-DO-IT-for-reads bar after this change.
+        effort: ReasoningEffort = "low"
         max_output: int = 1500
         # R5: per-reply-class budget. Explainer asks need 2400 tokens to
         # cover headed/bulleted depth; capability and small_talk get
@@ -7335,8 +7336,9 @@ class ChatService:
                 )
 
         # Stream path matches the non-stream `handle()` decision —
-        # "minimal" on every turn (see commentary there).
-        effort: ReasoningEffort = "minimal"
+        # "low" on every turn, bumped one level up from "minimal"
+        # (see the full rationale + tradeoff commentary there).
+        effort: ReasoningEffort = "low"
         max_output: int = 1500
         # R5: mirror of non-streaming reply-class budget.
         reply_class = _classify_reply_class(message, intent_kind)
