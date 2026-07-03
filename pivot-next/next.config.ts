@@ -48,6 +48,12 @@ const nextConfig: NextConfig = {
         destination: `${BACKEND}/paper/:path*`,
       },
       {
+        // Voice input — bare-mounted like /paper; without this the relative
+        // fallback base would 404 on Next instead of reaching the backend.
+        source: "/audio/:path*",
+        destination: `${BACKEND}/audio/:path*`,
+      },
+      {
         source: "/health",
         destination: `${BACKEND}/health`,
       },

@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Mic, MicOff } from "lucide-react";
+import { toast } from "sonner";
 import { transcribeAudio } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,10 @@ export function VoiceInputButton({
   const unmountedRef = useRef(false);
 
   useEffect(() => {
+    // Reset on EVERY effect run, not just first mount: StrictMode dev runs
+    // mount → cleanup → mount on the same instance, so a one-way flag would
+    // stay true forever and silently kill every recording.
+    unmountedRef.current = false;
     setSupported(
       typeof window !== "undefined" &&
         typeof window.MediaRecorder !== "undefined" &&
@@ -99,6 +104,8 @@ export function VoiceInputButton({
 
   const flashError = useCallback((message: string): void => {
     if (unmountedRef.current) return;
+    // Tooltip alone is invisible unless hovered — say it out loud.
+    toast.error(message);
     setErrorMessage(message);
     setState("error");
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
