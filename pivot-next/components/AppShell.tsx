@@ -60,6 +60,7 @@ import {
 } from "@/components/brokers";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCard";
+import { OrderTicketHost } from "@/components/OrderTicket";
 import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
@@ -919,6 +920,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           when anything (e.g. the stock hover bar) dispatches
           `pivot:open-option-chain` with an underlying. */}
       <OptionChainLauncherCard variant="global" />
+
+      {/* Global order-ticket host — the Kite-style buy/sell bottom sheet;
+          opens when anything dispatches `pivot:open-order-ticket`. */}
+      <OrderTicketHost />
 
       <BrokerOnboarding
         open={brokerPanelOpen}

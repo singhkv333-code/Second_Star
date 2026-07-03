@@ -901,7 +901,7 @@ export type OrderRegisterLeg = {
   symbol: string;
   exchange?: string;
   transaction_type: "BUY" | "SELL";
-  order_type: "MARKET" | "LIMIT" | "GTT" | "SL" | "OCO";
+  order_type: "MARKET" | "LIMIT" | "GTT" | "SL" | "SL-M" | "OCO";
   quantity: number;
   price?: number | null;
   trigger_price?: number | null;

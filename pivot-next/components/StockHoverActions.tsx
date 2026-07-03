@@ -21,6 +21,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { LayoutGrid, LineChart, MessageCircle } from "lucide-react";
+import { openOrderTicket } from "@/components/OrderTicket";
 
 // ---------------------------------------------------------------------------
 // Chat seeding — shared jump helper
@@ -111,14 +112,15 @@ export function StockHoverActions({
         ...style,
       }}
     >
-      {/* Buy / Sell — Kite's B/S squares, Pivot palette. */}
+      {/* Buy / Sell — Kite's B/S squares. Opens the global Kite-style
+          order ticket (bottom sheet) instead of detouring through chat. */}
       <TradeButton
         label="B"
         title={`Buy ${sym}`}
         bg="#4184f3"
         onClick={(e) => {
           stop(e);
-          goChat({ text: `Buy 10 ${sym} at market`, mode: "automation" });
+          openOrderTicket({ symbol: sym, side: "BUY", name });
         }}
       />
       <TradeButton
@@ -127,7 +129,7 @@ export function StockHoverActions({
         bg="#eb5b3c"
         onClick={(e) => {
           stop(e);
-          goChat({ text: `Sell 10 ${sym} at market`, mode: "automation" });
+          openOrderTicket({ symbol: sym, side: "SELL", name });
         }}
       />
 
