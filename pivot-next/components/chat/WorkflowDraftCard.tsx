@@ -109,6 +109,36 @@ function stepIconName(stepType: string): string {
   return CATEGORY_ICON[prefix] ?? "circle-dot";
 }
 
+/**
+ * Last line of defence against dev-string leaks in the chat card. The
+ * backend backfills friendly labels (propose._ensure_step_labels), but if
+ * an engineering id ("trigger.compound", "action.place_order") ever reaches
+ * the card as the label — null, or the raw step_type echoed back — we
+ * humanise it here rather than exposing internals to the user.
+ * "action.place_order" → "Place order", "trigger.exit_compound" → "Exit
+ * compound".
+ */
+function humaniseStepType(stepType: string): string {
+  const tail = stepType.includes(".")
+    ? stepType.slice(stepType.indexOf(".") + 1)
+    : stepType;
+  const words = tail.replace(/[._]+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : stepType;
+}
+
+/** True when a label is missing or is itself a dotted engineering id. */
+function isLeakedLabel(label: string | null | undefined, stepType: string): boolean {
+  if (!label) return true;
+  const t = label.trim();
+  return t === stepType || /^[a-z]+\.[a-z_]+$/.test(t);
+}
+
+function displayStepLabel(step: DraftStep): string {
+  return isLeakedLabel(step.label, step.step_type)
+    ? humaniseStepType(step.step_type)
+    : (step.label as string);
+}
+
 // All steps render in the chat-side card now — the row layout was
 // compacted (smaller icon chip, tighter padding, smaller label) so the
 // full 5-step demo workflow fits in one screen alongside the side editor.
@@ -679,7 +709,7 @@ function DraftStepRow({
   active?: boolean;
 }): React.ReactElement {
   const iconName = stepIconName(step.step_type);
-  const label = step.label ?? step.step_type;
+  const label = displayStepLabel(step);
 
   // Single brand green for the entire activated state.
   const BRAND_GREEN = "#4CAF50";

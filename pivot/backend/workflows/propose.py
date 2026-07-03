@@ -357,18 +357,30 @@ def _ensure_step_labels(draft: WorkflowDraft) -> None:
 
     This helper authoritatively backfills ``step.label`` from
     ``STEP_REGISTRY[step.step_type].label`` whenever the LLM/mock path
-    left it falsy. Defensive: skips step_types not in the registry
-    (the validator will already have rejected those, but if a future
-    caller invokes this on an unvalidated draft we don't want to crash
-    here).
+    left it falsy **or filled it with a dev-string leak**. The LLM is
+    asked for a "human-readable label" (see the draft schema) but for
+    compound/advanced steps it frequently just echoes the raw step_type
+    ("trigger.compound") or another registry id straight back — which is
+    exactly the leak we're guarding against. So we overwrite a label that
+    is falsy, equals its own step_type, or is itself any known step-type
+    id. Defensive: skips step_types not in the registry (the validator
+    will already have rejected those, but if a future caller invokes this
+    on an unvalidated draft we don't want to crash here).
     """
     for step in draft.steps:
-        if step.label:
-            continue
         defn = STEP_REGISTRY.get(step.step_type)
         if defn is None:
             continue
-        step.label = defn.label
+        raw = (step.label or "").strip()
+        # A label leaks when it's empty, echoes the step_type, or is any
+        # dotted engineering id (its own type or another registry key).
+        leaked = (
+            not raw
+            or raw == step.step_type
+            or raw in STEP_REGISTRY
+        )
+        if leaked:
+            step.label = defn.label
 
 
 # Deprecated/collapsed step_type → (replacement, discriminator config).
