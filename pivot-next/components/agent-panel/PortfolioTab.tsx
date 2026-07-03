@@ -1570,8 +1570,7 @@ function HoldingRow({
       }}
       data-testid={`holding-${h.tradingsymbol}`}
     >
-      <td style={{ padding: "16px 18px" }}>
-        <div className="flex items-center" style={{ gap: 12, minWidth: 0 }}>
+      <td style={{ padding: "16px 18px", position: "relative" }}>
         <div className="inline-flex items-center" style={{ gap: 12 }}>
           <HoldingGlyph symbol={h.tradingsymbol} hueKey={sector} logoUrl={logoUrl} />
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -1610,16 +1609,21 @@ function HoldingRow({
             )}
           </div>
         </div>
-        {/* Kite-style quick actions — inline right next to the name while
-            the row is hovered, inside the cell's flow. */}
+        {/* Kite-style quick actions — pinned to the symbol cell's right
+            edge (same X every row), absolute so the row never grows. */}
         {hovered && (
           <StockHoverActions
             symbol={h.tradingsymbol}
             logoUrl={logoUrl}
-            style={{ flexShrink: 0 }}
+            className="absolute"
+            style={{
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              zIndex: 5,
+            }}
           />
         )}
-        </div>
       </td>
       <NumCell>{h.quantity}</NumCell>
       <NumCell>{fmtRupee(h.average_price, { max: 2 })}</NumCell>

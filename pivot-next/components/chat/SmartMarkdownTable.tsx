@@ -296,13 +296,12 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                       plan.numeric[ci]
                         ? "text-right tabular-nums text-foreground"
                         : "text-foreground",
+                      // Positioning context for the pinned quick-action bar.
+                      isName ? "relative" : "",
                     ].join(" ")}
                   >
                     {isName ? (
-                      // Name + inline quick actions: the bar sits right next
-                      // to the name (Kite-style), inside this cell's flow —
-                      // never floating over other columns.
-                      <span className="inline-flex w-full items-center gap-2">
+                      <>
                         <button
                           type="button"
                           onClick={() => void openCompany(row)}
@@ -327,14 +326,25 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                             />
                           )}
                         </button>
+                        {/* Quick actions — PINNED to the name column's right
+                            edge (same X on every row, Kite-style) and
+                            absolutely positioned so the row height never
+                            changes when it appears. */}
                         {hoverRow === ri && ticker && (
                           <StockHoverActions
                             symbol={ticker}
                             name={cell.trim()}
-                            style={{ padding: 2, boxShadow: "none" }}
+                            className="absolute"
+                            style={{
+                              right: 8,
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              padding: 2,
+                              zIndex: 5,
+                            }}
                           />
                         )}
-                      </span>
+                      </>
                     ) : (
                       cell
                     )}

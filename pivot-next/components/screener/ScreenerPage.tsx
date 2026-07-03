@@ -1787,24 +1787,24 @@ function StockResultsTable({
                     }}
                   >
                     {c.id === "symbol" ? (
-                      // Symbol cell: name block + the Kite-style quick
-                      // actions INLINE right next to it while hovered —
-                      // inside the cell's flow, never over other columns.
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          minWidth: 0,
-                        }}
-                      >
+                      // Symbol cell: the quick-action bar is PINNED to this
+                      // cell's right edge — the same X on every row (Kite
+                      // pattern) — and absolutely positioned so the row's
+                      // height/layout never shifts on hover.
+                      <div style={{ position: "relative", minWidth: 0 }}>
                         {renderStockCell(row, c, sectorLabel)}
                         {hoverSym === row.symbol && (
                           <StockHoverActions
                             symbol={row.symbol}
                             name={row.name}
                             logoUrl={row.logo_url}
-                            style={{ flexShrink: 0 }}
+                            className="absolute"
+                            style={{
+                              right: 4,
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              zIndex: 5,
+                            }}
                           />
                         )}
                       </div>
