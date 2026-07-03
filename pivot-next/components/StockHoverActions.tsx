@@ -104,7 +104,10 @@ export function StockHoverActions({
         border: "1px solid var(--glass-border)",
         boxShadow: "0 4px 16px rgba(0,0,0,0.14)",
         fontFamily: "var(--font-ui)",
-        animation: "draftCardIn-quartr 140ms cubic-bezier(0.22, 1, 0.36, 1) both",
+        // NOTE: no entrance animation on purpose — the keyframed ones here
+        // animate `transform`, which (with fill-mode) permanently overrides
+        // the caller's translateY centering and left the bar sitting below
+        // the row's text line.
         ...style,
       }}
     >

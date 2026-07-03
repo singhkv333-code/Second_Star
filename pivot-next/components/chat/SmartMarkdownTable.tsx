@@ -337,8 +337,11 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                             className="absolute"
                             style={{
                               right: 8,
+                              // Margin-based vertical centering (bar is
+                              // ~30px tall incl. padding+border) — robust
+                              // against anything that touches `transform`.
                               top: "50%",
-                              transform: "translateY(-50%)",
+                              marginTop: -15,
                               padding: 2,
                               zIndex: 5,
                             }}

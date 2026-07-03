@@ -1618,8 +1618,10 @@ function HoldingRow({
             className="absolute"
             style={{
               right: 10,
+              // Margin-based centering (bar ≈ 32px tall) — robust against
+              // transform being overridden.
               top: "50%",
-              transform: "translateY(-50%)",
+              marginTop: -16,
               zIndex: 5,
             }}
           />
