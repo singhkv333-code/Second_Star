@@ -2498,6 +2498,39 @@ def _analysis_subhint(message: str) -> str:
     return ""
 
 
+_QUESTION_SHAPED_RE = re.compile(
+    r"^\s*(what|which|whats|what's|how|is|are|do|does|can|could|would|should|why|"
+    r"who|when should|help me|any idea|thoughts|thinking about|considering)\b"
+    r"|\bshould i\b|\bworth (building|doing|it)\b|\bmake sense\b|\bhelp me decide\b"
+    r"|\bnot sure (if|whether|which|what)\b|\bwhat'?s a good\b|\bany suggestions?\b",
+    re.IGNORECASE,
+)
+
+
+def _is_question_shaped(message: str) -> bool:
+    """True when an agent-flavoured message is really a QUESTION or a
+    deliberation ('what options should I trade?', 'should I build a dip-buy?',
+    'is 30 a good RSI threshold?') rather than a command to build.
+
+    Used to relax hop-1 tool_choice from 'required' to 'auto' so the model
+    can answer in prose or ask the one blocking question (e.g. the options
+    view) instead of being forced to emit a card. Commands ('buy 10 INFY
+    when RSI<30', 'alert me when…', 'build an agent that…') are NOT
+    question-shaped and keep the commit-surface forcing. Conservative on
+    purpose: a leading 'when'/'if' (a condition, not a question) does not
+    match, and any specific required-override below still wins."""
+    if not message:
+        return False
+    m = message.strip()
+    # An explicit build/order command anywhere near the front dominates —
+    # never treat a real command as a question even if it also asks something.
+    if re.match(r"^\s*(buy|sell|short|exit|square|place|set up an? (alert|order|sip)|"
+                r"build|create|make|set up|arm|schedule|alert|ping|notify|remind)\b",
+                m, re.IGNORECASE):
+        return False
+    return bool(_QUESTION_SHAPED_RE.search(m))
+
+
 def _history_tail_text(history: list, limit: int = 800) -> str:
     """Best-effort string of the last few turns, for intent-pack selection
     so a follow-up ("make it 2 lots") still pulls the right module. Tolerates
@@ -5381,6 +5414,14 @@ class ChatService:
         agent_tool_choice: Literal["auto", "required"] = (
             "required" if is_agent_intent else "auto"
         )
+        # A tool widget is NOT needed on every agent-flavoured turn. When the
+        # message is really a QUESTION / deliberation ("what options should I
+        # trade?", "should I build a dip-buy?"), relax hop-1 forcing to 'auto'
+        # so the model can answer in prose or ask the one blocking question
+        # (e.g. the options view) instead of being forced to emit a card.
+        # Real commands stay 'required'; any specific override below wins.
+        if agent_tool_choice == "required" and _is_question_shaped(message):
+            agent_tool_choice = "auto"
         # When a PendingResolution is active (user is answering a prior
         # clarification), force tool_choice=required so the model emits
         # the workflow / ASK_USER tool instead of writing prose. The
@@ -7204,6 +7245,11 @@ class ChatService:
         agent_tool_choice: Literal["auto", "required"] = (
             "required" if is_agent_intent else "auto"
         )
+        # Streaming mirror: relax forcing for question/deliberation-shaped
+        # agent turns so the model can discuss/ask instead of force-building
+        # a card (see handle() for rationale).
+        if agent_tool_choice == "required" and _is_question_shaped(message):
+            agent_tool_choice = "auto"
         # Streaming mirror: force tool emit when a PendingResolution
         # is active (see handle() for rationale).
         if pending_resolution_active:
