@@ -1784,27 +1784,32 @@ function StockResultsTable({
                       textAlign: c.align,
                       color: "var(--text-primary)",
                       fontFamily: c.align === "right" ? "var(--font-mono)" : "var(--font-ui)",
-                      // The symbol cell hosts the hover quick-action bar.
-                      ...(c.id === "symbol" ? { position: "relative" as const } : {}),
                     }}
                   >
-                    {renderStockCell(row, c, sectorLabel)}
-                    {/* Kite-style quick actions — overlay the columns to the
-                        right of the name while this row is hovered. */}
-                    {c.id === "symbol" && hoverSym === row.symbol && (
-                      <StockHoverActions
-                        symbol={row.symbol}
-                        name={row.name}
-                        logoUrl={row.logo_url}
-                        className="absolute"
+                    {c.id === "symbol" ? (
+                      // Symbol cell: name block + the Kite-style quick
+                      // actions INLINE right next to it while hovered —
+                      // inside the cell's flow, never over other columns.
+                      <div
                         style={{
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          left: "100%",
-                          marginLeft: 6,
-                          zIndex: 5,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          minWidth: 0,
                         }}
-                      />
+                      >
+                        {renderStockCell(row, c, sectorLabel)}
+                        {hoverSym === row.symbol && (
+                          <StockHoverActions
+                            symbol={row.symbol}
+                            name={row.name}
+                            logoUrl={row.logo_url}
+                            style={{ flexShrink: 0 }}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      renderStockCell(row, c, sectorLabel)
                     )}
                   </td>
                 ))}

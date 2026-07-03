@@ -151,7 +151,13 @@ export function StockHoverActions({
         title={`${sym} option chain`}
         onClick={(e) => {
           stop(e);
-          goChat({ text: `Show me the option chain for ${sym}` });
+          // Open the full-screen option chain directly — no chat detour.
+          // A global host (mounted once in AppShell) listens for this.
+          window.dispatchEvent(
+            new CustomEvent("pivot:open-option-chain", {
+              detail: { underlying: sym },
+            }),
+          );
         }}
       >
         <LayoutGrid size={13.5} strokeWidth={2} aria-hidden="true" />

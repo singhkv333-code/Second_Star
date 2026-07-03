@@ -1679,6 +1679,16 @@ export function createConversation(body?: {
 }
 
 /**
+ * `DELETE /api/conversations/{id}` — delete a conversation (cascades to its
+ * messages). 404s are treated as success by callers (already gone).
+ */
+export function deleteConversation(id: string): Promise<ApiResult<unknown>> {
+  return request<unknown>(`/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+/**
  * `GET /api/conversations/{id}/messages` — list messages in a conversation.
  */
 // ---------------------------------------------------------------------------

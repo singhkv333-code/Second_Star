@@ -7,7 +7,7 @@
  * compact pill in the composer row (`variant="pill"`).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowUpRight, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useExclusiveSidePanel } from "@/lib/sidePanels";
@@ -28,7 +28,10 @@ export function OptionChainLauncherCard({
   variant = "card",
   underlying = "NIFTY",
 }: {
-  variant?: "card" | "pill";
+  /** "global" renders NO trigger — it mounts once (AppShell) and opens the
+   * full-screen chain when anything dispatches `pivot:open-option-chain`
+   * with `{underlying}` (e.g. the stock hover bar's chain button). */
+  variant?: "card" | "pill" | "global";
   underlying?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
@@ -36,9 +39,24 @@ export function OptionChainLauncherCard({
   const [builderPayload, setBuilderPayload] = useState<OptionStrategyPayload | null>(null);
   const [buildPending, setBuildPending] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
+  // The active underlying — the prop for card/pill triggers; the global
+  // variant swaps it per event so one host serves every symbol.
+  const [activeUnderlying, setActiveUnderlying] = useState(underlying);
 
   useExclusiveSidePanel("option-chain", open, () => setOpen(false));
   useExclusiveSidePanel("option-strategy", builderOpen, () => setBuilderOpen(false));
+
+  useEffect(() => {
+    if (variant !== "global") return;
+    const onOpen = (e: Event): void => {
+      const sym = (e as CustomEvent<{ underlying?: string }>).detail?.underlying;
+      if (!sym) return;
+      setActiveUnderlying(sym.toUpperCase());
+      setOpen(true);
+    };
+    window.addEventListener("pivot:open-option-chain", onOpen);
+    return () => window.removeEventListener("pivot:open-option-chain", onOpen);
+  }, [variant]);
 
   async function handleBuildStrategy(draft: StrategyDraft): Promise<void> {
     setBuildPending(true);
@@ -68,7 +86,7 @@ export function OptionChainLauncherCard({
 
   return (
     <>
-      {variant === "pill" ? (
+      {variant === "global" ? null : variant === "pill" ? (
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -122,7 +140,7 @@ export function OptionChainLauncherCard({
       <OptionChainFullScreen
         open={open}
         onClose={() => setOpen(false)}
-        underlying={underlying}
+        underlying={activeUnderlying}
         onBuildStrategy={handleBuildStrategy}
         buildPending={buildPending}
         buildError={buildError}

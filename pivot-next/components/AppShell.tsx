@@ -47,6 +47,7 @@ import {
   ShieldCheck,
   Sun,
   Telescope,
+  Trash2,
   X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -58,6 +59,7 @@ import {
   type BrokerOAuthResult,
 } from "@/components/brokers";
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
+import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCard";
 import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
@@ -80,6 +82,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  deleteConversation,
   getMe,
   getPortfolioSummary,
   getWorkflow,
@@ -470,6 +473,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     [pathname, router],
   );
 
+  // Delete a conversation from the sidebar. Optimistic removal (the row
+  // disappears immediately), then a refetch reconciles with the server.
+  const removeConversation = useCallback((id: string): void => {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    void deleteConversation(id).then(() => {
+      void fetchConversations().then(setConversations);
+    });
+  }, []);
+
   // Keep the sidebar list fresh: ChatDemo pings this event after every
   // completed turn (the backend persisted it), and we refetch on focus
   // return so another tab's chats appear too.
@@ -735,6 +747,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             onTabChange={goTab}
             onNewChat={startNewChat}
             onSelectConversation={(id) => void openConversation(id)}
+            onDeleteConversation={removeConversation}
             conversations={conversations}
             mobileOpen={mobileNavOpen}
             onMobileClose={() => setMobileNavOpen(false)}
@@ -871,6 +884,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         activeEditorDraft={activeEditorDraft}
         onActiveEditorDraftChange={setActiveEditorDraft}
       />
+
+      {/* Global option-chain host — trigger-less; opens the full-screen chain
+          when anything (e.g. the stock hover bar) dispatches
+          `pivot:open-option-chain` with an underlying. */}
+      <OptionChainLauncherCard variant="global" />
 
       <BrokerOnboarding
         open={brokerPanelOpen}
@@ -1799,6 +1817,7 @@ function Sidebar({
   onTabChange,
   onNewChat,
   onSelectConversation,
+  onDeleteConversation,
   conversations,
   mobileOpen,
   onMobileClose,
@@ -1808,6 +1827,8 @@ function Sidebar({
   onNewChat: () => void;
   /** Open a persisted conversation in the chat surface. */
   onSelectConversation: (id: string) => void;
+  /** Delete a conversation (server + list). */
+  onDeleteConversation: (id: string) => void;
   conversations: ConvEntry[];
   mobileOpen: boolean;
   onMobileClose: () => void;
@@ -1827,6 +1848,17 @@ function Sidebar({
   };
   const pinnedConvs = conversations.filter((c) => pinnedIds.includes(c.id));
   const recentConvs = conversations.filter((c) => !pinnedIds.includes(c.id));
+
+  const handleDelete = (id: string): void => {
+    // A deleted conversation must not linger in the pin set.
+    setPinnedIds((prev) => {
+      if (!prev.includes(id)) return prev;
+      const next = prev.filter((x) => x !== id);
+      writePinnedIds(next);
+      return next;
+    });
+    onDeleteConversation(id);
+  };
 
   // On lg+ the sidebar sits inline (in the flex row) — same look as before.
   // Below lg it becomes a fixed slide-in drawer driven by `mobileOpen`.
@@ -1980,6 +2012,7 @@ function Sidebar({
                   pinned={true}
                   onOpen={() => onSelectConversation(conv.id)}
                   onTogglePin={() => togglePin(conv.id)}
+                  onDelete={() => handleDelete(conv.id)}
                 />
               ))}
             </div>
@@ -2007,6 +2040,7 @@ function Sidebar({
                 pinned={false}
                 onOpen={() => onSelectConversation(conv.id)}
                 onTogglePin={() => togglePin(conv.id)}
+                onDelete={() => handleDelete(conv.id)}
               />
             ))}
           </div>
@@ -2056,11 +2090,13 @@ function ConversationRow({
   pinned,
   onOpen,
   onTogglePin,
+  onDelete,
 }: {
   conv: ConvEntry;
   pinned: boolean;
   onOpen: () => void;
   onTogglePin: () => void;
+  onDelete: () => void;
 }): React.ReactElement {
   const [hovered, setHovered] = useState(false);
   return (
@@ -2098,45 +2134,76 @@ function ConversationRow({
       >
         {conv.preview}
       </button>
-      {/* Pin toggle — hover-revealed on unpinned rows, always visible
-          (filled) on pinned ones so pinned state reads at a glance. */}
+      {/* Row actions — hover-revealed: pin (always visible while pinned so
+          the state reads at a glance) + delete. */}
       {(hovered || pinned) && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onTogglePin();
-          }}
-          aria-label={pinned ? "Unpin conversation" : "Pin conversation"}
-          title={pinned ? "Unpin" : "Pin"}
-          className="inline-flex shrink-0 items-center justify-center"
-          style={{
-            width: 24,
-            height: 24,
-            marginRight: 4,
-            background: "transparent",
-            border: "none",
-            borderRadius: "var(--radius-sm)",
-            color: pinned ? "var(--text-primary)" : "var(--text-tertiary)",
-            cursor: "pointer",
-            transition: "color 0.2s var(--ease-quartr)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--text-primary)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = pinned
-              ? "var(--text-primary)"
-              : "var(--text-tertiary)";
-          }}
-        >
-          <Pin
-            size={12.5}
-            strokeWidth={2}
-            aria-hidden="true"
-            fill={pinned ? "currentColor" : "none"}
-          />
-        </button>
+        <div className="flex shrink-0 items-center" style={{ marginRight: 4 }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin();
+            }}
+            aria-label={pinned ? "Unpin conversation" : "Pin conversation"}
+            title={pinned ? "Unpin" : "Pin"}
+            className="inline-flex items-center justify-center"
+            style={{
+              width: 24,
+              height: 24,
+              background: "transparent",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              color: pinned ? "var(--text-primary)" : "var(--text-tertiary)",
+              cursor: "pointer",
+              transition: "color 0.2s var(--ease-quartr)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--text-primary)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = pinned
+                ? "var(--text-primary)"
+                : "var(--text-tertiary)";
+            }}
+          >
+            <Pin
+              size={12.5}
+              strokeWidth={2}
+              aria-hidden="true"
+              fill={pinned ? "currentColor" : "none"}
+            />
+          </button>
+          {hovered && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              aria-label="Delete conversation"
+              title="Delete"
+              className="inline-flex items-center justify-center"
+              style={{
+                width: 24,
+                height: 24,
+                background: "transparent",
+                border: "none",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--text-tertiary)",
+                cursor: "pointer",
+                transition: "color 0.2s var(--ease-quartr)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--color-loss, #ea4335)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-tertiary)";
+              }}
+            >
+              <Trash2 size={12.5} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

@@ -1570,21 +1570,8 @@ function HoldingRow({
       }}
       data-testid={`holding-${h.tradingsymbol}`}
     >
-      <td style={{ padding: "16px 18px", position: "relative" }}>
-        {hovered && (
-          <StockHoverActions
-            symbol={h.tradingsymbol}
-            logoUrl={logoUrl}
-            className="absolute"
-            style={{
-              top: "50%",
-              transform: "translateY(-50%)",
-              left: "100%",
-              marginLeft: 6,
-              zIndex: 5,
-            }}
-          />
-        )}
+      <td style={{ padding: "16px 18px" }}>
+        <div className="flex items-center" style={{ gap: 12, minWidth: 0 }}>
         <div className="inline-flex items-center" style={{ gap: 12 }}>
           <HoldingGlyph symbol={h.tradingsymbol} hueKey={sector} logoUrl={logoUrl} />
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -1622,6 +1609,16 @@ function HoldingRow({
               </span>
             )}
           </div>
+        </div>
+        {/* Kite-style quick actions — inline right next to the name while
+            the row is hovered, inside the cell's flow. */}
+        {hovered && (
+          <StockHoverActions
+            symbol={h.tradingsymbol}
+            logoUrl={logoUrl}
+            style={{ flexShrink: 0 }}
+          />
+        )}
         </div>
       </td>
       <NumCell>{h.quantity}</NumCell>
