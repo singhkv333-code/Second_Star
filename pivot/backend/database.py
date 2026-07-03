@@ -79,6 +79,14 @@ else:
     )
 
 
+# Flag-gated latency tracing (PIVOT_PERF_TRACE) — no-ops when disabled.
+from backend.services.perf_trace import install_sqlalchemy  # noqa: E402
+
+install_sqlalchemy(engine, db="pivot")
+install_sqlalchemy(financials_engine, db="financials")
+install_sqlalchemy(enrich_engine, db="enrich")
+
+
 class Base(DeclarativeBase):
     pass
 

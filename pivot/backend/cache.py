@@ -101,7 +101,9 @@ def _connect_real_redis():
             kwargs["ssl_ca_certs"] = certifi.where()
         r = redis.from_url(settings.redis_url, socket_connect_timeout=2, **kwargs)
         r.ping()
-        return r
+        # Flag-gated latency tracing (PIVOT_PERF_TRACE) — no-op when disabled.
+        from backend.services.perf_trace import wrap_redis
+        return wrap_redis(r)
     except Exception as e:
         logger.info(f"Redis unavailable ({e}); falling back to MockRedis")
         return None

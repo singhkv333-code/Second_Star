@@ -522,6 +522,11 @@ async def stream_openai(
                             t.mark_first_delta()
                         text_acc.append(delta)
                 elif etype == "response.output_item.added":
+                    # First model output on a tool-call hop is an output
+                    # item, not a text delta — count it for TTFT too
+                    # (mark_first_delta is idempotent; text-first hops
+                    # keep their original semantics).
+                    t.mark_first_delta()
                     item = ev.get("item") or {}
                     if item.get("type") == "function_call":
                         item_id = item.get("id") or ""
@@ -532,6 +537,7 @@ async def stream_openai(
                                 "args_str": item.get("arguments") or "",
                             })
                 elif etype == "response.function_call_arguments.delta":
+                    t.mark_first_delta()
                     item_id = ev.get("item_id") or ""
                     if item_id:
                         slot = tc_acc.setdefault(item_id, {"id": item_id, "name": "", "args_str": ""})
