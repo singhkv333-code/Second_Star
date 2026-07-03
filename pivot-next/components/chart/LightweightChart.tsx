@@ -28,7 +28,9 @@ export type ChartReady = (chart: IChartApi) => (() => void) | void;
 
 type Props = {
   className?: string;
-  height?: number;
+  /** Number = fixed px height; a string (e.g. "100%") fills the parent —
+   *  `autoSize` tracks the container either way. */
+  height?: number | string;
   options?: DeepPartial<ChartOptions>;
   /** Create series + set data here. Return an optional cleanup run before dispose. */
   onReady: ChartReady;
@@ -59,7 +61,7 @@ export function LightweightChart({
     if (!el) return;
     const chart = createChart(el, {
       autoSize: true,
-      height,
+      ...(typeof height === "number" ? { height } : {}),
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#64748b",

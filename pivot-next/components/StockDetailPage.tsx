@@ -55,11 +55,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getStockQuote,
   getSparkline,
+  getOhlc,
   getFinancials,
   getMetricSeries,
   type StockQuote,
   type SparklineRange,
   type SparklineResponse,
+  type OhlcResponse,
   type FinancialsResponse,
   type FinancialsHistoryPoint,
   type MetricSeriesResponse,
@@ -69,6 +71,11 @@ import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { WatchlistBookmark } from "@/components/WatchlistBookmark";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import {
+  StockPriceChart,
+  type PriceSeriesDef,
+  type VolumePoint,
+} from "@/components/chart/StockPriceChart";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,6 +126,25 @@ function getSparklineCached(
   });
 }
 
+// OHLC bars (close + volume) for the primary ticker — same session-cache
+// pattern as sparklineCache so a range revisit never refetches. The area
+// chart's price AND volume both come from these bars, so they're always
+// aligned (and from the same source — Kite when live, else yfinance).
+const ohlcCache = new Map<string, OhlcResponse>();
+
+function getOhlcCached(
+  symbol: string,
+  range: SparklineRange,
+): Promise<ApiResult<OhlcResponse>> {
+  const key = `${symbol}|${range}`;
+  const hit = ohlcCache.get(key);
+  if (hit) return Promise.resolve({ data: hit });
+  return getOhlc(symbol, range).then((res) => {
+    if (!isError(res)) ohlcCache.set(key, res.data);
+    return res;
+  });
+}
+
 /** The 1-2 ranges a user most often clicks next, per current range — used to
  *  warm the cache in the background once the active range finishes loading.
  *  Deliberately NOT "every other range": keep the prefetch lightweight. */
@@ -148,10 +174,10 @@ function prefetchAdjacentRanges(tickers: string[], range: SparklineRange): void 
  *  donut (PortfolioTab.PALETTE). Reds are intentionally omitted —
  *  loss-coding is reserved for actual losses. */
 const COMPARE_PALETTE = [
-  "var(--color-profit)", // primary ticker = profit-green
-  "#1b7cc7", // cobalt blue
+  "#2962FF", // primary ticker = TradingView blue (matches the area series)
   "#fb8500", // vivid orange
   "#219ebc", // cyan teal
+  "#e11d75", // raspberry
   "#ffb703", // golden yellow
   "#2c666e", // dark teal
 ];
@@ -1453,6 +1479,30 @@ function ChartCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metric, tickers, range]);
 
+  // ── OHLC bars (close + volume) for the single-ticker price chart ──────
+  // Fetched only in single-ticker Price mode: the area series uses the bar
+  // closes and the histogram uses the bar volumes, so both always align.
+  // Compare mode sticks to the parent-supplied sparklines (no volume).
+  const primarySym = tickers[0];
+  const singlePriceMode = !isMetricMode && tickers.length === 1;
+  const [ohlc, setOhlc] = useState<OhlcResponse | null>(null);
+  useEffect(() => {
+    if (!singlePriceMode || !primarySym) {
+      setOhlc(null);
+      return;
+    }
+    let cancelled = false;
+    setOhlc(null);
+    getOhlcCached(primarySym, range)
+      .then((res) => {
+        if (!cancelled) setOhlc(isError(res) ? null : res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setOhlc(null);
+      });
+    return () => { cancelled = true; };
+  }, [singlePriceMode, primarySym, range]);
+
   // ── Drag-to-select range state ────────────────────────────────────────
   // Tracks a click-and-drag selection band on the chart. `startIdx` /
   // `endIdx` are indices into `chartData.rows`; `startLabel` / `endLabel`
@@ -1659,6 +1709,60 @@ function ChartCard({
     const idx = tickers.indexOf(sym);
     return COMPARE_PALETTE[idx >= 0 ? idx % COMPARE_PALETTE.length : 0]!;
   };
+
+  // ── Price-mode series for the lightweight-charts render ───────────────
+  // Single ticker → raw OHLC closes (aligned with volume; sparkline points as
+  // the fallback while OHLC loads or errors). Compare → each ticker's raw
+  // sparkline (StockPriceChart normalises to 100 internally). The min/max
+  // date window slices every series before it reaches the chart.
+  const priceSeriesDefs = useMemo((): PriceSeriesDef[] => {
+    if (isMetricMode) return [];
+    const minTs = minDate ? new Date(minDate).getTime() : -Infinity;
+    // Inclusive end-of-day so picking "2026-07-03" keeps that day's points.
+    const maxTs = maxDate ? new Date(maxDate).getTime() + 86_399_000 : Infinity;
+    const win = (pts: { t: string; v: number }[]): { t: string; v: number }[] =>
+      pts.filter((p) => {
+        const ts = new Date(p.t).getTime();
+        return ts >= minTs && ts <= maxTs;
+      });
+    const okSeries = series.filter(
+      (s): s is { symbol: string; state: { kind: "ok"; data: SparklineResponse } } =>
+        s.state.kind === "ok",
+    );
+    if (tickers.length === 1) {
+      const sym = tickers[0]!;
+      const spark = okSeries.find((s) => s.symbol === sym);
+      const closes: { t: string; v: number }[] =
+        ohlc && ohlc.bars.length > 0
+          ? ohlc.bars.map((b) => ({ t: b.t, v: b.c }))
+          : spark?.state.data.points ?? [];
+      const pts = win(closes);
+      return pts.length > 0
+        ? [{ symbol: sym, color: colorFor(sym), points: pts }]
+        : [];
+    }
+    return okSeries
+      .map((s) => ({
+        symbol: s.symbol,
+        color: colorFor(s.symbol),
+        points: win(s.state.data.points),
+      }))
+      .filter((d) => d.points.length > 0);
+  // colorFor is stable per tickers (closes over it); tickers is a dep.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMetricMode, series, tickers, ohlc, minDate, maxDate]);
+
+  const volumePoints = useMemo((): VolumePoint[] => {
+    if (!singlePriceMode || !ohlc || ohlc.bars.length === 0) return [];
+    const minTs = minDate ? new Date(minDate).getTime() : -Infinity;
+    const maxTs = maxDate ? new Date(maxDate).getTime() + 86_399_000 : Infinity;
+    return ohlc.bars
+      .filter((b) => {
+        const ts = new Date(b.t).getTime();
+        return ts >= minTs && ts <= maxTs;
+      })
+      .map((b) => ({ t: b.t, v: b.v, up: b.c >= b.o }));
+  }, [singlePriceMode, ohlc, minDate, maxDate]);
 
   // Last-point summary for each ticker (used in footer)
   const summaries = useMemo(() => {
@@ -2027,8 +2131,19 @@ function ChartCard({
           </div>
         ) : isMetricMode && metricSeries.some((e) => e.state.kind === "loading") ? (
           <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
-        ) : !isMetricMode && chartData.rows.length === 0 ? (
-          <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
+        ) : !isMetricMode ? (
+          // Price mode — TradingView lightweight-charts: area + volume when
+          // single ticker, normalised compare lines when peers are added.
+          priceSeriesDefs.length === 0 ? (
+            <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
+          ) : (
+            <StockPriceChart
+              seriesDefs={priceSeriesDefs}
+              volume={volumePoints}
+              height="100%"
+              intraday={range === "1D" || range === "1W"}
+            />
+          )
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
@@ -2229,9 +2344,10 @@ function ChartCard({
           </div>
         )}
 
-        {/* End-label value tags — one per visible ticker, pinned to top-right.
-            In price mode shows live LTP; in metric mode shows the raw value. */}
-        {activeBaseRows.length > 0 && visibleTickers.length > 0 && (
+        {/* End-label value tags — metric mode only. The lightweight-charts
+            price render carries native last-value labels on its axis, so the
+            overlay tags would double up there. */}
+        {isMetricMode && activeBaseRows.length > 0 && visibleTickers.length > 0 && (
           <div
             className="flex flex-col items-end"
             style={{
