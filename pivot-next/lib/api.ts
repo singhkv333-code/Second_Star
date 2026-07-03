@@ -321,6 +321,77 @@ async function _performRequest<T>(
 }
 
 // ---------------------------------------------------------------------------
+// Voice input (audio → text)
+// ---------------------------------------------------------------------------
+
+export type TranscriptionResult = {
+  text: string;
+  mode: "translate" | "transcribe";
+  provider: string;
+};
+
+/**
+ * Upload a browser MediaRecorder blob to POST /audio/transcribe. Multipart
+ * body, so this bypasses the JSON `request` wrapper (which force-sets
+ * Content-Type: application/json) and does its own fetch against the legacy
+ * root mount with the same bearer token. mode="translate" (the default)
+ * returns ENGLISH text whatever language was spoken — the working language
+ * of chat and company search.
+ */
+export async function transcribeAudio(
+  blob: Blob,
+  options: { mode?: "translate" | "transcribe" } = {},
+): Promise<ApiResult<TranscriptionResult>> {
+  const mode = options.mode ?? "translate";
+  // Filename extension mirrors the recorded container so whisper's sniffing
+  // has a consistent hint (Safari records mp4/aac, Chrome/Firefox webm/opus).
+  const ext = blob.type.includes("mp4")
+    ? "mp4"
+    : blob.type.includes("ogg")
+      ? "ogg"
+      : "webm";
+  const form = new FormData();
+  form.append("file", blob, `recording.${ext}`);
+
+  const token = await authTokenProvider();
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(
+    buildUrl(getLegacyBase(), "/audio/transcribe", { mode }),
+    { method: "POST", headers, body: form, cache: "no-store" },
+  );
+
+  let parsed: unknown = null;
+  try {
+    parsed = await res.json();
+  } catch {
+    // Non-JSON body — fall through to the error branch below.
+  }
+
+  if (!res.ok || parsed === null) {
+    // Bare-mounted route → FastAPI default shape: detail is either a plain
+    // string or the {code, message} dict our _errors helpers raise.
+    const detail = (parsed as { detail?: unknown } | null)?.detail;
+    const detailMessage =
+      typeof detail === "string"
+        ? detail
+        : typeof (detail as { message?: unknown } | undefined)?.message ===
+            "string"
+          ? (detail as { message: string }).message
+          : undefined;
+    return {
+      error: {
+        code: `http_${res.status}`,
+        message:
+          detailMessage ?? `Voice transcription failed (status ${res.status})`,
+      },
+    };
+  }
+  return { data: parsed as TranscriptionResult };
+}
+
+// ---------------------------------------------------------------------------
 // Workflows
 // ---------------------------------------------------------------------------
 

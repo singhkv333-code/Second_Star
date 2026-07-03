@@ -230,8 +230,14 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const router = useRouter();
   const pathname = usePathname();
   const [active, setActive] = useState<TabKey>(DEFAULT_TAB);
+  // Always-fresh mirror of `active` so callbacks memoized with [] deps can read
+  // the current tab without being recreated on every tab change.
+  const activeRef = useRef<TabKey>(DEFAULT_TAB);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(undefined);
+  // The tab the side editor was opened from. When the user navigates away from
+  // this tab, the editor closes — it never lingers over an unrelated surface.
+  const [panelOriginTab, setPanelOriginTab] = useState<TabKey | null>(null);
   // Shared active-draft state: the workflow currently open in the editor
   // (unsaved only — id "" or "local-…", status "draft").
   const [activeEditorDraft, setActiveEditorDraft] = useState<Workflow | null>(null);
@@ -514,20 +520,39 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     }
   }, [pathname, router]);
 
-  const openWorkflow = useCallback((workflow: Workflow): void => {
-    const isUnsaved = !workflow.id || workflow.id === "" || workflow.id.startsWith("local-");
-    if (isUnsaved && workflow.status === "draft") {
-      setActiveEditorDraft(workflow);
-    }
-    setPanelWorkflow(workflow);
-    setPanelOpen(true);
-  }, []);
+  const openWorkflow = useCallback(
+    (workflow: Workflow, originTab?: TabKey): void => {
+      const isUnsaved = !workflow.id || workflow.id === "" || workflow.id.startsWith("local-");
+      if (isUnsaved && workflow.status === "draft") {
+        setActiveEditorDraft(workflow);
+      }
+      setPanelWorkflow(workflow);
+      // Remember the tab the editor was opened from so it auto-closes when the
+      // user navigates away. `originTab` is passed explicitly when the opener
+      // also switches tabs in the same tick (Edit-with-chat), where the ref
+      // hasn't caught up yet; otherwise use the live tab.
+      setPanelOriginTab(originTab ?? activeRef.current);
+      setPanelOpen(true);
+    },
+    [],
+  );
 
   const openWorkflowById = useCallback(async (id: string): Promise<void> => {
     const result = await getWorkflow(id);
     if (isError(result)) return;
     openWorkflow(result.data);
   }, [openWorkflow]);
+
+  // Keep the activeRef in sync, and close the side editor once the user leaves
+  // the tab it was opened from — it never floats over an unrelated surface.
+  useEffect(() => {
+    activeRef.current = active;
+    if (panelOpen && panelOriginTab !== null && active !== panelOriginTab) {
+      setPanelOpen(false);
+      setActiveEditorDraft(null);
+      setPanelOriginTab(null);
+    }
+  }, [active, panelOpen, panelOriginTab]);
 
   // "Edit with chat" — jump to the chat surface with the chosen agent
   // SELECTED (a context chip in the composer) and the side editor open on
@@ -560,8 +585,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     };
     goTab("chat");
     // Open the side editor on the agent being edited — the user sees the
-    // steps they're talking about while they chat.
-    openWorkflow(workflow);
+    // steps they're talking about while they chat. Origin is pinned to "chat"
+    // since we just switched there (the ref hasn't updated in this tick).
+    openWorkflow(workflow, "chat");
     // Wait a frame so the chat surface is the active pane before we drop the
     // selection in and focus the composer.
     requestAnimationFrame(() => {
@@ -744,6 +770,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         {(!sidebarCollapsed || !isDesktop) && (
           <Sidebar
             active={active}
+            activeConversationId={active === "chat" ? resumeConv?.id : undefined}
             onTabChange={goTab}
             onNewChat={startNewChat}
             onSelectConversation={(id) => void openConversation(id)}
@@ -878,7 +905,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         open={panelOpen}
         onOpenChange={(next) => {
           setPanelOpen(next);
-          if (!next) setActiveEditorDraft(null);
+          if (!next) {
+            setActiveEditorDraft(null);
+            setPanelOriginTab(null);
+          }
         }}
         initialWorkflow={panelWorkflow}
         activeEditorDraft={activeEditorDraft}
@@ -1067,6 +1097,7 @@ function TopHeader({
           placeholder="Search stocks, strategies, conversations…"
           onSelect={(symbol) => router.push(`/stock/${symbol}`)}
           inputDataTestId="global-search"
+          enableVoice
         />
       </div>
 
@@ -1814,6 +1845,7 @@ function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement 
 
 function Sidebar({
   active,
+  activeConversationId,
   onTabChange,
   onNewChat,
   onSelectConversation,
@@ -1823,6 +1855,8 @@ function Sidebar({
   onMobileClose,
 }: {
   active: TabKey;
+  /** Id of the conversation currently open in the chat surface (highlighted). */
+  activeConversationId?: string;
   onTabChange: (key: TabKey) => void;
   onNewChat: () => void;
   /** Open a persisted conversation in the chat surface. */
@@ -2010,6 +2044,7 @@ function Sidebar({
                   key={conv.id}
                   conv={conv}
                   pinned={true}
+                  active={conv.id === activeConversationId}
                   onOpen={() => onSelectConversation(conv.id)}
                   onTogglePin={() => togglePin(conv.id)}
                   onDelete={() => handleDelete(conv.id)}
@@ -2038,6 +2073,7 @@ function Sidebar({
                 key={conv.id}
                 conv={conv}
                 pinned={false}
+                active={conv.id === activeConversationId}
                 onOpen={() => onSelectConversation(conv.id)}
                 onTogglePin={() => togglePin(conv.id)}
                 onDelete={() => handleDelete(conv.id)}
@@ -2088,25 +2124,32 @@ function writePinnedIds(ids: string[]): void {
 function ConversationRow({
   conv,
   pinned,
+  active = false,
   onOpen,
   onTogglePin,
   onDelete,
 }: {
   conv: ConvEntry;
   pinned: boolean;
+  /** True when this is the conversation currently open in the chat surface. */
+  active?: boolean;
   onOpen: () => void;
   onTogglePin: () => void;
   onDelete: () => void;
 }): React.ReactElement {
   const [hovered, setHovered] = useState(false);
+  // The open conversation carries the same highlight as hover, held
+  // persistently so the user can see which thread they're reading.
+  const highlighted = hovered || active;
   return (
     <div
       className="flex items-center"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      aria-current={active ? "page" : undefined}
       style={{
         borderRadius: "var(--radius-sm)",
-        background: hovered ? "var(--surface-active)" : "transparent",
+        background: highlighted ? "var(--surface-active)" : "transparent",
         transition: "background-color 0.2s var(--ease-quartr)",
       }}
     >
@@ -2120,10 +2163,10 @@ function ConversationRow({
           padding: "7px 4px 7px 10px",
           background: "transparent",
           border: "none",
-          color: hovered ? "var(--text-primary)" : "var(--text-secondary)",
+          color: highlighted ? "var(--text-primary)" : "var(--text-secondary)",
           fontFamily: "var(--font-ui)",
           fontSize: 12.5,
-          fontWeight: 500,
+          fontWeight: active ? 600 : 500,
           textAlign: "left",
           whiteSpace: "nowrap",
           overflow: "hidden",

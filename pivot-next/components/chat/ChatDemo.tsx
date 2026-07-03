@@ -53,6 +53,7 @@ import {
   type SyntheticSecurityPayload,
 } from "@/components/chat/SyntheticSecurityCard";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
+import { VoiceInputButton } from "@/components/VoiceInputButton";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
 import { IpoListCard } from "@/components/chat/IpoListCard";
@@ -2815,6 +2816,19 @@ function ChatComposer({
           // should be able to compose their next message in parallel.
           data-testid="chat-textarea"
           aria-label="Describe your strategy"
+        />
+
+        {/* Mic — browser-recorded voice input; the transcribed English
+            text appends to whatever is already typed so a user can mix
+            speech and keyboard in one message. */}
+        <VoiceInputButton
+          className="self-end"
+          data-testid="chat-voice-btn"
+          onTranscript={(text) => {
+            const existing = value.trimEnd();
+            onChange(existing ? `${existing} ${text}` : text);
+            textareaRef.current?.focus();
+          }}
         />
 
         {/* Trailing — circular Send button (idle/ready) OR Stop button

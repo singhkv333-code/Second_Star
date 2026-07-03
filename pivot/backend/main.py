@@ -63,6 +63,7 @@ from backend.routers.option_strategies import router as option_strategies_router
 from backend.routers.views import router as views_router
 from backend.routers.feedback import router as feedback_router
 from backend.routers.screener import router as screener_router
+from backend.routers.audio import router as audio_router
 
 app = FastAPI(
     title="Pivot API",
@@ -138,6 +139,8 @@ app.include_router(views_router)
 app.include_router(feedback_router)
 # Screener tab — curated universe + fundamentals + search (read-only).
 app.include_router(screener_router)
+# Voice input — browser MediaRecorder blob → whisper-1 translate/transcribe.
+app.include_router(audio_router)
 
 # ── News & Event Trigger subsystem (flag-gated) ──────────────────────
 # Entire subsystem is opt-in via `settings.news_events_enabled`. With

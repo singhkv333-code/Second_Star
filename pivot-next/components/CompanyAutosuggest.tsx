@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { searchCompanies, type CompanySearchResult } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import { VoiceInputButton } from "@/components/VoiceInputButton";
 
 interface CompanyAutosuggestProps {
   placeholder?: string;
@@ -29,6 +30,8 @@ interface CompanyAutosuggestProps {
   className?: string;
   autoFocus?: boolean;
   inputDataTestId?: string;
+  /** Render a mic that dictates the query (browser recording → English). */
+  enableVoice?: boolean;
 }
 
 // Debounce interval in ms — short enough to feel live, long enough to
@@ -41,6 +44,7 @@ export function CompanyAutosuggest({
   className,
   autoFocus,
   inputDataTestId,
+  enableVoice,
 }: CompanyAutosuggestProps): React.ReactElement {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CompanySearchResult[]>([]);
@@ -146,7 +150,14 @@ export function CompanyAutosuggest({
     <div
       ref={wrapperRef}
       className={className}
-      style={{ position: "relative", flex: 1, minWidth: 0 }}
+      style={{
+        position: "relative",
+        flex: 1,
+        minWidth: 0,
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+      }}
     >
       <input
         ref={inputRef}
@@ -181,6 +192,19 @@ export function CompanyAutosuggest({
           letterSpacing: "-0.005em",
         }}
       />
+
+      {enableVoice && (
+        <VoiceInputButton
+          size={14}
+          data-testid="search-voice-btn"
+          onTranscript={(text) => {
+            // Spoken queries end with dictation punctuation ("Reliance.")
+            // that would poison the prefix search — strip it.
+            setQuery(text.replace(/[.,!?…]+$/u, "").trim());
+            inputRef.current?.focus();
+          }}
+        />
+      )}
 
       {open && results.length > 0 && (
         <ul
