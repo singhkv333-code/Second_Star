@@ -205,50 +205,37 @@ def crude_episodes(idx) -> tuple[list[tuple[int, int]], list[dict[str, str]]]:
     return eps, meta
 
 
-def build_bench(
-    engine: Any,
-    view_id: str,
-    members: list[str],
+def bench_from_matrices(
+    rets: Any,
+    px: Any,
     episodes: list[tuple[int, int]],
-) -> Optional[Bench]:
-    """Per-candidate event-conditioned stats over the view's OWN episode
-    windows, for every thesis-aligned name present in the returns matrix.
-
-    ``engine`` is precompute's _Engine (rets/px matrices). Returns None when
-    the view key is unknown. All stats real — a name with no coverage inside
-    the windows is labelled, never guessed.
-    """
+    universe: dict[str, str],
+    *,
+    view_key: str,
+    method_note: str,
+) -> Bench:
+    """Per-candidate stats over arbitrary (entry, exit) index windows, for
+    every universe name present in the returns matrix. The window semantics
+    (dated event occurrences vs rolling calendar slices) are the CALLER's to
+    state honestly via ``method_note``. All stats real — a name without
+    enough coverage inside the windows is labelled, never guessed."""
     from scripts.strategy_research.v3 import exits as _v3e
 
-    key = _view_key(view_id)
-    if key is None:
-        return None
-
-    uni = _universe_for(key, members)
-    in_matrix = {t: src for t, src in uni.items() if t in engine.rets.columns}
-
+    in_matrix = {t: src for t, src in universe.items() if t in rets.columns}
     bench = Bench(
-        view_key=key,
+        view_key=view_key,
         universe_size=len(in_matrix),
         n_episodes=len(episodes),
-        method_note=(
-            f"Event-conditioned backtest: per-name return measured inside each "
-            f"of the view's {len(episodes)} historical occurrence windows "
-            f"(same windows as the headline strategy), over a thesis-aligned "
-            f"universe of {len(in_matrix)} names."
-            if episodes
-            else "No historical occurrence windows — candidates carry no "
-                 "event-tested stats (forward/model view)."
-        ),
+        method_note=method_note,
     )
 
     for tkr, src in in_matrix.items():
-        ser = engine.px[tkr].dropna()
+        ser = px[tkr].dropna()
         price = float(ser.iloc[-1]) if len(ser) else None
 
         per_ep: list[float] = []
         if episodes:
-            for p in _v3e.episode_returns(episodes, engine.rets, tkr):
+            for p in _v3e.episode_returns(episodes, rets, tkr):
                 if len(p) and p.notna().sum() >= max(3, len(p) // 2):
                     per_ep.append(float((1.0 + p.fillna(0.0)).prod() - 1.0) * 100.0)
 
@@ -278,11 +265,84 @@ def build_bench(
     return bench
 
 
+def build_bench(
+    engine: Any,
+    view_id: str,
+    members: list[str],
+    episodes: list[tuple[int, int]],
+) -> Optional[Bench]:
+    """Per-candidate event-conditioned stats over the view's OWN episode
+    windows, for every thesis-aligned name present in the returns matrix.
+
+    ``engine`` is precompute's _Engine (rets/px matrices). Returns None when
+    the view key is unknown. All stats real — a name with no coverage inside
+    the windows is labelled, never guessed.
+    """
+    key = _view_key(view_id)
+    if key is None:
+        return None
+
+    uni = _universe_for(key, members)
+    method_note = (
+        f"Event-conditioned backtest: per-name return measured inside each "
+        f"of the view's {len(episodes)} historical occurrence windows "
+        f"(same windows as the headline strategy), over a thesis-aligned "
+        f"universe of {sum(1 for t in uni if t in engine.rets.columns)} names."
+        if episodes
+        else "No historical occurrence windows — candidates carry no "
+             "event-tested stats (forward/model view)."
+    )
+    return bench_from_matrices(
+        engine.rets, engine.px, episodes, uni,
+        view_key=key, method_note=method_note,
+    )
+
+
+# ── View-Pack (showcase) universes — same idea, pack view keys ──────────────
+# Industry tags per pack view; None ⇒ no honest equity bench (gold: no listed
+# equity theme; mideast: unscheduled shock — no comparable windows to rank on).
+PACK_INDUSTRIES: dict[str, Optional[list[str]]] = {
+    "ai_jobs": ["Information Technology"],
+    "ai_search": ["Information Technology"],
+    "nuclear": ["Power", "Capital Goods"],
+    "ev": ["Automobile and Auto Components", "Capital Goods"],
+    "fintech": ["Financial Services"],
+    "nifty30k": [],          # broad-market view → the whole tagged universe
+    "gold": None,
+    "mideast": None,
+}
+
+
+def pack_universe(view_key: str, members: list[str]) -> Optional[dict[str, str]]:
+    """ticker(.NS) → source for a /view-pack view, or None when no honest
+    equity bench exists for it (stated by the caller)."""
+    inds = PACK_INDUSTRIES.get(view_key)
+    if inds is None:
+        return None
+    out: dict[str, str] = {m: "member" for m in members}
+    try:
+        from scripts.strategy_research.v3 import universe as _v3u
+
+        ind_map = _v3u.industry_map()
+        wanted = set(inds)
+        for tkr, ind in ind_map.items():
+            if tkr in out:
+                continue
+            if not wanted or ind in wanted:
+                out[tkr] = "industry"
+    except Exception as exc:  # noqa: BLE001 — bench degrades to members only
+        logger.warning("candidate_bench: pack universe unavailable (%s)", exc)
+    return out
+
+
 __all__ = [
     "Bench",
     "Candidate",
     "CRUDE_THESIS_BASKET",
     "MIN_EPISODES_EVENT_TESTED",
+    "PACK_INDUSTRIES",
+    "bench_from_matrices",
     "build_bench",
     "crude_episodes",
+    "pack_universe",
 ]

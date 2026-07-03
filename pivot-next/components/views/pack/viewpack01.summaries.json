@@ -702,7 +702,7 @@
   "best_episode_pct": 64.8,
   "best_episode_label": "6-mo window ended Nov 2020",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1997,
+  "min_entry_inr": 1975,
   "forward_expected_net_pct": 0.6,
   "forward_band_pct": {
    "p25": -9.6,
@@ -1415,7 +1415,7 @@
   "best_episode_pct": 95.4,
   "best_episode_label": "6-mo window ended Nov 2020",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 808,
+  "min_entry_inr": 1975,
   "forward_expected_net_pct": 0.7,
   "forward_band_pct": {
    "p25": -14.5,
@@ -2128,7 +2128,7 @@
   "best_episode_pct": 58.0,
   "best_episode_label": "6-mo window ended Jun 2024",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1926,
+  "min_entry_inr": 2497,
   "forward_expected_net_pct": 1.4,
   "forward_band_pct": {
    "p25": -8.4,
@@ -2841,7 +2841,7 @@
   "best_episode_pct": 53.3,
   "best_episode_label": "6-mo window ended Jun 2024",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1844,
+  "min_entry_inr": 1537,
   "forward_expected_net_pct": 1.4,
   "forward_band_pct": {
    "p25": -8.1,
@@ -4651,7 +4651,7 @@
   "best_episode_pct": 19.1,
   "best_episode_label": "3-mo window ended Sep 2023",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1887,
+  "min_entry_inr": 1971,
   "forward_expected_net_pct": -0.0,
   "forward_band_pct": {
    "p25": -6.8,
@@ -5679,7 +5679,7 @@
   "best_episode_pct": 95.3,
   "best_episode_label": "9-mo window ended Dec 2024",
   "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1960,
+  "min_entry_inr": 2546,
   "forward_expected_net_pct": 2.2,
   "forward_band_pct": {
    "p25": -12.5,

@@ -51,6 +51,7 @@ from backend.services.backtest.validation.monte_carlo import (
     monte_carlo_terminal_distribution,
 )
 from backend.view_markets import affordability as _afford
+from backend.view_markets import candidate_bench as _cbench
 from backend.view_markets import episode_stats as _estats
 from backend.view_markets import etf_catalog as _etfcat
 from backend.view_markets import forward_model as _fwd
@@ -653,7 +654,8 @@ def _weak_tracking_warning(e: dict, fw: Optional[dict], driver_label: str) -> No
 
 
 def _entry_for_basket(px, weights: dict[str, float], etf_category: Optional[str],
-                      kind: str) -> dict[str, Any]:
+                      kind: str, bench: Optional[Any] = None,
+                      method_note: Optional[str] = None) -> dict[str, Any]:
     prices = {}
     for s in weights:
         ser = px[s].dropna() if s in px.columns else None
@@ -661,13 +663,20 @@ def _entry_for_basket(px, weights: dict[str, float], etf_category: Optional[str]
             prices[s] = float(ser.iloc[-1])
     as_of = str(px.index[-1].date())
     etf = _etfcat.entry(etf_category) if etf_category else None
+    er = bench.expected_returns() if bench is not None else None
     block = _afford.entry_block(kind=kind, weights=weights, prices=prices,
-                                etf=etf, as_of=as_of)
+                                etf=etf, as_of=as_of,
+                                expected_returns=er, bench=bench,
+                                method_note=method_note or
+                                (bench.method_note if bench is not None else None))
     # entry legs carry display symbols without the .NS suffix
     for leg in block.get("legs", []) or []:
         leg["symbol"] = canonical_symbol(leg["symbol"])
     for d in block.get("dropped", []) or []:
         d["symbol"] = canonical_symbol(d["symbol"])
+    for s in block.get("substitutions", []) or []:
+        s["in"] = canonical_symbol(s["in"])
+        s["out"] = canonical_symbol(s["out"])
     return block
 
 
@@ -697,9 +706,44 @@ def main() -> None:
         basis = _EVIDENCE_BASIS[spec["taxonomy"]]
         v["evidence_basis"] = basis
         v["generated"] = {
-            "on": str(date.today()), "engine": "enrich_viewpack v2 (spec-conditioned)",
+            "on": str(date.today()), "engine": "enrich_viewpack v3 (bench-substituted)",
             "taxonomy": spec["taxonomy"], "universe_cols": int(rets.shape[1]),
         }
+
+        # ── Thesis bench (beta fix): thesis-aligned candidates ranked by the
+        # view's OWN rolling windows, so a priced-out holding is SUBSTITUTED
+        # by a real affordable stock instead of collapsing into ETF units.
+        # Shock views get no bench (no comparable windows to rank on — the
+        # entry states the forward-model provenance instead); same for views
+        # with no honest equity theme (gold).
+        bench = None
+        bench_note: Optional[str] = None
+        if spec["taxonomy"] != "shock":
+            members_union: list[str] = []
+            for _e in v.get("expressions", []):
+                for _h in _e.get("holdings") or []:
+                    r = _resolve(_h.get("symbol"), cols)
+                    if r and _h.get("position") != "short" and r not in members_union:
+                        members_union.append(r)
+            uni = _cbench.pack_universe(vid, members_union)
+            if uni:
+                wins = _windows(len(rets), horizon)
+                bench = _cbench.bench_from_matrices(
+                    rets, px, wins, uni, view_key=vid,
+                    method_note=(
+                        f"Rolling-window backtest: per-name return over "
+                        f"{len(wins)} non-overlapping ~{horizon}-bar windows "
+                        f"(2010–2026) across a thesis-aligned universe of "
+                        f"{sum(1 for t in uni if t in cols)} names. Windows are "
+                        "calendar slices, not dated event occurrences — this "
+                        "view has no event history (stated)."
+                    ),
+                )
+        else:
+            bench_note = (
+                "Forward scenario model only — unscheduled shock, no comparable "
+                "historical windows; holdings not re-ranked (stated)."
+            )
 
         def _note_entry(block: Optional[dict[str, Any]]) -> None:
             m = (block or {}).get("min_entry_inr")
@@ -752,7 +796,8 @@ def main() -> None:
                         _weak_tracking_warning(e, fw, spec["driver_label"])
                         if tier == "conservative" and fw:
                             fwd_by_view[vid] = fw
-                        entry = _entry_for_basket(px, m["weights"], spec["etf_category"], kind)
+                        entry = _entry_for_basket(px, m["weights"], spec["etf_category"], kind,
+                                                  method_note=bench_note)
                         e["entry"] = entry
                         _note_entry(entry)
                     log.append(f"{vid:9} {tier:12} {kind:11} SHOCK — windows dropped, forward model on")
@@ -779,7 +824,8 @@ def main() -> None:
                         _weak_tracking_warning(e, fw, spec["driver_label"])
                         if tier == "conservative" and fw:
                             fwd_by_view[vid] = fw
-                        entry = _entry_for_basket(px, m["weights"], spec["etf_category"], kind)
+                        entry = _entry_for_basket(px, m["weights"], spec["etf_category"], kind,
+                                                  bench=bench)
                         e["entry"] = entry
                         _note_entry(entry)
                         log.append(f"{vid:9} {tier:12} {kind:11} {m['weight_scheme']:12} "

@@ -2218,49 +2218,74 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
+     "selection_method": "Rolling-window backtest: per-name return over 32 non-overlapping ~126-bar windows (2010\u20132026) across a thesis-aligned universe of 27 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
      "basis": "etf_core_plus_names",
-     "min_entry_inr": 1997.0,
+     "min_entry_inr": 1975.0,
+     "etf_fraction": 0.546,
      "legs": [
       {
        "symbol": "ITBEES",
-       "units": 61,
+       "units": 36,
        "price": 29.94,
-       "cost": 1826.34,
+       "cost": 1077.84,
        "tracks": "Nifty IT",
        "role": "core"
       },
       {
        "symbol": "WIPRO",
-       "shares": 1,
+       "shares": 2,
        "price": 170.6,
-       "cost": 170.6,
-       "role": "satellite",
-       "weight_target": 0.2139
+       "cost": 341.2,
+       "weight_target": 0.319,
+       "weight_actual": 0.3804,
+       "event_mean_pct": 5.03,
+       "role": "satellite"
+      },
+      {
+       "symbol": "SONATSOFTW",
+       "shares": 1,
+       "price": 269.0,
+       "cost": 269.0,
+       "weight_target": 0.1278,
+       "weight_actual": 0.2999,
+       "event_mean_pct": 18.16,
+       "role": "satellite"
+      },
+      {
+       "symbol": "BSOFT",
+       "shares": 1,
+       "price": 286.65,
+       "cost": 286.65,
+       "weight_target": 0.0998,
+       "weight_actual": 0.3196,
+       "event_mean_pct": 13.53,
+       "role": "satellite"
       }
      ],
      "dropped": [
       {
        "symbol": "TCS",
-       "reason": "one share \u2248 \u20b92,040 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b92,040 exceeds the \u20b92,000 ticket"
       },
       {
        "symbol": "PERSISTENT",
-       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 ticket"
       },
       {
        "symbol": "TECHM",
        "reason": "weight too small to buy one share at \u20b91,409"
       },
       {
-       "symbol": "HCLTECH",
-       "reason": "weight too small to buy one share at \u20b91,080"
+       "symbol": "INFY",
+       "reason": "weight too small to buy one share at \u20b91,010"
       },
       {
        "symbol": "COFORGE",
        "reason": "weight too small to buy one share at \u20b91,484"
       }
      ],
-     "note": "An ETF core plus the strategy's own top picks: 61 units of ITBEES (Nifty IT) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of WIPRO.NS keeps the strategy's specific tilt.",
+     "substitutions": [],
+     "note": "An ETF core (\u226450% of the ticket) plus real stock picks: 36 units of ITBEES (Nifty IT) carry the broad exposure and whole shares of WIPRO, SONATSOFTW, BSOFT keep the strategy's specific tilt.",
      "etf_alternative": {
       "symbol": "ITBEES",
       "units": 27,
@@ -3813,49 +3838,64 @@
     "entry": {
      "kind": "hedge",
      "as_of": "2026-07-02",
-     "basis": "etf_core_plus_names",
-     "min_entry_inr": 1999.0,
+     "selection_method": "Rolling-window backtest: per-name return over 32 non-overlapping ~126-bar windows (2010\u20132026) across a thesis-aligned universe of 27 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
+     "basis": "lite_basket",
+     "min_entry_inr": 3916.0,
+     "budget_used_inr": 4000.0,
      "legs": [
       {
-       "symbol": "ITBEES",
-       "units": 33,
-       "price": 29.94,
-       "cost": 988.02,
-       "tracks": "Nifty IT",
-       "role": "core"
+       "symbol": "COFORGE",
+       "shares": 1,
+       "price": 1483.7,
+       "cost": 1483.7,
+       "weight_target": 0.2248,
+       "weight_actual": 0.3789,
+       "event_mean_pct": 16.34
+      },
+      {
+       "symbol": "HCLTECH",
+       "shares": 1,
+       "price": 1080.5,
+       "cost": 1080.5,
+       "weight_target": 0.2005,
+       "weight_actual": 0.2759,
+       "event_mean_pct": 10.91
       },
       {
        "symbol": "INFY",
        "shares": 1,
        "price": 1010.5,
        "cost": 1010.5,
-       "role": "satellite",
-       "weight_target": 0.15
+       "weight_target": 0.1421,
+       "weight_actual": 0.2581,
+       "event_mean_pct": 6.52
+      },
+      {
+       "symbol": "WIPRO",
+       "shares": 2,
+       "price": 170.6,
+       "cost": 341.2,
+       "weight_target": 0.1223,
+       "weight_actual": 0.0871,
+       "event_mean_pct": 5.03
       }
      ],
      "dropped": [
       {
-       "symbol": "TCS",
-       "reason": "one share \u2248 \u20b92,040 exceeds the \u20b92,000 budget"
-      },
-      {
        "symbol": "PERSISTENT",
-       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b94,000 ticket"
       },
       {
-       "symbol": "HCLTECH",
-       "reason": "weight too small to buy one share at \u20b91,080"
+       "symbol": "TCS",
+       "reason": "weight too small to buy one share at \u20b92,040"
       },
       {
        "symbol": "TECHM",
        "reason": "weight too small to buy one share at \u20b91,409"
-      },
-      {
-       "symbol": "COFORGE",
-       "reason": "weight too small to buy one share at \u20b91,484"
       }
      ],
-     "note": "An ETF core plus the strategy's own top picks: 33 units of ITBEES (Nifty IT) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of INFY.NS keeps the strategy's specific tilt. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
+     "substitutions": [],
+     "note": "A pared-down version of the same basket \u2014 4 of 7 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
      "etf_alternative": {
       "symbol": "ITBEES",
       "units": 27,
@@ -5642,7 +5682,7 @@
   "evidence_basis": "rolling_windows",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "theme",
    "universe_cols": 2160
   }
@@ -7826,23 +7866,56 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
-     "basis": "etf_substitute",
-     "min_entry_inr": 808.38,
-     "etf": {
+     "selection_method": "Rolling-window backtest: per-name return over 32 non-overlapping ~126-bar windows (2010\u20132026) across a thesis-aligned universe of 27 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
+     "basis": "etf_core_plus_names",
+     "min_entry_inr": 1975.0,
+     "etf_fraction": 0.5,
+     "legs": [
+      {
+       "symbol": "ITBEES",
+       "units": 33,
+       "price": 29.94,
+       "cost": 988.02,
+       "tracks": "Nifty IT",
+       "role": "core"
+      },
+      {
+       "symbol": "INTELLECT",
+       "shares": 1,
+       "price": 717.6,
+       "cost": 717.6,
+       "weight_target": 0.2102,
+       "weight_actual": 0.7273,
+       "event_mean_pct": 18.17,
+       "role": "satellite"
+      },
+      {
+       "symbol": "SONATSOFTW",
+       "shares": 1,
+       "price": 269.0,
+       "cost": 269.0,
+       "weight_target": 0.21,
+       "weight_actual": 0.2727,
+       "event_mean_pct": 18.16,
+       "role": "satellite"
+      }
+     ],
+     "dropped": [
+      {
+       "symbol": "PERSISTENT",
+       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 ticket"
+      }
+     ],
+     "substitutions": [],
+     "note": "An ETF core (\u226450% of the ticket) plus real stock picks: 33 units of ITBEES (Nifty IT) carry the broad exposure and whole shares of INTELLECT, SONATSOFTW keep the strategy's specific tilt.",
+     "etf_alternative": {
       "symbol": "ITBEES",
       "units": 27,
       "price": 29.94,
       "cost": 808.38,
       "tracks": "Nifty IT",
       "as_of": "2026-07-02"
-     },
-     "dropped": [
-      {
-       "symbol": "PERSISTENT",
-       "reason": "one share \u2248 \u20b94,309 exceeds the \u20b92,000 budget"
-      }
-     ],
-     "note": "The full basket needs bigger capital to hold faithfully; the cheapest honest way in is 27 unit(s) of ITBEES (Nifty IT) \u2014 one instrument, but each unit itself holds the full index basket."
+     }
     },
     "gain_loss": {
      "avg_gain_pct": 31.5,
@@ -11124,7 +11197,7 @@
   "evidence_basis": "rolling_windows",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "relative",
    "universe_cols": 2160
   }
@@ -13371,57 +13444,84 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
+     "selection_method": "Rolling-window backtest: per-name return over 32 non-overlapping ~126-bar windows (2010\u20132026) across a thesis-aligned universe of 81 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
      "basis": "lite_basket",
-     "min_entry_inr": 1975.0,
+     "min_entry_inr": 2497.0,
+     "budget_used_inr": 2500.0,
      "legs": [
       {
        "symbol": "POWERGRID",
        "shares": 3,
        "price": 286.3,
        "cost": 858.9,
-       "weight_target": 0.4938,
-       "weight_actual": 0.4349
+       "weight_target": 0.2819,
+       "weight_actual": 0.3439,
+       "event_mean_pct": 7.92
+      },
+      {
+       "symbol": "CGPOWER",
+       "shares": 1,
+       "price": 959.05,
+       "cost": 959.05,
+       "weight_target": 0.2803,
+       "weight_actual": 0.384,
+       "event_mean_pct": 26.47,
+       "substitute": true
       },
       {
        "symbol": "NTPC",
-       "shares": 2,
+       "shares": 1,
        "price": 355.65,
-       "cost": 711.3,
-       "weight_target": 0.284,
-       "weight_actual": 0.3602
+       "cost": 355.65,
+       "weight_target": 0.1455,
+       "weight_actual": 0.1424,
+       "event_mean_pct": 5.26
       },
       {
        "symbol": "NHPC",
-       "shares": 5,
+       "shares": 4,
        "price": 80.92,
-       "cost": 404.6,
-       "weight_target": 0.2077,
-       "weight_actual": 0.2049
+       "cost": 323.68,
+       "weight_target": 0.1139,
+       "weight_actual": 0.1296,
+       "event_mean_pct": 6.9
       }
      ],
      "dropped": [
       {
        "symbol": "LT",
-       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b92,500 ticket"
       },
       {
        "symbol": "SIEMENS",
-       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b92,500 ticket"
       },
       {
-       "symbol": "ABB",
-       "reason": "one share \u2248 \u20b97,050 exceeds the \u20b92,000 budget"
-      },
-      {
-       "symbol": "THERMAX",
-       "reason": "one share \u2248 \u20b95,170 exceeds the \u20b92,000 budget"
+       "symbol": "ASTRAL",
+       "reason": "weight too small to buy one share at \u20b91,346"
       },
       {
        "symbol": "TATAPOWER",
        "reason": "weight too small to buy one share at \u20b9386"
       }
      ],
-     "note": "A pared-down version of the same basket \u2014 3 of 8 names, whole shares only, so weights drift a little from the full strategy.",
+     "substitutions": [
+      {
+       "in": "ASTRAL",
+       "out": "ABB",
+       "reason": "one share \u2248 \u20b97,050 exceeds even the \u20b95,000 ceiling",
+       "in_mean_episode_pct": 21.03,
+       "in_n_episodes": 32
+      },
+      {
+       "in": "CGPOWER",
+       "out": "THERMAX",
+       "reason": "one share \u2248 \u20b95,170 exceeds even the \u20b95,000 ceiling",
+       "in_mean_episode_pct": 26.47,
+       "in_n_episodes": 32
+      }
+     ],
+     "note": "A pared-down version of the same basket \u2014 4 of 8 names, whole shares only, so weights drift a little from the full strategy. Priced-out names were replaced by event-tested picks from the same theme: ASTRAL (for ABB), CGPOWER (for THERMAX).",
      "etf_alternative": {
       "symbol": "GROWWPOWER",
       "units": 67,
@@ -14995,69 +15095,98 @@
     "entry": {
      "kind": "hedge",
      "as_of": "2026-07-02",
+     "selection_method": "Rolling-window backtest: per-name return over 32 non-overlapping ~126-bar windows (2010\u20132026) across a thesis-aligned universe of 81 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
      "basis": "lite_basket",
-     "min_entry_inr": 1926.0,
+     "min_entry_inr": 2885.0,
+     "budget_used_inr": 3000.0,
      "legs": [
       {
-       "symbol": "NTPC",
+       "symbol": "CGPOWER",
        "shares": 1,
-       "price": 355.65,
-       "cost": 355.65,
-       "weight_target": 0.2418,
-       "weight_actual": 0.1847
+       "price": 959.05,
+       "cost": 959.05,
+       "weight_target": 0.1857,
+       "weight_actual": 0.3324,
+       "event_mean_pct": 26.47,
+       "substitute": true
       },
       {
        "symbol": "POWERGRID",
        "shares": 1,
        "price": 286.3,
        "cost": 286.3,
-       "weight_target": 0.2245,
-       "weight_actual": 0.1486
+       "weight_target": 0.1552,
+       "weight_actual": 0.0992,
+       "event_mean_pct": 7.92
+      },
+      {
+       "symbol": "NTPC",
+       "shares": 1,
+       "price": 355.65,
+       "cost": 355.65,
+       "weight_target": 0.1509,
+       "weight_actual": 0.1233,
+       "event_mean_pct": 5.26
       },
       {
        "symbol": "TATAPOWER",
        "shares": 1,
        "price": 385.75,
        "cost": 385.75,
-       "weight_target": 0.2089,
-       "weight_actual": 0.2003
+       "weight_target": 0.1424,
+       "weight_actual": 0.1337,
+       "event_mean_pct": 7.54
       },
       {
        "symbol": "NHPC",
        "shares": 6,
        "price": 80.92,
        "cost": 485.52,
-       "weight_target": 0.2055,
-       "weight_actual": 0.2521
+       "weight_target": 0.1368,
+       "weight_actual": 0.1683,
+       "event_mean_pct": 6.9
       },
       {
        "symbol": "BHEL",
        "shares": 1,
        "price": 412.8,
        "cost": 412.8,
-       "weight_target": 0.1192,
-       "weight_actual": 0.2143
+       "weight_target": 0.0803,
+       "weight_actual": 0.1431,
+       "event_mean_pct": 7.22
       }
      ],
      "dropped": [
       {
        "symbol": "LT",
-       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b94,153 exceeds the \u20b93,000 ticket"
       },
       {
        "symbol": "SIEMENS",
-       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b93,604 exceeds the \u20b93,000 ticket"
       },
       {
-       "symbol": "ABB",
-       "reason": "one share \u2248 \u20b97,050 exceeds the \u20b92,000 budget"
-      },
-      {
-       "symbol": "THERMAX",
-       "reason": "one share \u2248 \u20b95,170 exceeds the \u20b92,000 budget"
+       "symbol": "ASTRAL",
+       "reason": "weight too small to buy one share at \u20b91,346"
       }
      ],
-     "note": "A pared-down version of the same basket \u2014 5 of 9 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
+     "substitutions": [
+      {
+       "in": "ASTRAL",
+       "out": "ABB",
+       "reason": "one share \u2248 \u20b97,050 exceeds even the \u20b95,000 ceiling",
+       "in_mean_episode_pct": 21.03,
+       "in_n_episodes": 32
+      },
+      {
+       "in": "CGPOWER",
+       "out": "THERMAX",
+       "reason": "one share \u2248 \u20b95,170 exceeds even the \u20b95,000 ceiling",
+       "in_mean_episode_pct": 26.47,
+       "in_n_episodes": 32
+      }
+     ],
+     "note": "A pared-down version of the same basket \u2014 6 of 9 names, whole shares only, so weights drift a little from the full strategy. Priced-out names were replaced by event-tested picks from the same theme: ASTRAL (for ABB), CGPOWER (for THERMAX). Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
      "etf_alternative": {
       "symbol": "GROWWPOWER",
       "units": 67,
@@ -16826,7 +16955,7 @@
   "evidence_basis": "rolling_windows",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "theme",
    "universe_cols": 2160
   }
@@ -18896,57 +19025,68 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
-     "basis": "etf_core_plus_names",
-     "min_entry_inr": 1985.0,
+     "selection_method": "Rolling-window backtest: per-name return over 32 non-overlapping ~126-bar windows (2010\u20132026) across a thesis-aligned universe of 101 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
+     "basis": "lite_basket",
+     "min_entry_inr": 1937.0,
+     "budget_used_inr": 2000.0,
      "legs": [
       {
-       "symbol": "GROWWEV",
-       "units": 31,
-       "price": 31.56,
-       "cost": 978.36,
-       "tracks": "Nifty EV & New Age Automotive",
-       "role": "core"
+       "symbol": "JBMA",
+       "shares": 2,
+       "price": 699.0,
+       "cost": 1398.0,
+       "weight_target": 0.5893,
+       "weight_actual": 0.7216,
+       "event_mean_pct": 40.45,
+       "substitute": true
       },
       {
        "symbol": "EXIDEIND",
        "shares": 1,
        "price": 390.0,
        "cost": 390.0,
-       "role": "satellite",
-       "weight_target": 0.1522
+       "weight_target": 0.1633,
+       "weight_actual": 0.2013,
+       "event_mean_pct": 7.07
       },
       {
-       "symbol": "SONACOMS",
+       "symbol": "MOTHERSON",
        "shares": 1,
-       "price": 616.3,
-       "cost": 616.3,
-       "role": "satellite",
-       "weight_target": 0.0809
+       "price": 149.28,
+       "cost": 149.28,
+       "weight_target": 0.004,
+       "weight_actual": 0.0771,
+       "event_mean_pct": 15.83
       }
      ],
      "dropped": [
       {
        "symbol": "M&M",
-       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b92,000 ticket"
       },
       {
        "symbol": "TVSMOTOR",
-       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b92,000 ticket"
       },
       {
-       "symbol": "BOSCHLTD",
-       "reason": "one share \u2248 \u20b939,995 exceeds the \u20b92,000 budget"
+       "symbol": "UNOMINDA",
+       "reason": "weight too small to buy one share at \u20b91,099"
       },
       {
        "symbol": "SONACOMS",
        "reason": "weight too small to buy one share at \u20b9616"
-      },
-      {
-       "symbol": "MOTHERSON",
-       "reason": "weight too small to buy one share at \u20b9149"
       }
      ],
-     "note": "An ETF core plus the strategy's own top picks: 31 units of GROWWEV (Nifty EV & New Age Automotive) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of EXIDEIND.NS, SONACOMS.NS keeps the strategy's specific tilt.",
+     "substitutions": [
+      {
+       "in": "JBMA",
+       "out": "BOSCHLTD",
+       "reason": "one share \u2248 \u20b939,995 exceeds even the \u20b95,000 ceiling",
+       "in_mean_episode_pct": 40.45,
+       "in_n_episodes": 32
+      }
+     ],
+     "note": "A pared-down version of the same basket \u2014 3 of 7 names, whole shares only, so weights drift a little from the full strategy. Priced-out names were replaced by event-tested picks from the same theme: JBMA (for BOSCHLTD).",
      "etf_alternative": {
       "symbol": "GROWWEV",
       "units": 26,
@@ -20343,53 +20483,68 @@
     "entry": {
      "kind": "hedge",
      "as_of": "2026-07-02",
+     "selection_method": "Rolling-window backtest: per-name return over 32 non-overlapping ~126-bar windows (2010\u20132026) across a thesis-aligned universe of 101 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
      "basis": "lite_basket",
-     "min_entry_inr": 1844.0,
+     "min_entry_inr": 1537.0,
+     "budget_used_inr": 2000.0,
      "legs": [
       {
-       "symbol": "EXIDEIND",
-       "shares": 2,
-       "price": 390.0,
-       "cost": 780.0,
-       "weight_target": 0.2727,
-       "weight_actual": 0.423
+       "symbol": "JBMA",
+       "shares": 1,
+       "price": 699.0,
+       "cost": 699.0,
+       "weight_target": 0.3177,
+       "weight_actual": 0.4548,
+       "event_mean_pct": 40.45,
+       "substitute": true
       },
       {
-       "symbol": "SONACOMS",
+       "symbol": "EXIDEIND",
        "shares": 1,
-       "price": 616.3,
-       "cost": 616.3,
-       "weight_target": 0.2652,
-       "weight_actual": 0.3342
+       "price": 390.0,
+       "cost": 390.0,
+       "weight_target": 0.1644,
+       "weight_actual": 0.2538,
+       "event_mean_pct": 7.07
       },
       {
        "symbol": "MOTHERSON",
        "shares": 3,
        "price": 149.28,
        "cost": 447.84,
-       "weight_target": 0.204,
-       "weight_actual": 0.2428
+       "weight_target": 0.1531,
+       "weight_actual": 0.2914,
+       "event_mean_pct": 15.83
       }
      ],
      "dropped": [
       {
        "symbol": "M&M",
-       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b93,098 exceeds the \u20b92,000 ticket"
       },
       {
        "symbol": "TVSMOTOR",
-       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b92,000 budget"
-      },
-      {
-       "symbol": "BOSCHLTD",
-       "reason": "one share \u2248 \u20b939,995 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b93,490 exceeds the \u20b92,000 ticket"
       },
       {
        "symbol": "UNOMINDA",
        "reason": "weight too small to buy one share at \u20b91,099"
+      },
+      {
+       "symbol": "SONACOMS",
+       "reason": "weight too small to buy one share at \u20b9616"
       }
      ],
-     "note": "A pared-down version of the same basket \u2014 3 of 7 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
+     "substitutions": [
+      {
+       "in": "JBMA",
+       "out": "BOSCHLTD",
+       "reason": "one share \u2248 \u20b939,995 exceeds even the \u20b95,000 ceiling",
+       "in_mean_episode_pct": 40.45,
+       "in_n_episodes": 32
+      }
+     ],
+     "note": "A pared-down version of the same basket \u2014 3 of 7 names, whole shares only, so weights drift a little from the full strategy. Priced-out names were replaced by event-tested picks from the same theme: JBMA (for BOSCHLTD). Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk).",
      "etf_alternative": {
       "symbol": "GROWWEV",
       "units": 26,
@@ -22168,7 +22323,7 @@
   "evidence_basis": "rolling_windows",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "theme",
    "universe_cols": 2160
   }
@@ -23214,8 +23369,10 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
+     "selection_method": "Forward scenario model only \u2014 unscheduled shock, no comparable historical windows; holdings not re-ranked (stated).",
      "basis": "lite_basket",
      "min_entry_inr": 1951.0,
+     "budget_used_inr": 2000.0,
      "legs": [
       {
        "symbol": "BPCL",
@@ -23261,9 +23418,10 @@
      "dropped": [
       {
        "symbol": "HAL",
-       "reason": "one share \u2248 \u20b94,397 exceeds the \u20b92,000 budget"
+       "reason": "one share \u2248 \u20b94,397 exceeds the \u20b92,000 ticket"
       }
      ],
+     "substitutions": [],
      "note": "A pared-down version of the same basket \u2014 5 of 6 names, whole shares only, so weights drift a little from the full strategy."
     },
     "gain_loss": null
@@ -24757,7 +24915,7 @@
   "evidence_basis": "shock_no_analogs",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "shock",
    "universe_cols": 2160
   }
@@ -29098,7 +29256,7 @@
   "evidence_basis": "rolling_windows",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "event",
    "universe_cols": 2160
   }
@@ -30594,44 +30752,44 @@
      "kind": "basket",
      "as_of": "2026-07-02",
      "basis": "etf_core_plus_names",
-     "min_entry_inr": 1887.0,
+     "min_entry_inr": 1971.0,
+     "etf_fraction": 0.478,
      "legs": [
       {
        "symbol": "GOLDBEES",
-       "units": 10,
+       "units": 8,
        "price": 117.69,
-       "cost": 1176.9,
+       "cost": 941.52,
        "tracks": "Domestic gold price",
        "role": "core"
       },
       {
        "symbol": "MANAPPURAM",
-       "shares": 1,
+       "shares": 2,
        "price": 320.15,
-       "cost": 320.15,
-       "role": "satellite",
-       "weight_target": 0.0886
+       "cost": 640.3,
+       "weight_target": 0.551,
+       "weight_actual": 0.6217,
+       "role": "satellite"
       },
       {
        "symbol": "KALYANKJIL",
        "shares": 1,
        "price": 389.65,
        "cost": 389.65,
-       "role": "satellite",
-       "weight_target": 0.0722
+       "weight_target": 0.449,
+       "weight_actual": 0.3783,
+       "role": "satellite"
       }
      ],
      "dropped": [
       {
        "symbol": "TITAN",
-       "reason": "one share \u2248 \u20b94,420 exceeds the \u20b92,000 budget"
-      },
-      {
-       "symbol": "MUTHOOTFIN",
-       "reason": "one share \u2248 \u20b93,003 exceeds the \u20b92,000 budget"
+       "reason": "weight too small to buy one share at \u20b94,420"
       }
      ],
-     "note": "An ETF core plus the strategy's own top picks: 10 units of GOLDBEES (Domestic gold price) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of MANAPPURAM.NS, KALYANKJIL.NS keeps the strategy's specific tilt.",
+     "substitutions": [],
+     "note": "An ETF core (\u226450% of the ticket) plus real stock picks: 8 units of GOLDBEES (Domestic gold price) carry the broad exposure and whole shares of MANAPPURAM, KALYANKJIL keep the strategy's specific tilt.",
      "etf_alternative": {
       "symbol": "GOLDBEES",
       "units": 7,
@@ -31977,7 +32135,7 @@
   "evidence_basis": "rolling_windows",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "event",
    "universe_cols": 2160
   }
@@ -34332,53 +34490,63 @@
     "entry": {
      "kind": "basket",
      "as_of": "2026-07-02",
-     "basis": "etf_core_plus_names",
-     "min_entry_inr": 1960.0,
+     "selection_method": "Rolling-window backtest: per-name return over 21 non-overlapping ~189-bar windows (2010\u20132026) across a thesis-aligned universe of 102 names. Windows are calendar slices, not dated event occurrences \u2014 this view has no event history (stated).",
+     "basis": "lite_basket",
+     "min_entry_inr": 2546.0,
+     "budget_used_inr": 3000.0,
      "legs": [
       {
-       "symbol": "MOCAPITAL",
-       "units": 21,
-       "price": 55.5,
-       "cost": 1165.5,
-       "tracks": "Nifty Capital Markets",
-       "role": "core"
+       "symbol": "AFFLE",
+       "shares": 1,
+       "price": 1421.0,
+       "cost": 1421.0,
+       "weight_target": 0.4213,
+       "weight_actual": 0.5581,
+       "event_mean_pct": 18.4
       },
       {
        "symbol": "CAMS",
        "shares": 1,
        "price": 794.95,
        "cost": 794.95,
-       "role": "satellite",
-       "weight_target": 0.1896
+       "weight_target": 0.1761,
+       "weight_actual": 0.3122,
+       "event_mean_pct": 7.72
+      },
+      {
+       "symbol": "ANGELONE",
+       "shares": 1,
+       "price": 330.05,
+       "cost": 330.05,
+       "weight_target": 0.0409,
+       "weight_actual": 0.1296,
+       "event_mean_pct": 20.53
       }
      ],
      "dropped": [
       {
        "symbol": "BSE",
-       "reason": "one share \u2248 \u20b93,887 exceeds the \u20b92,000 budget"
-      },
-      {
-       "symbol": "CAMS",
-       "reason": "weight too small to buy one share at \u20b9795"
+       "reason": "one share \u2248 \u20b93,887 exceeds the \u20b93,000 ticket"
       },
       {
        "symbol": "POLICYBZR",
        "reason": "weight too small to buy one share at \u20b91,647"
       },
       {
-       "symbol": "PAYTM",
-       "reason": "weight too small to buy one share at \u20b91,143"
-      },
-      {
        "symbol": "CDSL",
        "reason": "weight too small to buy one share at \u20b91,308"
+      },
+      {
+       "symbol": "PAYTM",
+       "reason": "weight too small to buy one share at \u20b91,143"
       },
       {
        "symbol": "KFINTECH",
        "reason": "weight too small to buy one share at \u20b9886"
       }
      ],
-     "note": "An ETF core plus the strategy's own top picks: 21 units of MOCAPITAL (Nifty Capital Markets) carry the broad exposure \u2014 each unit is itself a diversified basket \u2014 and one share each of CAMS.NS keeps the strategy's specific tilt.",
+     "substitutions": [],
+     "note": "A pared-down version of the same basket \u2014 3 of 8 names, whole shares only, so weights drift a little from the full strategy.",
      "etf_alternative": {
       "symbol": "MOCAPITAL",
       "units": 15,
@@ -36067,7 +36235,7 @@
   "evidence_basis": "rolling_windows",
   "generated": {
    "on": "2026-07-03",
-   "engine": "enrich_viewpack v2 (spec-conditioned)",
+   "engine": "enrich_viewpack v3 (bench-substituted)",
    "taxonomy": "theme",
    "universe_cols": 2160
   }
