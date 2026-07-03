@@ -477,15 +477,21 @@ class _Engine:
         self.it_f = _v3f.it_factor(self.rets, it_syms)
         it_eps, it_meta = _it_episodes(self.idx)
         mon_eps, mon_meta = _monsoon_episodes(self.idx)
+        # Crude episodes: the deployed thesis's own Brent −8%/10d de-escalation
+        # trigger, mapped onto the equity calendar (candidate_bench mirrors
+        # _crude_bt_common). Makes the crude view backtestable + enterable.
+        from backend.view_markets import candidate_bench as _cbench
+        crude_eps, crude_meta = _cbench.crude_episodes(self.idx)
         self.episodes: dict[str, list[tuple[int, int]]] = {
             plain_copy.VIEW_IT: it_eps,
             plain_copy.VIEW_MONSOON: mon_eps,
-            # Crude is a developing view with an empty basket → no episodes here.
+            plain_copy.VIEW_CRUDE: crude_eps,
         }
         # Parallel per-episode {label, date} metadata (same order as episodes).
         self.episode_meta: dict[str, list[dict[str, str]]] = {
             plain_copy.VIEW_IT: it_meta,
             plain_copy.VIEW_MONSOON: mon_meta,
+            plain_copy.VIEW_CRUDE: crude_meta,
         }
 
     # — the long basket as a daily EW return series —
@@ -698,6 +704,7 @@ def _episode_holdings(
 def _compute_expression(
     engine: Optional[_Engine], view_id: str, kind: str, tier: str,
     cfg: dict[str, Any],
+    bench: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Episode-gated, in-position concatenated curve + detail-page extras for one
     expression. Returns honest empties (with exit_period populated; trust /
@@ -752,7 +759,9 @@ def _compute_expression(
                 underlying_label=plain_copy.stock_name(present[0]) or present[0],
             )
 
-    entry_block = _entry_for(engine, view_id, kind, present, weights, option_payload)
+    entry_block = _entry_for(
+        engine, view_id, kind, present, weights, option_payload, bench=bench,
+    )
 
     res = _v3e.backtest_exits(
         episodes, src, weights_or_leg, engine.r_nifty,
@@ -921,9 +930,12 @@ def _nfo_lot_size(underlying: str) -> Optional[int]:
 def _entry_for(
     engine: "_Engine", view_id: str, kind: str, present: list[str],
     weights: dict[str, float], option_payload: Optional[dict[str, Any]],
+    bench: Optional[Any] = None,
 ) -> Optional[dict[str, Any]]:
-    """The real minimum-entry ticket for a live-view expression (same engine
-    as the pack: lite whole-share basket → catalog ETF → honest boundary)."""
+    """The real minimum-entry ticket for a live-view expression: a faithful
+    stock basket first (priced-out names substituted from the thesis bench's
+    event-tested candidates), the capped ETF-core mix second, pure ETF only
+    when nothing affordable exists — with the selection method stated."""
     try:
         from backend.view_markets import affordability as _afford
         from backend.view_markets import etf_catalog as _etfcat
@@ -977,12 +989,19 @@ def _entry_for(
                 prices[s] = float(ser.iloc[-1])
         etf_cat = _VIEW_ETF_CATEGORY.get(view_id)
         etf = _etfcat.entry(etf_cat) if etf_cat else None
+        er = bench.expected_returns() if bench is not None else None
+        method_note = bench.method_note if bench is not None else None
         block = _afford.entry_block(kind=kind, weights=dict(weights),
-                                    prices=prices, etf=etf, as_of=as_of)
+                                    prices=prices, etf=etf, as_of=as_of,
+                                    expected_returns=er, bench=bench,
+                                    method_note=method_note)
         for leg in block.get("legs", []) or []:
             leg["symbol"] = str(leg["symbol"]).replace(".NS", "")
         for d in block.get("dropped", []) or []:
             d["symbol"] = str(d["symbol"]).replace(".NS", "")
+        for s in block.get("substitutions", []) or []:
+            s["in"] = str(s["in"]).replace(".NS", "")
+            s["out"] = str(s["out"]).replace(".NS", "")
         return block
     except Exception:  # noqa: BLE001
         return None
@@ -1017,11 +1036,31 @@ def compute_all(db) -> dict[str, Any]:
             .filter(ViewExpression.view_id == vid)
             .all()
         )
+        # One thesis bench per view: event-conditioned stats for every
+        # thesis-aligned candidate over the view's OWN occurrence windows —
+        # the substitution pool + expected-return source for entries.
+        bench = None
+        if engine is not None:
+            from backend.view_markets import candidate_bench as _cbench
+
+            members_union: list[str] = []
+            for e in exprs:
+                cfg = e.config if isinstance(e.config, dict) else {}
+                for m in _members_long(cfg):
+                    if m not in members_union:
+                        members_union.append(m)
+            try:
+                bench = _cbench.build_bench(
+                    engine, vid, members_union,
+                    engine.episodes.get(vid) or [],
+                )
+            except Exception as exc:  # noqa: BLE001 — bench is an enhancement
+                logger.warning("precompute: bench failed for %s (%s)", vid, exc)
         for e in exprs:
             cfg = e.config if isinstance(e.config, dict) else {}
             kind = _str_enum(e.expression_kind)
             tier = _str_enum(e.tier)
-            payload = _compute_expression(engine, vid, kind, tier, cfg)
+            payload = _compute_expression(engine, vid, kind, tier, cfg, bench=bench)
             out["expressions"][str(e.id)] = payload
             n_pts = len(payload["equity_curve"])
             status = (
