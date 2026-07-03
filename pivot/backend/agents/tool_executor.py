@@ -641,24 +641,17 @@ async def _propose_workflow(a, kt, db, uid):
 
     a = a or {}
 
-    # Always-ask the indicator timeframe. The chat layer sets this flag to
-    # False when the user's message didn't name a bar interval. If this draft
-    # arms an indicator trigger, refuse to build on a silent daily default —
-    # surface a clarification so the user picks a timeframe first. Default
-    # True so REST / legacy callers (no flag) are unaffected.
-    _tf_named = a.pop("_user_named_timeframe", True)
-    if not _tf_named and _steps_have_indicator_trigger(a.get("steps")):
-        return {
-            "success": False,
-            "error": (
-                "This trigger uses a technical indicator, which needs a "
-                "timeframe. Ask the user: 'Which timeframe — 1m / 5m / 15m / "
-                "30m / 1h / daily / weekly / monthly?' (the indicator period "
-                "counts BARS of the chosen interval). Do NOT default to daily."
-            ),
-            "data": {},
-            "logiccard": None,
-        }
+    # Indicator timeframe: DEFAULT to daily when the user didn't name one,
+    # rather than refusing to build. The bar-interval is the lowest-priority
+    # clarify with a safe standard default (system_core.md's clarify
+    # priority) — force-asking it here preempted the real gap and over-asked
+    # fully-specified drafts. The engine already treats an unset indicator
+    # timeframe as daily, so we let the draft build; the reply states the
+    # daily assumption and the user can amend to any interval before
+    # activating (register-not-execute — nothing fires silently). The flag is
+    # popped so it never leaks into the draft schema. Default True so REST /
+    # legacy callers (no flag) are unaffected.
+    a.pop("_user_named_timeframe", True)
 
     # New path — chat hop emits the structured draft directly.
     if isinstance(a.get("steps"), list):

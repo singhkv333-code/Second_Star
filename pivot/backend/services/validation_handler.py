@@ -701,11 +701,18 @@ async def execute_with_completeness(
     _tf_named = _message_names_interval(user_message)
     if tool_name in _INTERVAL_GATED_TOOLS:
         if not _tf_named:
-            # User didn't name a timeframe — drop any value the model guessed
-            # so the completeness gate asks (and the reply resumes).
-            if "interval" in args or "timeframe" in args:
-                args = {k: v for k, v in args.items()
-                        if k not in ("interval", "timeframe")}
+            # User didn't name a bar interval. Per system_core.md's clarify
+            # priority (size/exit > threshold > bar-interval), the interval is
+            # the LOWEST-priority gap AND has a safe standard default — so we
+            # DEFAULT it to daily rather than dropping it to force an "always
+            # ask timeframe" question. Asking it first preempted the real gap
+            # (a missing exit, quantity, or "define cheap") and over-asked
+            # fully-specified backtests. The reply states the daily assumption;
+            # register-not-execute means nothing fires silently, and the user
+            # can amend to any interval. If the MODEL already inferred an
+            # interval (e.g. "scalp" → 15m), trust its reasoning and keep it.
+            if "interval" not in args and "timeframe" not in args:
+                args = {**args, "interval": "daily", "timeframe": "daily"}
         elif "interval" not in args and "timeframe" not in args:
             # User DID name a timeframe but the model dropped it. Extract and
             # inject it so we don't ask a redundant, misguiding question

@@ -24,5 +24,14 @@ propose_holding_action(symbol="TITAN", action_kind="set_stoploss",
 - You MUST disclose this in the draft summary — e.g. "the trailing ratchet is fully modeled in backtests; live, this registers the initial 8%-below stop today and live re-ratcheting is coming."
 - Never claim live peak-tracking.
 
-## No holding yet (fresh buy-entry workflow)
-- If the SL belongs to a workflow that hasn't opened the position yet, append `trigger.exit_compound` + `fetch.portfolio` + `action.place_order` to the existing buy workflow via `propose_dsl_workflow.exit_condition` — NOT a separate SL tool.
+## No holding yet (fresh buy-entry workflow) — a SUPPORTED shape, BUILD it
+- "Buy N shares of X at market and set a stop-loss at Y% below my entry" is fully supported — a buy + a stop referenced to the position's own fill. BUILD it; do NOT decline.
+- A **%-below-entry / %-below-fill** stop is supported and is DIFFERENT from anchoring to "yesterday's close" or "today's open" (which triggers can't reference). Never conflate the two — a fresh-buy stop at "5% below my entry" is the supported case, not the unsupported one; do not cite the open/close limitation here.
+- Append `trigger.exit_compound` + `fetch.portfolio` + `action.place_order` to the buy workflow via `propose_dsl_workflow` (the SL is the `exit_condition`), NOT a separate SL tool.
+
+Example — "buy 40 EICHERMOT at market and set a 5% stop-loss below my entry":
+```
+propose_dsl_workflow(primary_symbol="EICHERMOT", quantity=40, side="buy",
+  entry="at market", exit_condition="price falls 5% below entry fill")
+```
+State it plainly: "Buys 40 EICHERMOT at market, then exits if it falls 5% below your fill."

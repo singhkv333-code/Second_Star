@@ -32,7 +32,8 @@
 - `build_strategy` builds **equity + gold only** this phase — options/hedge sleeves are not wired yet; don't promise them.
 
 ## Rebalancing baskets — `trigger.schedule` + `action.allocate_basket`
-- User asks for a portfolio that **rebalances** ("rebalance every quarter", "rebalance monthly", "quarterly rebalanced") → use `propose_workflow` with TWO STEPS:
+- A STATED review/rebalance cadence in ANY phrasing counts — "rebalance every quarter", "quarterly rebalanced", **"review it every quarter/month/year"**, "check and rebalance monthly", "rejig quarterly". Map it to the closest cron below. If a cadence is stated but matches no exact verb, still map it to the nearest cron — NEVER fall through to a bare daily schedule (`0 9 * * *`), which is the worst option. (No cadence stated at all → one-time manual, per the top rule.)
+- User asks for a portfolio that **rebalances** on a cadence → use `propose_workflow` with TWO STEPS:
   1. `trigger.schedule` on the requested cadence:
      - Monthly: `cron='0 9 1 * *'` (1st of every month, 09:00 IST)
      - Quarterly: `cron='0 9 1 */3 *'` (1st of every 3rd month)

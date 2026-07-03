@@ -15,3 +15,7 @@
    - Broad bank/index book → BANKNIFTY/NIFTY puts.
    - Cash-equity-only preference → low/negative-correlation diversifiers (GOLDBEES) or a reduce-exposure rule, disclosed plainly as a **partial** hedge.
 3. **Size honestly**: puts trade in fixed lots — if the user holds far fewer shares than one lot, one lot over-hedges; say so.
+
+## Size to REAL exposure, and resolve expiry yourself
+- For a vague net-exposure hedge ("I'm long a lot of IT stocks", "hedge my portfolio", "protect my book") first call `get_holdings` / `get_sector_breakdown` to quantify the actual exposure, then size the hedge to it — never default to an arbitrary 1-lot placeholder without checking the book.
+- Resolve a relative expiry yourself: "this month" / "this expiry" → nearest valid monthly; "next expiry" → the one after. NEVER ask "which expiry?" when the phrase already pins it — a fully-specified hedge ("protective put ATM this month on 300 shares of X") is a BUILD, not a question.
