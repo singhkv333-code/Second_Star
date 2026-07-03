@@ -134,6 +134,10 @@ def _single_instance_lock(
         yield True
         return
 
+    # Postgres returns native uuid columns as Python UUID objects (SQLite
+    # returns plain strings); coerce so .encode()/dict-keys work on both.
+    workflow_id = str(workflow_id)
+
     dialect = db.bind.dialect.name if db.bind else ""
     if dialect == "postgresql":
         # Hash the UUID to a 64-bit signed int as required by PG advisory
@@ -307,7 +311,18 @@ class WorkflowEngine:
         self, db: Session, run: WorkflowRun, workflow: Workflow,
     ) -> None:
         """Iterate over the workflow's steps in order. Uses the
-        workflow_steps rows that match `run.workflow_version`."""
+        workflow_steps rows that match `run.workflow_version`.
+
+        Multi-trigger semantics: when ``run.triggered_step_index`` is
+        set, execution starts from that step (the trigger that fired)
+        and stops at the next ``trigger.*`` step found — that's the
+        boundary of this branch. A workflow with N triggers has N
+        independent branches; one run executes exactly one branch.
+
+        Legacy single-trigger workflows write ``triggered_step_index =
+        None`` (or 0); both behave identically (start at 0, no other
+        triggers downstream so the branch runs to end).
+        """
         deadline = _utcnow() + timedelta(seconds=self.time_budget_seconds)
 
         # Workflow steps are stored by current `workflow_id` only — v1
@@ -315,12 +330,30 @@ class WorkflowEngine:
         # cycle has updated `workflow.version` on edit, but the step
         # rows belong to the latest version. Honoured by the PATCH
         # endpoint.
-        steps: list[WorkflowStep] = list(
+        all_steps: list[WorkflowStep] = list(
             db.query(WorkflowStep)
             .filter(WorkflowStep.workflow_id == workflow.id)
             .order_by(WorkflowStep.step_index)
             .all()
         )
+
+        # Branch slicing — keep only the steps belonging to the firing
+        # trigger's branch. The trigger itself stays in the slice (its
+        # executor is a no-op pass-through but we still record a
+        # WorkflowRunStep for it so the run history shows the entry).
+        branch_start = int(run.triggered_step_index) if run.triggered_step_index is not None else 0
+        steps: list[WorkflowStep] = []
+        for s in all_steps:
+            if int(s.step_index) < branch_start:
+                continue
+            # Stop at the NEXT trigger after our own — that begins
+            # another branch.
+            if (
+                int(s.step_index) > branch_start
+                and str(s.step_type).startswith("trigger.")
+            ):
+                break
+            steps.append(s)
 
         # Resume-from-pending: existing run-step rows tell us how far we
         # got. We re-run the first non-`succeeded`/non-`skipped` row.

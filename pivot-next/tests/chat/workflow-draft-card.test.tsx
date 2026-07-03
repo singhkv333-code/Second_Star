@@ -64,9 +64,17 @@ describe("WorkflowDraftCard", () => {
     expect(onOpenEditor).toHaveBeenCalledWith(DEMO_DRAFT);
   });
 
-  it("shows the rationale", () => {
+  it("shows the rationale behind a 'Why this?' disclosure", () => {
     render(<WorkflowDraftCard draft={DEMO_DRAFT} onOpenEditor={vi.fn()} />);
-    expect(screen.getByText("Mapped to a scheduled trigger workflow.")).toBeInTheDocument();
+    // Rationale is hidden by default to keep the card visually calm —
+    // the user opts in via a disclosure button.
+    expect(
+      screen.queryByText("Mapped to a scheduled trigger workflow."),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /why this/i }));
+    expect(
+      screen.getByText("Mapped to a scheduled trigger workflow."),
+    ).toBeInTheDocument();
   });
 });
 
@@ -99,7 +107,9 @@ describe("WorkflowDraftCard — Save & activate", () => {
     expect(createSpy).toHaveBeenCalledTimes(1);
     expect(activateSpy).toHaveBeenCalledWith("wf-123");
     expect(screen.getByText(/Saved & activated/)).toBeInTheDocument();
-    expect(screen.getByText(/wf-123/)).toBeInTheDocument();
+    // Workflow name (not id) is the user-facing identifier in the saved
+    // confirmation — the bare uuid was visual noise.
+    expect(screen.getByText(/RELIANCE 3:55 PM buy/)).toBeInTheDocument();
   });
 
   it("shows error message when createWorkflow fails", async () => {

@@ -80,14 +80,14 @@ class RunRequest(BaseModel):
     starting_capital: float = 1_000_000.0
     benchmark_sc_id: Optional[str] = None
     basis: str = "consolidated"
-    auto_map_symbols: bool = True       # call Sarvam to fill in nse_symbol
+    auto_map_symbols: bool = True       # call the LLM to fill in nse_symbol
                                         # for the universe at start_date
 
 
 class MapSymbolsRequest(BaseModel):
     sc_ids: list[str]
     force: bool = False                 # re-map even if nse_symbol already set
-    skip_verify: bool = False           # trust Sarvam without yfinance round-trip
+    skip_verify: bool = False           # trust the LLM without yfinance round-trip
 
 
 # ---- Endpoints ---------------------------------------------------------
@@ -174,7 +174,7 @@ async def screen(req: ScreenRequest, authorization: str = Header(None)):
 
 @router.post("/map-symbols")
 async def map_symbols(req: MapSymbolsRequest, authorization: str = Header(None)):
-    """Resolve a list of sc_ids to NSE tickers via Sarvam, verify with yfinance,
+    """Resolve a list of sc_ids to NSE tickers via the LLM, verify with yfinance,
     persist to ``mc.companies.nse_symbol``. Idempotent."""
     _auth(authorization)
     from backend.agents.symbol_mapper import map_and_persist
@@ -199,6 +199,13 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
     from backtester.expr.validator import ValidationError
     import asyncpg as _ap
 
+    # Put Engine 1 on the shared NSE cost model (was a naive 10 bps slippage +
+    # 3 bps commission with no STT/GST — ~2× understated). Reproduce the
+    # converged round-trip: slippage + commission on both legs ≈ 2·(slip+comm)
+    # = round_trip_bps(), so comm = round_trip/2 − slip. Keeps the cross-sectional
+    # engine consistent with the signal engines' trading_costs.
+    from backend.services.trading_costs import round_trip_bps, slippage_bps
+    _slip = slippage_bps()
     cfg = BacktestConfig(
         expression=req.expression,
         start=_date.fromisoformat(req.start),
@@ -207,6 +214,8 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
         starting_capital=req.starting_capital,
         benchmark_sc_id=req.benchmark_sc_id,
         basis=req.basis,
+        slippage_bps=_slip,
+        commission_bps=max(0.0, round_trip_bps() / 2.0 - _slip),
     )
 
     mapping_summary = None
@@ -252,6 +261,29 @@ async def run_expr_backtest(req: RunRequest, authorization: str = Header(None)):
         benchmark_curve=result.benchmark_curve,
         trades=result.trades,
     ).to_dict()
+    # Statistical-rigor battery (PSR / MinTRL / DSR) + Monte-Carlo (block-
+    # bootstrap drawdown / terminal-wealth) on the equity curve — the SAME lens
+    # the signal engines and the live forward-test scorecards apply.
+    from backend.services.backtest.validation import (
+        monte_carlo_robustness,
+        sub_period_robustness,
+        trust_verdict,
+    )
+    from backend.services.backtest_metrics import daily_returns_from_equity
+    from backend.services.forward_stats import forward_stats_block
+    _expr_vals = [row["value"] for row in result.equity_curve]
+    metrics["forward_stats"] = forward_stats_block(_expr_vals)
+    metrics["monte_carlo"] = monte_carlo_robustness(
+        daily_returns_from_equity(_expr_vals)
+    )
+    metrics["sub_periods"] = sub_period_robustness(_expr_vals)
+    metrics["trust_verdict"] = trust_verdict(
+        forward_stats=metrics["forward_stats"],
+        monte_carlo=metrics["monte_carlo"],
+        sub_periods=metrics["sub_periods"],
+        total_return_pct=metrics.get("total_return_pct"),
+        n_trades=len(result.trades),
+    )
     return {
         "expression": req.expression,
         "start": req.start, "end": req.end, "rebalance": req.rebalance.upper(),

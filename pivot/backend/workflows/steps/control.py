@@ -29,12 +29,13 @@ _WAIT_DELAY_MAX_SECONDS = 60 * 60
     step_type="wait.delay",
     category="control",
     label="Wait",
-    description="Pause for a duration or until a specific time",
+    description="Pause for a set duration, or until a specific time of day.",
     icon="timer",
     max_retries=0,
     trigger_only=False,
     config_model=WaitDelayConfig,
     output_schema=None,
+    group="Flow",
 )
 async def execute_wait_delay(ctx: Any) -> Optional[dict[str, Any]]:
     """Sleep for `duration_seconds` OR until `until_time` (HH:MM in
@@ -91,12 +92,13 @@ async def execute_wait_delay(ctx: Any) -> Optional[dict[str, Any]]:
     # contract audit (STATUS.md Day 1, fix 1).
     step_type="control.skip_if",
     category="control",
-    label="Skip if",
-    description="Skip the next step when a condition holds",
+    label="Skip next step if…",
+    description="Skip the following step when a condition holds.",
     icon="skip-forward",
     max_retries=0,
     trigger_only=False,
     config_model=SkipIfConfig,
+    group="Flow",
     output_schema={
         "type": "object",
         "properties": {"skipped_next": {"type": "boolean"}},

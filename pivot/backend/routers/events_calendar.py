@@ -147,7 +147,22 @@ def get_event_calendar(
         if len(items) >= _MAX_ITEMS:
             break
         cfg = dict(step.config or {})
-        event_type = str(cfg.get("event_type", ""))
+        # TriggerEventConfig carries keywords/event_description, NOT an
+        # event_type field — derive the calendar bucket from them (the old
+        # cfg.get("event_type") read was always "" so the calendar was
+        # permanently empty).
+        _hay = " ".join([
+            str(cfg.get("event_description", "")),
+            " ".join(str(k) for k in (cfg.get("keywords") or []) if isinstance(k, str)),
+        ]).lower()
+        if any(t in _hay for t in ("repo rate", "rate cut", "mpc", "monetary policy", "rbi")):
+            event_type = "rbi_rate_decision"
+        elif any(t in _hay for t in ("result", "earnings", "quarterly")):
+            event_type = "company_results"
+        elif any(t in _hay for t in ("fii", "dii", "net flow", "net-flow")):
+            event_type = "fii_flow"
+        else:
+            event_type = ""
         if event_type == "rbi_rate_decision":
             sources: list[tuple[datetime, str]] = list(_RBI_MPC_DATES_2026)
         elif event_type == "company_results":

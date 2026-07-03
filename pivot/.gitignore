@@ -25,6 +25,18 @@ build/
 # Logs
 *.log
 
+# Telegram session files (created by scripts/auth_telegram.py).
+# Contain encrypted auth keys — must never be committed. The
+# trailing `.*` catches the journal + any diagnostic copies
+# (`.session.diag`, `.session.bak`, etc.).
+*.session
+*.session.*
+*.session-journal
+telegram.session
+
 # OS
 .DS_Store
 Thumbs.db
+
+# logo override generator checkpoint (scripts/build_logo_overrides.py)
+backend/market/logo_overrides_progress.json

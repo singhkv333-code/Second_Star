@@ -1,0 +1,146 @@
+"use client";
+
+import { memo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { cn } from "@/lib/utils";
+import { SmartMarkdownTable } from "@/components/chat/SmartMarkdownTable";
+
+type Props = {
+  text: string;
+  className?: string;
+};
+
+/**
+ * AssistantMessage — renders an assistant turn as flowing prose, not a
+ * bordered card. Mirrors the ChatGPT / Claude reading experience: real
+ * headings, real lists, real code blocks; no `**asterisks**` leaking
+ * through to the user; no surrounding box.
+ *
+ * The model emits standard GitHub-flavored markdown. We render it with
+ * react-markdown + remark-gfm and style each element via Tailwind so
+ * the output matches the rest of the app (font, color tokens, spacing).
+ */
+/**
+ * Memoised so a parent re-render (market-data poll, hover state, the
+ * streaming elapsed counter, …) does NOT re-parse the markdown and
+ * replace the rendered text nodes. Stable DOM nodes are what let a
+ * user's text selection survive long enough to use the "reply by
+ * selecting" gesture — otherwise the selection collapses mid-render.
+ */
+function AssistantMessage({ text, className }: Props): React.JSX.Element {
+  return (
+    <div
+      // Marks this prose as a valid source for the "reply by selecting"
+      // gesture — ChatDemo's selection listener only surfaces the
+      // floating Reply button for text highlighted inside this element.
+      data-reply-source=""
+      className={cn(
+        // Base reading column — generous max-width so paragraphs breathe
+        // but we don't fight the parent layout.
+        "w-full max-w-3xl text-[15px] leading-7 text-foreground",
+        // Vertical rhythm between block elements; matches ChatGPT/Claude.
+        "[&>*+*]:mt-3",
+        className,
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h1 className="mt-4 text-xl font-semibold tracking-tight text-foreground first:mt-0">
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="mt-5 text-lg font-semibold tracking-tight text-foreground first:mt-0">
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="mt-4 text-base font-semibold text-foreground first:mt-0">
+              {children}
+            </h3>
+          ),
+          h4: ({ children }) => (
+            <h4 className="mt-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground first:mt-0">
+              {children}
+            </h4>
+          ),
+          p: ({ children }) => (
+            <p className="leading-7 text-foreground">{children}</p>
+          ),
+          ul: ({ children }) => (
+            <ul className="ml-1 flex flex-col gap-1.5 pl-5 [list-style:disc] marker:text-muted-foreground/70">
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="ml-1 flex flex-col gap-1.5 pl-5 [list-style:decimal] marker:text-muted-foreground/70">
+              {children}
+            </ol>
+          ),
+          li: ({ children }) => (
+            <li className="leading-7 [&>p]:m-0">{children}</li>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold text-foreground">{children}</strong>
+          ),
+          em: ({ children }) => <em className="italic">{children}</em>,
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              {children}
+            </a>
+          ),
+          hr: () => <hr className="my-4 border-border" />,
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-border pl-4 text-muted-foreground">
+              {children}
+            </blockquote>
+          ),
+          code: ({ inline, className: cls, children, ...props }: {
+            inline?: boolean;
+            className?: string;
+            children?: React.ReactNode;
+          } & React.HTMLAttributes<HTMLElement>) => {
+            if (inline) {
+              return (
+                <code
+                  className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground"
+                  {...props}
+                >
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code className={cn("font-mono text-[13px]", cls)} {...props}>
+                {children}
+              </code>
+            );
+          },
+          pre: ({ children }) => (
+            <pre className="overflow-x-auto rounded-lg bg-muted px-4 py-3 font-mono text-[13px] leading-6 text-foreground">
+              {children}
+            </pre>
+          ),
+          // Tables render through SmartMarkdownTable: sortable numeric/name
+          // columns, ink-black header, per-cell borders, company cells
+          // linked to /stock/[symbol], Kite-style hover quick actions.
+          // It consumes the raw hast node and re-renders the table itself,
+          // so the thead/th/td component overrides below never fire.
+          table: ({ node }) => <SmartMarkdownTable node={node} />,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+export default memo(AssistantMessage);

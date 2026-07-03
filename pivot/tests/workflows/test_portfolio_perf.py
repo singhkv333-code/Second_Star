@@ -6,6 +6,7 @@ tests don't hit the network.
 """
 from __future__ import annotations
 
+import threading
 from unittest.mock import patch
 
 import pandas as pd
@@ -64,12 +65,23 @@ def test_performance_happy_path(
 def test_performance_partial_failure_skips_bad_symbol(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
-    """One symbol fetch fails — others still produce a valid series."""
+    """One symbol fetch fails — others still produce a valid series.
+
+    The endpoint fetches holdings concurrently (a thread pool, not a
+    serial loop — see `routers/portfolio_perf.py`), so the counter below
+    is lock-protected: which *particular* holding lands on count==2 is no
+    longer deterministic across threads, but the test only asserts on
+    "exactly one failed, the rest produced a valid series" — order-
+    independent by design.
+    """
     counter = {"n": 0}
+    lock = threading.Lock()
 
     def maybe_fail(sym: str) -> _FakeTicker:
-        counter["n"] += 1
-        if counter["n"] == 2:  # second symbol fetch fails
+        with lock:
+            counter["n"] += 1
+            n = counter["n"]
+        if n == 2:  # exactly one of the five fetches fails
             raise RuntimeError("yfinance: rate limited")
         return _FakeTicker(_series([100.0, 105.0]))
 
@@ -116,7 +128,7 @@ def test_performance_no_holdings_returns_404(
 ) -> None:
     """Empty holdings → 404 not_found (chart needs at least one position)."""
     with patch(
-        "backend.routers.portfolio_perf.get_holdings", return_value=[],
+        "backend.routers.portfolio_perf.get_holdings_cached", return_value=[],
     ):
         r = client.get(
             "/api/portfolio/performance", headers=auth_headers,

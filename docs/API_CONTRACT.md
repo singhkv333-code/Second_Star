@@ -83,11 +83,23 @@ Used in responses for `GET /api/workflows`, `GET /api/workflows/{id}`, etc.
       "label": "Get my portfolio",
       "config": {}
     }
+  ],
+  "diagnostics": [
+    {
+      "step_index": 1,
+      "severity": "warning",
+      "code": "needs_position",
+      "message": "Close a position needs an open position — open one earlier, or it must already be in your portfolio.",
+      "field": null,
+      "suggested_fix": null
+    }
   ]
 }
 ```
 
 `steps` are returned in `step_index` order (ascending). `null` is returned for unset optional timestamps (`activated_at`, `last_run_at`, `next_run_at`).
+
+`diagnostics` is the full lint result (errors + warnings + info) computed over the saved steps by the single-source-of-truth `lint_workflow` engine, so the editor can surface advisories on load without a `/lint` round-trip. Each entry is a `Diagnostic` (see §5.9). It is **advisory on responses** — a saved workflow always loads even if it carries warnings. Only `severity: "error"` diagnostics block `POST`/`PATCH`/`activate` (returned in the `422 validation_error` envelope under `details.diagnostics`).
 
 ---
 
@@ -231,6 +243,66 @@ Manual run. Creates a `workflow_runs` row with `triggered_by='manual'` and enque
 ```
 
 Frontend should immediately open `WS /api/runs/{run_id}/stream`.
+
+### 5.9 `POST /api/workflows/lint`
+
+Stateless lint of a step list — the editor calls it (debounced ~250ms) to surface
+inline diagnostics while editing, before anything is saved. It is a pure passthrough
+to the same `lint_workflow` engine used by `POST`/`PATCH`/`activate` validation and by
+`POST /api/propose-workflow`, so there is **no rule drift** between editor hints,
+propose-time validation, and create/update gating. No DB write, no side effects.
+
+**Request:**
+```json
+{
+  "steps": [
+    { "step_type": "trigger.indicator", "label": null, "config": { "symbol": "RELIANCE", "indicator": "rsi", "period": 14, "operator": "lt", "value": 30 } },
+    { "step_type": "action.set_stoploss", "label": null, "config": { "symbol": "RELIANCE", "trigger_offset_pct": 5 } }
+  ],
+  "ambient": { "held_symbols": ["RELIANCE"], "has_pending_orders": false }
+}
+```
+
+`ambient` is **optional** (default: permissive-unknown — empty `held_symbols`,
+`has_pending_orders: false`). It represents portfolio state outside the workflow so a
+"close a position you already hold" flow doesn't false-warn: a `requires position`
+satisfied by `ambient.held_symbols` is treated as met.
+
+**Response: 200**
+```json
+{
+  "diagnostics": [
+    {
+      "step_index": 1,
+      "severity": "warning",
+      "code": "needs_position",
+      "message": "Set a stop-loss needs an open position — open one earlier, or it must already be in your portfolio.",
+      "field": null,
+      "suggested_fix": null
+    }
+  ]
+}
+```
+
+**`Diagnostic` shape** (1:1 with `pivot/backend/workflows/compat.py`):
+
+| field | type | notes |
+|---|---|---|
+| `step_index` | int | zero-based index of the offending step |
+| `severity` | `"error" \| "warning" \| "info"` | only `error` blocks save/activate |
+| `code` | string | one of `ref_forward`, `ref_bad_path`, `ref_type`, `needs_position`, `needs_pending_orders`, `needs_symbols`, `needs_boolean`, `trigger_placement`, `empty_branch`, `dead_branch`, `unknown_step_type` (treat unknown codes forward-compatibly) |
+| `message` | string | human-readable, shown on the step card |
+| `field` | string \| null | offending config field, when field-specific |
+| `suggested_fix` | string \| null | one-click apply target (Phase 4; may be null) |
+
+`lint_workflow` runs three passes: **(1)** structural (trigger at index 0; a trigger at
+index > 0 starts a new branch and resets accumulated state; empty/dead branches), **(2)**
+ref type-check (`{{ context.N.path }}` must point at a *prior* step and a field that
+exists in that step's `output_schema` with a compatible type), and **(3)** capability
+(each step's `requires` must be satisfiable by an earlier step's `produces` or by
+`ambient`; unmet → `warning`, never a hard block).
+
+**Auth:** same bearer-token auth as the other workflow endpoints.
 
 ---
 
@@ -387,7 +459,7 @@ Frontend fetches once on app load (cache 5 min). Backend changes to step types i
 **Response: 200**
 ```json
 {
-  "catalog_version": "2026-05-02T00:00:00Z",
+  "catalog_version": "2026-06-17T00:00:00Z",
   "categories": [
     { "id": "trigger",   "label": "Triggers" },
     { "id": "fetch",     "label": "Data fetches" },
@@ -400,8 +472,9 @@ Frontend fetches once on app load (cache 5 min). Backend changes to step types i
     {
       "step_type": "trigger.schedule",
       "category": "trigger",
-      "label": "On schedule",
-      "description": "Run on a cron schedule",
+      "group": "Schedule & time",
+      "label": "On a schedule",
+      "description": "Run on a repeating clock — e.g. every weekday 9:20 AM, or every 30 minutes.",
       "icon": "clock",
       "max_retries": 0,
       "trigger_only": true,
@@ -413,31 +486,45 @@ Frontend fetches once on app load (cache 5 min). Backend changes to step types i
         },
         "required": ["cron", "timezone"]
       },
-      "output_schema": null
+      "output_schema": null,
+      "compat": { "produces": [], "requires": [], "consumes": [] }
     },
     {
-      "step_type": "fetch.portfolio",
-      "category": "fetch",
-      "label": "Get portfolio",
-      "description": "Fetches holdings, buying power, and total value",
-      "icon": "wallet",
-      "max_retries": 3,
+      "step_type": "action.set_stoploss",
+      "category": "action",
+      "group": "Exits & protection",
+      "label": "Set a stop-loss",
+      "description": "Protect a holding with a stop-loss sell, at a price or a % below entry (optionally trailing).",
+      "icon": "shield",
+      "max_retries": 1,
       "trigger_only": false,
-      "config_schema": { "type": "object", "properties": {}, "required": [] },
-      "output_schema": {
-        "type": "object",
-        "properties": {
-          "holdings":      { "type": "array" },
-          "buying_power":  { "type": "number" },
-          "total_value":   { "type": "number" }
-        }
+      "config_schema": { "type": "object", "properties": { "...": {} } },
+      "output_schema": { "type": "object", "properties": { "order_id": { "type": "string" } } },
+      "compat": {
+        "produces": ["protective_order", "pending_orders"],
+        "requires": [
+          {
+            "any_of": ["position_open"],
+            "ambient": "positions",
+            "label": "an open position",
+            "warn": "needs a position — open one earlier, or it must already be in your portfolio"
+          }
+        ],
+        "consumes": []
       }
     }
   ]
 }
 ```
 
-Every step type in the catalog must include: `step_type`, `category`, `label`, `description`, `icon` (lucide-react name), `max_retries`, `trigger_only`, `config_schema` (JSON Schema draft 2020-12), `output_schema` (or null if no output).
+Every step type in the catalog must include: `step_type`, `category`, `group` (sub-group heading within the category), `label`, `description`, `icon` (lucide-react name), `max_retries`, `trigger_only`, `config_schema` (JSON Schema draft 2020-12), `output_schema` (or null if no output), and `compat`.
+
+`compat` is the connection-logic metadata the editor uses to bucket steps (recommended / available / needs-setup) at each insert position and to type-check inter-step references:
+- `produces: string[]` — capability tags this step adds to the accumulated world-state (e.g. `position_open`, `pending_orders`, `data:quote`).
+- `requires: Requirement[]` — each `{ any_of: string[], ambient: string | null, label: string, warn: string }`; satisfied when any `any_of` tag is in the accumulated set, or when the named `ambient` flag is present. Unmet requirements surface as **warnings**, never hard blocks.
+- `consumes: string[]` — tags removed from the accumulated set after this step (e.g. a square-off consumes `position_open`).
+
+The same `compat` rules back `POST /api/workflows/lint` (§5.9); the FE keeps a thin client mirror only for the instant picker partition.
 
 **Canonical category assignment for every v1 step type** (backend must return exactly these `category` values):
 

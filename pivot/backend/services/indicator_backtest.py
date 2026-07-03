@@ -3,7 +3,13 @@
 Backs the chat surface's "backtest <SYMBOL> when RSI drops below 50" /
 "buying <SYMBOL> when it crossed 200 EMA" intents. Distinct from the
 fundamentals expression backtester (which needs the financials Postgres
-DB) — this one runs entirely off yfinance daily OHLCV data + pandas_ta.
+DB) — this one runs entirely off yfinance daily OHLCV data + the unified
+``backend.services.backtest_indicators`` registry.
+
+Indicators supported are everything in the registry (rsi, sma, ema, wma,
+macd, adx, supertrend, bollinger, stochastic, stoch_rsi, cci, mfi,
+williams_r, atr, keltner, donchian, aroon, psar, roc, trix, obv, vwap,
+…). Adding a new indicator there makes it instantly backtestable here.
 
 Strategy semantics (long-only):
   - Enter long on the buy signal bar, full cash → shares (1% friction).
@@ -13,29 +19,37 @@ Strategy semantics (long-only):
 Returns:
   - price_curve:      [{t, v}]   close price series
   - equity_curve:     [{t, v}]   strategy portfolio value
-  - indicator_curve:  [{t, v}]   indicator series (RSI/SMA/EMA)
+  - indicator_curve:  [{t, v}]   indicator series
   - signals:          [{t, side: "buy"|"sell", price, indicator_value}]
   - metrics:          {cagr_pct, total_return_pct, max_drawdown_pct,
                        hit_rate_pct, n_trades, n_wins, starting_capital,
                        ending_value}
-  - bench_buy_hold_return_pct  (RELIANCE-only buy-and-hold over the same
-                                window for comparison)
+  - bench_buy_hold_return_pct  (buy-and-hold for the same window)
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 import pandas as pd
-import pandas_ta_classic as ta  # type: ignore[import-untyped]
 import yfinance as yf  # type: ignore[import-untyped]
+
+from backend.services.backtest_indicators import (
+    compute_series as _ind_series,
+    default_period_for as _ind_default_period,
+    get_spec as _ind_spec,
+    supported_indicators as _ind_supported,
+)
 
 logger = logging.getLogger(__name__)
 
 
-_FRICTION = 0.001  # 10 bps slippage + brokerage per side
+# P1 cost convergence: per-leg average from the shared India delivery model
+# (was a flat 10 bps that under-counted STT/GST/stamp). See trading_costs.py.
+from backend.services.trading_costs import leg_bps as _leg_bps
+_FRICTION = (_leg_bps("buy") + _leg_bps("sell")) / 2.0
 _STARTING_CAPITAL = 1_000_000.0
 
 
@@ -54,6 +68,10 @@ class IndicatorBacktestResult:
     metrics: dict
     bench_buy_hold_return_pct: float
     summary_text: str
+    # Methodology block (window / after-costs / basis / caveat) — see
+    # backend/services/backtest_metrics.methodology_note. Optional so older
+    # callers/tests that construct this result still work.
+    methodology: Optional[dict] = None
 
 
 _OperatorLiteral = Literal[
@@ -64,45 +82,79 @@ _OperatorLiteral = Literal[
 def run_indicator_backtest(
     *,
     symbol: str,
-    indicator: Literal["rsi", "sma", "ema"],
+    indicator: str,
     indicator_period: int = 14,
     operator: _OperatorLiteral = "<",
     threshold: float = 50.0,
     period: str = "5y",
     exchange: str = "NSE",
+    interval: str = "1d",
 ) -> IndicatorBacktestResult:
-    """Run the backtest. Raises ValueError on bad inputs / no data."""
-    sym = symbol.upper().strip()
-    suffix = ".NS" if exchange.upper() == "NSE" else ".BO"
-    yf_sym = sym if sym.endswith((".NS", ".BO")) else f"{sym}{suffix}"
+    """Run the backtest. Raises ValueError on bad inputs / no data.
 
-    hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
-    if hist.empty or len(hist) < max(indicator_period * 2, 30):
+    ``indicator`` is validated against the registry — anything in
+    ``backend.services.backtest_indicators.supported_indicators()`` is
+    accepted. For ``basis="price"`` indicators (SMA/EMA/WMA/PSAR/VWAP/
+    Keltner-mid/Donchian-mid) the comparison is close-vs-indicator and
+    the user-supplied ``threshold`` is treated as an additive bias on
+    the indicator series (0 for plain price-cross signals).
+
+    ``interval`` is the bar interval the indicator runs on. Default
+    '1d' (daily) keeps existing callers unchanged. Aliases like
+    'daily'/'weekly'/'60m' are normalized. Intraday intervals are mapped
+    to the matching yfinance string and refuse honestly (empty raise)
+    when yfinance can't serve them — never silently downgrade.
+    """
+    sym = symbol.upper().strip()
+    # [C4] shared resolver maps index aliases (NIFTY→^NSEI, …) and
+    # shorthand (RIL→RELIANCE) to real yfinance tickers.
+    from backend.market.yfinance_service import resolve_symbol
+    from backend.core.data.intervals import (
+        normalize_interval as _normalize_interval,
+        to_yfinance as _to_yfinance,
+    )
+    yf_sym = resolve_symbol(sym)
+
+    spec = _ind_spec(indicator)
+    if spec is None:
+        raise ValueError(
+            f"unsupported indicator {indicator!r}; supported: "
+            + ", ".join(_ind_supported())
+        )
+    period_n = (
+        int(indicator_period)
+        if indicator_period and int(indicator_period) > 0
+        else (_ind_default_period(indicator) or 14)
+    )
+
+    _norm_interval = _normalize_interval(interval)
+    _yf_iv = _to_yfinance(_norm_interval)
+    if _yf_iv is None:
+        raise ValueError(
+            f"yfinance cannot serve interval {_norm_interval!r} for {sym}"
+        )
+    hist = yf.Ticker(yf_sym).history(period=period, interval=_yf_iv)
+    if hist.empty or len(hist) < max(period_n * 2, 30):
         raise ValueError(
             f"insufficient data for {sym} over {period} (got {len(hist)} bars)"
         )
 
     closes = hist["Close"].astype(float)
 
-    # Compute the indicator series — for SMA/EMA we compare against PRICE,
-    # not the indicator value, so the threshold field carries the period.
-    if indicator == "rsi":
-        ind_series = ta.rsi(closes, length=indicator_period)
-        signal_basis = ind_series  # compare RSI to threshold
-        threshold_value = float(threshold)
-    elif indicator == "sma":
-        ind_series = ta.sma(closes, length=indicator_period)
-        signal_basis = closes  # compare PRICE to SMA value at each bar
-        threshold_value = ind_series  # type: ignore[assignment]
-    elif indicator == "ema":
-        ind_series = ta.ema(closes, length=indicator_period)
-        signal_basis = closes
-        threshold_value = ind_series  # type: ignore[assignment]
-    else:
-        raise ValueError(f"unsupported indicator: {indicator}")
+    ind_series = _ind_series(hist, indicator, period_n)
+    if ind_series is None:
+        raise ValueError(
+            f"indicator {indicator}({period_n}) returned an empty series"
+        )
 
-    if ind_series is None or ind_series.dropna().empty:
-        raise ValueError(f"indicator {indicator}({indicator_period}) is empty")
+    if spec.basis == "price":
+        signal_basis = closes
+        threshold_value = (
+            ind_series + float(threshold) if threshold else ind_series
+        )
+    else:
+        signal_basis = ind_series
+        threshold_value = float(threshold)
 
     # Generate buy/sell signals on threshold crossings.
     signals = _detect_crossings(
@@ -124,14 +176,14 @@ def run_indicator_backtest(
     ]
 
     summary_text = _format_summary(
-        sym, indicator, indicator_period, operator, threshold,
+        sym, indicator, period_n, operator, threshold,
         period, metrics, bench_pct,
     )
 
     return IndicatorBacktestResult(
         symbol=sym,
         indicator=indicator,
-        indicator_period=indicator_period,
+        indicator_period=period_n,
         operator=operator,
         threshold=float(threshold),
         period_label=period,
@@ -312,10 +364,18 @@ def _compute_metrics(
     closed = [t for t in trades if "pnl" in t]
     wins = [t for t in closed if t["pnl"] > 0]
     hit = (len(wins) / len(closed) * 100) if closed else 0.0
+    from backend.services.backtest_metrics import (
+        daily_returns_from_equity, sharpe_sortino,
+    )
+    _sharpe, _sortino = sharpe_sortino(
+        daily_returns_from_equity([p["v"] for p in equity_curve])
+    )
     return {
         "total_return_pct": round(total_ret, 2),
         "cagr_pct": round(cagr, 2),
         "max_drawdown_pct": round(max_dd, 2),
+        "sharpe": _sharpe,
+        "sortino": _sortino,
         "hit_rate_pct": round(hit, 2),
         "n_trades": len(closed),
         "n_wins": len(wins),
@@ -333,7 +393,8 @@ def _format_summary(
         ">": "rises above", ">=": "rises to or above",
         "crosses_below": "crosses below", "crosses_above": "crosses above",
     }.get(operator, operator)
-    if indicator in ("sma", "ema"):
+    spec = _ind_spec(indicator)
+    if spec is not None and spec.basis == "price":
         signal = f"price {op_word} {indicator.upper()}({indicator_period})"
     else:
         signal = f"{indicator.upper()}({indicator_period}) {op_word} {threshold:g}"

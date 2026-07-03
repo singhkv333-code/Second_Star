@@ -131,7 +131,9 @@ def test_validate_rejects_non_trigger_at_step_0() -> None:
         validate_draft_against_registry(bad)
 
 
-def test_validate_rejects_trigger_after_step_0() -> None:
+def test_validate_rejects_two_adjacent_triggers() -> None:
+    """Multi-trigger is allowed, but two triggers in a row leaves
+    the first branch empty — almost always a model mistake."""
     bad = {
         "name": "x", "description": None, "rationale": None, "warnings": [],
         "steps": [
@@ -142,8 +144,56 @@ def test_validate_rejects_trigger_after_step_0() -> None:
             {"step_type": "trigger.manual", "label": None, "config": {}},
         ],
     }
-    with pytest.raises(ProposalValidationError, match="trigger.* may only appear at step 0"):
+    with pytest.raises(ProposalValidationError, match="two triggers in a row"):
         validate_draft_against_registry(bad)
+
+
+def test_validate_accepts_multi_trigger_with_branches() -> None:
+    """Two triggers separated by an action — the canonical multi-
+    trigger shape (e.g. 'buy Mon 9:15, sell Mon 15:30 if RSI<30')."""
+    ok = {
+        "name": "WeeklyBuyAndSell",
+        "description": "Buy Mon morning, sell Mon close if RSI low",
+        "rationale": "Two firings in one workflow.",
+        "warnings": [],
+        "steps": [
+            {
+                "step_type": "trigger.schedule", "label": "Mon 09:15",
+                "config": {"cron": "15 9 * * 1", "timezone": "Asia/Kolkata"},
+            },
+            {
+                "step_type": "action.place_order", "label": "Buy NIFTYBEES",
+                "config": {"symbol": "NIFTYBEES", "side": "buy", "quantity": 10},
+            },
+            {
+                "step_type": "trigger.schedule", "label": "Mon 15:30",
+                "config": {"cron": "30 15 * * 1", "timezone": "Asia/Kolkata"},
+            },
+            {
+                "step_type": "fetch.indicator", "label": "RSI(14)",
+                "config": {"symbol": "NIFTYBEES", "indicator": "rsi", "period": 14},
+            },
+            {
+                "step_type": "condition.numeric", "label": "RSI < 30",
+                "config": {
+                    "left": "{{ context.3.value }}",
+                    "operator": "<",
+                    "right": 30,
+                },
+            },
+            {
+                "step_type": "action.place_order", "label": "Sell NIFTYBEES",
+                "config": {"symbol": "NIFTYBEES", "side": "sell", "quantity": 10},
+            },
+        ],
+    }
+    draft = validate_draft_against_registry(ok)
+    assert len(draft.steps) == 6
+    # Two trigger.* steps at indices 0 and 2.
+    trigger_indices = [
+        i for i, s in enumerate(draft.steps) if s.step_type.startswith("trigger.")
+    ]
+    assert trigger_indices == [0, 2]
 
 
 def test_validate_rejects_bad_config() -> None:
@@ -219,10 +269,10 @@ def test_catalog_summary_includes_every_step_type() -> None:
 async def test_propose_in_mock_mode_uses_pattern_matcher(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When SARVAM/OpenAI keys are empty, route through _mock_propose
-    and never call the LLM."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "")
+    """When the LLM keys (OpenAI / Azure) are empty, route through
+    _mock_propose and never call the LLM."""
     monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
     assert _is_mock_mode() is True
 
     async def _no_llm(*args, **kwargs):  # pragma: no cover
@@ -241,8 +291,8 @@ async def test_propose_with_llm_happy_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Stub LLM to return valid JSON on first try."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "x")
-    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "x")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
     valid = json.dumps({
         "name": "Buy 1 INFY",
         "description": "Daily INFY",
@@ -281,8 +331,8 @@ async def test_propose_with_llm_retries_on_validation_fail(
 ) -> None:
     """First call returns invalid (unknown step_type); second call
     fixed by the retry instruction. Final draft is the corrected one."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "x")
-    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "x")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
     bad = json.dumps({
         "name": "x", "description": None, "rationale": None, "warnings": [],
         "steps": [{"step_type": "trigger.invented", "label": None, "config": {}}],
@@ -312,25 +362,42 @@ async def test_propose_with_llm_retries_on_validation_fail(
 
 
 @pytest.mark.asyncio
-async def test_propose_falls_back_to_mock_after_two_llm_failures(
+async def test_propose_raises_when_llm_fails_twice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Both LLM attempts fail → return a mock draft with a warning so
-    the chat surfaces SOMETHING actionable instead of an exception."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "x")
-    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    """Both LLM attempts fail → raise ProposalValidationError so the
+    caller (chat / endpoint) surfaces a structured 'I need more info'
+    message. The earlier behaviour of falling back to a fabricated
+    mock draft was killed on 2026-05-03 — that path silently lied to
+    users (canned RELIANCE/buying-power steps regardless of intent).
+    """
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "x")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
 
     async def _always_bad(intent: str, *, extra_instruction: str = "") -> str:
         return "this is not json at all"
 
     monkeypatch.setattr(propose_mod, "_call_llm_for_draft", _always_bad)
+    with pytest.raises(ProposalValidationError):
+        await propose_workflow_async(
+            "Every weekday at 09:30 IST buy 1 RELIANCE and email me."
+        )
+
+
+@pytest.mark.asyncio
+async def test_propose_offline_mode_still_uses_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When NO LLM key is set, the offline mock path is preserved —
+    that's the demo-recording / CI path. Distinct from the
+    LLM-failed-with-key-present path which now raises."""
+    monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
+
     draft = await propose_workflow_async(
         "Every weekday at 09:30 IST buy 1 RELIANCE and email me."
     )
-    # Mock fallback runs.
     assert draft.steps[0].step_type == "trigger.schedule"
-    # Warning is set so the UI can flag "best effort" to the user.
-    assert any("LLM proposal failed" in w for w in draft.warnings)
 
 
 @pytest.mark.asyncio

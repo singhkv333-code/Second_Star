@@ -32,8 +32,8 @@ from backend.workflows.registry import STEP_REGISTRY
 @pytest.fixture(autouse=True)
 def _force_mock_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force the deterministic mock path so this suite is hermetic."""
-    monkeypatch.setattr(propose_mod.settings, "sarvam_api_key", "")
     monkeypatch.setattr(propose_mod.settings, "openai_api_key", "")
+    monkeypatch.setattr(propose_mod.settings, "azure_key", "")
 
 
 # ── The 10 prompts ──────────────────────────────────────────────────
@@ -149,6 +149,7 @@ async def test_canonical_demo_quality_attributes() -> None:
     assert place.config["side"] == "buy"
     assert place.config["requires_approval"] is True
     notify = draft.steps[4]
-    assert notify.config["channel"] == "email"
+    # v1 schema forces channel to 'push' — see NotifyMessageConfig.
+    assert notify.config["channel"] == "push"
     # Must read naturally — "Bought" not "Buyed".
     assert "Bought" in notify.config["template"]

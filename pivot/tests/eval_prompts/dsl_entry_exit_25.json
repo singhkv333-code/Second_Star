@@ -1,0 +1,398 @@
+[
+  {
+    "id": "ee_reliance_dual_gap_rsi",
+    "prompt": "make me an agent that buys 10 RELIANCE when TCS price is 5% above its open AND NIFTYBEES RSI(14) drops below 30. Sell when RELIANCE price crosses above its upper Bollinger band",
+    "tags": [
+      "dsl_ee",
+      "cross_symbol_entry",
+      "bollinger_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_tcs_rsi_macd_dd_exit",
+    "prompt": "buy 5 TCS when RSI(14)<30 AND MACD line crosses above signal. Exit when drawdown from peak exceeds 4%",
+    "tags": [
+      "dsl_ee",
+      "multi_entry",
+      "drawdown_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_infy_golden_cross_trail",
+    "prompt": "buy 15 INFY on the 50/200 SMA golden cross. Exit when unrealised P&L drops below -2% OR drawdown from peak exceeds 5%",
+    "tags": [
+      "dsl_ee",
+      "golden_cross",
+      "compound_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_hdfcbank_bollinger_meanrev",
+    "prompt": "buy 10 HDFCBANK when price drops below lower Bollinger band AND RSI<30. Sell when price crosses the middle Bollinger band",
+    "tags": [
+      "dsl_ee",
+      "bollinger_pair"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_sbin_macd_pair",
+    "prompt": "buy 20 SBIN when MACD histogram crosses above 0 AND close > 200-EMA. Sell when MACD crosses back below 0 OR after 15 bars held",
+    "tags": [
+      "dsl_ee",
+      "macd_pair",
+      "bars_held"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_icicibank_pullback_break",
+    "prompt": "buy 10 ICICIBANK on a pullback to 50-EMA when RSI(14)<40. Exit when close drops below 50-EMA OR unrealised P&L < -3%",
+    "tags": [
+      "dsl_ee",
+      "pullback",
+      "ema_break_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_wipro_volume_breakout",
+    "prompt": "buy 25 WIPRO when price breaks the 20-day high AND volume > 1.5x its 20-day average. Trail with a 4% drawdown-from-peak exit",
+    "tags": [
+      "dsl_ee",
+      "breakout_volume",
+      "trail_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_kotakbank_pair_zscore",
+    "prompt": "buy 10 KOTAKBANK when the KOTAKBANK / HDFCBANK price ratio z-score (60d) drops below -2. Sell when the ratio z-score returns above 0",
+    "tags": [
+      "dsl_ee",
+      "spread",
+      "zscore_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_lt_compound_entry_pct_exit",
+    "prompt": "buy 8 LT when (RSI(14)<30 AND close>200-SMA AND MACD>0). Exit when unrealised P&L reaches +8% OR drops below -2%",
+    "tags": [
+      "dsl_ee",
+      "triple_and_entry",
+      "tp_sl_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_axisbank_ema_crossover_pair",
+    "prompt": "buy 12 AXISBANK when EMA(20) crosses above EMA(50). Exit when EMA(20) crosses below EMA(50) OR after 30 bars held",
+    "tags": [
+      "dsl_ee",
+      "crossover_pair"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_maruti_bb_pct_exit",
+    "prompt": "buy 5 MARUTI when price crosses below lower Bollinger band(20,2). Sell when price > middle band OR unrealised P&L drops below -3%",
+    "tags": [
+      "dsl_ee",
+      "bollinger",
+      "compound_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_itc_percentrank_exit",
+    "prompt": "buy 30 ITC when its 14-day RSI is in the bottom 5% of the last 252 days. Exit when RSI > 60 OR bars_held >= 20",
+    "tags": [
+      "dsl_ee",
+      "percentrank_entry",
+      "bars_held_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_eternal_gap_recovery",
+    "prompt": "buy 50 ETERNAL on a -3% gap-down AND RSI<35. Sell when price recovers to yesterday's close OR after 10 bars",
+    "tags": [
+      "dsl_ee",
+      "gap_entry",
+      "recovery_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_niftybees_session_filtered",
+    "prompt": "ONLY on Mondays, buy 5 NIFTYBEES when RSI(14)<35 AND close > 50-EMA. Exit when RSI > 60",
+    "tags": [
+      "dsl_ee",
+      "session_day",
+      "rsi_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_bajajhfl_breakout_trail",
+    "prompt": "buy 15 BAJAJHFL when close > highest close of last 60 days AND RSI < 70. Trail with drawdown from peak >= 3.5%",
+    "tags": [
+      "dsl_ee",
+      "aggregator_breakout",
+      "trail"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_reliance_pct_change_pair",
+    "prompt": "buy 8 RELIANCE when its 5-day percent change drops below -7%. Sell when 5-day percent change rises above +3%",
+    "tags": [
+      "dsl_ee",
+      "pct_change_pair"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_hdfclife_atr_breakout",
+    "prompt": "buy 20 HDFCLIFE when today's true range > 1.5x ATR(14) AND RSI between 40 and 70. Exit when unrealised drops below -2.5%",
+    "tags": [
+      "dsl_ee",
+      "atr_entry"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_hyundai_double_entry_double_exit",
+    "prompt": "buy 10 HYUNDAI when (RSI<28 AND MACD line > signal). Exit when (RSI>72 OR price crosses upper Bollinger band)",
+    "tags": [
+      "dsl_ee",
+      "double_and_entry",
+      "or_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_wipro_adx_trend",
+    "prompt": "buy 25 WIPRO when ADX(14) > 25 AND price > 50-EMA AND RSI between 45 and 65. Exit when ADX < 20 OR drawdown from peak >= 4%",
+    "tags": [
+      "dsl_ee",
+      "adx_trend"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_tcs_supertrend_session",
+    "prompt": "ONLY on Tuesdays and Wednesdays, buy 5 TCS when supertrend(14, 3) flips bullish AND RSI < 60. Exit when supertrend flips bearish OR bars_held >= 8",
+    "tags": [
+      "dsl_ee",
+      "supertrend",
+      "session_day"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_eternal_macd_line_signal",
+    "prompt": "buy 20 ETERNAL when MACD line crosses above MACD signal line AND price > 200-EMA. Exit when MACD line crosses below signal OR unrealised P&L drops below -2%",
+    "tags": [
+      "dsl_ee",
+      "multi_output",
+      "macd_pair"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_bajajhfl_stoch_oversold",
+    "prompt": "buy 12 BAJAJHFL when Stochastic K crosses above 20 from oversold AND RSI<35. Sell when Stochastic K > 80 OR after 15 bars held",
+    "tags": [
+      "dsl_ee",
+      "stoch",
+      "bars_held"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_sbin_three_conditions_three_exits",
+    "prompt": "buy 10 SBIN when RSI<30 AND close>200-SMA AND volume > 1.5x its 20-day average. Exit when RSI>70 OR unrealised drops below -3% OR drawdown from peak >= 5%",
+    "tags": [
+      "dsl_ee",
+      "triple_and",
+      "triple_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_hdfcbank_volatility_regime",
+    "prompt": "buy 15 HDFCBANK when 20-day rolling std of returns is in the bottom 20% of the last 252 days AND RSI<40. Exit when unrealised reaches +6% OR drops below -2%",
+    "tags": [
+      "dsl_ee",
+      "vol_regime",
+      "tp_sl"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  },
+  {
+    "id": "ee_niftybees_252_breakout_trail",
+    "prompt": "buy 5 NIFTYBEES when close > highest close of the last 252 days. Trail with drawdown from peak >= 5% and additionally exit if bars_held >= 60",
+    "tags": [
+      "dsl_ee",
+      "aggregator_breakout",
+      "trail",
+      "time_exit"
+    ],
+    "expect": {
+      "render_hint": "workflow_draft_card",
+      "tool_any_of": [
+        "propose_dsl_workflow",
+        "propose_workflow"
+      ]
+    }
+  }
+]

@@ -1,0 +1,62 @@
+# Miniflux + Postgres for Phase-7 Tier-B push transport.
+#
+# Run from this directory:
+#   docker compose up -d
+#
+# Miniflux UI listens on http://localhost:8080. The first boot
+# creates the admin user (CREATE_ADMIN=1) using ADMIN_USERNAME +
+# ADMIN_PASSWORD env vars below. After first boot, you can flip
+# CREATE_ADMIN=0 if you like — Miniflux will skip the seed step.
+#
+# Inbound webhook config — Miniflux pushes new entries to the Pivot
+# backend at host.docker.internal:8000 (Docker Desktop's bridge
+# back to the host loopback). WEBHOOK_SECRET must match the value
+# in pivot/.env::MINIFLUX_WEBHOOK_SECRET.
+#
+# POLLING_FREQUENCY is the per-feed default in MINUTES; we set
+# 1 (the minimum) so demo feeds turn over fast. Real production
+# leaves it at the default 60.
+
+services:
+  miniflux-db:
+    image: postgres:16-alpine
+    container_name: pivot-miniflux-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: miniflux
+      POSTGRES_PASSWORD: miniflux_db_pw
+      POSTGRES_DB: miniflux
+    volumes:
+      - miniflux_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "miniflux"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  miniflux:
+    image: miniflux/miniflux:2.2.10
+    container_name: pivot-miniflux
+    restart: unless-stopped
+    depends_on:
+      miniflux-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://miniflux:miniflux_db_pw@miniflux-db/miniflux?sslmode=disable
+      RUN_MIGRATIONS: "1"
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: pivot_admin
+      ADMIN_PASSWORD: pivot_admin_pw_change_me
+      # Per-feed polling cadence (minutes). Demo value; raise for prod.
+      POLLING_FREQUENCY: "1"
+      BATCH_SIZE: "10"
+      WEBHOOK_URL: "http://host.docker.internal:8000/api/news-events/webhook/miniflux"
+      WEBHOOK_SECRET: "demo-secret-phase7-9b3f4a8c"
+      LOG_LEVEL: "info"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  miniflux_db_data:

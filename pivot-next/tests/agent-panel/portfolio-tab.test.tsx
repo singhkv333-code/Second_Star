@@ -9,14 +9,32 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import * as api from "@/lib/api";
-import type { Holding, PortfolioSummary, PortfolioPerformanceResponse } from "@/lib/api";
+import type { Holding, PortfolioSummary } from "@/lib/api";
+import * as portfolioApi from "@/lib/portfolioApi";
+import type { PortfolioPerformance, PortfolioScoresResponse } from "@/lib/portfolioApi";
 
-const MOCK_PERF: PortfolioPerformanceResponse = {
+// PerformanceChart and PortfolioScores mount unconditionally (in parallel
+// with summary/holdings, not gated behind their success) and fetch through
+// lib/portfolioApi.ts — stub both to an "ok" response in every test so they
+// don't hit the network or render their own error+Retry button, which would
+// collide with assertions scoped to the top-level portfolio Retry button.
+const MOCK_PERF: PortfolioPerformance = {
   period: "1Y",
-  equity_curve: [
-    { date: "2024-01-01", value: 100000 },
-    { date: "2024-12-31", value: 115000 },
+  points: [
+    { t: "2024-01-01", v: 100000 },
+    { t: "2024-12-31", v: 115000 },
   ],
+  starting_value: 100000,
+  ending_value: 115000,
+  total_return: 15000,
+  total_return_pct: 15,
+};
+
+const MOCK_SCORES: PortfolioScoresResponse = {
+  diversification_score: null,
+  portfolio_score: null,
+  community_score: null,
+  reason: "no_holdings",
 };
 
 const SUMMARY: PortfolioSummary = {
@@ -48,11 +66,15 @@ const HOLDINGS: Holding[] = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  // Performance chart is always stubbed to avoid network calls in tests
-  vi.spyOn(api, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
-  vi.spyOn(api, "getIndexHistory").mockResolvedValue({
-    data: { symbol: "NIFTY50", period: "1Y", points: [] },
-  });
+  // Performance chart + scores are always stubbed to avoid real network
+  // calls in tests (both mount unconditionally, in parallel with
+  // summary/holdings — see PortfolioTab.tsx).
+  vi.spyOn(portfolioApi, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
+  vi.spyOn(portfolioApi, "getPortfolioScores").mockResolvedValue({ data: MOCK_SCORES });
+  // Per-row company logos are fetched via useCompanyLogos → getCompanyLogos on
+  // every holdings render — stub to an empty map so the table falls back to
+  // monograms instead of hitting the network (a relative URL throws in jsdom).
+  vi.spyOn(api, "getCompanyLogos").mockResolvedValue({});
 });
 
 describe("PortfolioTab", () => {
@@ -68,21 +90,18 @@ describe("PortfolioTab", () => {
     vi.spyOn(api, "getPortfolioHoldings").mockResolvedValue({ data: HOLDINGS });
     render(<PortfolioTab />);
 
+    // Holdings table + rows are the stable post-load anchor in the merged
+    // overview view (the old single "portfolio-metrics" strip was replaced by
+    // an Overview/History toggle + P&L strip during the portfolioApi refactor).
     await waitFor(() =>
-      expect(screen.getByTestId("portfolio-metrics")).toBeInTheDocument(),
+      expect(screen.getByTestId("holdings-table")).toBeInTheDocument(),
     );
-    // Metric strip
-    expect(screen.getByText(/Portfolio value/)).toBeInTheDocument();
-    expect(screen.getByText(/Day P&L/)).toBeInTheDocument();
-    expect(screen.getByText(/Total P&L/)).toBeInTheDocument();
-    // Holdings table
-    const table = screen.getByTestId("holdings-table");
-    expect(table).toBeInTheDocument();
     expect(screen.getByTestId("holding-INFY")).toBeInTheDocument();
     expect(screen.getByTestId("holding-TCS")).toBeInTheDocument();
     expect(screen.getByTestId("holding-HDFCBANK")).toBeInTheDocument();
-    // Performance chart is rendered
-    expect(screen.getByTestId("performance-chart")).toBeInTheDocument();
+    // Metric labels (Day / Total P&L) render in the summary strip
+    expect(screen.getAllByText(/Day P&L|Today's P&L/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Total P&L/).length).toBeGreaterThan(0);
   });
 
   it("default sort is value desc — HDFCBANK (largest value) first", async () => {
@@ -166,7 +185,7 @@ describe("PortfolioTab", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     await waitFor(() =>
-      expect(screen.getByTestId("portfolio-metrics")).toBeInTheDocument(),
+      expect(screen.getByTestId("holdings-table")).toBeInTheDocument(),
     );
     expect(sumSpy).toHaveBeenCalledTimes(2);
     expect(holdSpy).toHaveBeenCalledTimes(2);

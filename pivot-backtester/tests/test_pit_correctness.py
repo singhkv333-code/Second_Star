@@ -47,8 +47,15 @@ async def test_x_visible_after_annual_filed(pg_conn: asyncpg.Connection):
 async def test_ttm_requires_four_quarters(pg_conn: asyncpg.Connection):
     """X has 4 quarterly net_profit rows ranging 2019-09-30 .. 2020-06-30,
     last availability_date 2020-08-10. Before that, fewer than 4 are visible
-    → TTM CTE returns nothing → X is excluded."""
-    # At 2020-05-16, only Sep-19, Dec-19, Mar-20 are filed (3 quarters).
+    → the quarterly TTM leg returns nothing.
+
+    The compiler now also has an *annual fallback* (TTM = latest annual when 4
+    quarters aren't present), but the FY20 annual row only becomes visible at
+    2020-08-15 — after the 3-quarter date below — so at 2020-05-16 neither leg
+    produces a value and X is still excluded. (This is also what keeps the
+    period_kind guard honest: quarterly rows never leak into the annual leg.)"""
+    # At 2020-05-16, only Sep-19, Dec-19, Mar-20 are filed (3 quarters), and the
+    # FY20 annual row (avail 2020-08-15) is not yet visible either.
     snap_partial = await universe_at(pg_conn, "net_profit_ttm > 0", dt.date(2020, 5, 16))
     assert "X" not in _ids(snap_partial), (
         "TTM with only 3 visible quarters should not produce a value."

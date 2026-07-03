@@ -2,11 +2,25 @@
 
 Confirms a fresh user lands on a populated Agents tab + Portfolio order
 history, and that re-running the seeder is a no-op (idempotent).
+
+Conftest disables seeding for the rest of the suite via
+DEMO_SEED_ON_REGISTER=0; this file opts back in at module level so the
+seeder actually runs during these tests.
 """
+import os
 import uuid
+
+import pytest
 
 from backend.models import TradeLog, Workflow, WorkflowStatus
 from backend.services.demo_seeder import seed_demo_data
+
+
+@pytest.fixture(autouse=True)
+def _enable_seeder(monkeypatch):
+    """Re-enable the demo seeder for this test module only."""
+    monkeypatch.setenv("DEMO_SEED_ON_REGISTER", "1")
+    yield
 
 
 def test_register_seeds_demo_workflows_and_trades(client, db):

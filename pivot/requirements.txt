@@ -20,6 +20,7 @@ python-multipart==0.0.12
 
 # Cache
 redis==5.1.1
+certifi==2026.4.22  # CA bundle for the Azure Managed Redis TLS connection (rediss://)
 
 # HTTP client (for Sarvam AI, external APIs)
 httpx==0.27.2
@@ -38,6 +39,14 @@ scipy>=1.10.0
 # pandas_ta is unmaintained on PyPI for Python 3.11/3.12; use the maintained fork
 pandas_ta_classic>=0.4
 
+# F&O Greeks/IV (P0). py_vollib_vectorized = Jäckel rational IV solver
+# (vectorized, numba-JIT) for chain screening; py_vollib (scalar) is the
+# unit-test oracle for the owned Black-76 module. Both are OPTIONAL at
+# runtime — backend/market/greeks/iv.py falls back to an owned
+# Newton-Raphson+Brent solver when the numba toolchain isn't available.
+py_vollib>=1.0.1
+py_vollib_vectorized>=0.1.1
+
 # Scheduler (SIP + strategy cron jobs)
 apscheduler==3.10.4
 
@@ -47,8 +56,12 @@ pytz==2024.2
 # JSON Schema validation (workflow step config validation, draft 2020-12)
 jsonschema==4.23.0
 
-# Logging
+# Logging + observability
 structlog==24.4.0
+sentry-sdk[fastapi]==2.18.0
+
+# Encryption (Fernet for Kite tokens at rest)
+cryptography==43.0.1
 
 # Testing
 pytest==8.3.3
@@ -56,3 +69,18 @@ pytest-asyncio==0.24.0
 
 # Utilities
 python-dotenv==1.0.1
+
+# News & Event Trigger — Phase 3 article-body extraction
+trafilatura==1.12.2
+
+# News & Event Trigger — Phase 7 Telegram MTProto channel reader
+# (Tier-A push transport per docs/news_events_phase7_*.md). Pin to a
+# 1.x release — Telethon 2.x has breaking API changes.
+telethon>=1.36,<2.0
+
+# Runtime deps the app imports but were previously absent here (the venv
+# failed to boot without asyncpg, and compare_performance crashed without
+# `ta`). Versions verified working against the live chat path.
+asyncpg==0.31.0          # backend/routers/expr_backtest.py
+openai>=1.40             # LLM client (Azure + OpenAI fallback)
+ta==0.11.0               # technical-analysis indicators (compare_performance)

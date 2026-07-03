@@ -101,8 +101,68 @@ function rep(value: unknown): string {
 
 function formatSchedule(c: Record<string, unknown>): string {
   const cron = str(c.cron);
-  const tz = str(c.timezone, "Asia/Kolkata");
-  return cron ? `${cron} (${tz})` : "(no schedule set)";
+  if (!cron) return "(no schedule set)";
+  return humanizeCron(cron) ?? cron;
+}
+
+/**
+ * Convert the small set of cron patterns the chat actually emits into a
+ * short human-readable phrase. Returns null for anything we don't
+ * recognise so the caller can fall back to the raw expression.
+ *
+ *   "30 9 1 * *"     → "1st of every month at 9:30 AM"
+ *   "55 15 * * 1-5"  → "Weekdays at 3:55 PM"
+ *   "0 9 * * 1"      → "Mondays at 9:00 AM"
+ *   "0 9 * * *"      → "Every day at 9:00 AM"
+ */
+function humanizeCron(cron: string): string | null {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [pm, ph, pdom, pmonth, pdow] = parts as [string, string, string, string, string];
+  if (pmonth !== "*") return null;
+  if (!/^\d+$/.test(pm) || !/^\d+$/.test(ph)) return null;
+
+  const minute = parseInt(pm, 10);
+  const hour24 = parseInt(ph, 10);
+  if (minute < 0 || minute > 59 || hour24 < 0 || hour24 > 23) return null;
+  const time = formatTime12h(hour24, minute);
+
+  if (pdom !== "*" && pdow === "*") {
+    if (!/^\d+$/.test(pdom)) return null;
+    return `${ordinal(parseInt(pdom, 10))} of every month at ${time}`;
+  }
+  if (pdom === "*" && pdow !== "*") {
+    if (pdow === "1-5") return `Weekdays at ${time}`;
+    if (pdow === "0,6" || pdow === "6,0") return `Weekends at ${time}`;
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const days = pdow
+      .split(",")
+      .map((t) => (/^\d+$/.test(t) ? dayNames[parseInt(t, 10)] : null))
+      .filter((s): s is string => !!s);
+    if (days.length === 0) return null;
+    return `${days.join(", ")} at ${time}`;
+  }
+  if (pdom === "*" && pdow === "*") {
+    return `Every day at ${time}`;
+  }
+  return null;
+}
+
+function formatTime12h(hour24: number, minute: number): string {
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
+function ordinal(n: number): string {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
 }
 
 function genericPreview(c: Record<string, unknown>): string {

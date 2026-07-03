@@ -1,53 +1,63 @@
 "use client";
 
 /**
- * DashboardTab — Quartr-style premium home dashboard.
+ * DashboardTab — Quartr-design chat surface.
  *
- * Center pane: 4 index cards (NIFTY 50 / SENSEX / BANK NIFTY / NIFTY MIDCAP 100),
- * greeting, action chips, and a big chat input.
+ * Until the user sends their first message we render a Quartr-style
+ * landing: a large serif greeting and a row of pill-shaped quick-action
+ * chips. Once a message lands `ChatDemo` hides the intro and the
+ * transcript fills the pane with the composer pinned at the bottom.
+ *
+ * Visual port from frontend-quartr/src/components/chat/ChatLanding.jsx
+ * with the dark-only Quartr palette converted to a light/dark theme that
+ * follows the global theme toggle. Visual/CSS only — no JS interactions
+ * change.
  *
  * Data sources:
- *   - GET /api/markets/indices  — index strip
- *   - GET /auth/me              — greeting name
+ *   - GET /auth/me              — greeting initial
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  ArrowRight,
-  BarChart2,
-  BookOpen,
+  Activity,
+  ArrowUpRight,
   CalendarDays,
-  Heart,
+  FileText,
   Newspaper,
-  Rocket,
+  Play,
   TrendingUp,
+  Workflow,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import {
-  getMarketIndices,
   getMe,
-  type IndexQuote,
   type UserProfile,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { ChatDemo, type ChatDemoSeed, type ResumeConversation } from "@/components/chat/ChatDemo";
+import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
+import type { Workflow as WorkflowT } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type DashboardTabProps = {
-  /** Called when user submits the chat input — parent routes to chat tab. */
-  onSubmitPrompt: (prompt: string) => void;
-  /** Called when user clicks Calendar chip — parent switches to calendar tab. */
+  /** Open the workflow editor panel (forwarded to ChatDemo). */
+  onOpenWorkflow: (workflow: WorkflowT) => void;
+  /** Called when user clicks the Agents Calendar chip — parent switches tab. */
   onOpenCalendar: () => void;
+  /** Forwarded from ChatDemo: true once the user has sent ≥1 message.
+   * AppShell uses this to hide the Active Agents rail. */
+  onChatActiveChange?: (active: boolean) => void;
+  /**
+   * Called when a chat turn yields a new or amended workflow_draft_card.
+   * AppShell uses this to push the draft into the bound editor.
+   */
+  onDraftFromChat?: (draft: WorkflowT) => void;
+  /** Resume a persisted sidebar conversation (forwarded to ChatDemo). */
+  resume?: ResumeConversation;
 };
-
-type IndicesState =
-  | { kind: "loading" }
-  | { kind: "ok"; items: IndexQuote[] }
-  | { kind: "hidden" }; // 503 — hide silently
 
 type MeState =
   | { kind: "loading" }
@@ -55,37 +65,113 @@ type MeState =
   | { kind: "fallback"; name: string };
 
 // ---------------------------------------------------------------------------
-// Action chips
+// Action chips — labels mirrored from frontend-quartr/.../ChatLanding.jsx
+// (icons aligned 1:1 with that file).
 // ---------------------------------------------------------------------------
 
 type ChipDef = {
   label: string;
-  Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties; "aria-hidden"?: boolean }>;
   prompt?: string;
-  action?: "calendar";
+  action?: "calendar" | "demo";
 };
 
 const ACTION_CHIPS: ChipDef[] = [
-  { label: "Generate Report", Icon: BookOpen, prompt: "Generate a portfolio performance report for this week." },
-  { label: "Run Agent", Icon: Rocket, prompt: "Show me my active agents and their last run status." },
-  { label: "Portfolio Health", Icon: Heart, prompt: "Analyze my portfolio health and suggest any rebalancing." },
-  { label: "Market Pulse", Icon: TrendingUp, prompt: "Give me a market pulse summary for today." },
-  { label: "Top Movers", Icon: BarChart2, prompt: "What are the top movers in NIFTY 50 today?" },
-  { label: "Earnings Calendar", Icon: CalendarDays, action: "calendar" },
-  { label: "News Digest", Icon: Newspaper, prompt: "Summarize today's top financial news." },
+  // Offline scripted demo — bypasses the LLM (currently disabled due to
+  // low API balance) and plays a canned workflow-draft response with
+  // the editor panel popping out alongside.
+  { label: "Play demo (offline)", Icon: Play, action: "demo" },
+  { label: "Generate Report",   Icon: FileText,     prompt: "Generate a portfolio performance report for this week." },
+  { label: "Run Agent",         Icon: Workflow,     prompt: "Show me my active agents and their last run status." },
+  { label: "Portfolio Health",  Icon: Activity,     prompt: "Analyze my portfolio health and suggest any rebalancing." },
+  { label: "Market Pulse",      Icon: TrendingUp,   prompt: "Give me a market pulse summary for today." },
+  { label: "Top Movers",        Icon: ArrowUpRight, prompt: "What are the top movers in NIFTY 50 today?" },
+  { label: "Agents Calendar",   Icon: CalendarDays, action: "calendar" },
+  { label: "News-gated trade",  Icon: Newspaper,    prompt: "Buy 5 RELIANCE at open. At 10 AM IST, if RBI announces a repo rate cut, sell my entire RELIANCE holding; otherwise hold for the day." },
 ];
 
 // ---------------------------------------------------------------------------
-// INR formatter
+// Offline demo seed — the "Play demo" chip wires this into ChatDemo so the
+// chat shows a user prompt → simulated streaming → workflow draft card,
+// and the right-side editor panel opens with the same workflow loaded.
+// Tweak freely; the shape is the same one the backend would emit on a
+// successful `propose_workflow` tool call.
 // ---------------------------------------------------------------------------
 
-function fmtValue(n: number): string {
-  // For index values, skip currency symbol and use plain number formatting
-  return new Intl.NumberFormat("en-IN", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  }).format(n);
-}
+const DEMO_USER_PROMPT =
+  "Every weekday at 3:00 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and email me the confirmation.";
+
+const DEMO_DRAFT: WorkflowDraft = {
+  name: "RELIANCE 3:00 PM buy",
+  description:
+    "Every weekday at 3:00 PM IST, if buying power is over ₹50,000, buy 10 shares of RELIANCE and notify by email.",
+  steps: [
+    {
+      step_type: "trigger.schedule",
+      label: "Every weekday at 3:00 PM IST",
+      config: { cron: "0 15 * * 1-5", timezone: "Asia/Kolkata" },
+    },
+    {
+      step_type: "fetch.portfolio",
+      label: "Get my portfolio",
+      config: {},
+    },
+    {
+      step_type: "condition.numeric",
+      label: "Buying power above ₹50,000",
+      config: {
+        left: "{{ context.1.buying_power }}",
+        operator: ">",
+        right: 50000,
+      },
+    },
+    {
+      step_type: "action.place_order",
+      label: "Buy 10 RELIANCE",
+      config: {
+        symbol: "RELIANCE",
+        side: "buy",
+        quantity: 10,
+        order_type: "market",
+        requires_approval: true,
+      },
+    },
+    {
+      step_type: "notify.message",
+      label: "Email me a confirmation",
+      config: {
+        channel: "email",
+        template: "Bought {{ context.3.broker_order_id }}: 10 RELIANCE",
+        vars: {},
+      },
+    },
+  ],
+  rationale:
+    "Daily schedule fires at 3:00 PM IST; the portfolio fetch + numeric guard prevents over-leveraged orders. Approval is required before the order is placed.",
+  warnings: [
+    "Market orders fill at the next available price — buying power check is a guard, not a guarantee.",
+  ],
+  _render_hint: "workflow_draft_card",
+};
+
+const DEMO_INTRO =
+  "Got it — here's a draft workflow for that strategy. Review the steps on the right and activate when ready.";
+
+const DEMO_SEED: ChatDemoSeed = {
+  userText: DEMO_USER_PROMPT,
+  intro: DEMO_INTRO,
+  draft: DEMO_DRAFT,
+};
+
+const MORE_EXAMPLE_PROMPTS: string[] = [
+  "If Apple confirms iPhone manufacturing expansion in India by Friday, buy a basket of 5 Indian electronics manufacturing stocks.",
+  "At market open, buy 10 HDFCBANK. By 2 PM, if SEBI penalises any large private bank, short HDFCBANK to neutral; otherwise hold.",
+  "If Moody's upgrades India's sovereign rating before Friday close, buy a basket of large-cap PSU banks.",
+];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function getHourGreeting(): string {
   const h = new Date().getHours();
@@ -94,43 +180,47 @@ function getHourGreeting(): string {
   return "Good Evening";
 }
 
+/** Pick the friendliest display name we can: prefer the user's first
+ *  name (full_name split on whitespace), fall back to the email prefix
+ *  before the @ sign, then to "there". Mirrors the greeting's
+ *  conversational tone. */
+function getDisplayName(name: string | null | undefined, email: string | null | undefined): string {
+  const trimmed = (name || "").trim();
+  if (trimmed) return trimmed.split(/\s+/)[0]!;
+  const e = (email || "").trim();
+  if (e) {
+    const local = e.split("@")[0]!;
+    // De-clutter auto-registered demo accounts like "demo_motpgygl_..."
+    if (/^demo[_\d]/i.test(local)) return "there";
+    return local;
+  }
+  return "there";
+}
+
 // ---------------------------------------------------------------------------
 // DashboardTab
 // ---------------------------------------------------------------------------
 
 export function DashboardTab({
-  onSubmitPrompt,
+  onOpenWorkflow,
   onOpenCalendar,
+  onChatActiveChange,
+  onDraftFromChat,
+  resume,
 }: DashboardTabProps): React.ReactElement {
-  const [indices, setIndices] = useState<IndicesState>({ kind: "loading" });
   const [me, setMe] = useState<MeState>({ kind: "loading" });
-  const [prompt, setPrompt] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
+  const [showMoreExamples, setShowMoreExamples] = useState(false);
+  const [demoSeed, setDemoSeed] = useState<ChatDemoSeed | undefined>(undefined);
 
   useEffect(() => {
-    getMarketIndices()
-      .then((result) => {
-        if (isError(result)) {
-          // Any error — hide strip, don't block dashboard
-          setIndices({ kind: "hidden" });
-          return;
-        }
-        setIndices({ kind: "ok", items: result.data.items });
-      })
-      .catch(() => setIndices({ kind: "hidden" }));
-
     getMe()
       .then((result) => {
         if (isError(result)) {
           setMe({ kind: "fallback", name: "Trader" });
           return;
         }
-        const p = result.data;
-        const displayName =
-          p.full_name && p.full_name.trim().length > 0
-            ? p.full_name.split(" ")[0]
-            : p.email.split("@")[0];
-        setMe({ kind: "ok", profile: { ...p, full_name: displayName ?? null } });
+        setMe({ kind: "ok", profile: result.data });
       })
       .catch(() => setMe({ kind: "fallback", name: "Trader" }));
   }, []);
@@ -138,7 +228,7 @@ export function DashboardTab({
   const greeting = getHourGreeting();
   const displayName =
     me.kind === "ok"
-      ? (me.profile.full_name ?? "Trader")
+      ? getDisplayName(me.profile.full_name, me.profile.email)
       : me.kind === "fallback"
         ? me.name
         : null;
@@ -148,187 +238,207 @@ export function DashboardTab({
       onOpenCalendar();
       return;
     }
-    if (chip.prompt) {
-      onSubmitPrompt(chip.prompt);
+    if (chip.action === "demo") {
+      // Re-seed by passing a fresh object so React's Object.is check fires
+      // even if the user clicks "Play demo" repeatedly after a "New chat".
+      setDemoSeed({ ...DEMO_SEED });
+      return;
     }
+    if (chip.prompt) setPendingPrompt(chip.prompt);
   };
 
-  const handleSubmit = (): void => {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
-    onSubmitPrompt(trimmed);
-    setPrompt("");
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-8" data-testid="dashboard-tab">
-      {/* Index strip */}
-      <IndexStrip state={indices} />
-
-      {/* Greeting */}
-      <div>
-        {displayName ? (
-          <h1
-            className="font-serif text-3xl font-semibold tracking-tight text-foreground"
-            data-testid="dashboard-greeting"
-          >
-            {greeting}, {displayName}!
-          </h1>
-        ) : (
-          <Skeleton className="h-9 w-64" data-testid="greeting-loading" />
-        )}
-        <p className="mt-1 text-sm text-muted-foreground">
-          {new Date().toLocaleDateString("en-IN", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </p>
-      </div>
-
-      {/* Action chips */}
-      <div
-        className="flex flex-wrap gap-2"
-        role="group"
-        aria-label="Quick actions"
-      >
-        {ACTION_CHIPS.map((chip) => (
-          <button
-            key={chip.label}
-            type="button"
-            onClick={() => handleChipClick(chip)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-full border bg-card px-3.5 py-1.5",
-              "text-xs font-medium text-foreground",
-              "hover:bg-muted/60 hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "transition-colors",
-            )}
-          >
-            <chip.Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden={true} />
-            {chip.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Big chat input */}
-      <div className="rounded-2xl border bg-card shadow-sm">
-        <textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask Pivot anything about your portfolio, markets, or strategies…"
-          rows={3}
-          aria-label="Chat input"
-          data-testid="dashboard-chat-input"
-          className={cn(
-            "w-full resize-none rounded-t-2xl bg-transparent px-5 pt-4 pb-2",
-            "text-sm placeholder:text-muted-foreground/60",
-            "focus:outline-none",
-          )}
+  // ── Quartr-style empty-state intro: greeting + quick-action chips
+  //    centered. The dashboard intro replaces ChatDemo's default tip
+  //    card via the `intro` prop.
+  const intro = (
+    <div
+      className="relative flex w-full flex-col items-center"
+      style={{ gap: 28 }}
+      data-testid="dashboard-intro"
+    >
+      {/* Greeting — serif (--font-experiment), 36–46px, weight 550, tight tracking */}
+      {displayName !== null ? (
+        <h1 className="q-greeting" data-testid="dashboard-greeting">
+          {greeting}, {displayName}!
+        </h1>
+      ) : (
+        <Skeleton
+          style={{ height: 46, width: "min(360px, 80vw)" }}
+          data-testid="greeting-loading"
         />
-        <div className="flex items-center justify-between border-t px-4 py-2.5">
-          <span className="text-[11px] text-muted-foreground">
-            Cmd+Enter to send
-          </span>
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!prompt.trim()}
-            className="h-7 gap-1.5 rounded-full px-3 text-xs"
-            aria-label="Send message"
-            data-testid="dashboard-chat-submit"
+      )}
+
+      {/* Quick action pills */}
+      <div
+        className="flex w-full flex-col items-center"
+        style={{ gap: 10, maxWidth: 820 }}
+      >
+        <div
+          className="flex w-full flex-wrap items-center justify-center"
+          style={{ gap: 8 }}
+          role="group"
+          aria-label="Quick actions"
+        >
+          {ACTION_CHIPS.map((chip) => (
+            <ActionChip key={chip.label} chip={chip} onClick={() => handleChipClick(chip)} />
+          ))}
+        </div>
+
+        {/* "Show more examples" toggle — reveals news-gated workflow prompts */}
+        <div className="flex w-full flex-col items-center" style={{ gap: 8 }}>
+          <button
+            type="button"
+            aria-expanded={showMoreExamples}
+            onClick={() => setShowMoreExamples((v) => !v)}
+            style={{
+              fontSize: 11.5,
+              color: "var(--text-tertiary)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "2px 6px",
+              borderRadius: "var(--radius-xs)",
+              fontFamily: "var(--font-ui)",
+              transition: "color 0.2s var(--ease-quartr)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-tertiary)"; }}
           >
-            Send
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden={true} />
-          </Button>
+            {showMoreExamples ? "Hide examples" : "Show more examples"}
+          </button>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              gap: 8,
+              maxWidth: 820,
+              opacity: showMoreExamples ? 1 : 0,
+              // Generous cap so the prompts never clip — on phone they
+              // wrap to many rows. The transition still feels right
+              // because it animates from 0 toward the cap and natural
+              // content height stops it visually.
+              maxHeight: showMoreExamples ? 1200 : 0,
+              overflow: "hidden",
+              transition: "opacity 0.25s var(--ease-quartr), max-height 0.3s var(--ease-quartr)",
+              pointerEvents: showMoreExamples ? "auto" : "none",
+            }}
+          >
+            {MORE_EXAMPLE_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => setPendingPrompt(prompt)}
+                className="inline-flex items-center"
+                style={{
+                  gap: 8,
+                  padding: "9px 14px",
+                  background: "var(--bg-base)",
+                  border: "1px solid var(--glass-border)",
+                  borderRadius: "var(--radius-pill)",
+                  color: "var(--text-secondary)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12.5,
+                  fontWeight: "var(--weight-medium)" as unknown as number,
+                  cursor: "pointer",
+                  maxWidth: 380,
+                  textAlign: "left",
+                  lineHeight: 1.4,
+                  transition:
+                    "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr), border-color 0.35s var(--ease-quartr)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--text-primary)";
+                  e.currentTarget.style.borderColor = "var(--glass-border-hover)";
+                  e.currentTarget.style.background = "var(--bg-elevated)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                  e.currentTarget.style.borderColor = "var(--glass-border)";
+                  e.currentTarget.style.background = "var(--bg-base)";
+                }}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Index strip
-// ---------------------------------------------------------------------------
-
-function IndexStrip({ state }: { state: IndicesState }): React.ReactElement | null {
-  if (state.kind === "hidden") return null;
-
-  if (state.kind === "loading") {
-    return (
-      <div
-        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
-        data-testid="index-strip-loading"
-        aria-label="Loading market indices"
-      >
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 rounded-xl" />
-        ))}
-      </div>
-    );
-  }
 
   return (
     <div
-      className="grid grid-cols-2 gap-3 sm:grid-cols-4"
-      data-testid="index-strip"
-      role="list"
-      aria-label="Market indices"
+      className="flex h-full min-h-0 w-full flex-col"
+      data-testid="dashboard-tab"
+      style={{ background: "var(--bg-base)" }}
     >
-      {state.items.map((q) => (
-        <IndexCard key={q.symbol} quote={q} />
-      ))}
+      <ChatDemo
+        onOpenEditor={onOpenWorkflow}
+        intro={intro}
+        prefill={pendingPrompt}
+        prefillAutoSubmit
+        onPrefillConsumed={() => setPendingPrompt(undefined)}
+        onActiveChange={onChatActiveChange}
+        demoSeed={demoSeed}
+        onDemoSeedConsumed={() => setDemoSeed(undefined)}
+        onDraftFromChat={onDraftFromChat}
+        resume={resume}
+      />
     </div>
   );
 }
 
-function IndexCard({ quote }: { quote: IndexQuote }): React.ReactElement {
-  const positive = quote.change >= 0;
+// ---------------------------------------------------------------------------
+// ActionChip — Quartr pill with leading icon, hover lifts surface
+// ---------------------------------------------------------------------------
+
+function ActionChip({
+  chip,
+  onClick,
+}: {
+  chip: ChipDef;
+  onClick: () => void;
+}): React.ReactElement {
+  const { Icon, label } = chip;
   return (
-    <div
-      className="flex flex-col gap-1 rounded-xl border bg-card px-4 py-3"
-      role="listitem"
-      aria-label={`${quote.name}: ${fmtValue(quote.value)}`}
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center"
+      style={{
+        gap: 8,
+        padding: "9px 14px",
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-pill)",
+        color: "var(--text-secondary)",
+        fontFamily: "var(--font-ui)",
+        fontSize: 13,
+        fontWeight: "var(--weight-medium)" as unknown as number,
+        cursor: "pointer",
+        transition:
+          "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr), border-color 0.35s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = "var(--text-primary)";
+        e.currentTarget.style.borderColor = "var(--glass-border-hover)";
+        e.currentTarget.style.background = "var(--bg-elevated)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = "var(--text-secondary)";
+        e.currentTarget.style.borderColor = "var(--glass-border)";
+        e.currentTarget.style.background = "var(--bg-base)";
+      }}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {quote.name}
-      </span>
-      <span className="font-serif text-xl font-semibold tabular-nums text-foreground">
-        {fmtValue(quote.value)}
-      </span>
-      <div className="flex items-center gap-1.5">
-        <span
-          className={cn(
-            "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
-            positive
-              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400"
-              : "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400",
-          )}
-        >
-          {positive ? "+" : ""}
-          {quote.change_pct.toFixed(2)}%
-        </span>
-        <span
-          className={cn(
-            "text-[10px] tabular-nums",
-            positive
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-rose-600 dark:text-rose-400",
-          )}
-        >
-          {positive ? "+" : ""}
-          {fmtValue(quote.change)}
-        </span>
-      </div>
-    </div>
+      <Icon
+        size={14}
+        strokeWidth={1.75}
+        style={{ color: "var(--text-tertiary)" }}
+        aria-hidden={true}
+      />
+      {label}
+    </button>
   );
 }
+

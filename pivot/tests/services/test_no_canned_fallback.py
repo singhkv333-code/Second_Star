@@ -2,7 +2,7 @@
 
 This test does NOT hit the live LLM (it would be slow and flaky). Instead it
 verifies the *upstream* fix: the canned line is no longer in the system
-prompt, so Sarvam can't be instructed to emit it.
+prompt, so the LLM can't be instructed to emit it.
 
 The downstream regression test lives in `pivot-eval` — every full eval run
 will fail any case whose response contains the canned pitch (auto_fail).
@@ -22,7 +22,7 @@ def test_system_prompt_does_not_instruct_canned_pitch():
     text = system_prompt()
     assert CANNED not in text, (
         "The 4-line marketing pitch is still in the system prompt — "
-        "Sarvam will keep emitting it on greetings."
+        "the LLM will keep emitting it on greetings."
     )
 
 

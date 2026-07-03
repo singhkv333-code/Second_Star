@@ -25,31 +25,10 @@ def test_tool_count():
     assert len(ALL_TOOLS) >= 40
 
 
-def test_extract_emulated_tool_call_parses_block():
-    from backend.agents.sarvam_client import _extract_emulated_tool_call
-    raw = (
-        'Here is the SIP plan.\n'
-        '<TOOL_CALL>{"name":"create_sip","arguments":{"symbol":"NIFTYBEES",'
-        '"amount_inr":5000,"frequency":"monthly","day_of_month":1}}</TOOL_CALL>'
-    )
-    text, call = _extract_emulated_tool_call(raw)
-    assert call is not None
-    assert call["name"] == "create_sip"
-    assert call["arguments"]["symbol"] == "NIFTYBEES"
-    assert call["arguments"]["amount_inr"] == 5000
-    assert "<TOOL_CALL>" not in text
-
-
-def test_extract_emulated_tool_call_returns_none_for_plain_text():
-    from backend.agents.sarvam_client import _extract_emulated_tool_call
-    text, call = _extract_emulated_tool_call("Just a normal answer.")
-    assert call is None
-    assert text == "Just a normal answer."
-
-
-def test_build_tool_instruction_contains_tool_names():
-    from backend.agents.sarvam_client import _build_tool_instruction
-    from backend.agents.tools import get_tools_for_subset
-    instruction = _build_tool_instruction(get_tools_for_subset("ORDER_RECURRING"))
-    assert "create_sip" in instruction
-    assert "<TOOL_CALL>" in instruction
+# Removed: test_extract_emulated_tool_call_* and test_build_tool_instruction_*
+# These covered Sarvam-specific tool-emulation helpers in the old
+# backend.agents.sarvam_client module. That module was deleted when the
+# 4 callers (chart_parser, symbol_mapper, backtester/parser, router)
+# migrated to native function-calling via backend.llm.factory.get_llm_client.
+# The new code path uses the provider's native tools API; there is no
+# <TOOL_CALL> block emulation to test.

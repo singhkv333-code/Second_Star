@@ -35,7 +35,13 @@ def test_index_history_unauth(client: TestClient) -> None:
 def test_index_history_resolves_nifty50(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
-    """NIFTY50 must resolve to ^NSEI when calling yfinance underneath."""
+    """NIFTY50 must resolve to ^NSEI when calling yfinance underneath.
+
+    The sparkline endpoint Redis-caches the yfinance fallback response
+    (symbol+range+interval keyed); bypass the cache read/write here so
+    this test always exercises the live (mocked) fetch path instead of
+    a stale entry left by a prior run using the same ^NSEI:1Y key.
+    """
     captured: dict[str, str] = {}
 
     def capturing_ticker(sym: str) -> _FakeTicker:
@@ -43,6 +49,10 @@ def test_index_history_resolves_nifty50(
         return _FakeTicker(_series([100.0, 110.0, 120.0]))
 
     with patch(
+        "backend.routers.markets.redis_client.get", return_value=None
+    ), patch(
+        "backend.routers.markets.redis_client.setex", return_value=None
+    ), patch(
         "backend.routers.markets.yf.Ticker",
         side_effect=capturing_ticker,
     ):
@@ -61,13 +71,18 @@ def test_index_history_resolves_nifty50(
 def test_index_history_resolves_sensex(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
+    """Bypass the sparkline Redis cache — see the nifty50 test above."""
     captured: dict[str, str] = {}
 
     def capturing(sym: str) -> _FakeTicker:
         captured["sym"] = sym
         return _FakeTicker(_series([1.0, 2.0]))
 
-    with patch("backend.routers.markets.yf.Ticker", side_effect=capturing):
+    with patch(
+        "backend.routers.markets.redis_client.get", return_value=None
+    ), patch(
+        "backend.routers.markets.redis_client.setex", return_value=None
+    ), patch("backend.routers.markets.yf.Ticker", side_effect=capturing):
         r = client.get(
             "/api/quotes/index/SENSEX/history",
             headers=auth_headers,
@@ -101,14 +116,21 @@ def test_index_history_invalid_period_returns_422(
 def test_index_history_passthrough_for_caret_symbols(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
-    """Advanced users can pass ^NSEBANK directly; should not 404."""
+    """Advanced users can pass ^NSEBANK directly; should not 404.
+
+    Bypass the sparkline Redis cache — see the nifty50 test above.
+    """
     captured: dict[str, str] = {}
 
     def capturing(sym: str) -> _FakeTicker:
         captured["sym"] = sym
         return _FakeTicker(_series([1.0]))
 
-    with patch("backend.routers.markets.yf.Ticker", side_effect=capturing):
+    with patch(
+        "backend.routers.markets.redis_client.get", return_value=None
+    ), patch(
+        "backend.routers.markets.redis_client.setex", return_value=None
+    ), patch("backend.routers.markets.yf.Ticker", side_effect=capturing):
         r = client.get(
             "/api/quotes/index/^NSEBANK/history",
             headers=auth_headers,

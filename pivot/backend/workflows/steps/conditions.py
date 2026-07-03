@@ -17,6 +17,8 @@ from typing import Any, Optional
 from backend.workflows.engine import _ConditionFail
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
+    ConditionBooleanConfig,
+    ConditionCompoundConfig,
     ConditionMarketStatusConfig,
     ConditionNumericConfig,
     ConditionPositionConfig,
@@ -79,13 +81,17 @@ def _evaluate(left: float, op: str, right: float) -> bool:
 @register_step(
     step_type="condition.numeric",
     category="condition",
-    label="Numeric check",
-    description="Compare two numbers (or refs) with an operator",
+    label="Compare numbers",
+    description=(
+        "Continue only if two numbers (or earlier-step values) satisfy "
+        "your comparison — e.g. price ≥ 2500."
+    ),
     icon="equal",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionNumericConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Compare values",
 )
 async def execute_condition_numeric(ctx: Any) -> Optional[dict[str, Any]]:
     """Refs in `left`/`right` have already been resolved by the engine.
@@ -101,16 +107,69 @@ async def execute_condition_numeric(ctx: Any) -> Optional[dict[str, Any]]:
     raise _ConditionFail
 
 
+def _coerce_bool(v: Any) -> bool:
+    """Refs may resolve to a Python bool, a "true"/"false" string, or
+    a 0/1 int. Coerce all three to the canonical bool; raise otherwise."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return bool(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("true", "1", "yes", "y", "on"):
+            return True
+        if s in ("false", "0", "no", "n", "off", ""):
+            return False
+        raise ValueError(
+            f"condition.boolean.left resolved to {v!r} — expected boolean"
+        )
+    raise ValueError(
+        f"condition.boolean.left resolved to {type(v).__name__} — "
+        f"expected boolean"
+    )
+
+
+@register_step(
+    step_type="condition.boolean",
+    category="condition",
+    label="Check a yes/no value",
+    description=(
+        "Continue only if an earlier step's true/false value matches — "
+        "e.g. news matched = true."
+    ),
+    icon="check-circle",
+    max_retries=0,
+    trigger_only=False,
+    config_model=ConditionBooleanConfig,
+    output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Compare values",
+)
+async def execute_condition_boolean(ctx: Any) -> Optional[dict[str, Any]]:
+    """Boolean equality gate. Pass when ``coerce_bool(left) == value``,
+    otherwise raise ``_ConditionFail`` so the engine completes the run
+    with ``succeeded`` + ``halt_reason='condition_not_met'``."""
+    cfg = ctx.config
+    left = _coerce_bool(cfg["left"])
+    expected = bool(cfg.get("value", True))
+    if left == expected:
+        return {"passed": True}
+    raise _ConditionFail
+
+
 @register_step(
     step_type="condition.market_status",
     category="condition",
     label="Market is open / closed",
-    description="Pass when the NSE market is in the chosen state",
+    description=(
+        "Continue only when the NSE market is in the state you pick "
+        "(open, closed, pre, post)."
+    ),
     icon="calendar-clock",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionMarketStatusConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Gates",
 )
 async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when NSE market is in the chosen state. Reuses the shared
@@ -128,13 +187,17 @@ async def execute_condition_market_status(ctx: Any) -> Optional[dict[str, Any]]:
 @register_step(
     step_type="condition.position",
     category="condition",
-    label="Position held / not held",
-    description="Pass when the symbol is (or isn't) in your portfolio",
+    label="Position is held / not held",
+    description=(
+        "Continue based on whether a symbol is currently in your "
+        "portfolio."
+    ),
     icon="briefcase",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionPositionConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Gates",
 )
 async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when the symbol is (or isn't) in the user's holdings.
@@ -159,15 +222,75 @@ async def execute_condition_position(ctx: Any) -> Optional[dict[str, Any]]:
 
 
 @register_step(
+    step_type="condition.compound",
+    category="condition",
+    label="Advanced condition (visual builder)",
+    description=(
+        "Continue when a visually-built tree of indicator / price / "
+        "volume conditions holds — collapses many fetch + compare steps "
+        "into one."
+    ),
+    icon="git-branch",
+    max_retries=0,
+    trigger_only=False,
+    config_model=ConditionCompoundConfig,
+    output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Advanced",
+)
+async def execute_condition_compound(ctx: Any) -> Optional[dict[str, Any]]:
+    """Evaluate a DSL tree as a mid-branch gate.
+
+    Walks the tree once with a fresh LiveDataAccessor. Three outcomes:
+      - Ternary.TRUE    → {passed: True}, branch continues.
+      - Ternary.FALSE   → raise _ConditionFail (halt_reason='condition_not_met').
+      - Ternary.UNKNOWN → same halt (Kleene semantics: missing data
+                          does NOT silently pass).
+
+    Stateless — no _last_values plumbing here; conditions evaluate
+    once per fire. crosses_above / crosses_below inside the tree
+    resolve to UNKNOWN (no prior-tick state); use trigger.compound
+    for crossings.
+    """
+    import asyncio
+
+    entry_raw = ctx.config["entry"]
+    if not isinstance(entry_raw, dict):
+        raise ValueError("condition.compound: 'entry' must be a tree object")
+
+    def _evaluate_sync() -> str:
+        # Lazy imports — same pattern as scheduler._evaluate_compound_trigger.
+        from pydantic import TypeAdapter
+        from backend.workflows.dsl.data_accessor import LiveDataAccessor
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+
+        tree = TypeAdapter(Tree).validate_python(entry_raw)
+        result = evaluate(tree, accessor=LiveDataAccessor(), prev_state={})
+        if result.value is Ternary.TRUE:
+            return "true"
+        if result.value is Ternary.FALSE:
+            return "false"
+        return "unknown"
+
+    outcome = await asyncio.to_thread(_evaluate_sync)
+    if outcome == "true":
+        return {"passed": True}
+    raise _ConditionFail
+
+
+@register_step(
     step_type="condition.time_window",
     category="condition",
-    label="Time window",
-    description="Pass when the current time is inside the configured window",
+    label="Within a time window",
+    description=(
+        "Continue only when the current time is inside a window you set."
+    ),
     icon="hourglass",
     max_retries=0,
     trigger_only=False,
     config_model=ConditionTimeWindowConfig,
     output_schema=_CONDITION_OUTPUT_SCHEMA,
+    group="Gates",
 )
 async def execute_condition_time_window(ctx: Any) -> Optional[dict[str, Any]]:
     """Pass when current time in the configured timezone is within

@@ -13,9 +13,7 @@ import { useEffect, useState } from "react";
 import {
   BarChart2,
   CalendarDays,
-  LayoutGrid,
   MessageSquare,
-  Newspaper,
   PieChart,
   Settings,
   MessageCircle,
@@ -34,28 +32,22 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
 
 type TabKey =
-  | "dashboard"
   | "chat"
   | "portfolio"
-  | "news"
   | "agents"
   | "calendar"
-  | "screener"
-  | "backtest";
+  | "screener";
 
 const NAV_ITEMS: {
   key: TabKey;
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { key: "dashboard", label: "Dashboard", Icon: LayoutGrid },
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
-  { key: "news", label: "News", Icon: Newspaper },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
-  { key: "backtest", label: "Backtest", Icon: BarChart2 },
 ];
 
 export type CommandPaletteProps = {

@@ -1,11 +1,24 @@
+# ruff: noqa: E402
+# Logging must be configured before the rest of the backend is imported
+# so every module-level `logging.getLogger(__name__)` inherits the
+# structlog-backed root handler. That forces the call ordering you see
+# below — the file-level noqa silences ruff's import-position checker.
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-import logging
+import structlog
 
 from backend.config import settings
+from backend.observability.logging_setup import configure_logging
+from backend.observability.request_context import RequestContextMiddleware
+
+configure_logging()
+from backend.observability.sentry_setup import configure_sentry
+configure_sentry()
+logger = structlog.get_logger(__name__)
+
 from backend.database import SessionLocal
 from backend.cache import redis_client
 from backend.auth.router import router as auth_router
@@ -17,9 +30,11 @@ from backend.routers.products import router as products_router
 from backend.routers.portfolio import router as portfolio_router
 from backend.routers.backtest import router as backtest_router
 from backend.routers.scheduler import router as scheduler_router
-from backend.routers.kite import router as kite_router
+from backend.routers.brokers import router as brokers_router, callback_alias_router as brokers_callback_alias_router
 from backend.routers.compare import router as compare_router
 from backend.routers.expr_backtest import router as expr_backtest_router
+from backend.routers.pairs_backtest import router as pairs_backtest_router
+from backend.routers.portfolio_backtest import router as portfolio_backtest_router
 from backend.routers.workflows import router as workflows_router
 from backend.routers.runs import router as runs_router
 from backend.routers.approvals import router as approvals_router
@@ -29,14 +44,26 @@ from backend.routers.scheduled import router as scheduled_router
 from backend.routers.markets import router as markets_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.backtest_alias import router as backtest_alias_router
+from backend.routers.financials import router as financials_router
+from backend.routers.companies import router as companies_router
 from backend.routers.quotes import router as quotes_router
 from backend.routers.portfolio_perf import router as portfolio_perf_router
+from backend.routers.paper import router as paper_router
+from backend.routers.ipo_applications import router as ipo_applications_router
 from backend.routers.events_calendar import router as events_calendar_router
 from backend.routers.stock_automations import router as stock_automations_router
 from backend.routers.news import router as news_router
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from backend.routers.admin import router as admin_router
+from backend.routers.quotes_ws import router as quotes_ws_router
+from backend.routers.kite_ticker_admin import router as kite_ticker_admin_router
+from backend.routers.admin_simulate import router as admin_simulate_router
+from backend.routers.backtest_dsl import router as backtest_dsl_router
+from backend.routers.options_admin import router as options_admin_router
+from backend.routers.option_strategies import router as option_strategies_router
+from backend.routers.views import router as views_router
+from backend.routers.feedback import router as feedback_router
+from backend.routers.screener import router as screener_router
+from backend.routers.audio import router as audio_router
 
 app = FastAPI(
     title="Pivot API",
@@ -54,6 +81,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Per-request context middleware. Must be registered AFTER CORS so
+# preflight (OPTIONS) responses also carry an X-Request-ID header.
+app.add_middleware(RequestContextMiddleware)
+
+# Gzip large JSON payloads (screener grid, instrument lists, financials
+# histories) — pure win on transfer time for anything over ~1.5 KB; small
+# responses skip compression entirely.
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
+app.add_middleware(GZipMiddleware, minimum_size=1500)
+
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(chat_router)
@@ -63,9 +100,12 @@ app.include_router(products_router)
 app.include_router(portfolio_router)
 app.include_router(backtest_router)
 app.include_router(scheduler_router)
-app.include_router(kite_router)
+app.include_router(brokers_router)
+app.include_router(brokers_callback_alias_router)
 app.include_router(compare_router)
 app.include_router(expr_backtest_router)
+app.include_router(pairs_backtest_router)
+app.include_router(portfolio_backtest_router)
 app.include_router(backtest_alias_router)
 # scheduled_router MUST mount before workflows_router — otherwise the
 # more-specific path /api/workflows/scheduled-runs gets caught by the
@@ -74,15 +114,49 @@ app.include_router(scheduled_router)
 app.include_router(markets_router)
 app.include_router(quotes_router)
 app.include_router(portfolio_perf_router)
+app.include_router(paper_router)
+app.include_router(ipo_applications_router)
 app.include_router(events_calendar_router)
 app.include_router(stock_automations_router)
 app.include_router(news_router)
 app.include_router(conversations_router)
 app.include_router(workflows_router)
+app.include_router(financials_router)
+app.include_router(companies_router)
 app.include_router(runs_router)
 app.include_router(approvals_router)
 app.include_router(webhooks_router)
 app.include_router(run_stream_router)
+app.include_router(admin_router)
+app.include_router(quotes_ws_router)
+app.include_router(kite_ticker_admin_router)
+# admin simulate-trigger endpoints — self-guarded against production
+# (every endpoint 404s when settings.app_env == "production").
+app.include_router(admin_simulate_router)
+# DSL-tree backtester (Phase B). Sits alongside the legacy
+# /backtest/* paths under a separate /api/backtest/dsl/* namespace.
+app.include_router(backtest_dsl_router)
+# F&O P0 admin surface — chain/universe inspection + manual refresh.
+app.include_router(options_admin_router)
+# F&O P1: option-strategy registration (bare-mounted like /ipo-applications).
+app.include_router(option_strategies_router)
+# View Markets V2 — flag-gated at the endpoint level (404 when off).
+app.include_router(views_router)
+app.include_router(feedback_router)
+# Screener tab — curated universe + fundamentals + search (read-only).
+app.include_router(screener_router)
+# Voice input — browser MediaRecorder blob → whisper-1 translate/transcribe.
+app.include_router(audio_router)
+
+# ── News & Event Trigger subsystem (flag-gated) ──────────────────────
+# Entire subsystem is opt-in via `settings.news_events_enabled`. With
+# the flag off, nothing below this comment imports, registers, or runs.
+# See docs/news_events_phase0_plan.md and backend/news_events/.
+if settings.news_events_enabled:
+    from backend.news_events.router import router as news_events_router
+
+    app.include_router(news_events_router)
+    logger.info("[news_events] router mounted under /api/news-events")
 
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
@@ -181,7 +255,13 @@ async def _validation_exception_handler(
     code and per-field details. Legacy routes keep FastAPI's default
     422 shape.
     """
-    errors = exc.errors()
+    # jsonable_encoder makes the error list JSON-safe: Pydantic v2 puts the
+    # raw exception object in `ctx` (e.g. {"error": ValueError(...)}) when a
+    # custom field_validator raises ValueError, which json.dumps cannot
+    # serialise — without this a weak-password / any ValueError validator
+    # returns 500 instead of 422.
+    from fastapi.encoders import jsonable_encoder
+    errors = jsonable_encoder(exc.errors())
     if not _is_api_v1(request):
         return JSONResponse(
             status_code=422, content={"detail": errors},
@@ -234,12 +314,166 @@ async def startup():
         from backend.workflows.scheduler import register_workflow_scheduler
         if scheduler_module.scheduler is not None:
             register_workflow_scheduler(scheduler_module.scheduler)
+            # View Markets lifecycle worker — additive, flag-gated. The
+            # registration helper is a NO-OP unless
+            # `config.view_markets_enabled` (default off), so prod is
+            # unaffected and the job doesn't exist when disabled.
+            from backend.view_markets.lifecycle import (
+                register_view_markets_lifecycle,
+            )
+
+            register_view_markets_lifecycle(scheduler_module.scheduler)
+            # News & Event Trigger pollers — additive, flag-gated.
+            # With the flag off, this branch is a no-op and the
+            # subsystem's modules are never imported.
+            if settings.news_events_enabled:
+                from backend.news_events.workers.poller import register_poller
+                from backend.news_events.workers.funnel import register_funnel_worker
+                from backend.news_events.workers.retraction_watcher import (
+                    register_retraction_watcher,
+                )
+
+                register_poller(scheduler_module.scheduler)
+                register_funnel_worker(scheduler_module.scheduler)
+                register_retraction_watcher(scheduler_module.scheduler)
+
+                # Phase 7 Tier-A: Telegram MTProto channel reader.
+                # Long-lived asyncio task (not an APScheduler job)
+                # because Telethon's run_until_disconnected is its
+                # own event loop. start_telegram_worker is
+                # idempotent + gracefully no-ops when creds /
+                # session aren't configured.
+                if settings.telegram_enabled:
+                    from backend.news_events.workers.telegram_worker import (
+                        start_telegram_worker,
+                    )
+
+                    start_telegram_worker()
+
+                # Polymarket CLOB WS prediction-market trigger.
+                # Long-lived asyncio task that owns a persistent
+                # WS connection. start_polymarket_ws_worker is
+                # idempotent + gracefully no-ops when no active
+                # WS-mode specs exist (it never opens the socket
+                # until set_subscriptions lands a non-empty set).
+                if settings.polymarket_ws_enabled:
+                    from backend.news_events.workers.polymarket_ws_worker import (
+                        start_polymarket_ws_worker,
+                    )
+
+                    start_polymarket_ws_worker()
+
+                # Kalshi prediction-market trigger. Long-lived asyncio
+                # task that polls the keyless Kalshi REST market-data API
+                # and drives the SAME evaluator. Idempotent + no-ops when
+                # no active trigger.kalshi steps exist.
+                if settings.kalshi_rest_enabled:
+                    from backend.news_events.workers.kalshi_rest_worker import (
+                        start_kalshi_rest_worker,
+                    )
+
+                    start_kalshi_rest_worker()
         logger.info(
             f"[{format_ist(now_ist())}] "
             f"Pivot backend started. Scheduler running on IST."
         )
     except Exception as e:
         logger.warning(f"Scheduler failed to start: {e}")
+
+    # WHY this is fire-and-forget: warmup is a token cost we'd rather
+    # spend in the background after the server is serving traffic
+    # than block startup on. The function logs its own outcomes; if
+    # it fails the app still works (just no p99 cache benefit).
+    try:
+        from backend.services.cache_warmup import schedule_warmup_after_startup
+        schedule_warmup_after_startup()
+    except Exception as e:
+        logger.info(f"Cache warmup scheduling skipped: {e}")
+
+    # Phase 2: auto-start the Kite ticker if a real access token exists
+    # in DB. Wrapped — startup must never fail because the ticker
+    # can't reach upstream Kite WS.
+    try:
+        _maybe_autostart_kite_ticker()
+    except Exception as e:
+        logger.info(f"Kite ticker autostart skipped: {e}")
+
+
+def _maybe_autostart_kite_ticker() -> None:
+    """Best-effort: find the most recent active broker session for Kite and
+    boot the ticker under it. Silent when no real session exists or when
+    we're in mock mode."""
+    from backend.brokers.sessions import get_active_kite_session
+    from backend.kite.auth import KITE_MOCK_MODE, read_kite_access_token
+    from backend.kite.portfolio import get_holdings
+    from backend.kite.ticker import get_ticker_manager
+
+    if KITE_MOCK_MODE:
+        logger.info("Kite ticker autostart: mock mode, skipping")
+        return
+    db = SessionLocal()
+    try:
+        session = get_active_kite_session(db)
+        if session is None:
+            logger.info("Kite ticker autostart: no active broker session")
+            return
+        token = read_kite_access_token(session)
+        if not token or token.startswith("mock_"):
+            logger.info("Kite ticker autostart: token unavailable / mocked")
+            return
+        seeds: list[str] = []
+        token_invalid = False
+        try:
+            holdings = get_holdings(token) or []
+            for h in holdings:
+                ts = h.get("tradingsymbol") if isinstance(h, dict) else None
+                if ts:
+                    seeds.append(str(ts))
+        except Exception as e:
+            msg = str(e).lower()
+            if "incorrect" in msg or "tokenexception" in msg or "access_token" in msg:
+                token_invalid = True
+            logger.info(f"Kite ticker autostart: holdings seed failed: {e}")
+
+        # Seed the curated sector universe too (2026-07-03 perf pass) — with
+        # only holdings seeded, an account with few/no holdings left the tick
+        # cache empty, so every quote fell through to a slow REST/yfinance
+        # path. ~80 extra subscriptions is nothing against the 3,000-per-
+        # connection WS budget and makes screener/stock-page quotes live.
+        try:
+            from backend.services.sector_universe import _UNIVERSE
+            have = {s.upper() for s in seeds}
+            seeds.extend(
+                r.symbol for r in _UNIVERSE if r.symbol.upper() not in have
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.info(f"Kite ticker autostart: universe seed skipped: {e}")
+
+        if token_invalid:
+            # Stale token (typically expired at 7:30 IST or rotated
+            # api_key). Mark the session inactive so we don't thrash
+            # the WS reconnect loop. User must re-do Kite OAuth.
+            try:
+                session.is_active = False
+                db.add(session)
+                db.commit()
+                logger.info(
+                    "Kite ticker autostart: stale token; broker session id=%s marked inactive — please re-auth.",
+                    session.id,
+                )
+            except Exception as commit_err:
+                logger.info(
+                    f"Kite ticker autostart: could not invalidate session: {commit_err}"
+                )
+            return
+
+        get_ticker_manager().start(
+            access_token=token,
+            user_id=int(session.user_id) if session.user_id else None,
+            seed_symbols=seeds,
+        )
+    finally:
+        db.close()
 
 
 @app.on_event("shutdown")
@@ -248,6 +482,28 @@ async def shutdown():
         from backend import scheduler as scheduler_module
         if scheduler_module.scheduler:
             scheduler_module.scheduler.shutdown()
+    except Exception:
+        pass
+    try:
+        from backend.kite.ticker import get_ticker_manager
+        get_ticker_manager().stop()
+    except Exception:
+        pass
+    # Phase 7 — graceful shutdown of the Telegram worker so the
+    # MTProto disconnect lands cleanly. No-op when the worker
+    # never started.
+    if settings.news_events_enabled and settings.telegram_enabled:
+        try:
+            from backend.news_events.workers.telegram_worker import (
+                stop_telegram_worker,
+            )
+            await stop_telegram_worker()
+        except Exception:
+            pass
+    # Close the pooled LLM HTTP client (keep-alive connection pool).
+    try:
+        from backend.llm.openai_client import aclose_shared_async_client
+        await aclose_shared_async_client()
     except Exception:
         pass
 
@@ -277,8 +533,8 @@ def health_check():
         "redis": redis_status,
         "mock_mode": {
             "kite": not bool(settings.kite_api_key),
-            "sarvam": not bool(settings.sarvam_api_key),
             "openai": not bool(settings.openai_api_key),
+            "azure": not bool(settings.azure_key),
         },
     }
 

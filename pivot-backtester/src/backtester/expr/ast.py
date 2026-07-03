@@ -58,3 +58,13 @@ class Number(Expr):
 @dataclass(frozen=True)
 class Ident(Expr):
     name: str
+
+
+@dataclass(frozen=True)
+class Func(Expr):
+    """A cross-sectional transform over the universe at date T — compiled to a
+    SQL window function. ``rank`` / ``decile`` / ``percentrank`` / ``zscore``
+    (1 arg) and ``quantile(x, n)`` (n = integer literal). Lets a screen RANK,
+    not just threshold: e.g. ``decile(roe) == 10`` is the top-decile-ROE names."""
+    name: str
+    args: tuple["Expr", ...]

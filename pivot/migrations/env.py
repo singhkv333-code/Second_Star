@@ -20,10 +20,13 @@ from backend import models  # noqa: E402, F401 — import triggers model registr
 # Alembic Config object
 config = context.config
 
-# Inject DATABASE_URL from environment into the Alembic config
+# Inject DATABASE_URL from environment into the Alembic config.
+# Escape literal '%' as '%%' — ConfigParser (used by set_main_option) treats
+# '%' as interpolation syntax, and Azure URLs carry %-encoded passwords
+# (e.g. %40 for '@'). Alembic unescapes it back when building the engine.
 database_url = os.getenv("DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:

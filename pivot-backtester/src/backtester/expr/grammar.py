@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from lark import Lark, Transformer, v_args
 
-from .ast import BinOp, BoolOp, Compare, Expr, Ident, Neg, Not, Number
+from .ast import BinOp, BoolOp, Compare, Expr, Func, Ident, Neg, Not, Number
 
 
 _GRAMMAR = r"""
@@ -22,9 +22,12 @@ start: expr
 ?term: factor (MUL_OP factor)*
 
 ?factor: NUMBER          -> number
+       | IDENT "(" [arglist] ")"  -> func
        | IDENT            -> ident
        | "(" expr ")"
        | "-" factor       -> neg
+
+arglist: expr ("," expr)*
 
 OR: "OR"i
 AND: "AND"i
@@ -52,6 +55,18 @@ class _Builder(Transformer):
 
     def ident(self, items):
         return Ident(str(items[0]))
+
+    @v_args(inline=False)
+    def arglist(self, items):
+        # Anonymous "," terminals are filtered by Lark; keep only Expr nodes.
+        return [it for it in items if isinstance(it, Expr)]
+
+    @v_args(inline=False)
+    def func(self, items):
+        # items = [IDENT_token] or [IDENT_token, arglist_list].
+        name = str(items[0]).lower()
+        args = items[1] if len(items) > 1 and isinstance(items[1], list) else []
+        return Func(name, tuple(args))
 
     def neg(self, items):
         return Neg(items[0])

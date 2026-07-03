@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from fastapi import Header
 
-from backend.auth.jwt_handler import get_user_id_from_token
+from backend.auth.jwt_handler import get_jti_from_token, verify_token
+from backend.auth.revocation import is_revoked
 from backend.routers._errors import unauthenticated
 
 
@@ -21,11 +22,25 @@ def require_user(authorization: str = Header(default=None)) -> int:
     Mirrors the legacy `routers/portfolio.py:get_user_id` pattern so
     Agent System endpoints behave consistently with the rest of the
     API while emitting the canonical error envelope.
+
+    Revocation: if the token carries a ``jti`` claim and that jti is on
+    the Redis revocation list (set by POST /auth/logout), reject as
+    invalid. Legacy tokens minted before the jti claim shipped are still
+    accepted — they simply can't be individually revoked.
     """
     if not authorization:
         raise unauthenticated("missing token")
     token = authorization.replace("Bearer ", "", 1)
-    user_id = get_user_id_from_token(token)
-    if not user_id:
+    payload = verify_token(token, "access")
+    if not payload:
         raise unauthenticated("invalid token")
-    return user_id
+    jti = get_jti_from_token(token)
+    if jti and is_revoked(jti):
+        raise unauthenticated("invalid token")
+    sub = payload.get("sub")
+    if sub is None:
+        raise unauthenticated("invalid token")
+    try:
+        return int(sub)
+    except (TypeError, ValueError) as exc:
+        raise unauthenticated("invalid token") from exc

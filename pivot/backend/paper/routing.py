@@ -1,0 +1,715 @@
+"""Order routing: paper broker vs Kite, by account mode (P2 shim).
+
+This is the seam that makes triggered + chat orders land in the paper
+portfolio. The order-PLACEMENT call sites (workflow action.place_order /
+allocate_* / set_stoploss / set_takeprofit, and chat /orders/confirm,
+/orders/gtt) call the helpers here instead of backend.kite.orders
+directly. The decision:
+
+    paper  <- settings.paper_trading_enabled AND account.mode == 'paper'
+    kite   <- otherwise (the legacy mock/live path)
+
+Two flavors:
+  - submit_order / submit_gtt take a workflow StepContext `ctx` and attach
+    workflow attribution (+ a RETRY-STABLE client_request_id derived from
+    run_id:step_index — NOT the engine's sha1(...:attempts), which changes
+    on every retry and would defeat idempotency).
+  - submit_order_for_user / submit_gtt_for_user take (db, user_id) for the
+    chat routers.
+
+SCOPE NOTE (P2): squareoff_* and cancel_orders are intentionally NOT routed
+here — they size from Kite get_positions / get_orders, so routing only
+their placement would be incoherent. They move to paper when paper
+position/order reads land (P4). Entry + GTT + chat placement is routed now.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from sqlalchemy.orm import Session
+
+# Call Kite via the module (not name-imported) so the canonical
+# backend.kite.orders.place_order / place_gtt_order stay the patchable
+# seam for tests and resolve dynamically at call time.
+from backend.kite import orders as _kite
+from backend.brokers.audit import record_audit
+from backend.brokers.registry import get_connector
+from backend.brokers.sessions import get_active_broker_session
+from backend.paper.accounts import get_or_create_account
+from backend.paper.broker import PaperBroker
+
+logger = logging.getLogger(__name__)
+
+
+class InsufficientFundsError(Exception):
+    """A live BUY can't be covered by the broker's available cash. Carries the
+    numbers so the API layer can build a user-facing message."""
+
+    def __init__(self, required: float, available: float):
+        self.required = float(required)
+        self.available = float(available)
+        super().__init__(
+            f"Insufficient funds: this order needs about ₹{self.required:,.0f} "
+            f"but your broker balance is ₹{self.available:,.0f}. Add funds or "
+            f"reduce the quantity."
+        )
+
+
+def _estimated_order_value(
+    symbol: str, order_type: str, price: Optional[float], quantity: int,
+) -> Optional[float]:
+    """Cash a BUY would consume: limit/SL price when set, else the live LTP for
+    a MARKET order. Returns None when no price is resolvable (caller then skips
+    the funds check — we never block on unknown data)."""
+    ot = str(order_type).upper()
+    px = float(price) if (price and ot in ("LIMIT", "SL", "SL-M")) else None
+    if px is None:
+        from backend.paper.marks import get_mark_price
+        mark = get_mark_price(str(symbol).upper())
+        px = float(mark) if mark is not None else (float(price) if price else None)
+    if px is None:
+        return None
+    return float(quantity) * px
+
+
+def assert_live_funds_ok(
+    connector: Any,
+    sess: Any,
+    *,
+    symbol: str,
+    side: str,
+    quantity: int,
+    order_type: str,
+    price: Optional[float],
+) -> None:
+    """Pre-trade funds guard for the LIVE path: block a BUY the broker's
+    available cash can't cover. No-op for SELLs (they free cash / draw on
+    holdings) and whenever the price or balance is unknown — we only block on a
+    *definite* shortfall, never on missing data (fail-open)."""
+    if str(side).upper() != "BUY":
+        return
+    value = _estimated_order_value(symbol, order_type, price, quantity)
+    if value is None:
+        return
+    try:
+        available = connector.get_available_cash(sess)
+    except Exception:
+        logger.warning(
+            "funds check skipped: could not read broker balance", exc_info=True,
+        )
+        return
+    if available is None:
+        return
+    if value > float(available):
+        raise InsufficientFundsError(value, float(available))
+
+
+def should_use_paper(db: Session, user_id: int) -> bool:
+    """True when this user's orders should fill in the paper portfolio.
+    Early-returns False (no account side-effect) when the flag is off."""
+    from backend.config import settings
+
+    if not getattr(settings, "paper_trading_enabled", True):
+        return False
+    try:
+        acct = get_or_create_account(db, int(user_id))
+    except Exception:
+        # Defensive: a DB blip routes to kite rather than erroring the
+        # order — but LOG it, since a misroute is otherwise invisible.
+        logger.warning(
+            "should_use_paper: account lookup failed for user %s; "
+            "routing to kite", user_id, exc_info=True,
+        )
+        return False
+    return str(acct.mode) == "paper"
+
+
+def paper_position_qty(db: Session, user_id: int, symbol: str) -> int:
+    """Current net paper-position quantity for a symbol (0 if none). Used
+    so a paper SL/TP sizes from the PAPER book, not the Kite holding."""
+    from backend.models import PaperAccount, PaperPosition
+
+    acct = (
+        db.query(PaperAccount)
+        .filter(PaperAccount.user_id == int(user_id))
+        .first()
+    )
+    if acct is None:
+        return 0
+    pos = (
+        db.query(PaperPosition)
+        .filter(
+            PaperPosition.account_id == acct.id,
+            PaperPosition.symbol == str(symbol).upper(),
+        )
+        .first()
+    )
+    return int(pos.quantity) if pos is not None else 0
+
+
+def _wf_crid(
+    ctx: Any, kind: str, symbol: str, leg_key: Optional[str] = None,
+) -> str:
+    """Retry-stable per-(step, symbol, side/kind[, leg]) idempotency key.
+    run_id and step_index are fixed across retries; only attempts changes,
+    and we deliberately exclude it so a retried step dedups against its
+    prior placement instead of double-filling. ``leg_key`` distinguishes
+    multiple legs of one step that share a symbol+side (e.g. a basket that
+    repeats a symbol) so they don't collapse into one under-fill."""
+    base = f"wf:{ctx.run.id}:{ctx.step.step_index}:{kind}:{symbol}"
+    return f"{base}:{leg_key}" if leg_key is not None else base
+
+
+def is_auto_exec_allowed(uid: int) -> bool:
+    """True only when the server-side auto-execution master flag is on AND
+    this user is on the own-account pilot allow-list. Gates the UNATTENDED
+    (workflow/trigger) live path: unless both hold, a triggered order is
+    ARMED/REGISTERED rather than placed (register-not-execute, aligned with
+    SEBI's retail-algo posture). User-confirmed chat orders are NOT gated
+    by this."""
+    from backend.config import settings
+
+    return bool(settings.auto_execute_enabled) and int(uid) in settings.auto_exec_user_ids
+
+
+def _live_broker_session(db: Optional[Session], uid: int):
+    """Resolve the user's active broker session for the LIVE order path,
+    defensively. Returns None (caller falls back to the Kite mock helper) when
+    there is no usable db — e.g. a workflow stub passes ``db=None`` — or the
+    lookup raises. Mirrors ``should_use_paper``'s resilience so a missing db
+    routes to mock instead of crashing the order."""
+    if db is None:
+        return None
+    try:
+        return get_active_broker_session(db, uid)
+    except Exception:
+        logger.warning(
+            "live broker-session lookup failed for user %s; using mock path",
+            uid, exc_info=True,
+        )
+        return None
+
+
+# ── workflow action sites ────────────────────────────────────────────────
+
+def submit_order(
+    ctx: Any,
+    *,
+    access_token: Optional[str] = None,   # Kite path only
+    tradingsymbol: str,
+    exchange: str = "NSE",
+    transaction_type: str,
+    quantity: int,
+    order_type: str = "MARKET",
+    price: Optional[float] = None,
+    product: str = "CNC",
+    trigger_price: Optional[float] = None,
+    tag: str = "pivot",                   # Kite path only
+    variety: str = "regular",
+    leg_key: Optional[str] = None,        # distinguishes same-symbol basket legs
+    **_ignored: Any,
+) -> dict:
+    db = ctx.db
+    uid = int(ctx.workflow.user_id)
+    symbol = str(tradingsymbol).upper()
+    side = str(transaction_type).upper()
+    ot = str(order_type).upper()
+
+    if should_use_paper(db, uid):
+        return PaperBroker(db, uid).place_order(
+            tradingsymbol=symbol,
+            transaction_type=side,
+            quantity=int(quantity),
+            order_type=ot,
+            exchange=exchange,
+            price=price,
+            product=str(product).upper(),
+            trigger_price=trigger_price,
+            variety=variety,
+            client_request_id=_wf_crid(ctx, side, symbol, leg_key),
+            source="workflow",
+            origin_kind="workflow",
+            workflow_id=str(ctx.workflow.id),
+            workflow_run_id=str(ctx.run.id),
+            # Forward-test idea label (display only — the workflow idea's
+            # natural key is account_id+workflow_id, not the label).
+            label=getattr(ctx.workflow, "name", None),
+        )
+    # Live path: resolve the user's active broker session and route through
+    # its connector. Falls back to the kite mock helper when no session
+    # exists so mock/dev still works. `access_token` is now ignored here.
+    sess = _live_broker_session(db, uid)
+    if sess is not None:
+        crid = _wf_crid(ctx, side, symbol, leg_key)
+        # UNATTENDED gate: unless this user is on the auto-exec pilot, the
+        # triggered order is ARMED (register-not-execute), not placed.
+        if not is_auto_exec_allowed(uid):
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_intent", status="REGISTERED",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type=ot, price=price,
+                detail="auto-exec disabled for user",
+            )
+            db.commit()
+            return {
+                "order_id": None,
+                "status": "REGISTERED",
+                "message": (
+                    "Order armed — auto-execution not enabled "
+                    "(awaiting confirmation/empanelment)."
+                ),
+                "client_request_id": crid,
+            }
+        # Eligible: place via the connector, auditing success/failure.
+        try:
+            result = get_connector(sess.broker).place_order(
+                sess,
+                tradingsymbol=symbol,
+                exchange=exchange,
+                transaction_type=side,
+                quantity=int(quantity),
+                order_type=ot,
+                price=price,
+                product=product,
+                trigger_price=trigger_price,
+                tag=tag,
+                variety=variety,
+                client_request_id=crid,
+            )
+        except Exception as exc:
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_failed", status="error",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type=ot, price=price, detail=str(exc),
+            )
+            db.commit()
+            raise
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type=ot, price=price,
+            order_id=result.get("order_id") if isinstance(result, dict) else None,
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return result
+    return _kite.place_order(
+        access_token="mock_token",
+        tradingsymbol=symbol,
+        exchange=exchange,
+        transaction_type=side,
+        quantity=int(quantity),
+        order_type=ot,
+        price=price,
+        product=product,
+        trigger_price=trigger_price,
+        tag=tag,
+        variety=variety,
+    )
+
+
+def submit_gtt(
+    ctx: Any,
+    *,
+    access_token: Optional[str] = None,
+    tradingsymbol: str,
+    exchange: str = "NSE",
+    transaction_type: str,
+    quantity: int,
+    trigger_price: float,
+    limit_price: float,
+    last_price: Optional[float] = None,
+    **_ignored: Any,
+) -> dict:
+    db = ctx.db
+    uid = int(ctx.workflow.user_id)
+    symbol = str(tradingsymbol).upper()
+    side = str(transaction_type).upper()
+
+    if should_use_paper(db, uid):
+        return PaperBroker(db, uid).place_gtt_order(
+            tradingsymbol=symbol,
+            transaction_type=side,
+            quantity=int(quantity),
+            trigger_price=trigger_price,
+            limit_price=limit_price,
+            client_request_id=_wf_crid(ctx, "GTT", symbol),
+            source="workflow",
+            origin_kind="workflow",
+            workflow_id=str(ctx.workflow.id),
+            workflow_run_id=str(ctx.run.id),
+            label=getattr(ctx.workflow, "name", None),
+        )
+    # Live path: route the GTT through the active broker's connector;
+    # fall back to the kite mock helper when no session exists.
+    sess = _live_broker_session(db, uid)
+    if sess is not None:
+        crid = _wf_crid(ctx, "GTT", symbol)
+        # UNATTENDED gate: arm (register-not-execute) unless on the pilot.
+        if not is_auto_exec_allowed(uid):
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_intent", status="REGISTERED",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type="GTT", price=limit_price,
+                detail="auto-exec disabled for user",
+            )
+            db.commit()
+            return {
+                "order_id": None,
+                "status": "REGISTERED",
+                "message": (
+                    "Order armed — auto-execution not enabled "
+                    "(awaiting confirmation/empanelment)."
+                ),
+                "client_request_id": crid,
+            }
+        # Eligible: place via the connector, auditing success/failure.
+        try:
+            result = get_connector(sess.broker).place_gtt(
+                sess,
+                tradingsymbol=symbol,
+                exchange=exchange,
+                transaction_type=side,
+                quantity=int(quantity),
+                trigger_price=trigger_price,
+                limit_price=limit_price,
+                last_price=last_price if last_price is not None else limit_price,
+            )
+        except Exception as exc:
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_failed", status="error",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type="GTT", price=limit_price, detail=str(exc),
+            )
+            db.commit()
+            raise
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type="GTT", price=limit_price,
+            order_id=(
+                str(result.get("trigger_id") or result.get("order_id"))
+                if isinstance(result, dict)
+                and (result.get("trigger_id") or result.get("order_id")) is not None
+                else None
+            ),
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return result
+    return _kite.place_gtt_order(
+        access_token="mock_token",
+        tradingsymbol=symbol,
+        exchange=exchange,
+        transaction_type=side,
+        quantity=int(quantity),
+        trigger_price=trigger_price,
+        limit_price=limit_price,
+        last_price=last_price if last_price is not None else limit_price,
+    )
+
+
+# ── chat router sites ─────────────────────────────────────────────────────
+
+def submit_order_for_user(
+    db: Session,
+    user_id: int,
+    *,
+    access_token: Optional[str] = None,
+    tradingsymbol: str,
+    exchange: str = "NSE",
+    transaction_type: str,
+    quantity: int,
+    order_type: str = "MARKET",
+    price: Optional[float] = None,
+    product: str = "CNC",
+    trigger_price: Optional[float] = None,
+    tag: str = "pivot",
+    variety: str = "regular",
+    client_request_id: Optional[str] = None,
+    source: str = "chat",
+    conversation_id: Optional[str] = None,
+    label: Optional[str] = None,
+    **_ignored: Any,
+) -> dict:
+    uid = int(user_id)
+    symbol = str(tradingsymbol).upper()
+    side = str(transaction_type).upper()
+    ot = str(order_type).upper()
+
+    if should_use_paper(db, uid):
+        return PaperBroker(db, uid).place_order(
+            tradingsymbol=symbol,
+            transaction_type=side,
+            quantity=int(quantity),
+            order_type=ot,
+            exchange=exchange,
+            price=price,
+            product=str(product).upper(),
+            trigger_price=trigger_price,
+            variety=variety,
+            client_request_id=client_request_id,
+            source=source,
+            origin_kind="chat",
+            conversation_id=conversation_id,
+            # Chat idea label = the SYMBOL (not side+symbol), so a BUY and a
+            # later SELL of the same symbol in one conversation attribute to
+            # ONE idea (the chat natural key is conversation_id+label). The
+            # SELL then closes the BUY idea's FIFO lots instead of forking a
+            # phantom "SELL" idea.
+            label=label or symbol,
+        )
+    # Live path: resolve this user's active broker session and route the
+    # order through its connector. Falls back to the kite mock helper when
+    # no session exists. `access_token` is now ignored on the live path.
+    # User-CONFIRMED (chat): NOT auto-exec gated — but audit the placement.
+    sess = _live_broker_session(db, uid)
+    if sess is not None:
+        connector = get_connector(sess.broker)
+        # Pre-trade funds guard: refuse a live BUY the broker balance can't
+        # cover (raises InsufficientFundsError) so we fail fast with a clear
+        # reason instead of a downstream broker reject.
+        assert_live_funds_ok(
+            connector, sess, symbol=symbol, side=side,
+            quantity=int(quantity), order_type=ot, price=price,
+        )
+        try:
+            result = connector.place_order(
+                sess,
+                tradingsymbol=symbol,
+                exchange=exchange,
+                transaction_type=side,
+                quantity=int(quantity),
+                order_type=ot,
+                price=price,
+                product=product,
+                trigger_price=trigger_price,
+                tag=tag,
+                variety=variety,
+                client_request_id=client_request_id,
+            )
+        except Exception as exc:
+            # Broker rejected it (IP allow-list, RMS/margin, market closed, …).
+            # Audit the failure for visibility, then re-raise so the router can
+            # surface the real reason instead of a silent "registered".
+            record_audit(
+                db, user_id=uid, broker=sess.broker,
+                event_type="order_failed", status="error",
+                symbol=symbol, side=side, quantity=int(quantity),
+                order_type=ot, price=price, detail=str(exc),
+            )
+            db.commit()
+            raise
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type=ot, price=price,
+            order_id=result.get("order_id") if isinstance(result, dict) else None,
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return result
+    return _kite.place_order(
+        access_token="mock_token",
+        tradingsymbol=symbol,
+        exchange=exchange,
+        transaction_type=side,
+        quantity=int(quantity),
+        order_type=ot,
+        price=price,
+        product=product,
+        trigger_price=trigger_price,
+        tag=tag,
+        variety=variety,
+    )
+
+
+def submit_gtt_for_user(
+    db: Session,
+    user_id: int,
+    *,
+    access_token: Optional[str] = None,
+    tradingsymbol: str,
+    exchange: str = "NSE",
+    transaction_type: str,
+    quantity: int,
+    trigger_price: float,
+    limit_price: float,
+    last_price: Optional[float] = None,
+    client_request_id: Optional[str] = None,
+    source: str = "chat",
+    conversation_id: Optional[str] = None,
+    label: Optional[str] = None,
+    **_ignored: Any,
+) -> dict:
+    uid = int(user_id)
+    symbol = str(tradingsymbol).upper()
+    side = str(transaction_type).upper()
+
+    if should_use_paper(db, uid):
+        return PaperBroker(db, uid).place_gtt_order(
+            tradingsymbol=symbol,
+            transaction_type=side,
+            quantity=int(quantity),
+            trigger_price=trigger_price,
+            limit_price=limit_price,
+            client_request_id=client_request_id,
+            source=source,
+            origin_kind="chat",
+            conversation_id=conversation_id,
+            label=label or symbol,
+        )
+    # Live path: route the GTT through the active broker's connector;
+    # fall back to the kite mock helper when no session exists.
+    # User-CONFIRMED (chat): NOT auto-exec gated — but audit the placement.
+    sess = _live_broker_session(db, uid)
+    if sess is not None:
+        result = get_connector(sess.broker).place_gtt(
+            sess,
+            tradingsymbol=symbol,
+            exchange=exchange,
+            transaction_type=side,
+            quantity=int(quantity),
+            trigger_price=trigger_price,
+            limit_price=limit_price,
+            last_price=last_price if last_price is not None else limit_price,
+        )
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type="GTT", price=limit_price,
+            order_id=(
+                str(result.get("trigger_id") or result.get("order_id"))
+                if isinstance(result, dict)
+                and (result.get("trigger_id") or result.get("order_id")) is not None
+                else None
+            ),
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return result
+    return _kite.place_gtt_order(
+        access_token="mock_token",
+        tradingsymbol=symbol,
+        exchange=exchange,
+        transaction_type=side,
+        quantity=int(quantity),
+        trigger_price=trigger_price,
+        limit_price=limit_price,
+        last_price=last_price if last_price is not None else limit_price,
+    )
+
+
+def submit_gtt_oco_for_user(
+    db: Session,
+    user_id: int,
+    *,
+    tradingsymbol: str,
+    exchange: str = "NSE",
+    exit_side: str,
+    quantity: int,
+    stoploss_trigger: float,
+    target_trigger: float,
+    last_price: Optional[float] = None,
+    client_request_id_prefix: Optional[str] = None,
+    source: str = "chat",
+    conversation_id: Optional[str] = None,
+) -> dict:
+    """Arm a bracket (one-cancels-other stop-loss + target) for a position.
+
+    PAPER: two resting GTT rows sharing a ``gtt_oco_group`` — the evaluator
+    fills whichever triggers first and cancels the sibling (the consumer in
+    ``evaluate_resting_orders`` has been live since P3; this is its producer).
+    LIVE: the broker's native two-leg GTT (Kite ``GTT_TYPE_OCO``); connectors
+    without an OCO surface raise NotImplementedError rather than approximating
+    with two independent triggers (which would double-exit on both firing).
+
+    Returns {"mode": "paper"|"live", "oco_group"|"trigger_id": ...,
+    "stoploss": {...}, "target": {...}} (live carries the single trigger_id).
+    """
+    import uuid as _uuid
+
+    uid = int(user_id)
+    symbol = str(tradingsymbol).upper()
+    side = str(exit_side).upper()
+
+    if should_use_paper(db, uid):
+        broker = PaperBroker(db, uid)
+        group = _uuid.uuid4().hex[:32]
+        prefix = client_request_id_prefix or f"bracket:{uid}:{symbol}:{group[:8]}"
+        common: dict[str, Any] = dict(
+            tradingsymbol=symbol,
+            transaction_type=side,
+            quantity=int(quantity),
+            exchange=exchange,
+            gtt_oco_group=group,
+            source=source,
+            origin_kind="chat",
+            conversation_id=conversation_id,
+            label=symbol,
+        )
+        sl = broker.place_gtt_order(
+            trigger_price=stoploss_trigger,
+            limit_price=stoploss_trigger,
+            client_request_id=f"{prefix}:sl",
+            **common,
+        )
+        tp = broker.place_gtt_order(
+            trigger_price=target_trigger,
+            limit_price=target_trigger,
+            client_request_id=f"{prefix}:tp",
+            **common,
+        )
+        return {"mode": "paper", "oco_group": group, "stoploss": sl, "target": tp}
+
+    ref_price = (
+        last_price
+        if last_price is not None
+        else (float(stoploss_trigger) + float(target_trigger)) / 2
+    )
+    sess = _live_broker_session(db, uid)
+    if sess is not None:
+        result = get_connector(sess.broker).place_gtt_oco(
+            sess,
+            tradingsymbol=symbol,
+            exchange=exchange,
+            transaction_type=side,
+            quantity=int(quantity),
+            stoploss_trigger=stoploss_trigger,
+            target_trigger=target_trigger,
+            last_price=ref_price,
+        )
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type="GTT-OCO", price=target_trigger,
+            order_id=(
+                str(result.get("trigger_id"))
+                if isinstance(result, dict) and result.get("trigger_id") is not None
+                else None
+            ),
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return {"mode": "live", **result}
+    result = _kite.place_gtt_oco_order(
+        access_token="mock_token",
+        tradingsymbol=symbol,
+        exchange=exchange,
+        transaction_type=side,
+        quantity=int(quantity),
+        stoploss_trigger=stoploss_trigger,
+        target_trigger=target_trigger,
+        last_price=ref_price,
+    )
+    return {"mode": "live", **result}

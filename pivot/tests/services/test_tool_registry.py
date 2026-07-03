@@ -8,8 +8,12 @@ from backend.services.tool_registry import _REAL_TOOLS, get_tool_schema
 # return placeholder strings. If any of these reappear in the schema without
 # a real handler the eval will surface "Created" / "Connect TrueData" leaks
 # again.
+# (F&O P1: get_option_chain went REAL — moved out of this set; the
+# suggest/build/critique/portfolio-greeks tools joined the schema with
+# it. get_option_greeks' schema was deleted outright — folded into the
+# chain card — so it stays here as a leak guard.)
 _FORBIDDEN_FROM_SCHEMA = {
-    "get_option_chain", "get_option_greeks", "get_margin_required",
+    "get_option_greeks", "get_margin_required",
     "get_upcoming_events", "modify_order",
     "place_futures_order", "place_options_order",
     "place_multileg_options", "roll_futures_position",

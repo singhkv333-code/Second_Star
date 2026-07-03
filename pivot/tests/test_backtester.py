@@ -321,7 +321,7 @@ class TestEngine:
 
 
 # ---------------------------------------------------------------------------
-# Parser (uses rule-based fallback under SARVAM_MOCK_MODE in tests)
+# Parser (falls back to rule-based when the LLM is unavailable in tests)
 # ---------------------------------------------------------------------------
 
 class TestParser:

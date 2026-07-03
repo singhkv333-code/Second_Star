@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -6,10 +6,21 @@ from datetime import datetime, timezone
 from backend.database import get_db
 from backend.models import TradeLog, User
 from backend.auth.jwt_handler import get_user_id_from_token
-from backend.kite import orders as kite_orders
-from backend.kite import portfolio as kite_portfolio
+from backend.paper.routing import (
+    InsufficientFundsError,
+    should_use_paper,
+    submit_gtt_for_user,
+    submit_gtt_oco_for_user,
+    submit_order_for_user,
+)
+from backend.brokers.sessions import get_active_broker_session
+from backend.paper.marks import get_mark_price
+# Imported as a module (not by value) so we read the LIVE mock-mode flag —
+# it flips at runtime on broker connect/disconnect.
+from backend.kite import auth as kite_auth
+from backend.kite.auth import read_kite_access_token
 from backend.agents.explainer import explain_order
-from backend.safety import validate_order_value, is_market_open, REQUIRE_CONFIRMATION
+from backend.safety import validate_order_value
 from backend.utils.time_utils import format_ist, now_ist
 import logging
 
@@ -30,6 +41,9 @@ class OrderPreviewRequest(BaseModel):
 class OrderConfirmRequest(BaseModel):
     preview_id: str
     is_confirmed: bool = Field(..., description="Must be True to execute")
+    # Optional chat conversation id so paper fills can be grouped by the
+    # conversation that produced them (forward-test attribution, P6).
+    conversation_id: Optional[str] = None
 
 
 class GTTOrderRequest(BaseModel):
@@ -41,6 +55,7 @@ class GTTOrderRequest(BaseModel):
     limit_price: float
     last_price: float
     is_confirmed: bool = False
+    conversation_id: Optional[str] = None
 
 
 def get_current_user_token(authorization: str = Header(None)) -> tuple:
@@ -128,19 +143,37 @@ async def confirm_order(
     # Get user's Kite access token
     user = db.query(User).filter(User.id == user_id).first()
     kite_token = "mock_token"
-    if user and user.kite_session:
-        kite_token = user.kite_session.access_token
+    if user and user.active_broker_session:
+        kite_token = read_kite_access_token(user.active_broker_session) or "mock_token"
 
-    result = kite_orders.place_order(
-        access_token=kite_token,
-        tradingsymbol=req["tradingsymbol"],
-        exchange=req["exchange"],
-        transaction_type=req["transaction_type"],
-        quantity=req["quantity"],
-        order_type=req["order_type"],
-        price=req.get("price"),
-        product=req.get("product", "CNC"),
-    )
+    # Routes to the paper broker for accounts in mode='paper' (so the
+    # confirmed order fills into the structured portfolio); falls back to
+    # the Kite path otherwise. Idempotent on the preview id so a
+    # double-confirm of the same preview doesn't double-fill. Funds-guard /
+    # broker-reject errors are surfaced (not 500'd) so the user sees why.
+    try:
+        result = submit_order_for_user(
+            db, user_id,
+            access_token=kite_token,
+            tradingsymbol=req["tradingsymbol"],
+            exchange=req["exchange"],
+            transaction_type=req["transaction_type"],
+            quantity=req["quantity"],
+            order_type=req["order_type"],
+            price=req.get("price"),
+            product=req.get("product", "CNC"),
+            client_request_id=f"chat-confirm:{request.preview_id}",
+            source="chat",
+            conversation_id=request.conversation_id,
+        )
+    except InsufficientFundsError as exc:
+        raise HTTPException(status_code=402, detail=str(exc))
+    except Exception as exc:
+        logger.exception("confirm order failed for %s", req.get("tradingsymbol"))
+        raise HTTPException(
+            status_code=502,
+            detail=f"Broker rejected the order: {str(exc).strip() or type(exc).__name__}",
+        )
 
     # Log to DB — store placed_at as IST-aware datetime
     trade_log = TradeLog(
@@ -205,10 +238,11 @@ class OrderRegisterLeg(BaseModel):
 class OrderRegisterRequest(BaseModel):
     """Body for POST /orders/register.
 
-    Comes from the chat LogicCard "Confirm & register" button. We do NOT
-    call any broker; we write a TradeLog row with status="registered" and
-    source="chat-confirm". Live trading is out of scope for v1 — we only
-    persist the intent so the UI can show order history.
+    Comes from the chat LogicCard "Confirm & register" button. The order is
+    routed by the account's paper-vs-live mode: a PAPER account fills the
+    simulated book (no broker, ever); a LIVE account (paper off) places through
+    the user's active broker connector. One TradeLog row is written per
+    resulting order with source="chat-confirm".
 
     Single-leg orders pass `symbol/transaction_type/...` at the top.
     Basket orders pass `legs: [...]`. Both forms result in one TradeLog
@@ -226,26 +260,267 @@ class OrderRegisterRequest(BaseModel):
     # Basket form
     basket: bool = False
     legs: Optional[List[OrderRegisterLeg]] = None
+    # Bracket exits (single-leg only): arm a GTT stop-loss and/or target as a
+    # percentage move from the entry reference price. Both set → a true OCO
+    # pair (one fills, the other cancels); one set → a single GTT. Percent of
+    # the entry price, e.g. 5 = exit 5% against/for the position.
+    gtt_stoploss_pct: Optional[float] = Field(default=None, gt=0, lt=90)
+    gtt_target_pct: Optional[float] = Field(default=None, gt=0, lt=900)
+    # Chat conversation that produced this order — so a paper fill attributes
+    # to the right forward-test idea (P6). Optional.
+    conversation_id: Optional[str] = None
 
 
-def _persist_leg(db: Session, user_id: int, leg: dict) -> TradeLog:
-    """Write a single TradeLog row for a registered (not executed) order."""
+def _persist_leg(
+    db: Session, user_id: int, leg: dict, *, conversation_id: Optional[str] = None,
+) -> TradeLog:
+    """Persist a chat order intent as a TradeLog row, routing it by the
+    account's paper-vs-live mode.
+
+      - PAPER mode (paper trading on, account.mode == 'paper'): the order
+        fills the SIMULATED paper book — no broker is ever contacted. The
+        TradeLog status reflects the paper outcome (filled / resting /
+        rejected / pending) and carries the paper order id.
+      - LIVE mode (paper off): the order is placed through the user's active
+        broker connector (Kite/Dhan/Fyers; the Kite mock helper in dev or when
+        no broker session exists). The status reflects the broker outcome
+        (PENDING / COMPLETE / ...) and carries the broker order id.
+
+    ``submit_order_for_user`` owns that paper-vs-broker decision (it re-checks
+    ``should_use_paper`` internally), so a paper-mode account can NEVER reach a
+    real broker through this path. A routing/placement failure must not lose
+    the user's intent: we log it and fall back to recording a plain registered
+    order (status='registered', no order id).
+    """
+    symbol = leg["symbol"].upper()
+    side = leg["transaction_type"]
+    order_type = str(leg["order_type"]).upper()
+    qty = int(leg["quantity"])
+
+    paper = should_use_paper(db, user_id)
+
+    # LIVE mode (paper off) needs a CONNECTED broker to actually reach the
+    # exchange. Without a session the routing seam falls through to the Kite
+    # *mock* helper, which would report a phantom "placed" that never hit the
+    # broker (exactly the "card says Placed but Kite is empty" symptom). Fail
+    # honestly so the UI can prompt the user to connect — except in dev mock
+    # mode (no real key), where the mock placement is the intended behaviour.
+    if (
+        not paper
+        and not kite_auth.KITE_MOCK_MODE
+        and get_active_broker_session(db, user_id) is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No broker connected. Connect your broker (e.g. Zerodha Kite) "
+                "in Brokers settings to place live orders."
+            ),
+        )
+
+    order_status = "registered"
+    broker_order_id: Optional[str] = None
+
+    try:
+        if order_type == "GTT" and leg.get("trigger_price") is not None:
+            # A GTT MUST go through the broker's GTT API (place_gtt), not the
+            # regular place_order path — Kite rejects order_type="GTT" on a
+            # plain order, so it would never create the trigger. Resolve the
+            # current LTP the GTT API needs (falls back to the trigger price).
+            mark = get_mark_price(symbol)
+            limit_price = leg.get("price") or leg["trigger_price"]
+            result = submit_gtt_for_user(
+                db, user_id,
+                tradingsymbol=symbol,
+                exchange=leg.get("exchange", "NSE"),
+                transaction_type=side,
+                quantity=qty,
+                trigger_price=float(leg["trigger_price"]),
+                limit_price=float(limit_price),
+                last_price=float(mark) if mark is not None else float(leg["trigger_price"]),
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            broker_order_id = (
+                str(result.get("trigger_id") or result.get("order_id") or "") or None
+            )
+        else:
+            result = submit_order_for_user(
+                db, user_id,
+                tradingsymbol=symbol,
+                exchange=leg.get("exchange", "NSE"),
+                transaction_type=side,
+                quantity=qty,
+                order_type=order_type,
+                price=leg.get("price"),
+                product=leg.get("product", "CNC"),
+                trigger_price=leg.get("trigger_price"),
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            broker_order_id = result.get("order_id")
+        # paper_status (simulated book: filled/resting/rejected/pending) takes
+        # precedence; otherwise the broker's own status (PENDING/COMPLETE/
+        # active/...).
+        order_status = (
+            result.get("paper_status") or result.get("status") or "registered"
+        )
+    except HTTPException:
+        raise
+    except InsufficientFundsError as exc:
+        # Pre-trade funds guard tripped — tell the user plainly.
+        raise HTTPException(status_code=402, detail=str(exc))
+    except Exception as exc:
+        logger.exception(
+            "order routing failed for chat order %s %s", side, symbol,
+        )
+        if not paper:
+            # LIVE order: the broker REJECTED/failed it (IP allow-list, RMS,
+            # market closed, …). Surface the real reason rather than silently
+            # recording a misleading "registered" that the UI shows as "Placed".
+            raise HTTPException(
+                status_code=502,
+                detail=f"Broker rejected the order: {str(exc).strip() or type(exc).__name__}",
+            )
+        # PAPER/transient routing failure must not lose intent — register it.
+        order_status = "registered"
+
     row = TradeLog(
         user_id=user_id,
-        kite_order_id=None,                    # never sent to a broker
-        symbol=leg["symbol"].upper(),
+        kite_order_id=broker_order_id,         # paper or broker order id (or None)
+        symbol=symbol,
         exchange=leg.get("exchange", "NSE"),
-        transaction_type=leg["transaction_type"],
-        order_type=leg["order_type"],
-        quantity=int(leg["quantity"]),
+        transaction_type=side,
+        order_type=order_type,
+        quantity=qty,
         price=leg.get("price"),
         trigger_price=leg.get("trigger_price"),
-        status="registered",
+        status=order_status,
         source="chat-confirm",
         placed_at=now_ist(),
     )
     db.add(row)
     return row
+
+
+def _tick(x: float) -> float:
+    """Round to the NSE 0.05 tick."""
+    return round(round(x / 0.05) * 0.05, 2)
+
+
+def _arm_bracket_exits(
+    db: Session,
+    user_id: int,
+    row: TradeLog,
+    *,
+    stoploss_pct: Optional[float],
+    target_pct: Optional[float],
+    conversation_id: Optional[str],
+) -> tuple[Optional[dict], Optional[str]]:
+    """Arm GTT stop-loss/target exits for a just-registered entry order.
+
+    Triggers are computed as a % move from the entry reference price (the
+    limit price when set, else the live mark). BUY entry → SL below / TP
+    above; SELL entry mirrors. Both set → a true OCO pair (paper: shared
+    gtt_oco_group; live: the broker's two-leg GTT). One set → a single GTT.
+
+    Returns (exits_payload, None) on success or (None, reason) on failure —
+    the ENTRY is already placed either way, so failures report honestly
+    instead of unwinding it. Writes one TradeLog row per armed exit; caller
+    owns commit.
+    """
+    entry_side = str(row.transaction_type).upper()
+    exit_side = "SELL" if entry_side == "BUY" else "BUY"
+
+    ref = row.price if row.price else get_mark_price(row.symbol)
+    if ref is None or float(ref) <= 0:
+        return None, "no reference price available to compute exit triggers"
+    ref = float(ref)
+    # BUY entry: stop below / target above. SELL entry: mirrored.
+    sign = 1 if entry_side == "BUY" else -1
+    sl_trigger = (
+        _tick(ref * (1 - sign * float(stoploss_pct) / 100)) if stoploss_pct else None
+    )
+    tp_trigger = (
+        _tick(ref * (1 + sign * float(target_pct) / 100)) if target_pct else None
+    )
+
+    exits: dict = {"reference_price": ref, "exit_side": exit_side}
+    legs: list[tuple[str, float, dict]] = []  # (kind, trigger, result)
+    try:
+        if sl_trigger is not None and tp_trigger is not None:
+            result = submit_gtt_oco_for_user(
+                db, user_id,
+                tradingsymbol=row.symbol,
+                exchange=row.exchange or "NSE",
+                exit_side=exit_side,
+                quantity=int(row.quantity),
+                stoploss_trigger=sl_trigger,
+                target_trigger=tp_trigger,
+                last_price=ref,
+                client_request_id_prefix=f"bracket:{row.id}",
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            exits["oco_group"] = result.get("oco_group") or result.get("trigger_id")
+            legs.append(("stoploss", sl_trigger, result.get("stoploss") or result))
+            legs.append(("target", tp_trigger, result.get("target") or result))
+        else:
+            kind = "stoploss" if sl_trigger is not None else "target"
+            trigger = sl_trigger if sl_trigger is not None else tp_trigger
+            assert trigger is not None
+            result = submit_gtt_for_user(
+                db, user_id,
+                tradingsymbol=row.symbol,
+                exchange=row.exchange or "NSE",
+                transaction_type=exit_side,
+                quantity=int(row.quantity),
+                trigger_price=trigger,
+                limit_price=trigger,
+                last_price=ref,
+                client_request_id=f"bracket:{row.id}:{kind[:2]}",
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            legs.append((kind, trigger, result))
+    except NotImplementedError as exc:
+        return None, str(exc)
+    except InsufficientFundsError as exc:
+        return None, str(exc)
+    except Exception as exc:  # noqa: BLE001 — entry stands; report the exit failure
+        logger.exception(
+            "bracket exits failed for order %s %s", row.id, row.symbol,
+        )
+        return None, f"exit placement failed: {str(exc).strip() or type(exc).__name__}"
+
+    for kind, trigger, result in legs:
+        status = str(
+            result.get("paper_status") or result.get("status") or "active"
+        )
+        exit_row = TradeLog(
+            user_id=user_id,
+            kite_order_id=(
+                str(result.get("trigger_id") or result.get("order_id") or "") or None
+            ),
+            symbol=row.symbol,
+            exchange=row.exchange,
+            transaction_type=exit_side,
+            order_type="GTT",
+            quantity=row.quantity,
+            price=trigger,
+            trigger_price=trigger,
+            status=status,
+            source="chat-confirm",
+            placed_at=now_ist(),
+        )
+        db.add(exit_row)
+        db.flush()
+        exits[kind] = {
+            "id": exit_row.id,
+            "trigger_price": trigger,
+            "status": status,
+        }
+    return exits, None
 
 
 @router.post("/register", status_code=201)
@@ -254,17 +529,25 @@ async def register_order(
     auth: tuple = Depends(get_current_user_token),
     db: Session = Depends(get_db),
 ):
-    """Persist an order intent from a chat LogicCard confirm.
+    """Place/register an order from a chat LogicCard confirm.
 
-    No broker call; this is v1's "register but don't execute" path.
-    Returns the TradeLog row(s) that were inserted so the UI can show
-    them in order history immediately.
+    Routing follows the account's paper-vs-live mode (see ``_persist_leg``):
+    a PAPER account fills the simulated book (no broker, ever); a LIVE account
+    (paper off) places through the user's active broker connector. Either way
+    one TradeLog row is written per resulting order and returned so the UI can
+    show it in order history immediately.
     """
     user_id, _ = auth
 
     # Basket: write one TradeLog row per leg.
     if request.basket and request.legs:
-        rows = [_persist_leg(db, user_id, leg.model_dump()) for leg in request.legs]
+        rows = [
+            _persist_leg(
+                db, user_id, leg.model_dump(),
+                conversation_id=request.conversation_id,
+            )
+            for leg in request.legs
+        ]
         db.commit()
         for r in rows:
             db.refresh(r)
@@ -301,15 +584,36 @@ async def register_order(
         "trigger_price": request.trigger_price,
         "product": request.product or "CNC",
     }
-    row = _persist_leg(db, user_id, leg)
+    row = _persist_leg(db, user_id, leg, conversation_id=request.conversation_id)
     db.commit()
     db.refresh(row)
+
+    # Bracket exits — armed AFTER the entry commits, so an exit failure can
+    # never lose the entry. Skipped when the entry itself was rejected (no
+    # position will exist for the exits to close) or for GTT entries.
+    exits: Optional[dict] = None
+    exits_error: Optional[str] = None
+    wants_exits = request.gtt_stoploss_pct or request.gtt_target_pct
+    if wants_exits and str(row.order_type).upper() in {"MARKET", "LIMIT"}:
+        if "reject" in str(row.status).lower():
+            exits_error = "entry was rejected — stop-loss/target not armed"
+        else:
+            exits, exits_error = _arm_bracket_exits(
+                db, user_id, row,
+                stoploss_pct=request.gtt_stoploss_pct,
+                target_pct=request.gtt_target_pct,
+                conversation_id=request.conversation_id,
+            )
+            db.commit()
+
     return {
         "id": row.id, "symbol": row.symbol, "exchange": row.exchange,
         "transaction_type": row.transaction_type, "order_type": row.order_type,
         "quantity": row.quantity, "price": row.price,
         "trigger_price": row.trigger_price, "status": row.status,
         "placed_at": format_ist(row.placed_at),
+        "exits": exits,
+        "exits_error": exits_error,
     }
 
 
@@ -329,8 +633,13 @@ async def create_gtt_order(
             "is_confirmed": False,
         }
     user = db.query(User).filter(User.id == user_id).first()
-    kite_token = user.kite_session.access_token if user and user.kite_session else "mock"
-    return kite_orders.place_gtt_order(
+    kite_token = (
+        read_kite_access_token(user.active_broker_session)
+        if user and user.active_broker_session
+        else "mock"
+    ) or "mock"
+    result = submit_gtt_for_user(
+        db, user_id,
         access_token=kite_token,
         tradingsymbol=request.tradingsymbol,
         exchange=request.exchange,
@@ -339,4 +648,32 @@ async def create_gtt_order(
         trigger_price=request.trigger_price,
         limit_price=request.limit_price,
         last_price=request.last_price,
+        # Stable idempotency key so a double-submit doesn't double-register
+        # the GTT in the paper book (mirrors /orders/confirm's preview key).
+        client_request_id=(
+            f"chat-gtt:{user_id}:{request.tradingsymbol}:"
+            f"{request.trigger_price}:{request.limit_price}"
+        ),
+        source="chat",
+        conversation_id=request.conversation_id,
     )
+    # The paper broker only FLUSHES; the router owns commit. (The legacy
+    # kite path wrote nothing to the DB, so this commit is new + required
+    # for paper.) Also persist a TradeLog for parity with /orders/confirm
+    # so the GTT shows in /orders/history.
+    db.add(TradeLog(
+        user_id=user_id,
+        kite_order_id=str(result.get("trigger_id") or result.get("order_id") or ""),
+        symbol=request.tradingsymbol,
+        exchange=request.exchange,
+        transaction_type=request.transaction_type,
+        order_type="GTT",
+        quantity=request.quantity,
+        price=request.limit_price,
+        trigger_price=request.trigger_price,
+        status=str(result.get("status", "active")),
+        source="chat",
+        placed_at=now_ist(),
+    ))
+    db.commit()
+    return result

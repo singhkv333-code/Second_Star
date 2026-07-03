@@ -30,7 +30,12 @@ def test_tool_summary_line_for_logiccard_with_action_and_symbol():
 
 
 def test_tool_summary_line_for_get_tool():
-    assert _tool_summary_line("get_holdings", None) == "Here's what I found."
+    # The hint string was extended in 2026 to nudge the FE toward
+    # rendering the data card; chat_service.py owns the canonical
+    # copy and this assertion mirrors it.
+    line = _tool_summary_line("get_holdings", None)
+    assert line.startswith("Here's what I found")
+    assert "card" in line.lower()
 
 
 def test_render_hint_lifted_from_nested_tool_payload(client, auth_headers):

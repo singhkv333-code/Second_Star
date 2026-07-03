@@ -52,11 +52,13 @@ roe:
   unit: percentage
 
 roa:
-  # Total assets approximated as equity + total borrowings + current liabilities.
-  # Fragile; revisit when a `total_assets` base field lands.
+  # Derived RoA. Prefer the reported `return_on_assets` (mc `ratios` statement);
+  # this approximation remains for back-compat. Total assets approximated as
+  # equity + total borrowings + current liabilities.
   expr: (net_profit_ttm * 100) / (equity_share_capital + reserves + total_debt + short_term_debt + current_liabilities)
   unit: percentage
 
-interest_coverage:
-  expr: operating_profit_ttm / interest_expense_ttm
-  unit: ratio
+# `interest_coverage` was `operating_profit_ttm / interest_expense_ttm`, but the
+# live mc data has no `operating_profit` line item. It is now a reliable base
+# field reading "Interest Coverage Ratios (%)" from the `ratios` statement
+# (see base_fields.yaml).

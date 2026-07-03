@@ -47,9 +47,28 @@ def compute_metrics(
     rets = np.diff(values) / np.where(values[:-1] == 0, 1, values[:-1])
     total_return = (values[-1] / values[0]) - 1
 
-    # Year fraction (calendar)
+    # Year fraction — CALENDAR span between the first and last bar (365.25
+    # days/yr), matching backend.services.backtest_metrics.calendar_cagr_pct so
+    # CAGR is comparable across every engine. (Was bar-count/252, which both
+    # overstated CAGR on short windows and diverged from the signal engines.)
+    from datetime import date as _date, datetime as _dt
+
+    def _as_date(x: object) -> _date:
+        if isinstance(x, _dt):
+            return x.date()
+        if isinstance(x, _date):
+            return x
+        return _dt.fromisoformat(str(x)[:10]).date()
+
     n_days = len(values)
-    years = max(n_days / 252.0, 1e-9)
+    try:
+        _span_days = max(
+            (_as_date(equity_curve[-1]["date"]) - _as_date(equity_curve[0]["date"])).days,
+            1,
+        )
+    except Exception:
+        _span_days = n_days  # fall back to the bar count if dates are missing
+    years = max(_span_days / 365.25, 1e-9)
     cagr = (values[-1] / values[0]) ** (1 / years) - 1 if values[0] > 0 else 0.0
 
     # Vol / Sharpe / Sortino — daily → annualised

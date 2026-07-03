@@ -1,12 +1,14 @@
 /**
- * Tests for IndicatorBacktestCard — the chat-side backtest result chart.
- * Wired via raw_data._render_hint === "indicator_backtest_chart" in
- * ChatDemo. Previously had zero coverage.
+ * Tests for IndicatorBacktestCard — the chat-side concise widget — and
+ * IndicatorBacktestDetail — the full result surface mounted inside the
+ * widget's modal. Wired via raw_data._render_hint ===
+ * "indicator_backtest_chart" in ChatDemo.
  */
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import {
   IndicatorBacktestCard,
+  IndicatorBacktestDetail,
   type IndicatorBacktestPayload,
 } from "@/components/chat/IndicatorBacktestCard";
 
@@ -54,46 +56,37 @@ const RSI_PAYLOAD: IndicatorBacktestPayload = {
   bench_buy_hold_return_pct: 12.5,
 };
 
-describe("IndicatorBacktestCard", () => {
-  it("renders the symbol and the strategy condition headline", () => {
+describe("IndicatorBacktestCard — concise widget", () => {
+  it("renders the symbol, condition headline and period", () => {
     render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
     expect(screen.getByTestId("indicator-backtest-card")).toBeInTheDocument();
-    expect(screen.getByText("RELIANCE")).toBeInTheDocument();
-    // The condition label is e.g. "RSI(14) drops below 30"
-    expect(
-      screen.getByText(/drops below/i),
-    ).toBeInTheDocument();
+    // Symbol is rendered title-cased in the concise widget (matches the
+    // LogicCardChip company-name rhythm).
+    expect(screen.getByText("Reliance")).toBeInTheDocument();
+    expect(screen.getByText(/drops below/i)).toBeInTheDocument();
     expect(screen.getByText(/Jan 2023 — Dec 2024/)).toBeInTheDocument();
   });
 
-  it("renders the metrics strip with all 6 fields", () => {
+  it("does NOT surface CAGR · Max DD · Trades · Hit rate on the concise widget", () => {
+    // These now live behind the "View" sidebar only — the concise card
+    // keeps just the chart + headline total return.
     render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
-    expect(screen.getByText("CAGR")).toBeInTheDocument();
-    expect(screen.getByText("Max DD")).toBeInTheDocument();
-    expect(screen.getByText("Trades")).toBeInTheDocument();
-    expect(screen.getByText("Hit rate")).toBeInTheDocument();
-    expect(screen.getByText("End value")).toBeInTheDocument();
-    expect(screen.getByText(/RELIANCE buy & hold/)).toBeInTheDocument();
+    expect(screen.queryByText("CAGR")).not.toBeInTheDocument();
+    expect(screen.queryByText("Max DD")).not.toBeInTheDocument();
+    expect(screen.queryByText("Trades")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hit rate")).not.toBeInTheDocument();
+  });
+
+  it("does NOT surface the secondary stats in the concise widget", () => {
+    render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
+    expect(screen.queryByText("End value")).not.toBeInTheDocument();
+    expect(screen.queryByText(/RELIANCE buy & hold/)).not.toBeInTheDocument();
   });
 
   it("displays formatted strategy total return prominently", () => {
     render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
-    // total_return_pct: 16.0 → "+16.00%"
     expect(screen.getByText(/\+16\.00%/)).toBeInTheDocument();
     expect(screen.getByText(/Strategy total return/i)).toBeInTheDocument();
-  });
-
-  it("renders all three charts: price, indicator, equity", () => {
-    render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
-    expect(screen.getByTestId("price-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("indicator-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("equity-chart")).toBeInTheDocument();
-  });
-
-  it("renders trade-count metric matching the signals", () => {
-    render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
-    // 2 trades (2 buy/sell pairs from 4 signals)
-    expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("handles a losing strategy with negative total return", () => {
@@ -109,7 +102,86 @@ describe("IndicatorBacktestCard", () => {
       },
     };
     render(<IndicatorBacktestCard payload={losing} />);
-    // Negative returns get a leading "-" — the formatter outputs "-8.50%"
     expect(screen.getByText("-8.50%")).toBeInTheDocument();
+  });
+
+  it("opens the detail sidebar when View is clicked", () => {
+    render(<IndicatorBacktestCard payload={RSI_PAYLOAD} />);
+    // Detail is portaled; not in the DOM until the button is clicked.
+    expect(screen.queryByTestId("indicator-backtest-detail")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("indicator-backtest-view-btn"));
+    expect(screen.getByTestId("indicator-backtest-detail")).toBeInTheDocument();
+    // The detail surface exposes the full metric set + all three charts.
+    const detail = screen.getByTestId("indicator-backtest-detail");
+    expect(within(detail).getByText("End value")).toBeInTheDocument();
+    expect(within(detail).getByText(/RELIANCE buy & hold/)).toBeInTheDocument();
+    expect(within(detail).getByTestId("price-chart")).toBeInTheDocument();
+    expect(within(detail).getByTestId("indicator-chart")).toBeInTheDocument();
+    expect(within(detail).getByTestId("equity-chart")).toBeInTheDocument();
+  });
+});
+
+// ── DSL-tree readback ─────────────────────────────────────────────
+
+
+const DSL_PAYLOAD: IndicatorBacktestPayload = {
+  ...RSI_PAYLOAD,
+  symbol: "TCS",
+  indicator: "compound",
+  indicator_period: 0,
+  operator: "tree",
+  threshold: 0,
+  bench_buy_hold_return_pct: null,
+  tree_summary:
+    "RSI(14) of TCS < 30 AND price of TCS > SMA(200) of TCS",
+  trades: [
+    {
+      trade_id: 1, entry_date: "2023-04-01", entry_price: 2400,
+      exit_date: "2023-04-15", exit_price: 2520, quantity: 10,
+      net_pnl: 1180, return_pct: 0.05, exit_reason: "n_day_hold",
+    },
+  ],
+  diagnostics: {
+    bars_evaluated: 540, fire_bars: 12, unknown_value_bars: 0,
+  },
+};
+
+
+describe("IndicatorBacktestCard — DSL tree readback", () => {
+  it("renders the tree_summary as the condition label, not the indicator template", () => {
+    render(<IndicatorBacktestCard payload={DSL_PAYLOAD} />);
+    expect(
+      screen.getByText(/RSI\(14\) of TCS < 30 AND price of TCS > SMA\(200\)/),
+    ).toBeInTheDocument();
+    // The fallback indicator-based title must NOT appear when tree_summary is set.
+    expect(screen.queryByText(/Price drops below COMPOUND\(0\)/)).toBeNull();
+  });
+
+  it("keeps the stat block off the concise widget (View sidebar only)", () => {
+    render(<IndicatorBacktestCard payload={DSL_PAYLOAD} />);
+    expect(screen.queryByText("CAGR")).not.toBeInTheDocument();
+    expect(screen.queryByText("Max DD")).not.toBeInTheDocument();
+    expect(screen.queryByText("Trades")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hit rate")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("IndicatorBacktestDetail — full result surface", () => {
+  it("renders all 6 detail metrics", () => {
+    render(<IndicatorBacktestDetail payload={RSI_PAYLOAD} />);
+    expect(screen.getByText("CAGR")).toBeInTheDocument();
+    expect(screen.getByText("Max DD")).toBeInTheDocument();
+    expect(screen.getByText("Trades")).toBeInTheDocument();
+    expect(screen.getByText("Hit rate")).toBeInTheDocument();
+    expect(screen.getByText("End value")).toBeInTheDocument();
+    expect(screen.getByText(/RELIANCE buy & hold/)).toBeInTheDocument();
+  });
+
+  it("renders all three charts: price, indicator, equity", () => {
+    render(<IndicatorBacktestDetail payload={RSI_PAYLOAD} />);
+    expect(screen.getByTestId("price-chart")).toBeInTheDocument();
+    expect(screen.getByTestId("indicator-chart")).toBeInTheDocument();
+    expect(screen.getByTestId("equity-chart")).toBeInTheDocument();
   });
 });

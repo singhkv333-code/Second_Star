@@ -36,3 +36,65 @@ def validate_order_value(quantity: int, price: float) -> tuple[bool, str]:
     if value <= 0:
         return False, "Order value must be positive"
     return True, ""
+
+
+# ── F&O pre-trade gate (P1; the SINGLE source of truth) ──────────────
+#
+# Called by BOTH the /option-strategies registration router (P1) and
+# the action.place_option_strategy workflow executor (P3). FAIL-CLOSED:
+# every check must pass; the first failure blocks with a reason. The
+# checklist grows in P2/P3 (margin pre-check vs paper cash, daily-loss
+# cap, feed-health, kill-switch); P1 ships the structural checks.
+
+MAX_OPTION_LOTS_PER_STRATEGY = 100   # hard sanity ceiling per strategy
+FNO_KILL_SWITCH_ENV = "PIVOT_FNO_KILL_SWITCH"
+
+
+def run_option_pretrade_gate(payload: dict, *, acknowledged: bool) -> tuple[bool, str]:
+    """Validate a SERVER-resolved option_strategy payload (the output of
+    ``option_strategies.resolve_strategy``) before persisting. Returns
+    (ok, reason). The payload is trusted because the server just built
+    it from the live chain — client numbers never reach this gate."""
+    import os
+
+    if os.getenv(FNO_KILL_SWITCH_ENV, "0") == "1":
+        return False, "F&O registration is temporarily disabled (kill switch)."
+
+    validation = payload.get("validation") or {}
+    editable = payload.get("editable") or {}
+    legs = editable.get("legs") or []
+
+    # Commodities (MCX) are tradeable via register-not-execute — no MCX block.
+    if validation.get("requires_disclosure") and not acknowledged:
+        return False, (
+            "The SEBI risk disclosure must be acknowledged before "
+            "registering an F&O strategy."
+        )
+    if not legs:
+        return False, "Strategy has no legs."
+    qty = int(editable.get("qty_lots") or 0)
+    if qty < 1 or qty > MAX_OPTION_LOTS_PER_STRATEGY:
+        return False, (
+            f"qty_lots must be between 1 and {MAX_OPTION_LOTS_PER_STRATEGY}."
+        )
+    # Liquidity: an unquotable leg never reaches here (resolution throws),
+    # but wide-spread legs do — registering through a wide spread is
+    # allowed with the flag carried on the row; an ILLIQUID leg is not.
+    for leg in legs:
+        if leg.get("iv_status") in ("illiquid", "stale", "no_arb"):
+            return False, (
+                f"Leg {leg.get('tradingsymbol') or leg.get('strike')} is not "
+                f"tradable right now ({leg.get('iv_status')})."
+            )
+    # Expiry-day naked shorts are gate-BLOCKED (not just warned) —
+    # the single most account-destroying retail pattern. Defined-risk
+    # structures on expiry day pass with the card-level warning.
+    if (
+        validation.get("expiry_gamma_warn")
+        and (payload.get("computed") or {}).get("max_loss") is None
+    ):
+        return False, (
+            "Naked short option(s) on expiry day are blocked — add a "
+            "protective wing (defined risk) or pick a later expiry."
+        )
+    return True, ""

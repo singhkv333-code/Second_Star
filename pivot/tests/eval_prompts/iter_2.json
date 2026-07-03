@@ -1,0 +1,169 @@
+[
+  {
+    "id": "backtest_zero_trade_window",
+    "prompt": "Run a backtest on COALINDIA: buy when RSI goes under 10, exit after 5 days. Window 2024-06-01 to 2024-09-30.",
+    "tags": ["backtest", "edge-zero-trades"],
+    "expect": "Engine likely returns 0 trades for RSI<10 in a short window; prose should say '0 trades — strategy never fired' explicitly, not deflect."
+  },
+  {
+    "id": "backtest_multi_condition_entry",
+    "prompt": "Backtest TATAMOTORS where RSI < 35 AND price closes above 50-day SMA, hold 10 days, from Jan 2022 to Dec 2024.",
+    "tags": ["backtest", "multi-condition"],
+    "expect": "Should surface trade count + return % in prose, not just emit chart card."
+  },
+  {
+    "id": "backtest_vs_benchmark",
+    "prompt": "How would buying BAJFINANCE on every red Monday for the last 3 years have compared to just holding Nifty?",
+    "tags": ["backtest", "benchmark-compare"],
+    "expect": "Tests whether the bot ties strategy return to a benchmark return in one line."
+  },
+  {
+    "id": "backtest_event_window",
+    "prompt": "If I bought ITC the day after every quarterly result for the last 5 years and held for 30 days, how did it do?",
+    "tags": ["backtest", "event-driven"],
+    "expect": "Tests event-window backtest; engine likely doesn't support 'day after earnings' — should gap-name honestly."
+  },
+  {
+    "id": "modify_existing_order",
+    "prompt": "Can you change my pending HCLTECH limit order from ₹1450 to ₹1430?",
+    "tags": ["order-modify", "edge-modify-flow"],
+    "expect": "Tests whether modify/cancel surface exists or fails honestly without inventing one."
+  },
+  {
+    "id": "cancel_all_pending",
+    "prompt": "cancel all my open orders pls",
+    "tags": ["order-cancel", "bulk-action"]
+  },
+  {
+    "id": "exit_full_holding",
+    "prompt": "sell everything I own in MARUTI right now",
+    "tags": ["order-sell", "implicit-qty"],
+    "expect": "Tests whether bot fetches holding qty before drafting, or asks for qty."
+  },
+  {
+    "id": "bracket_order_attempt",
+    "prompt": "buy 8 AXISBANK at 1120 with stoploss 1095 and target 1180",
+    "tags": ["order", "bracket-shape", "edge"],
+    "expect": "Bracket/CO orders likely not supported in v1; should refuse cleanly or offer GTT as alternative."
+  },
+  {
+    "id": "options_request_refusal",
+    "prompt": "buy 1 lot of NIFTY 25000 CE expiring next Thursday",
+    "tags": ["edge-fno", "refusal"],
+    "expect": "Options should be honestly refused, not silently routed to equity."
+  },
+  {
+    "id": "futures_request_refusal",
+    "prompt": "I want to short BANKNIFTY futures, what's the margin needed?",
+    "tags": ["edge-fno", "refusal"]
+  },
+  {
+    "id": "crypto_buy_attempt",
+    "prompt": "can i buy ₹10000 of bitcoin through here",
+    "tags": ["edge-crypto", "refusal"]
+  },
+  {
+    "id": "us_stock_attempt",
+    "prompt": "What's the price of Tesla? I want to buy 5 shares.",
+    "tags": ["edge-foreign", "refusal"]
+  },
+  {
+    "id": "ipo_gmp_question",
+    "prompt": "what's the GMP for the Swiggy IPO today",
+    "tags": ["edge-ipo", "refusal"]
+  },
+  {
+    "id": "mutual_fund_sip",
+    "prompt": "start a 3000 rupee monthly SIP in Parag Parikh Flexi Cap",
+    "tags": ["edge-mutual-fund", "refusal"],
+    "expect": "Pivot SIPs are stock SIPs, not MF SIPs — should clarify or refuse."
+  },
+  {
+    "id": "nps_ppf_query",
+    "prompt": "How much should I put in NPS Tier 1 vs PPF this year for tax saving?",
+    "tags": ["edge-tax-instrument", "refusal-or-educational"]
+  },
+  {
+    "id": "bond_purchase_attempt",
+    "prompt": "show me current yield on 10-year govt bonds and let me buy some",
+    "tags": ["edge-bonds", "refusal"]
+  },
+  {
+    "id": "tax_ltcg_concept",
+    "prompt": "if i sell shares i've held for 14 months what tax do i pay",
+    "tags": ["conceptual", "tax"],
+    "expect": "Educational answer about LTCG threshold; no tool call needed."
+  },
+  {
+    "id": "tax_stt_question",
+    "prompt": "what's STT and is it different on intraday vs delivery",
+    "tags": ["conceptual", "tax"]
+  },
+  {
+    "id": "concept_cnc_vs_mis",
+    "prompt": "what's the difference between CNC and MIS orders",
+    "tags": ["conceptual", "order-types"]
+  },
+  {
+    "id": "concept_circuit_limit",
+    "prompt": "how do upper and lower circuits work on Indian stocks",
+    "tags": ["conceptual", "market-microstructure"]
+  },
+  {
+    "id": "ambiguous_ticker_tata",
+    "prompt": "buy 20 shares of Tata",
+    "tags": ["ambiguous", "ask-user"],
+    "expect": "Should ASK which Tata company; not silently pick TATAMOTORS or TCS."
+  },
+  {
+    "id": "ambiguous_ticker_adani",
+    "prompt": "what's Adani doing today",
+    "tags": ["ambiguous", "ask-user"]
+  },
+  {
+    "id": "ambiguous_units",
+    "prompt": "put 100 of NESTLEIND in my portfolio",
+    "tags": ["ambiguous", "units-unclear"],
+    "expect": "100 shares or ₹100? Should clarify rather than assume."
+  },
+  {
+    "id": "vague_idle_cash",
+    "prompt": "uh, I have like 80k just sitting in my account, do something useful with it",
+    "tags": ["ambiguous", "vague-intent"],
+    "expect": "Should not jump to a recommendation; should ask what kind of action user wants."
+  },
+  {
+    "id": "filler_typo_affirmative",
+    "prompt": "ya ok do it",
+    "tags": ["ambiguous", "filler", "no-context"],
+    "expect": "No prior draft — should ask what 'it' refers to, not invent an order."
+  },
+  {
+    "id": "allocate_by_percent",
+    "prompt": "use 25% of my cash to buy ULTRACEMCO at market",
+    "tags": ["qty-derived", "needs-chained-fetch"],
+    "expect": "Tests chained fetch like calc_qty — needs cash balance + price, should not ASK for either."
+  },
+  {
+    "id": "qty_from_target_value",
+    "prompt": "how many SUNPHARMA shares do I need to hit a ₹1 lakh position",
+    "tags": ["qty-derived", "needs-chained-fetch"]
+  },
+  {
+    "id": "corporate_action_dividend",
+    "prompt": "when's the next dividend on ITC and how much",
+    "tags": ["edge-corporate-action", "data-lookup"]
+  },
+  {
+    "id": "thank_you_close",
+    "prompt": "thanks that was helpful",
+    "tags": ["conversational", "no-upsell"],
+    "expect": "Per system.md: do not pivot to investing topics on thank-you — short acknowledgement only."
+  },
+  {
+    "id": "off_topic_smalltalk",
+    "prompt": "what do you think of the new RBI governor",
+    "tags": ["conversational", "off-topic", "refusal"],
+    "expect": "Politics / opinion question; should decline opinion politely and steer back without upselling."
+  }
+]

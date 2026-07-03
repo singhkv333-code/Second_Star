@@ -1,0 +1,6527 @@
+{
+  "view": "monsoon",
+  "generated": "2026-06-30T08:36:04.161393+00:00",
+  "universe": {
+    "n_total": 500,
+    "n_with_data": 500,
+    "dropped": [],
+    "weighting": "equal_weight"
+  },
+  "imd_normal_years": [
+    2010,
+    2011,
+    2016,
+    2021
+  ],
+  "event_window": "sowing",
+  "events": [
+    {
+      "year": 2010,
+      "window": "sowing",
+      "start": "2010-06-02",
+      "end": "2010-08-31",
+      "lpa_pct": 102,
+      "bars": 65
+    },
+    {
+      "year": 2011,
+      "window": "sowing",
+      "start": "2011-06-02",
+      "end": "2011-08-30",
+      "lpa_pct": 102,
+      "bars": 63
+    },
+    {
+      "year": 2016,
+      "window": "sowing",
+      "start": "2016-06-02",
+      "end": "2016-08-31",
+      "lpa_pct": 97,
+      "bars": 63
+    },
+    {
+      "year": 2021,
+      "window": "sowing",
+      "start": "2021-06-02",
+      "end": "2021-08-31",
+      "lpa_pct": 99,
+      "bars": 63
+    }
+  ],
+  "windows_taxonomy": {
+    "forecast": {
+      "start": "04-15",
+      "end": "06-15"
+    },
+    "onset": {
+      "start": "05-15",
+      "end": "07-31"
+    },
+    "sowing": {
+      "start": "06-01",
+      "end": "08-31"
+    },
+    "season": {
+      "start": "06-01",
+      "end": "09-30"
+    },
+    "drift": {
+      "start": "10-01",
+      "end": "12-31"
+    }
+  },
+  "factors": {
+    "b_NB": 0.0513,
+    "b_NB_t": 3.04,
+    "rural_f_built_from": 74,
+    "mkt_exmonsoon_built_from": 426,
+    "monsoon_sectors": [
+      "Automobile and Auto Components",
+      "Fast Moving Consumer Goods"
+    ],
+    "ag_fert_allow": [
+      "COROMANDEL.NS",
+      "CHAMBLFERT.NS",
+      "UPL.NS",
+      "PIIND.NS",
+      "BAYERCROP.NS",
+      "DEEPAKFERT.NS",
+      "FACT.NS",
+      "SUMICHEM.NS"
+    ]
+  },
+  "nifty_event_window_ret_pct": 3.88,
+  "top_gainers": [
+    {
+      "symbol": "GRAVITA.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 41.19,
+      "rank": 1,
+      "nifty_comparison": {
+        "strategy_total_pct": 41.19,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 37.31,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "TTML.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 38.94,
+      "rank": 2,
+      "nifty_comparison": {
+        "strategy_total_pct": 38.94,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 35.05,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "INDIANB.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 37.94,
+      "rank": 3,
+      "nifty_comparison": {
+        "strategy_total_pct": 37.94,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 34.06,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "PCBL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 37.63,
+      "rank": 4,
+      "nifty_comparison": {
+        "strategy_total_pct": 37.63,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 33.74,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "ECLERX.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 37.32,
+      "rank": 5,
+      "nifty_comparison": {
+        "strategy_total_pct": 37.32,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 33.44,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "JUBLFOOD.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 33.59,
+      "rank": 6,
+      "nifty_comparison": {
+        "strategy_total_pct": 33.59,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 29.71,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "TITAGARH.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 31.36,
+      "rank": 7,
+      "nifty_comparison": {
+        "strategy_total_pct": 31.36,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 27.47,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "DEEPAKFERT.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 30.44,
+      "rank": 8,
+      "nifty_comparison": {
+        "strategy_total_pct": 30.44,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 26.55,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "LINDEINDIA.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 30.15,
+      "rank": 9,
+      "nifty_comparison": {
+        "strategy_total_pct": 30.15,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 26.27,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "IGL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 30.05,
+      "rank": 10,
+      "nifty_comparison": {
+        "strategy_total_pct": 30.05,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 26.16,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "BAJAJFINSV.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 29.67,
+      "rank": 11,
+      "nifty_comparison": {
+        "strategy_total_pct": 29.67,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 25.79,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "JSL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 28.16,
+      "rank": 12,
+      "nifty_comparison": {
+        "strategy_total_pct": 28.16,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 24.28,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "TEJASNET.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 28.03,
+      "rank": 13,
+      "nifty_comparison": {
+        "strategy_total_pct": 28.03,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 24.15,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "JSWENERGY.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 27.94,
+      "rank": 14,
+      "nifty_comparison": {
+        "strategy_total_pct": 27.94,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 24.05,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "TRENT.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 27.3,
+      "rank": 15,
+      "nifty_comparison": {
+        "strategy_total_pct": 27.3,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 23.41,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "MANAPPURAM.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 26.97,
+      "rank": 16,
+      "nifty_comparison": {
+        "strategy_total_pct": 26.97,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 23.09,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "UBL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 26.74,
+      "rank": 17,
+      "nifty_comparison": {
+        "strategy_total_pct": 26.74,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 22.86,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "PIIND.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 26.54,
+      "rank": 18,
+      "nifty_comparison": {
+        "strategy_total_pct": 26.54,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 22.66,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "BAJFINANCE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 26.4,
+      "rank": 19,
+      "nifty_comparison": {
+        "strategy_total_pct": 26.4,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 22.51,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "SRF.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 26.39,
+      "rank": 20,
+      "nifty_comparison": {
+        "strategy_total_pct": 26.39,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 22.5,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "PAGEIND.NS",
+      "industry": "Textiles",
+      "event_win_ret_pct": 26.13,
+      "rank": 21,
+      "nifty_comparison": {
+        "strategy_total_pct": 26.13,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 22.24,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "ATUL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 24.99,
+      "rank": 22,
+      "nifty_comparison": {
+        "strategy_total_pct": 24.99,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 21.11,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "BBTC.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 24.84,
+      "rank": 23,
+      "nifty_comparison": {
+        "strategy_total_pct": 24.84,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 20.95,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "SCHAEFFLER.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 24.13,
+      "rank": 24,
+      "nifty_comparison": {
+        "strategy_total_pct": 24.13,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 20.25,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "HSCL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 23.86,
+      "rank": 25,
+      "nifty_comparison": {
+        "strategy_total_pct": 23.86,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 19.97,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "RADICO.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 23.44,
+      "rank": 26,
+      "nifty_comparison": {
+        "strategy_total_pct": 23.44,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 19.55,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "ACE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 23.19,
+      "rank": 27,
+      "nifty_comparison": {
+        "strategy_total_pct": 23.19,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 19.31,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "FLUOROCHEM.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 22.85,
+      "rank": 28,
+      "nifty_comparison": {
+        "strategy_total_pct": 22.85,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 18.96,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "GODFRYPHLP.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 22.68,
+      "rank": 29,
+      "nifty_comparison": {
+        "strategy_total_pct": 22.68,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 18.8,
+        "window_basis": "mean_event_window_return"
+      }
+    },
+    {
+      "symbol": "SAREGAMA.NS",
+      "industry": "Media Entertainment & Publication",
+      "event_win_ret_pct": 22.43,
+      "rank": 30,
+      "nifty_comparison": {
+        "strategy_total_pct": 22.43,
+        "nifty_total_pct": 3.88,
+        "excess_pct": 18.55,
+        "window_basis": "mean_event_window_return"
+      }
+    }
+  ],
+  "connectedness": {
+    "GRAVITA.NS": {
+      "naive": {
+        "beta_rain": 1.1783,
+        "t": 12.02,
+        "verdict": {
+          "beta": 1.1783,
+          "t": 12.02,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.2803,
+        "t": -1.95,
+        "factor": "b_rain",
+        "beta_mktex": 1.4828,
+        "t_mktex": 11.44,
+        "verdict": {
+          "beta": -0.2803,
+          "t": -1.95,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.4586,
+      "r2_clean": 0.163,
+      "n": 3826,
+      "flipped": true,
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 41.19,
+      "in_rural_factor": false
+    },
+    "TTML.NS": {
+      "naive": {
+        "beta_rain": 1.2669,
+        "t": 15.29,
+        "verdict": {
+          "beta": 1.2669,
+          "t": 15.29,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.2558,
+        "t": -1.85,
+        "factor": "b_rain",
+        "beta_mktex": 1.4109,
+        "t_mktex": 12.04,
+        "verdict": {
+          "beta": -0.2558,
+          "t": -1.85,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.5227,
+      "r2_clean": 0.159,
+      "n": 4043,
+      "flipped": true,
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 38.94,
+      "in_rural_factor": false
+    },
+    "INDIANB.NS": {
+      "naive": {
+        "beta_rain": 0.9106,
+        "t": 13.79,
+        "verdict": {
+          "beta": 0.9106,
+          "t": 13.79,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.6013,
+        "t": -5.53,
+        "factor": "b_rain",
+        "beta_mktex": 1.8706,
+        "t_mktex": 17.48,
+        "verdict": {
+          "beta": -0.6013,
+          "t": -5.53,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.5119,
+      "r2_clean": 0.324,
+      "n": 4043,
+      "flipped": true,
+      "industry": "Financial Services",
+      "event_win_ret_pct": 37.94,
+      "in_rural_factor": false
+    },
+    "PCBL.NS": {
+      "naive": {
+        "beta_rain": 1.5939,
+        "t": 22.51,
+        "verdict": {
+          "beta": 1.5939,
+          "t": 22.51,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.1631,
+        "t": 1.57,
+        "factor": "b_rain",
+        "beta_mktex": 1.2776,
+        "t_mktex": 13.17,
+        "verdict": {
+          "beta": 0.1631,
+          "t": 1.57,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.4308,
+      "r2_clean": 0.289,
+      "n": 4043,
+      "flipped": true,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 37.63,
+      "in_rural_factor": false
+    },
+    "ECLERX.NS": {
+      "naive": {
+        "beta_rain": 0.529,
+        "t": 8.28,
+        "verdict": {
+          "beta": 0.529,
+          "t": 8.28,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.1209,
+        "t": -1.27,
+        "factor": "b_rain",
+        "beta_mktex": 0.7605,
+        "t_mktex": 8.82,
+        "verdict": {
+          "beta": -0.1209,
+          "t": -1.27,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.6499,
+      "r2_clean": 0.1,
+      "n": 4043,
+      "flipped": true,
+      "industry": "Services",
+      "event_win_ret_pct": 37.32,
+      "in_rural_factor": false
+    },
+    "JUBLFOOD.NS": {
+      "naive": {
+        "beta_rain": 0.6906,
+        "t": 11.92,
+        "verdict": {
+          "beta": 0.6906,
+          "t": 11.92,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.5669,
+        "t": 6.07,
+        "factor": "b_rain",
+        "beta_mktex": 0.4478,
+        "t_mktex": 5.0,
+        "verdict": {
+          "beta": 0.5669,
+          "t": 6.07,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1237,
+      "r2_clean": 0.193,
+      "n": 4020,
+      "flipped": false,
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 33.59,
+      "in_rural_factor": false
+    },
+    "TITAGARH.NS": {
+      "naive": {
+        "beta_rain": 1.5081,
+        "t": 18.04,
+        "verdict": {
+          "beta": 1.5081,
+          "t": 18.04,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0244,
+        "t": 0.18,
+        "factor": "b_rain",
+        "beta_mktex": 1.3792,
+        "t_mktex": 10.47,
+        "verdict": {
+          "beta": 0.0244,
+          "t": 0.18,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.4837,
+      "r2_clean": 0.261,
+      "n": 4042,
+      "flipped": true,
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 31.36,
+      "in_rural_factor": false
+    },
+    "DEEPAKFERT.NS": {
+      "naive": {
+        "beta_rain": 1.4698,
+        "t": 20.19,
+        "verdict": {
+          "beta": 1.4698,
+          "t": 20.19,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0783,
+        "t": 10.16,
+        "factor": "b_rain",
+        "beta_mktex": 0.134,
+        "t_mktex": 1.39,
+        "verdict": {
+          "beta": 1.0783,
+          "t": 10.16,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.3915,
+      "r2_clean": 0.223,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 30.44,
+      "in_rural_factor": true
+    },
+    "LINDEINDIA.NS": {
+      "naive": {
+        "beta_rain": 0.7907,
+        "t": 12.53,
+        "verdict": {
+          "beta": 0.7907,
+          "t": 12.53,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.12,
+        "t": 1.32,
+        "factor": "b_rain",
+        "beta_mktex": 0.7224,
+        "t_mktex": 8.84,
+        "verdict": {
+          "beta": 0.12,
+          "t": 1.32,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.6707,
+      "r2_clean": 0.152,
+      "n": 4042,
+      "flipped": true,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 30.15,
+      "in_rural_factor": false
+    },
+    "IGL.NS": {
+      "naive": {
+        "beta_rain": 0.6669,
+        "t": 14.75,
+        "verdict": {
+          "beta": 0.6669,
+          "t": 14.75,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.1574,
+        "t": 1.95,
+        "factor": "b_rain",
+        "beta_mktex": 0.6427,
+        "t_mktex": 9.17,
+        "verdict": {
+          "beta": 0.1574,
+          "t": 1.95,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": true
+        }
+      },
+      "naive_clean_delta": 0.5095,
+      "r2_clean": 0.178,
+      "n": 4042,
+      "flipped": true,
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 30.05,
+      "in_rural_factor": false
+    },
+    "BAJAJFINSV.NS": {
+      "naive": {
+        "beta_rain": 0.4242,
+        "t": 7.98,
+        "verdict": {
+          "beta": 0.4242,
+          "t": 7.98,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.3211,
+        "t": 3.46,
+        "factor": "b_rain",
+        "beta_mktex": 0.6695,
+        "t_mktex": 8.96,
+        "verdict": {
+          "beta": 0.3211,
+          "t": 3.46,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1031,
+      "r2_clean": 0.26,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Financial Services",
+      "event_win_ret_pct": 29.67,
+      "in_rural_factor": false
+    },
+    "JSL.NS": {
+      "naive": {
+        "beta_rain": 1.0855,
+        "t": 13.31,
+        "verdict": {
+          "beta": 1.0855,
+          "t": 13.31,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.2475,
+        "t": -2.22,
+        "factor": "b_rain",
+        "beta_mktex": 1.5548,
+        "t_mktex": 13.74,
+        "verdict": {
+          "beta": -0.2475,
+          "t": -2.22,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.333,
+      "r2_clean": 0.252,
+      "n": 4042,
+      "flipped": true,
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 28.16,
+      "in_rural_factor": false
+    },
+    "TEJASNET.NS": {
+      "naive": {
+        "beta_rain": 1.2942,
+        "t": 10.95,
+        "verdict": {
+          "beta": 1.2942,
+          "t": 10.95,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.3089,
+        "t": -1.72,
+        "factor": "b_rain",
+        "beta_mktex": 1.5376,
+        "t_mktex": 9.44,
+        "verdict": {
+          "beta": -0.3089,
+          "t": -1.72,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.6031,
+      "r2_clean": 0.194,
+      "n": 2219,
+      "flipped": true,
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 28.03,
+      "in_rural_factor": false
+    },
+    "JSWENERGY.NS": {
+      "naive": {
+        "beta_rain": 0.9898,
+        "t": 13.62,
+        "verdict": {
+          "beta": 0.9898,
+          "t": 13.62,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.3931,
+        "t": -3.58,
+        "factor": "b_rain",
+        "beta_mktex": 1.6462,
+        "t_mktex": 18.34,
+        "verdict": {
+          "beta": -0.3931,
+          "t": -3.58,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.3829,
+      "r2_clean": 0.31,
+      "n": 4043,
+      "flipped": true,
+      "industry": "Power",
+      "event_win_ret_pct": 27.94,
+      "in_rural_factor": false
+    },
+    "TRENT.NS": {
+      "naive": {
+        "beta_rain": 0.596,
+        "t": 11.4,
+        "verdict": {
+          "beta": 0.596,
+          "t": 11.4,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.3966,
+        "t": 3.74,
+        "factor": "b_rain",
+        "beta_mktex": 0.4889,
+        "t_mktex": 5.8,
+        "verdict": {
+          "beta": 0.3966,
+          "t": 3.74,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1994,
+      "r2_clean": 0.183,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 27.3,
+      "in_rural_factor": false
+    },
+    "MANAPPURAM.NS": {
+      "naive": {
+        "beta_rain": 0.9847,
+        "t": 12.05,
+        "verdict": {
+          "beta": 0.9847,
+          "t": 12.05,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.1692,
+        "t": 1.38,
+        "factor": "b_rain",
+        "beta_mktex": 1.1295,
+        "t_mktex": 10.96,
+        "verdict": {
+          "beta": 0.1692,
+          "t": 1.38,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.8155,
+      "r2_clean": 0.233,
+      "n": 3922,
+      "flipped": true,
+      "industry": "Financial Services",
+      "event_win_ret_pct": 26.97,
+      "in_rural_factor": false
+    },
+    "UBL.NS": {
+      "naive": {
+        "beta_rain": 0.7975,
+        "t": 13.29,
+        "verdict": {
+          "beta": 0.7975,
+          "t": 13.29,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9991,
+        "t": 9.14,
+        "factor": "b_rain",
+        "beta_mktex": -0.1539,
+        "t_mktex": -1.63,
+        "verdict": {
+          "beta": 0.9991,
+          "t": 9.14,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.2016,
+      "r2_clean": 0.155,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 26.74,
+      "in_rural_factor": true
+    },
+    "PIIND.NS": {
+      "naive": {
+        "beta_rain": 0.842,
+        "t": 15.42,
+        "verdict": {
+          "beta": 0.842,
+          "t": 15.42,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8312,
+        "t": 8.76,
+        "factor": "b_rain",
+        "beta_mktex": 0.0161,
+        "t_mktex": 0.2,
+        "verdict": {
+          "beta": 0.8312,
+          "t": 8.76,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.0108,
+      "r2_clean": 0.16,
+      "n": 3682,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 26.54,
+      "in_rural_factor": true
+    },
+    "BAJFINANCE.NS": {
+      "naive": {
+        "beta_rain": 0.4343,
+        "t": 8.12,
+        "verdict": {
+          "beta": 0.4343,
+          "t": 8.12,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.3903,
+        "t": 4.14,
+        "factor": "b_rain",
+        "beta_mktex": 0.6874,
+        "t_mktex": 7.98,
+        "verdict": {
+          "beta": 0.3903,
+          "t": 4.14,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.044,
+      "r2_clean": 0.281,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Financial Services",
+      "event_win_ret_pct": 26.4,
+      "in_rural_factor": false
+    },
+    "SRF.NS": {
+      "naive": {
+        "beta_rain": 0.8766,
+        "t": 16.06,
+        "verdict": {
+          "beta": 0.8766,
+          "t": 16.06,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.3732,
+        "t": 4.48,
+        "factor": "b_rain",
+        "beta_mktex": 0.6963,
+        "t_mktex": 8.36,
+        "verdict": {
+          "beta": 0.3732,
+          "t": 4.48,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.5034,
+      "r2_clean": 0.272,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 26.39,
+      "in_rural_factor": false
+    },
+    "PAGEIND.NS": {
+      "naive": {
+        "beta_rain": 0.6485,
+        "t": 12.82,
+        "verdict": {
+          "beta": 0.6485,
+          "t": 12.82,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.5977,
+        "t": 6.56,
+        "factor": "b_rain",
+        "beta_mktex": 0.1171,
+        "t_mktex": 1.51,
+        "verdict": {
+          "beta": 0.5977,
+          "t": 6.56,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.0508,
+      "r2_clean": 0.141,
+      "n": 4040,
+      "flipped": false,
+      "industry": "Textiles",
+      "event_win_ret_pct": 26.13,
+      "in_rural_factor": false
+    },
+    "ATUL.NS": {
+      "naive": {
+        "beta_rain": 0.7299,
+        "t": 13.12,
+        "verdict": {
+          "beta": 0.7299,
+          "t": 13.12,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.2796,
+        "t": 3.22,
+        "factor": "b_rain",
+        "beta_mktex": 0.6089,
+        "t_mktex": 7.96,
+        "verdict": {
+          "beta": 0.2796,
+          "t": 3.22,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.4503,
+      "r2_clean": 0.197,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 24.99,
+      "in_rural_factor": false
+    },
+    "BBTC.NS": {
+      "naive": {
+        "beta_rain": 1.5975,
+        "t": 22.83,
+        "verdict": {
+          "beta": 1.5975,
+          "t": 22.83,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.5005,
+        "t": 12.4,
+        "factor": "b_rain",
+        "beta_mktex": 0.0343,
+        "t_mktex": 0.32,
+        "verdict": {
+          "beta": 1.5005,
+          "t": 12.4,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.097,
+      "r2_clean": 0.301,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 24.84,
+      "in_rural_factor": true
+    },
+    "SCHAEFFLER.NS": {
+      "naive": {
+        "beta_rain": 0.6896,
+        "t": 14.86,
+        "verdict": {
+          "beta": 0.6896,
+          "t": 14.86,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.4141,
+        "t": 5.25,
+        "factor": "b_rain",
+        "beta_mktex": 0.2402,
+        "t_mktex": 3.36,
+        "verdict": {
+          "beta": 0.4141,
+          "t": 5.25,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2755,
+      "r2_clean": 0.147,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 24.13,
+      "in_rural_factor": true
+    },
+    "HSCL.NS": {
+      "naive": {
+        "beta_rain": 1.5467,
+        "t": 17.45,
+        "verdict": {
+          "beta": 1.5467,
+          "t": 17.45,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0595,
+        "t": 0.46,
+        "factor": "b_rain",
+        "beta_mktex": 1.2112,
+        "t_mktex": 10.63,
+        "verdict": {
+          "beta": 0.0595,
+          "t": 0.46,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.4872,
+      "r2_clean": 0.202,
+      "n": 4043,
+      "flipped": true,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 23.86,
+      "in_rural_factor": false
+    },
+    "RADICO.NS": {
+      "naive": {
+        "beta_rain": 1.1845,
+        "t": 18.44,
+        "verdict": {
+          "beta": 1.1845,
+          "t": 18.44,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9821,
+        "t": 9.95,
+        "factor": "b_rain",
+        "beta_mktex": 0.0197,
+        "t_mktex": 0.23,
+        "verdict": {
+          "beta": 0.9821,
+          "t": 9.95,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2024,
+      "r2_clean": 0.185,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 23.44,
+      "in_rural_factor": true
+    },
+    "ACE.NS": {
+      "naive": {
+        "beta_rain": 1.5233,
+        "t": 17.78,
+        "verdict": {
+          "beta": 1.5233,
+          "t": 17.78,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": -0.1759,
+        "t": -1.6,
+        "factor": "b_rain",
+        "beta_mktex": 1.698,
+        "t_mktex": 15.82,
+        "verdict": {
+          "beta": -0.1759,
+          "t": -1.6,
+          "sign_hyp": 1,
+          "sign_ok": false,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.6992,
+      "r2_clean": 0.293,
+      "n": 4042,
+      "flipped": true,
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 23.19,
+      "in_rural_factor": false
+    },
+    "FLUOROCHEM.NS": {
+      "naive": {
+        "beta_rain": 0.9099,
+        "t": 8.04,
+        "verdict": {
+          "beta": 0.9099,
+          "t": 8.04,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.1741,
+        "t": 1.23,
+        "factor": "b_rain",
+        "beta_mktex": 0.7852,
+        "t_mktex": 6.78,
+        "verdict": {
+          "beta": 0.1741,
+          "t": 1.23,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.7358,
+      "r2_clean": 0.198,
+      "n": 1654,
+      "flipped": true,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 22.85,
+      "in_rural_factor": false
+    },
+    "GODFRYPHLP.NS": {
+      "naive": {
+        "beta_rain": 1.0286,
+        "t": 13.58,
+        "verdict": {
+          "beta": 1.0286,
+          "t": 13.58,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9393,
+        "t": 8.11,
+        "factor": "b_rain",
+        "beta_mktex": 0.0768,
+        "t_mktex": 0.73,
+        "verdict": {
+          "beta": 0.9393,
+          "t": 8.11,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.0893,
+      "r2_clean": 0.139,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 22.68,
+      "in_rural_factor": true
+    },
+    "SAREGAMA.NS": {
+      "naive": {
+        "beta_rain": 1.0984,
+        "t": 13.08,
+        "verdict": {
+          "beta": 1.0984,
+          "t": 13.08,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.0721,
+        "t": 0.49,
+        "factor": "b_rain",
+        "beta_mktex": 1.049,
+        "t_mktex": 8.71,
+        "verdict": {
+          "beta": 0.0721,
+          "t": 0.49,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 1.0263,
+      "r2_clean": 0.149,
+      "n": 4041,
+      "flipped": true,
+      "industry": "Media Entertainment & Publication",
+      "event_win_ret_pct": 22.43,
+      "in_rural_factor": false
+    },
+    "ABDL.NS": {
+      "naive": {
+        "beta_rain": 1.5259,
+        "t": 8.97,
+        "verdict": {
+          "beta": 1.5259,
+          "t": 8.97,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8623,
+        "t": 3.46,
+        "factor": "b_rain",
+        "beta_mktex": 0.4387,
+        "t_mktex": 1.9,
+        "verdict": {
+          "beta": 0.8623,
+          "t": 3.46,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.6636,
+      "r2_clean": 0.293,
+      "n": 491,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "APOLLOTYRE.NS": {
+      "naive": {
+        "beta_rain": 1.2622,
+        "t": 21.2,
+        "verdict": {
+          "beta": 1.2622,
+          "t": 21.2,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.4003,
+        "t": 14.78,
+        "factor": "b_rain",
+        "beta_mktex": -0.0289,
+        "t_mktex": -0.37,
+        "verdict": {
+          "beta": 1.4003,
+          "t": 14.78,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.1381,
+      "r2_clean": 0.353,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.54,
+      "in_rural_factor": true
+    },
+    "ARE&M.NS": {
+      "naive": {
+        "beta_rain": 0.98,
+        "t": 18.64,
+        "verdict": {
+          "beta": 0.98,
+          "t": 18.64,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9033,
+        "t": 10.74,
+        "factor": "b_rain",
+        "beta_mktex": 0.0839,
+        "t_mktex": 1.1,
+        "verdict": {
+          "beta": 0.9033,
+          "t": 10.74,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.0767,
+      "r2_clean": 0.248,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 10.73,
+      "in_rural_factor": true
+    },
+    "ASAHIINDIA.NS": {
+      "naive": {
+        "beta_rain": 1.2486,
+        "t": 20.85,
+        "verdict": {
+          "beta": 1.2486,
+          "t": 20.85,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9658,
+        "t": 9.98,
+        "factor": "b_rain",
+        "beta_mktex": 0.1662,
+        "t_mktex": 1.85,
+        "verdict": {
+          "beta": 0.9658,
+          "t": 9.98,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2828,
+      "r2_clean": 0.228,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 13.21,
+      "in_rural_factor": true
+    },
+    "ATHERENERG.NS": {
+      "naive": {
+        "beta_rain": 1.6043,
+        "t": 6.17,
+        "verdict": {
+          "beta": 1.6043,
+          "t": 6.17,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 2.09,
+        "t": 4.87,
+        "factor": "b_rain",
+        "beta_mktex": -1.1394,
+        "t_mktex": -2.83,
+        "verdict": {
+          "beta": 2.09,
+          "t": 4.87,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.4857,
+      "r2_clean": 0.135,
+      "n": 284,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "AWL.NS": {
+      "naive": {
+        "beta_rain": 1.2223,
+        "t": 8.29,
+        "verdict": {
+          "beta": 1.2223,
+          "t": 8.29,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.5014,
+        "t": 2.54,
+        "factor": "b_rain",
+        "beta_mktex": 0.661,
+        "t_mktex": 3.64,
+        "verdict": {
+          "beta": 0.5014,
+          "t": 2.54,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.7209,
+      "r2_clean": 0.197,
+      "n": 1081,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "BAJAJ-AUTO.NS": {
+      "naive": {
+        "beta_rain": 0.4714,
+        "t": 12.33,
+        "verdict": {
+          "beta": 0.4714,
+          "t": 12.33,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9736,
+        "t": 13.43,
+        "factor": "b_rain",
+        "beta_mktex": -0.1761,
+        "t_mktex": -2.76,
+        "verdict": {
+          "beta": 0.9736,
+          "t": 13.43,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.5022,
+      "r2_clean": 0.262,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 13.8,
+      "in_rural_factor": true
+    },
+    "BALKRISIND.NS": {
+      "naive": {
+        "beta_rain": 0.8391,
+        "t": 14.04,
+        "verdict": {
+          "beta": 0.8391,
+          "t": 14.04,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9702,
+        "t": 11.06,
+        "factor": "b_rain",
+        "beta_mktex": -0.071,
+        "t_mktex": -0.94,
+        "verdict": {
+          "beta": 0.9702,
+          "t": 11.06,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.1311,
+      "r2_clean": 0.195,
+      "n": 4041,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 19.66,
+      "in_rural_factor": true
+    },
+    "BALRAMCHIN.NS": {
+      "naive": {
+        "beta_rain": 1.2931,
+        "t": 16.97,
+        "verdict": {
+          "beta": 1.2931,
+          "t": 16.97,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.677,
+        "t": 6.35,
+        "factor": "b_rain",
+        "beta_mktex": 0.5089,
+        "t_mktex": 5.39,
+        "verdict": {
+          "beta": 0.677,
+          "t": 6.35,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.6161,
+      "r2_clean": 0.206,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 3.34,
+      "in_rural_factor": true
+    },
+    "BAYERCROP.NS": {
+      "naive": {
+        "beta_rain": 0.679,
+        "t": 12.52,
+        "verdict": {
+          "beta": 0.679,
+          "t": 12.52,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.6976,
+        "t": 8.51,
+        "factor": "b_rain",
+        "beta_mktex": -0.0626,
+        "t_mktex": -0.95,
+        "verdict": {
+          "beta": 0.6976,
+          "t": 8.51,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0186,
+      "r2_clean": 0.124,
+      "n": 4039,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 10.09,
+      "in_rural_factor": true
+    },
+    "BELRISE.NS": {
+      "naive": {
+        "beta_rain": 1.4822,
+        "t": 5.97,
+        "verdict": {
+          "beta": 1.4822,
+          "t": 5.97,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.2879,
+        "t": 3.61,
+        "factor": "b_rain",
+        "beta_mktex": -0.0157,
+        "t_mktex": -0.05,
+        "verdict": {
+          "beta": 1.2879,
+          "t": 3.61,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1943,
+      "r2_clean": 0.25,
+      "n": 268,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "BHARATFORG.NS": {
+      "naive": {
+        "beta_rain": 1.0175,
+        "t": 18.41,
+        "verdict": {
+          "beta": 1.0175,
+          "t": 18.41,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8519,
+        "t": 9.79,
+        "factor": "b_rain",
+        "beta_mktex": 0.4015,
+        "t_mktex": 5.28,
+        "verdict": {
+          "beta": 0.8519,
+          "t": 9.79,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1656,
+      "r2_clean": 0.361,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 12.42,
+      "in_rural_factor": true
+    },
+    "BIKAJI.NS": {
+      "naive": {
+        "beta_rain": 1.0175,
+        "t": 7.68,
+        "verdict": {
+          "beta": 1.0175,
+          "t": 7.68,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9053,
+        "t": 3.84,
+        "factor": "b_rain",
+        "beta_mktex": -0.0565,
+        "t_mktex": -0.3,
+        "verdict": {
+          "beta": 0.9053,
+          "t": 3.84,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1122,
+      "r2_clean": 0.149,
+      "n": 890,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "BOSCHLTD.NS": {
+      "naive": {
+        "beta_rain": 0.76,
+        "t": 16.64,
+        "verdict": {
+          "beta": 0.76,
+          "t": 16.64,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8715,
+        "t": 12.9,
+        "factor": "b_rain",
+        "beta_mktex": 0.0059,
+        "t_mktex": 0.11,
+        "verdict": {
+          "beta": 0.8715,
+          "t": 12.9,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.1115,
+      "r2_clean": 0.281,
+      "n": 4041,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 6.11,
+      "in_rural_factor": true
+    },
+    "BRITANNIA.NS": {
+      "naive": {
+        "beta_rain": 0.5767,
+        "t": 13.21,
+        "verdict": {
+          "beta": 0.5767,
+          "t": 13.21,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.1789,
+        "t": 16.13,
+        "factor": "b_rain",
+        "beta_mktex": -0.5282,
+        "t_mktex": -8.94,
+        "verdict": {
+          "beta": 1.1789,
+          "t": 16.13,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.6022,
+      "r2_clean": 0.2,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 20.81,
+      "in_rural_factor": true
+    },
+    "CCL.NS": {
+      "naive": {
+        "beta_rain": 1.1049,
+        "t": 16.94,
+        "verdict": {
+          "beta": 1.1049,
+          "t": 16.94,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0008,
+        "t": 8.4,
+        "factor": "b_rain",
+        "beta_mktex": 0.0128,
+        "t_mktex": 0.13,
+        "verdict": {
+          "beta": 1.0008,
+          "t": 8.4,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1041,
+      "r2_clean": 0.178,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.81,
+      "in_rural_factor": true
+    },
+    "CEATLTD.NS": {
+      "naive": {
+        "beta_rain": 1.4398,
+        "t": 21.54,
+        "verdict": {
+          "beta": 1.4398,
+          "t": 21.54,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.4306,
+        "t": 12.9,
+        "factor": "b_rain",
+        "beta_mktex": -0.1908,
+        "t_mktex": -2.02,
+        "verdict": {
+          "beta": 1.4306,
+          "t": 12.9,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.0092,
+      "r2_clean": 0.261,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -0.47,
+      "in_rural_factor": true
+    },
+    "CHAMBLFERT.NS": {
+      "naive": {
+        "beta_rain": 1.3506,
+        "t": 20.96,
+        "verdict": {
+          "beta": 1.3506,
+          "t": 20.96,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9709,
+        "t": 9.5,
+        "factor": "b_rain",
+        "beta_mktex": 0.2506,
+        "t_mktex": 2.52,
+        "verdict": {
+          "beta": 0.9709,
+          "t": 9.5,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.3797,
+      "r2_clean": 0.266,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 15.62,
+      "in_rural_factor": true
+    },
+    "CIEINDIA.NS": {
+      "naive": {
+        "beta_rain": 1.2352,
+        "t": 17.89,
+        "verdict": {
+          "beta": 1.2352,
+          "t": 17.89,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9624,
+        "t": 9.04,
+        "factor": "b_rain",
+        "beta_mktex": 0.1669,
+        "t_mktex": 1.77,
+        "verdict": {
+          "beta": 0.9624,
+          "t": 9.04,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2728,
+      "r2_clean": 0.195,
+      "n": 4041,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -1.17,
+      "in_rural_factor": true
+    },
+    "COLPAL.NS": {
+      "naive": {
+        "beta_rain": 0.5131,
+        "t": 15.19,
+        "verdict": {
+          "beta": 0.5131,
+          "t": 15.19,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8347,
+        "t": 12.17,
+        "factor": "b_rain",
+        "beta_mktex": -0.285,
+        "t_mktex": -4.44,
+        "verdict": {
+          "beta": 0.8347,
+          "t": 12.17,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.3216,
+      "r2_clean": 0.165,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.24,
+      "in_rural_factor": true
+    },
+    "COROMANDEL.NS": {
+      "naive": {
+        "beta_rain": 0.9805,
+        "t": 18.62,
+        "verdict": {
+          "beta": 0.9805,
+          "t": 18.62,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7987,
+        "t": 10.78,
+        "factor": "b_rain",
+        "beta_mktex": 0.0375,
+        "t_mktex": 0.57,
+        "verdict": {
+          "beta": 0.7987,
+          "t": 10.78,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1818,
+      "r2_clean": 0.184,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 11.25,
+      "in_rural_factor": true
+    },
+    "CRAFTSMAN.NS": {
+      "naive": {
+        "beta_rain": 0.8927,
+        "t": 9.04,
+        "verdict": {
+          "beta": 0.8927,
+          "t": 9.04,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7663,
+        "t": 5.39,
+        "factor": "b_rain",
+        "beta_mktex": 0.1774,
+        "t_mktex": 1.47,
+        "verdict": {
+          "beta": 0.7663,
+          "t": 5.39,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1264,
+      "r2_clean": 0.166,
+      "n": 1295,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.58,
+      "in_rural_factor": true
+    },
+    "DABUR.NS": {
+      "naive": {
+        "beta_rain": 0.5322,
+        "t": 14.23,
+        "verdict": {
+          "beta": 0.5322,
+          "t": 14.23,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9781,
+        "t": 13.55,
+        "factor": "b_rain",
+        "beta_mktex": -0.3544,
+        "t_mktex": -5.55,
+        "verdict": {
+          "beta": 0.9781,
+          "t": 13.55,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.4459,
+      "r2_clean": 0.194,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.26,
+      "in_rural_factor": true
+    },
+    "DOMS.NS": {
+      "naive": {
+        "beta_rain": 1.0205,
+        "t": 8.36,
+        "verdict": {
+          "beta": 1.0205,
+          "t": 8.36,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8806,
+        "t": 4.53,
+        "factor": "b_rain",
+        "beta_mktex": 0.0727,
+        "t_mktex": 0.43,
+        "verdict": {
+          "beta": 0.8806,
+          "t": 4.53,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1399,
+      "r2_clean": 0.182,
+      "n": 619,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "EICHERMOT.NS": {
+      "naive": {
+        "beta_rain": 0.7713,
+        "t": 14.66,
+        "verdict": {
+          "beta": 0.7713,
+          "t": 14.66,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.2094,
+        "t": 13.94,
+        "factor": "b_rain",
+        "beta_mktex": -0.2246,
+        "t_mktex": -3.13,
+        "verdict": {
+          "beta": 1.2094,
+          "t": 13.94,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.4381,
+      "r2_clean": 0.253,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 17.24,
+      "in_rural_factor": true
+    },
+    "EIDPARRY.NS": {
+      "naive": {
+        "beta_rain": 1.2228,
+        "t": 20.7,
+        "verdict": {
+          "beta": 1.2228,
+          "t": 20.7,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8116,
+        "t": 9.16,
+        "factor": "b_rain",
+        "beta_mktex": 0.2756,
+        "t_mktex": 3.57,
+        "verdict": {
+          "beta": 0.8116,
+          "t": 9.16,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.4112,
+      "r2_clean": 0.237,
+      "n": 4041,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 6.73,
+      "in_rural_factor": true
+    },
+    "EMAMILTD.NS": {
+      "naive": {
+        "beta_rain": 0.7924,
+        "t": 13.86,
+        "verdict": {
+          "beta": 0.7924,
+          "t": 13.86,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0852,
+        "t": 12.26,
+        "factor": "b_rain",
+        "beta_mktex": -0.3397,
+        "t_mktex": -4.41,
+        "verdict": {
+          "beta": 1.0852,
+          "t": 12.26,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.2928,
+      "r2_clean": 0.143,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 18.44,
+      "in_rural_factor": true
+    },
+    "ENDURANCE.NS": {
+      "naive": {
+        "beta_rain": 0.9689,
+        "t": 13.74,
+        "verdict": {
+          "beta": 0.9689,
+          "t": 13.74,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9402,
+        "t": 6.45,
+        "factor": "b_rain",
+        "beta_mktex": -0.1426,
+        "t_mktex": -1.24,
+        "verdict": {
+          "beta": 0.9402,
+          "t": 6.45,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.0287,
+      "r2_clean": 0.168,
+      "n": 2389,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.94,
+      "in_rural_factor": true
+    },
+    "EXIDEIND.NS": {
+      "naive": {
+        "beta_rain": 0.9902,
+        "t": 20.34,
+        "verdict": {
+          "beta": 0.9902,
+          "t": 20.34,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7027,
+        "t": 8.99,
+        "factor": "b_rain",
+        "beta_mktex": 0.3317,
+        "t_mktex": 4.93,
+        "verdict": {
+          "beta": 0.7027,
+          "t": 8.99,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2875,
+      "r2_clean": 0.318,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 4.33,
+      "in_rural_factor": true
+    },
+    "FACT.NS": {
+      "naive": {
+        "beta_rain": 2.093,
+        "t": 20.31,
+        "verdict": {
+          "beta": 2.093,
+          "t": 20.31,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.5359,
+        "t": 9.43,
+        "factor": "b_rain",
+        "beta_mktex": 0.1343,
+        "t_mktex": 0.94,
+        "verdict": {
+          "beta": 1.5359,
+          "t": 9.43,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.5571,
+      "r2_clean": 0.237,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": -3.14,
+      "in_rural_factor": true
+    },
+    "FORCEMOT.NS": {
+      "naive": {
+        "beta_rain": 1.5379,
+        "t": 12.65,
+        "verdict": {
+          "beta": 1.5379,
+          "t": 12.65,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.061,
+        "t": 6.86,
+        "factor": "b_rain",
+        "beta_mktex": 0.3905,
+        "t_mktex": 3.03,
+        "verdict": {
+          "beta": 1.061,
+          "t": 6.86,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.4769,
+      "r2_clean": 0.281,
+      "n": 1651,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.63,
+      "in_rural_factor": true
+    },
+    "GABRIEL.NS": {
+      "naive": {
+        "beta_rain": 1.6587,
+        "t": 21.98,
+        "verdict": {
+          "beta": 1.6587,
+          "t": 21.98,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.089,
+        "t": 9.34,
+        "factor": "b_rain",
+        "beta_mktex": 0.279,
+        "t_mktex": 2.47,
+        "verdict": {
+          "beta": 1.089,
+          "t": 9.34,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.5697,
+      "r2_clean": 0.252,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 12.15,
+      "in_rural_factor": true
+    },
+    "GILLETTE.NS": {
+      "naive": {
+        "beta_rain": 0.558,
+        "t": 14.24,
+        "verdict": {
+          "beta": 0.558,
+          "t": 14.24,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.5651,
+        "t": 8.21,
+        "factor": "b_rain",
+        "beta_mktex": -0.0459,
+        "t_mktex": -0.79,
+        "verdict": {
+          "beta": 0.5651,
+          "t": 8.21,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0071,
+      "r2_clean": 0.129,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.29,
+      "in_rural_factor": true
+    },
+    "GODREJCP.NS": {
+      "naive": {
+        "beta_rain": 0.6379,
+        "t": 11.8,
+        "verdict": {
+          "beta": 0.6379,
+          "t": 11.8,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.1714,
+        "t": 14.28,
+        "factor": "b_rain",
+        "beta_mktex": -0.478,
+        "t_mktex": -6.93,
+        "verdict": {
+          "beta": 1.1714,
+          "t": 14.28,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.5335,
+      "r2_clean": 0.148,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 11.81,
+      "in_rural_factor": true
+    },
+    "HEROMOTOCO.NS": {
+      "naive": {
+        "beta_rain": 0.5531,
+        "t": 12.53,
+        "verdict": {
+          "beta": 0.5531,
+          "t": 12.53,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0913,
+        "t": 12.76,
+        "factor": "b_rain",
+        "beta_mktex": -0.2327,
+        "t_mktex": -3.2,
+        "verdict": {
+          "beta": 1.0913,
+          "t": 12.76,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.5382,
+      "r2_clean": 0.25,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.67,
+      "in_rural_factor": true
+    },
+    "HINDUNILVR.NS": {
+      "naive": {
+        "beta_rain": 0.1361,
+        "t": 3.73,
+        "verdict": {
+          "beta": 0.1361,
+          "t": 3.73,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0256,
+        "t": 14.23,
+        "factor": "b_rain",
+        "beta_mktex": -0.5334,
+        "t_mktex": -8.36,
+        "verdict": {
+          "beta": 1.0256,
+          "t": 14.23,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.8895,
+      "r2_clean": 0.143,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 10.92,
+      "in_rural_factor": true
+    },
+    "HONASA.NS": {
+      "naive": {
+        "beta_rain": 0.9774,
+        "t": 6.01,
+        "verdict": {
+          "beta": 0.9774,
+          "t": 6.01,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7611,
+        "t": 2.99,
+        "factor": "b_rain",
+        "beta_mktex": 0.0753,
+        "t_mktex": 0.34,
+        "verdict": {
+          "beta": 0.7611,
+          "t": 2.99,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2163,
+      "r2_clean": 0.087,
+      "n": 647,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "HYUNDAI.NS": {
+      "naive": {
+        "beta_rain": 0.8075,
+        "t": 5.88,
+        "verdict": {
+          "beta": 0.8075,
+          "t": 5.88,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8991,
+        "t": 3.32,
+        "factor": "b_rain",
+        "beta_mktex": -0.1081,
+        "t_mktex": -0.48,
+        "verdict": {
+          "beta": 0.8991,
+          "t": 3.32,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0916,
+      "r2_clean": 0.206,
+      "n": 415,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "ITC.NS": {
+      "naive": {
+        "beta_rain": 0.0454,
+        "t": 1.13,
+        "verdict": {
+          "beta": 0.0454,
+          "t": 1.13,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": false,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.6323,
+        "t": 10.1,
+        "factor": "b_rain",
+        "beta_mktex": -0.0573,
+        "t_mktex": -0.88,
+        "verdict": {
+          "beta": 0.6323,
+          "t": 10.1,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.5869,
+      "r2_clean": 0.153,
+      "n": 4043,
+      "flipped": true,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 8.55,
+      "in_rural_factor": true
+    },
+    "JBMA.NS": {
+      "naive": {
+        "beta_rain": 1.7669,
+        "t": 20.27,
+        "verdict": {
+          "beta": 1.7669,
+          "t": 20.27,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.4309,
+        "t": 10.25,
+        "factor": "b_rain",
+        "beta_mktex": -0.0023,
+        "t_mktex": -0.02,
+        "verdict": {
+          "beta": 1.4309,
+          "t": 10.25,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.336,
+      "r2_clean": 0.206,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 14.03,
+      "in_rural_factor": true
+    },
+    "JKTYRE.NS": {
+      "naive": {
+        "beta_rain": 1.7915,
+        "t": 25.17,
+        "verdict": {
+          "beta": 1.7915,
+          "t": 25.17,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.4766,
+        "t": 11.06,
+        "factor": "b_rain",
+        "beta_mktex": 0.0485,
+        "t_mktex": 0.42,
+        "verdict": {
+          "beta": 1.4766,
+          "t": 11.06,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.3149,
+      "r2_clean": 0.333,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 13.85,
+      "in_rural_factor": true
+    },
+    "LTFOODS.NS": {
+      "naive": {
+        "beta_rain": 1.684,
+        "t": 22.87,
+        "verdict": {
+          "beta": 1.684,
+          "t": 22.87,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.1248,
+        "t": 8.37,
+        "factor": "b_rain",
+        "beta_mktex": 0.2637,
+        "t_mktex": 2.32,
+        "verdict": {
+          "beta": 1.1248,
+          "t": 8.37,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.5592,
+      "r2_clean": 0.221,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -1.79,
+      "in_rural_factor": true
+    },
+    "M&M.NS": {
+      "naive": {
+        "beta_rain": 0.4206,
+        "t": 9.63,
+        "verdict": {
+          "beta": 0.4206,
+          "t": 9.63,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9487,
+        "t": 10.37,
+        "factor": "b_rain",
+        "beta_mktex": 0.0585,
+        "t_mktex": 0.79,
+        "verdict": {
+          "beta": 0.9487,
+          "t": 10.37,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.5281,
+      "r2_clean": 0.302,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 7.97,
+      "in_rural_factor": true
+    },
+    "MARICO.NS": {
+      "naive": {
+        "beta_rain": 0.605,
+        "t": 16.26,
+        "verdict": {
+          "beta": 0.605,
+          "t": 16.26,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0529,
+        "t": 15.08,
+        "factor": "b_rain",
+        "beta_mktex": -0.4651,
+        "t_mktex": -7.45,
+        "verdict": {
+          "beta": 1.0529,
+          "t": 15.08,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.4479,
+      "r2_clean": 0.157,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 12.68,
+      "in_rural_factor": true
+    },
+    "MARUTI.NS": {
+      "naive": {
+        "beta_rain": 0.4958,
+        "t": 11.67,
+        "verdict": {
+          "beta": 0.4958,
+          "t": 11.67,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0284,
+        "t": 11.86,
+        "factor": "b_rain",
+        "beta_mktex": -0.0879,
+        "t_mktex": -1.3,
+        "verdict": {
+          "beta": 1.0284,
+          "t": 11.86,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.5326,
+      "r2_clean": 0.307,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.93,
+      "in_rural_factor": true
+    },
+    "MINDACORP.NS": {
+      "naive": {
+        "beta_rain": 1.3742,
+        "t": 17.73,
+        "verdict": {
+          "beta": 1.3742,
+          "t": 17.73,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0887,
+        "t": 8.17,
+        "factor": "b_rain",
+        "beta_mktex": 0.0801,
+        "t_mktex": 0.74,
+        "verdict": {
+          "beta": 1.0887,
+          "t": 8.17,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2855,
+      "r2_clean": 0.198,
+      "n": 3501,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -0.93,
+      "in_rural_factor": true
+    },
+    "MOTHERSON.NS": {
+      "naive": {
+        "beta_rain": 1.2865,
+        "t": 19.02,
+        "verdict": {
+          "beta": 1.2865,
+          "t": 19.02,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.3243,
+        "t": 12.24,
+        "factor": "b_rain",
+        "beta_mktex": 0.0273,
+        "t_mktex": 0.31,
+        "verdict": {
+          "beta": 1.3243,
+          "t": 12.24,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0378,
+      "r2_clean": 0.312,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.79,
+      "in_rural_factor": true
+    },
+    "MRF.NS": {
+      "naive": {
+        "beta_rain": 0.9051,
+        "t": 18.45,
+        "verdict": {
+          "beta": 0.9051,
+          "t": 18.45,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.086,
+        "t": 15.54,
+        "factor": "b_rain",
+        "beta_mktex": -0.0912,
+        "t_mktex": -1.5,
+        "verdict": {
+          "beta": 1.086,
+          "t": 15.54,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.1809,
+      "r2_clean": 0.342,
+      "n": 4041,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.52,
+      "in_rural_factor": true
+    },
+    "MSUMI.NS": {
+      "naive": {
+        "beta_rain": 1.0566,
+        "t": 14.45,
+        "verdict": {
+          "beta": 1.0566,
+          "t": 14.45,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0813,
+        "t": 6.02,
+        "factor": "b_rain",
+        "beta_mktex": -0.0787,
+        "t_mktex": -0.52,
+        "verdict": {
+          "beta": 1.0813,
+          "t": 6.02,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0247,
+      "r2_clean": 0.277,
+      "n": 1048,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "NESTLEIND.NS": {
+      "naive": {
+        "beta_rain": 0.3341,
+        "t": 9.01,
+        "verdict": {
+          "beta": 0.3341,
+          "t": 9.01,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8871,
+        "t": 12.14,
+        "factor": "b_rain",
+        "beta_mktex": -0.4067,
+        "t_mktex": -7.0,
+        "verdict": {
+          "beta": 0.8871,
+          "t": 12.14,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.553,
+      "r2_clean": 0.132,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 6.67,
+      "in_rural_factor": true
+    },
+    "OLAELEC.NS": {
+      "naive": {
+        "beta_rain": 2.5282,
+        "t": 8.93,
+        "verdict": {
+          "beta": 2.5282,
+          "t": 8.93,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.7778,
+        "t": 3.62,
+        "factor": "b_rain",
+        "beta_mktex": 0.0171,
+        "t_mktex": 0.04,
+        "verdict": {
+          "beta": 1.7778,
+          "t": 3.62,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.7504,
+      "r2_clean": 0.211,
+      "n": 465,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "in_rural_factor": true
+    },
+    "OLECTRA.NS": {
+      "naive": {
+        "beta_rain": 1.6445,
+        "t": 19.43,
+        "verdict": {
+          "beta": 1.6445,
+          "t": 19.43,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9871,
+        "t": 6.52,
+        "factor": "b_rain",
+        "beta_mktex": 0.1775,
+        "t_mktex": 1.32,
+        "verdict": {
+          "beta": 0.9871,
+          "t": 6.52,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.6574,
+      "r2_clean": 0.137,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 16.07,
+      "in_rural_factor": true
+    },
+    "PATANJALI.NS": {
+      "naive": {
+        "beta_rain": 1.1536,
+        "t": 12.76,
+        "verdict": {
+          "beta": 1.1536,
+          "t": 12.76,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8911,
+        "t": 6.07,
+        "factor": "b_rain",
+        "beta_mktex": 0.0832,
+        "t_mktex": 0.63,
+        "verdict": {
+          "beta": 0.8911,
+          "t": 6.07,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.2625,
+      "r2_clean": 0.115,
+      "n": 4041,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.77,
+      "in_rural_factor": true
+    },
+    "RKFORGE.NS": {
+      "naive": {
+        "beta_rain": 1.4959,
+        "t": 19.97,
+        "verdict": {
+          "beta": 1.4959,
+          "t": 19.97,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.0203,
+        "t": 8.98,
+        "factor": "b_rain",
+        "beta_mktex": 0.2427,
+        "t_mktex": 2.28,
+        "verdict": {
+          "beta": 1.0203,
+          "t": 8.98,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.4756,
+      "r2_clean": 0.198,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 21.0,
+      "in_rural_factor": true
+    },
+    "SONACOMS.NS": {
+      "naive": {
+        "beta_rain": 1.0949,
+        "t": 10.37,
+        "verdict": {
+          "beta": 1.0949,
+          "t": 10.37,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9763,
+        "t": 5.44,
+        "factor": "b_rain",
+        "beta_mktex": 0.1744,
+        "t_mktex": 1.16,
+        "verdict": {
+          "beta": 0.9763,
+          "t": 5.44,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1186,
+      "r2_clean": 0.231,
+      "n": 1236,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 9.61,
+      "in_rural_factor": true
+    },
+    "SUMICHEM.NS": {
+      "naive": {
+        "beta_rain": 1.0778,
+        "t": 13.29,
+        "verdict": {
+          "beta": 1.0778,
+          "t": 13.29,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.8793,
+        "t": 7.1,
+        "factor": "b_rain",
+        "beta_mktex": 0.1151,
+        "t_mktex": 1.02,
+        "verdict": {
+          "beta": 0.8793,
+          "t": 7.1,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1985,
+      "r2_clean": 0.249,
+      "n": 1586,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": 8.36,
+      "in_rural_factor": true
+    },
+    "TATACONSUM.NS": {
+      "naive": {
+        "beta_rain": 0.9029,
+        "t": 15.5,
+        "verdict": {
+          "beta": 0.9029,
+          "t": 15.5,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.9771,
+        "t": 11.87,
+        "factor": "b_rain",
+        "beta_mktex": 0.092,
+        "t_mktex": 1.21,
+        "verdict": {
+          "beta": 0.9771,
+          "t": 11.87,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0742,
+      "r2_clean": 0.328,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 17.52,
+      "in_rural_factor": true
+    },
+    "TIINDIA.NS": {
+      "naive": {
+        "beta_rain": 0.9091,
+        "t": 8.76,
+        "verdict": {
+          "beta": 0.9091,
+          "t": 8.76,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7682,
+        "t": 5.39,
+        "factor": "b_rain",
+        "beta_mktex": 0.0862,
+        "t_mktex": 0.68,
+        "verdict": {
+          "beta": 0.7682,
+          "t": 5.39,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1409,
+      "r2_clean": 0.147,
+      "n": 2131,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.72,
+      "in_rural_factor": true
+    },
+    "TMPV.NS": {
+      "naive": {
+        "beta_rain": 0.8405,
+        "t": 12.51,
+        "verdict": {
+          "beta": 0.8405,
+          "t": 12.51,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.1226,
+        "t": 9.9,
+        "factor": "b_rain",
+        "beta_mktex": 0.3237,
+        "t_mktex": 3.38,
+        "verdict": {
+          "beta": 1.1226,
+          "t": 9.9,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.2821,
+      "r2_clean": 0.341,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 5.47,
+      "in_rural_factor": true
+    },
+    "TVSMOTOR.NS": {
+      "naive": {
+        "beta_rain": 0.9594,
+        "t": 18.47,
+        "verdict": {
+          "beta": 0.9594,
+          "t": 18.47,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.1755,
+        "t": 12.82,
+        "factor": "b_rain",
+        "beta_mktex": -0.0462,
+        "t_mktex": -0.59,
+        "verdict": {
+          "beta": 1.1755,
+          "t": 12.82,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.2161,
+      "r2_clean": 0.266,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 10.49,
+      "in_rural_factor": true
+    },
+    "UNITDSPR.NS": {
+      "naive": {
+        "beta_rain": 0.9186,
+        "t": 16.5,
+        "verdict": {
+          "beta": 0.9186,
+          "t": 16.5,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.2128,
+        "t": 12.97,
+        "factor": "b_rain",
+        "beta_mktex": -0.2116,
+        "t_mktex": -2.47,
+        "verdict": {
+          "beta": 1.2128,
+          "t": 12.97,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.2942,
+      "r2_clean": 0.209,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 3.68,
+      "in_rural_factor": true
+    },
+    "UNOMINDA.NS": {
+      "naive": {
+        "beta_rain": 1.3724,
+        "t": 18.94,
+        "verdict": {
+          "beta": 1.3724,
+          "t": 18.94,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 1.4119,
+        "t": 12.16,
+        "factor": "b_rain",
+        "beta_mktex": -0.2108,
+        "t_mktex": -1.97,
+        "verdict": {
+          "beta": 1.4119,
+          "t": 12.16,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0395,
+      "r2_clean": 0.197,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 4.6,
+      "in_rural_factor": true
+    },
+    "UPL.NS": {
+      "naive": {
+        "beta_rain": 0.8601,
+        "t": 16.93,
+        "verdict": {
+          "beta": 0.8601,
+          "t": 16.93,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7368,
+        "t": 7.78,
+        "factor": "b_rain",
+        "beta_mktex": 0.3753,
+        "t_mktex": 4.91,
+        "verdict": {
+          "beta": 0.7368,
+          "t": 7.78,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1233,
+      "r2_clean": 0.278,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Chemicals",
+      "event_win_ret_pct": -0.49,
+      "in_rural_factor": true
+    },
+    "VBL.NS": {
+      "naive": {
+        "beta_rain": 0.8461,
+        "t": 11.42,
+        "verdict": {
+          "beta": 0.8461,
+          "t": 11.42,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7506,
+        "t": 6.32,
+        "factor": "b_rain",
+        "beta_mktex": -0.0312,
+        "t_mktex": -0.3,
+        "verdict": {
+          "beta": 0.7506,
+          "t": 6.32,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.0955,
+      "r2_clean": 0.126,
+      "n": 2376,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 6.65,
+      "in_rural_factor": true
+    },
+    "ZFCVINDIA.NS": {
+      "naive": {
+        "beta_rain": 0.6698,
+        "t": 13.74,
+        "verdict": {
+          "beta": 0.6698,
+          "t": 13.74,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.7411,
+        "t": 9.47,
+        "factor": "b_rain",
+        "beta_mktex": -0.1132,
+        "t_mktex": -1.66,
+        "verdict": {
+          "beta": 0.7411,
+          "t": 9.47,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.0713,
+      "r2_clean": 0.112,
+      "n": 4042,
+      "flipped": false,
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 19.24,
+      "in_rural_factor": true
+    },
+    "ZYDUSWELL.NS": {
+      "naive": {
+        "beta_rain": 0.7435,
+        "t": 14.79,
+        "verdict": {
+          "beta": 0.7435,
+          "t": 14.79,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.629,
+        "t": 7.22,
+        "factor": "b_rain",
+        "beta_mktex": 0.0033,
+        "t_mktex": 0.04,
+        "verdict": {
+          "beta": 0.629,
+          "t": 7.22,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": 0.1145,
+      "r2_clean": 0.109,
+      "n": 4044,
+      "flipped": false,
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 11.6,
+      "in_rural_factor": true
+    },
+    "ASIANPAINT.NS": {
+      "naive": {
+        "beta_rain": 0.2802,
+        "t": 7.41,
+        "verdict": {
+          "beta": 0.2802,
+          "t": 7.41,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.5945,
+        "t": 8.06,
+        "factor": "b_rain",
+        "beta_mktex": 0.0592,
+        "t_mktex": 0.91,
+        "verdict": {
+          "beta": 0.5945,
+          "t": 8.06,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.3143,
+      "r2_clean": 0.185,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 15.55,
+      "in_rural_factor": false
+    },
+    "TITAN.NS": {
+      "naive": {
+        "beta_rain": 0.48,
+        "t": 10.54,
+        "verdict": {
+          "beta": 0.48,
+          "t": 10.54,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "clean": {
+        "beta_clean": 0.6436,
+        "t": 7.75,
+        "factor": "b_rain",
+        "beta_mktex": 0.2441,
+        "t_mktex": 3.36,
+        "verdict": {
+          "beta": 0.6436,
+          "t": 7.75,
+          "sign_hyp": 1,
+          "sign_ok": true,
+          "genuine": true,
+          "marginal": false
+        }
+      },
+      "naive_clean_delta": -0.1636,
+      "r2_clean": 0.216,
+      "n": 4043,
+      "flipped": false,
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 16.68,
+      "in_rural_factor": false
+    }
+  },
+  "side_by_side": [
+    {
+      "symbol": "GRAVITA.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 41.19,
+      "b_raw": 1.1783,
+      "b_clean": -0.2803,
+      "t_clean": -1.95,
+      "naive_clean_delta": 1.4586,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "TTML.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 38.94,
+      "b_raw": 1.2669,
+      "b_clean": -0.2558,
+      "t_clean": -1.85,
+      "naive_clean_delta": 1.5227,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "INDIANB.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 37.94,
+      "b_raw": 0.9106,
+      "b_clean": -0.6013,
+      "t_clean": -5.53,
+      "naive_clean_delta": 1.5119,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "PCBL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 37.63,
+      "b_raw": 1.5939,
+      "b_clean": 0.1631,
+      "t_clean": 1.57,
+      "naive_clean_delta": 1.4308,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "ECLERX.NS",
+      "industry": "Services",
+      "event_win_ret_pct": 37.32,
+      "b_raw": 0.529,
+      "b_clean": -0.1209,
+      "t_clean": -1.27,
+      "naive_clean_delta": 0.6499,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "JUBLFOOD.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 33.59,
+      "b_raw": 0.6906,
+      "b_clean": 0.5669,
+      "t_clean": 6.07,
+      "naive_clean_delta": 0.1237,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "TITAGARH.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 31.36,
+      "b_raw": 1.5081,
+      "b_clean": 0.0244,
+      "t_clean": 0.18,
+      "naive_clean_delta": 1.4837,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "DEEPAKFERT.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 30.44,
+      "b_raw": 1.4698,
+      "b_clean": 1.0783,
+      "t_clean": 10.16,
+      "naive_clean_delta": 0.3915,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "LINDEINDIA.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 30.15,
+      "b_raw": 0.7907,
+      "b_clean": 0.12,
+      "t_clean": 1.32,
+      "naive_clean_delta": 0.6707,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "IGL.NS",
+      "industry": "Oil Gas & Consumable Fuels",
+      "event_win_ret_pct": 30.05,
+      "b_raw": 0.6669,
+      "b_clean": 0.1574,
+      "t_clean": 1.95,
+      "naive_clean_delta": 0.5095,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "BAJAJFINSV.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 29.67,
+      "b_raw": 0.4242,
+      "b_clean": 0.3211,
+      "t_clean": 3.46,
+      "naive_clean_delta": 0.1031,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "JSL.NS",
+      "industry": "Metals & Mining",
+      "event_win_ret_pct": 28.16,
+      "b_raw": 1.0855,
+      "b_clean": -0.2475,
+      "t_clean": -2.22,
+      "naive_clean_delta": 1.333,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "TEJASNET.NS",
+      "industry": "Telecommunication",
+      "event_win_ret_pct": 28.03,
+      "b_raw": 1.2942,
+      "b_clean": -0.3089,
+      "t_clean": -1.72,
+      "naive_clean_delta": 1.6031,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "JSWENERGY.NS",
+      "industry": "Power",
+      "event_win_ret_pct": 27.94,
+      "b_raw": 0.9898,
+      "b_clean": -0.3931,
+      "t_clean": -3.58,
+      "naive_clean_delta": 1.3829,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "TRENT.NS",
+      "industry": "Consumer Services",
+      "event_win_ret_pct": 27.3,
+      "b_raw": 0.596,
+      "b_clean": 0.3966,
+      "t_clean": 3.74,
+      "naive_clean_delta": 0.1994,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "MANAPPURAM.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 26.97,
+      "b_raw": 0.9847,
+      "b_clean": 0.1692,
+      "t_clean": 1.38,
+      "naive_clean_delta": 0.8155,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "UBL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 26.74,
+      "b_raw": 0.7975,
+      "b_clean": 0.9991,
+      "t_clean": 9.14,
+      "naive_clean_delta": -0.2016,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "PIIND.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 26.54,
+      "b_raw": 0.842,
+      "b_clean": 0.8312,
+      "t_clean": 8.76,
+      "naive_clean_delta": 0.0108,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BAJFINANCE.NS",
+      "industry": "Financial Services",
+      "event_win_ret_pct": 26.4,
+      "b_raw": 0.4343,
+      "b_clean": 0.3903,
+      "t_clean": 4.14,
+      "naive_clean_delta": 0.044,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "SRF.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 26.39,
+      "b_raw": 0.8766,
+      "b_clean": 0.3732,
+      "t_clean": 4.48,
+      "naive_clean_delta": 0.5034,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "PAGEIND.NS",
+      "industry": "Textiles",
+      "event_win_ret_pct": 26.13,
+      "b_raw": 0.6485,
+      "b_clean": 0.5977,
+      "t_clean": 6.56,
+      "naive_clean_delta": 0.0508,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ATUL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 24.99,
+      "b_raw": 0.7299,
+      "b_clean": 0.2796,
+      "t_clean": 3.22,
+      "naive_clean_delta": 0.4503,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BBTC.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 24.84,
+      "b_raw": 1.5975,
+      "b_clean": 1.5005,
+      "t_clean": 12.4,
+      "naive_clean_delta": 0.097,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "SCHAEFFLER.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 24.13,
+      "b_raw": 0.6896,
+      "b_clean": 0.4141,
+      "t_clean": 5.25,
+      "naive_clean_delta": 0.2755,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "HSCL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 23.86,
+      "b_raw": 1.5467,
+      "b_clean": 0.0595,
+      "t_clean": 0.46,
+      "naive_clean_delta": 1.4872,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "RADICO.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 23.44,
+      "b_raw": 1.1845,
+      "b_clean": 0.9821,
+      "t_clean": 9.95,
+      "naive_clean_delta": 0.2024,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ACE.NS",
+      "industry": "Capital Goods",
+      "event_win_ret_pct": 23.19,
+      "b_raw": 1.5233,
+      "b_clean": -0.1759,
+      "t_clean": -1.6,
+      "naive_clean_delta": 1.6992,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "FLUOROCHEM.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 22.85,
+      "b_raw": 0.9099,
+      "b_clean": 0.1741,
+      "t_clean": 1.23,
+      "naive_clean_delta": 0.7358,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "GODFRYPHLP.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 22.68,
+      "b_raw": 1.0286,
+      "b_clean": 0.9393,
+      "t_clean": 8.11,
+      "naive_clean_delta": 0.0893,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "SAREGAMA.NS",
+      "industry": "Media Entertainment & Publication",
+      "event_win_ret_pct": 22.43,
+      "b_raw": 1.0984,
+      "b_clean": 0.0721,
+      "t_clean": 0.49,
+      "naive_clean_delta": 1.0263,
+      "verdict_naive": true,
+      "verdict_clean": false,
+      "flipped": true
+    },
+    {
+      "symbol": "ABDL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 1.5259,
+      "b_clean": 0.8623,
+      "t_clean": 3.46,
+      "naive_clean_delta": 0.6636,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "APOLLOTYRE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.54,
+      "b_raw": 1.2622,
+      "b_clean": 1.4003,
+      "t_clean": 14.78,
+      "naive_clean_delta": -0.1381,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ARE&M.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 10.73,
+      "b_raw": 0.98,
+      "b_clean": 0.9033,
+      "t_clean": 10.74,
+      "naive_clean_delta": 0.0767,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ASAHIINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 13.21,
+      "b_raw": 1.2486,
+      "b_clean": 0.9658,
+      "t_clean": 9.98,
+      "naive_clean_delta": 0.2828,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ATHERENERG.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 1.6043,
+      "b_clean": 2.09,
+      "t_clean": 4.87,
+      "naive_clean_delta": -0.4857,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "AWL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 1.2223,
+      "b_clean": 0.5014,
+      "t_clean": 2.54,
+      "naive_clean_delta": 0.7209,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BAJAJ-AUTO.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 13.8,
+      "b_raw": 0.4714,
+      "b_clean": 0.9736,
+      "t_clean": 13.43,
+      "naive_clean_delta": -0.5022,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BALKRISIND.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 19.66,
+      "b_raw": 0.8391,
+      "b_clean": 0.9702,
+      "t_clean": 11.06,
+      "naive_clean_delta": -0.1311,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BALRAMCHIN.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 3.34,
+      "b_raw": 1.2931,
+      "b_clean": 0.677,
+      "t_clean": 6.35,
+      "naive_clean_delta": 0.6161,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BAYERCROP.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 10.09,
+      "b_raw": 0.679,
+      "b_clean": 0.6976,
+      "t_clean": 8.51,
+      "naive_clean_delta": -0.0186,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BELRISE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 1.4822,
+      "b_clean": 1.2879,
+      "t_clean": 3.61,
+      "naive_clean_delta": 0.1943,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BHARATFORG.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 12.42,
+      "b_raw": 1.0175,
+      "b_clean": 0.8519,
+      "t_clean": 9.79,
+      "naive_clean_delta": 0.1656,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BIKAJI.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 1.0175,
+      "b_clean": 0.9053,
+      "t_clean": 3.84,
+      "naive_clean_delta": 0.1122,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BOSCHLTD.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 6.11,
+      "b_raw": 0.76,
+      "b_clean": 0.8715,
+      "t_clean": 12.9,
+      "naive_clean_delta": -0.1115,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "BRITANNIA.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 20.81,
+      "b_raw": 0.5767,
+      "b_clean": 1.1789,
+      "t_clean": 16.13,
+      "naive_clean_delta": -0.6022,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "CCL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.81,
+      "b_raw": 1.1049,
+      "b_clean": 1.0008,
+      "t_clean": 8.4,
+      "naive_clean_delta": 0.1041,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "CEATLTD.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -0.47,
+      "b_raw": 1.4398,
+      "b_clean": 1.4306,
+      "t_clean": 12.9,
+      "naive_clean_delta": 0.0092,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "CHAMBLFERT.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 15.62,
+      "b_raw": 1.3506,
+      "b_clean": 0.9709,
+      "t_clean": 9.5,
+      "naive_clean_delta": 0.3797,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "CIEINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -1.17,
+      "b_raw": 1.2352,
+      "b_clean": 0.9624,
+      "t_clean": 9.04,
+      "naive_clean_delta": 0.2728,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "COLPAL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.24,
+      "b_raw": 0.5131,
+      "b_clean": 0.8347,
+      "t_clean": 12.17,
+      "naive_clean_delta": -0.3216,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "COROMANDEL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 11.25,
+      "b_raw": 0.9805,
+      "b_clean": 0.7987,
+      "t_clean": 10.78,
+      "naive_clean_delta": 0.1818,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "CRAFTSMAN.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.58,
+      "b_raw": 0.8927,
+      "b_clean": 0.7663,
+      "t_clean": 5.39,
+      "naive_clean_delta": 0.1264,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "DABUR.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.26,
+      "b_raw": 0.5322,
+      "b_clean": 0.9781,
+      "t_clean": 13.55,
+      "naive_clean_delta": -0.4459,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "DOMS.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 1.0205,
+      "b_clean": 0.8806,
+      "t_clean": 4.53,
+      "naive_clean_delta": 0.1399,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "EICHERMOT.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 17.24,
+      "b_raw": 0.7713,
+      "b_clean": 1.2094,
+      "t_clean": 13.94,
+      "naive_clean_delta": -0.4381,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "EIDPARRY.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 6.73,
+      "b_raw": 1.2228,
+      "b_clean": 0.8116,
+      "t_clean": 9.16,
+      "naive_clean_delta": 0.4112,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "EMAMILTD.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 18.44,
+      "b_raw": 0.7924,
+      "b_clean": 1.0852,
+      "t_clean": 12.26,
+      "naive_clean_delta": -0.2928,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ENDURANCE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.94,
+      "b_raw": 0.9689,
+      "b_clean": 0.9402,
+      "t_clean": 6.45,
+      "naive_clean_delta": 0.0287,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "EXIDEIND.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 4.33,
+      "b_raw": 0.9902,
+      "b_clean": 0.7027,
+      "t_clean": 8.99,
+      "naive_clean_delta": 0.2875,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "FACT.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": -3.14,
+      "b_raw": 2.093,
+      "b_clean": 1.5359,
+      "t_clean": 9.43,
+      "naive_clean_delta": 0.5571,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "FORCEMOT.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.63,
+      "b_raw": 1.5379,
+      "b_clean": 1.061,
+      "t_clean": 6.86,
+      "naive_clean_delta": 0.4769,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "GABRIEL.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 12.15,
+      "b_raw": 1.6587,
+      "b_clean": 1.089,
+      "t_clean": 9.34,
+      "naive_clean_delta": 0.5697,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "GILLETTE.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.29,
+      "b_raw": 0.558,
+      "b_clean": 0.5651,
+      "t_clean": 8.21,
+      "naive_clean_delta": -0.0071,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "GODREJCP.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 11.81,
+      "b_raw": 0.6379,
+      "b_clean": 1.1714,
+      "t_clean": 14.28,
+      "naive_clean_delta": -0.5335,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "HEROMOTOCO.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.67,
+      "b_raw": 0.5531,
+      "b_clean": 1.0913,
+      "t_clean": 12.76,
+      "naive_clean_delta": -0.5382,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "HINDUNILVR.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 10.92,
+      "b_raw": 0.1361,
+      "b_clean": 1.0256,
+      "t_clean": 14.23,
+      "naive_clean_delta": -0.8895,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "HONASA.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 0.9774,
+      "b_clean": 0.7611,
+      "t_clean": 2.99,
+      "naive_clean_delta": 0.2163,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "HYUNDAI.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 0.8075,
+      "b_clean": 0.8991,
+      "t_clean": 3.32,
+      "naive_clean_delta": -0.0916,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ITC.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 8.55,
+      "b_raw": 0.0454,
+      "b_clean": 0.6323,
+      "t_clean": 10.1,
+      "naive_clean_delta": -0.5869,
+      "verdict_naive": false,
+      "verdict_clean": true,
+      "flipped": true
+    },
+    {
+      "symbol": "JBMA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 14.03,
+      "b_raw": 1.7669,
+      "b_clean": 1.4309,
+      "t_clean": 10.25,
+      "naive_clean_delta": 0.336,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "JKTYRE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 13.85,
+      "b_raw": 1.7915,
+      "b_clean": 1.4766,
+      "t_clean": 11.06,
+      "naive_clean_delta": 0.3149,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "LTFOODS.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": -1.79,
+      "b_raw": 1.684,
+      "b_clean": 1.1248,
+      "t_clean": 8.37,
+      "naive_clean_delta": 0.5592,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "M&M.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 7.97,
+      "b_raw": 0.4206,
+      "b_clean": 0.9487,
+      "t_clean": 10.37,
+      "naive_clean_delta": -0.5281,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "MARICO.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 12.68,
+      "b_raw": 0.605,
+      "b_clean": 1.0529,
+      "t_clean": 15.08,
+      "naive_clean_delta": -0.4479,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "MARUTI.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 1.93,
+      "b_raw": 0.4958,
+      "b_clean": 1.0284,
+      "t_clean": 11.86,
+      "naive_clean_delta": -0.5326,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "MINDACORP.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": -0.93,
+      "b_raw": 1.3742,
+      "b_clean": 1.0887,
+      "t_clean": 8.17,
+      "naive_clean_delta": 0.2855,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "MOTHERSON.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.79,
+      "b_raw": 1.2865,
+      "b_clean": 1.3243,
+      "t_clean": 12.24,
+      "naive_clean_delta": -0.0378,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "MRF.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 2.52,
+      "b_raw": 0.9051,
+      "b_clean": 1.086,
+      "t_clean": 15.54,
+      "naive_clean_delta": -0.1809,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "MSUMI.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 1.0566,
+      "b_clean": 1.0813,
+      "t_clean": 6.02,
+      "naive_clean_delta": -0.0247,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "NESTLEIND.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 6.67,
+      "b_raw": 0.3341,
+      "b_clean": 0.8871,
+      "t_clean": 12.14,
+      "naive_clean_delta": -0.553,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "OLAELEC.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 0.0,
+      "b_raw": 2.5282,
+      "b_clean": 1.7778,
+      "t_clean": 3.62,
+      "naive_clean_delta": 0.7504,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "OLECTRA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 16.07,
+      "b_raw": 1.6445,
+      "b_clean": 0.9871,
+      "t_clean": 6.52,
+      "naive_clean_delta": 0.6574,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "PATANJALI.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 7.77,
+      "b_raw": 1.1536,
+      "b_clean": 0.8911,
+      "t_clean": 6.07,
+      "naive_clean_delta": 0.2625,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "RKFORGE.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 21.0,
+      "b_raw": 1.4959,
+      "b_clean": 1.0203,
+      "t_clean": 8.98,
+      "naive_clean_delta": 0.4756,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "SONACOMS.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 9.61,
+      "b_raw": 1.0949,
+      "b_clean": 0.9763,
+      "t_clean": 5.44,
+      "naive_clean_delta": 0.1186,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "SUMICHEM.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": 8.36,
+      "b_raw": 1.0778,
+      "b_clean": 0.8793,
+      "t_clean": 7.1,
+      "naive_clean_delta": 0.1985,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "TATACONSUM.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 17.52,
+      "b_raw": 0.9029,
+      "b_clean": 0.9771,
+      "t_clean": 11.87,
+      "naive_clean_delta": -0.0742,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "TIINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 3.72,
+      "b_raw": 0.9091,
+      "b_clean": 0.7682,
+      "t_clean": 5.39,
+      "naive_clean_delta": 0.1409,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "TMPV.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 5.47,
+      "b_raw": 0.8405,
+      "b_clean": 1.1226,
+      "t_clean": 9.9,
+      "naive_clean_delta": -0.2821,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "TVSMOTOR.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 10.49,
+      "b_raw": 0.9594,
+      "b_clean": 1.1755,
+      "t_clean": 12.82,
+      "naive_clean_delta": -0.2161,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "UNITDSPR.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 3.68,
+      "b_raw": 0.9186,
+      "b_clean": 1.2128,
+      "t_clean": 12.97,
+      "naive_clean_delta": -0.2942,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "UNOMINDA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 4.6,
+      "b_raw": 1.3724,
+      "b_clean": 1.4119,
+      "t_clean": 12.16,
+      "naive_clean_delta": -0.0395,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "UPL.NS",
+      "industry": "Chemicals",
+      "event_win_ret_pct": -0.49,
+      "b_raw": 0.8601,
+      "b_clean": 0.7368,
+      "t_clean": 7.78,
+      "naive_clean_delta": 0.1233,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "VBL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 6.65,
+      "b_raw": 0.8461,
+      "b_clean": 0.7506,
+      "t_clean": 6.32,
+      "naive_clean_delta": 0.0955,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ZFCVINDIA.NS",
+      "industry": "Automobile and Auto Components",
+      "event_win_ret_pct": 19.24,
+      "b_raw": 0.6698,
+      "b_clean": 0.7411,
+      "t_clean": 9.47,
+      "naive_clean_delta": -0.0713,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ZYDUSWELL.NS",
+      "industry": "Fast Moving Consumer Goods",
+      "event_win_ret_pct": 11.6,
+      "b_raw": 0.7435,
+      "b_clean": 0.629,
+      "t_clean": 7.22,
+      "naive_clean_delta": 0.1145,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "ASIANPAINT.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 15.55,
+      "b_raw": 0.2802,
+      "b_clean": 0.5945,
+      "t_clean": 8.06,
+      "naive_clean_delta": -0.3143,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    },
+    {
+      "symbol": "TITAN.NS",
+      "industry": "Consumer Durables",
+      "event_win_ret_pct": 16.68,
+      "b_raw": 0.48,
+      "b_clean": 0.6436,
+      "t_clean": 7.75,
+      "naive_clean_delta": -0.1636,
+      "verdict_naive": true,
+      "verdict_clean": true,
+      "flipped": false
+    }
+  ],
+  "n_flipped": 17,
+  "genuine_independent": [
+    "ASIANPAINT.NS",
+    "TITAN.NS",
+    "PAGEIND.NS",
+    "JUBLFOOD.NS",
+    "SRF.NS",
+    "BAJFINANCE.NS",
+    "TRENT.NS",
+    "BAJAJFINSV.NS",
+    "ATUL.NS"
+  ],
+  "genuine_mechanical_in_factor": [
+    "BRITANNIA.NS",
+    "MRF.NS",
+    "MARICO.NS",
+    "APOLLOTYRE.NS",
+    "GODREJCP.NS",
+    "HINDUNILVR.NS",
+    "EICHERMOT.NS",
+    "DABUR.NS",
+    "BAJAJ-AUTO.NS",
+    "UNITDSPR.NS",
+    "BOSCHLTD.NS",
+    "CEATLTD.NS",
+    "TVSMOTOR.NS",
+    "HEROMOTOCO.NS",
+    "BBTC.NS",
+    "EMAMILTD.NS",
+    "MOTHERSON.NS",
+    "COLPAL.NS",
+    "UNOMINDA.NS",
+    "NESTLEIND.NS",
+    "TATACONSUM.NS",
+    "MARUTI.NS",
+    "BALKRISIND.NS",
+    "JKTYRE.NS",
+    "COROMANDEL.NS",
+    "ARE&M.NS",
+    "M&M.NS",
+    "JBMA.NS",
+    "DEEPAKFERT.NS",
+    "ITC.NS",
+    "ASAHIINDIA.NS",
+    "RADICO.NS",
+    "TMPV.NS",
+    "BHARATFORG.NS",
+    "CHAMBLFERT.NS",
+    "ZFCVINDIA.NS",
+    "FACT.NS",
+    "GABRIEL.NS",
+    "EIDPARRY.NS",
+    "UBL.NS",
+    "CIEINDIA.NS",
+    "EXIDEIND.NS",
+    "RKFORGE.NS",
+    "PIIND.NS",
+    "BAYERCROP.NS",
+    "CCL.NS",
+    "LTFOODS.NS",
+    "GILLETTE.NS",
+    "MINDACORP.NS",
+    "GODFRYPHLP.NS",
+    "UPL.NS",
+    "ZYDUSWELL.NS",
+    "SUMICHEM.NS",
+    "FORCEMOT.NS",
+    "OLECTRA.NS",
+    "ENDURANCE.NS",
+    "BALRAMCHIN.NS",
+    "VBL.NS",
+    "PATANJALI.NS",
+    "MSUMI.NS",
+    "SONACOMS.NS",
+    "CRAFTSMAN.NS",
+    "TIINDIA.NS",
+    "SCHAEFFLER.NS",
+    "ATHERENERG.NS",
+    "DOMS.NS",
+    "BIKAJI.NS",
+    "OLAELEC.NS",
+    "BELRISE.NS",
+    "ABDL.NS",
+    "HYUNDAI.NS",
+    "HONASA.NS",
+    "AWL.NS"
+  ],
+  "thesis_basket_leaders": [
+    "BRITANNIA.NS",
+    "MRF.NS",
+    "MARICO.NS",
+    "APOLLOTYRE.NS",
+    "GODREJCP.NS",
+    "HINDUNILVR.NS",
+    "EICHERMOT.NS",
+    "DABUR.NS",
+    "BAJAJ-AUTO.NS",
+    "UNITDSPR.NS",
+    "BOSCHLTD.NS",
+    "CEATLTD.NS",
+    "TVSMOTOR.NS",
+    "HEROMOTOCO.NS",
+    "BBTC.NS",
+    "EMAMILTD.NS",
+    "MOTHERSON.NS",
+    "COLPAL.NS",
+    "UNOMINDA.NS",
+    "NESTLEIND.NS",
+    "TATACONSUM.NS",
+    "MARUTI.NS",
+    "BALKRISIND.NS",
+    "JKTYRE.NS",
+    "COROMANDEL.NS",
+    "ARE&M.NS",
+    "M&M.NS",
+    "JBMA.NS",
+    "DEEPAKFERT.NS",
+    "ITC.NS",
+    "ASAHIINDIA.NS",
+    "RADICO.NS",
+    "TMPV.NS",
+    "BHARATFORG.NS",
+    "CHAMBLFERT.NS",
+    "ZFCVINDIA.NS",
+    "FACT.NS",
+    "GABRIEL.NS",
+    "EIDPARRY.NS",
+    "UBL.NS",
+    "CIEINDIA.NS",
+    "EXIDEIND.NS",
+    "RKFORGE.NS",
+    "PIIND.NS",
+    "BAYERCROP.NS",
+    "CCL.NS",
+    "LTFOODS.NS",
+    "GILLETTE.NS",
+    "MINDACORP.NS",
+    "GODFRYPHLP.NS",
+    "UPL.NS",
+    "ZYDUSWELL.NS",
+    "SUMICHEM.NS",
+    "FORCEMOT.NS",
+    "OLECTRA.NS",
+    "ENDURANCE.NS",
+    "BALRAMCHIN.NS",
+    "VBL.NS",
+    "PATANJALI.NS",
+    "MSUMI.NS",
+    "SONACOMS.NS",
+    "CRAFTSMAN.NS",
+    "TIINDIA.NS",
+    "SCHAEFFLER.NS",
+    "ATHERENERG.NS",
+    "DOMS.NS",
+    "BIKAJI.NS",
+    "OLAELEC.NS",
+    "BELRISE.NS",
+    "ABDL.NS",
+    "HYUNDAI.NS",
+    "HONASA.NS",
+    "AWL.NS"
+  ],
+  "marginal_leaders": [
+    "IGL.NS"
+  ],
+  "mechanical_loading_note": "73 of 82 'genuine' names are RURAL_f CONSTITUENTS \u2014 their ~+1 loading on RURAL_f is MECHANICAL (circular self-loading), so they confirm the thesis basket but are NOT independent evidence. Only 9 names load on RURAL_f significantly WITHOUT being part of it (Asian Paints, Titan, Page, Jubilant, SRF\u2026) \u2014 these are the real cross-sectional discoveries: urban-discretionary/quality names that genuinely co-move with rural demand.",
+  "spurious_note": "Per the naive-vs-clean test: a name is GENUINE only if it loads positively + significantly (|t|>=2) on RURAL_f AFTER the clean MKT_exMonsoon market control. Names that looked monsoon-linked under the naive (RURAL_f+NIFTY) test but lose significance under the clean control are SPURIOUS (market beta, not rural).",
+  "expressions": {
+    "conservative": {
+      "label": "Conservative \u2014 EW rural basket (full long)",
+      "kind": "basket",
+      "members": [
+        "BRITANNIA.NS",
+        "MRF.NS",
+        "MARICO.NS",
+        "APOLLOTYRE.NS",
+        "GODREJCP.NS",
+        "HINDUNILVR.NS"
+      ],
+      "mfe": {
+        "median_pct": 13.47,
+        "p25": 11.54,
+        "p75": 16.05,
+        "per_episode_mfe_pct": [
+          18.28,
+          11.63,
+          15.31,
+          11.29
+        ],
+        "target_pct_declared": 12.0,
+        "sensitivity_pct": 10.1,
+        "rounding": "down_to_round_anchor",
+        "n": 4
+      },
+      "exit_variants": {
+        "fixed": {
+          "mode": "fixed",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 52,
+            "rationale": "There may be an edge but it isn't established yet: PSR 100%; DSR 52% after 98 variants.",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "basket",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 45.55,
+              "max_drawdown_pct": -12.03,
+              "n_trades": 254,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1637,
+                "skew": -0.0092,
+                "kurtosis": 3.461,
+                "n_obs": 254,
+                "num_trials": 98,
+                "psr": 0.9951,
+                "min_trl": 103.8,
+                "deflated_sharpe": 0.5227
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -8.12,
+                "dd_p95_severity_pct": -14.0,
+                "dd_worst_pct": -27.85,
+                "terminal_median_pct": 45.27,
+                "terminal_p05_pct": 11.86,
+                "prob_loss": 0.01,
+                "prob_dd_worse_than_tol": 0.005,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  13.47,
+                  -1.14,
+                  17.66,
+                  10.29
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 17.66,
+                "worst_period_return_pct": -1.14,
+                "concentration": 0.408
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": 79,
+              "letter": "B",
+              "suppressed": false,
+              "verdict": "unproven",
+              "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; significance p=0.001; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.122556+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 45.55,
+            "nifty_total_pct": 14.85,
+            "excess_pct": 30.7,
+            "nifty_beta": 0.582,
+            "nifty_beta_t": 9.44,
+            "alpha_ann_pct": 29.82,
+            "pct_episodes_beat": 100.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            13.64,
+            1.08,
+            14.27,
+            10.88
+          ],
+          "caar_significance": {
+            "caar": 9.97,
+            "classical_t": 3.27,
+            "classical_p": 0.0011,
+            "bmp_t": 3.27,
+            "bmp_p": 0.0011,
+            "nonparam_p": 0.0455,
+            "combined_p": 0.0011,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; significance p=0.001; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1637,
+            "psr": 0.9951,
+            "deflated_sharpe": 0.5227,
+            "min_trl": 103.8,
+            "n_obs": 254
+          }
+        },
+        "target": {
+          "mode": "target",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 53,
+            "rationale": "There may be an edge but it isn't established yet: PSR 100%; DSR 53% after 98 variants.",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "basket",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 42.06,
+              "max_drawdown_pct": -12.03,
+              "n_trades": 220,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1785,
+                "skew": -0.0685,
+                "kurtosis": 3.5955,
+                "n_obs": 220,
+                "num_trials": 98,
+                "psr": 0.9953,
+                "min_trl": 88.7,
+                "deflated_sharpe": 0.53
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -7.59,
+                "dd_p95_severity_pct": -13.55,
+                "dd_worst_pct": -22.33,
+                "terminal_median_pct": 41.46,
+                "terminal_p05_pct": 10.4,
+                "prob_loss": 0.009,
+                "prob_dd_worse_than_tol": 0.003,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  12.97,
+                  -0.02,
+                  16.49,
+                  7.96
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 16.49,
+                "worst_period_return_pct": -0.02,
+                "concentration": 0.434
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": 79,
+              "letter": "B",
+              "suppressed": false,
+              "verdict": "unproven",
+              "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; significance p=0.001; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.127196+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 42.06,
+            "nifty_total_pct": 14.85,
+            "excess_pct": 27.21,
+            "nifty_beta": 0.03,
+            "nifty_beta_t": 0.38,
+            "alpha_ann_pct": 41.1,
+            "pct_episodes_beat": 100.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            11.75,
+            1.08,
+            13.42,
+            10.88
+          ],
+          "caar_significance": {
+            "caar": 9.284,
+            "classical_t": 3.33,
+            "classical_p": 0.0009,
+            "bmp_t": 3.33,
+            "bmp_p": 0.0009,
+            "nonparam_p": 0.0455,
+            "combined_p": 0.0009,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; significance p=0.001; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1785,
+            "psr": 0.9953,
+            "deflated_sharpe": 0.53,
+            "min_trl": 88.7,
+            "n_obs": 220
+          },
+          "hit_target": [
+            true,
+            false,
+            true,
+            false
+          ],
+          "bars_to_target": [
+            47,
+            null,
+            47,
+            null
+          ]
+        },
+        "manual": {
+          "mode": "manual",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 52,
+            "rationale": "There may be an edge but it isn't established yet: PSR 100%; DSR 52% after 98 variants.",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "basket",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 45.55,
+              "max_drawdown_pct": -12.03,
+              "n_trades": 254,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1637,
+                "skew": -0.0092,
+                "kurtosis": 3.461,
+                "n_obs": 254,
+                "num_trials": 98,
+                "psr": 0.9951,
+                "min_trl": 103.8,
+                "deflated_sharpe": 0.5227
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -8.12,
+                "dd_p95_severity_pct": -14.0,
+                "dd_worst_pct": -27.85,
+                "terminal_median_pct": 45.27,
+                "terminal_p05_pct": 11.86,
+                "prob_loss": 0.01,
+                "prob_dd_worse_than_tol": 0.005,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  13.47,
+                  -1.14,
+                  17.66,
+                  10.29
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 17.66,
+                "worst_period_return_pct": -1.14,
+                "concentration": 0.408
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": 79,
+              "letter": "B",
+              "suppressed": false,
+              "verdict": "unproven",
+              "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; significance p=0.001; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.131480+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 45.55,
+            "nifty_total_pct": 14.85,
+            "excess_pct": 30.7,
+            "nifty_beta": 0.582,
+            "nifty_beta_t": 9.44,
+            "alpha_ann_pct": 29.82,
+            "pct_episodes_beat": 100.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            13.64,
+            1.08,
+            14.27,
+            10.88
+          ],
+          "caar_significance": {
+            "caar": 9.97,
+            "classical_t": 3.27,
+            "classical_p": 0.0011,
+            "bmp_t": 3.27,
+            "bmp_p": 0.0011,
+            "nonparam_p": 0.0455,
+            "combined_p": 0.0011,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; significance p=0.001; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1637,
+            "psr": 0.9951,
+            "deflated_sharpe": 0.5227,
+            "min_trl": 103.8,
+            "n_obs": 254
+          },
+          "note": "workflow-armed; user closes by hand."
+        }
+      }
+    },
+    "balanced": {
+      "label": "Balanced \u2014 dollar-neutral pair: long rural basket / short NIFTY",
+      "kind": "pair",
+      "members": [
+        "BRITANNIA.NS",
+        "MRF.NS",
+        "MARICO.NS",
+        "APOLLOTYRE.NS",
+        "GODREJCP.NS",
+        "HINDUNILVR.NS"
+      ],
+      "mfe": {
+        "median_pct": 3.54,
+        "p25": 2.72,
+        "p75": 5.03,
+        "per_episode_mfe_pct": [
+          2.95,
+          7.76,
+          4.12,
+          2.03
+        ],
+        "target_pct_declared": 3.0,
+        "sensitivity_pct": 2.65,
+        "rounding": "down_to_round_anchor",
+        "n": 4
+      },
+      "exit_variants": {
+        "fixed": {
+          "mode": "fixed",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 18,
+            "rationale": "There may be an edge but it isn't established yet: PSR 95%; DSR 18% after 98 variants; needs ~265 obs (have 254).",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "pair",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 11.59,
+              "max_drawdown_pct": -3.12,
+              "n_trades": 254,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1022,
+                "skew": -0.1111,
+                "kurtosis": 3.9711,
+                "n_obs": 254,
+                "num_trials": 98,
+                "psr": 0.9464,
+                "min_trl": 264.8,
+                "deflated_sharpe": 0.1807
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -4.16,
+                "dd_p95_severity_pct": -7.32,
+                "dd_worst_pct": -13.02,
+                "terminal_median_pct": 11.53,
+                "terminal_p05_pct": 0.17,
+                "prob_loss": 0.046,
+                "prob_dd_worse_than_tol": 0.0,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  1.84,
+                  5.8,
+                  3.89,
+                  -0.3
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 5.8,
+                "worst_period_return_pct": -0.3,
+                "concentration": 0.487
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=254) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.139012+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 11.59,
+            "nifty_total_pct": 14.85,
+            "excess_pct": -3.26,
+            "nifty_beta": -0.209,
+            "nifty_beta_t": -6.78,
+            "alpha_ann_pct": 14.19,
+            "pct_episodes_beat": 25.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            2.04,
+            5.99,
+            2.97,
+            0.21
+          ],
+          "caar_significance": {
+            "caar": 2.801,
+            "classical_t": 2.32,
+            "classical_p": 0.0204,
+            "bmp_t": 2.32,
+            "bmp_p": 0.0204,
+            "nonparam_p": 0.0455,
+            "combined_p": 0.0204,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=254) to score the expression dial honestly."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1022,
+            "psr": 0.9464,
+            "deflated_sharpe": 0.1807,
+            "min_trl": 264.8,
+            "n_obs": 254
+          }
+        },
+        "target": {
+          "mode": "target",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 16,
+            "rationale": "There may be an edge but it isn't established yet: PSR 94%; DSR 16% after 98 variants; needs ~214 obs (have 186).",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "pair",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 8.58,
+              "max_drawdown_pct": -3.12,
+              "n_trades": 186,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1107,
+                "skew": 0.3778,
+                "kurtosis": 3.2332,
+                "n_obs": 186,
+                "num_trials": 98,
+                "psr": 0.9373,
+                "min_trl": 214.0,
+                "deflated_sharpe": 0.1609
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -3.48,
+                "dd_p95_severity_pct": -6.89,
+                "dd_worst_pct": -11.26,
+                "terminal_median_pct": 9.2,
+                "terminal_p05_pct": -1.12,
+                "prob_loss": 0.072,
+                "prob_dd_worse_than_tol": 0.0,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  -0.29,
+                  4.86,
+                  4.25,
+                  -0.39
+                ],
+                "positive_period_frac": 0.5,
+                "best_period_return_pct": 4.86,
+                "worst_period_return_pct": -0.39,
+                "concentration": 0.495
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=186) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.141809+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 8.58,
+            "nifty_total_pct": 14.85,
+            "excess_pct": -6.27,
+            "nifty_beta": -0.084,
+            "nifty_beta_t": -2.35,
+            "alpha_ann_pct": 11.77,
+            "pct_episodes_beat": 25.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            2.04,
+            3.08,
+            3.02,
+            0.21
+          ],
+          "caar_significance": {
+            "caar": 2.086,
+            "classical_t": 3.11,
+            "classical_p": 0.0019,
+            "bmp_t": 3.11,
+            "bmp_p": 0.0019,
+            "nonparam_p": 0.0455,
+            "combined_p": 0.0019,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=186) to score the expression dial honestly."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1107,
+            "psr": 0.9373,
+            "deflated_sharpe": 0.1609,
+            "min_trl": 214.0,
+            "n_obs": 186
+          },
+          "hit_target": [
+            false,
+            true,
+            true,
+            false
+          ],
+          "bars_to_target": [
+            null,
+            11,
+            47,
+            null
+          ]
+        },
+        "manual": {
+          "mode": "manual",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 18,
+            "rationale": "There may be an edge but it isn't established yet: PSR 95%; DSR 18% after 98 variants; needs ~265 obs (have 254).",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "pair",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 11.59,
+              "max_drawdown_pct": -3.12,
+              "n_trades": 254,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1022,
+                "skew": -0.1111,
+                "kurtosis": 3.9711,
+                "n_obs": 254,
+                "num_trials": 98,
+                "psr": 0.9464,
+                "min_trl": 264.8,
+                "deflated_sharpe": 0.1807
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -4.16,
+                "dd_p95_severity_pct": -7.32,
+                "dd_worst_pct": -13.02,
+                "terminal_median_pct": 11.53,
+                "terminal_p05_pct": 0.17,
+                "prob_loss": 0.046,
+                "prob_dd_worse_than_tol": 0.0,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  1.84,
+                  5.8,
+                  3.89,
+                  -0.3
+                ],
+                "positive_period_frac": 0.75,
+                "best_period_return_pct": 5.8,
+                "worst_period_return_pct": -0.3,
+                "concentration": 0.487
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": null,
+              "letter": null,
+              "suppressed": true,
+              "verdict": "unproven",
+              "rationale": "Too few observations (N=254) to score the expression dial honestly."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.146101+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 11.59,
+            "nifty_total_pct": 14.85,
+            "excess_pct": -3.26,
+            "nifty_beta": -0.209,
+            "nifty_beta_t": -6.78,
+            "alpha_ann_pct": 14.19,
+            "pct_episodes_beat": 25.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            2.04,
+            5.99,
+            2.97,
+            0.21
+          ],
+          "caar_significance": {
+            "caar": 2.801,
+            "classical_t": 2.32,
+            "classical_p": 0.0204,
+            "bmp_t": 2.32,
+            "bmp_p": 0.0204,
+            "nonparam_p": 0.0455,
+            "combined_p": 0.0204,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": null,
+            "letter": null,
+            "suppressed": true,
+            "verdict": "unproven",
+            "rationale": "Too few observations (N=254) to score the expression dial honestly."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1022,
+            "psr": 0.9464,
+            "deflated_sharpe": 0.1807,
+            "min_trl": 264.8,
+            "n_obs": 254
+          },
+          "note": "workflow-armed; user closes by hand."
+        }
+      }
+    },
+    "aggressive": {
+      "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars)",
+      "kind": "concentrated",
+      "members": [
+        "BRITANNIA.NS"
+      ],
+      "mfe": {
+        "median_pct": 22.0,
+        "p25": 17.37,
+        "p75": 29.25,
+        "per_episode_mfe_pct": [
+          38.5,
+          17.83,
+          26.17,
+          15.98
+        ],
+        "target_pct_declared": 20.0,
+        "sensitivity_pct": 16.5,
+        "rounding": "down_to_round_anchor",
+        "n": 4
+      },
+      "exit_variants": {
+        "fixed": {
+          "mode": "fixed",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 78,
+            "rationale": "There may be an edge but it isn't established yet: PSR 100%; DSR 78% after 98 variants.",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "concentrated",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 109.47,
+              "max_drawdown_pct": -12.78,
+              "n_trades": 254,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1935,
+                "skew": 1.0574,
+                "kurtosis": 8.9054,
+                "n_obs": 254,
+                "num_trials": 98,
+                "psr": 0.9995,
+                "min_trl": 63.8,
+                "deflated_sharpe": 0.7813
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -11.34,
+                "dd_p95_severity_pct": -18.75,
+                "dd_worst_pct": -28.48,
+                "terminal_median_pct": 106.7,
+                "terminal_p05_pct": 38.63,
+                "prob_loss": 0.0,
+                "prob_dd_worse_than_tol": 0.03,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  21.42,
+                  14.23,
+                  30.05,
+                  16.14
+                ],
+                "positive_period_frac": 1.0,
+                "best_period_return_pct": 30.05,
+                "worst_period_return_pct": 14.23,
+                "concentration": 0.355
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": 79,
+              "letter": "B",
+              "suppressed": false,
+              "verdict": "unproven",
+              "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.153188+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 109.47,
+            "nifty_total_pct": 14.85,
+            "excess_pct": 94.61,
+            "nifty_beta": 0.285,
+            "nifty_beta_t": 3.25,
+            "alpha_ann_pct": 72.33,
+            "pct_episodes_beat": 100.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            23.08,
+            17.28,
+            25.57,
+            15.55
+          ],
+          "caar_significance": {
+            "caar": 20.373,
+            "classical_t": 8.61,
+            "classical_p": null,
+            "bmp_t": 8.61,
+            "bmp_p": null,
+            "nonparam_p": 0.0455,
+            "combined_p": null,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1935,
+            "psr": 0.9995,
+            "deflated_sharpe": 0.7813,
+            "min_trl": 63.8,
+            "n_obs": 254
+          }
+        },
+        "target": {
+          "mode": "target",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 91,
+            "rationale": "There may be an edge but it isn't established yet: PSR 100%; DSR 91% after 98 variants.",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "concentrated",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 105.9,
+              "max_drawdown_pct": -8.38,
+              "n_trades": 223,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.2247,
+                "skew": 1.6045,
+                "kurtosis": 9.5252,
+                "n_obs": 223,
+                "num_trials": 98,
+                "psr": 0.9999,
+                "min_trl": 41.0,
+                "deflated_sharpe": 0.9116
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -8.28,
+                "dd_p95_severity_pct": -13.94,
+                "dd_worst_pct": -21.01,
+                "terminal_median_pct": 104.57,
+                "terminal_p05_pct": 43.96,
+                "prob_loss": 0.0,
+                "prob_dd_worse_than_tol": 0.003,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  39.63,
+                  5.21,
+                  25.39,
+                  11.78
+                ],
+                "positive_period_frac": 1.0,
+                "best_period_return_pct": 39.63,
+                "worst_period_return_pct": 5.21,
+                "concentration": 0.462
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": 79,
+              "letter": "B",
+              "suppressed": false,
+              "verdict": "unproven",
+              "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.157014+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 105.9,
+            "nifty_total_pct": 14.85,
+            "excess_pct": 91.05,
+            "nifty_beta": 0.081,
+            "nifty_beta_t": 0.74,
+            "alpha_ann_pct": 83.81,
+            "pct_episodes_beat": 100.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            25.48,
+            17.28,
+            21.08,
+            15.55
+          ],
+          "caar_significance": {
+            "caar": 19.849,
+            "classical_t": 9.01,
+            "classical_p": null,
+            "bmp_t": 9.01,
+            "bmp_p": null,
+            "nonparam_p": 0.0455,
+            "combined_p": null,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.2247,
+            "psr": 0.9999,
+            "deflated_sharpe": 0.9116,
+            "min_trl": 41.0,
+            "n_obs": 223
+          },
+          "hit_target": [
+            true,
+            false,
+            true,
+            false
+          ],
+          "bars_to_target": [
+            44,
+            null,
+            53,
+            null
+          ]
+        },
+        "manual": {
+          "mode": "manual",
+          "trust": {
+            "verdict": "unproven",
+            "label": "Unproven",
+            "confidence": 78,
+            "rationale": "There may be an edge but it isn't established yet: PSR 100%; DSR 78% after 98 variants.",
+            "flags": [
+              "selection_bias"
+            ],
+            "engine": "concentrated",
+            "backtest_run_id": null,
+            "metrics": {
+              "total_return_pct": 109.47,
+              "max_drawdown_pct": -12.78,
+              "n_trades": 254,
+              "benchmark_return_pct": 14.85,
+              "forward_stats": {
+                "observed_sharpe": 0.1935,
+                "skew": 1.0574,
+                "kurtosis": 8.9054,
+                "n_obs": 254,
+                "num_trials": 98,
+                "psr": 0.9995,
+                "min_trl": 63.8,
+                "deflated_sharpe": 0.7813
+              },
+              "monte_carlo": {
+                "n_sims": 1000,
+                "block_size": 6,
+                "dd_median_pct": -11.34,
+                "dd_p95_severity_pct": -18.75,
+                "dd_worst_pct": -28.48,
+                "terminal_median_pct": 106.7,
+                "terminal_p05_pct": 38.63,
+                "prob_loss": 0.0,
+                "prob_dd_worse_than_tol": 0.03,
+                "drawdown_tolerance_pct": -20.0
+              },
+              "sub_periods": {
+                "n_periods": 4,
+                "period_returns_pct": [
+                  21.42,
+                  14.23,
+                  30.05,
+                  16.14
+                ],
+                "positive_period_frac": 1.0,
+                "best_period_return_pct": 30.05,
+                "worst_period_return_pct": 14.23,
+                "concentration": 0.355
+              }
+            },
+            "alignment": {
+              "dimension": "expression",
+              "score": 79,
+              "letter": "B",
+              "suppressed": false,
+              "verdict": "unproven",
+              "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+            },
+            "degraded": false,
+            "data_note": "N=4 monsoon episodes (IMD normal years); thin sample.",
+            "as_of": "2026-06-30T08:36:04.161361+00:00"
+          },
+          "nifty_comparison": {
+            "strategy_total_pct": 109.47,
+            "nifty_total_pct": 14.85,
+            "excess_pct": 94.61,
+            "nifty_beta": 0.285,
+            "nifty_beta_t": 3.25,
+            "alpha_ann_pct": 72.33,
+            "pct_episodes_beat": 100.0,
+            "n_episodes": 4,
+            "window_basis": "concatenated_episode_windows"
+          },
+          "per_episode_pct": [
+            23.08,
+            17.28,
+            25.57,
+            15.55
+          ],
+          "caar_significance": {
+            "caar": 20.373,
+            "classical_t": 8.61,
+            "classical_p": null,
+            "bmp_t": 8.61,
+            "bmp_p": null,
+            "nonparam_p": 0.0455,
+            "combined_p": null,
+            "n": 4,
+            "both_agree": true
+          },
+          "outcome_dial": {
+            "dimension": "outcome",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "expression_dial": {
+            "dimension": "expression",
+            "score": 79,
+            "letter": "B",
+            "suppressed": false,
+            "verdict": "unproven",
+            "rationale": "Expression B (79/100): CAAR/BHAR alignment 100%; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'."
+          },
+          "verdict": "unproven",
+          "forward_stats": {
+            "observed_sharpe": 0.1935,
+            "psr": 0.9995,
+            "deflated_sharpe": 0.7813,
+            "min_trl": 63.8,
+            "n_obs": 254
+          },
+          "note": "workflow-armed; user closes by hand."
+        }
+      }
+    }
+  },
+  "honesty": {
+    "n_episodes": 4,
+    "n_genuine_independent": 9,
+    "n_genuine_mechanical": 73,
+    "below_mintrl": true,
+    "trial_group": "monsoon_v3",
+    "num_trials_deflation": 98,
+    "notes": [
+      "4 monsoon episodes (one SOWING window per IMD-normal year) is far below MinTRL \u2014 the OUTCOME dial is suppressed and the EXPRESSION dial is heavily deflated by DSR with num_trials=98 (the full-universe scan width). This suppression is the correct, honest answer, not a bug."
+    ]
+  }
+}

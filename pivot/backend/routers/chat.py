@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
+from backend.kite.auth import read_kite_access_token
 from backend.models import User
 from backend.services.chat_service import ChatService, UserContext
 
@@ -36,13 +37,229 @@ class ChatRequest(BaseModel):
     messages: list                          # client-carried history (also used as conv_id seed)
     include_portfolio_context: bool = True
     conversation_id: Optional[str] = None   # explicit Redis key when client tracks it
+    # Optional mode hint from the FE (composer mode pills). When set,
+    # the chat service deterministically routes the tool surface to
+    # the matching family — bypassing the keyword classifier. None
+    # means "let the classifier decide", which is the default.
+    mode: Optional[str] = None              # "automation" | "agent" | "backtest"
+    # Reply-by-selecting: when the user highlights a snippet of a prior
+    # assistant answer and replies to it, the FE sends the highlighted
+    # excerpt here. We weave it into the current user message so the LLM
+    # knows precisely what is being replied to. None / empty = no quote.
+    quoted_text: Optional[str] = None
+    # "Chat edits the draft open in the editor": when the user has an
+    # unsaved workflow draft open in the editor panel, the FE attaches
+    # the current on-screen draft here so chat amendments base off
+    # exactly what the user sees — not whatever happens to be in Redis.
+    # Same shape as workflow_draft_card / propose_workflow output
+    # (name, description, steps:[{step_type,label,config}], ...).
+    # None / absent = legacy Redis active_draft flow, byte-for-byte
+    # unchanged.
+    editor_draft: Optional[dict] = None
+    # Composer context attachments — the "+" menu and "@" mentions in the
+    # FE composer. Each item is one of:
+    #   {"kind": "security", "symbol": "TCS", "name": "Tata Consultancy…"}
+    #   {"kind": "position", "symbol": "RELIANCE", "quantity": 10,
+    #    "avg_price": 1300.5, "last_price": 1321.2, "pnl": 207.0,
+    #    "book": "portfolio"|"paper"}
+    #   {"kind": "agent", "workflow_id": "…", "name": "…",
+    #    "description": "…", "status": "active"}
+    # They are woven into the prompt as a labelled context block (same
+    # mechanism as quoted_text) so the LLM treats them as the subject of
+    # the message. None / absent = no attachments, prompt unchanged.
+    attachments: Optional[list[dict]] = None
 
 
 # ---- Helpers -----------------------------------------------------------
 
 
+# Hard cap on the quoted excerpt we inline into the prompt — a guard
+# against a runaway selection blowing up the context window.
+_MAX_QUOTE_CHARS = 2000
+
+
+def _with_reply_context(message: str, quoted_text: Optional[str]) -> str:
+    """Prefix `message` with the assistant excerpt the user is replying to.
+
+    Returns `message` unchanged when there's no quote. The excerpt is
+    rendered as a markdown blockquote so the model reads it as "the thing
+    being replied to", not as a new instruction.
+    """
+    quote = (quoted_text or "").strip()
+    if not quote:
+        return message
+    if len(quote) > _MAX_QUOTE_CHARS:
+        quote = quote[:_MAX_QUOTE_CHARS].rstrip() + " …"
+    quoted_block = "\n".join(f"> {line}" for line in quote.splitlines())
+    return (
+        "The user highlighted this excerpt from your previous reply and is "
+        "responding to it specifically:\n\n"
+        f"{quoted_block}\n\n"
+        f"Their reply:\n{message}"
+    )
+
+
+# Bounds for the attachment context block — a guard against a crafted
+# payload blowing up the prompt. Attachments beyond the cap are dropped.
+_MAX_ATTACHMENTS = 8
+_MAX_ATTACH_FIELD = 300
+
+
+def _fmt_attachment(att: dict) -> Optional[str]:
+    """One human-readable line per attachment, or None for junk."""
+    if not isinstance(att, dict):
+        return None
+
+    def _s(key: str) -> str:
+        v = att.get(key)
+        return str(v)[:_MAX_ATTACH_FIELD].strip() if v is not None else ""
+
+    kind = _s("kind").lower()
+    if kind == "security":
+        sym, name = _s("symbol").upper(), _s("name")
+        if not sym:
+            return None
+        return f"- Security: {sym}" + (f" ({name})" if name else "")
+    if kind == "position":
+        sym = _s("symbol").upper()
+        if not sym:
+            return None
+        bits = [f"- Position: {sym}"]
+        qty, avg, ltp, pnl = (att.get(k) for k in ("quantity", "avg_price", "last_price", "pnl"))
+        try:
+            if qty is not None:
+                bits.append(f"{float(qty):g} sh")
+            if avg is not None:
+                bits.append(f"avg ₹{float(avg):,.2f}")
+            if ltp is not None:
+                bits.append(f"LTP ₹{float(ltp):,.2f}")
+            if pnl is not None:
+                bits.append(f"P&L ₹{float(pnl):+,.2f}")
+        except (TypeError, ValueError):
+            pass
+        book = _s("book")
+        if book:
+            bits.append(f"[{book} book]")
+        return " · ".join([bits[0]] + bits[1:]) if len(bits) > 1 else bits[0]
+    if kind == "agent":
+        name = _s("name")
+        if not name:
+            return None
+        status, desc, wf_id = _s("status"), _s("description"), _s("workflow_id")
+        line = f"- Agent: “{name}”"
+        if status:
+            line += f" ({status})"
+        if wf_id:
+            line += f" [workflow_id={wf_id}]"
+        if desc:
+            line += f" — {desc}"
+        return line
+    return None
+
+
+def _with_attachment_context(message: str, attachments: Optional[list]) -> str:
+    """Prefix `message` with the composer's context attachments.
+
+    Same mechanism as `_with_reply_context`: the block reads as grounding
+    ("the user tagged these"), never as a new instruction. Returns the
+    message unchanged when there are no valid attachments.
+    """
+    lines = []
+    for att in (attachments or [])[:_MAX_ATTACHMENTS]:
+        line = _fmt_attachment(att)
+        if line:
+            lines.append(line)
+    if not lines:
+        return message
+    block = "\n".join(lines)
+    return (
+        "The user attached the following context to this message (tagged via "
+        "the composer). Treat these as the specific subject(s) being discussed "
+        "— resolve pronouns like 'it'/'this' to them, and use their exact "
+        "symbols/ids when calling tools:\n"
+        f"{block}\n\n"
+        f"User message:\n{message}"
+    )
+
+
+# ---- Conversation persistence -------------------------------------------
+
+# Client session ids are UUID-ish strings; the conversations PK is a
+# String(36). Anything else (legacy "u{id}" keys, forged payloads) is
+# simply not persisted — chat still works, it just won't appear in the
+# sidebar history.
+_CONV_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{8,36}$")
+
+
+def _persist_turn(
+    user_id: int,
+    raw_conv_id: Optional[str],
+    user_msg: str,
+    assistant_text: str,
+    render_hint: Optional[str] = None,
+) -> None:
+    """Write the (user, assistant) turn into the Postgres conversations
+    tables so the sidebar history survives reloads and re-logins.
+
+    Uses its OWN session — the streaming generator outlives the request-
+    scoped Depends(get_db) session. Failures are logged and swallowed:
+    persistence must never break a chat turn.
+    """
+    conv_id = (raw_conv_id or "").strip()
+    if not _CONV_ID_RE.match(conv_id) or not user_msg:
+        return
+    try:
+        from backend.database import SessionLocal
+        from backend.models import Conversation, ConversationMessage
+
+        db = SessionLocal()
+        try:
+            convo = (
+                db.query(Conversation).filter(Conversation.id == conv_id).first()
+            )
+            if convo is not None and convo.user_id != user_id:
+                # Forged/colliding id — never write into another user's thread.
+                return
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            if convo is None:
+                convo = Conversation(
+                    id=conv_id,
+                    user_id=user_id,
+                    # First user message doubles as the sidebar title.
+                    title=user_msg[:80] or None,
+                )
+                db.add(convo)
+            db.add(ConversationMessage(
+                conversation_id=conv_id, role="user", content=user_msg[:8000],
+            ))
+            if assistant_text or render_hint:
+                db.add(ConversationMessage(
+                    conversation_id=conv_id,
+                    role="assistant",
+                    content=(assistant_text or "")[:16000],
+                    tool_payload=(
+                        {"_render_hint": render_hint} if render_hint else None
+                    ),
+                ))
+            convo.last_message_at = now
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("conversation persistence failed for conv %s", conv_id)
+
+
 def _auth(authorization: str) -> int:
     if not authorization:
+        # Local-dev convenience ONLY: fall back to the default dev user so the
+        # chat UI works without a login flow. This is gated behind an explicit
+        # opt-in flag that defaults to FALSE — beta/production MUST require a
+        # real token (set dev_auth_bypass=false / leave unset). Without the
+        # gate, any unauthenticated request was silently treated as user 1.
+        from backend.config import settings as _cfg
+        if getattr(_cfg, "dev_auth_bypass", False):
+            return 1
         raise HTTPException(401, "Missing token")
     token = authorization.replace("Bearer ", "")
     user_id = get_user_id_from_token(token)
@@ -60,15 +277,25 @@ def _last_user_message(messages: list) -> str:
 
 def _kite_token_for(db: Session, user_id: int) -> str:
     user = db.query(User).filter(User.id == user_id).first()
-    if user and getattr(user, "kite_session", None):
-        return user.kite_session.access_token
+    if user and getattr(user, "active_broker_session", None):
+        return read_kite_access_token(user.active_broker_session) or "mock_token"
     return "mock_token"
 
 
 def _conv_id(req: ChatRequest, user_id: int) -> str:
-    """Per-user conversation id. The client can override with an explicit one."""
-    if req.conversation_id:
-        return req.conversation_id
+    """Per-user Redis conversation key.
+
+    SECURITY: a client-supplied ``conversation_id`` is ALWAYS namespaced under
+    the AUTHENTICATED user id, so a forged value can never address another
+    user's chat state (history / pending tool calls / in-flight order drafts).
+    Before this, ``return req.conversation_id`` used the raw client value, so
+    User A could pass ``conversation_id="u2"`` and read User B's session — a
+    multi-tenant isolation breach. The store is keyed only by the value we
+    return here, so prefixing it is sufficient and fully isolates tenants.
+    """
+    base = (req.conversation_id or "").strip()
+    if base:
+        return f"u{user_id}::{base}"
     return f"u{user_id}"
 
 
@@ -86,425 +313,40 @@ _BT_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Natural-language backtest patterns — work without leading slash.
-# Accepts:
-#   "backtest pe_ratio < 15 from 2020-01-01 to 2024-12-31"
-#   "backtest pe_ratio < 15 from 2020 to 2024 quarterly"
-#   "run a backtest on roe > 18 from 2018 to 2024 rebalance Q"
-_NL_BT_RE = re.compile(
-    r"^(?:run\s+(?:a\s+)?)?backtest\s+(?:on\s+)?(?P<expr>.+?)\s+"
-    r"from\s+(?P<start>\d{4}(?:-\d{2}-\d{2})?)\s+"
-    r"to\s+(?P<end>\d{4}(?:-\d{2}-\d{2})?)"
-    r"(?:\s+(?:rebalance\s+(?P<rb>[DWMQYdwmqy])"
-    r"|(?P<word>daily|weekly|monthly|quarterly|yearly)))?\s*$",
-    re.IGNORECASE,
-)
-
-# Indicator backtest — single-symbol RSI/SMA/EMA strategies. Runs off
-# yfinance + pandas_ta, no fundamentals DB required. Two phrasings:
-#
-# A) "<verb>? <SYMBOL> when[ever] (its )?<rsi|sma|ema>( <N>)? (op) <num>"
-#    e.g. "backtest buying reliance whenever its rsi drops below 50"
-#         "buy infy when rsi falls under 30"
-# B) "<verb>? <SYMBOL> when[ever] (it )?cross(es|ed) (above|below)? <N> (sma|ema)"
-#    e.g. "buying reliance whenever it crossed 200 ema"
-#         "buy tcs when it crosses above 50 sma"
-# Verb fragment that means "below" — covers past + present + over/under/below.
-_VERB_DOWN = (
-    r"(?:drops?|dropped|falls?|fell|crosses?|crossed|breaks?|broke|"
-    r"goes?\s+(?:below|under)|moves?\s+(?:below|under))"
-    r"\s+(?:below|under)"
-    r"|<"
-)
-_VERB_UP = (
-    r"(?:rises?|rose|crosses?|crossed|breaks?|broke|"
-    r"goes?\s+(?:above|over)|moves?\s+(?:above|over))"
-    r"\s+(?:above|over)"
-    r"|>"
-)
-_VERB_ANY_DIR = f"(?P<op>{_VERB_DOWN}|{_VERB_UP})"
-
-_NL_IND_RE_A = re.compile(
-    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
-    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
-    r"(?:when(?:ever)?|on)\s+(?:its\s+|the\s+)?"
-    r"(?P<indicator>rsi|sma|ema)"
-    r"(?:[\(\s]+(?P<period>\d{1,3})[\)\s]*)?\s*"
-    r"(?:is\s+|value\s+)?"
-    + _VERB_ANY_DIR +
-    r"\s+(?P<threshold>\d+(?:\.\d+)?)"
-    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
-    r"\s*$",
-    re.IGNORECASE,
-)
-_NL_IND_RE_B = re.compile(
-    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
-    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
-    r"(?:when(?:ever)?|on)\s+(?:it\s+|the\s+price\s+)?"
-    r"(?P<op>cross(?:es|ed)?(?:\s+(?P<dir>above|below))?)\s+"
-    r"(?P<period>\d{1,3})\s+"
-    r"(?P<indicator>sma|ema)"
-    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
-    r"\s*$",
-    re.IGNORECASE,
-)
-# C) Indicator name AFTER the threshold — common in casual phrasing:
-#    "backtest buying reliance whenever it dropped below 50 rsi"
-#    "buy infy when it falls under 30 rsi"
-_NL_IND_RE_C = re.compile(
-    r"^(?:backtest\s+)?(?:buy(?:ing)?|sell(?:ing)?|long|short)?\s*"
-    r"(?P<symbol>[A-Z][A-Z0-9\-_]{1,15})\s+"
-    r"(?:when(?:ever)?|on)\s+(?:it\s+|its\s+|the\s+(?:price\s+)?)?"
-    + _VERB_ANY_DIR +
-    r"\s+(?P<threshold>\d+(?:\.\d+)?)\s+"
-    r"(?P<indicator>rsi|sma|ema)"
-    r"(?:\s*\(?\s*(?P<period>\d{1,3})\s*\)?)?"
-    r"(?:\s+over\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?)?"
-    r"\s*$",
-    re.IGNORECASE,
-)
-# "the testing period is last N years" — follow-up that re-runs the
-# previous backtest with a new period. Stateful across turns: chat
-# router doesn't track this; we just match the phrase to expose the N.
-_NL_TESTING_PERIOD_RE = re.compile(
-    r"(?:the\s+)?testing\s+period\s+is\s+(?:the\s+)?last\s+(?P<years>\d+)\s+years?",
-    re.IGNORECASE,
-)
-# Natural-language screen — "screen roe > 18" or "find companies where pe < 15"
-_NL_SCREEN_RE = re.compile(
-    r"^(?:screen|find(?:\s+companies)?(?:\s+where)?)\s+(?P<expr>.+?)"
-    r"(?:\s+(?:as\s+of|@)\s*(?P<date>\d{4}-\d{2}-\d{2}))?\s*$",
-    re.IGNORECASE,
-)
-_REBALANCE_WORD_MAP = {
-    "daily": "D", "weekly": "W", "monthly": "M",
-    "quarterly": "Q", "yearly": "Y",
-}
-
-
-def _normalize_date_input(s: str) -> str:
-    """Accept either a YYYY date (→ Jan 1) or full YYYY-MM-DD."""
-    s = s.strip()
-    return f"{s}-01-01" if re.fullmatch(r"\d{4}", s) else s
-
-
 async def _maybe_run_slash(text: str) -> Optional[dict]:
-    """Match either explicit slash commands OR natural-language patterns
-    that map to deterministic backend tools (backtest / screen). Both
-    short-circuit before the LLM is called, so they work even when the
-    LLM provider is down."""
+    """Match explicit slash commands ONLY. Everything else — including
+    natural-language phrasings of backtest / screen intents — falls
+    through to the LLM hop, which composes the right tool call (and
+    can chain multi-indicator strategies via propose_workflow + the
+    workflow backtester).
+
+    History note: this function used to auto-route a half-dozen NL
+    backtest patterns (indicator / fundamentals / screen / open-close /
+    weekly-swing / unsupported-msg) into deterministic backend tools.
+    Those shortcuts silently dropped detail in compound queries — e.g.
+    'rsi crosses 30 AND macd signal crosses' got backtested as RSI-only
+    because the regex matched the first indicator and discarded the
+    rest. Removing them sends every NL backtest query through the LLM,
+    which costs +1 round-trip per query but fixes the truncation bug
+    and unlocks multi-condition strategies for free.
+    """
     body = (text or "").strip()
-    if not body:
+    if not body or not body.startswith("/"):
         return None
 
-    # 1. Slash commands (legacy).
-    if body.startswith("/"):
-        if (m := _BT_PREFIX_RE.match(body)):
-            return await _run_expr_backtest(
-                expression=m.group("expr").strip(),
-                start=m.group("start"), end=m.group("end"),
-                rebalance=(m.group("rb") or "Q").upper(),
-            )
-        if (m := _SCREEN_PREFIX_RE.match(body)):
-            return await _run_expr_screen(
-                expression=m.group("expr").strip(),
-                as_of=m.group("date"),
-            )
-        return None
-
-    # 2. Indicator backtest (single-symbol, RSI/SMA/EMA via yfinance).
-    #    Strict regex first (cheap, deterministic for canonical phrasings),
-    #    then a permissive heuristic parser for anything else.
-    if (
-        (m := _NL_IND_RE_A.match(body))
-        or (m := _NL_IND_RE_B.match(body))
-        or (m := _NL_IND_RE_C.match(body))
-    ):
-        return await _run_indicator_backtest(m)
-    if (parsed := _heuristic_indicator_intent(body)) is not None:
-        return await _run_indicator_backtest_dict(parsed)
-
-    # 3. Natural-language fundamentals backtest.
-    if (m := _NL_BT_RE.match(body)):
-        rb = m.group("rb")
-        if not rb and (word := m.group("word")):
-            rb = _REBALANCE_WORD_MAP.get(word.lower(), "Q")
+    if (m := _BT_PREFIX_RE.match(body)):
         return await _run_expr_backtest(
             expression=m.group("expr").strip(),
-            start=_normalize_date_input(m.group("start")),
-            end=_normalize_date_input(m.group("end")),
-            rebalance=(rb or "Q").upper(),
+            start=m.group("start"), end=m.group("end"),
+            rebalance=(m.group("rb") or "Q").upper(),
         )
-    # 4. Natural-language screen.
-    if (m := _NL_SCREEN_RE.match(body)):
+    if (m := _SCREEN_PREFIX_RE.match(body)):
         return await _run_expr_screen(
             expression=m.group("expr").strip(),
             as_of=m.group("date"),
         )
     return None
 
-
-def _normalize_op(op_text: str, direction: str | None = None) -> str:
-    """Map a phrase like 'drops below' / 'crossed above' to the
-    indicator-backtest operator vocabulary."""
-    s = op_text.lower().strip()
-    if "below" in s or "<" in s or "drop" in s or "fall" in s or "fell" in s:
-        return "<"
-    if "above" in s or ">" in s or "rise" in s or "rose" in s or "goes" in s:
-        return ">"
-    if "cross" in s:
-        # "crossed 200 ema" with no direction → above (most common intent)
-        if direction == "below":
-            return "crosses_below"
-        return "crosses_above"
-    return "<"
-
-
-_DEFAULT_PERIOD_BY_INDICATOR = {"rsi": 14, "sma": 50, "ema": 50}
-
-
-# Heuristic parser — runs after the strict regexes fail.
-#
-# Trigger: message contains "backtest" OR starts with a buy/sell/long/short
-# verb followed by "<sym> when[ever]". We then extract pieces independently
-# rather than trying to constrain word order:
-#   - indicator    (rsi|sma|ema)         required
-#   - op           (< / > / crosses_*)   inferred from verbs
-#   - threshold    (number nearest to a directional cue)
-#   - symbol       (first non-stopword content token)
-#   - years        ("N year(s)" anywhere in the sentence)
-# This is intentionally a fallback; canonical phrasings should still hit
-# the strict regexes for predictability.
-_INDICATOR_RE = re.compile(r"\b(rsi|sma|ema)\b", re.IGNORECASE)
-_BACKTEST_TRIGGER_RE = re.compile(r"\bbacktest\b", re.IGNORECASE)
-_VERB_START_RE = re.compile(
-    r"^(buy(?:ing)?|sell(?:ing)?|long|short)\b", re.IGNORECASE,
-)
-_THRESHOLD_NEAR_DIR_RE = re.compile(
-    r"(?:below|under|<|above|over|>|of|at|=)\s*(\d+(?:\.\d+)?)",
-    re.IGNORECASE,
-)
-_INDICATOR_PERIOD_BEFORE_RE = re.compile(
-    r"(\d+)\s*(?:-?day\s+)?(?:rsi|sma|ema)\b", re.IGNORECASE,
-)
-_YEARS_RE = re.compile(r"(?:last|past)\s+(\d+)\s+years?\b", re.IGNORECASE)
-_DIRECTION_DOWN_RE = re.compile(
-    r"\b(?:drops?|dropped|drop|falls?|fell|below|under)\b", re.IGNORECASE,
-)
-_DIRECTION_UP_RE = re.compile(
-    r"\b(?:rises?|rose|above|over|exceed(?:s|ed)?|breaks?\s+out)\b",
-    re.IGNORECASE,
-)
-_DIRECTION_CROSS_RE = re.compile(
-    r"\b(cross(?:es|ed)?)(?:\s+(above|below))?\b", re.IGNORECASE,
-)
-
-# Stopwords excluded when picking a symbol candidate. Lowercase; matching
-# is done case-insensitively. Includes filler words ("what", "happens"),
-# sentence connectors, indicator/direction terms, etc.
-_SYMBOL_STOPWORDS = frozenset({
-    "backtest", "buy", "buying", "sell", "selling", "long", "short",
-    "what", "happens", "happen", "when", "whenever", "the", "last",
-    "past", "years", "year", "rsi", "sma", "ema", "drops", "dropped",
-    "drop", "falls", "fell", "below", "above", "of", "in", "on",
-    "over", "under", "with", "at", "and", "or", "if", "for", "to",
-    "from", "rose", "rises", "rise", "crosses", "crossed", "cross",
-    "exceed", "exceeds", "exceeded", "by", "is", "as", "it", "its",
-    "a", "an", "this", "that", "value", "price", "show", "showed",
-    "do", "does", "did", "i", "me", "my", "we", "our", "your",
-    "any", "some", "happens", "run",
-})
-
-
-def _heuristic_indicator_intent(body: str) -> dict | None:
-    """Permissive parser: pulls indicator + symbol + threshold + direction
-    + period out of free-form chat input. Returns the same dict shape the
-    regex `m.groupdict()` would produce, or None if no indicator backtest
-    intent is detectable."""
-    # Trigger gate.
-    if not (_BACKTEST_TRIGGER_RE.search(body) or _VERB_START_RE.match(body)):
-        return None
-    # Indicator is required.
-    ind_m = _INDICATOR_RE.search(body)
-    if not ind_m:
-        return None
-    indicator = ind_m.group(1).lower()
-
-    # Direction.
-    if _DIRECTION_CROSS_RE.search(body):
-        cm = _DIRECTION_CROSS_RE.search(body)
-        direction = (cm.group(2) or "").lower() if cm else ""
-        op = "crosses_below" if direction == "below" else "crosses_above"
-    elif _DIRECTION_UP_RE.search(body) and not _DIRECTION_DOWN_RE.search(body):
-        op = ">"
-    else:
-        # Default to `<` because most casual queries mean "buy when X
-        # drops below" (oversold / dip-buy). Tests for this default
-        # in test_chat_nl_shortcuts.
-        op = "<"
-
-    # Threshold — prefer a number that follows a directional cue
-    # ("below 50", "above 30", "of 50"), then fall back to any number
-    # next to the indicator name.
-    thr_m = _THRESHOLD_NEAR_DIR_RE.search(body)
-    threshold = float(thr_m.group(1)) if thr_m else None
-
-    # Indicator period — for SMA/EMA only ("200 EMA").
-    ip_m = _INDICATOR_PERIOD_BEFORE_RE.search(body)
-    indicator_period = (
-        int(ip_m.group(1)) if ip_m else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
-    )
-
-    # If RSI and threshold still missing, no point continuing.
-    if indicator == "rsi" and threshold is None:
-        # Try any number that isn't the year and isn't the indicator period.
-        all_nums = re.findall(r"\b(\d+(?:\.\d+)?)\b", body)
-        years_m_local = _YEARS_RE.search(body)
-        years_str = years_m_local.group(1) if years_m_local else ""
-        candidates = [n for n in all_nums if n != years_str]
-        if candidates:
-            threshold = float(candidates[0])
-    if indicator == "rsi" and threshold is None:
-        return None
-    # For SMA/EMA the threshold is implicit (= indicator period).
-    if threshold is None:
-        threshold = float(indicator_period)
-
-    # Years.
-    years_m = _YEARS_RE.search(body)
-    years = int(years_m.group(1)) if years_m else 5
-
-    # Symbol — first content word that's not a stopword and looks like
-    # a ticker or company name.
-    tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-_]+", body)
-    symbol: str | None = None
-    for tok in tokens:
-        if tok.lower() in _SYMBOL_STOPWORDS:
-            continue
-        if len(tok) < 2 or len(tok) > 16:
-            continue
-        symbol = tok
-        break
-    if symbol is None:
-        return None
-
-    return {
-        "symbol": symbol,
-        "indicator": indicator,
-        "period": str(indicator_period),
-        "op": "drops below" if op == "<" else (
-            "rises above" if op == ">" else "crosses"
-        ),
-        "dir": "below" if op == "crosses_below" else (
-            "above" if op == "crosses_above" else None
-        ),
-        "threshold": str(threshold),
-        "years": str(years),
-    }
-
-
-async def _run_indicator_backtest_dict(gd: dict) -> dict:
-    """Heuristic-parser variant — takes a plain dict instead of a regex
-    match, otherwise identical to _run_indicator_backtest."""
-    import asyncio
-    from backend.services.indicator_backtest import run_indicator_backtest
-
-    symbol = gd["symbol"].upper()
-    indicator = gd["indicator"].lower()
-    period = int(gd.get("period")) if gd.get("period") else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
-    operator = _normalize_op(gd.get("op", "<"), gd.get("dir"))
-    threshold = float(gd.get("threshold") or period)
-    years = int(gd.get("years") or 5)
-    yf_period = f"{years}y"
-    try:
-        result = await asyncio.to_thread(
-            run_indicator_backtest,
-            symbol=symbol, indicator=indicator,  # type: ignore[arg-type]
-            indicator_period=period, operator=operator,  # type: ignore[arg-type]
-            threshold=threshold, period=yf_period,
-        )
-    except ValueError as e:
-        return _slash_error(f"Backtest error: {e}")
-    except Exception as e:
-        return _slash_error(f"Backtest failed: {str(e)[:200]}")
-    return {
-        "response": result.summary_text,
-        "intent": "INDICATOR_BACKTEST",
-        "screen_data": None, "expr_backtest_data": None, "backtest_data": None,
-        "chart_data": None, "logiccard": None, "requires_clarification": False,
-        "raw_data": {
-            "_render_hint": "indicator_backtest_chart",
-            "symbol": result.symbol,
-            "indicator": result.indicator,
-            "indicator_period": result.indicator_period,
-            "operator": result.operator,
-            "threshold": result.threshold,
-            "period_label": result.period_label,
-            "price_curve": result.price_curve,
-            "equity_curve": result.equity_curve,
-            "indicator_curve": result.indicator_curve,
-            "signals": result.signals,
-            "metrics": result.metrics,
-            "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
-        },
-    }
-
-
-async def _run_indicator_backtest(m: "re.Match[str]") -> dict:
-    """Convert a regex match into a call into
-    `services.indicator_backtest.run_indicator_backtest`. The chat router
-    runs in async context but the backtester is sync (CPU-bound +
-    yfinance HTTP); we offload via `asyncio.to_thread`."""
-    import asyncio
-    from backend.services.indicator_backtest import run_indicator_backtest
-
-    gd = m.groupdict()
-    symbol = gd["symbol"].upper()
-    indicator = gd["indicator"].lower()
-    period = int(gd.get("period")) if gd.get("period") else _DEFAULT_PERIOD_BY_INDICATOR[indicator]
-    op_text = gd.get("op", "<")
-    direction = gd.get("dir")
-    operator = _normalize_op(op_text, direction)
-    threshold = float(gd.get("threshold") or period)  # SMA/EMA: threshold = period (ignored)
-    years = int(gd.get("years") or 5)
-    yf_period = f"{years}y"
-
-    try:
-        result = await asyncio.to_thread(
-            run_indicator_backtest,
-            symbol=symbol, indicator=indicator,  # type: ignore[arg-type]
-            indicator_period=period, operator=operator,  # type: ignore[arg-type]
-            threshold=threshold, period=yf_period,
-        )
-    except ValueError as e:
-        return _slash_error(f"Backtest error: {e}")
-    except Exception as e:
-        return _slash_error(f"Backtest failed: {str(e)[:200]}")
-
-    return {
-        "response": result.summary_text,
-        "intent": "INDICATOR_BACKTEST",
-        "screen_data": None, "expr_backtest_data": None, "backtest_data": None,
-        "chart_data": None, "logiccard": None, "requires_clarification": False,
-        # Flagged so the FE renders a chart card inline rather than a
-        # plain bubble. The shape mirrors what IndicatorBacktestCard
-        # consumes in pivot-next/components/chat/.
-        "raw_data": {
-            "_render_hint": "indicator_backtest_chart",
-            "symbol": result.symbol,
-            "indicator": result.indicator,
-            "indicator_period": result.indicator_period,
-            "operator": result.operator,
-            "threshold": result.threshold,
-            "period_label": result.period_label,
-            "price_curve": result.price_curve,
-            "equity_curve": result.equity_curve,
-            "indicator_curve": result.indicator_curve,
-            "signals": result.signals,
-            "metrics": result.metrics,
-            "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
-        },
-    }
 
 
 async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
@@ -557,10 +399,22 @@ async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
 async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance: str) -> dict:
     import asyncpg, datetime as _dt
     from backend.config import settings as _s
-    from backtester.engine import BacktestConfig, run_backtest as _run_bt
-    from backtester.metrics import compute_metrics
-    from backtester.universe import universe_at
-    from backtester.expr.validator import ValidationError
+    # The fundamentals backtester lives in the sibling `pivot-backtester`
+    # package; it's an optional dependency. If it isn't installed in the
+    # running interpreter, surface a clean message instead of a 500.
+    try:
+        from backtester.engine import BacktestConfig, run_backtest as _run_bt
+        from backtester.metrics import compute_metrics
+        from backtester.universe import universe_at
+        from backtester.expr.validator import ValidationError
+    except ModuleNotFoundError:
+        return _slash_error(
+            "Fundamentals backtester isn't installed in this environment. "
+            "Install it with `pip install -e ../pivot-backtester` from the "
+            "pivot directory, then restart the backend. Indicator "
+            "backtests (RSI / SMA / EMA) still work — try `backtest "
+            "<symbol> when its rsi drops below 30`."
+        )
 
     base = (_s.database_url
             .replace("postgresql+psycopg2://", "postgresql://")
@@ -630,7 +484,12 @@ async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance
     )
     # Serialise the equity / benchmark curves to plain JSON-able lists.
     # `result.equity_curve` is List[BacktestEquityPoint(date: date, value: float)].
+    # benchmark_curve is None when the backtester runs without one
+    # (e.g. universe screen with no NIFTY data) — guard so the JSON
+    # serialiser doesn't 500 trying to iterate None.
     def _curve_to_json(curve) -> list[dict]:
+        if not curve:
+            return []
         out = []
         for p in curve:
             d = p.date if hasattr(p, "date") else p["date"]
@@ -744,8 +603,14 @@ async def chat(
     ctx = UserContext(user_id=user_id, kite_token=kite_token, db=db, holdings=holdings)
     conv_id = _conv_id(request, user_id)
 
-    # The frontend currently sends the rolling history in `messages`. Until
-    # the client switches to using ``conversation_id`` we honour that.
+    # The frontend always sends the rolling history in `messages` — that
+    # IS the per-session window. We pass it through verbatim (capped to
+    # the last N pairs in the service) and DO NOT fall back to Redis-
+    # stored history when the FE's window is empty. This was the root
+    # cause of the "new chat starts with old context from a different
+    # workflow" bug in the PDF report — Redis kept 24h of history under
+    # the per-user conv_id, so opening a fresh chat with `messages=[]`
+    # in the request still resurfaced the prior session's draft.
     history = [
         {"role": m.get("role"), "content": m.get("content", "")}
         for m in (request.messages or [])
@@ -754,9 +619,20 @@ async def chat(
         and m.get("content")
     ][:-1]                                    # drop the just-arrived user msg
 
+    # Reply-by-selecting: weave the highlighted excerpt into the message
+    # the LLM sees (slash shortcuts above already ran on the raw text).
+    llm_msg = _with_reply_context(last_msg, request.quoted_text)
+    # Composer context attachments (+ menu / @ mentions) — prepend as a
+    # labelled grounding block, same mechanism as the reply quote.
+    llm_msg = _with_attachment_context(llm_msg, request.attachments)
+
     turn = await _chat_service.handle(
-        last_msg, conv_id, ctx,
-        history_override=history if history else None,
+        llm_msg, conv_id, ctx,
+        # Always pass the FE's history (even when empty) — this is the
+        # session boundary signal. None would re-hydrate from Redis.
+        history_override=history,
+        mode_override=request.mode,
+        editor_draft=request.editor_draft,
     )
 
     if turn.sanitised:
@@ -786,6 +662,14 @@ async def chat(
     if turn.logiccard and not raw_data.get("_render_hint"):
         raw_data = {**raw_data, "_render_hint": "logic_card"}
 
+    # Persist the turn so the sidebar conversation history survives
+    # reloads/re-login. Uses the RAW client conversation id (the FE lists
+    # conversations by it); failures never break the response.
+    _persist_turn(
+        user_id, request.conversation_id, last_msg, turn.response or "",
+        render_hint=(raw_data or {}).get("_render_hint"),
+    )
+
     return {
         "response": turn.response,
         "intent": None,                       # intent classifier removed
@@ -795,6 +679,7 @@ async def chat(
         "missing_params": [],
         "tool_call": None,                    # legacy field — never populated now
         "raw_data": raw_data or None,
+        "latency_breakdown": turn.latency_breakdown,
         "latency_ms": turn.latency_ms,
     }
 
@@ -808,11 +693,25 @@ async def chat_stream(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    """SSE wrapper: runs the same handler, then word-streams the final reply.
+    """True SSE stream: emits typed events as the agentic loop runs.
 
-    We don't stream tokens from Sarvam (it doesn't true-stream). We stream
-    *the deterministic reply we already got* word-by-word so the UI feels
-    live. Tool calls happen before the first word ships.
+    Event shape (one JSON object per `data:` line):
+      {"type": "start"}
+      {"type": "tool_start", "name": "..."}
+      {"type": "tool_done",  "name": "...", "ok": bool, "error": str|null}
+      {"type": "delta",      "text": "..."}                  # final-hop tokens
+      {"type": "replace",    "text": "..."}                  # post-processor rewrite
+      {"type": "done",       "response": "...", "tools_called": [...],
+                              "logiccard": {...}|null, "raw_data": {...}|null,
+                              "latency_ms": int,
+                              "latency_breakdown": {...}}
+      {"type": "error",      "message": "..."}
+
+    On the OpenAI / Azure providers, `delta` events come straight from
+    the Responses API stream — first token typically lands ~1s after
+    request start. On the fast-path (slash-command shortcuts), the full
+    reply is emitted as a single `delta` because that path doesn't
+    true-stream.
     """
     user_id = _auth(authorization)
     last_msg = _last_user_message(request.messages)
@@ -820,22 +719,110 @@ async def chat_stream(
         raise HTTPException(400, "no user message in payload")
 
     kite_token = _kite_token_for(db, user_id)
-    ctx = UserContext(user_id=user_id, kite_token=kite_token, db=db)
+    holdings: list[dict] = []
+    if request.include_portfolio_context:
+        try:
+            from backend.kite.portfolio import get_holdings
+            holdings = get_holdings(kite_token)
+        except Exception:
+            holdings = []
+
+    ctx = UserContext(user_id=user_id, kite_token=kite_token, db=db, holdings=holdings)
     conv_id = _conv_id(request, user_id)
+    # Same per-session policy as the non-streaming path — see comment
+    # above. FE-supplied messages list IS the session history.
     history = [
         {"role": m.get("role"), "content": m.get("content", "")}
         for m in (request.messages or [])
         if isinstance(m, dict) and m.get("role") in {"user", "assistant"} and m.get("content")
     ][:-1]
-    turn = await _chat_service.handle(last_msg, conv_id, ctx,
-                                      history_override=history if history else None)
+
+    # Slash-command + indicator-backtest deterministic shortcut.
+    # POST /chat runs this BEFORE the LLM (line ~841). The streaming
+    # path used to skip it, so prompts like "How would a 50 SMA on
+    # TCS have done over the past 3 years" went to the model — which
+    # hallucinated period limits and burned 25s on an ASK_USER round
+    # trip. Run the same shortcut here and surface its result as a
+    # synthetic SSE sequence (start → delta → done) so the FE sees
+    # the same shape as a normal stream.
+    slash_result = await _maybe_run_slash(last_msg)
 
     async def gen():
-        words = (turn.response or "").split(" ")
-        for i, w in enumerate(words):
-            chunk = w + (" " if i < len(words) - 1 else "")
-            yield f"data: {json.dumps({'token': chunk})}\n\n"
-            await asyncio.sleep(0.02)
-        yield f"data: {json.dumps({'done': True})}\n\n"
+        if slash_result is not None:
+            yield f"data: {json.dumps({'type': 'start'})}\n\n"
+            text = slash_result.get("response") or ""
+            if text:
+                yield f"data: {json.dumps({'type': 'delta', 'text': text})}\n\n"
+            # Build a /chat-shaped raw_data block from the slash
+            # result so the FE's render-hint dispatch fires the same
+            # card it would have on the non-streaming path.
+            raw = slash_result.get("raw_data") or {}
+            for key in (
+                "expr_backtest_data", "backtest_data", "screen_data",
+                "chart_data",
+            ):
+                payload = slash_result.get(key)
+                if isinstance(payload, dict) and not raw.get("_render_hint"):
+                    raw = {**raw, **payload}
+            done_event = {
+                "type": "done",
+                "response": text,
+                "tools_called": [],
+                "logiccard": slash_result.get("logiccard"),
+                "raw_data": raw or None,
+                "latency_ms": 0,
+                "latency_breakdown": {},
+            }
+            yield f"data: {json.dumps(done_event, default=str)}\n\n"
+            _persist_turn(
+                user_id, request.conversation_id, last_msg, text,
+                render_hint=(raw or {}).get("_render_hint"),
+            )
+            return
+        try:
+            # Reply-by-selecting: inline the highlighted excerpt for the
+            # LLM (the slash shortcut above ran on the raw text).
+            llm_msg = _with_reply_context(last_msg, request.quoted_text)
+            # Composer context attachments (+ menu / @ mentions) — same
+            # grounding-block mechanism as the reply quote.
+            llm_msg = _with_attachment_context(llm_msg, request.attachments)
+            async for event in _chat_service.handle_stream(
+                llm_msg, conv_id, ctx,
+                history_override=history,  # always honour FE-sent window
+                mode_override=request.mode,
+                editor_draft=request.editor_draft,
+            ):
+                # Hoist nested-tool render hints up to top level so the
+                # FE consumes the same shape as POST /chat. We only need
+                # to do this on the `done` event.
+                if event.get("type") == "done":
+                    raw_data = event.get("raw_data") or {}
+                    if isinstance(raw_data, dict) and not raw_data.get("_render_hint"):
+                        for _key, val in list(raw_data.items()):
+                            if isinstance(val, dict) and val.get("_render_hint"):
+                                raw_data = {**raw_data, **val}
+                                break
+                    if event.get("logiccard") and not (raw_data or {}).get("_render_hint"):
+                        raw_data = {**(raw_data or {}), "_render_hint": "logic_card"}
+                    event = {**event, "raw_data": raw_data or None}
+                    # Persist the completed turn (raw client conv id, so
+                    # the sidebar lists it). Never breaks the stream.
+                    _persist_turn(
+                        user_id, request.conversation_id, last_msg,
+                        event.get("response") or "",
+                        render_hint=(raw_data or {}).get("_render_hint"),
+                    )
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+        except Exception as e:
+            logger.exception("chat_stream gen failed: %s", e)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)[:200]})}\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # disable nginx buffering if proxied
+            "Connection": "keep-alive",
+        },
+    )

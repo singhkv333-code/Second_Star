@@ -54,6 +54,7 @@ function makeRun(status: Run["status"], steps: ReturnType<typeof step>[]): Run {
     status,
     halt_reason: null,
     error_message: null,
+    context: {},
     steps,
   };
 }

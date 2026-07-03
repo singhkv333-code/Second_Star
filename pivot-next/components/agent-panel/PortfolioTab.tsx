@@ -1,50 +1,1332 @@
 "use client";
 
 /**
- * PortfolioTab — read-only holdings + P&L view.
+ * PortfolioTab — Quartr-design portfolio page.
  *
- * Per docs/UI_TABS_V1.md §3. Reads from the legacy /portfolio/{summary,holdings}
- * endpoints (NOT under /api/*). Top metric strip + sortable holdings table.
+ * Visuals ported from frontend-quartr/src/pages/Dashboard.jsx (PortfolioTab),
+ * with the YieldTable section deliberately excluded per request. The data
+ * path uses pivot's existing API: getPortfolioSummary, getPortfolioHoldings,
+ * and getPortfolioPerformance (the REAL per-user historical value series).
  *
- * The "performance chart" promised in §3 is intentionally NOT included here:
- * the backend has no historical-portfolio-value endpoint yet, and faking
- * the data violates ARCHITECTURE.md §5.2 ("never fake data"). When that
- * endpoint lands, drop a small SVG line chart into the placeholder slot.
+ * Sections (top → bottom):
+ *   1. Page title (serif).
+ *   2. Performance chart with range pills (1M / 3M / 6M / 1Y / 5Y), driven by
+ *      the real GET /api/portfolio/performance series — no synthetic line and
+ *      no fabricated benchmark; honest loading / error / empty states. The
+ *      footer strip below it is per-user (real total return + concentration).
+ *   3. Holdings table (sortable, ticker tag with sector subtext).
+ *   4. Asset Allocation — donut + legend across Market Cap / Sectors / Stocks.
+ *   5. Diversification Score — your score vs community median, narrative line.
+ *
+ * Theme tokens are pulled from globals.css so light + dark both work.
  */
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
   RefreshCw,
   Wallet,
 } from "lucide-react";
-import {
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { format as formatDate, parseISO } from "date-fns";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { StockHoverActions } from "@/components/StockHoverActions";
 import {
   getPortfolioHoldings,
   getPortfolioSummary,
-  getPortfolioPerformance,
-  getIndexHistory,
   type Holding,
   type PortfolioSummary,
-  type PortfolioPerformancePeriod,
-  type PortfolioPerformancePoint,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import {
+  getPortfolioScores,
+  getPortfolioPerformance,
+  type PortfolioScoresResponse,
+  type PortfolioPerformance,
+  type PerformancePoint,
+  type PerformancePeriod,
+} from "@/lib/portfolioApi";
+import { useTradingMode } from "@/lib/trading-mode";
+import { useLiveQuote } from "@/hooks/useLiveQuote";
+import { useCompanyLogos } from "@/hooks/useCompanyLogos";
+
+// ---------------------------------------------------------------------------
+// Static reference maps (Quartr parity)
+// ---------------------------------------------------------------------------
+
+/** Approximate Indian market-cap classification for the demo tickers.
+ *  Mirrors frontend-quartr/.../AssetAllocation.jsx. */
+const MARKET_CAP_MAP: Record<string, string> = {
+  RELIANCE: "Largecap",
+  HDFCBANK: "Largecap",
+  INFY: "Largecap",
+  TCS: "Largecap",
+  AXISBANK: "Largecap",
+  ITC: "Largecap",
+  ASIANPAINT: "Largecap",
+  BAJFINANCE: "Largecap",
+  TATASTEEL: "Midcap",
+  NIFTYBEES: "Index ETF",
+};
+
+/** Light sector mapping so the "Sectors" tab in Asset Allocation has
+ *  something to render even though the backend Holding type has no
+ *  sector field. Anything not listed lands in "Other". */
+const SECTOR_MAP: Record<string, string> = {
+  RELIANCE: "Energy",
+  HDFCBANK: "Banking",
+  AXISBANK: "Banking",
+  ICICIBANK: "Banking",
+  SBIN: "Banking",
+  INFY: "IT Services",
+  TCS: "IT Services",
+  WIPRO: "IT Services",
+  HCLTECH: "IT Services",
+  ITC: "FMCG",
+  HINDUNILVR: "FMCG",
+  ASIANPAINT: "Materials",
+  BAJFINANCE: "Financials",
+  TATASTEEL: "Materials",
+  NIFTYBEES: "Index ETF",
+  GOLDBEES: "Commodities",
+};
+
+// Vibrant Pivot palette — saturated 500-tier hexes, no violet/indigo/
+// fuchsia. Cobalt leads (brand-anchor for the largest slice), then a
+// warm/cool rotation of orange · cyan-teal · golden yellow · dark teal
+// · red — deliberately avoids any green hue so the donut never reads
+// as "profit" against the rest of the surface.
+const PALETTE = [
+  "#1b7cc7", // cobalt blue
+  "#fb8500", // vivid orange
+  "#219ebc", // cyan teal
+  "#ffb703", // golden yellow
+  "#2c666e", // dark teal
+  "#d00000", // red (sparingly — last slot)
+];
+
+// ---------------------------------------------------------------------------
+// Formatters
+// ---------------------------------------------------------------------------
+
+function fmtRupee(n: number, opts: { sign?: boolean; max?: number } = {}): string {
+  const { sign = false, max = 0 } = opts;
+  const abs = Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: max });
+  const s = sign ? (n >= 0 ? "+" : "−") : n < 0 ? "−" : "";
+  return `${s}₹${abs}`;
+}
+
+function fmtPct(n: number, signed = true): string {
+  const s = signed ? (n >= 0 ? "+" : "") : "";
+  return `${s}${n.toFixed(2)}%`;
+}
+/** Plain grouped number (no ₹ symbol) — matches the broker-style holdings
+ *  list, e.g. "18,410.00", "+5,970.00". */
+function fmtPlain(n: number, opts: { sign?: boolean } = {}): string {
+  const { sign = false } = opts;
+  const s = sign ? (n >= 0 ? "+" : "−") : n < 0 ? "−" : "";
+  return (
+    s +
+    Math.abs(n).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
+}
+
+function holdingValue(h: Holding): number {
+  return h.last_price * h.quantity;
+}
+
+// ---------------------------------------------------------------------------
+// Outer component
+// ---------------------------------------------------------------------------
+
+type FetchState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ok"; summary: PortfolioSummary; holdings: Holding[] };
+
+type PortfolioView = "overview" | "history";
+
+export function PortfolioTab(): React.ReactElement {
+  const [view, setView] = useState<PortfolioView>("overview");
+  const [state, setState] = useState<FetchState>({ kind: "loading" });
+  // Bumped on mode-changes and retries so PerformanceChart + PortfolioScores
+  // re-fetch in lockstep with the summary + holdings. NOT bumped on initial
+  // mount — children fire their own useEffect([reloadKey]) on mount, so
+  // bumping here on mount caused a redundant second fetch (the 3x regression).
+  const [scoresReloadKey, setScoresReloadKey] = useState(0);
+  // Re-fetch whenever the global trading mode flips: getPortfolioSummary /
+  // getPortfolioHoldings are mode-aware, so this swaps the page between real
+  // and paper data with no other change.
+  const mode = useTradingMode();
+  // Tracks the mode value from the previous effect run so we can distinguish
+  // a genuine mode change (needs a key bump) from the initial mount (where
+  // prevMode === mode and we must NOT bump — children already fetch at key=0).
+  const prevModeRef = useRef(mode);
+
+  // Fetches summary + holdings only; does NOT bump scoresReloadKey. Called by
+  // the mode-change effect on every run (including initial mount) and indirectly
+  // by `load()` below for full reloads (Retry button).
+  const loadSummary = (): void => {
+    setState({ kind: "loading" });
+    Promise.all([getPortfolioSummary(), getPortfolioHoldings()])
+      .then(([sumRes, holdRes]) => {
+        if (isError(sumRes)) { setState({ kind: "error", message: sumRes.error.message }); return; }
+        if (isError(holdRes)) { setState({ kind: "error", message: holdRes.error.message }); return; }
+        setState({ kind: "ok", summary: sumRes.data, holdings: holdRes.data ?? [] });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Network error";
+        setState({ kind: "error", message: msg });
+      });
+  };
+
+  // Full reload: bumps scoresReloadKey so PerformanceChart + PortfolioScores
+  // re-fetch in lockstep. Used by the Retry button only (not by the effect).
+  const load = (): void => {
+    setScoresReloadKey((k) => k + 1);
+    loadSummary();
+  };
+
+  useEffect(() => {
+    // On initial mount prevModeRef.current === mode (both hold the initial
+    // value), so changed=false and we only call loadSummary(). Under React
+    // StrictMode the effect fires twice with the same mode, so both runs also
+    // see changed=false — no spurious key bump. On a genuine mode flip
+    // changed=true and we bump so children re-fetch under the new mode.
+    const changed = prevModeRef.current !== mode;
+    prevModeRef.current = mode;
+    loadSummary();
+    if (changed) {
+      setScoresReloadKey((k) => k + 1);
+    }
+  }, [mode]);
+
+  return (
+    <div data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
+      {/* Page title + Overview/History toggle */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
+        <h1
+          className="q-serif"
+          style={{
+            fontSize: 22,
+            letterSpacing: "-0.025em",
+            color: "var(--text-primary)",
+            margin: 0,
+          }}
+        >
+          Portfolio
+        </h1>
+
+        <div
+          className="inline-flex"
+          style={{
+            gap: 2,
+            padding: 3,
+            background: "var(--bg-base)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-pill)",
+          }}
+        >
+          {(["overview", "history"] as const).map((v) => {
+            const active = view === v;
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={active}
+                data-testid={`portfolio-view-${v}`}
+                style={{
+                  padding: "6px 14px",
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: "var(--radius-pill)",
+                  fontSize: 12,
+                  fontFamily: "var(--font-ui)",
+                  fontWeight: 500,
+                  background: active ? "var(--text-primary)" : "transparent",
+                  color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                  transition:
+                    "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+                }}
+              >
+                {v === "overview" ? "Overview" : "History"}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {view === "history" && <TradeHistory />}
+
+      {view === "overview" && state.kind === "loading" && <PortfolioLoading />}
+
+      {view === "overview" && state.kind === "error" && (
+        <div
+          role="alert"
+          className="flex flex-col items-center justify-center py-12 text-center"
+          data-testid="portfolio-error"
+          style={{
+            background: "var(--bg-primary)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md)",
+          }}
+        >
+          <AlertCircle
+            className="mb-3 h-6 w-6"
+            style={{ color: "var(--color-loss)" }}
+            aria-hidden="true"
+          />
+          <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+            Couldn&apos;t load portfolio
+          </p>
+          <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
+            {state.message}
+          </p>
+          <button
+            type="button"
+            onClick={load}
+            className="mt-4 inline-flex items-center"
+            style={{
+              gap: 8,
+              padding: "6px 12px",
+              background: "transparent",
+              border: "1px solid var(--glass-border-hover)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--text-primary)",
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "color 0.2s var(--ease-quartr), border-color 0.2s var(--ease-quartr)",
+            }}
+          >
+            <RefreshCw size={13} aria-hidden="true" />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Performance + Scores are independent GETs (getPortfolioPerformance /
+          getPortfolioScores) — mount them unconditionally so their own fetch
+          effects fire in the same tick as `load()`'s summary+holdings
+          request, instead of waiting for `state` to become "ok" first. That
+          conditional-mount gate was a frontend-side sequential dependency:
+          scores/performance only started once summary+holdings had already
+          round-tripped. `summary`/`holdings` are only used for header/footer
+          display here, so a null summary renders a lightweight skeleton in
+          their place until the top-level fetch resolves. */}
+      {view === "overview" && (
+        <PerformanceChart
+          summary={state.kind === "ok" ? state.summary : null}
+          holdings={state.kind === "ok" ? state.holdings : []}
+          reloadKey={scoresReloadKey}
+        />
+      )}
+
+      {view === "overview" && state.kind === "ok" && (
+        <>
+          {/* Mobile-only P&L strip above the holdings (on desktop these
+              figures already live in the top bar). */}
+          <PnlStripMobile summary={state.summary} />
+
+          <Section label="Holdings">
+            <Card padding={0} style={{ overflow: "hidden", background: "var(--bg-base)" }}>
+              {state.holdings.length === 0 ? (
+                <div
+                  className="flex flex-col items-center justify-center py-12 text-center"
+                  data-testid="portfolio-empty"
+                >
+                  <Wallet
+                    className="mb-3"
+                    size={28}
+                    aria-hidden="true"
+                    style={{ color: "var(--text-tertiary)" }}
+                  />
+                  <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+                    No holdings yet
+                  </p>
+                  <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
+                    When you place your first trade, your positions will show here.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Desktop: sortable table. Mobile: broker-style stacked
+                      cards (Qty·Avg + return% / symbol + P&L / invested + LTP). */}
+                  <div className="hidden lg:block">
+                    <HoldingsTable holdings={state.holdings} />
+                  </div>
+                  <div className="lg:hidden">
+                    <HoldingsListMobile holdings={state.holdings} />
+                  </div>
+                </>
+              )}
+            </Card>
+          </Section>
+
+          <AssetAllocation holdings={state.holdings} />
+        </>
+      )}
+
+      {view === "overview" && <PortfolioScores reloadKey={scoresReloadKey} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Quartr-style section + card primitives (local copies of GlassCard/GlassSection)
+// ---------------------------------------------------------------------------
+
+function Section({
+  label,
+  children,
+}: {
+  label?: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div style={{ marginBottom: 48 }}>
+      {label && (
+        <div
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: "var(--weight-display)" as unknown as number,
+            fontSize: 13,
+            letterSpacing: "-0.02em",
+            color: "var(--text-primary)",
+            marginBottom: 12,
+          }}
+        >
+          {label}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function Card({
+  children,
+  padding = 20,
+  style,
+}: {
+  children: React.ReactNode;
+  padding?: number | string;
+  style?: React.CSSProperties;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        padding,
+        background: "var(--bg-primary)",
+        border: "none",
+        borderRadius: "var(--radius-md)",
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// PortfolioValueHead — the hero figure that heads the performance chart.
+// The current value sits directly above the green line that visualises it,
+// with Invested + Holdings as a quiet sub-line. Lives inside the chart's
+// header so there's no separate competing box. Total/Day P&L stay in the
+// global top bar, so they're not repeated here.
+//
+// `summary` is `null` while the parent's summary+holdings fetch is still in
+// flight — PerformanceChart now mounts immediately (in parallel with that
+// fetch) rather than waiting for it, so this renders a skeleton in place of
+// the real figure until it resolves.
+function PortfolioValueHead({
+  summary,
+}: {
+  summary: PortfolioSummary | null;
+}): React.ReactElement {
+  if (!summary) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Skeleton style={{ height: 36, width: 160 }} />
+        <Skeleton style={{ height: 14, width: 200 }} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <span
+        style={{
+          fontFamily: "var(--font-serif)",
+          fontWeight: 500,
+          fontSize: 36,
+          lineHeight: 1,
+          letterSpacing: "-0.02em",
+          fontVariantNumeric: "tabular-nums",
+          color: "var(--text-primary)",
+        }}
+      >
+        {fmtRupee(summary.total_value)}
+      </span>
+      <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+        Invested{" "}
+        <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+          {fmtRupee(summary.invested_value)}
+        </span>
+        {"  ·  "}
+        <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+          {summary.num_holdings}
+        </span>{" "}
+        holdings
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PerformanceChart — real per-user portfolio value series.
+//
+// The line is driven entirely by GET /api/portfolio/performance (qty × close
+// history summed across holdings, computed server-side). NO synthetic series
+// and NO fabricated benchmark — empty/failed fetches render honest states.
+// ---------------------------------------------------------------------------
+
+// Only the periods the backend actually serves (yfinance-backed). 1W and ALL
+// are intentionally absent: the endpoint can't produce them, so we don't fake
+// a label for a window it never computed.
+const RANGES: { id: PerformancePeriod; label: string; longLabel: string }[] = [
+  { id: "1M", label: "1M", longLabel: "1 month"  },
+  { id: "3M", label: "3M", longLabel: "3 months" },
+  { id: "6M", label: "6M", longLabel: "6 months" },
+  { id: "1Y", label: "1Y", longLabel: "1 year"   },
+  { id: "5Y", label: "5Y", longLabel: "5 years"  },
+];
+
+/** Format a chart point's ISO timestamp as "Mon 'YY" for the hover tooltip. */
+function fmtPointDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
+}
+
+type PerfState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "empty" }
+  | { kind: "ok"; perf: PortfolioPerformance };
+
+function PerformanceChart({
+  summary,
+  holdings,
+  reloadKey,
+}: {
+  summary: PortfolioSummary | null;
+  holdings: Holding[];
+  reloadKey: number;
+}): React.ReactElement {
+  const [rangeId, setRangeId] = useState<PerformancePeriod>("1Y");
+  const [perfState, setPerfState] = useState<PerfState>({ kind: "loading" });
+  // Bumped by Retry to force a re-fetch of the same range.
+  const [retryKey, setRetryKey] = useState(0);
+
+  // Fetch the real series on range change and in lockstep with the parent
+  // load()/trading-mode flips (via reloadKey) and Retry (via retryKey). A
+  // stale guard drops responses from a superseded request so fast range
+  // toggles can't race.
+  useEffect(() => {
+    let active = true;
+    setPerfState({ kind: "loading" });
+    getPortfolioPerformance(rangeId)
+      .then((res) => {
+        if (!active) return;
+        if (isError(res)) {
+          // 404 == "no holdings" / no history → honest empty state, not a wall.
+          if (res.error.code === "http_404" || res.error.code === "not_found") {
+            setPerfState({ kind: "empty" });
+            return;
+          }
+          setPerfState({ kind: "error", message: res.error.message });
+          return;
+        }
+        const pts = res.data.points ?? [];
+        // A single point can't draw a line; treat as empty (honest).
+        if (pts.length < 2) {
+          setPerfState({ kind: "empty" });
+          return;
+        }
+        setPerfState({ kind: "ok", perf: res.data });
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        const msg = err instanceof Error ? err.message : "Network error";
+        setPerfState({ kind: "error", message: msg });
+      });
+    return () => {
+      active = false;
+    };
+  }, [rangeId, reloadKey, retryKey]);
+
+  const retry = (): void => setRetryKey((k) => k + 1);
+
+  // Range pills — rendered top-right of the header on sm+, and below the
+  // chart on phone (see the two breakpoint-gated wrappers below).
+  const rangePills = (
+    <div
+      className="flex w-full sm:inline-flex sm:w-auto"
+      style={{
+        gap: 2,
+        padding: 2,
+        background: "var(--bg-base)",
+        border: "none",
+        borderRadius: "var(--radius-pill)",
+        flexShrink: 0,
+      }}
+    >
+      {RANGES.map((r) => {
+        const active = r.id === rangeId;
+        return (
+          <button
+            key={r.id}
+            type="button"
+            onClick={() => setRangeId(r.id)}
+            className="flex-1 sm:flex-none"
+            style={{
+              padding: "5px 12px",
+              border: "none",
+              borderRadius: "var(--radius-pill)",
+              fontFamily: "var(--font-ui)",
+              fontSize: 11.5,
+              fontWeight: 500,
+              cursor: "pointer",
+              background: active ? "var(--text-primary)" : "transparent",
+              color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+              transition:
+                "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {r.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <Section>
+      {/* Header row lives OUTSIDE the card — the portfolio value heads the
+          chart that visualises it (value above its own line). On sm+ the range
+          pills sit opposite (top-right); on phone they move below the chart. */}
+      <div
+        className="flex flex-wrap items-start"
+        style={{ columnGap: 14, rowGap: 14, marginBottom: 8 }}
+      >
+        <PortfolioValueHead summary={summary} />
+        {/* Pills in header — sm+ only (hidden on phone). */}
+        <div className="perf-pills hidden sm:flex sm:ml-auto sm:w-auto sm:justify-end">
+          {rangePills}
+        </div>
+      </div>
+
+      <div style={{ padding: "22px 0 0" }}>
+        {perfState.kind === "loading" && <PerformanceChartSkeleton />}
+        {perfState.kind === "error" && (
+          <PerformanceChartError message={perfState.message} onRetry={retry} />
+        )}
+        {perfState.kind === "empty" && <PerformanceChartEmpty />}
+        {perfState.kind === "ok" && (
+          <PerformanceSvg points={perfState.perf.points} />
+        )}
+      </div>
+
+      {/* Footer — dynamic, per-user. Driven entirely by the live summary +
+          holdings (never the seeded series): total return, holding count,
+          and the user's largest single-name / sector concentration. */}
+      <PerformanceFooter summary={summary} holdings={holdings} />
+
+      {/* Pills below chart — phone only (full width, scrolls if needed). */}
+      <div
+        className="perf-pills flex w-full justify-start sm:hidden"
+        style={{
+          marginTop: 14,
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none",
+        }}
+      >
+        {rangePills}
+      </div>
+    </Section>
+  );
+}
+
+/** One legend-dot + label (left) / value (right) row inside the chart tooltip. */
+function TipRow({
+  color,
+  label,
+  value,
+  strong,
+}: {
+  color: string;
+  label: string;
+  value: string;
+  strong?: boolean;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 22,
+      }}
+    >
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span
+          aria-hidden="true"
+          style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }}
+        />
+        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{label}</span>
+      </span>
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: strong ? 600 : 500,
+          color: strong ? "var(--text-primary)" : "var(--text-secondary)",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// Shared chart geometry so the loading skeleton, empty/error placeholders, and
+// the real line all occupy exactly the same box (no layout shift on resolve).
+const CHART_H = 190;
+
+/** Loading skeleton — same height as the chart so resolving doesn't jump. */
+function PerformanceChartSkeleton(): React.ReactElement {
+  return (
+    <div data-testid="portfolio-perf-loading" style={{ width: "100%" }}>
+      <Skeleton style={{ width: "100%", height: CHART_H, borderRadius: 10 }} />
+    </div>
+  );
+}
+
+/** Honest empty state — no history to draw, no fabricated line. */
+function PerformanceChartEmpty(): React.ReactElement {
+  return (
+    <div
+      data-testid="portfolio-perf-empty"
+      className="flex flex-col items-center justify-center text-center"
+      style={{
+        height: CHART_H,
+        border: "1px dashed var(--glass-border)",
+        borderRadius: 10,
+        padding: 16,
+      }}
+    >
+      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+        No performance history yet
+      </p>
+      <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
+        Once your holdings have price history, your portfolio value over time
+        will chart here.
+      </p>
+    </div>
+  );
+}
+
+/** Error state with a Retry that re-fetches the same range. */
+function PerformanceChartError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}): React.ReactElement {
+  return (
+    <div
+      role="alert"
+      data-testid="portfolio-perf-error"
+      className="flex flex-col items-center justify-center text-center"
+      style={{
+        height: CHART_H,
+        border: "1px solid var(--glass-border)",
+        borderRadius: 10,
+        padding: 16,
+      }}
+    >
+      <AlertCircle
+        className="mb-2 h-5 w-5"
+        style={{ color: "var(--color-loss)" }}
+        aria-hidden="true"
+      />
+      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+        Couldn&apos;t load performance
+      </p>
+      <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
+        {message}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 inline-flex items-center"
+        style={{
+          gap: 8,
+          padding: "5px 11px",
+          background: "transparent",
+          border: "1px solid var(--glass-border-hover)",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--text-primary)",
+          fontSize: 12,
+          fontWeight: 500,
+          cursor: "pointer",
+          transition:
+            "color 0.2s var(--ease-quartr), border-color 0.2s var(--ease-quartr)",
+        }}
+      >
+        <RefreshCw size={13} aria-hidden="true" />
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function PerformanceSvg({
+  points,
+}: {
+  points: PerformancePoint[];
+}): React.ReactElement {
+  // Groww-style hover state — tracks the downsampled point under the cursor.
+  // `null` means the user isn't currently over the chart, so the crosshair
+  // and tooltip are hidden.
+  const chartColRef = useRef<HTMLDivElement>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  // Track the chart column's real rendered width and use it as the viewBox
+  // width so the `preserveAspectRatio="none"` SVG maps 1:1 horizontally —
+  // a fixed viewBox width (e.g. 920) squished into a ~340px phone column
+  // compressed the line horizontally while height stayed fixed, which read
+  // as a distorted, over-spiky curve. Matching viewBox W to the pixel width
+  // removes the squish at every viewport.
+  const [chartW, setChartW] = useState(920);
+  useEffect(() => {
+    const el = chartColRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) setChartW(Math.round(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Static Y / X labels and grid lines removed — the hover tooltip now
+  // provides the value/date at any point on the curve, so the chrome
+  // was just clutter. Padding shrunk accordingly (no axis labels to
+  // accommodate).
+  const W = chartW, H = CHART_H, padL = 0, padR = 4, padT = 8, padB = 8;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  // Downsample to a fixed number of segments so the polyline reads as
+  // discrete straight lines (like a typical stock chart), not a dense
+  // trace that visually averages into a smooth curve. We downsample the
+  // REAL points (keeping value + timestamp paired) — never synthesise.
+  const TARGET_SEGMENTS = 52;
+  const portDs = useMemo<PerformancePoint[]>(() => {
+    if (points.length <= TARGET_SEGMENTS + 1) return points;
+    const out: PerformancePoint[] = [];
+    for (let i = 0; i <= TARGET_SEGMENTS; i++) {
+      const idx = Math.round((i / TARGET_SEGMENTS) * (points.length - 1));
+      out.push(points[idx]!);
+    }
+    return out;
+  }, [points]);
+
+  const values = portDs.map((p) => p.v);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const span = Math.max(1, maxV - minV);
+
+  const xAt = (i: number): number => padL + (i / (portDs.length - 1)) * innerW;
+  const yAt = (v: number): number => padT + (1 - (v - minV) / span) * innerH;
+
+  const portPath = portDs
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.v).toFixed(1)}`)
+    .join(" ");
+
+  // Line color follows the portfolio's REAL drift across the rendered window
+  // (first → last actual value). The numeric return shown to the user is the
+  // REAL total return from the live summary (PerformanceFooter).
+  const isUp = portDs[portDs.length - 1]!.v >= portDs[0]!.v;
+  const lineColor = isUp ? "var(--color-profit)" : "var(--color-loss)";
+
+  return (
+    <>
+      <div style={{ width: "100%" }}>
+        <div
+          ref={chartColRef}
+          style={{ position: "relative", width: "100%" }}
+          onMouseMove={(e) => {
+            const rect = chartColRef.current?.getBoundingClientRect();
+            if (!rect || rect.width === 0) return;
+            const px = e.clientX - rect.left;
+            // Mouse → viewBox X → portDs index. Chart geometry uses
+            // padL=0 so we only have to subtract the right-side padding
+            // from the usable width.
+            const chartPxW = rect.width * (innerW / W);
+            const frac = Math.max(0, Math.min(1, px / chartPxW));
+            const idx = Math.round(frac * (portDs.length - 1));
+            setHoverIdx(idx);
+          }}
+          onMouseLeave={() => setHoverIdx(null)}
+        >
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            width="100%"
+            height={H}
+            preserveAspectRatio="none"
+            style={{ display: "block" }}
+          >
+            <path
+              d={portPath}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth="1.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+
+          {/* ── Hover overlay — Groww-style crosshair, dot, tooltip.
+              Crosshair and dot are rendered as positioned divs (not
+              SVG elements) so they stay crisp regardless of how the
+              `preserveAspectRatio="none"` SVG above is stretched. */}
+          {hoverIdx !== null && (() => {
+            const pt = portDs[hoverIdx]!;
+            // Position the crosshair within the chart's USABLE width
+            // (innerW / W of the container, since padR sits to the right).
+            const xPctOfChart = (xAt(hoverIdx) / innerW) * (innerW / W) * 100;
+            const portYPct = (yAt(pt.v) / H) * 100;
+            const dateLabel = fmtPointDate(pt.t);
+            // Edge-clamp the tooltip so it doesn't disappear off the
+            // sides of the chart.
+            const tipAnchor: React.CSSProperties =
+              xPctOfChart < 10
+                ? { left: 0, transform: "translateX(0)" }
+                : xPctOfChart > 90
+                  ? { left: `${xPctOfChart}%`, transform: "translateX(-100%)" }
+                  : { left: `${xPctOfChart}%`, transform: "translateX(-50%)" };
+            return (
+              <>
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: padT,
+                    bottom: padB,
+                    left: `${xPctOfChart}%`,
+                    borderLeft: "1px dashed var(--text-tertiary)",
+                    opacity: 0.5,
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: `${xPctOfChart}%`,
+                    top: `${portYPct}%`,
+                    width: 10,
+                    height: 10,
+                    marginLeft: -5,
+                    marginTop: -5,
+                    borderRadius: "50%",
+                    background: lineColor,
+                    border: "2px solid var(--bg-base)",
+                    boxShadow: "0 0 0 1px rgba(0,0,0,0.06)",
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    marginTop: -10,
+                    ...tipAnchor,
+                    transform: `${tipAnchor.transform ?? ""} translateY(-100%)`,
+                    padding: "9px 11px",
+                    background: "var(--bg-base)",
+                    border: "1px solid var(--glass-border)",
+                    borderRadius: 10,
+                    boxShadow:
+                      "0 8px 24px -6px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.05)",
+                    fontFamily: "var(--font-ui)",
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    zIndex: 5,
+                    minWidth: 150,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 500,
+                      letterSpacing: "0.02em",
+                      color: "var(--text-tertiary)",
+                      paddingBottom: 7,
+                      marginBottom: 7,
+                      borderBottom: "1px solid var(--glass-border)",
+                    }}
+                  >
+                    {dateLabel}
+                  </div>
+                  <TipRow
+                    color={lineColor}
+                    label="Portfolio"
+                    value={fmtRupee(pt.v, { max: 0 })}
+                    strong
+                  />
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PerformanceFooter — dynamic caption under the chart.
+//
+// Every figure here is REAL, drawn from the live portfolio summary +
+// holdings: total return %, holding count, and the user's largest single
+// position / sector by market value. No seeded series, no hardcoded names.
+// Honest empty state when the book is empty.
+// ---------------------------------------------------------------------------
+
+function PerformanceFooter({
+  summary,
+  holdings,
+}: {
+  summary: PortfolioSummary | null;
+  holdings: Holding[];
+}): React.ReactElement {
+  const stats = useMemo(() => {
+    const total = holdings.reduce((s, h) => s + holdingValue(h), 0);
+    if (holdings.length === 0 || total <= 0) {
+      return null;
+    }
+    // Largest single holding by market value.
+    let topHolding = holdings[0]!;
+    for (const h of holdings) {
+      if (holdingValue(h) > holdingValue(topHolding)) topHolding = h;
+    }
+    const topHoldingPct = (holdingValue(topHolding) / total) * 100;
+
+    // Largest sector by market value (uses the local SECTOR_MAP; unknown
+    // symbols fall into "Other" — same convention as Asset Allocation).
+    const bySector = new Map<string, number>();
+    for (const h of holdings) {
+      const sector = SECTOR_MAP[h.tradingsymbol] ?? "Other";
+      bySector.set(sector, (bySector.get(sector) ?? 0) + holdingValue(h));
+    }
+    let topSector = "Other";
+    let topSectorVal = -1;
+    for (const [sector, val] of bySector) {
+      if (val > topSectorVal) {
+        topSectorVal = val;
+        topSector = sector;
+      }
+    }
+    const topSectorPct = (topSectorVal / total) * 100;
+
+    return {
+      topSymbol: topHolding.tradingsymbol,
+      topHoldingPct,
+      topSector,
+      topSectorPct,
+    };
+  }, [holdings]);
+
+  // Parent summary+holdings fetch still in flight (distinct from "no
+  // holdings" below, which is a real, resolved empty state) — a slim
+  // skeleton instead of the real footer or a premature empty message.
+  if (!summary) {
+    return <Skeleton style={{ marginTop: 10, height: 13, width: 260 }} />;
+  }
+
+  if (!stats) {
+    return (
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 11,
+          color: "var(--text-tertiary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        No holdings yet — your performance summary will appear here once you
+        place a trade.
+      </div>
+    );
+  }
+
+  const returnPos = summary.total_pnl_pct >= 0;
+
+  return (
+    <div
+      className="flex flex-wrap items-center"
+      style={{
+        marginTop: 10,
+        columnGap: 14,
+        rowGap: 6,
+        fontSize: 11,
+        color: "var(--text-tertiary)",
+      }}
+      data-testid="portfolio-perf-footer"
+    >
+      <FooterStat
+        label="total return"
+        value={fmtPct(summary.total_pnl_pct)}
+        valueColor={returnPos ? "var(--color-profit)" : "var(--color-loss)"}
+      />
+      <FooterStat
+        label={summary.num_holdings === 1 ? "holding" : "holdings"}
+        value={String(summary.num_holdings)}
+      />
+      <FooterStat
+        label={`top — ${stats.topSymbol}`}
+        value={`${stats.topHoldingPct.toFixed(1)}%`}
+      />
+      <FooterStat
+        label={`sector — ${stats.topSector}`}
+        value={`${stats.topSectorPct.toFixed(1)}%`}
+      />
+    </div>
+  );
+}
+
+function FooterStat({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}): React.ReactElement {
+  return (
+    <span
+      className="inline-flex items-center"
+      style={{ gap: 4, whiteSpace: "nowrap" }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          color: valueColor ?? "var(--text-secondary)",
+        }}
+      >
+        {value}
+      </span>
+      <span style={{ color: "var(--text-tertiary)" }}>{label}</span>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PnlStripMobile — two-cell Total P&L / Today's P&L summary shown above the
+// holdings on phones (on desktop these figures live in the global top bar).
+// ---------------------------------------------------------------------------
+
+function PnlStripMobile({
+  summary,
+}: {
+  summary: PortfolioSummary;
+}): React.ReactElement {
+  const totalPos = summary.total_pnl >= 0;
+  const dayPos = summary.day_pnl >= 0;
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    color: "var(--text-tertiary)",
+  };
+  const totalColor = totalPos ? "var(--color-profit)" : "var(--color-loss)";
+  const dayColor = dayPos ? "var(--color-profit)" : "var(--color-loss)";
+  // Phone-only. No background fills — Total P&L as the hero on the left,
+  // Today's P&L beside it on the right (bottom-aligned). The hide class
+  // lives on this wrapper (which has NO inline `display`) so it never
+  // leaks onto desktop.
+  return (
+    <div className="sm:hidden" style={{ marginBottom: 28 }}>
+      <div
+        data-testid="portfolio-pnl-strip"
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
+        }}
+      >
+        {/* Total P&L — hero */}
+        <div>
+          <div style={labelStyle}>Total P&amp;L</div>
+          <div
+            style={{
+              marginTop: 6,
+              display: "flex",
+              alignItems: "baseline",
+              gap: 10,
+              color: totalColor,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 24,
+                fontWeight: 650,
+                letterSpacing: "-0.02em",
+                lineHeight: 1,
+              }}
+            >
+              {fmtRupee(summary.total_pnl, { sign: true, max: 0 })}
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>
+              {fmtPct(summary.total_pnl_pct)}
+            </span>
+          </div>
+        </div>
+        {/* Today's P&L — beside it, right-aligned */}
+        <div style={{ textAlign: "right" }}>
+          <div style={labelStyle}>Today&apos;s P&amp;L</div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 24,
+              fontWeight: 650,
+              letterSpacing: "-0.02em",
+              lineHeight: 1,
+              color: dayColor,
+            }}
+          >
+            {fmtRupee(summary.day_pnl, { sign: true, max: 0 })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HoldingsListMobile — broker-style stacked cards (Groww layout): a row of
+// Qty·Avg + total return %, the symbol + absolute P&L, and Invested + live LTP
+// with the day move. Shown only on phones; desktop keeps the sortable table.
+// ---------------------------------------------------------------------------
+
+function HoldingsListMobile({
+  holdings,
+}: {
+  holdings: Holding[];
+}): React.ReactElement {
+  const sorted = useMemo(
+    () => [...holdings].sort((a, b) => b.pnl - a.pnl),
+    [holdings],
+  );
+  return (
+    <div data-testid="holdings-list-mobile">
+      {sorted.map((h, i) => (
+        <HoldingCardMobile
+          key={`${h.exchange}:${h.tradingsymbol}`}
+          holding={h}
+          last={i === sorted.length - 1}
+        />
+      ))}
+    </div>
+  );
+}
+
+function HoldingCardMobile({
+  holding: h,
+  last,
+}: {
+  holding: Holding;
+  last: boolean;
+}): React.ReactElement {
+  const liveQuote = useLiveQuote(h.tradingsymbol);
+  const ltp = liveQuote.ltp ?? h.last_price;
+  const invested = h.average_price * h.quantity;
+  const pnlPct = invested > 0 ? (h.pnl / invested) * 100 : 0;
+  const pnlColor = h.pnl >= 0 ? "var(--color-profit)" : "var(--color-loss)";
+  const dayColor =
+    h.day_change_percentage >= 0 ? "var(--color-profit)" : "var(--color-loss)";
+  const muted: React.CSSProperties = { fontSize: 11.5, color: "var(--text-tertiary)" };
+
+  return (
+    <Link
+      href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
+      className="block"
+      data-testid={`holding-m-${h.tradingsymbol}`}
+      style={{
+        textDecoration: "none",
+        padding: "18px 4px",
+        borderBottom: last ? "none" : "1px solid var(--glass-border)",
+      }}
+    >
+      {/* Row 1 — quantity · average cost  |  total return % */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+        <span style={muted}>
+          Qty. {h.quantity} · Avg. {fmtPlain(h.average_price)}
+        </span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: pnlColor }}>
+          {fmtPct(pnlPct)}
+        </span>
+      </div>
+      {/* Row 2 — symbol  |  absolute P&L */}
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+        <span
+          style={{
+            fontSize: 15.5,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            letterSpacing: "-0.015em",
+          }}
+        >
+          {h.tradingsymbol}
+        </span>
+        <span style={{ fontSize: 14.5, fontWeight: 600, color: pnlColor }}>
+          {fmtPlain(h.pnl, { sign: true })}
+        </span>
+      </div>
+      {/* Row 3 — invested  |  live LTP (day move) */}
+      <div className="flex items-center justify-between">
+        <span style={muted}>Invested {fmtPlain(invested)}</span>
+        <span style={muted}>
+          LTP {fmtPlain(ltp)}{" "}
+          <span style={{ color: dayColor }}>
+            ({fmtPct(h.day_change_percentage, false)})
+          </span>
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HoldingsTable — Quartr-style sortable table with sector subtext
+// ---------------------------------------------------------------------------
 
 type SortKey =
   | "tradingsymbol"
@@ -54,74 +1336,112 @@ type SortKey =
   | "pnl"
   | "day_change_percentage"
   | "value";
-
 type SortDir = "asc" | "desc";
 
-type FetchState =
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ok"; summary: PortfolioSummary; holdings: Holding[] };
+const COLUMNS: { key: SortKey | null; label: string; align: "left" | "right" }[] = [
+  { key: "tradingsymbol", label: "Symbol", align: "left" },
+  { key: "quantity", label: "Qty", align: "right" },
+  { key: "average_price", label: "Avg", align: "right" },
+  { key: "last_price", label: "LTP", align: "right" },
+  { key: "pnl", label: "P&L", align: "right" },
+  { key: "day_change_percentage", label: "Day", align: "right" },
+  { key: null, label: "Value", align: "right" },
+];
 
-const INR = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-});
-
-const INR_SIGNED = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-  signDisplay: "always",
-});
-
-function formatPct(n: number): string {
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(2)}%`;
+// Screener-style brand glyph — a small rounded tile holding the symbol's
+// initial, tinted by sector. Mirrors ScreenerPage's BrandGlyph so the
+// holdings table reads as the same product.
+function brandGlyphHue(key?: string): string {
+  if (!key) return "#94a3b8";
+  const s = key.toLowerCase();
+  if (s.includes("bank") || s.includes("financ") || s.includes("nbfc")) return "#60a5fa";
+  if (s.includes("tech") || s.includes("it ") || s.includes("software")) return "#a78bfa";
+  if (s.includes("energy") || s.includes("oil")) return "#f97316";
+  if (s.includes("pharma") || s.includes("health")) return "#10b981";
+  if (s.includes("auto")) return "#facc15";
+  if (s.includes("fmcg") || s.includes("consumer")) return "#34d399";
+  if (s.includes("material") || s.includes("metal")) return "#f472b6";
+  if (s.includes("telecom")) return "#22d3ee";
+  if (s.includes("gold") || s.includes("commod")) return "#eab308";
+  if (s.includes("etf") || s.includes("index")) return "#38bdf8";
+  return "#94a3b8";
 }
 
-function holdingValue(h: Holding): number {
-  return h.last_price * h.quantity;
+function HoldingGlyph({
+  symbol,
+  hueKey,
+  logoUrl,
+}: {
+  symbol: string;
+  hueKey?: string;
+  logoUrl?: string | null;
+}): React.ReactElement {
+  const initial = symbol.trim()[0]?.toUpperCase() ?? "•";
+  const hue = brandGlyphHue(hueKey);
+  const [errored, setErrored] = useState(false);
+
+  // Real company logo (img.logo.dev, resolved by the backend) when we have a
+  // URL and it loads; otherwise the sector-tinted first-letter monogram.
+  if (logoUrl && !errored) {
+    return (
+      <img
+        src={logoUrl}
+        alt=""
+        aria-hidden="true"
+        width={34}
+        height={34}
+        loading="lazy"
+        onError={() => setErrored(true)}
+        style={{
+          width: 34,
+          height: 34,
+          flexShrink: 0,
+          borderRadius: "var(--radius-sm)",
+          objectFit: "contain",
+          background: "var(--surface-1, #fff)",
+          border: "1px solid var(--glass-border)",
+          padding: 4,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        width: 34,
+        height: 34,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "var(--radius-sm)",
+        background: `${hue}22`,
+        color: hue,
+        fontFamily: "var(--font-ui)",
+        fontSize: 14,
+        fontWeight: 500,
+        letterSpacing: "-0.02em",
+      }}
+    >
+      {initial}
+    </div>
+  );
 }
 
-export function PortfolioTab(): React.ReactElement {
-  const [state, setState] = useState<FetchState>({ kind: "loading" });
+function HoldingsTable({ holdings }: { holdings: Holding[] }): React.ReactElement {
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
-    key: "value",
+    key: "pnl",
     dir: "desc",
   });
 
-  const load = (): void => {
-    setState({ kind: "loading" });
-    Promise.all([getPortfolioSummary(), getPortfolioHoldings()])
-      .then(([sumRes, holdRes]) => {
-        if (isError(sumRes)) {
-          setState({ kind: "error", message: sumRes.error.message });
-          return;
-        }
-        if (isError(holdRes)) {
-          setState({ kind: "error", message: holdRes.error.message });
-          return;
-        }
-        setState({
-          kind: "ok",
-          summary: sumRes.data,
-          holdings: holdRes.data ?? [],
-        });
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : "Network error";
-        setState({ kind: "error", message: msg });
-      });
-  };
+  // Batch-resolve a real company logo per holding (cached + de-duped across
+  // renders). A miss falls back to the sector-tinted monogram in HoldingGlyph.
+  const logos = useCompanyLogos(holdings.map((h) => h.tradingsymbol));
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  const sortedHoldings = useMemo(() => {
-    if (state.kind !== "ok") return [];
-    const items = [...state.holdings];
+  const sorted = useMemo(() => {
+    const items = [...holdings];
     items.sort((a, b) => {
       const av = sort.key === "value" ? holdingValue(a) : a[sort.key];
       const bv = sort.key === "value" ? holdingValue(b) : b[sort.key];
@@ -132,9 +1452,9 @@ export function PortfolioTab(): React.ReactElement {
       return sort.dir === "asc" ? cmp : -cmp;
     });
     return items;
-  }, [state, sort]);
+  }, [holdings, sort]);
 
-  const cycleSort = (key: SortKey): void => {
+  const cycle = (key: SortKey): void => {
     setSort((s) =>
       s.key === key
         ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
@@ -143,224 +1463,70 @@ export function PortfolioTab(): React.ReactElement {
   };
 
   return (
-    <div className="flex flex-col gap-6" data-testid="portfolio-tab">
-      {state.kind === "loading" && <PortfolioLoading />}
-
-      {state.kind === "error" && (
-        <div
-          role="alert"
-          className="flex flex-col items-center justify-center py-12 text-center"
-          data-testid="portfolio-error"
-        >
-          <AlertCircle className="mb-3 h-6 w-6 text-destructive" aria-hidden="true" />
-          <p className="text-sm font-medium">Couldn&apos;t load portfolio</p>
-          <p className="mt-1 text-xs text-muted-foreground">{state.message}</p>
-          <Button variant="outline" size="sm" className="mt-4" onClick={load}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-            Retry
-          </Button>
-        </div>
-      )}
-
-      {state.kind === "ok" && (
-        <>
-          <MetricStrip summary={state.summary} />
-          {state.holdings.length === 0 ? (
-            <div
-              className="flex flex-col items-center justify-center py-12 text-center rounded-xl border bg-card"
-              data-testid="portfolio-empty"
-            >
-              <Wallet className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-medium">No holdings yet</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                When you place your first trade, your positions will show here.
-              </p>
-            </div>
-          ) : (
-            <HoldingsTable
-              holdings={sortedHoldings}
-              sort={sort}
-              onSort={cycleSort}
-            />
-          )}
-          <PerformanceChart />
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Metric strip ─────────────────────────────────────────────────────
-
-function MetricStrip({ summary }: { summary: PortfolioSummary }): React.ReactElement {
-  return (
-    <div
-      className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border bg-card p-5"
-      data-testid="portfolio-metrics"
-    >
-      <Metric label="Portfolio value" value={INR.format(summary.total_value)} />
-      <Metric
-        label="Day P&L"
-        value={INR_SIGNED.format(summary.day_pnl)}
-        accent={summary.day_pnl >= 0 ? "up" : "down"}
-      />
-      <Metric
-        label="Total P&L"
-        value={INR_SIGNED.format(summary.total_pnl)}
-        sub={formatPct(summary.total_pnl_pct)}
-        accent={summary.total_pnl >= 0 ? "up" : "down"}
-      />
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: "up" | "down";
-}): React.ReactElement {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span
-        className={cn(
-          "text-2xl font-semibold tabular-nums",
-          accent === "up" && "text-emerald-600 dark:text-emerald-400",
-          accent === "down" && "text-rose-600 dark:text-rose-400",
-        )}
-      >
-        {value}
-      </span>
-      {sub && (
-        <span
-          className={cn(
-            "text-xs tabular-nums",
-            accent === "up" && "text-emerald-600/80 dark:text-emerald-400/80",
-            accent === "down" && "text-rose-600/80 dark:text-rose-400/80",
-          )}
-        >
-          {sub}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// ── Holdings table ───────────────────────────────────────────────────
-
-const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
-  { key: "tradingsymbol", label: "Symbol", align: "left" },
-  { key: "quantity", label: "Qty", align: "right" },
-  { key: "average_price", label: "Avg", align: "right" },
-  { key: "last_price", label: "LTP", align: "right" },
-  { key: "pnl", label: "P&L", align: "right" },
-  { key: "day_change_percentage", label: "Day %", align: "right" },
-  { key: "value", label: "Value", align: "right" },
-];
-
-function HoldingsTable({
-  holdings,
-  sort,
-  onSort,
-}: {
-  holdings: Holding[];
-  sort: { key: SortKey; dir: SortDir };
-  onSort: (key: SortKey) => void;
-}): React.ReactElement {
-  return (
-    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-      <table className="w-full text-sm" data-testid="holdings-table">
-        <thead className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }} data-testid="holdings-table">
+        <thead>
           <tr>
             {COLUMNS.map((col) => {
-              const active = sort.key === col.key;
+              const active = col.key && sort.key === col.key;
               const Icon = !active
-                ? ArrowUpDown
+                ? ChevronsUpDown
                 : sort.dir === "asc"
-                ? ArrowUp
-                : ArrowDown;
+                  ? ChevronUp
+                  : ChevronDown;
               return (
                 <th
-                  key={col.key}
+                  key={col.label}
                   scope="col"
-                  className={cn(
-                    "px-4 py-3 font-medium",
-                    col.align === "right" && "text-right",
-                  )}
+                  onClick={() => col.key && cycle(col.key)}
+                  style={{
+                    padding: "13px 18px",
+                    fontSize: 10,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    fontWeight: "var(--weight-display)" as unknown as number,
+                    color: active ? "var(--text-primary)" : "var(--text-tertiary)",
+                    cursor: col.key ? "pointer" : "default",
+                    userSelect: "none",
+                    whiteSpace: "nowrap",
+                    textAlign: col.align,
+                    background: "var(--bg-secondary)",
+                    borderBottom: "1.5px solid var(--glass-border)",
+                    transition: "color 180ms",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!active && col.key) e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active && col.key) e.currentTarget.style.color = "var(--text-tertiary)";
+                  }}
+                  data-testid={col.key ? `sort-${col.key}` : undefined}
                 >
-                  <button
-                    type="button"
-                    onClick={() => onSort(col.key)}
-                    className={cn(
-                      "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                      col.align === "right" && "ml-auto",
-                      active && "text-foreground",
-                    )}
-                    aria-label={`Sort by ${col.label}`}
-                    data-testid={`sort-${col.key}`}
+                  <span
+                    className="inline-flex items-center"
+                    style={{ gap: 5 }}
                   >
+                    {col.key && (
+                      <Icon
+                        size={12}
+                        aria-hidden="true"
+                        style={{ opacity: active ? 1 : 0.45, lineHeight: 0 }}
+                      />
+                    )}
                     {col.label}
-                    <Icon className="h-3 w-3" aria-hidden="true" />
-                  </button>
+                  </span>
                 </th>
               );
             })}
           </tr>
         </thead>
-        <tbody className="divide-y">
-          {holdings.map((h) => (
-            <tr
+        <tbody>
+          {sorted.map((h) => (
+            <HoldingRow
               key={`${h.exchange}:${h.tradingsymbol}`}
-              className="hover:bg-muted/20 transition-colors"
-              data-testid={`holding-${h.tradingsymbol}`}
-            >
-              <td className="px-4 py-3 font-medium">
-                <Link
-                  href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
-                  className="hover:text-primary hover:underline underline-offset-2 transition-colors"
-                >
-                  {h.tradingsymbol}
-                </Link>
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums">{h.quantity}</td>
-              <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                {INR.format(h.average_price)}
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums">
-                {INR.format(h.last_price)}
-              </td>
-              <td
-                className={cn(
-                  "px-4 py-3 text-right tabular-nums",
-                  h.pnl >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-rose-600 dark:text-rose-400",
-                )}
-              >
-                {INR_SIGNED.format(h.pnl)}
-              </td>
-              <td
-                className={cn(
-                  "px-4 py-3 text-right tabular-nums",
-                  h.day_change_percentage >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-rose-600 dark:text-rose-400",
-                )}
-              >
-                {formatPct(h.day_change_percentage)}
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums font-medium">
-                {INR.format(holdingValue(h))}
-              </td>
-            </tr>
+              holding={h}
+              logoUrl={logos[h.tradingsymbol.toUpperCase()]}
+            />
           ))}
         </tbody>
       </table>
@@ -368,171 +1534,1016 @@ function HoldingsTable({
   );
 }
 
-// ── Performance chart ─────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// HoldingRow — one <tr> per holding, wired to useLiveQuote for LTP.
+// ---------------------------------------------------------------------------
 
-type PerfPoint = { date: string; portfolio: number | null; benchmark: number | null };
-type PerfState =
-  | { kind: "loading" }
-  | { kind: "error" }
-  | { kind: "empty" }
-  | { kind: "ok"; points: PerfPoint[] };
-
-const PERF_PERIODS: { label: string; value: PortfolioPerformancePeriod }[] = [
-  { label: "1M", value: "1M" },
-  { label: "3M", value: "3M" },
-  { label: "6M", value: "6M" },
-  { label: "1Y", value: "1Y" },
-  { label: "5Y", value: "5Y" },
-];
-
-function PerformanceChart(): React.ReactElement {
-  const [period, setPeriod] = useState<PortfolioPerformancePeriod>("1Y");
-  const [state, setState] = useState<PerfState>({ kind: "loading" });
-
-  const load = useCallback((p: PortfolioPerformancePeriod): void => {
-    setState({ kind: "loading" });
-    Promise.all([
-      getPortfolioPerformance(p),
-      getIndexHistory("NIFTY50", p).catch(() => null),
-    ])
-      .then(([perfRes, idxRes]) => {
-        if ("error" in perfRes) { setState({ kind: "error" }); return; }
-        const eq = perfRes.data.equity_curve;
-        if (eq.length === 0) { setState({ kind: "empty" }); return; }
-
-        // Normalise both series to 100 at start
-        const base0 = eq[0]!.value;
-        const idx = idxRes && !("error" in idxRes) ? idxRes.data.points : [];
-        const idxMap = new Map<string, number>(idx.map((pt) => [pt.date, pt.close]));
-        const idx0 = idx.length > 0 ? idx[0]!.close : null;
-
-        const points: PerfPoint[] = eq.map((pt: PortfolioPerformancePoint) => ({
-          date: pt.date,
-          portfolio: Math.round(((pt.value / base0) * 100) * 10) / 10,
-          benchmark:
-            idx0 && idxMap.has(pt.date)
-              ? Math.round((((idxMap.get(pt.date)!) / idx0) * 100) * 10) / 10
-              : null,
-        }));
-        setState({ kind: "ok", points });
-      })
-      .catch(() => setState({ kind: "error" }));
-  }, []);
-
-  useEffect(() => { load(period); }, [period, load]);
+function HoldingRow({
+  holding: h,
+  logoUrl,
+}: {
+  holding: Holding;
+  logoUrl?: string | null;
+}): React.ReactElement {
+  const liveQuote = useLiveQuote(h.tradingsymbol);
+  const ltp = liveQuote.ltp ?? h.last_price;
+  const value = ltp * h.quantity;
+  const sector = SECTOR_MAP[h.tradingsymbol];
+  const pnlPos = h.pnl >= 0;
+  const dayPos = h.day_change_percentage >= 0;
+  // Kite-style quick-action bar, revealed while the row is hovered.
+  const [hovered, setHovered] = useState(false);
 
   return (
-    <div className="rounded-xl border bg-card p-5" data-testid="performance-chart">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-medium">Performance</p>
-        <div className="flex gap-1" role="group" aria-label="Period">
-          {PERF_PERIODS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => setPeriod(p.value)}
-              className={cn(
-                "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
-                period === p.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+    <tr
+      style={{
+        borderBottom: "1px solid var(--glass-border)",
+        transition: "background 150ms",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--bg-secondary)";
+        setHovered(true);
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        setHovered(false);
+      }}
+      data-testid={`holding-${h.tradingsymbol}`}
+    >
+      <td style={{ padding: "16px 18px", position: "relative" }}>
+        <div className="inline-flex items-center" style={{ gap: 12 }}>
+          <HoldingGlyph symbol={h.tradingsymbol} hueKey={sector} logoUrl={logoUrl} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Link
+              href={`/stock/${encodeURIComponent(h.tradingsymbol)}`}
+              className="inline-flex items-baseline"
+              style={{
+                gap: 6,
+                fontFamily: "var(--font-ui)",
+                fontSize: 13,
+                fontWeight: 500,
+                color: "var(--text-primary)",
+                textDecoration: "none",
+              }}
             >
-              {p.label}
-            </button>
+              <span
+                style={{
+                  color: "var(--text-tertiary)",
+                  fontSize: 10,
+                  fontWeight: 400,
+                }}
+              >
+                {h.exchange || "NSE"}
+              </span>
+              {h.tradingsymbol}
+            </Link>
+            {sector && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-tertiary)",
+                }}
+              >
+                {sector}
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Kite-style quick actions — pinned to the symbol cell's right
+            edge (same X every row), absolute so the row never grows. */}
+        {hovered && (
+          <StockHoverActions
+            symbol={h.tradingsymbol}
+            logoUrl={logoUrl}
+            className="absolute"
+            style={{
+              // Pinned to the symbol column's right edge — one constant
+              // axis for every row, never crossing into the qty column.
+              right: 10,
+              top: "50%",
+              marginTop: -14,
+              zIndex: 5,
+            }}
+          />
+        )}
+      </td>
+      <NumCell>{h.quantity}</NumCell>
+      <NumCell>{fmtRupee(h.average_price, { max: 2 })}</NumCell>
+      {/* LTP cell — green dot when live, grey when REST/stale */}
+      <td
+        style={{
+          padding: "16px 18px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          fontWeight: 500,
+          color: "var(--text-secondary)",
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        <span className="inline-flex items-center" style={{ gap: 5 }}>
+          <span
+            title={liveQuote.isLive ? "Live price" : "Delayed price"}
+            aria-label={liveQuote.isLive ? "Live price" : "Delayed price"}
+            style={{
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: liveQuote.isLive ? "var(--color-profit)" : "var(--text-tertiary)",
+              flexShrink: 0,
+            }}
+          />
+          {fmtRupee(ltp, { max: 2 })}
+        </span>
+      </td>
+      <td
+        style={{
+          padding: "16px 18px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
+          color: pnlPos ? "var(--color-profit)" : "var(--color-loss)",
+        }}
+      >
+        {fmtRupee(h.pnl, { sign: true, max: 0 })}
+      </td>
+      <td
+        style={{
+          padding: "16px 18px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
+          color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
+        }}
+      >
+        {fmtPct(h.day_change_percentage)}
+      </td>
+      <NumCell strong>{fmtRupee(value)}</NumCell>
+    </tr>
+  );
+}
+
+function NumCell({
+  children,
+  strong,
+}: {
+  children: React.ReactNode;
+  strong?: boolean;
+}): React.ReactElement {
+  return (
+    <td
+      style={{
+        padding: "16px 18px",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12.5,
+        textAlign: "right",
+        fontVariantNumeric: "tabular-nums",
+        color: strong ? "var(--text-primary)" : "var(--text-secondary)",
+        fontWeight: 500,
+      }}
+    >
+      {children}
+    </td>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AssetAllocation — donut + legend across Market Cap / Sectors / Stocks
+// ---------------------------------------------------------------------------
+
+const ALLOC_TABS: { id: "marketcap" | "sectors" | "stocks"; label: string }[] = [
+  { id: "marketcap", label: "Market Cap" },
+  { id: "sectors", label: "Sectors" },
+  { id: "stocks", label: "Stocks" },
+];
+
+type AllocRow = { label: string; value: number; pct: number; color: string };
+
+function aggregate(holdings: Holding[], keyFn: (h: Holding) => string): { total: number; rows: AllocRow[] } {
+  const total = holdings.reduce((s, h) => s + holdingValue(h), 0);
+  if (total === 0) return { total: 0, rows: [] };
+  const map = new Map<string, number>();
+  for (const h of holdings) {
+    const v = holdingValue(h);
+    const k = keyFn(h);
+    map.set(k, (map.get(k) ?? 0) + v);
+  }
+  const rows = Array.from(map.entries())
+    .map(([label, value]) => ({ label, value, pct: (value / total) * 100, color: "" }))
+    .sort((a, b) => b.pct - a.pct)
+    .map((row, i) => ({ ...row, color: PALETTE[i % PALETTE.length]! }));
+  return { total, rows };
+}
+
+function arcPath(cx: number, cy: number, rOuter: number, rInner: number, startA: number, endA: number): string {
+  const polar = (r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  const [x1, y1] = polar(rOuter, startA);
+  const [x2, y2] = polar(rOuter, endA);
+  const [x3, y3] = polar(rInner, endA);
+  const [x4, y4] = polar(rInner, startA);
+  const largeArc = endA - startA > Math.PI ? 1 : 0;
+  return [
+    `M ${x1} ${y1}`,
+    `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x2} ${y2}`,
+    `L ${x3} ${y3}`,
+    `A ${rInner} ${rInner} 0 ${largeArc} 0 ${x4} ${y4}`,
+    "Z",
+  ].join(" ");
+}
+
+function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElement {
+  const [tab, setTab] = useState<"marketcap" | "sectors" | "stocks">("marketcap");
+  const [hover, setHover] = useState<AllocRow | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+
+  // Clicking/tapping anywhere outside the donut + legend clears the
+  // selection (mirrors moving the mouse away on desktop). pointerdown
+  // covers both mouse and touch.
+  useEffect(() => {
+    if (!hover) return;
+    function onDocPointerDown(e: PointerEvent): void {
+      if (chartRef.current && !chartRef.current.contains(e.target as Node)) {
+        setHover(null);
+      }
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+  }, [hover]);
+
+  const data = useMemo(() => {
+    if (!holdings || holdings.length === 0) return { total: 0, rows: [] as AllocRow[] };
+    if (tab === "marketcap") return aggregate(holdings, (h) => MARKET_CAP_MAP[h.tradingsymbol] ?? "Other");
+    if (tab === "sectors") return aggregate(holdings, (h) => SECTOR_MAP[h.tradingsymbol] ?? "Other");
+    return aggregate(holdings, (h) => h.tradingsymbol);
+  }, [holdings, tab]);
+
+  const segments = useMemo(() => {
+    let cursor = -Math.PI / 2;
+    return data.rows.map((row) => {
+      const angle = (row.pct / 100) * Math.PI * 2;
+      const start = cursor;
+      const end = cursor + angle;
+      cursor = end;
+      return { ...row, start, end };
+    });
+  }, [data]);
+
+  const cx = 110, cy = 110, rOuter = 96, rInner = 64;
+  const tabLabel = ALLOC_TABS.find((t) => t.id === tab)?.label ?? "";
+
+  return (
+    <Section label="Asset Allocation">
+      <Card style={{ background: "transparent", padding: 0 }}>
+        {/* Tabs */}
+        <div
+          className="flex"
+          style={{
+            gap: 4,
+            marginBottom: 18,
+            borderBottom: "1px solid var(--glass-border)",
+            paddingBottom: 12,
+          }}
+        >
+          {ALLOC_TABS.map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                style={{
+                  padding: "6px 14px",
+                  background: active ? "var(--bg-elevated)" : "transparent",
+                  border: "none",
+                  borderRadius: "var(--radius-sm)",
+                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  transition:
+                    "color 0.25s var(--ease-quartr), background-color 0.25s var(--ease-quartr)",
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {data.rows.length === 0 ? (
+          <div
+            style={{
+              padding: 32,
+              textAlign: "center",
+              color: "var(--text-secondary)",
+              fontSize: 13,
+            }}
+          >
+            No allocation data.
+          </div>
+        ) : (
+          <div
+            ref={chartRef}
+            className="flex flex-wrap items-center justify-center lg:justify-start"
+            style={{ gap: 28 }}
+          >
+            {/* Donut */}
+            <div style={{ position: "relative", width: 220, height: 220, flexShrink: 0 }}>
+              <svg width={220} height={220} viewBox="0 0 220 220">
+                {segments.map((seg, i) => (
+                  <path
+                    key={i}
+                    d={arcPath(cx, cy, rOuter, rInner, seg.start, seg.end)}
+                    fill={seg.color}
+                    stroke="var(--bg-primary)"
+                    strokeWidth={1.25}
+                    onPointerEnter={(e) => {
+                      if (e.pointerType === "mouse") setHover(seg);
+                    }}
+                    onPointerLeave={(e) => {
+                      if (e.pointerType === "mouse") setHover(null);
+                    }}
+                    onClick={() =>
+                      setHover((curr) => (curr?.label === seg.label ? null : seg))
+                    }
+                    style={{
+                      cursor: "pointer",
+                      transition: "opacity 180ms var(--ease-quartr)",
+                      opacity: hover && hover.label !== seg.label ? 0.4 : 1,
+                    }}
+                  />
+                ))}
+              </svg>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                  textAlign: "center",
+                }}
+              >
+                {hover ? (
+                  <>
+                    <div className="q-uppercase-label" style={{ marginBottom: 6, maxWidth: 140 }}>
+                      {hover.label}
+                    </div>
+                    <div
+                      className="q-display"
+                      style={{ fontSize: 22, color: "var(--text-primary)" }}
+                    >
+                      {hover.pct.toFixed(2)}%
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="q-uppercase-label" style={{ marginBottom: 6 }}>
+                      {tabLabel}
+                    </div>
+                    <div
+                      className="q-display"
+                      style={{ fontSize: 18, color: "var(--text-primary)" }}
+                    >
+                      ₹{Math.round(data.total).toLocaleString("en-IN")}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Legend / list */}
+            <div
+              className="flex flex-col"
+              style={{ flex: 1, minWidth: 220, gap: 2, maxHeight: 260, overflowY: "auto" }}
+            >
+              {segments.map((seg) => {
+                const active = hover?.label === seg.label;
+                return (
+                  <div
+                    key={seg.label}
+                    role="button"
+                    tabIndex={0}
+                    onPointerEnter={(e) => {
+                      if (e.pointerType === "mouse") setHover(seg);
+                    }}
+                    onPointerLeave={(e) => {
+                      if (e.pointerType === "mouse") setHover(null);
+                    }}
+                    onClick={() =>
+                      setHover((curr) => (curr?.label === seg.label ? null : seg))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setHover((curr) => (curr?.label === seg.label ? null : seg));
+                      }
+                    }}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "12px minmax(0, 1fr) auto",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "8px 10px",
+                      borderRadius: "var(--radius-sm)",
+                      background: active ? "var(--bg-elevated)" : "transparent",
+                      cursor: "pointer",
+                      transition: "background-color 0.18s var(--ease-quartr)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 3,
+                        background: seg.color,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 13,
+                        color: "var(--text-primary)",
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {seg.label}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 12.5,
+                        color: "var(--text-secondary)",
+                        minWidth: 56,
+                        textAlign: "right",
+                      }}
+                    >
+                      {seg.pct.toFixed(2)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Card>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PortfolioScores — diversification + portfolio + community score panel.
+//
+// Driven entirely by GET /portfolio/scores (real, on-read math). Renders three
+// 0-100 gauge cards with the sub-components + explainers the endpoint returns.
+// All three scores are null (reason "no_holdings") when the book is empty →
+// honest empty state, never fabricated gauges.
+// ---------------------------------------------------------------------------
+
+type ScoresState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ok"; data: PortfolioScoresResponse };
+
+function PortfolioScores({ reloadKey }: { reloadKey: number }): React.ReactElement {
+  const [state, setState] = useState<ScoresState>({ kind: "loading" });
+
+  const load = (): void => {
+    setState({ kind: "loading" });
+    getPortfolioScores()
+      .then((res) => {
+        if (isError(res)) {
+          setState({ kind: "error", message: res.error.message });
+          return;
+        }
+        setState({ kind: "ok", data: res.data });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Network error";
+        setState({ kind: "error", message: msg });
+      });
+  };
+
+  // Re-fetch when the trading mode / holdings change (reloadKey is driven by
+  // the same `mode` that re-loads the summary + holdings above).
+  useEffect(() => {
+    load();
+  }, [reloadKey]);
+
+  return (
+    <Section label="Portfolio Scores">
+      {state.kind === "loading" && (
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: 16,
+          }}
+          data-testid="portfolio-scores-loading"
+        >
+          {[0, 1, 2].map((i) => (
+            <Card key={i} padding="22px 24px">
+              <Skeleton style={{ height: 14, width: "55%", marginBottom: 16 }} />
+              <Skeleton style={{ height: 36, width: "40%", marginBottom: 16 }} />
+              <Skeleton style={{ height: 8, width: "100%", marginBottom: 14 }} />
+              <Skeleton style={{ height: 12, width: "90%" }} />
+            </Card>
           ))}
         </div>
-      </div>
-
-      {state.kind === "loading" && (
-        <Skeleton className="h-36 w-full" />
       )}
+
       {state.kind === "error" && (
-        <div className="flex h-36 items-center justify-center text-xs text-muted-foreground">
-          Could not load performance data
-        </div>
-      )}
-      {state.kind === "empty" && (
-        <div className="flex h-36 items-center justify-center text-xs text-muted-foreground">
-          No performance history yet
-        </div>
-      )}
-      {state.kind === "ok" && (
-        <div className="h-36">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={state.points} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
-              <XAxis
-                dataKey="date"
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                tickFormatter={(v: string) => formatDate(parseISO(v), "MMM yy")}
-                interval="preserveStartEnd"
-              />
-              <YAxis
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                tickFormatter={(v: number) => `${v}`}
-                domain={["auto", "auto"]}
-              />
-              <Tooltip
-                contentStyle={{ fontSize: 11, borderRadius: 6 }}
-                formatter={(v: number, name: string) => [`${v}`, name === "portfolio" ? "Portfolio" : "NIFTY 50"]}
-                labelFormatter={(l: string) => formatDate(parseISO(l), "d MMM yyyy")}
-              />
-              <Line
-                type="monotone"
-                dataKey="portfolio"
-                stroke="hsl(var(--primary))"
-                dot={false}
-                strokeWidth={1.5}
-                name="Portfolio"
-              />
-              <Line
-                type="monotone"
-                dataKey="benchmark"
-                stroke="hsl(var(--muted-foreground))"
-                dot={false}
-                strokeWidth={1}
-                strokeDasharray="4 2"
-                name="NIFTY 50"
-                connectNulls
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <Card padding="22px 24px">
+          <div
+            className="flex flex-col items-center justify-center text-center"
+            role="alert"
+            data-testid="portfolio-scores-error"
+            style={{ gap: 8, padding: "12px 0" }}
+          >
+            <AlertCircle
+              size={20}
+              aria-hidden="true"
+              style={{ color: "var(--color-loss)" }}
+            />
+            <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+              Couldn&apos;t load your scores
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{state.message}</p>
+            <button
+              type="button"
+              onClick={load}
+              className="mt-2 inline-flex items-center"
+              style={{
+                gap: 6,
+                padding: "6px 12px",
+                background: "transparent",
+                border: "1px solid var(--glass-border-hover)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--text-primary)",
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              <RefreshCw size={13} aria-hidden="true" />
+              Retry
+            </button>
+          </div>
+        </Card>
       )}
 
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-0.5 w-5 bg-primary" /> Portfolio
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-px w-5 border-t border-dashed border-muted-foreground" /> NIFTY 50
-        </span>
-      </div>
+      {state.kind === "ok" && <ScoresPanel data={state.data} />}
+    </Section>
+  );
+}
+
+function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactElement {
+  const empty =
+    data.reason === "no_holdings" ||
+    (!data.diversification_score &&
+      !data.portfolio_score &&
+      !data.community_score);
+
+  if (empty) {
+    return (
+      <Card padding="22px 24px">
+        <div
+          className="flex flex-col items-center justify-center py-8 text-center"
+          data-testid="portfolio-scores-empty"
+        >
+          <Wallet
+            size={26}
+            aria-hidden="true"
+            style={{ color: "var(--text-tertiary)", marginBottom: 10 }}
+          />
+          <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+            Add holdings to see your scores
+          </p>
+          <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4, maxWidth: 320 }}>
+            Once you hold positions, we&apos;ll score your diversification,
+            overall portfolio quality, and how it stacks up against a benchmark.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
+  const div = data.diversification_score;
+  const pf = data.portfolio_score;
+  const comm = data.community_score;
+
+  return (
+    <div
+      className="grid"
+      style={{
+        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+        gap: 16,
+      }}
+      data-testid="portfolio-scores-panel"
+    >
+      {/* Diversification */}
+      {div && (
+        <ScoreCard
+          title="Diversification"
+          score={div.score}
+          color="var(--pivot-blue)"
+          explainer={div.explainer}
+          rows={[
+            { label: "Holdings", value: String(div.components.n_holdings) },
+            { label: "Sectors", value: String(div.components.n_sectors) },
+            {
+              label: "Top sector",
+              value: `${div.components.top_sector_pct.toFixed(1)}%`,
+            },
+            {
+              label: "Top holding",
+              value: `${div.components.top_holding_pct.toFixed(1)}%`,
+            },
+            { label: "HHI", value: div.components.hhi.toFixed(3) },
+          ]}
+        />
+      )}
+
+      {/* Portfolio score */}
+      {pf && (
+        <ScoreCard
+          title="Portfolio Score"
+          score={pf.score}
+          color="var(--color-profit)"
+          explainer={pf.explainer}
+          rows={[
+            {
+              label: "Diversification",
+              value: pf.components.subscores.diversification.toFixed(0),
+            },
+            {
+              label: "Concentration",
+              value: pf.components.subscores.concentration_penalty.toFixed(0),
+            },
+            ...(pf.components.performance_available &&
+            pf.components.subscores.performance !== undefined
+              ? [
+                  {
+                    label: "Performance",
+                    value: pf.components.subscores.performance.toFixed(0),
+                  },
+                ]
+              : []),
+            ...(pf.components.total_return_pct !== null
+              ? [
+                  {
+                    label: "Total return",
+                    value: fmtPct(pf.components.total_return_pct),
+                    valueColor:
+                      pf.components.total_return_pct >= 0
+                        ? "var(--color-profit)"
+                        : "var(--color-loss)",
+                  },
+                ]
+              : [
+                  {
+                    label: "Total return",
+                    value: "no NAV history",
+                  },
+                ]),
+          ]}
+        />
+      )}
+
+      {/* Community score */}
+      {comm && (
+        <ScoreCard
+          title="Community Score"
+          score={comm.score}
+          color="var(--text-secondary)"
+          explainer={comm.explainer}
+          rows={[
+            {
+              label: "Percentile",
+              value: `${comm.percentile.toFixed(0)}th`,
+            },
+            { label: "Basis", value: comm.basis, wrap: true },
+          ]}
+        />
+      )}
     </div>
   );
 }
 
-function PortfolioLoading(): React.ReactElement {
+type ScoreRow = {
+  label: string;
+  value: string;
+  valueColor?: string;
+  /** When true, allow the value to wrap onto multiple lines (e.g. "basis"). */
+  wrap?: boolean;
+};
+
+function ScoreCard({
+  title,
+  score,
+  color,
+  explainer,
+  rows,
+}: {
+  title: string;
+  score: number;
+  color: string;
+  explainer: string;
+  rows: ScoreRow[];
+}): React.ReactElement {
+  const clamped = Math.max(0, Math.min(100, score));
   return (
-    <div className="flex flex-col gap-6" data-testid="portfolio-loading">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border bg-card p-5">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="flex flex-col gap-2">
-            <Skeleton className="h-3 w-24" />
-            <Skeleton className="h-7 w-32" />
+    <Card padding="22px 24px">
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: "var(--weight-display)" as unknown as number,
+            fontSize: 13,
+            letterSpacing: "-0.02em",
+            color: "var(--text-primary)",
+          }}
+        >
+          {title}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--font-serif)",
+            fontWeight: 500,
+            fontSize: 26,
+            lineHeight: 1,
+            letterSpacing: "-0.02em",
+            fontVariantNumeric: "tabular-nums",
+            color: "var(--text-primary)",
+          }}
+        >
+          {clamped}
+          <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>/100</span>
+        </span>
+      </div>
+
+      {/* 0-100 meter */}
+      <div
+        style={{
+          position: "relative",
+          height: 8,
+          background: "var(--bg-elevated)",
+          borderRadius: 999,
+          overflow: "hidden",
+          marginBottom: 16,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: `${clamped}%`,
+            background: color,
+            borderRadius: 999,
+            transition: "width 0.6s var(--ease-quartr)",
+          }}
+        />
+      </div>
+
+      {/* Sub-components */}
+      <div className="flex flex-col" style={{ gap: 7, marginBottom: 14 }}>
+        {rows.map((r) => (
+          <div
+            key={r.label}
+            className="flex items-baseline justify-between"
+            style={{ gap: 14 }}
+          >
+            <span
+              style={{ fontSize: 11.5, color: "var(--text-tertiary)", flexShrink: 0 }}
+            >
+              {r.label}
+            </span>
+            <span
+              style={{
+                fontFamily: r.wrap ? "var(--font-ui)" : "var(--font-mono)",
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: r.valueColor ?? "var(--text-secondary)",
+                textAlign: "right",
+                whiteSpace: r.wrap ? "normal" : "nowrap",
+              }}
+            >
+              {r.value}
+            </span>
           </div>
         ))}
       </div>
-      <div className="rounded-xl border bg-card overflow-hidden">
-        <Skeleton className="h-9 w-full" />
+
+      <p
+        style={{
+          fontSize: 12,
+          lineHeight: 1.55,
+          color: "var(--text-secondary)",
+          paddingTop: 12,
+          borderTop: "1px solid var(--glass-border)",
+        }}
+      >
+        {explainer}
+      </p>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+// Covers only the Holdings + Asset Allocation sections — both are derived
+// from `state` (summary/holdings) with no independent fetch of their own, so
+// they still gate on `state.kind === "ok"`. Performance and Scores are no
+// longer part of this skeleton: they mount unconditionally (in parallel with
+// this fetch, not after it) and render their own loading state.
+function PortfolioLoading(): React.ReactElement {
+  return (
+    <div className="flex flex-col" style={{ gap: 28 }} data-testid="portfolio-loading">
+      <Card padding={0} style={{ overflow: "hidden" }}>
+        <Skeleton style={{ height: 40, width: "100%" }} />
         {[0, 1, 2, 3, 4].map((i) => (
-          <Skeleton key={i} className="h-12 w-full mt-px" />
+          <Skeleton key={i} style={{ height: 56, width: "100%", marginTop: 1 }} />
         ))}
+      </Card>
+      <Card>
+        <Skeleton style={{ height: 220, width: 220 }} />
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TradeHistory — trade log table
+// ---------------------------------------------------------------------------
+
+type TradeRow = {
+  id: string;
+  symbol: string;
+  side: "BUY" | "SELL";
+  quantity: number;
+  price: number;
+  amount: number;
+  datetime: string;
+  agent: string;
+};
+
+function generateMockTrades(): TradeRow[] {
+  const agents: string[] = ["INFY weekly dip-buy", "RELIANCE 3:55 PM buy", "TCS monthly SIP"];
+  const symbols: string[] = ["INFY", "RELIANCE", "TCS", "HDFC", "WIPRO"];
+  const trades: TradeRow[] = [];
+  const now = Date.now();
+  for (let i = 0; i < 20; i++) {
+    const symbol = symbols[i % symbols.length]!;
+    const side: "BUY" | "SELL" = i % 2 === 0 ? "BUY" : "SELL";
+    const qty = (i % 5 + 1) * 5;
+    const price = 1000 + ((i * 137 + 42) % 3000);
+    const agent = agents[i % agents.length]!;
+    trades.push({
+      id: `trade-${i}`,
+      symbol,
+      side,
+      quantity: qty,
+      price,
+      amount: qty * price,
+      datetime: new Date(now - i * 3_600_000 * 8).toISOString(),
+      agent,
+    });
+  }
+  return trades;
+}
+
+const MOCK_TRADES = generateMockTrades();
+
+// Mirrors the screener table's cell rhythm (ScreenerPage `td`): hairline
+// glass-border dividers, generous padding, 12.5px text — so the history
+// table reads with the same clean, borderless cadence.
+const HIST_TD: React.CSSProperties = {
+  padding: "14px 16px",
+  fontSize: 12.5,
+  borderBottom: "1px solid var(--glass-border)",
+  whiteSpace: "nowrap",
+};
+
+function TradeHistory(): React.ReactElement {
+  const fmt = (iso: string): { date: string; time: string } => {
+    const d = new Date(iso);
+    return {
+      date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+      time: d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }),
+    };
+  };
+
+  return (
+    <div className="flex flex-col" style={{ gap: 12 }}>
+      <div
+        className="overflow-x-auto rounded-2xl bg-card"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
+        <table
+          className="w-full"
+          style={{
+            borderCollapse: "collapse",
+            fontFamily: "var(--font-ui)",
+            minWidth: 760,
+          }}
+        >
+          <thead>
+            <tr>
+              {["Symbol", "Side", "Qty", "Price (₹)", "Amount (₹)", "Date", "Time", "Agent"].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    padding: "13px 16px",
+                    fontSize: 10,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    fontWeight: "var(--weight-display)" as unknown as number,
+                    color: "var(--text-tertiary)",
+                    textAlign: "left",
+                    whiteSpace: "nowrap",
+                    borderBottom: "1.5px solid var(--glass-border)",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MOCK_TRADES.map((t) => {
+              const { date, time } = fmt(t.datetime);
+              const isBuy = t.side === "BUY";
+              return (
+                <tr
+                  key={t.id}
+                  style={{
+                    background: "transparent",
+                    transition: "background-color 0.15s var(--ease-quartr)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <td style={{ ...HIST_TD, fontWeight: 600, color: "var(--text-primary)" }}>
+                    {t.symbol}
+                  </td>
+                  <td style={HIST_TD}>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: isBuy ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+                        color: isBuy ? "#10b981" : "#ef4444",
+                      }}
+                    >
+                      {t.side}
+                    </span>
+                  </td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{t.quantity}</td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                    {t.price.toLocaleString("en-IN")}
+                  </td>
+                  <td style={{ ...HIST_TD, fontWeight: 500, color: "var(--text-primary)" }}>
+                    ₹{t.amount.toLocaleString("en-IN")}
+                  </td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{date}</td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{time}</td>
+                  <td
+                    style={{
+                      ...HIST_TD,
+                      color: "var(--text-tertiary)",
+                      maxWidth: 160,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {t.agent}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+      <p style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
+        Showing last 20 trades · Live data requires Kite Connect
+      </p>
     </div>
   );
 }

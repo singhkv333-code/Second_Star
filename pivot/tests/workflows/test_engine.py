@@ -138,7 +138,9 @@ def test_demo_path_5_steps_succeeds(
         "requires_approval": False,
     })
     _add_step(db, wf, 4, "notify.message", {
-        "channel": "email",
+        # v1 only supports the 'push' channel — see NotifyMessageConfig
+        # in backend/workflows/schemas.py.
+        "channel": "push",
         "template": "Order placed for {symbol}",
         "vars": {"symbol": "RELIANCE"},
     })
@@ -355,8 +357,10 @@ def test_action_retry_with_distinct_attempt_ids(
             raise RuntimeError("transient broker error")
         return {"order_id": "MOCK_OK", "status": "COMPLETE"}
 
-    import backend.workflows.steps.actions as actions_mod
-    monkeypatch.setattr(actions_mod, "place_order", flaky_place_order)
+    # Patched at the canonical Kite seam — action.place_order now routes
+    # through backend.paper.routing.submit_order, which (paper off in
+    # tests) calls backend.kite.orders.place_order and forwards `tag`.
+    monkeypatch.setattr("backend.kite.orders.place_order", flaky_place_order)
 
     asyncio.run(WorkflowEngine().execute_run(run.id))
 
@@ -458,3 +462,101 @@ def test_cancel_flag_terminates_run(
     final = db.query(models.WorkflowRun).filter_by(id=run.id).one()
     assert final.status == models.RunStatus.cancelled
     assert "cancelled" in (final.error_message or "")
+
+
+# ── Multi-trigger branches ───────────────────────────────────────────
+
+
+def test_multi_trigger_runs_only_one_branch(
+    session_factory: None, db: Session,
+) -> None:
+    """A workflow with two triggers (two branches): firing branch B
+    should execute only B's steps, not A's, and vice versa.
+
+    Layout:
+      step 0  trigger.manual   ── branch A start
+      step 1  notify.log "branch_a"
+      step 2  trigger.manual   ── branch B start
+      step 3  notify.log "branch_b"
+
+    Run with triggered_step_index=0 → only step 1 runs.
+    Run with triggered_step_index=2 → only step 3 runs.
+    """
+    user = _make_user(db, "multi_trig@pivot.test")
+    wf = _make_workflow(db, user.id)
+    _add_step(db, wf, 0, "trigger.manual", {})
+    _add_step(db, wf, 1, "notify.log", {"message": "branch_a"})
+    _add_step(db, wf, 2, "trigger.manual", {})
+    _add_step(db, wf, 3, "notify.log", {"message": "branch_b"})
+    db.commit()
+
+    # Branch A.
+    run_a = models.WorkflowRun(
+        workflow_id=wf.id, workflow_version=wf.version,
+        triggered_by="manual", triggered_step_index=0,
+        status=models.RunStatus.running, context={},
+    )
+    db.add(run_a)
+    db.commit()
+    asyncio.run(WorkflowEngine().execute_run(run_a.id))
+    db.expire_all()
+
+    final_a = db.query(models.WorkflowRun).filter_by(id=run_a.id).one()
+    assert final_a.status == models.RunStatus.succeeded, final_a.error_message
+    indices_a = sorted(
+        s.step_index for s in db.query(models.WorkflowRunStep)
+        .filter_by(run_id=run_a.id).all()
+    )
+    # Trigger 0 + notify.log 1 — stops at trigger 2.
+    assert indices_a == [0, 1]
+
+    # Branch B.
+    run_b = models.WorkflowRun(
+        workflow_id=wf.id, workflow_version=wf.version,
+        triggered_by="manual", triggered_step_index=2,
+        status=models.RunStatus.running, context={},
+    )
+    db.add(run_b)
+    db.commit()
+    asyncio.run(WorkflowEngine().execute_run(run_b.id))
+    db.expire_all()
+
+    final_b = db.query(models.WorkflowRun).filter_by(id=run_b.id).one()
+    assert final_b.status == models.RunStatus.succeeded, final_b.error_message
+    indices_b = sorted(
+        s.step_index for s in db.query(models.WorkflowRunStep)
+        .filter_by(run_id=run_b.id).all()
+    )
+    # Trigger 2 + notify.log 3 — runs to end.
+    assert indices_b == [2, 3]
+
+
+def test_legacy_single_trigger_runs_all_steps(
+    session_factory: None, db: Session,
+) -> None:
+    """Legacy workflows have triggered_step_index=None and exactly one
+    trigger at index 0. Engine must still run every step (compat)."""
+    user = _make_user(db, "legacy_trig@pivot.test")
+    wf = _make_workflow(db, user.id)
+    _add_step(db, wf, 0, "trigger.manual", {})
+    _add_step(db, wf, 1, "notify.log", {"message": "a"})
+    _add_step(db, wf, 2, "notify.log", {"message": "b"})
+    db.commit()
+
+    # No triggered_step_index set — simulates pre-multi-trigger row.
+    run = models.WorkflowRun(
+        workflow_id=wf.id, workflow_version=wf.version,
+        triggered_by="manual", status=models.RunStatus.running, context={},
+    )
+    db.add(run)
+    db.commit()
+    asyncio.run(WorkflowEngine().execute_run(run.id))
+    db.expire_all()
+
+    final = db.query(models.WorkflowRun).filter_by(id=run.id).one()
+    assert final.status == models.RunStatus.succeeded
+    indices = sorted(
+        s.step_index for s in db.query(models.WorkflowRunStep)
+        .filter_by(run_id=run.id).all()
+    )
+    assert indices == [0, 1, 2]

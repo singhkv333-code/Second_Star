@@ -20,9 +20,14 @@
  */
 
 import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 
 const TOKEN_KEY = "pivot_jwt";
+
+/** Routes that render without the auth gate: the /design showcase, public
+ *  marketing pages, and the auth routes themselves. */
+const UNGATED_PATHS = ["/design", "/waitlist", "/login", "/signup", "/view-pack"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 
@@ -31,6 +36,11 @@ export function AppBootstrap({
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
+  const pathname = usePathname();
+  const router = useRouter();
+  const ungated =
+    pathname != null &&
+    UNGATED_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const [phase, setPhase] = useState<Phase>("loading");
 
   useEffect(() => {
@@ -51,13 +61,25 @@ export function AppBootstrap({
     } catch {
       stored = null;
     }
-    setPhase(stored ? "ready" : "needs-auth");
-  }, []);
+    if (stored) {
+      setPhase("ready");
+    } else {
+      setPhase("needs-auth");
+      // Redirect to /login instead of showing a modal gate — but never
+      // bounce the auth pages themselves (/login, /signup, …). Without
+      // this guard, opening /signup with no token yet immediately
+      // redirects back to /login, so the account-creation form is
+      // unreachable.
+      if (!ungated) {
+        router.replace("/login");
+      }
+    }
+  }, [router, ungated]);
 
+  if (ungated) return <>{children}</>;
   if (phase === "loading") return <BootstrapSplash />;
-  if (phase === "needs-auth") {
-    return <SignInPrompt onToken={() => setPhase("ready")} />;
-  }
+  // "needs-auth" — show splash while the router.replace navigates.
+  if (phase === "needs-auth") return <BootstrapSplash />;
   return <>{children}</>;
 }
 

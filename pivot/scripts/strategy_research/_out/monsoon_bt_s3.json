@@ -1,0 +1,70 @@
+{
+ "name": "S3 M&M Defined-Risk Monsoon Call Spread PROXY (OPTION/HYBRID)",
+ "total_return_pct": 405.3,
+ "cagr_in_market_pct": 24.66,
+ "max_dd_pct": -19.9,
+ "win_rate_pct": 87.5,
+ "n_trades": 16,
+ "wins": 14,
+ "in_market_days": 1852,
+ "terminal_equity": 505.3,
+ "forward_stats": {
+  "observed_sharpe": 0.0903,
+  "skew": 1.2276,
+  "kurtosis": 14.302,
+  "n_obs": 1868,
+  "num_trials": 3,
+  "psr": 1.0,
+  "min_trl": 305.1,
+  "deflated_sharpe": 0.9994
+ },
+ "monte_carlo": {
+  "n_sims": 2000,
+  "block_size": 12,
+  "dd_median_pct": -16.38,
+  "dd_p95_severity_pct": -26.09,
+  "dd_worst_pct": -42.58,
+  "terminal_median_pct": 435.54,
+  "terminal_p05_pct": 176.55,
+  "prob_loss": 0.0,
+  "prob_dd_worse_than_tol": 0.2145,
+  "drawdown_tolerance_pct": -20.0
+ },
+ "sub_periods": {
+  "n_periods": 4,
+  "period_returns_pct": [
+   94.83,
+   25.68,
+   21.64,
+   69.66
+  ],
+  "positive_period_frac": 1.0,
+  "best_period_return_pct": 94.83,
+  "worst_period_return_pct": 21.64,
+  "concentration": 0.412
+ },
+ "verdict": {
+  "verdict": "promising",
+  "label": "Statistically credible",
+  "confidence": 100,
+  "rationale": "PSR 100% and deflated-Sharpe 100% after 3 variant(s); the track record clears the minimum needed.",
+  "flags": []
+ },
+ "benchmark_nifty": {
+  "total_return_pct": 498.5,
+  "cagr_pct": 12.0,
+  "max_dd_pct": -38.4
+ },
+ "two_dial": {
+  "outcome": {
+   "letter": "A",
+   "score": 81,
+   "rationale": "Outcome A (81/100): analog hit-rate 88%; relationship strength 45%; N=16."
+  },
+  "expression": {
+   "letter": "B",
+   "score": 71,
+   "rationale": "Expression B (71/100): CAAR/BHAR alignment 100%; significance p=0.271; net-of-cost survival 100%."
+  }
+ }
+}

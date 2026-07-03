@@ -38,7 +38,7 @@ def test_returns_draft_with_canonical_demo_prompt(
     client: TestClient, auth_headers: dict[str, str],
 ) -> None:
     """The canonical demo prompt → 5-step draft via the mock matcher
-    (mock mode kicks in because tests run with empty SARVAM/OpenAI keys)."""
+    (mock mode kicks in because tests run with empty LLM keys)."""
     resp = client.post(
         "/api/propose-workflow",
         headers=auth_headers,
@@ -73,9 +73,12 @@ def test_returns_draft_with_canonical_demo_prompt(
     assert place["config"]["side"] == "buy"
     assert place["config"]["requires_approval"] is True
 
-    # notify.message — and reads naturally now that the "Buyed" wart is fixed
+    # notify.message — schema restricts channel to 'push' in v1
+    # (NotifyMessageConfig in backend/workflows/schemas.py). The LLM
+    # proposer either omits the channel and lets the default fill in,
+    # or emits 'push' explicitly.
     notify = body["steps"][4]
-    assert notify["config"]["channel"] == "email"
+    assert notify["config"]["channel"] == "push"
     assert "Bought" in notify["config"]["template"]
 
 
@@ -98,7 +101,10 @@ def test_simpler_prompt_produces_3_step_variant(
         "notify.message",
     ]
     assert body["steps"][1]["config"]["side"] == "sell"
-    assert body["steps"][2]["config"]["channel"] == "sms"
+    # Same 'push' restriction as the canonical-demo test above — even when
+    # the user asks for SMS, the schema forces push and the chat layer
+    # is responsible for surfacing the channel-not-wired explanation.
+    assert body["steps"][2]["config"]["channel"] == "push"
 
 
 def test_response_is_validated_draft_shape(

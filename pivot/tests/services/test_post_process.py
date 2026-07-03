@@ -43,7 +43,7 @@ def test_keeps_normal_text_unchanged():
 
 
 def test_replaces_canned_pitch_with_fallback():
-    """Even if Sarvam regresses to the legacy pitch we don't ship it."""
+    """Even if the LLM regresses to the legacy pitch we don't ship it."""
     raw = ("Execute orders on Zerodha. Build capital protection and income "
            "products. Automate SIP and strategy rules. Analyse your portfolio.")
     out, sanitised = _post_process(raw)
