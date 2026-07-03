@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     # Phase 0: error reporting. Leave dsn blank to disable.
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
-    allowed_origins: str = "http://localhost:3000,http://localhost:5173"
+    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
     frontend_url: str = "http://localhost:5173"
 
     # --- Observability ----------------------------------------------------------
