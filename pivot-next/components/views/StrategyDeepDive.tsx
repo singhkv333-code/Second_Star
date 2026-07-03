@@ -312,10 +312,65 @@ function EntrySection({ entry }: { entry: EntryBlock }): React.ReactElement {
                     — the strategy's own pick
                   </span>
                 )}
+                {leg.event_mean_pct != null && (
+                  <span style={{ color: "var(--text-tertiary)" }}>
+                    {" "}
+                    — avg {leg.event_mean_pct > 0 ? "+" : ""}
+                    {leg.event_mean_pct}% per past occurrence
+                  </span>
+                )}
+                {leg.substitute && (
+                  <span
+                    style={{
+                      marginLeft: 6,
+                      padding: "1px 6px",
+                      borderRadius: 999,
+                      border: "1px solid var(--glass-border)",
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      color: "var(--text-secondary)",
+                      verticalAlign: "1px",
+                    }}
+                  >
+                    swapped in
+                  </span>
+                )}
               </div>
             ))}
           </div>
         )}
+
+      {/* substitutions — priced-out names replaced by event-tested picks
+          from the same theme, with the evidence that earned them the seat. */}
+      {(entry.substitutions ?? []).length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
+            Swapped for affordability (same theme, event-tested):
+          </span>
+          {(entry.substitutions ?? []).map((s, i) => (
+            <span
+              key={i}
+              style={{
+                fontFamily: FONT,
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                lineHeight: 1.4,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {s.in} in for {s.out}
+              {s.in_mean_episode_pct != null && s.in_n_episodes != null && (
+                <>
+                  {" "}
+                  — averaged {s.in_mean_episode_pct > 0 ? "+" : ""}
+                  {s.in_mean_episode_pct}% across {s.in_n_episodes} past
+                  occurrences
+                </>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* dropped names */}
       {(entry.dropped ?? []).length > 0 && (
@@ -466,6 +521,22 @@ function EntrySection({ entry }: { entry: EntryBlock }): React.ReactElement {
       >
         {entry.note}
       </p>
+
+      {/* selection method — how the numbers behind the picks were computed
+          (event-conditioned backtest vs forward model). Quiet footnote. */}
+      {entry.selection_method && (
+        <p
+          style={{
+            margin: 0,
+            fontFamily: FONT,
+            fontSize: 11.5,
+            color: "var(--text-tertiary)",
+            lineHeight: 1.5,
+          }}
+        >
+          Method: {entry.selection_method}
+        </p>
+      )}
     </Section>
   );
 }

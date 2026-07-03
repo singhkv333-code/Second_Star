@@ -1517,6 +1517,22 @@ export type EntryLeg = {
   weight_actual?: number;
   tracks?: string | null;
   role?: "core" | "satellite" | null;
+  /** Mean per-occurrence return (%) from the view's event-conditioned
+   *  backtest — present when the name was event-tested. */
+  event_mean_pct?: number | null;
+  /** True when this leg replaced a priced-out strategy name (see
+   *  EntryBlock.substitutions for the pairing + evidence). */
+  substitute?: boolean;
+};
+
+/** A priced-out strategy name replaced by an event-tested affordable pick
+ *  from the view's thesis bench. */
+export type EntrySubstitution = {
+  in: string;
+  out: string;
+  reason: string;
+  in_mean_episode_pct?: number | null;
+  in_n_episodes?: number | null;
 };
 
 /**
@@ -1581,6 +1597,15 @@ export type EntryBlock = {
   etf?: EntryEtf | null;
   etf_alternative?: EntryEtf | null;
   dropped?: EntryDropped[] | null;
+  /** Priced-out names swapped for event-tested affordable picks. */
+  substitutions?: EntrySubstitution[] | null;
+  /** How selection/weights were justified — e.g. "Event-conditioned
+   *  backtest: … 8 historical occurrence windows … 59 names." */
+  selection_method?: string | null;
+  /** The escalated ticket the faithful fit needed (≥ the base budget). */
+  budget_used_inr?: number | null;
+  /** ETF share of the ticket on the core-satellite route (0..1, ≤0.55). */
+  etf_fraction?: number | null;
   lot_size?: number | null;
   small_ticket?: EntrySmallTicket | null;
   option_alternates?: EntryOptionAlternate[] | null;
