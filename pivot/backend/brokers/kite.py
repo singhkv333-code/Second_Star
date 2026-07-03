@@ -283,6 +283,33 @@ class KiteConnector(BrokerConnector):
             last_price=last_price if last_price is not None else limit_price,
         )
 
+    def place_gtt_oco(
+        self,
+        session: BrokerSession,
+        *,
+        tradingsymbol: str,
+        exchange: str = "NSE",
+        transaction_type: str,
+        quantity: int,
+        stoploss_trigger: float,
+        target_trigger: float,
+        last_price: Optional[float] = None,
+    ) -> dict:
+        return kite_orders.place_gtt_oco_order(
+            access_token=read_broker_access_token(session) or "mock_token",
+            tradingsymbol=tradingsymbol,
+            exchange=exchange,
+            transaction_type=transaction_type,
+            quantity=quantity,
+            stoploss_trigger=stoploss_trigger,
+            target_trigger=target_trigger,
+            last_price=(
+                last_price
+                if last_price is not None
+                else (stoploss_trigger + target_trigger) / 2
+            ),
+        )
+
     def cancel_order(
         self, session: BrokerSession, order_id: str, variety: str = "regular"
     ) -> dict:

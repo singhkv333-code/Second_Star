@@ -5,25 +5,20 @@
  *
  * A bottom sheet that slides up when any Buy/Sell button dispatches
  * `pivot:open-order-ticket` (mirror of the option-chain global-host
- * pattern). Faithful to Zerodha Kite's Regular order window:
+ * pattern). Two tabs:
  *
- *   ┌ blue (buy) / red (sell) header ─ symbol · NSE/BSE radio + LTP · side toggle ┐
- *   │ Quick · [Regular] · MTF · Iceberg                                           │
- *   │ ○ Intraday MIS   ● Longterm CNC                          Advanced ⌄         │
- *   │ [Qty.] [Price] [Trigger price]                                              │
- *   │        ○ Market ● Limit          ○ SL ○ SL-M                                │
- *   │ gtt ☐ Stoploss % ☐ Target %                                                 │
- *   │ Required ₹x · Available ₹y ↻                 [ Buy ] [ Cancel ]             │
- *   └──────────────────────────────────────────────────────────────────────────────┘
+ *   Quick   — the fewest fields that can place a trade: quantity +
+ *             product; fires a MARKET order at the live price.
+ *   Regular — quantity + price with Market/Limit, plus FUNCTIONAL
+ *             GTT stop-loss / target exits (% from entry): both set →
+ *             a true OCO bracket (paper: shared gtt_oco_group the
+ *             evaluator cancels-on-fill; live: Kite two-leg GTT).
  *
- * ONLY the Regular tab is functional (per scope); Quick/MTF/Iceberg render
- * disabled to keep the Kite look. Honest boundaries: BSE has no quote feed
- * wired, so its radio is disabled (never a fabricated price); the GTT
- * stoploss/target checkboxes are disabled until OCO lands.
- *
- * Submit → POST /orders/register (register-not-execute): a paper-mode
- * account fills the simulated book; a live account routes via the user's
- * connected broker, and the backend 409s honestly when none is connected.
+ * Header: blue (buy) / red (sell), NSE/BSE exchange radios fed by
+ * GET /markets/quote/{symbol}?exchange plus live NSE ticks, and the
+ * side toggle. Submit → POST /orders/register (register-not-execute):
+ * paper mode fills the simulated book; live mode routes via the
+ * connected broker and the backend 409s honestly when none.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,7 +29,7 @@ import {
   getPaperSummary,
   getStockQuote,
   getAccountMode,
-  type RegisterOrderResponse,
+  type RegisteredOrder,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { subscribe, unsubscribe, type LiveTick } from "@/lib/liveQuoteManager";
@@ -63,21 +58,9 @@ export function openOrderTicket(detail: OrderTicketOpenDetail): void {
 const BUY_COLOR = "#4184f3";
 const SELL_COLOR = "#eb5b3c";
 
-type OrderType = "MARKET" | "LIMIT" | "SL" | "SL-M";
+type Tab = "Quick" | "Regular";
+type OrderType = "MARKET" | "LIMIT";
 type Product = "MIS" | "CNC";
-
-const NEEDS_PRICE: Record<OrderType, boolean> = {
-  MARKET: false,
-  LIMIT: true,
-  SL: true,
-  "SL-M": false,
-};
-const NEEDS_TRIGGER: Record<OrderType, boolean> = {
-  MARKET: false,
-  LIMIT: false,
-  SL: true,
-  "SL-M": true,
-};
 
 function fmtInr(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
@@ -128,12 +111,17 @@ function OrderTicketSheet({
   onClose: () => void;
 }): React.ReactElement {
   const [side, setSide] = useState<"BUY" | "SELL">(initialSide);
+  const [tab, setTab] = useState<Tab>("Regular");
   const [exchange, setExchange] = useState<"NSE" | "BSE">("NSE");
   const [product, setProduct] = useState<Product>("CNC");
   const [orderType, setOrderType] = useState<OrderType>("LIMIT");
   const [qty, setQty] = useState<string>("1");
   const [price, setPrice] = useState<string>("");
-  const [trigger, setTrigger] = useState<string>("");
+  // GTT bracket exits (Regular tab) — % moves from the entry price.
+  const [slOn, setSlOn] = useState(false);
+  const [slPct, setSlPct] = useState<string>("5");
+  const [tpOn, setTpOn] = useState(false);
+  const [tpPct, setTpPct] = useState<string>("10");
   const [nseLtp, setNseLtp] = useState<number | null>(null);
   const [bseLtp, setBseLtp] = useState<number | null>(null);
   const [accountMode, setAccountMode] = useState<"paper" | "live" | null>(null);
@@ -145,6 +133,9 @@ function OrderTicketSheet({
 
   const accent = side === "BUY" ? BUY_COLOR : SELL_COLOR;
   const ltp = exchange === "BSE" ? bseLtp : nseLtp;
+  // Quick is always a market order; Regular follows the radio.
+  const effectiveType: OrderType = tab === "Quick" ? "MARKET" : orderType;
+  const needsPrice = effectiveType === "LIMIT";
 
   const seedPrice = useCallback((value: number): void => {
     if (!priceDirty.current) setPrice(String(value));
@@ -206,18 +197,22 @@ function OrderTicketSheet({
   // ── Derived ───────────────────────────────────────────────────────
   const qtyNum = Math.floor(Number(qty));
   const priceNum = Number(price);
-  const triggerNum = Number(trigger);
+  const slPctNum = Number(slPct);
+  const tpPctNum = Number(tpPct);
   const qtyValid = Number.isFinite(qtyNum) && qtyNum >= 1;
-  const priceValid = !NEEDS_PRICE[orderType] || (Number.isFinite(priceNum) && priceNum > 0);
-  const triggerValid =
-    !NEEDS_TRIGGER[orderType] || (Number.isFinite(triggerNum) && triggerNum > 0);
-  const canSubmit = qtyValid && priceValid && triggerValid && !pending;
+  const priceValid = !needsPrice || (Number.isFinite(priceNum) && priceNum > 0);
+  const gttActive = tab === "Regular";
+  const slValid =
+    !gttActive || !slOn || (Number.isFinite(slPctNum) && slPctNum > 0 && slPctNum < 90);
+  const tpValid =
+    !gttActive || !tpOn || (Number.isFinite(tpPctNum) && tpPctNum > 0 && tpPctNum < 900);
+  const canSubmit = qtyValid && priceValid && slValid && tpValid && !pending;
 
   const required = useMemo(() => {
-    const unit = NEEDS_PRICE[orderType] && priceNum > 0 ? priceNum : ltp;
+    const unit = needsPrice && priceNum > 0 ? priceNum : ltp;
     if (!qtyValid || unit === null || !Number.isFinite(unit)) return null;
     return qtyNum * unit;
-  }, [orderType, priceNum, ltp, qtyValid, qtyNum]);
+  }, [needsPrice, priceNum, ltp, qtyValid, qtyNum]);
 
   // ── Submit ────────────────────────────────────────────────────────
   const submit = useCallback(async (): Promise<void> => {
@@ -227,32 +222,44 @@ function OrderTicketSheet({
       symbol,
       exchange,
       transaction_type: side,
-      order_type: orderType,
+      order_type: effectiveType,
       quantity: qtyNum,
-      price: NEEDS_PRICE[orderType] ? priceNum : null,
-      trigger_price: NEEDS_TRIGGER[orderType] ? triggerNum : null,
+      price: needsPrice ? priceNum : null,
+      trigger_price: null,
       product,
+      gtt_stoploss_pct: gttActive && slOn ? slPctNum : null,
+      gtt_target_pct: gttActive && tpOn ? tpPctNum : null,
     });
     setPending(false);
     if (isError(result)) {
       toast.error(result.error.message);
       return;
     }
-    const first: { status?: string } = Array.isArray(
-      (result.data as { registered?: unknown[] }).registered,
-    )
-      ? ((result.data as { registered: { status?: string }[] }).registered[0] ?? {})
-      : (result.data as RegisterOrderResponse as { status?: string });
-    const status = first.status ?? "registered";
+    const order = result.data as RegisteredOrder;
+    const status = order.status ?? "registered";
+    const exitBits: string[] = [];
+    if (order.exits?.stoploss) {
+      exitBits.push(`SL @ ${fmtInr(order.exits.stoploss.trigger_price)}`);
+    }
+    if (order.exits?.target) {
+      exitBits.push(`target @ ${fmtInr(order.exits.target.trigger_price)}`);
+    }
+    const exitsNote = exitBits.length ? ` · ${exitBits.join(" / ")} armed` : "";
     // The paper broker can 201 with status "rejected" (e.g. market closed) —
     // that's a failed order and must not read as a success.
     if (/reject/i.test(status)) {
       toast.error(`${side} ${qtyNum} ${symbol} — ${status}`);
     } else {
-      toast.success(`${side} ${qtyNum} ${symbol} — ${status}`);
+      toast.success(`${side} ${qtyNum} ${symbol} — ${status}${exitsNote}`);
+    }
+    if (order.exits_error) {
+      toast.warning(`Exits not armed: ${order.exits_error}`);
     }
     onClose();
-  }, [canSubmit, symbol, exchange, side, orderType, qtyNum, priceNum, triggerNum, product, onClose]);
+  }, [
+    canSubmit, symbol, exchange, side, effectiveType, qtyNum, needsPrice,
+    priceNum, product, gttActive, slOn, slPctNum, tpOn, tpPctNum, onClose,
+  ]);
 
   // Enter submits (Kite behaviour), unless focus is on a button.
   useEffect(() => {
@@ -264,9 +271,6 @@ function OrderTicketSheet({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [submit]);
-
-  const triggerEnabled = NEEDS_TRIGGER[orderType];
-  const priceEnabled = NEEDS_PRICE[orderType];
 
   return (
     <>
@@ -392,7 +396,7 @@ function OrderTicketSheet({
           </div>
         </div>
 
-        {/* ── Tabs — only Regular is live ────────────────────────── */}
+        {/* ── Tabs — Quick and Regular, both live ────────────────── */}
         <div
           style={{
             display: "flex",
@@ -402,36 +406,36 @@ function OrderTicketSheet({
             borderBottom: "1px solid var(--glass-border)",
           }}
         >
-          {(["Quick", "Regular", "MTF", "Iceberg"] as const).map((tab) => {
-            const active = tab === "Regular";
+          {(["Quick", "Regular"] as const).map((t) => {
+            const active = tab === t;
             return (
               <button
-                key={tab}
+                key={t}
                 type="button"
-                disabled={!active}
-                title={active ? undefined : "Coming soon — only Regular orders for now"}
-                data-testid={`order-ticket-tab-${tab.toLowerCase()}`}
+                onClick={() => setTab(t)}
+                data-testid={`order-ticket-tab-${t.toLowerCase()}`}
+                aria-pressed={active}
                 style={{
                   padding: "11px 14px 9px",
                   background: "transparent",
                   border: "none",
                   borderBottom: active ? `2px solid ${accent}` : "2px solid transparent",
-                  color: active ? accent : "var(--text-tertiary)",
+                  color: active ? accent : "var(--text-secondary)",
                   fontFamily: "var(--font-ui)",
                   fontSize: 13,
                   fontWeight: active ? 600 : 500,
-                  cursor: active ? "default" : "not-allowed",
+                  cursor: "pointer",
                 }}
               >
-                {tab}
+                {t}
               </button>
             );
           })}
         </div>
 
-        {/* ── Regular body ───────────────────────────────────────── */}
+        {/* ── Body ───────────────────────────────────────────────── */}
         <div style={{ padding: "14px 18px 0" }}>
-          {/* Product row */}
+          {/* Product row — shared by both tabs. */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", gap: 22 }}>
               <RadioOption
@@ -451,174 +455,179 @@ function OrderTicketSheet({
                 testId="order-ticket-product-cnc"
               />
             </div>
-            <span
-              title="Order validity options — coming soon"
-              style={{ fontSize: 12.5, color: "var(--text-disabled)", cursor: "not-allowed" }}
-            >
-              Advanced ⌄
-            </span>
+            {tab === "Regular" && (
+              <span
+                title="Order validity options — coming soon"
+                style={{ fontSize: 12.5, color: "var(--text-disabled)", cursor: "not-allowed" }}
+              >
+                Advanced ⌄
+              </span>
+            )}
           </div>
 
-          {/* Inputs row */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: 14,
-              marginTop: 14,
-            }}
-          >
-            <TicketField label="Qty.">
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                data-testid="order-ticket-qty"
-                aria-label="Quantity"
-                style={inputStyle(true)}
-              />
-            </TicketField>
-            <TicketField label="Price">
-              <input
-                type="number"
-                min={0}
-                step={0.05}
-                value={priceEnabled ? price : ""}
-                placeholder={priceEnabled ? "" : "—"}
-                disabled={!priceEnabled}
-                onChange={(e) => {
-                  priceDirty.current = true;
-                  setPrice(e.target.value);
-                }}
-                data-testid="order-ticket-price"
-                aria-label="Price"
-                style={inputStyle(priceEnabled)}
-              />
-            </TicketField>
-            <TicketField label="Trigger price">
-              <input
-                type="number"
-                min={0}
-                step={0.05}
-                value={triggerEnabled ? trigger : ""}
-                placeholder={triggerEnabled ? "" : "0"}
-                disabled={!triggerEnabled}
-                onChange={(e) => setTrigger(e.target.value)}
-                data-testid="order-ticket-trigger"
-                aria-label="Trigger price"
-                style={{
-                  ...inputStyle(triggerEnabled),
-                  // Kite hatches the disabled trigger box.
-                  backgroundImage: triggerEnabled
-                    ? undefined
-                    : "repeating-linear-gradient(135deg, transparent, transparent 5px, var(--glass-border) 5px, var(--glass-border) 6px)",
-                }}
-              />
-            </TicketField>
-          </div>
-
-          {/* Order-type radios — Market/Limit under Price, SL/SL-M under Trigger. */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: 14,
-              marginTop: 10,
-              paddingBottom: 16,
-              borderBottom: "1px solid var(--glass-border)",
-            }}
-          >
-            <div />
-            <div style={{ display: "flex", gap: 18, justifyContent: "center" }}>
-              <RadioOption
-                checked={orderType === "MARKET"}
-                accent={accent}
-                onSelect={() => setOrderType("MARKET")}
-                label="Market"
-                testId="order-ticket-type-market"
-              />
-              <RadioOption
-                checked={orderType === "LIMIT"}
-                accent={accent}
-                onSelect={() => setOrderType("LIMIT")}
-                label="Limit"
-                testId="order-ticket-type-limit"
-              />
-            </div>
-            <div style={{ display: "flex", gap: 18, justifyContent: "flex-end" }}>
-              <RadioOption
-                checked={orderType === "SL"}
-                accent={accent}
-                onSelect={() => setOrderType("SL")}
-                label="SL"
-                testId="order-ticket-type-sl"
-              />
-              <RadioOption
-                checked={orderType === "SL-M"}
-                accent={accent}
-                onSelect={() => setOrderType("SL-M")}
-                label="SL-M"
-                testId="order-ticket-type-slm"
-              />
-            </div>
-          </div>
-
-          {/* GTT stoploss/target — visual parity, disabled until OCO ships. */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-              padding: "12px 0",
-              borderBottom: "1px solid var(--glass-border)",
-              color: "var(--text-disabled)",
-              fontSize: 12.5,
-            }}
-          >
-            <span
+          {tab === "Quick" ? (
+            /* ── Quick: the fewest fields that place a trade ──────── */
+            <div
               style={{
-                fontSize: 10,
-                fontWeight: 700,
-                fontStyle: "italic",
-                border: "1px solid var(--glass-border)",
-                borderRadius: 8,
-                padding: "1px 7px",
+                display: "grid",
+                gridTemplateColumns: "1fr 2fr",
+                gap: 14,
+                marginTop: 14,
+                paddingBottom: 16,
+                borderBottom: "1px solid var(--glass-border)",
               }}
             >
-              gtt
-            </span>
-            {(["Stoploss", "Target"] as const).map((lbl) => (
-              <label
-                key={lbl}
-                title="GTT stop-loss / target from the ticket — coming soon"
+              <TicketField label="Qty.">
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  data-testid="order-ticket-qty"
+                  aria-label="Quantity"
+                  style={inputStyle(true)}
+                />
+              </TicketField>
+              <div
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  cursor: "not-allowed",
+                  alignSelf: "end",
+                  paddingBottom: 10,
+                  fontSize: 12.5,
+                  color: "var(--text-tertiary)",
                 }}
               >
-                <input type="checkbox" disabled aria-label={`${lbl} GTT`} />
-                {lbl}
+                Places a market order at the live price
+                {ltp !== null ? ` (${fmtInr(ltp)})` : ""}.
+              </div>
+            </div>
+          ) : (
+            /* ── Regular: Qty + Price, Market/Limit, GTT exits ───── */
+            <>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 14,
+                  marginTop: 14,
+                }}
+              >
+                <TicketField label="Qty.">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={qty}
+                    onChange={(e) => setQty(e.target.value)}
+                    data-testid="order-ticket-qty"
+                    aria-label="Quantity"
+                    style={inputStyle(true)}
+                  />
+                </TicketField>
+                <TicketField label="Price">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.05}
+                    value={needsPrice ? price : ""}
+                    placeholder={needsPrice ? "" : "—"}
+                    disabled={!needsPrice}
+                    onChange={(e) => {
+                      priceDirty.current = true;
+                      setPrice(e.target.value);
+                    }}
+                    data-testid="order-ticket-price"
+                    aria-label="Price"
+                    style={inputStyle(needsPrice)}
+                  />
+                </TicketField>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 14,
+                  marginTop: 10,
+                  paddingBottom: 16,
+                  borderBottom: "1px solid var(--glass-border)",
+                }}
+              >
+                <div />
+                <div style={{ display: "flex", gap: 18, justifyContent: "center" }}>
+                  <RadioOption
+                    checked={orderType === "MARKET"}
+                    accent={accent}
+                    onSelect={() => setOrderType("MARKET")}
+                    label="Market"
+                    testId="order-ticket-type-market"
+                  />
+                  <RadioOption
+                    checked={orderType === "LIMIT"}
+                    accent={accent}
+                    onSelect={() => setOrderType("LIMIT")}
+                    label="Limit"
+                    testId="order-ticket-type-limit"
+                  />
+                </div>
+              </div>
+
+              {/* GTT stoploss/target — FUNCTIONAL bracket exits. Both on →
+                  a true OCO pair (one fills, the other cancels). */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  padding: "12px 0",
+                  borderBottom: "1px solid var(--glass-border)",
+                  color: "var(--text-secondary)",
+                  fontSize: 12.5,
+                }}
+              >
                 <span
+                  title="Good-till-triggered exits, sized as a % move from your entry price"
                   style={{
-                    width: 64,
-                    borderBottom: "1px dashed var(--glass-border)",
-                    display: "inline-block",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fontStyle: "italic",
+                    border: "1px solid var(--glass-border)",
+                    borderRadius: 8,
+                    padding: "1px 7px",
+                    color: "var(--text-tertiary)",
                   }}
+                >
+                  gtt
+                </span>
+                <GttExitControl
+                  label="Stoploss"
+                  on={slOn}
+                  pct={slPct}
+                  valid={slValid}
+                  accent={accent}
+                  onToggle={(next) => setSlOn(next)}
+                  onPct={(v) => setSlPct(v)}
+                  testId="order-ticket-gtt-sl"
                 />
-                %
-              </label>
-            ))}
-            <Info
-              size={14}
-              strokeWidth={2}
-              aria-hidden="true"
-              style={{ marginLeft: "auto", color: "var(--text-disabled)" }}
-            />
-          </div>
+                <GttExitControl
+                  label="Target"
+                  on={tpOn}
+                  pct={tpPct}
+                  valid={tpValid}
+                  accent={accent}
+                  onToggle={(next) => setTpOn(next)}
+                  onPct={(v) => setTpPct(v)}
+                  testId="order-ticket-gtt-tp"
+                />
+                <Info
+                  size={14}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                  style={{ marginLeft: "auto", color: "var(--text-disabled)" }}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {/* ── Footer ─────────────────────────────────────────────── */}
@@ -745,6 +754,72 @@ function TicketField({
       </div>
       {children}
     </div>
+  );
+}
+
+function GttExitControl({
+  label,
+  on,
+  pct,
+  valid,
+  accent,
+  onToggle,
+  onPct,
+  testId,
+}: {
+  label: string;
+  on: boolean;
+  pct: string;
+  valid: boolean;
+  accent: string;
+  onToggle: (next: boolean) => void;
+  onPct: (value: string) => void;
+  testId: string;
+}): React.ReactElement {
+  return (
+    <label
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        cursor: "pointer",
+        color: on ? "var(--text-primary)" : "var(--text-secondary)",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => onToggle(e.target.checked)}
+        aria-label={`${label} GTT`}
+        data-testid={`${testId}-check`}
+        style={{ accentColor: accent }}
+      />
+      {label}
+      <input
+        type="number"
+        min={0}
+        step={0.5}
+        value={on ? pct : ""}
+        placeholder={on ? "" : "—"}
+        disabled={!on}
+        onChange={(e) => onPct(e.target.value)}
+        aria-label={`${label} percent`}
+        data-testid={`${testId}-pct`}
+        style={{
+          width: 64,
+          padding: "3px 6px",
+          border: "none",
+          borderBottom: `1px dashed ${on && !valid ? "#e5484d" : "var(--glass-border)"}`,
+          background: "transparent",
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-ui)",
+          fontSize: 12.5,
+          outline: "none",
+          textAlign: "right",
+        }}
+      />
+      %
+    </label>
   );
 }
 

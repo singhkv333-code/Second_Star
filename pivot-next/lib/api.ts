@@ -915,6 +915,17 @@ export type OrderRegisterRequest = (
   // Chat session id — when the account is in paper mode the order fills into
   // the paper book and attributes to this conversation's forward-test idea.
   conversation_id?: string;
+  // Bracket exits (single-leg only): GTT stop-loss / target as a % move from
+  // the entry price. Both set → OCO pair (one fills, the other cancels).
+  gtt_stoploss_pct?: number | null;
+  gtt_target_pct?: number | null;
+};
+
+/** One armed bracket exit as reported by POST /orders/register. */
+export type RegisteredExit = {
+  id: number;
+  trigger_price: number;
+  status: string;
 };
 
 export type RegisteredOrder = {
@@ -928,6 +939,15 @@ export type RegisteredOrder = {
   trigger_price: number | null;
   status: string;
   placed_at: string;
+  // Bracket exits — present on single-leg registrations that asked for them.
+  exits?: {
+    reference_price: number;
+    exit_side: string;
+    oco_group?: string | null;
+    stoploss?: RegisteredExit;
+    target?: RegisteredExit;
+  } | null;
+  exits_error?: string | null;
 };
 
 export type RegisterOrderResponse =

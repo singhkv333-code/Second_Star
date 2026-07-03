@@ -10,6 +10,7 @@ from backend.paper.routing import (
     InsufficientFundsError,
     should_use_paper,
     submit_gtt_for_user,
+    submit_gtt_oco_for_user,
     submit_order_for_user,
 )
 from backend.brokers.sessions import get_active_broker_session
@@ -259,6 +260,12 @@ class OrderRegisterRequest(BaseModel):
     # Basket form
     basket: bool = False
     legs: Optional[List[OrderRegisterLeg]] = None
+    # Bracket exits (single-leg only): arm a GTT stop-loss and/or target as a
+    # percentage move from the entry reference price. Both set → a true OCO
+    # pair (one fills, the other cancels); one set → a single GTT. Percent of
+    # the entry price, e.g. 5 = exit 5% against/for the position.
+    gtt_stoploss_pct: Optional[float] = Field(default=None, gt=0, lt=90)
+    gtt_target_pct: Optional[float] = Field(default=None, gt=0, lt=900)
     # Chat conversation that produced this order — so a paper fill attributes
     # to the right forward-test idea (P6). Optional.
     conversation_id: Optional[str] = None
@@ -396,6 +403,126 @@ def _persist_leg(
     return row
 
 
+def _tick(x: float) -> float:
+    """Round to the NSE 0.05 tick."""
+    return round(round(x / 0.05) * 0.05, 2)
+
+
+def _arm_bracket_exits(
+    db: Session,
+    user_id: int,
+    row: TradeLog,
+    *,
+    stoploss_pct: Optional[float],
+    target_pct: Optional[float],
+    conversation_id: Optional[str],
+) -> tuple[Optional[dict], Optional[str]]:
+    """Arm GTT stop-loss/target exits for a just-registered entry order.
+
+    Triggers are computed as a % move from the entry reference price (the
+    limit price when set, else the live mark). BUY entry → SL below / TP
+    above; SELL entry mirrors. Both set → a true OCO pair (paper: shared
+    gtt_oco_group; live: the broker's two-leg GTT). One set → a single GTT.
+
+    Returns (exits_payload, None) on success or (None, reason) on failure —
+    the ENTRY is already placed either way, so failures report honestly
+    instead of unwinding it. Writes one TradeLog row per armed exit; caller
+    owns commit.
+    """
+    entry_side = str(row.transaction_type).upper()
+    exit_side = "SELL" if entry_side == "BUY" else "BUY"
+
+    ref = row.price if row.price else get_mark_price(row.symbol)
+    if ref is None or float(ref) <= 0:
+        return None, "no reference price available to compute exit triggers"
+    ref = float(ref)
+    # BUY entry: stop below / target above. SELL entry: mirrored.
+    sign = 1 if entry_side == "BUY" else -1
+    sl_trigger = (
+        _tick(ref * (1 - sign * float(stoploss_pct) / 100)) if stoploss_pct else None
+    )
+    tp_trigger = (
+        _tick(ref * (1 + sign * float(target_pct) / 100)) if target_pct else None
+    )
+
+    exits: dict = {"reference_price": ref, "exit_side": exit_side}
+    legs: list[tuple[str, float, dict]] = []  # (kind, trigger, result)
+    try:
+        if sl_trigger is not None and tp_trigger is not None:
+            result = submit_gtt_oco_for_user(
+                db, user_id,
+                tradingsymbol=row.symbol,
+                exchange=row.exchange or "NSE",
+                exit_side=exit_side,
+                quantity=int(row.quantity),
+                stoploss_trigger=sl_trigger,
+                target_trigger=tp_trigger,
+                last_price=ref,
+                client_request_id_prefix=f"bracket:{row.id}",
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            exits["oco_group"] = result.get("oco_group") or result.get("trigger_id")
+            legs.append(("stoploss", sl_trigger, result.get("stoploss") or result))
+            legs.append(("target", tp_trigger, result.get("target") or result))
+        else:
+            kind = "stoploss" if sl_trigger is not None else "target"
+            trigger = sl_trigger if sl_trigger is not None else tp_trigger
+            assert trigger is not None
+            result = submit_gtt_for_user(
+                db, user_id,
+                tradingsymbol=row.symbol,
+                exchange=row.exchange or "NSE",
+                transaction_type=exit_side,
+                quantity=int(row.quantity),
+                trigger_price=trigger,
+                limit_price=trigger,
+                last_price=ref,
+                client_request_id=f"bracket:{row.id}:{kind[:2]}",
+                source="chat",
+                conversation_id=conversation_id,
+            )
+            legs.append((kind, trigger, result))
+    except NotImplementedError as exc:
+        return None, str(exc)
+    except InsufficientFundsError as exc:
+        return None, str(exc)
+    except Exception as exc:  # noqa: BLE001 — entry stands; report the exit failure
+        logger.exception(
+            "bracket exits failed for order %s %s", row.id, row.symbol,
+        )
+        return None, f"exit placement failed: {str(exc).strip() or type(exc).__name__}"
+
+    for kind, trigger, result in legs:
+        status = str(
+            result.get("paper_status") or result.get("status") or "active"
+        )
+        exit_row = TradeLog(
+            user_id=user_id,
+            kite_order_id=(
+                str(result.get("trigger_id") or result.get("order_id") or "") or None
+            ),
+            symbol=row.symbol,
+            exchange=row.exchange,
+            transaction_type=exit_side,
+            order_type="GTT",
+            quantity=row.quantity,
+            price=trigger,
+            trigger_price=trigger,
+            status=status,
+            source="chat-confirm",
+            placed_at=now_ist(),
+        )
+        db.add(exit_row)
+        db.flush()
+        exits[kind] = {
+            "id": exit_row.id,
+            "trigger_price": trigger,
+            "status": status,
+        }
+    return exits, None
+
+
 @router.post("/register", status_code=201)
 async def register_order(
     request: OrderRegisterRequest,
@@ -460,12 +587,33 @@ async def register_order(
     row = _persist_leg(db, user_id, leg, conversation_id=request.conversation_id)
     db.commit()
     db.refresh(row)
+
+    # Bracket exits — armed AFTER the entry commits, so an exit failure can
+    # never lose the entry. Skipped when the entry itself was rejected (no
+    # position will exist for the exits to close) or for GTT entries.
+    exits: Optional[dict] = None
+    exits_error: Optional[str] = None
+    wants_exits = request.gtt_stoploss_pct or request.gtt_target_pct
+    if wants_exits and str(row.order_type).upper() in {"MARKET", "LIMIT"}:
+        if "reject" in str(row.status).lower():
+            exits_error = "entry was rejected — stop-loss/target not armed"
+        else:
+            exits, exits_error = _arm_bracket_exits(
+                db, user_id, row,
+                stoploss_pct=request.gtt_stoploss_pct,
+                target_pct=request.gtt_target_pct,
+                conversation_id=request.conversation_id,
+            )
+            db.commit()
+
     return {
         "id": row.id, "symbol": row.symbol, "exchange": row.exchange,
         "transaction_type": row.transaction_type, "order_type": row.order_type,
         "quantity": row.quantity, "price": row.price,
         "trigger_price": row.trigger_price, "status": row.status,
         "placed_at": format_ist(row.placed_at),
+        "exits": exits,
+        "exits_error": exits_error,
     }
 
 

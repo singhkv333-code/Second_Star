@@ -120,6 +120,53 @@ def place_gtt_order(
     return {"trigger_id": trigger_id, "status": "active", "message": "GTT created"}
 
 
+def place_gtt_oco_order(
+    access_token: str,
+    tradingsymbol: str,
+    exchange: str,
+    transaction_type: str,
+    quantity: int,
+    stoploss_trigger: float,
+    target_trigger: float,
+    last_price: float,
+) -> dict:
+    """Place a two-leg (OCO) GTT: stop-loss + target exits for an open
+    position. Kite's two-leg contract wants trigger_values as
+    [stoploss, target] with the stop-loss leg first in `orders`; when one
+    leg triggers, the exchange cancels the other. `transaction_type` is the
+    EXIT side (SELL for a long position)."""
+    global _mock_order_id
+
+    if KITE_MOCK_MODE:
+        _mock_order_id += 1
+        gtt_id = _mock_order_id
+        return {
+            "trigger_id": gtt_id,
+            "status": "active",
+            "message": f"Mock OCO GTT {gtt_id} created",
+        }
+
+    kite = get_authenticated_kite(access_token)
+    leg = {
+        "transaction_type": transaction_type,
+        "quantity": quantity,
+        "order_type": kite.ORDER_TYPE_LIMIT,
+        "product": kite.PRODUCT_CNC,
+    }
+    trigger_id = kite.place_gtt(
+        trigger_type=kite.GTT_TYPE_OCO,
+        tradingsymbol=tradingsymbol,
+        exchange=exchange,
+        trigger_values=[stoploss_trigger, target_trigger],
+        last_price=last_price,
+        orders=[
+            {**leg, "price": stoploss_trigger},
+            {**leg, "price": target_trigger},
+        ],
+    )
+    return {"trigger_id": trigger_id, "status": "active", "message": "OCO GTT created"}
+
+
 def get_orders(access_token: str) -> list:
     """Get today's order list."""
     if KITE_MOCK_MODE:

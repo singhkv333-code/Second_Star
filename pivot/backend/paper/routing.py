@@ -607,3 +607,109 @@ def submit_gtt_for_user(
         limit_price=limit_price,
         last_price=last_price if last_price is not None else limit_price,
     )
+
+
+def submit_gtt_oco_for_user(
+    db: Session,
+    user_id: int,
+    *,
+    tradingsymbol: str,
+    exchange: str = "NSE",
+    exit_side: str,
+    quantity: int,
+    stoploss_trigger: float,
+    target_trigger: float,
+    last_price: Optional[float] = None,
+    client_request_id_prefix: Optional[str] = None,
+    source: str = "chat",
+    conversation_id: Optional[str] = None,
+) -> dict:
+    """Arm a bracket (one-cancels-other stop-loss + target) for a position.
+
+    PAPER: two resting GTT rows sharing a ``gtt_oco_group`` — the evaluator
+    fills whichever triggers first and cancels the sibling (the consumer in
+    ``evaluate_resting_orders`` has been live since P3; this is its producer).
+    LIVE: the broker's native two-leg GTT (Kite ``GTT_TYPE_OCO``); connectors
+    without an OCO surface raise NotImplementedError rather than approximating
+    with two independent triggers (which would double-exit on both firing).
+
+    Returns {"mode": "paper"|"live", "oco_group"|"trigger_id": ...,
+    "stoploss": {...}, "target": {...}} (live carries the single trigger_id).
+    """
+    import uuid as _uuid
+
+    uid = int(user_id)
+    symbol = str(tradingsymbol).upper()
+    side = str(exit_side).upper()
+
+    if should_use_paper(db, uid):
+        broker = PaperBroker(db, uid)
+        group = _uuid.uuid4().hex[:32]
+        prefix = client_request_id_prefix or f"bracket:{uid}:{symbol}:{group[:8]}"
+        common: dict[str, Any] = dict(
+            tradingsymbol=symbol,
+            transaction_type=side,
+            quantity=int(quantity),
+            exchange=exchange,
+            gtt_oco_group=group,
+            source=source,
+            origin_kind="chat",
+            conversation_id=conversation_id,
+            label=symbol,
+        )
+        sl = broker.place_gtt_order(
+            trigger_price=stoploss_trigger,
+            limit_price=stoploss_trigger,
+            client_request_id=f"{prefix}:sl",
+            **common,
+        )
+        tp = broker.place_gtt_order(
+            trigger_price=target_trigger,
+            limit_price=target_trigger,
+            client_request_id=f"{prefix}:tp",
+            **common,
+        )
+        return {"mode": "paper", "oco_group": group, "stoploss": sl, "target": tp}
+
+    ref_price = (
+        last_price
+        if last_price is not None
+        else (float(stoploss_trigger) + float(target_trigger)) / 2
+    )
+    sess = _live_broker_session(db, uid)
+    if sess is not None:
+        result = get_connector(sess.broker).place_gtt_oco(
+            sess,
+            tradingsymbol=symbol,
+            exchange=exchange,
+            transaction_type=side,
+            quantity=int(quantity),
+            stoploss_trigger=stoploss_trigger,
+            target_trigger=target_trigger,
+            last_price=ref_price,
+        )
+        record_audit(
+            db, user_id=uid, broker=sess.broker,
+            event_type="order_placed",
+            symbol=symbol, side=side, quantity=int(quantity),
+            order_type="GTT-OCO", price=target_trigger,
+            order_id=(
+                str(result.get("trigger_id"))
+                if isinstance(result, dict) and result.get("trigger_id") is not None
+                else None
+            ),
+            status=result.get("status") if isinstance(result, dict) else None,
+        )
+        db.commit()
+        return {"mode": "live", **result}
+    result = _kite.place_gtt_oco_order(
+        access_token="mock_token",
+        tradingsymbol=symbol,
+        exchange=exchange,
+        transaction_type=side,
+        quantity=int(quantity),
+        stoploss_trigger=stoploss_trigger,
+        target_trigger=target_trigger,
+        last_price=ref_price,
+    )
+    return {"mode": "live", **result}

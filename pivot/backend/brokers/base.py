@@ -149,6 +149,26 @@ class BrokerConnector(abc.ABC):
     ) -> dict:
         raise NotImplementedError(f"{self.broker}: GTT not supported")
 
+    def place_gtt_oco(
+        self,
+        session: BrokerSession,
+        *,
+        tradingsymbol: str,
+        exchange: str = "NSE",
+        transaction_type: str,
+        quantity: int,
+        stoploss_trigger: float,
+        target_trigger: float,
+        last_price: Optional[float] = None,
+    ) -> dict:
+        """Two-leg (one-cancels-other) GTT: stop-loss + target exits.
+        Brokers without a native OCO surface keep this NotImplementedError —
+        placing two INDEPENDENT triggers instead would double-exit when both
+        fire, so honesty demands refusing rather than approximating."""
+        raise NotImplementedError(
+            f"{self.broker}: bracket (OCO) stop-loss/target not supported yet"
+        )
+
     @abc.abstractmethod
     def cancel_order(
         self, session: BrokerSession, order_id: str, variety: str = "regular"

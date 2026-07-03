@@ -113,6 +113,9 @@ class PaperBroker:
         # forward-test idea attribution (P6)
         label: Optional[str] = None,
         backtest_run_id: Optional[str] = None,
+        # Bracket exits: resting orders sharing a group are one-cancels-other —
+        # the evaluator cancels the siblings when one fills.
+        gtt_oco_group: Optional[str] = None,
     ) -> dict:
         db = self.db
         side = str(transaction_type).upper()
@@ -166,6 +169,7 @@ class PaperBroker:
             conversation_id=conversation_id,
             strategy_id=strategy_id,
             idea_id=idea_id,
+            gtt_oco_group=gtt_oco_group,
         )
         try:
             # SAVEPOINT: a client_request_id collision rolls back ONLY this
@@ -274,12 +278,15 @@ class PaperBroker:
         exchange: str = "NSE",
         access_token: Optional[str] = None,   # Kite parity; ignored
         client_request_id: Optional[str] = None,
+        gtt_oco_group: Optional[str] = None,
         **attribution,
     ) -> dict:
         """A GTT rests as an order_type='GTT' row (status='resting'); the
         P3 evaluator fills it when LTP crosses trigger_price. Returns a
         GTT-shaped result (trigger_id + status='active') for Kite parity —
-        action.set_stoploss / set_takeprofit read result['trigger_id']."""
+        action.set_stoploss / set_takeprofit read result['trigger_id'].
+        Two GTTs sharing a `gtt_oco_group` form a bracket: the evaluator
+        cancels the sibling when one fills (OCO)."""
         res = self.place_order(
             tradingsymbol=tradingsymbol,
             transaction_type=transaction_type,
@@ -289,6 +296,7 @@ class PaperBroker:
             price=limit_price,
             trigger_price=trigger_price,
             client_request_id=client_request_id,
+            gtt_oco_group=gtt_oco_group,
             **attribution,
         )
         # GTT contract: callers read trigger_id + a Kite-style status.
