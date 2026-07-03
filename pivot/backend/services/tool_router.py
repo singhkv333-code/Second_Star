@@ -966,7 +966,20 @@ _MODULE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(thematic|monsoon|drought|rural|rate[- ]cut|rupee|depreciat\w*|"
                 r"crude spike|defen[cs]e stocks?|manufacturing upcycle|"
                 r"structural (story|trend|theme)|macro (scenario|theme))\b|"
-                r"\b(sector|stocks?|theme) .* (will|going to|should) (do well|benefit|outperform)"),
+                r"\b(sector|stocks?|theme) .* (will|going to|should) (do well|benefit|outperform)|"
+                # expression intent on a theme/sector/scenario ("give me a way
+                # to play the EV theme", "bet on the defence story")
+                r"\b(play|bet on|express|position for|profit from|ride|capitali[sz]e on|"
+                r"way to (play|bet)|how (do|should) i (play|bet|position))\b"
+                r".{0,45}\b(theme|story|sector|space|trend|supply ?chain|scenario|upcycle|boom|move)\b|"
+                # theme noun + expression word
+                r"\b(ev|electric vehicle|battery|semiconductor|chips?|renewable|solar|"
+                r"clean energy|hydrogen|artificial intelligence|manufacturing|defen[cs]e|"
+                r"infra(structure)?)\b.{0,30}\b(theme|story|supply ?chain|upcycle|boom|space|play|basket)\b|"
+                # macro/price thesis + 'what should I do' expression ask
+                r"\b(crude|oil|gold|silver|rupee|dollar|inflation|interest rates?|war|conflict|tension)"
+                r"\b.{0,70}\b(spike|surge|rally|crash|weaken|strengthen|going to|will|likely)\b"
+                r".{0,60}\b(what should i|how (do|should) i|help me|position|benefit|play|hedge)\b"),
      "thematic"),
     (re.compile(r"\b(rbi|mpc|fomc|\bfed\b|\bcpi\b|inflation print|earnings|results day|"
                 r"policy (meeting|decision|announcement)|expiry day|corporate action)\b|"
