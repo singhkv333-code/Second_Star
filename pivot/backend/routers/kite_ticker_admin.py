@@ -27,7 +27,7 @@ from backend.kite.auth import (
 from backend.kite.portfolio import get_holdings
 from backend.kite.ticker import get_ticker_manager
 from backend.models import BrokerSession
-from backend.routers._deps import require_user
+from backend.routers._deps import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/api/admin/kite-ticker", tags=["Admin"])
 
 @router.get("/status")
 def ticker_status(
-    _user_id: int = Depends(require_user),
+    _user_id: int = Depends(require_admin),
 ) -> dict[str, Any]:
     """Return the current ticker status (always — never 404)."""
     return get_ticker_manager().status()
@@ -44,7 +44,7 @@ def ticker_status(
 
 @router.post("/start")
 def ticker_start(
-    user_id: int = Depends(require_user),
+    user_id: int = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Start the ticker under the calling user's Kite access token.
@@ -93,7 +93,7 @@ def ticker_start(
 
 @router.post("/stop")
 def ticker_stop(
-    _user_id: int = Depends(require_user),
+    _user_id: int = Depends(require_admin),
 ) -> dict[str, Any]:
     """Stop the ticker. Idempotent."""
     return get_ticker_manager().stop()

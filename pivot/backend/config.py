@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     # (mc.companies, mc.statement_lines, mc.daily_prices). Maintained by
     # pivot-mc-scraper. Backend only reads — never writes.
     financials_dsn: str = "postgresql://pivot_user:pivot_password@localhost:5432/financials"
+    # Comma-separated pivot user ids allowed on /admin* surfaces (ticker
+    # start/stop, chat-trace inspection, event simulation, F&O refresh).
+    # FAIL-CLOSED: empty ⇒ nobody is admin, every admin endpoint 403s. Set
+    # ADMIN_USER_IDS in .env (e.g. "2") — never default anyone in.
+    admin_user_ids: str = ""
     # Optional READ-REPLICA DSN for the financials DB. When set, the app's
     # entire read path (FinancialsSessionLocal — the app never writes to
     # mc.*) binds here instead of `financials_dsn`, so app traffic can move

@@ -327,6 +327,7 @@ def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
     if token:
         try:
             from backend.kite.market_data import get_live_quote
+            from backend.market.price_guard import check_and_flag
 
             raw = get_live_quote(token, [f"NSE:{s}" for s in syms]) or {}
             applied = False
@@ -340,6 +341,14 @@ def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
                 entry = out.setdefault(
                     sym, {"price": None, "change_pct": None, "one_year_pct": None}
                 )
+                # Reliability guard: while the broker is live, score the
+                # yfinance baseline against it. A divergent symbol gets
+                # flagged (and its yf-derived 1Y return dropped NOW — a
+                # mispriced series makes the ratio wrong too); the flag
+                # suppresses that symbol's yf values when Kite is down.
+                yf_price = entry.get("price")
+                if yf_price and check_and_flag(sym, float(yf_price), float(lp)):
+                    entry["one_year_pct"] = None
                 entry["price"] = round(float(lp), 2)
                 prev = (payload.get("ohlc") or {}).get("close")
                 if isinstance(prev, (int, float)) and prev > 0:
@@ -351,6 +360,20 @@ def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
                 source = "kite"
         except Exception as exc:  # noqa: BLE001
             logger.debug("[screener] kite quote overlay failed: %s", exc)
+
+    # 3. Kite down → suppress yfinance values for symbols the guard has
+    # flagged as unreliable, so the grid shows an honest "—" instead of a
+    # confidently wrong number (CLAUDE.md: never present bad data as data).
+    if source == "yfinance":
+        try:
+            from backend.market.price_guard import unreliable_symbols
+
+            for sym in unreliable_symbols() & set(out):
+                out[sym] = {
+                    "price": None, "change_pct": None, "one_year_pct": None,
+                }
+        except Exception:  # noqa: BLE001 — guard is best-effort
+            pass
 
     return out, source
 

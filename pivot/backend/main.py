@@ -450,9 +450,29 @@ def _maybe_autostart_kite_ticker() -> None:
             logger.info(f"Kite ticker autostart: universe seed skipped: {e}")
 
         if token_invalid:
-            # Stale token (typically expired at 7:30 IST or rotated
-            # api_key). Mark the session inactive so we don't thrash
-            # the WS reconnect loop. User must re-do Kite OAuth.
+            # Stale token (typically expired at 7:30 IST or rotated api_key).
+            # If this session opted into the encrypted-credential replay,
+            # self-heal: mint a fresh token right here (2026-07-04 beta-prep)
+            # instead of degrading the whole day to the yfinance fallback.
+            if (getattr(session, "persistence_mode", None) == "totp_login"
+                    and getattr(session, "auto_login_opt_in", False)):
+                try:
+                    from backend.brokers.registry import get_connector
+
+                    token = get_connector("kite").mint_access_token(db, session)
+                    token_invalid = False
+                    logger.info(
+                        "Kite ticker autostart: stale token self-healed via "
+                        "auto-relogin for user %s", session.user_id,
+                    )
+                except Exception as mint_err:  # noqa: BLE001
+                    logger.info(
+                        f"Kite ticker autostart: auto-relogin failed: {mint_err}"
+                    )
+        if token_invalid:
+            # No stored credentials (or replay failed). Mark the session
+            # inactive so we don't thrash the WS reconnect loop. User must
+            # re-do Kite OAuth.
             try:
                 session.is_active = False
                 db.add(session)

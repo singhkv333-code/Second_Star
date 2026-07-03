@@ -580,6 +580,26 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         next_run_time=_dt.now() + _td(seconds=20),
     )
 
+    # Kite session auto-relogin (2026-07-04 beta-prep) — Zerodha kills every
+    # access token ~7:30 IST daily; for sessions that opted into the
+    # encrypted-credential replay this re-mints the token unattended and
+    # restarts the tick WebSocket, so mornings no longer degrade to the
+    # yfinance fallback. 07:40 primary + 08:15 catch-up (scheduler runs IST).
+    from backend.services.kite_session_refresh import refresh_kite_sessions
+    for _h, _m, _jid in ((7, 40, "kite_auto_relogin"),
+                         (8, 15, "kite_auto_relogin_retry")):
+        scheduler.add_job(
+            refresh_kite_sessions,
+            trigger="cron",
+            hour=_h,
+            minute=_m,
+            id=_jid,
+            name=f"Pivot — Kite auto-relogin ({_h:02d}:{_m:02d} IST)",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
     # Scheduled-macro watcher — only when the feature flag is on. Gated at
     # registration (not self-gated inside) so the job doesn't even exist
     # when disabled; tests call `_poll_scheduled_macro_triggers` directly.

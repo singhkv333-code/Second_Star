@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Any
 
 from backend.auth.jwt_handler import get_user_id_from_token
+from backend.routers._deps import require_admin
 from backend.services.chat_trace import get_recent_turns
 
 
@@ -27,6 +28,14 @@ def _user_from_authorization(authorization: str | None) -> int:
     user_id = get_user_id_from_token(authorization.replace("Bearer ", "", 1))
     if not user_id:
         raise HTTPException(401, "Invalid or expired token")
+    # Admin-only surface (chat traces expose OTHER users' conversations).
+    # Same fail-closed membership as routers/_deps.require_admin.
+    from backend.config import settings
+
+    raw = (getattr(settings, "admin_user_ids", "") or "").strip()
+    admin_ids = {int(p) for p in raw.split(",") if p.strip().isdigit()}
+    if int(user_id) not in admin_ids:
+        raise HTTPException(403, "admin access required")
     return user_id
 
 
@@ -45,6 +54,9 @@ def _user_from_authorization(authorization: str | None) -> int:
 async def conv_trace(
     conv_id: str,
     limit: int = Query(10, ge=1, le=25),
+    # 2026-07-04 (beta-prep): this endpoint previously had NO auth at all —
+    # chat traces expose any user's conversation content, so it's admin-only.
+    _admin: int = Depends(require_admin),
 ) -> dict[str, Any]:
     turns = get_recent_turns(conv_id, limit=limit)
     return {

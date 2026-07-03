@@ -31,9 +31,13 @@ from backend.market.instrument_master import (
 )
 from backend.market.option_chain import get_chain
 from backend.models import OptionUniverse
+from backend.routers._deps import require_admin
 
 logger = logging.getLogger(__name__)
 
+# 2026-07-04 (beta-prep): these endpoints previously had NO auth at all —
+# any unauthenticated caller could trigger /refresh. Whole /admin/ prefix is
+# now gated by require_admin (fail-closed via ADMIN_USER_IDS).
 router = APIRouter(prefix="/admin/options", tags=["Admin — F&O"])
 
 
@@ -43,6 +47,7 @@ async def chain(
     expiry: Optional[str] = Query(None, description="YYYY-MM-DD; nearest when omitted"),
     width: int = Query(10, ge=1, le=40, description="strikes each side of ATM"),
     db: Session = Depends(get_db),
+    _admin: int = Depends(require_admin),
 ) -> dict[str, Any]:
     payload = get_chain(db, underlying, expiry, width=width)
     if payload is None:
@@ -59,6 +64,7 @@ async def chain(
 async def expiries(
     underlying: str = Query(..., min_length=1, max_length=40),
     db: Session = Depends(get_db),
+    _admin: int = Depends(require_admin),
 ) -> dict[str, Any]:
     rows = list_expiries(db, underlying)
     if not rows:
@@ -70,6 +76,7 @@ async def expiries(
 async def universe(
     as_of: Optional[str] = Query(None, description="YYYY-MM-DD; latest when omitted"),
     db: Session = Depends(get_db),
+    _admin: int = Depends(require_admin),
 ) -> dict[str, Any]:
     q = db.query(OptionUniverse)
     if as_of:
@@ -105,7 +112,10 @@ async def universe(
 
 
 @router.post("/refresh", summary="Refresh instrument master + universe now")
-async def refresh(db: Session = Depends(get_db)) -> dict[str, Any]:
+async def refresh(
+    db: Session = Depends(get_db),
+    _admin: int = Depends(require_admin),
+) -> dict[str, Any]:
     counts = refresh_instrument_master(db)
     selected = select_active_universe(db)
     return {

@@ -52,7 +52,7 @@ from backend.models import (
     WorkflowRun,
     WorkflowStatus,
 )
-from backend.routers._deps import require_user
+from backend.routers._deps import require_admin
 from backend.routers._errors import not_found, state_conflict
 
 logger = logging.getLogger(__name__)
@@ -176,7 +176,7 @@ def _load_workflow_for_user(
 async def simulate_trigger(
     payload: SimulateTriggerRequest,
     workflow_id: str = Path(..., min_length=1, max_length=64),
-    user_id: int = Depends(require_user),
+    user_id: int = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> SimulateTriggerResponse:
     """Drive the engine to execute the workflow as if its trigger had
@@ -228,7 +228,7 @@ async def simulate_trigger(
 async def approve_all(
     payload: ApproveAllRequest,
     workflow_id: str = Path(..., min_length=1, max_length=64),
-    user_id: int = Depends(require_user),
+    user_id: int = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> ApproveAllResponse:
     """Stamp ``decision`` on every undecided WorkflowApproval for the

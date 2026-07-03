@@ -84,6 +84,13 @@ def test_production_env_returns_404(client, auth_headers, db, monkeypatch):
         "production",
         raising=False,
     )
+    # require_admin reads settings.app_env fresh; flipping it to production
+    # would make the admin gate fail-closed (403) BEFORE the router's own
+    # production→404 guard runs. This test asserts the 404 guard, so grant
+    # the caller admin for the patched-prod window (mirrors ADMIN_USER_IDS).
+    monkeypatch.setattr(
+        "backend.config.settings.admin_user_ids", str(uid), raising=False
+    )
 
     r = client.post(
         f"/api/admin/workflows/{wf.id}/simulate-trigger",
