@@ -59,6 +59,7 @@ from backend.llm import LLMClient, LLMMessage, ToolDef, get_llm_client
 from backend.llm.base import ReasoningEffort
 from backend.prompts import build_system_prompt
 from backend.prompts.assembler import UserContext as PromptUserContext
+from backend.prompts.assembler import load_prompt_modules
 from backend.services.chat_trace import TurnTrace, start_turn
 from backend.services.conversation_store import (
     CONV_PROMPT_WINDOW_TURNS,
@@ -74,6 +75,7 @@ from backend.services.workflow_skeleton import try_workflow_skeleton
 from backend.services.tool_router import (
     cache_key_for,
     filter_registry_tools,
+    select_prompt_modules,
     select_tool_names,
 )
 from backend.services.thematic_map import (
@@ -2494,6 +2496,28 @@ def _analysis_subhint(message: str) -> str:
             "Price vs MA` table for the 20/50/200-DMA."
         )
     return ""
+
+
+def _history_tail_text(history: list, limit: int = 800) -> str:
+    """Best-effort string of the last few turns, for intent-pack selection
+    so a follow-up ("make it 2 lots") still pulls the right module. Tolerates
+    dict- or object-shaped history entries; never raises."""
+    parts: list[str] = []
+    try:
+        for m in (history or [])[-4:]:
+            c = m.get("content") if isinstance(m, dict) else getattr(m, "content", "")
+            if isinstance(c, str) and c:
+                parts.append(c)
+    except Exception:
+        return ""
+    return " ".join(parts)[-limit:]
+
+
+def _prompt_module_block(message: str, history: list) -> str:
+    """The per-turn intent-pack system-message content (empty when none
+    applies). system_core.md is always loaded; these packs are additive."""
+    names = select_prompt_modules(message, _history_tail_text(history))
+    return load_prompt_modules(names) if names else ""
 
 
 def _build_deterministic_guards(message: str, history: list) -> list[str]:
@@ -5902,6 +5926,13 @@ class ChatService:
                 content=build_system_prompt(role="chat", user_context=None),
             ),
         ]
+        # Intent packs: system_core.md is always loaded; the router injects
+        # the domain mechanics (options/backtest/baskets/…) only on turns
+        # that need them. Placed right after the cached core so mechanics
+        # sit high, before per-turn user/reply-class context.
+        _mod_block = _prompt_module_block(message, history)
+        if _mod_block:
+            base_messages.append(LLMMessage(role="system", content=_mod_block))
         if prompt_ctx is not None:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:
@@ -7535,6 +7566,11 @@ class ChatService:
                 content=build_system_prompt(role="chat", user_context=None),
             ),
         ]
+        # Intent packs (streaming mirror of handle()): core always loaded,
+        # domain mechanics injected only when the turn needs them.
+        _mod_block = _prompt_module_block(message, history)
+        if _mod_block:
+            base_msgs.append(LLMMessage(role="system", content=_mod_block))
         if prompt_ctx is not None:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:

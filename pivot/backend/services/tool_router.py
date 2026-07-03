@@ -943,6 +943,68 @@ def select_tool_names(message: str) -> Optional[set[str]]:
     return selected
 
 
+# ── Intent packs (system_core.md + modules/*.md) ───────────────────
+#
+# Mirror of the tool-router idea for INSTRUCTIONS: system_core.md is always
+# loaded; these per-intent packs are injected only when the turn matches.
+# Same mechanism as select_tool_names — pure regex, microseconds, no LLM.
+# A module name maps 1:1 to prompts/modules/<name>.md. Overlap is fine and
+# expected (a rate-cut hedge with options loads options+hedge+thematic);
+# the packs are small and de-duped by the loader.
+_MODULE_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(option|options|call option|put option|strikes?|expir(y|ies|ation)|"
+                r"straddles?|strangles?|iron ?condor|condor|butterfly|vertical spread|"
+                r"call spread|put spread|bull (call|put)|bear (call|put)|covered call|"
+                r"protective put|greeks?|max ?pain|\bpcr\b|open interest|f\s*&\s*o|\bfno\b|"
+                r"f and o)\b"), "options"),
+    (re.compile(r"\b(backtest|back[- ]test|simulate|simulation)\b|"
+                r"how would .* have (done|performed|fared)|what if i (had|bought|invested)|"
+                r"historical(ly)? .* (return|perform)"), "backtest"),
+    (re.compile(r"\b(baskets?|allocate|allocation|diversif\w*|equal[- ]?weight|"
+                r"risk[- ]?parity|min[- ]?variance|rebalanc\w*|portfolio of|"
+                r"split .* across)\b"), "baskets"),
+    (re.compile(r"\b(thematic|monsoon|drought|rural|rate[- ]cut|rupee|depreciat\w*|"
+                r"crude spike|defen[cs]e stocks?|manufacturing upcycle|"
+                r"structural (story|trend|theme)|macro (scenario|theme))\b|"
+                r"\b(sector|stocks?|theme) .* (will|going to|should) (do well|benefit|outperform)"),
+     "thematic"),
+    (re.compile(r"\b(rbi|mpc|fomc|\bfed\b|\bcpi\b|inflation print|earnings|results day|"
+                r"policy (meeting|decision|announcement)|expiry day|corporate action)\b|"
+                r"before the (rbi|policy|fed|budget|result)|"
+                r"when (btc|bitcoin|eth|ethereum|usdinr|gold|crude|silver) (cross|hit|break|reach)"),
+     "events"),
+    (re.compile(r"\b(news[- ]gated|headline trigger)\b|when there'?s news|"
+                r"if .* news (breaks|hits)|on (positive|negative) news"), "news"),
+    (re.compile(r"\b(polymarket|kalshi|prediction market)\b|priced[- ]in|what'?s priced"),
+     "polymarket"),
+    (re.compile(r"\bhedg\w+\b|downside protection|protect (my|the|this) .*"
+                r"(position|holding|portfolio|downside)|insure (my|the)"), "hedge"),
+    (re.compile(r"\bstop[- ]?loss(es)?\b|\bstoploss\b|trailing stop|trail\w* .*"
+                r"(below|stop|%|percent)|protective stop"), "stoploss"),
+    (re.compile(r"\bwebhooks?\b|callback url|post to (a|an|my) (url|endpoint|webhook)|"
+                r"\b(slack|discord|telegram)\b|(notify|ping|send) .* (url|webhook|endpoint)"),
+     "webhook"),
+]
+
+
+def select_prompt_modules(message: str, history_text: str = "") -> list[str]:
+    """Return the ordered list of instruction-pack names to inject for this
+    turn (empty when only the always-on core is needed).
+
+    Matches the current message AND a short tail of recent conversation, so a
+    follow-up like "make it 2 lots" mid-options-build still pulls the options
+    pack. Order follows _MODULE_RULES so the injected block is deterministic.
+    """
+    hay = f"{message}\n{history_text}".lower()
+    if not hay.strip():
+        return []
+    out: list[str] = []
+    for pattern, name in _MODULE_RULES:
+        if name not in out and pattern.search(hay):
+            out.append(name)
+    return out
+
+
 def filter_registry_tools(
     all_tools: list[dict],
     selected: Optional[set[str]],

@@ -142,12 +142,46 @@ def _load_domain_primer() -> str:
 
 @lru_cache(maxsize=1)
 def _load_chat_system_md() -> str:
-    """Existing system.md is the chat role's full instructions; we load it
-    rather than the inline _CHAT_FALLBACK when the file is present."""
-    p = PROMPTS_DIR / "system.md"
+    """The always-on core instructions for the chat role.
+
+    Since 2026-07-03 the monolithic system.md was split into a lean
+    ``system_core.md`` (identity + routing doctrine + decision hierarchy,
+    always loaded) plus per-intent packs in ``modules/*.md`` that are
+    injected only on the relevant turn (see ``load_prompt_modules``). We
+    prefer system_core.md; fall back to the old monolith, then the inline
+    fallback, so the prompt still builds in any environment."""
+    for name in ("system_core.md", "system.md"):
+        p = PROMPTS_DIR / name
+        if p.exists():
+            return p.read_text(encoding="utf-8").strip()
+    return _CHAT_FALLBACK
+
+
+@lru_cache(maxsize=None)
+def _load_prompt_module(name: str) -> str:
+    """Load one intent pack from ``prompts/modules/<name>.md`` (cached
+    per-name). Returns "" if the file is missing so a missing pack never
+    breaks a turn — the core rules + tool schema still carry it."""
+    p = PROMPTS_DIR / "modules" / f"{name}.md"
     if p.exists():
         return p.read_text(encoding="utf-8").strip()
-    return _CHAT_FALLBACK
+    return ""
+
+
+def load_prompt_modules(names: "list[str]") -> str:
+    """Concatenate the named intent packs into one system-message block,
+    de-duplicated and order-stable. Returns "" when no pack applies, so the
+    caller can skip appending an empty message."""
+    seen: set[str] = set()
+    blocks: list[str] = []
+    for n in names:
+        if n in seen:
+            continue
+        seen.add(n)
+        text = _load_prompt_module(n)
+        if text:
+            blocks.append(text)
+    return "\n\n---\n\n".join(blocks)
 
 
 @lru_cache(maxsize=1)
@@ -216,6 +250,7 @@ def reload_prompts() -> None:
     """Tests and live edits clear caches without a process restart."""
     _load_domain_primer.cache_clear()
     _load_chat_system_md.cache_clear()
+    _load_prompt_module.cache_clear()
     _load_agentic_examples.cache_clear()
 
 

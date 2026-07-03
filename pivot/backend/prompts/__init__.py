@@ -23,10 +23,16 @@ PROMPTS_DIR = Path(__file__).resolve().parent
 
 @lru_cache(maxsize=1)
 def system_prompt() -> str:
-    """Legacy chat-role system prompt (raw system.md). New code should
-    use `build_system_prompt(role='chat', ...)` which adds the domain
-    primer and user context."""
-    return (PROMPTS_DIR / "system.md").read_text(encoding="utf-8")
+    """Legacy chat-role system prompt. New code should use
+    `build_system_prompt(role='chat', ...)` which adds the domain primer,
+    intent packs, and user context. Reads the lean `system_core.md`
+    (falls back to the old monolith) so a stray legacy caller still gets
+    the live core rather than the retired system.md."""
+    for name in ("system_core.md", "system.md"):
+        p = PROMPTS_DIR / name
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    return ""
 
 
 def reload_system_prompt() -> None:
