@@ -21,7 +21,14 @@
  * Theme tokens are pulled from globals.css so light + dark both work.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import {
   AlertCircle,
   ChevronDown,
@@ -506,13 +513,6 @@ const RANGES: { id: PerformancePeriod; label: string; longLabel: string }[] = [
   { id: "5Y", label: "5Y", longLabel: "5 years"  },
 ];
 
-/** Format a chart point's ISO timestamp as "Mon 'YY" for the hover tooltip. */
-function fmtPointDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
-}
-
 type PerfState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
@@ -530,8 +530,23 @@ function PerformanceChart({
 }): React.ReactElement {
   const [rangeId, setRangeId] = useState<PerformancePeriod>("1Y");
   const [perfState, setPerfState] = useState<PerfState>({ kind: "loading" });
+  // True while a range switch is fetching BEHIND an already-visible chart.
+  // The chart stays mounted (dimmed) so the incoming series MORPHS from the
+  // old shape instead of flashing through a skeleton.
+  const [switching, setSwitching] = useState(false);
   // Bumped by Retry to force a re-fetch of the same range.
   const [retryKey, setRetryKey] = useState(0);
+
+  // Per-range series cache. Revisiting a range morphs instantly with no
+  // fetch. Cleared on reloadKey/retryKey (trading-mode flips, Retry) so a
+  // mode switch never shows the other book's curve.
+  const cacheRef = useRef<Map<PerformancePeriod, PortfolioPerformance>>(
+    new Map(),
+  );
+
+  useEffect(() => {
+    cacheRef.current.clear();
+  }, [reloadKey, retryKey]);
 
   // Fetch the real series on range change and in lockstep with the parent
   // load()/trading-mode flips (via reloadKey) and Retry (via retryKey). A
@@ -539,10 +554,25 @@ function PerformanceChart({
   // toggles can't race.
   useEffect(() => {
     let active = true;
-    setPerfState({ kind: "loading" });
+    const cached = cacheRef.current.get(rangeId);
+    if (cached) {
+      setPerfState({ kind: "ok", perf: cached });
+      setSwitching(false);
+      return;
+    }
+    // Keep an existing curve on screen while the new range loads — that
+    // persistent mount is what lets recharts animate old shape → new shape.
+    setPerfState((prev) => {
+      if (prev.kind === "ok") {
+        setSwitching(true);
+        return prev;
+      }
+      return { kind: "loading" };
+    });
     getPortfolioPerformance(rangeId)
       .then((res) => {
         if (!active) return;
+        setSwitching(false);
         if (isError(res)) {
           // 404 == "no holdings" / no history → honest empty state, not a wall.
           if (res.error.code === "http_404" || res.error.code === "not_found") {
@@ -558,10 +588,12 @@ function PerformanceChart({
           setPerfState({ kind: "empty" });
           return;
         }
+        cacheRef.current.set(rangeId, res.data);
         setPerfState({ kind: "ok", perf: res.data });
       })
       .catch((err: unknown) => {
         if (!active) return;
+        setSwitching(false);
         const msg = err instanceof Error ? err.message : "Network error";
         setPerfState({ kind: "error", message: msg });
       });
@@ -639,7 +671,15 @@ function PerformanceChart({
         )}
         {perfState.kind === "empty" && <PerformanceChartEmpty />}
         {perfState.kind === "ok" && (
-          <PerformanceSvg points={perfState.perf.points} />
+          <div
+            aria-busy={switching}
+            style={{
+              opacity: switching ? 0.55 : 1,
+              transition: "opacity 0.25s var(--ease-quartr)",
+            }}
+          >
+            <PerformanceAreaChart points={perfState.perf.points} />
+          </div>
         )}
       </div>
 
@@ -664,51 +704,10 @@ function PerformanceChart({
   );
 }
 
-/** One legend-dot + label (left) / value (right) row inside the chart tooltip. */
-function TipRow({
-  color,
-  label,
-  value,
-  strong,
-}: {
-  color: string;
-  label: string;
-  value: string;
-  strong?: boolean;
-}): React.ReactElement {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 22,
-      }}
-    >
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-        <span
-          aria-hidden="true"
-          style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }}
-        />
-        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{label}</span>
-      </span>
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: strong ? 600 : 500,
-          color: strong ? "var(--text-primary)" : "var(--text-secondary)",
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
 // Shared chart geometry so the loading skeleton, empty/error placeholders, and
-// the real line all occupy exactly the same box (no layout shift on resolve).
-const CHART_H = 190;
+// the real chart all occupy exactly the same box (no layout shift on resolve).
+// 216 = ~190px plot area + the area chart's date-tick row underneath.
+const CHART_H = 216;
 
 /** Loading skeleton — same height as the chart so resolving doesn't jump. */
 function PerformanceChartSkeleton(): React.ReactElement {
@@ -799,212 +798,163 @@ function PerformanceChartError({
   );
 }
 
-function PerformanceSvg({
+// ---------------------------------------------------------------------------
+// PerformanceAreaChart — the portfolio value curve as a gradient area chart
+// (recharts + the shadcn chart wrapper; the ui.shadcn.com "Area Chart —
+// Interactive" treatment). Replaces the hand-rolled PerformanceSvg.
+//
+// The parent keeps this MOUNTED across range switches and swaps `points` in
+// place — recharts then morphs the old path into the new one, which is the
+// whole point of the port. Never key this component by range: a remount
+// kills the morph.
+// ---------------------------------------------------------------------------
+
+/** Cap on rendered points — 5Y of daily history is ~1,250 raw points, which
+ *  drags both the natural-curve fit and the morph animation. Downsampling
+ *  keeps REAL points only (value + timestamp paired), never synthesises. */
+const AREA_MAX_POINTS = 160;
+
+function PerformanceAreaChart({
   points,
 }: {
   points: PerformancePoint[];
 }): React.ReactElement {
-  // Groww-style hover state — tracks the downsampled point under the cursor.
-  // `null` means the user isn't currently over the chart, so the crosshair
-  // and tooltip are hidden.
-  const chartColRef = useRef<HTMLDivElement>(null);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  // useId → stable per-instance SVG gradient id (colons stripped: they're
+  // invalid inside url(#…) references).
+  const gradientId = `perf-fill-${useId().replace(/:/g, "")}`;
 
-  // Track the chart column's real rendered width and use it as the viewBox
-  // width so the `preserveAspectRatio="none"` SVG maps 1:1 horizontally —
-  // a fixed viewBox width (e.g. 920) squished into a ~340px phone column
-  // compressed the line horizontally while height stayed fixed, which read
-  // as a distorted, over-spiky curve. Matching viewBox W to the pixel width
-  // removes the squish at every viewport.
-  const [chartW, setChartW] = useState(920);
-  useEffect(() => {
-    const el = chartColRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width;
-      if (w && w > 0) setChartW(Math.round(w));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Static Y / X labels and grid lines removed — the hover tooltip now
-  // provides the value/date at any point on the curve, so the chrome
-  // was just clutter. Padding shrunk accordingly (no axis labels to
-  // accommodate).
-  const W = chartW, H = CHART_H, padL = 0, padR = 4, padT = 8, padB = 8;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-
-  // Downsample to a fixed number of segments so the polyline reads as
-  // discrete straight lines (like a typical stock chart), not a dense
-  // trace that visually averages into a smooth curve. We downsample the
-  // REAL points (keeping value + timestamp paired) — never synthesise.
-  const TARGET_SEGMENTS = 52;
-  const portDs = useMemo<PerformancePoint[]>(() => {
-    if (points.length <= TARGET_SEGMENTS + 1) return points;
-    const out: PerformancePoint[] = [];
-    for (let i = 0; i <= TARGET_SEGMENTS; i++) {
-      const idx = Math.round((i / TARGET_SEGMENTS) * (points.length - 1));
-      out.push(points[idx]!);
+  const data = useMemo(() => {
+    let ds = points;
+    if (points.length > AREA_MAX_POINTS) {
+      const out: PerformancePoint[] = [];
+      for (let i = 0; i < AREA_MAX_POINTS; i++) {
+        out.push(
+          points[Math.round((i / (AREA_MAX_POINTS - 1)) * (points.length - 1))]!,
+        );
+      }
+      ds = out;
     }
-    return out;
+    return ds.map((p) => ({ t: p.t, value: p.v }));
   }, [points]);
 
-  const values = portDs.map((p) => p.v);
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const span = Math.max(1, maxV - minV);
+  // Tight Y domain (±6% pad): recharts' default area domain starts at 0,
+  // which would flatten a ₹-lakh portfolio curve into a ribbon.
+  const [yMin, yMax] = useMemo(() => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const d of data) {
+      if (d.value < lo) lo = d.value;
+      if (d.value > hi) hi = d.value;
+    }
+    const pad = Math.max(1, (hi - lo) * 0.06);
+    return [lo - pad, hi + pad];
+  }, [data]);
 
-  const xAt = (i: number): number => padL + (i / (portDs.length - 1)) * innerW;
-  const yAt = (v: number): number => padT + (1 - (v - minV) / span) * innerH;
+  // Stroke + gradient follow the window's real drift — same profit-green /
+  // loss-red semantic the old line used.
+  const isUp =
+    data.length > 1 && data[data.length - 1]!.value >= data[0]!.value;
+  const color = isUp ? "var(--color-profit)" : "var(--color-loss)";
+  const chartConfig = {
+    value: { label: "Portfolio", color },
+  } satisfies ChartConfig;
 
-  const portPath = portDs
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.v).toFixed(1)}`)
-    .join(" ");
-
-  // Line color follows the portfolio's REAL drift across the rendered window
-  // (first → last actual value). The numeric return shown to the user is the
-  // REAL total return from the live summary (PerformanceFooter).
-  const isUp = portDs[portDs.length - 1]!.v >= portDs[0]!.v;
-  const lineColor = isUp ? "var(--color-profit)" : "var(--color-loss)";
+  // Window span decides the tick style: short windows → "5 Jun",
+  // multi-month/-year windows → "Jun '25".
+  const spanDays = useMemo(() => {
+    if (data.length < 2) return 0;
+    const first = new Date(data[0]!.t).getTime();
+    const last = new Date(data[data.length - 1]!.t).getTime();
+    return (last - first) / 86_400_000;
+  }, [data]);
+  const fmtTick = (iso: string): string => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    if (spanDays <= 120) {
+      return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    }
+    return d
+      .toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
+      .replace(" ", " '");
+  };
+  const fmtTipLabel = (label: React.ReactNode): React.ReactNode => {
+    const d = new Date(String(label));
+    if (Number.isNaN(d.getTime())) return label;
+    return d.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
 
   return (
-    <>
-      <div style={{ width: "100%" }}>
-        <div
-          ref={chartColRef}
-          style={{ position: "relative", width: "100%" }}
-          onMouseMove={(e) => {
-            const rect = chartColRef.current?.getBoundingClientRect();
-            if (!rect || rect.width === 0) return;
-            const px = e.clientX - rect.left;
-            // Mouse → viewBox X → portDs index. Chart geometry uses
-            // padL=0 so we only have to subtract the right-side padding
-            // from the usable width.
-            const chartPxW = rect.width * (innerW / W);
-            const frac = Math.max(0, Math.min(1, px / chartPxW));
-            const idx = Math.round(frac * (portDs.length - 1));
-            setHoverIdx(idx);
+    <ChartContainer
+      config={chartConfig}
+      style={{ height: CHART_H }}
+      data-testid="portfolio-perf-area"
+    >
+      <AreaChart data={data} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="var(--color-value)" stopOpacity={0.55} />
+            <stop offset="95%" stopColor="var(--color-value)" stopOpacity={0.04} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid vertical={false} stroke="var(--glass-border)" />
+        <XAxis
+          dataKey="t"
+          tickLine={false}
+          axisLine={false}
+          tickMargin={10}
+          minTickGap={48}
+          tick={{
+            fontSize: 11,
+            fill: "var(--text-tertiary)",
+            fontFamily: "var(--font-ui)",
           }}
-          onMouseLeave={() => setHoverIdx(null)}
-        >
-          <svg
-            viewBox={`0 0 ${W} ${H}`}
-            width="100%"
-            height={H}
-            preserveAspectRatio="none"
-            style={{ display: "block" }}
-          >
-            <path
-              d={portPath}
-              fill="none"
-              stroke={lineColor}
-              strokeWidth="1.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          </svg>
-
-          {/* ── Hover overlay — Groww-style crosshair, dot, tooltip.
-              Crosshair and dot are rendered as positioned divs (not
-              SVG elements) so they stay crisp regardless of how the
-              `preserveAspectRatio="none"` SVG above is stretched. */}
-          {hoverIdx !== null && (() => {
-            const pt = portDs[hoverIdx]!;
-            // Position the crosshair within the chart's USABLE width
-            // (innerW / W of the container, since padR sits to the right).
-            const xPctOfChart = (xAt(hoverIdx) / innerW) * (innerW / W) * 100;
-            const portYPct = (yAt(pt.v) / H) * 100;
-            const dateLabel = fmtPointDate(pt.t);
-            // Edge-clamp the tooltip so it doesn't disappear off the
-            // sides of the chart.
-            const tipAnchor: React.CSSProperties =
-              xPctOfChart < 10
-                ? { left: 0, transform: "translateX(0)" }
-                : xPctOfChart > 90
-                  ? { left: `${xPctOfChart}%`, transform: "translateX(-100%)" }
-                  : { left: `${xPctOfChart}%`, transform: "translateX(-50%)" };
-            return (
-              <>
-                <div
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    top: padT,
-                    bottom: padB,
-                    left: `${xPctOfChart}%`,
-                    borderLeft: "1px dashed var(--text-tertiary)",
-                    opacity: 0.5,
-                    pointerEvents: "none",
-                  }}
-                />
-                <div
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: `${xPctOfChart}%`,
-                    top: `${portYPct}%`,
-                    width: 10,
-                    height: 10,
-                    marginLeft: -5,
-                    marginTop: -5,
-                    borderRadius: "50%",
-                    background: lineColor,
-                    border: "2px solid var(--bg-base)",
-                    boxShadow: "0 0 0 1px rgba(0,0,0,0.06)",
-                    pointerEvents: "none",
-                  }}
-                />
-                <div
-                  role="status"
-                  aria-live="polite"
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    marginTop: -10,
-                    ...tipAnchor,
-                    transform: `${tipAnchor.transform ?? ""} translateY(-100%)`,
-                    padding: "9px 11px",
-                    background: "var(--bg-base)",
-                    border: "1px solid var(--glass-border)",
-                    borderRadius: 10,
-                    boxShadow:
-                      "0 8px 24px -6px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.05)",
-                    fontFamily: "var(--font-ui)",
-                    whiteSpace: "nowrap",
-                    pointerEvents: "none",
-                    zIndex: 5,
-                    minWidth: 150,
-                  }}
-                >
-                  <div
+          tickFormatter={fmtTick}
+        />
+        <YAxis hide domain={[yMin, yMax]} />
+        <ChartTooltip
+          cursor={{
+            stroke: "var(--text-tertiary)",
+            strokeDasharray: "3 3",
+            strokeOpacity: 0.5,
+          }}
+          content={
+            <ChartTooltipContent
+              labelFormatter={fmtTipLabel}
+              formatter={(value) => (
+                <>
+                  <span style={{ color: "var(--text-tertiary)" }}>
+                    Portfolio
+                  </span>
+                  <span
                     style={{
-                      fontSize: 10.5,
-                      fontWeight: 500,
-                      letterSpacing: "0.02em",
-                      color: "var(--text-tertiary)",
-                      paddingBottom: 7,
-                      marginBottom: 7,
-                      borderBottom: "1px solid var(--glass-border)",
+                      marginLeft: "auto",
+                      fontWeight: 600,
+                      letterSpacing: "-0.01em",
                     }}
                   >
-                    {dateLabel}
-                  </div>
-                  <TipRow
-                    color={lineColor}
-                    label="Portfolio"
-                    value={fmtRupee(pt.v, { max: 0 })}
-                    strong
-                  />
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      </div>
-    </>
+                    {fmtRupee(Number(value), { max: 0 })}
+                  </span>
+                </>
+              )}
+            />
+          }
+        />
+        <Area
+          dataKey="value"
+          type="natural"
+          fill={`url(#${gradientId})`}
+          stroke="var(--color-value)"
+          strokeWidth={1.5}
+          animationDuration={600}
+          animationEasing="ease-in-out"
+          activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--bg-base)" }}
+        />
+      </AreaChart>
+    </ChartContainer>
   );
 }
 
