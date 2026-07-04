@@ -182,6 +182,8 @@ function RunHistoryRow({
         )
       : null;
 
+  const title = RUN_TITLE_LABELS[run.triggered_by] ?? "Run";
+
   return (
     <button
       type="button"
@@ -192,16 +194,13 @@ function RunHistoryRow({
       )}
       onClick={onSelect}
       data-testid={`run-row-${run.id}`}
-      aria-label={`Run ${run.id.slice(0, 8)}, ${run.status}, ${ago}`}
+      aria-label={`${title}, ${run.status}, ${ago}`}
     >
       <RunStatusDot status={run.status} />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium tabular-nums text-foreground/70">
-            {run.id.slice(0, 8)}
-          </span>
-          <TriggerBadge triggeredBy={run.triggered_by} />
+          <TriggerBadge triggeredBy={run.triggered_by} label={title} />
         </div>
         <div className="mt-0.5 flex items-center gap-3">
           <span className="text-[11px] text-muted-foreground">{ago}</span>
@@ -251,14 +250,17 @@ function RunStatusBadgeCompact({
 
 function TriggerBadge({
   triggeredBy,
+  label,
 }: {
   triggeredBy: TriggeredBy;
+  /** Human-readable run title; falls back to the trigger label. */
+  label?: string;
 }): React.ReactElement {
-  const label = TRIGGER_LABELS[triggeredBy] ?? triggeredBy;
+  const text = label ?? TRIGGER_LABELS[triggeredBy] ?? triggeredBy;
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-      <Zap className="h-3 w-3" aria-hidden="true" />
-      {label}
+    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+      <Zap className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+      {text}
     </span>
   );
 }
@@ -295,4 +297,15 @@ const TRIGGER_LABELS: Partial<Record<TriggeredBy, string>> = {
   price_alert: "Price alert",
   indicator_alert: "Indicator alert",
   event_alert: "Event",
+};
+
+// Human-readable run titles — shown instead of the internal run id hash so a
+// retail user reads "Scheduled run" / "Manual run" rather than "1159bbed".
+const RUN_TITLE_LABELS: Partial<Record<TriggeredBy, string>> = {
+  schedule: "Scheduled run",
+  manual: "Manual run",
+  webhook: "Webhook run",
+  price_alert: "Price-alert run",
+  indicator_alert: "Indicator-alert run",
+  event_alert: "Event-triggered run",
 };

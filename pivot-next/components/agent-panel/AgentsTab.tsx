@@ -7,9 +7,9 @@
  *   • Equity agents (workflows) — real summary header + per-agent cards whose
  *     sparkline/return/run-stats come from GET /api/workflows/{id}/performance
  *     (lazy-loaded per card). Delete via DELETE /api/workflows/{id}.
- *   • Options strategies — the user's registered F&O strategies from
- *     GET /users/option-strategies, each its own card. "Delete" maps to the
- *     withdraw endpoint POST /option-strategies/{id}/withdraw.
+ *   • Strategies — the user's own equity/ETF baskets (built here via the
+ *     EquityBasketBuilder, GET /strategies/baskets) PLUS their registered F&O
+ *     strategies (GET /users/option-strategies), together in one surface.
  *   • My Views — the user's deployed view positions (the same ledger the
  *     Views tab opens), from GET /api/views/positions.
  *
@@ -66,6 +66,7 @@ import {
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { AgentsSummaryHeader } from "./AgentsSummaryHeader";
+import { EquityBasketsSection } from "./EquityBasketsSection";
 import { MyViews } from "@/components/views/MyViews";
 
 const BRAND_GREEN = "#4CAF50";
@@ -86,7 +87,7 @@ export type AgentsTabProps = {
   onBrowseViews?: () => void;
 };
 
-type Surface = "equity" | "options" | "views";
+type Surface = "equity" | "strategies" | "views";
 type Filter = "all" | WorkflowStatus;
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -260,9 +261,10 @@ export function AgentsTab({
     load(filter);
   }, [filter, load]);
 
-  // Lazy-load options the first time the user opens that surface.
+  // Lazy-load registered option strategies the first time the user opens the
+  // Strategies surface (equity baskets load themselves inside their section).
   useEffect(() => {
-    if (surface === "options" && !optionsLoaded) {
+    if (surface === "strategies" && !optionsLoaded) {
       setOptionsLoaded(true);
       loadOptions();
     }
@@ -423,13 +425,18 @@ export function AgentsTab({
             </div>
           )}
         </>
-      ) : surface === "options" ? (
-        <OptionsStrategiesSection
-          state={optionsState}
-          deletingId={deletingId}
-          onRetry={loadOptions}
-          onWithdraw={handleWithdrawOption}
-        />
+      ) : surface === "strategies" ? (
+        // Strategies = equity/ETF baskets (the ones we build) + registered
+        // option strategies, together in one place.
+        <div className="flex flex-col" style={{ gap: 32 }}>
+          <EquityBasketsSection />
+          <OptionsStrategiesSection
+            state={optionsState}
+            deletingId={deletingId}
+            onRetry={loadOptions}
+            onWithdraw={handleWithdrawOption}
+          />
+        </div>
       ) : (
         // The user's deployed views — same ledger the Views tab opens.
         <MyViews embedded onBrowse={onBrowseViews} />
@@ -439,7 +446,7 @@ export function AgentsTab({
 }
 
 // ---------------------------------------------------------------------------
-// SurfaceToggle — Equity agents · Options strategies · My Views
+// SurfaceToggle — Equity agents · Strategies · My Opinions
 // ---------------------------------------------------------------------------
 
 function SurfaceToggle({
@@ -451,8 +458,8 @@ function SurfaceToggle({
 }): React.ReactElement {
   const OPTIONS: { key: Surface; label: string }[] = [
     { key: "equity", label: "Equity agents" },
-    { key: "options", label: "Options strategies" },
-    { key: "views", label: "Views" },
+    { key: "strategies", label: "Strategies" },
+    { key: "views", label: "My Opinions" },
   ];
   return (
     <div

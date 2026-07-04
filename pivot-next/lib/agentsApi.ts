@@ -166,3 +166,127 @@ export function withdrawRegisteredOptionStrategy(
     { method: "POST" },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Equity baskets — the user's own equity/ETF strategies (Agents → Strategies).
+// Persisted on the legacy `strategies` table under strategy_type=equity_basket;
+// mounted bare at /strategies (like option-strategies), so requestLegacy.
+// ---------------------------------------------------------------------------
+
+export type BasketWeighting = "equal" | "custom";
+
+export type EquityBasketMember = {
+  symbol: string;
+  /** Percent 0-100. Server-normalised to sum 100. */
+  weight: number;
+};
+
+export type EquityBasket = {
+  id: number;
+  name: string;
+  description: string | null;
+  weighting: BasketWeighting;
+  members: EquityBasketMember[];
+  capital_inr: number | null;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type EquityBasketInput = {
+  name: string;
+  description?: string | null;
+  members: EquityBasketMember[];
+  weighting: BasketWeighting;
+  capital_inr?: number | null;
+};
+
+/** `GET /strategies/baskets` — this user's saved equity baskets. */
+export function listEquityBaskets(): Promise<
+  ApiResult<{ baskets: EquityBasket[] }>
+> {
+  return requestLegacy<{ baskets: EquityBasket[] }>("/strategies/baskets");
+}
+
+/** `POST /strategies/baskets` — create an equity basket. */
+export function createEquityBasket(
+  body: EquityBasketInput,
+): Promise<ApiResult<EquityBasket>> {
+  return requestLegacy<EquityBasket>("/strategies/baskets", {
+    method: "POST",
+    body,
+  });
+}
+
+/** `PATCH /strategies/baskets/{id}` — edit a basket (partial). */
+export function updateEquityBasket(
+  id: number,
+  body: Partial<EquityBasketInput>,
+): Promise<ApiResult<EquityBasket>> {
+  return requestLegacy<EquityBasket>(`/strategies/baskets/${id}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+/** `DELETE /strategies/baskets/{id}` — soft-delete a basket. */
+export function deleteEquityBasket(
+  id: number,
+): Promise<ApiResult<{ id: number; status: string }>> {
+  return requestLegacy<{ id: number; status: string }>(
+    `/strategies/baskets/${id}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── Trade a basket ──────────────────────────────────────────────────────────
+
+export type BasketTradeLeg = {
+  symbol: string;
+  quantity: number;
+  est_price: number;
+  est_cost: number;
+};
+export type BasketTradeSkip = { symbol: string; reason: string };
+
+export type BasketTradeDryRun = {
+  dry_run: true;
+  capital_inr: number;
+  est_total: number;
+  legs: BasketTradeLeg[];
+  skipped: BasketTradeSkip[];
+};
+
+export type BasketTradePlacedLeg = {
+  id: number;
+  symbol: string;
+  transaction_type: string;
+  quantity: number;
+  status: string;
+  placed_at: string;
+};
+
+export type BasketTradePlaced = {
+  dry_run: false;
+  routed_to: "broker" | "paper";
+  count: number;
+  est_total: number;
+  registered: BasketTradePlacedLeg[];
+  skipped: BasketTradeSkip[];
+};
+
+/**
+ * `POST /strategies/baskets/{id}/trade` — size the basket to whole shares at
+ * live prices and place BUY orders through the connected broker (or preview
+ * with `dry_run`). Register-not-execute: needs a broker session (409 if none),
+ * and while live execution is off the legs are REGISTERED not placed.
+ */
+export function tradeEquityBasket(
+  id: number,
+  body: { capital_inr?: number; dry_run: boolean },
+): Promise<ApiResult<BasketTradeDryRun | BasketTradePlaced>> {
+  return requestLegacy<BasketTradeDryRun | BasketTradePlaced>(
+    `/strategies/baskets/${id}/trade`,
+    { method: "POST", body },
+  );
+}

@@ -97,7 +97,7 @@ export function RunView({ runId, catalog, onClose }: RunViewProps): React.ReactE
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Run · {run.triggered_by} · {run.id.slice(0, 8)}
+              {RUN_TRIGGER_LABELS[run.triggered_by] ?? "Run"}
             </p>
             <h2 className="mt-1 truncate text-lg font-semibold tracking-tight">
               {runHeadline(run)}
@@ -408,6 +408,17 @@ const RUN_STATUS_TONE: Record<
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
+
+// Human-readable run titles, keyed by trigger — shown instead of the raw
+// enum + internal id hash so the header reads plainly to a retail user.
+const RUN_TRIGGER_LABELS: Record<string, string> = {
+  schedule: "Scheduled run",
+  manual: "Manual run",
+  webhook: "Webhook run",
+  price_alert: "Price-alert run",
+  indicator_alert: "Indicator-alert run",
+  event_alert: "Event-triggered run",
+};
 
 function runHeadline(run: Run): string {
   if (run.status === "running") return "Run in progress";

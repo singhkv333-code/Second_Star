@@ -399,9 +399,6 @@ function StepItem({ def, unmetWarn, isNeedsSetup, onSelect }: StepItemProps): Re
           </span>
         )}
       </span>
-      <span className="ml-2 shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-        {def.step_type}
-      </span>
     </CommandItem>
   );
 }
