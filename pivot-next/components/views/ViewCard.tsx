@@ -1,74 +1,64 @@
 "use client";
 
 /**
- * ViewCard — one rounded, border-only gallery card for a ViewSummary, laid out
- * as a calm "belief market" card in the visual grammar of Polymarket / Kalshi:
- * a question up top, the belief's own return path, and TWO side-by-side
- * Yes / No buttons that read the two ways to play it.
+ * ViewCard — one gallery card for a ViewSummary.
  *
- * The ONE difference from a prediction exchange — and it is the whole product:
- * these buttons are NOT binary contracts and carry NO fabricated odds/cents.
- * Pressing Yes opens the view on its bullish, deployable expression (a basket /
- * option structure / pair on REAL securities); pressing No opens it on the
- * honest counter (a hedge, the incumbents, or "no clean trade — sit it out").
- * The number on the Yes button is the strategy's OWN realised return — the
- * honest analog of the cents-price a betting market prints. We never price an
- * outcome; we route a belief to an instrument.
+ * Visual structure adopted from the collaborator's 943e782 redesign:
+ *   ┌──────────────────────────────────────────────────┐
+ *   │ ┌────┐  Will gold prices rise?                    │
+ *   │ │IMG │  Timeline  Ends Dec 2025 / [3M] [6M] [1Y]  │
+ *   │ └────┘                                            │
+ *   │  ~~~ sparkline (flex-grow) ~~~                    │
+ *   │  +64.8%            ┌──────────┐                   │
+ *   │  best past run     │   Yes    │                   │
+ *   │                    ├──────────┤                   │
+ *   │                    │   No     │                   │
+ *   │ ─────────────────────────────────────────────────│
+ *   │ ● Promising · Positive in 24 of 32  [From ₹808]  Follow │
+ *   └──────────────────────────────────────────────────┘
  *
- * DESIGN LAW (see ViewSurface): ROUNDED corners, borders-only (no fills), no
- * jargon on screen (every label routed through a view-format humanizer), >=13px
- * floor, tabular numerals. Fixed height so every column lines up.
+ * Functional bits preserved from our version:
+ *   - `endsLabel` integrated into the Timeline fixed-label (resolution_date → "Ends …")
+ *   - positive-rate line ("Positive in X of Y") in footer via footerTrack
+ *   - onOpen(id, intent?) callback + Yes/No stance buttons that route intent
+ *   - trust badge + FollowButton + From ₹808 chip
+ *   - BestExpressionWithPositive type extension
+ *   - Sparkline in flex-grow spacer region
+ *   - ViewSurface for consistent border-only theming
  *
- * Colour law: our green/red are RESERVED for real P&L. The Yes/No accents are
- * therefore brand-blue (Yes) and amber (No) — matching the detail-page stance
- * block exactly — and ONLY the realised return renders in profit/loss colour.
- * A "no clean trade" No is dashed + muted, never red (it isn't a loss).
- *
- * Layout (left-aligned vertical stack, padding 20):
- *   (a) meta row      : category eyebrow            | status dot + word
- *   (b) TITLE          (the question)               18/600, 2-line clamp
- *   (c) layman summary  (plain_summary)             15/400, 1-line clamp
- *   (d) return path     full-width sign-tinted sparkline (the belief's curve)
- *   ─── flex spacer, so the buttons bottom-align across the grid ───
- *   (e) YES / NO        two buttons — the two ways to play; each opens the view
- *   ─── hairline ───
- *   (f) footer         : trust word (colour-coded) · positive-rate | Follow
- *
- * When a view has no authored stance (live curated views not yet backfilled, or
- * a still-developing idea) the card degrades gracefully to a single "View
- * details →" affordance — we never fabricate a Yes/No it doesn't have.
- * Whole card (outside the buttons) is a click target → onOpen(view.id).
+ * Stance buttons use the collaborator's soft tinted fill (color-mix transparent),
+ * not the solid fill in our old version. Yes/No colors are profit/loss for
+ * maximum legibility at low opacity.
  */
 
 import * as React from "react";
-import { ArrowRight } from "lucide-react";
+import {
+  Cpu,
+  Zap,
+  Car,
+  Globe,
+  Landmark,
+  Flame,
+  TrendingUp,
+  ArrowRight,
+  type LucideIcon,
+} from "lucide-react";
 import type { ViewSummary, StanceIntent } from "@/lib/types";
 import { ViewSurface, Hairline } from "./ViewSurface";
 import { FollowButton } from "./FollowButton";
 import {
   fmtPct,
   signColor,
-  categoryLabel,
-  statusLabel,
-  statusDotColor,
   trustBadge,
   verdictColor,
   endsLabel,
 } from "./view-format";
 
-/** Format INR with Indian grouping (no paise). e.g. 808 → "₹808", 10000 → "₹10,000" */
-function fmtInr(n: number): string {
-  return "₹" + Math.round(n).toLocaleString("en-IN");
-}
-
-const CARD_HEIGHT = 376;
 const FONT = "var(--font-display)";
 
 // ---------------------------------------------------------------------------
-// BestExpression is gaining positive-outcome fields (pct_positive/n_positive)
-// on the shared data contract — declared as a local structural extension so
-// this file type-checks ahead of that landing in lib/types.ts (harmless once
-// the real fields arrive there; TS will simply narrow to the real types).
+// BestExpressionWithPositive — local structural extension that adds the
+// positive-outcome count fields ahead of them landing in lib/types.ts.
 // ---------------------------------------------------------------------------
 
 type BestExpressionWithPositive = NonNullable<ViewSummary["best_expression"]> & {
@@ -77,16 +67,366 @@ type BestExpressionWithPositive = NonNullable<ViewSummary["best_expression"]> & 
 };
 
 // ---------------------------------------------------------------------------
-// Sparkline — the belief's own return path, full-width + responsive.
-// A plain SVG (viewBox + non-scaling stroke) so it stretches to any column
-// width without distorting the line weight. Sign-tinted: green when the path
-// ended up, red when it ended down. Never an axis, tooltip, or number — this
-// is a texture, not a chart (the real chart lives on the detail page).
+// CategoryGlyph — 68×68 image tile with an icon fallback.
+// Photo keyed by category keyword via loremflickr; icon covers load errors.
+// Rounded corners (radius 8) instead of square — matches our design language.
+// ---------------------------------------------------------------------------
+
+const CATEGORY_ICON: Record<string, LucideIcon> = {
+  ai: Cpu,
+  energy: Zap,
+  autos: Car,
+  auto: Car,
+  geopolitics: Globe,
+  macro: Landmark,
+  index: TrendingUp,
+  commodity: Flame,
+  crude: Flame,
+  oil: Flame,
+  gold: Flame,
+};
+
+const CATEGORY_KEYWORD: Record<string, string> = {
+  ai: "microchip",
+  energy: "oil-refinery",
+  autos: "car-factory",
+  auto: "car-factory",
+  geopolitics: "world-map",
+  macro: "central-bank",
+  index: "stock-market",
+  commodity: "commodities",
+  crude: "oil-barrel",
+  oil: "oil-barrel",
+  gold: "gold-bars",
+  monsoon: "monsoon-farm",
+  it: "software",
+};
+
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i);
+  return h;
+}
+
+function categoryLeadWord(category: string | null | undefined): string {
+  return (
+    ((category ?? "").split("·")[0] ?? "")
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)[0] ?? ""
+  );
+}
+
+function categoryIcon(category: string | null | undefined): LucideIcon {
+  const lead = categoryLeadWord(category);
+  return (lead ? CATEGORY_ICON[lead] : undefined) ?? TrendingUp;
+}
+
+function CategoryGlyph({
+  category,
+  seed,
+}: {
+  category: string | null | undefined;
+  seed: string;
+}): React.ReactElement {
+  const Icon = categoryIcon(category);
+  const [imgOk, setImgOk] = React.useState(true);
+  const lead = categoryLeadWord(category);
+  const keyword = (lead && CATEGORY_KEYWORD[lead]) || "finance";
+  const lock = Math.abs(hashStr(seed)) % 1000;
+  const src = `https://loremflickr.com/200/200/${keyword}?lock=${lock}`;
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: "relative",
+        width: 68,
+        height: 68,
+        flexShrink: 0,
+        display: "grid",
+        placeItems: "center",
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "var(--bg-elevated)",
+      }}
+    >
+      <Icon size={28} strokeWidth={1.75} color="var(--text-secondary)" />
+      {imgOk && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          onError={() => setImgOk(false)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Timeline — shows how far out a view's horizon is.
+//
+//   fixed  → a single non-interactive label. When resolution_date is present,
+//            we use endsLabel("2025-12-01") → "Ends Dec 2025" (our feature).
+//            Episodic / dated time_horizons also become fixed labels.
+//   toggle → the 3M / 6M / 1Y segmented control for open / structural views.
+//            Presentational only: the honest best-run number does NOT change.
+// ---------------------------------------------------------------------------
+
+const TOGGLE_HORIZONS = ["3M", "6M", "1Y"] as const;
+
+type HorizonConfig =
+  | { mode: "fixed"; label: string }
+  | { mode: "toggle"; options: readonly string[]; defaultIdx: number };
+
+function horizonConfig(view: ViewSummary): HorizonConfig {
+  // Prefer the formatted resolution date ("Ends Dec 2025") when available.
+  const ends = endsLabel(view.resolution_date);
+  if (ends) return { mode: "fixed", label: ends };
+
+  const th = (view.time_horizon ?? "").trim();
+  const episodic = /episode|day|week|by\s|until|expir/i.test(th);
+  if (episodic && th) return { mode: "fixed", label: th };
+
+  // Open / structural view → the presentational toggle.
+  const s = th.toLowerCase();
+  let defaultIdx = 2; // default 1Y
+  if (/\b3\b|quarter|3m|90/.test(s)) defaultIdx = 0;
+  else if (/\b6\b|half|6m|180/.test(s)) defaultIdx = 1;
+  return { mode: "toggle", options: TOGGLE_HORIZONS, defaultIdx };
+}
+
+function TimelineLabel(): React.ReactElement {
+  return (
+    <span
+      style={{
+        fontFamily: FONT,
+        fontSize: 11.5,
+        fontWeight: 600,
+        color: "var(--text-tertiary)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      Timeline
+    </span>
+  );
+}
+
+function Timeline({
+  config,
+  selected,
+  onSelect,
+}: {
+  config: HorizonConfig;
+  selected: number;
+  onSelect: (idx: number) => void;
+}): React.ReactElement {
+  if (config.mode === "fixed") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+        <TimelineLabel />
+        <span
+          className="truncate"
+          title={config.label}
+          style={{
+            fontFamily: FONT,
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--text-primary)",
+            fontVariantNumeric: "tabular-nums",
+            minWidth: 0,
+          }}
+        >
+          {config.label}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <TimelineLabel />
+      <div
+        role="tablist"
+        aria-label="Timeline"
+        style={{ display: "inline-flex", gap: 2 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {config.options.map((opt, i) => {
+          const active = i === selected;
+          return (
+            <button
+              key={opt}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(i);
+              }}
+              style={{
+                appearance: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "3px 9px",
+                borderRadius: "var(--radius-xs)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 10.5,
+                fontWeight: 500,
+                fontVariantNumeric: "tabular-nums",
+                lineHeight: 1.2,
+                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+                background: active ? "var(--text-primary)" : "transparent",
+                transition:
+                  "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
+              }}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// StanceButton — the collaborator's soft tinted fill (Polymarket style).
+// accent color at 12% (18% on hover) over transparent — never a solid fill.
+// Yes = profit green tint, No = loss red tint, Muted = tertiary grey tint.
+// Our content structure (word + secondary line) is preserved.
+// ---------------------------------------------------------------------------
+
+function StanceButton({
+  word,
+  secondary,
+  tone,
+  ariaLabel,
+  onOpen,
+}: {
+  word: string;
+  secondary: string;
+  tone: "yes" | "no" | "muted";
+  ariaLabel: string;
+  onOpen: (e: React.MouseEvent) => void;
+}): React.ReactElement {
+  const [hover, setHover] = React.useState(false);
+  const accent =
+    tone === "yes"
+      ? "var(--color-profit)"
+      : tone === "no"
+        ? "var(--color-loss)"
+        : "var(--text-tertiary)";
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(e);
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 2,
+        textAlign: "left",
+        padding: "9px 12px",
+        borderRadius: 6,
+        border: "none",
+        background: `color-mix(in srgb, ${accent} ${hover ? 18 : 12}%, transparent)`,
+        color: accent,
+        cursor: "pointer",
+        transition: "background 140ms var(--ease-quartr)",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: FONT,
+          fontSize: 13,
+          fontWeight: 700,
+          letterSpacing: "0.03em",
+          lineHeight: 1,
+        }}
+      >
+        {word}
+      </span>
+      <span
+        style={{
+          fontFamily: FONT,
+          fontSize: tone === "yes" ? 16 : 13,
+          fontWeight: tone === "yes" ? 700 : 600,
+          lineHeight: 1.2,
+          letterSpacing: tone === "yes" ? "-0.01em" : "0",
+          fontVariantNumeric: "tabular-nums",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+          maxWidth: "100%",
+        }}
+      >
+        {secondary}
+      </span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HeroFigure — the big honest return number with a superscript %.
+// fmtPct gives "+64.8%" → we split the trailing % into a <sup>.
+// ---------------------------------------------------------------------------
+
+function HeroFigure({
+  pct,
+  color,
+}: {
+  pct: number | null;
+  color: string;
+}): React.ReactElement {
+  const s = fmtPct(pct);
+  const hasPct = s.endsWith("%");
+  const body = hasPct ? s.slice(0, -1) : s;
+  return (
+    <div
+      style={{
+        fontFamily: FONT,
+        fontVariantNumeric: "tabular-nums",
+        fontSize: 38,
+        fontWeight: 800,
+        letterSpacing: "-0.03em",
+        lineHeight: 1,
+        color,
+      }}
+    >
+      {body}
+      {hasPct && (
+        <sup style={{ fontSize: 19, fontWeight: 700, top: "-0.7em" }}>%</sup>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sparkline — the belief's own return path, sign-tinted.
+// Preserved from our version; lives in the flex-grow spacer between the
+// header and the hero/stance section.
 // ---------------------------------------------------------------------------
 
 function Sparkline({
   values,
-  height = 34,
+  height = 48,
 }: {
   values: number[];
   height?: number;
@@ -137,102 +477,18 @@ function Sparkline({
 }
 
 // ---------------------------------------------------------------------------
-// StanceButton — one of the two "ways to play" buttons. SOLID-filled (Yes →
-// brand-blue, No → amber), white text, no arrow — the real Polymarket/Kalshi
-// button weight. The "no clean trade" case is a calm solid grey (never red,
-// never a loud fill). The secondary line is the Yes-side return or the No-side
-// plain verdict; the whole button opens the view on that side.
+// footerTrack — "Positive in 24 of 32" from the own-return distribution.
 // ---------------------------------------------------------------------------
 
-function StanceButton({
-  word,
-  secondary,
-  tone,
-  ariaLabel,
-  onOpen,
-}: {
-  word: string;
-  secondary: string;
-  tone: "yes" | "no" | "muted";
-  ariaLabel: string;
-  onOpen: (e: React.MouseEvent | React.KeyboardEvent) => void;
-}): React.ReactElement {
-  const [hover, setHover] = React.useState(false);
-  const muted = tone === "muted";
-  const fill =
-    tone === "yes"
-      ? "var(--pivot-blue)"
-      : tone === "no"
-        ? "var(--color-warn)"
-        : // no clean trade — a solid but calm grey chip (opaque, not a tint)
-          "color-mix(in srgb, var(--text-tertiary) 22%, var(--bg-base))";
-  // Darken the fill slightly on hover for a tactile press feel.
-  const hoverFill = muted
-    ? "color-mix(in srgb, var(--text-tertiary) 32%, var(--bg-base))"
-    : `color-mix(in srgb, ${fill} 88%, #000)`;
-  const wordColor = muted ? "var(--text-tertiary)" : "rgba(255,255,255,0.9)";
-  const bodyColor = muted ? "var(--text-secondary)" : "#ffffff";
-
-  return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(e);
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        flex: 1,
-        minWidth: 0,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: 2,
-        textAlign: "left",
-        padding: "10px 14px",
-        borderRadius: "var(--radius-md)",
-        border: muted ? "1px solid var(--glass-border)" : "none",
-        background: hover ? hoverFill : fill,
-        cursor: "pointer",
-        transition: "background 160ms var(--ease-quartr)",
-      }}
-    >
-      <span
-        style={{
-          fontFamily: FONT,
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: "0.03em",
-          color: wordColor,
-          lineHeight: 1,
-        }}
-      >
-        {word}
-      </span>
-      <span
-        style={{
-          fontFamily: FONT,
-          fontSize: tone === "yes" ? 18 : 14,
-          fontWeight: tone === "yes" ? 800 : 600,
-          color: bodyColor,
-          lineHeight: 1.2,
-          letterSpacing: tone === "yes" ? "-0.01em" : "0",
-          fontVariantNumeric: "tabular-nums",
-          // Yes return is one line; a longer No verdict wraps to a second line
-          // rather than truncating mid-word. Buttons stretch to equal height.
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-          maxWidth: "100%",
-        }}
-      >
-        {secondary}
-      </span>
-    </button>
-  );
+function footerTrack(be: BestExpressionWithPositive): string {
+  if (be.n_positive != null && be.n_episodes != null && be.n_episodes > 0) {
+    return `Positive in ${be.n_positive} of ${be.n_episodes}`;
+  }
+  if (be.pct_positive != null && be.n_episodes != null && be.n_episodes > 0) {
+    const wins = Math.round((be.pct_positive / 100) * be.n_episodes);
+    return `Positive in ${wins} of ${be.n_episodes}`;
+  }
+  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -261,10 +517,13 @@ export function ViewCard({
     }
   };
 
+  const config = React.useMemo(() => horizonConfig(view), [view]);
+  const [horizon, setHorizon] = React.useState(
+    config.mode === "toggle" ? config.defaultIdx : 0,
+  );
+
   const be = view.best_expression as BestExpressionWithPositive | null;
   const hasReturn = be != null && be.total_return_pct != null;
-  // When total_return_pct is null but we have a forward model number, use it
-  // labelled "modeled" so the card still shows a lead number.
   const forwardNet = view.forward_expected_net_pct;
   const hasForwardOnly = !hasReturn && forwardNet != null;
   const curve = be?.equity_curve;
@@ -275,8 +534,30 @@ export function ViewCard({
   const stance = view.stance ?? null;
   const noHasTrade = stance?.no.has_trade === true;
   const title = view.short_title ?? view.plain_one_liner ?? view.title;
-  // Titles are dateless by design — the contract-end date lives here instead.
-  const ends = endsLabel(view.resolution_date);
+
+  // Hero number — honest by construction.
+  // Prefers best_episode_pct (a single real occurrence), then total_return_pct,
+  // then forward model (labelled "modeled"). Never fabricated.
+  const bestRun =
+    typeof view.best_episode_pct === "number" ? view.best_episode_pct : null;
+  const heroPct = bestRun ?? be?.total_return_pct ?? null;
+  const heroIsForward = heroPct == null && hasForwardOnly;
+  const displayPct = heroIsForward ? (forwardNet ?? null) : heroPct;
+  const heroColor = signColor(displayPct, "var(--color-profit)");
+
+  const heroLabel =
+    bestRun != null
+      ? "best past run"
+      : hasForwardOnly
+        ? "modeled"
+        : hasReturn
+          ? "total return"
+          : "—";
+
+  const stopAnd = (intent: StanceIntent) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpen(view.id, intent);
+  };
 
   return (
     <ViewSurface
@@ -290,236 +571,126 @@ export function ViewCard({
       data-testid={`view-card-${view.id}`}
       className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       style={{
-        height: CARD_HEIGHT,
+        height: "100%",
         display: "flex",
         flexDirection: "column",
+        padding: "20px 22px",
       }}
     >
-      {/* ── (a) meta row ─────────────────────────────────────────────── */}
-      <div
-        className="flex items-center justify-between gap-3"
-        style={{ fontSize: 13, lineHeight: 1.3 }}
-      >
-        <span
-          className="truncate"
-          style={{
-            fontFamily: FONT,
-            fontSize: 13,
-            fontWeight: 500,
-            color: "var(--text-tertiary)",
-            letterSpacing: "0.01em",
-          }}
-        >
-          {categoryLabel(view.category)}
-        </span>
-        <span
-          className="inline-flex items-center gap-1.5 shrink-0"
-          style={{
-            fontFamily: FONT,
-            fontSize: 13,
-            fontWeight: 500,
-            color: "var(--text-secondary)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: statusDotColor(view.status),
-              flexShrink: 0,
-            }}
-          />
-          {statusLabel(view.status)}
-          {ends && (
-            <span style={{ color: "var(--text-tertiary)" }}>
-              {"· "}
-              {ends}
-            </span>
-          )}
-        </span>
-      </div>
-
-      {/* ── (b) TITLE — the belief, phrased as a question ────────────── */}
-      <div
-        className="line-clamp-2"
-        style={{
-          marginTop: 14,
-          fontFamily: FONT,
-          fontSize: 18,
-          fontWeight: 600,
-          lineHeight: 1.3,
-          color: "var(--text-primary)",
-          letterSpacing: "-0.01em",
-          minHeight: 18 * 1.3 * 2,
-        }}
-      >
-        {title}
-      </div>
-
-      {/* ── (c) layman summary — one quiet line under the title ───────── */}
-      <p
-        className="line-clamp-1"
-        style={{
-          margin: "8px 0 0 0",
-          fontFamily: FONT,
-          fontSize: 15,
-          fontWeight: 400,
-          lineHeight: 1.5,
-          color: "var(--text-secondary)",
-          minHeight: 15 * 1.5,
-        }}
-      >
-        {view.plain_summary ?? ""}
-      </p>
-
-      {/* ── (c.5) the most interesting return — the standout past occurrence ─ */}
-      {/* Honest by construction: labelled "best past run" (a single real past
-          occurrence, never a promise), and the Yes button below carries the
-          TYPICAL return so the two are always seen together.
-          When there is no historical track record (shock_no_analogs / null
-          best_episode_pct) but a forward model exists, show that instead —
-          clearly labelled "modeled" so it is never confused with history. */}
-      {typeof view.best_episode_pct === "number" ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            gap: 7,
-            marginTop: 12,
-          }}
-        >
-          <span
+      {/* ── (a) header: CategoryGlyph + title + Timeline ─────────────────── */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+        <CategoryGlyph category={view.category} seed={view.id} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            className="line-clamp-2"
             style={{
               fontFamily: FONT,
-              fontVariantNumeric: "tabular-nums",
-              fontSize: 24,
-              fontWeight: 800,
+              fontSize: 16,
+              fontWeight: 700,
+              lineHeight: 1.18,
               letterSpacing: "-0.02em",
-              color:
-                view.best_episode_pct >= 0
-                  ? "var(--color-profit)"
-                  : "var(--color-loss)",
+              color: "var(--text-primary)",
+              marginBottom: 9,
+              minHeight: "2.36em",
             }}
           >
-            {fmtPct(view.best_episode_pct)}
-          </span>
-          <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-            best past run
-          </span>
+            {title}
+          </div>
+          <Timeline config={config} selected={horizon} onSelect={setHorizon} />
         </div>
-      ) : hasForwardOnly ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            gap: 7,
-            marginTop: 12,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: FONT,
-              fontVariantNumeric: "tabular-nums",
-              fontSize: 24,
-              fontWeight: 800,
-              letterSpacing: "-0.02em",
-              color: (forwardNet ?? 0) >= 0 ? "var(--color-profit)" : "var(--color-loss)",
-            }}
-          >
-            {fmtPct(forwardNet)}
-          </span>
-          <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-            modeled
-          </span>
-        </div>
-      ) : null}
+      </div>
 
-      {/* ── (d) return path — the belief's own curve ─────────────────── */}
-      {/* The curve lives in a flex-grow region and is vertically centred, so it
-          fills the space between the summary and the buttons instead of leaving
-          a dead band — the curve is the hero (Polymarket-style), and every card
-          still bottom-aligns its Yes/No buttons regardless of title length. */}
+      {/* ── (b) sparkline in flex-grow spacer ────────────────────────────── */}
       {curveValues.length >= 2 ? (
         <div
           style={{
             flex: 1,
-            minHeight: 60,
-            marginTop: 14,
-            marginBottom: 14,
+            minHeight: 48,
+            marginTop: 16,
             display: "flex",
             alignItems: "center",
           }}
         >
           <div style={{ width: "100%" }}>
-            <Sparkline values={curveValues} height={60} />
+            <Sparkline values={curveValues} height={48} />
           </div>
         </div>
       ) : (
-        <div style={{ flex: 1, minHeight: 12 }} />
+        <div style={{ flex: 1, minHeight: 20 }} />
       )}
 
-      {/* ── (e) YES / NO — the two ways to play (or a graceful fallback) ─ */}
-      {stance ? (
-        <div style={{ display: "flex", gap: 10 }}>
-          <StanceButton
-            tone="yes"
-            word="Yes"
-            secondary={
-              hasReturn
-                ? fmtPct(be!.total_return_pct)
-                : hasForwardOnly
-                  ? `${fmtPct(forwardNet)} modeled`
-                  : "See the basket"
-            }
-            ariaLabel={`Yes — ${stance.yes.verdict}. Open the view.`}
-            onOpen={() => onOpen(view.id, "yes")}
-          />
-          <StanceButton
-            tone={noHasTrade ? "no" : "muted"}
-            word="No"
-            secondary={stance.no.verdict}
-            ariaLabel={`No — ${stance.no.verdict}. Open the view.`}
-            onOpen={() => onOpen(view.id, "no")}
-          />
-        </div>
-      ) : hasReturn ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(view.id);
-          }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            padding: "11px 14px",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--glass-border)",
-            background: "var(--bg-base)",
-            cursor: "pointer",
-            fontFamily: FONT,
-          }}
-        >
-          <span
+      {/* ── (c) hero return + stance buttons ─────────────────────────────── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 16,
+          marginTop: 20,
+        }}
+      >
+        {/* Hero number */}
+        <div style={{ minWidth: 0 }}>
+          <HeroFigure pct={displayPct} color={heroColor} />
+          <div
             style={{
+              marginTop: 5,
               fontFamily: FONT,
-              fontSize: 17,
-              fontWeight: 700,
-              color: signColor(be!.total_return_pct),
-              fontVariantNumeric: "tabular-nums",
+              fontSize: 11.5,
+              fontWeight: 500,
+              color: "var(--text-tertiary)",
+              lineHeight: 1.4,
             }}
           >
-            {fmtPct(be!.total_return_pct)}
-          </span>
-          <span
-            className="inline-flex items-center"
+            {heroLabel}
+          </div>
+        </div>
+
+        {/* Yes / No stance buttons */}
+        {stance ? (
+          <div
+            className="shrink-0 flex flex-col"
+            style={{ gap: 6, minWidth: 104 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <StanceButton
+              tone="yes"
+              word="Yes"
+              secondary={
+                hasReturn
+                  ? fmtPct(be!.total_return_pct)
+                  : hasForwardOnly
+                    ? `${fmtPct(forwardNet)} modeled`
+                    : "See the basket"
+              }
+              ariaLabel={`Yes — ${stance.yes.verdict}. Open the view.`}
+              onOpen={stopAnd("yes")}
+            />
+            <StanceButton
+              tone={noHasTrade ? "no" : "muted"}
+              word="No"
+              secondary={stance.no.verdict}
+              ariaLabel={`No — ${stance.no.verdict}. Open the view.`}
+              onOpen={stopAnd("no")}
+            />
+          </div>
+        ) : hasReturn ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(view.id);
+            }}
             style={{
-              gap: 5,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "10px 14px",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--glass-border)",
+              background: "var(--bg-base)",
+              cursor: "pointer",
               fontFamily: FONT,
               fontSize: 13,
               fontWeight: 600,
@@ -528,39 +699,25 @@ export function ViewCard({
           >
             View details
             <ArrowRight size={13} aria-hidden />
-          </span>
-        </button>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          </button>
+        ) : (
           <span
             style={{
-              fontFamily: FONT,
-              fontSize: 18,
-              fontWeight: 600,
-              color: "var(--text-tertiary)",
-              lineHeight: 1.3,
-              letterSpacing: "-0.01em",
-            }}
-          >
-            Still developing
-          </span>
-          <span
-            style={{
+              flexShrink: 0,
               fontFamily: FONT,
               fontSize: 13,
               fontWeight: 500,
               color: "var(--text-tertiary)",
-              lineHeight: 1.4,
             }}
           >
-            No finished basket yet — an idea to watch.
+            Still developing
           </span>
-        </div>
-      )}
+        )}
+      </div>
 
       <Hairline style={{ marginTop: 16, marginBottom: 12 }} />
 
-      {/* ── (f) footer — trust + track record · min entry | Follow ──────── */}
+      {/* ── (d) footer: trust + track record + min entry + Follow ────────── */}
       <div className="flex items-center justify-between gap-3">
         <span
           className="inline-flex items-center gap-1.5"
@@ -592,7 +749,7 @@ export function ViewCard({
               </span>
               {footerTrack(be) && (
                 <span style={{ color: "var(--text-tertiary)" }}>
-                  {" · "}
+                  {" · "}
                   {footerTrack(be)}
                 </span>
               )}
@@ -600,7 +757,6 @@ export function ViewCard({
           ) : (
             <span style={{ color: "var(--text-tertiary)" }}>Recent idea</span>
           )}
-          {/* "From ₹808" — cheapest honest entry into any tier of this view */}
           {typeof view.min_entry_inr === "number" && (
             <span
               style={{
@@ -616,7 +772,7 @@ export function ViewCard({
                 flexShrink: 0,
               }}
             >
-              {`From ${fmtInr(view.min_entry_inr)}`}
+              {`From ₹${Math.round(view.min_entry_inr).toLocaleString("en-IN")}`}
             </span>
           )}
         </span>
@@ -630,25 +786,4 @@ export function ViewCard({
       </div>
     </ViewSurface>
   );
-}
-
-// ---------------------------------------------------------------------------
-// footerTrack — "Positive in 24 of 32" from the own-return distribution.
-// Never a benchmark. Empty string when the counts aren't available (the trust
-// word then stands alone).
-// ---------------------------------------------------------------------------
-
-function footerTrack(be: BestExpressionWithPositive): string {
-  if (be.n_positive != null && be.n_episodes != null && be.n_episodes > 0) {
-    return `Positive in ${be.n_positive} of ${be.n_episodes}`;
-  }
-  if (
-    be.pct_positive != null &&
-    be.n_episodes != null &&
-    be.n_episodes > 0
-  ) {
-    const wins = Math.round((be.pct_positive / 100) * be.n_episodes);
-    return `Positive in ${wins} of ${be.n_episodes}`;
-  }
-  return "";
 }

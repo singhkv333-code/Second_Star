@@ -1,18 +1,23 @@
 "use client";
 
 /**
- * ViewsTab — master/detail root for the Views tab.
+ * ViewsTab — master/detail root for the "Opinion Markets" tab.
  *
  * Grid mode: fetches listViews on mount + filter change; renders the ViewCard
- * gallery with square border-only loading skeletons, error + empty states.
+ * gallery with border-only loading skeletons, error + empty states.
  *
  * Detail mode: selectedViewId !== null → renders ViewDetailPage (sibling).
  *
  * Follow changes bubble up from ViewCard so the grid stays in sync without
  * a re-fetch.
  *
- * DESIGN LAW: borders-only, ROUNDED corners (radii), >=13px floor (see
- * ViewSurface).
+ * ViewCategoryBar (adopted from the collaborator's 943e782 redesign) is wired
+ * below the heading row as a horizontal category ribbon. Category filtering is
+ * done CLIENT-SIDE (not sent to the API) so the bar always shows all theme
+ * buckets regardless of the active selection. Status + type filters continue to
+ * go to the API via ViewFilters.
+ *
+ * DESIGN LAW: borders-only, ROUNDED corners, >=13px floor (see ViewSurface).
  */
 
 import * as React from "react";
@@ -22,8 +27,10 @@ import { isError } from "@/lib/types";
 import type { ViewSummary, StanceIntent } from "@/lib/types";
 import { ViewCard } from "./ViewCard";
 import { ViewFilters, DEFAULT_FILTERS, type FiltersState } from "./ViewFilters";
+import { ViewCategoryBar } from "./ViewCategoryBar";
 import { ViewDetailPage } from "./ViewDetailPage";
 import { MyViews } from "./MyViews";
+import { categoryLead } from "./view-format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,26 +45,45 @@ export type ViewsTabProps = {
   onOpenWorkflowById: (workflowId: string) => void;
 };
 
-// A single shared grid class: 1 / 2 / 3 columns at <640 / 640–1024 / >=1024,
-// equal-width cards, 20px gutter, equal heights (cards are fixed-height).
+// A single shared grid class: 1 / 2 / 3 / 4 columns at <640 / 640–1024 /
+// 1024–1536 / >=1536. Equal-width cards, 20px gutter, equal heights via
+// items-stretch (adopted from the collaborator — cards are h-full, not fixed
+// height, so rows stretch to the tallest card in each row).
 const GRID_CLASS =
-  "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch";
+  "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 items-stretch";
 const GRID_STYLE: React.CSSProperties = { gap: 20 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * filtersToQuery — converts UI filter state to API query params.
+ * NOTE: `category` is intentionally NOT sent here — it is filtered
+ * client-side so ViewCategoryBar can always show all available buckets.
+ */
 function filtersToQuery(f: FiltersState): {
   status?: string;
   view_type?: string;
-  category?: string;
 } {
-  const q: { status?: string; view_type?: string; category?: string } = {};
+  const q: { status?: string; view_type?: string } = {};
   if (f.status !== "all") q.status = f.status;
   if (f.view_type !== "all") q.view_type = f.view_type;
-  if (f.category !== "all") q.category = f.category;
   return q;
+}
+
+/** Distinct theme buckets from the loaded views, in first-seen order. */
+function deriveCategories(items: ViewSummary[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of items) {
+    const lead = categoryLead(v.category);
+    if (lead && !seen.has(lead)) {
+      seen.add(lead);
+      out.push(lead);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +97,6 @@ export function ViewsTab({
     null,
   );
   // Which Yes/No side a card press intended (null = opened via the card body).
-  // Threaded to the detail page so it scrolls to + highlights that stance.
   const [selectedStance, setSelectedStance] =
     React.useState<StanceIntent | null>(null);
   // "gallery" = the curated grid; "mine" = the user's My Views ledger.
@@ -79,7 +104,7 @@ export function ViewsTab({
   const [filters, setFilters] = React.useState<FiltersState>(DEFAULT_FILTERS);
   const [state, setState] = React.useState<FetchState>({ kind: "loading" });
 
-  // Per-view follow sync: keyed by view id, avoids a full refetch after toggling.
+  // Per-view follow sync: keyed by view id, avoids a full refetch on toggle.
   const [followMap, setFollowMap] = React.useState<
     Record<string, { is_following: boolean; follower_count: number }>
   >({});
@@ -101,9 +126,11 @@ export function ViewsTab({
       });
   }, []);
 
+  // Re-fetch when status/view_type filters change (not category — that's client-side).
   React.useEffect(() => {
     load(filters);
-  }, [filters, load]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.status, filters.view_type, load]);
 
   const handleFollowChange = React.useCallback(
     (
@@ -180,13 +207,20 @@ export function ViewsTab({
   }
 
   // ── Grid mode ─────────────────────────────────────────────────────────────
+  const allItems = state.kind === "ok" ? state.items : [];
+  const categories = deriveCategories(allItems);
+  const visibleItems =
+    filters.category === "all"
+      ? allItems
+      : allItems.filter((v) => categoryLead(v.category) === filters.category);
+
   return (
     <div
       className="views-tab flex flex-col"
       style={{ gap: 24 }}
       data-testid="views-tab"
     >
-      {/* Page heading + the My Views entry (a proper rectangular button) */}
+      {/* Page heading + My Opinions button */}
       <div
         style={{
           display: "flex",
@@ -225,7 +259,17 @@ export function ViewsTab({
         <MyViewsButton onClick={() => setMode("mine")} />
       </div>
 
-      {/* Filters */}
+      {/* ViewCategoryBar — category ribbon (from collaborator's redesign).
+          Only rendered when we have multiple buckets (items loaded). */}
+      {categories.length > 1 && (
+        <ViewCategoryBar
+          categories={categories}
+          value={filters.category}
+          onChange={(category) => setFilters((f) => ({ ...f, category }))}
+        />
+      )}
+
+      {/* Status + type filters */}
       <ViewFilters value={filters} onChange={setFilters} />
 
       {/* Loading skeletons */}
@@ -237,23 +281,23 @@ export function ViewsTab({
       )}
 
       {/* Empty state */}
-      {state.kind === "ok" && state.items.length === 0 && <ViewsEmptyState />}
+      {state.kind === "ok" && visibleItems.length === 0 && <ViewsEmptyState />}
 
       {/* Grid */}
-      {state.kind === "ok" && state.items.length > 0 && (
+      {state.kind === "ok" && visibleItems.length > 0 && (
         <div
           className={GRID_CLASS}
           style={GRID_STYLE}
           data-testid="views-grid"
           role="list"
         >
-          {state.items.map((view) => {
+          {visibleItems.map((view) => {
             const follow = followMap[view.id];
             const merged: ViewSummary = follow
               ? { ...view, ...follow }
               : view;
             return (
-              <div key={view.id} role="listitem">
+              <div key={view.id} role="listitem" className="h-full">
                 <ViewCard
                   view={merged}
                   onOpen={openView}
@@ -269,7 +313,7 @@ export function ViewsTab({
 }
 
 // ---------------------------------------------------------------------------
-// MyViewsButton — the rectangular entry to the user's deployment ledger.
+// MyViewsButton — entry to the user's deployment ledger.
 // Exported so the /view-pack showcase renders the identical affordance.
 // ---------------------------------------------------------------------------
 
@@ -312,7 +356,7 @@ export function MyViewsButton({
 }
 
 // ---------------------------------------------------------------------------
-// ViewsGridSkeleton — rounded, border-only placeholders while the list loads
+// ViewsGridSkeleton — border-only placeholders while the list loads
 // ---------------------------------------------------------------------------
 
 function ViewsGridSkeleton(): React.ReactElement {
@@ -323,7 +367,7 @@ function ViewsGridSkeleton(): React.ReactElement {
           key={i}
           className="animate-pulse"
           style={{
-            height: 376,
+            height: 340,
             width: "100%",
             background: "var(--bg-base)",
             border: "1px solid var(--glass-border)",
@@ -336,7 +380,7 @@ function ViewsGridSkeleton(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// ViewsErrorState — rounded border-only, copy >=15px, no fill
+// ViewsErrorState
 // ---------------------------------------------------------------------------
 
 function ViewsErrorState({
@@ -419,7 +463,7 @@ function ViewsErrorState({
 }
 
 // ---------------------------------------------------------------------------
-// ViewsEmptyState — rounded border-only, copy >=15px, no fill
+// ViewsEmptyState
 // ---------------------------------------------------------------------------
 
 function ViewsEmptyState(): React.ReactElement {
