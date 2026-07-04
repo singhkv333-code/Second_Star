@@ -25,6 +25,7 @@ import {
   BarChart2,
   Bug,
   CalendarDays,
+  Compass,
   ChevronDown,
   ChevronLeft,
   ExternalLink,
@@ -74,6 +75,7 @@ import { DashboardTab } from "@/components/DashboardTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { PivotLogo } from "@/components/brand/PivotLogo";
+import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTour";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -992,6 +994,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         onOpenChange={setShortcutsOpen}
       />
 
+      {/* First-run guided tour (spotlight coach marks). Auto-starts once per
+          browser on the home shell; replayable from Help → "Replay the tour".
+          Disabled on sub-routes (children) where its targets don't exist. */}
+      <ProductTour activeTab={active} onTabChange={goTab} enabled={!children} />
+
       <ReportBugDialog
         open={reportBugOpen}
         onOpenChange={setReportBugOpen}
@@ -1114,6 +1121,7 @@ function TopHeader({
           account menu / keyboard shortcut. */}
       <div
         className="hidden flex-1 items-center gap-2 lg:flex"
+        data-tour="search"
         style={{
           maxWidth: 360,
           height: 38,
@@ -1419,6 +1427,16 @@ function AccountMenu({
                     setHelpOpen(false);
                     setOpen(false);
                     onReportBug();
+                  }}
+                />
+                <MenuItem
+                  icon={Compass}
+                  label="Replay the tour"
+                  testId="menu-replay-tour"
+                  onClick={() => {
+                    setHelpOpen(false);
+                    setOpen(false);
+                    window.dispatchEvent(new CustomEvent(START_TOUR_EVENT));
                   }}
                 />
                 {!hideShortcuts && (
@@ -2002,7 +2020,12 @@ function Sidebar({
       </div>
       {/* Nav — text-only, with a 4×4 dot indicator on the active row.
           Mirrors frontend-quartr/.../Sidebar.jsx exactly. */}
-      <nav className="flex flex-col" style={{ gap: 2 }} aria-label="Primary navigation list">
+      <nav
+        className="flex flex-col"
+        style={{ gap: 2 }}
+        aria-label="Primary navigation list"
+        data-tour="nav"
+      >
         {NAV_ITEMS.map(({ key, label }) => {
           const isActive = active === key;
           return (
