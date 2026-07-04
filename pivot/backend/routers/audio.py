@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from backend.security.throttle import rate_limit
 from pydantic import BaseModel
 
 from backend.config import settings
@@ -176,7 +177,11 @@ async def _openai_whisper(
     return str(resp.json().get("text", "")).strip()
 
 
-@router.post("/transcribe", response_model=TranscriptionResult)
+@router.post(
+    "/transcribe",
+    response_model=TranscriptionResult,
+    dependencies=[Depends(rate_limit("audio", 20, 60))],
+)
 async def transcribe_audio(
     file: UploadFile = File(...),
     mode: str = Query(default="translate", pattern="^(translate|transcribe)$"),

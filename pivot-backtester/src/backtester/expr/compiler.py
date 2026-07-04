@@ -75,6 +75,11 @@ def compile_to_sql(
     *,
     basis: str = "consolidated",
 ) -> CompiledQuery:
+    # `basis` is interpolated raw into the CTE SQL string literals below, so it
+    # must be a known-safe value — reject anything else to prevent SQL injection
+    # (defense-in-depth; callers should also validate at their API boundary).
+    if basis not in ("consolidated", "standalone"):
+        raise ValueError(f"invalid basis {basis!r}; expected consolidated|standalone")
     expanded = _expand(ast, registry)
     leaves = _collect_leaves(expanded, registry)
 

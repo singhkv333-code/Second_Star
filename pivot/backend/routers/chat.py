@@ -14,6 +14,7 @@ import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from backend.security.throttle import rate_limit
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -575,7 +576,7 @@ def _jsonable(row: dict) -> dict:
 # ---- Main route --------------------------------------------------------
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(rate_limit("chat", 40, 60))])
 async def chat(
     request: ChatRequest,
     authorization: str = Header(None),
@@ -687,7 +688,7 @@ async def chat(
 # ---- Streaming (kept lean — used by the streaming chat UI path) --------
 
 
-@router.post("/stream")
+@router.post("/stream", dependencies=[Depends(rate_limit("chat", 40, 60))])
 async def chat_stream(
     request: ChatRequest,
     authorization: str = Header(None),

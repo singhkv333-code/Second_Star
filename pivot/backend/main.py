@@ -65,12 +65,17 @@ from backend.routers.feedback import router as feedback_router
 from backend.routers.screener import router as screener_router
 from backend.routers.audio import router as audio_router
 
+# Interactive API docs (Swagger/ReDoc/OpenAPI schema) disclose the full route
+# + schema surface, so disable them in production — dev/beta keep them for
+# convenience.
+_docs_on = settings.app_env != "production"
 app = FastAPI(
     title="Pivot API",
     description="AI-powered investing platform for Indian retail investors",
     version=settings.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
 )
 
 app.add_middleware(

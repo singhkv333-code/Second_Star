@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncpg
 from datetime import date as _date
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -68,7 +68,9 @@ class ValidateRequest(BaseModel):
 class ScreenRequest(BaseModel):
     expression: str
     as_of: Optional[str] = None         # YYYY-MM-DD; default today
-    basis: str = "consolidated"
+    # Whitelisted: `basis` is interpolated into the universe SQL downstream, so
+    # it MUST NOT accept arbitrary strings (SQLi). Only the two real values.
+    basis: Literal["consolidated", "standalone"] = "consolidated"
     limit: int = 50
 
 
@@ -79,7 +81,8 @@ class RunRequest(BaseModel):
     rebalance: str = Field("Q", pattern="^[DWMQYdwmqy]$")
     starting_capital: float = 1_000_000.0
     benchmark_sc_id: Optional[str] = None
-    basis: str = "consolidated"
+    # Whitelisted — same SQLi reason as ScreenRequest.basis.
+    basis: Literal["consolidated", "standalone"] = "consolidated"
     auto_map_symbols: bool = True       # call the LLM to fill in nse_symbol
                                         # for the universe at start_date
 

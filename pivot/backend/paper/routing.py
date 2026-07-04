@@ -173,6 +173,34 @@ def is_auto_exec_allowed(uid: int) -> bool:
     return bool(settings.auto_execute_enabled) and int(uid) in settings.auto_exec_user_ids
 
 
+def live_execution_enabled() -> bool:
+    """MASTER register-not-execute switch for the USER-CONFIRMED path (chat
+    /orders, View /place). While False (the default), these helpers REGISTER
+    the order and never send it to the real broker — the user confirms in their
+    own broker app. Independent of ``is_auto_exec_allowed`` (which gates the
+    unattended automation path)."""
+    from backend.config import settings
+
+    return bool(getattr(settings, "live_execution_enabled", False))
+
+
+def _registered_only(symbol: str, side: str, quantity: int, order_type: str) -> dict:
+    """The result of a user-confirmed order while live execution is OFF: the
+    order is REGISTERED, not sent to any broker. Callers persist this as a
+    ``registered`` TradeLog with no broker order id (register-not-execute)."""
+    logger.info(
+        "register-not-execute: %s %s x%s (%s) registered, not placed "
+        "(LIVE_EXECUTION_ENABLED off)",
+        side, symbol, quantity, order_type,
+    )
+    return {
+        "status": "registered",
+        "order_id": None,
+        "registered_only": True,
+        "message": "Registered — confirm in your broker app to place.",
+    }
+
+
 def _live_broker_session(db: Optional[Session], uid: int):
     """Resolve the user's active broker session for the LIVE order path,
     defensively. Returns None (caller falls back to the Kite mock helper) when
@@ -466,6 +494,10 @@ def submit_order_for_user(
             # phantom "SELL" idea.
             label=label or symbol,
         )
+    # MASTER register-not-execute gate: while live execution is off, a
+    # user-confirmed order is REGISTERED, never sent to the broker.
+    if not live_execution_enabled():
+        return _registered_only(symbol, side, int(quantity), ot)
     # Live path: resolve this user's active broker session and route the
     # order through its connector. Falls back to the kite mock helper when
     # no session exists. `access_token` is now ignored on the live path.
@@ -567,6 +599,9 @@ def submit_gtt_for_user(
             conversation_id=conversation_id,
             label=label or symbol,
         )
+    # MASTER register-not-execute gate (see submit_order_for_user).
+    if not live_execution_enabled():
+        return _registered_only(symbol, side, int(quantity), "GTT")
     # Live path: route the GTT through the active broker's connector;
     # fall back to the kite mock helper when no session exists.
     # User-CONFIRMED (chat): NOT auto-exec gated — but audit the placement.
@@ -670,6 +705,16 @@ def submit_gtt_oco_for_user(
             **common,
         )
         return {"mode": "paper", "oco_group": group, "stoploss": sl, "target": tp}
+
+    # MASTER register-not-execute gate (see submit_order_for_user): while live
+    # execution is off, the bracket exits are REGISTERED, not sent to the broker.
+    if not live_execution_enabled():
+        logger.info(
+            "register-not-execute: OCO exits for %s x%s registered, not placed "
+            "(LIVE_EXECUTION_ENABLED off)", symbol, int(quantity),
+        )
+        reg = {"status": "registered", "order_id": None}
+        return {"mode": "registered", "oco_group": None, "stoploss": reg, "target": reg}
 
     ref_price = (
         last_price

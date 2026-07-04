@@ -48,6 +48,7 @@ from backend.auth.rate_limit import (
 from backend.auth.revocation import is_revoked, revoke
 from backend.config import settings
 from backend.database import get_db
+from backend.security.throttle import rate_limit
 from backend.models import (
     EmailVerificationToken,
     PasswordResetToken,
@@ -155,7 +156,14 @@ def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 
 # ─── /register ──────────────────────────────────────────────────────
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    status_code=201,
+    # Throttle account creation per-IP: caps the "register-in-a-loop → mint
+    # tokens → hammer the LLM" abuse path (5 new accounts / hour / IP).
+    dependencies=[Depends(rate_limit("register", 5, 3600))],
+)
 def register(
     user_data: UserCreate,
     request: Request,

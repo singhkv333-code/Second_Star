@@ -40,3 +40,4 @@ Thumbs.db
 
 # logo override generator checkpoint (scripts/build_logo_overrides.py)
 backend/market/logo_overrides_progress.json
+scripts/backups/

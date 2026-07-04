@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     # is gated by broker_auto_exec_user_ids (comma-separated user ids).
     auto_execute_enabled: bool = False
     broker_auto_exec_user_ids: str = ""
+    # MASTER register-not-execute kill-switch for the USER-CONFIRMED path
+    # (chat /orders, View /place). While False (default), these never send a
+    # real order to the broker — they REGISTER it and the user confirms in
+    # their own broker app. Flip to True (LIVE_EXECUTION_ENABLED=true) only
+    # when live execution is deliberately enabled. Independent of
+    # auto_execute_enabled, which gates the unattended automation path.
+    live_execution_enabled: bool = False
 
     # AI
     openai_api_key: str = ""

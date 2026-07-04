@@ -13,6 +13,37 @@ const nextConfig: NextConfig = {
   experimental: {
     typedRoutes: false,
   },
+  // Security headers on every response. The headline fix is clickjacking:
+  // `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` stop the app being
+  // iframed to overlay a "Confirm & place" click. The CSP is deliberately
+  // scoped to directives that don't govern resource loading (frame-ancestors /
+  // object-src / base-uri / form-action) so it can't break the app's inline
+  // styles or the cross-origin API base; a full script/style CSP with nonces
+  // is a separate follow-up.
+  async headers() {
+    const csp = [
+      "frame-ancestors 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join("; ");
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: csp },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            key: "Permissions-Policy",
+            // Voice input needs the mic; nothing needs camera/geolocation.
+            value: "camera=(), geolocation=(), microphone=(self)",
+          },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return [
       {
