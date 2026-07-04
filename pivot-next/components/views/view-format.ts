@@ -446,6 +446,17 @@ export function categoryLabel(c: string | null | undefined): string {
 }
 
 /**
+ * Category → its leading THEME word — the token before the "·" separator, in
+ * its original casing. "AI · Theme" → "AI", "Energy · Theme" → "Energy",
+ * "Index · Price target" → "Index". This is the Polymarket-style category chip
+ * label (a broad bucket, not the full compound category). Empty input → "".
+ */
+export function categoryLead(c: string | null | undefined): string {
+  const head = (c ?? "").split("·")[0]?.trim() ?? "";
+  return head.split(/\s+/)[0] ?? "";
+}
+
+/**
  * Lifecycle status → display word.
  * draft → "Developing", published → "Open" (both map sensibly).
  */
