@@ -1967,7 +1967,7 @@ function Sidebar({
         width: 240,
         background: "var(--bg-secondary)",
         borderRight: "1px solid var(--glass-border)",
-        padding: "18px 14px 16px",
+        padding: "18px 16px 16px",
       }}
     >
       {/* Brand row — the full-height sidebar owns the logo (ElevenLabs-style),
@@ -1987,9 +1987,9 @@ function Sidebar({
             color: "var(--text-primary)",
             background: "transparent",
             border: "none",
-            /* Left-align the mark with the nav labels (rows use 14px
+            /* Left-align the mark with the nav labels (rows use 16px
                horizontal padding inside the same container). */
-            padding: "0 0 0 14px",
+            padding: "0 0 0 16px",
             cursor: "pointer",
           }}
         >
@@ -2037,7 +2037,7 @@ function Sidebar({
               data-testid={`nav-${key}`}
               style={{
                 position: "relative",
-                padding: "9px 14px",
+                padding: "9px 16px",
                 background: isActive ? "var(--surface-active)" : "transparent",
                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                 border: "none",
@@ -2052,10 +2052,16 @@ function Sidebar({
                   "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
               }}
               onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.color = "var(--text-primary)";
+                if (!isActive) {
+                  e.currentTarget.style.color = "var(--text-primary)";
+                  e.currentTarget.style.background = "var(--surface-active)";
+                }
               }}
               onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.color = "var(--text-secondary)";
+                if (!isActive) {
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                  e.currentTarget.style.background = "transparent";
+                }
               }}
             >
               {label}
@@ -2090,7 +2096,7 @@ function Sidebar({
           className="inline-flex items-center"
           style={{
             gap: 10,
-            padding: "9px 14px",
+            padding: "9px 16px",
             background: "transparent",
             border: "none",
             // Match the sidebar nav items' edge radius (Chat / Portfolio / …)
@@ -2253,7 +2259,7 @@ function ConversationRow({
           border: "none",
           color: highlighted ? "var(--text-primary)" : "var(--text-secondary)",
           fontFamily: "var(--font-ui)",
-          fontSize: 12.5,
+          fontSize: 13.5,
           fontWeight: active ? 600 : 500,
           textAlign: "left",
           whiteSpace: "nowrap",
