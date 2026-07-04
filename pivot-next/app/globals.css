@@ -60,7 +60,7 @@
            job — used only for sidebar-active / hover / selected states. */
     --bg-base:       #ffffff;   /* page bg — paper white */
     --bg-primary:    #fbfbfc;   /* card surface — very subtle tint */
-    --bg-secondary:  #f6f6f8;
+    --bg-secondary:  #fafafa;   /* ElevenLabs' exact greyish sidebar surface */
     --bg-card:       #fbfbfc;
     --bg-elevated:   #ececee;   /* hover / active — the warm grey */
 
@@ -176,11 +176,11 @@
     --ring: 222 89% 60%;
 
     /* ─── Quartr dark tokens — exact extracted values ─── */
-    --bg-base:       #0d0d0e;
+    --bg-base:       #000000;   /* page bg — ElevenLabs-style true black */
     --bg-primary:    #111212;
-    --bg-secondary:  #15161a;
+    --bg-secondary:  #1c1c1d;   /* ElevenLabs' exact greyish sidebar surface */
     --bg-card:       #181a1f;
-    --bg-elevated:   #1f2127;
+    --bg-elevated:   #1e1e1e;   /* hover / active — lighter than the sidebar */
 
     --glass-bg:           #111212;
     --glass-bg-hover:     #181a1f;
@@ -663,12 +663,6 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   :root {
     --header-h: 60px;
   }
-  /* Desktop brand slot keeps its 200px fixed width so the logo + search
-     line up. On mobile this width is omitted so the brand sits inline
-     next to the hamburger. */
-  .brand-slot {
-    width: 200px;
-  }
 }
 
 /* Sidebar close button — visible only inside the mobile drawer.
@@ -676,6 +670,16 @@ input[type="range"].payoff-slider::-moz-range-thumb {
    lg:hidden, so we drive visibility from here. */
 .sidebar-close-mobile {
   display: none;
+}
+
+/* Sidebar nav rows — after a click, Chrome/Edge leave their default
+   focus ring on the button, which inherits the row's own text color and
+   reads as a stray highlighted box (unrelated to our hover/active
+   styling). Swap it for the app's own subtle focus token so keyboard
+   navigation stays visible without the native ring. */
+.sidebar-nav-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--glass-border-focus);
 }
 
 /* Sidebar — slide-in drawer below lg. Uses transform (not display:none)
@@ -952,6 +956,10 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   .screener-filter-rail {
     display: none !important;
     max-height: none;
+  }
+  /* Desktop filter toolbar is replaced by the bottom sheet on mobile. */
+  .screener-toolbar {
+    display: none !important;
   }
   /* The open filter sheet is portaled to <body> as a bottom sheet — see
      the .screener-sheet-* rules outside this media block. */

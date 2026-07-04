@@ -13,7 +13,9 @@
 
 import * as React from "react";
 import { ViewCard } from "@/components/views/ViewCard";
+import { ViewCategoryBar } from "@/components/views/ViewCategoryBar";
 import { ViewDetailPage } from "@/components/views/ViewDetailPage";
+import { categoryLead } from "@/components/views/view-format";
 import type { ViewSummary, ViewDetail, StanceIntent } from "@/lib/types";
 import summariesRaw from "@/components/views/pack/viewpack01.summaries.json";
 import detailsRaw from "@/components/views/pack/viewpack01.details.json";
@@ -23,10 +25,30 @@ const DETAILS = detailsRaw as unknown as Record<string, ViewDetail>;
 
 const FONT = "var(--font-display)";
 
+// Distinct theme buckets across the pack, in first-seen order.
+const CATEGORIES = ((): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of SUMMARIES) {
+    const lead = categoryLead(v.category);
+    if (lead && !seen.has(lead)) {
+      seen.add(lead);
+      out.push(lead);
+    }
+  }
+  return out;
+})();
+
 export default function ViewPackPage(): React.ReactElement {
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [openStance, setOpenStance] = React.useState<StanceIntent | null>(null);
+  const [category, setCategory] = React.useState<string>("all");
   const detail = openId ? (DETAILS[openId] ?? null) : null;
+
+  const visible =
+    category === "all"
+      ? SUMMARIES
+      : SUMMARIES.filter((v) => categoryLead(v.category) === category);
 
   const openView = React.useCallback(
     (id: string, intent?: StanceIntent): void => {
@@ -86,34 +108,29 @@ export default function ViewPackPage(): React.ReactElement {
               </div>
               <h1
                 style={{
-                  fontFamily: FONT,
-                  fontSize: 30,
-                  fontWeight: 600,
-                  letterSpacing: "-0.02em",
+                  margin: 0,
+                  fontFamily: "var(--font-serif)",
+                  fontWeight: "var(--weight-display)" as React.CSSProperties["fontWeight"],
+                  fontSize: 22,
+                  letterSpacing: "-0.025em",
                   color: "var(--text-primary)",
-                  margin: "0 0 8px",
                 }}
               >
                 Views
               </h1>
-              <p
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 15,
-                  color: "var(--text-secondary)",
-                  margin: 0,
-                  maxWidth: 720,
-                  lineHeight: 1.5,
-                }}
-              >
-                Beliefs, expressed as deployable strategies — with the return each one has paid.
-              </p>
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <ViewCategoryBar
+                categories={CATEGORIES}
+                value={category}
+                onChange={setCategory}
+              />
             </div>
             <div
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch"
               style={{ gap: 20 }}
             >
-              {SUMMARIES.map((v) => (
+              {visible.map((v) => (
                 <ViewCard key={v.id} view={v} onOpen={openView} />
               ))}
             </div>

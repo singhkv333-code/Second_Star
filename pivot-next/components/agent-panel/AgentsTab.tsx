@@ -88,7 +88,6 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "active", label: "Active" },
   { value: "paused", label: "Paused" },
-  { value: "draft", label: "Draft" },
 ];
 
 type FetchState =
@@ -316,21 +315,22 @@ export function AgentsTab({ onOpenWorkflow, onEditWithChat }: AgentsTabProps): R
 
   return (
     <div className="agents-tab flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
-      {/* Page heading */}
-      <h1
-        className="q-serif"
-        style={{
-          fontSize: 22,
-          letterSpacing: "-0.025em",
-          color: "var(--text-primary)",
-          margin: 0,
-        }}
-      >
-        Active Agents
-      </h1>
+      {/* Page heading + Equity/Options toggle */}
+      <div className="flex items-center justify-between">
+        <h1
+          className="q-serif"
+          style={{
+            fontSize: 22,
+            letterSpacing: "-0.025em",
+            color: "var(--text-primary)",
+            margin: 0,
+          }}
+        >
+          Active Agents
+        </h1>
 
-      {/* Equity / Options toggle */}
-      <SurfaceToggle value={surface} onChange={setSurface} />
+        <SurfaceToggle value={surface} onChange={setSurface} />
+      </div>
 
       {surface === "equity" ? (
         <>
@@ -357,7 +357,7 @@ export function AgentsTab({ onOpenWorkflow, onEditWithChat }: AgentsTabProps): R
                     padding: "6px 12px",
                     background: active ? "var(--text-primary)" : "transparent",
                     border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
-                    borderRadius: "var(--radius-pill)",
+                    borderRadius: "var(--radius-sm)",
                     color: active ? "var(--bg-primary)" : "var(--text-secondary)",
                     fontFamily: "var(--font-ui)",
                     fontSize: 12,
@@ -446,8 +446,14 @@ function SurfaceToggle({
       role="tablist"
       aria-label="Agent surface"
       data-testid="agents-surface-toggle"
-      className="inline-flex items-center self-start rounded-full p-1"
-      style={{ background: "var(--bg-elevated)", border: "1px solid var(--glass-border)" }}
+      className="inline-flex"
+      style={{
+        gap: 2,
+        padding: 3,
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-sm)",
+      }}
     >
       {OPTIONS.map((o) => {
         const active = value === o.key;
@@ -459,17 +465,18 @@ function SurfaceToggle({
             aria-selected={active}
             data-testid={`surface-${o.key}`}
             onClick={() => onChange(o.key)}
-            className="rounded-full transition-colors"
             style={{
-              padding: "6px 16px",
-              fontFamily: "var(--font-ui)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              letterSpacing: "-0.01em",
-              cursor: "pointer",
+              padding: "6px 14px",
               border: "none",
+              cursor: "pointer",
+              borderRadius: "var(--radius-xs)",
+              fontSize: 12,
+              fontFamily: "var(--font-ui)",
+              fontWeight: 500,
               background: active ? "var(--text-primary)" : "transparent",
               color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+              transition:
+                "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
             }}
           >
             {o.label}
@@ -616,7 +623,7 @@ function AgentMiniCard({
       </div>
 
       {/* Title */}
-      <h3 className="m-0 line-clamp-2 text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
+      <h3 className="m-0 line-clamp-2 min-h-[48px] text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
         {workflow.name}
       </h3>
 
@@ -689,10 +696,10 @@ function AgentMiniCard({
 // has_data false → "No runs yet" (no fabricated chart).
 // ---------------------------------------------------------------------------
 
-// Two equal points → NavSparkline renders a flat line. Used ONLY as a
-// visual placeholder (dashed + neutral-gray, never profit/loss colored) for
-// cards with no live data and no eligible backtest — never mistaken for a
-// real (even flat) result.
+// Two equal points → NavSparkline renders a flat straight line. Used ONLY as
+// a visual placeholder (neutral-gray, never profit/loss colored) for cards
+// with no live data and no eligible backtest — never mistaken for a real
+// (even flat) result.
 const FLAT_PLACEHOLDER_SERIES: { date: string; nav: number }[] = [
   { date: "", nav: 0 },
   { date: "", nav: 0 },
@@ -738,7 +745,7 @@ function PerformanceBlock({
               Backtested · 1y
             </span>
           </div>
-          <NavSparkline series={btSeries} positive={btPositive} dashed />
+          <NavSparkline series={btSeries} positive={btPositive} />
           <div className="flex items-center justify-between gap-2 text-[11px]">
             <span
               className="tabular-nums"
@@ -804,12 +811,11 @@ function NavSparkline({
 }: {
   series: { date: string; nav: number }[];
   positive: boolean;
-  /** Backtested (not live) results render with a dashed stroke so the two
-   *  are never visually confused at a glance. */
+  /** Placeholder-only dashed stroke (no data at all). */
   dashed?: boolean;
-  /** No real/backtested data at all — a flat muted-gray placeholder line
+  /** No real/backtested data at all — a muted-gray placeholder line
    *  instead of the profit/loss green or red, so it's never mistaken for
-   *  an actual (even zero) result. */
+   *  an actual result. */
   neutral?: boolean;
 }): React.ReactElement {
   const W = 280;

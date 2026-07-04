@@ -59,8 +59,10 @@ describe("AppShell", () => {
     expect(nav).toBeInTheDocument();
     expect(screen.getByTestId("nav-chat")).toBeInTheDocument();
     expect(screen.getByTestId("nav-agents")).toBeInTheDocument();
-    expect(screen.getByTestId("nav-calendar")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-screener")).toBeInTheDocument();
     expect(screen.getByTestId("nav-portfolio")).toBeInTheDocument();
+    // The Calendar tab was retired; upcoming runs live in Agents now.
+    expect(screen.queryByTestId("nav-calendar")).toBeNull();
     // The old Dashboard tab is now the Chat tab.
     expect(screen.queryByTestId("nav-dashboard")).toBeNull();
   });
@@ -100,19 +102,19 @@ describe("AppShell", () => {
     expect(screen.getByTestId("mode-backtest")).toBeInTheDocument();
   });
 
-  it("Calendar nav item mounts the calendar tab", async () => {
+  it("Agents nav item mounts the agents tab", async () => {
     render(<AppShell />);
-    fireEvent.click(screen.getByTestId("nav-calendar"));
+    fireEvent.click(screen.getByTestId("nav-agents"));
     await waitFor(() =>
-      expect(screen.getByTestId("calendar-tab")).toBeInTheDocument(),
+      expect(screen.getByTestId("agents-tab")).toBeInTheDocument(),
     );
   });
 
   it("respects an initial URL hash on mount", async () => {
-    window.history.replaceState(null, "", "#calendar");
+    window.history.replaceState(null, "", "#agents");
     render(<AppShell />);
     await waitFor(() =>
-      expect(screen.getByTestId("calendar-tab")).toBeInTheDocument(),
+      expect(screen.getByTestId("agents-tab")).toBeInTheDocument(),
     );
   });
 

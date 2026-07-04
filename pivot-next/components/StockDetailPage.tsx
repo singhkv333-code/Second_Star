@@ -1794,7 +1794,7 @@ function ChartCard({
         padding: 2,
         background: "var(--bg-base)",
         border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-pill)",
+        borderRadius: "var(--radius-sm)",
         flexShrink: 0,
       }}
     >
@@ -1811,7 +1811,7 @@ function ChartCard({
             style={{
               padding: "5px 12px",
               border: "none",
-              borderRadius: "var(--radius-pill)",
+              borderRadius: "var(--radius-xs)",
               fontFamily: "var(--font-ui)",
               fontSize: 11.5,
               fontWeight: 500,

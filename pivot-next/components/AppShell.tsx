@@ -8,7 +8,7 @@
  *   [Sticky top header: logo + search + metric strip + theme toggle + avatar]
  *   [Left sidebar nav | Center content pane | Right rail (dashboard only)]
  *
- * Nav items: Chat / Portfolio / Agents / Calendar / Screener
+ * Nav items: Chat / Views / Portfolio / Agents / Screener
  * Active item: solid left border + bg highlight
  * Below nav: YOUR CONVERSATIONS — opens the Chat tab
  *
@@ -24,7 +24,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart2,
   Bug,
-  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ExternalLink,
@@ -62,7 +61,6 @@ import {
 } from "@/components/agent-panel/active-draft-context";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { ViewsTab } from "@/components/views/ViewsTab";
-import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
@@ -103,7 +101,6 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "calendar"
   | "screener"
   | "views";
 
@@ -116,7 +113,6 @@ const NAV_ITEMS: {
   { key: "views", label: "Views", Icon: Telescope },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
-  { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
@@ -620,63 +616,70 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   return (
     <ActiveDraftContext.Provider value={activeDraftCtx}>
     <div
-      className="app-shell-root flex h-screen flex-col bg-background"
-      style={{ ["--paper-banner-h" as string]: tradingMode === "paper" ? "30px" : "0px" }}
+      className="app-shell-root flex h-screen"
+      style={{
+        background: "var(--bg-base)",
+        ["--paper-banner-h" as string]: tradingMode === "paper" ? "30px" : "0px",
+      }}
     >
 
-      {/* Sticky top header */}
-      <TopHeader
-        theme={theme}
-        onChooseTheme={chooseTheme}
-        tradingMode={tradingMode}
-        onChooseTradingMode={chooseTradingMode}
-        metrics={metrics}
-        accountInitial={accountInitial}
-        onOpenBroker={() => setBrokerPanelOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenMobileNav={() => setMobileNavOpen(true)}
-        onBrandClick={() => goTab("chat")}
-        onLogout={async () => {
-          await logoutUser();
-          router.replace("/login");
-        }}
-        onOpenShortcuts={() => setShortcutsOpen(true)}
-        onReportBug={() => setReportBugOpen(true)}
-      />
-
-      {/* Paper-mode banner — full-width, unmissable, on every page. Sits
-          between the header and the body so it spans sidebar + content. */}
-      {tradingMode === "paper" && <PaperModeBanner />}
-
-      {/* Mobile nav backdrop — fades in behind the drawer; tap to close. */}
-      {mobileNavOpen && (
-        <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={() => setMobileNavOpen(false)}
-          className="fixed inset-0 z-40 cursor-default lg:hidden"
-          style={{ background: "rgba(0,0,0,0.4)" }}
+      {/* Left sidebar — full height, a sibling of the header+content column
+          (ElevenLabs-style: sidebar spans top-to-bottom, header only spans
+          the content pane beside it). Inline at lg+, slide-in drawer below.
+          Collapsed away on desktop via Ctrl/⌘+B; always mounted on mobile
+          so the drawer + hamburger keep working. */}
+      {(!sidebarCollapsed || !isDesktop) && (
+        <Sidebar
+          active={active}
+          onTabChange={goTab}
+          onNewChat={startNewChat}
+          conversations={conversations}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={() => setMobileNavOpen(false)}
+          onBrandClick={() => goTab("chat")}
         />
       )}
 
-      {/* Body: sidebar + content. The AgentPanel always opens as a modal
-          overlay (dark scrim + white panel) on top of this body, so we no
-          longer reserve side-by-side padding for it. */}
-      <div className="flex flex-1 min-h-0">
-        {/* Left sidebar — inline at lg+, slide-in drawer below. Collapsed
-            away on desktop via Ctrl/⌘+B; always mounted on mobile so the
-            drawer + hamburger keep working. */}
-        {(!sidebarCollapsed || !isDesktop) && (
-          <Sidebar
-            active={active}
-            onTabChange={goTab}
-            onNewChat={startNewChat}
-            conversations={conversations}
-            mobileOpen={mobileNavOpen}
-            onMobileClose={() => setMobileNavOpen(false)}
+      <div className="flex flex-1 min-w-0 min-h-0 flex-col">
+        {/* Sticky top header */}
+        <TopHeader
+          theme={theme}
+          onChooseTheme={chooseTheme}
+          tradingMode={tradingMode}
+          onChooseTradingMode={chooseTradingMode}
+          metrics={metrics}
+          accountInitial={accountInitial}
+          onOpenBroker={() => setBrokerPanelOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
+          onBrandClick={() => goTab("chat")}
+          onLogout={async () => {
+            await logoutUser();
+            router.replace("/login");
+          }}
+          onOpenShortcuts={() => setShortcutsOpen(true)}
+          onReportBug={() => setReportBugOpen(true)}
+        />
+
+        {/* Paper-mode banner — full-width, unmissable, on every page. Sits
+            between the header and the body, spanning the content column. */}
+        {tradingMode === "paper" && <PaperModeBanner />}
+
+        {/* Mobile nav backdrop — fades in behind the drawer; tap to close. */}
+        {mobileNavOpen && (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setMobileNavOpen(false)}
+            className="fixed inset-0 z-40 cursor-default lg:hidden"
+            style={{ background: "rgba(0,0,0,0.4)" }}
           />
         )}
 
+        {/* Body: content + right rail. The AgentPanel always opens as a
+            modal overlay (dark scrim + white panel) on top of this body, so
+            we no longer reserve side-by-side padding for it. */}
+        <div className="flex flex-1 min-h-0">
         {/* Center pane — flex column so the chat tab (which hosts both
             the dashboard intro and the chat surface) can size its
             messages region to the available space and pin the composer
@@ -712,7 +715,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 <DashboardTab
                   key={chatResetKey}
                   onOpenWorkflow={openWorkflow}
-                  onOpenCalendar={() => goTab("calendar")}
+                  onOpenAgents={() => goTab("agents")}
                   onChatActiveChange={setChatActive}
                   onDraftFromChat={(draft) => {
                     setActiveEditorDraft(draft);
@@ -726,13 +729,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
               {children}
             </div>
-          ) : active === "chat" ? null : active === "calendar" ? (
-            // Calendar gets full pane height (the day panel + month grid
-            // consume vertical space; no outer scroll). Mobile tightens.
-            <div className="flex-1 min-h-0 px-4 pt-4 lg:px-8 lg:pt-6 flex flex-col overflow-hidden">
-              <CalendarTab onOpenWorkflow={openWorkflowById} />
-            </div>
-          ) : active === "screener" ? (
+          ) : active === "chat" ? null : active === "screener" ? (
             // Screener also owns its own height (filter rail + results
             // grid take the full pane). The results table is intentionally
             // wider than phone viewports and scrolls inside its own
@@ -780,6 +777,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             <ActiveAgentsRail onOpenWorkflow={openWorkflow} />
           </aside>
         )}
+        </div>
       </div>
 
       <AgentPanel
@@ -910,17 +908,16 @@ function TopHeader({
         <Menu size={20} strokeWidth={2} aria-hidden="true" />
       </button>
 
-      {/* Brand — serif logotype, fixed-width slot at lg+. Uses --font-experiment
-          so we can swap typefaces in one place (globals.css) while we
-          decide on the final brand serif. On mobile the brand sits
-          inline next to the hamburger (no fixed width). Acts as a
-          navigation link back to the chat tab on every breakpoint. */}
+      {/* Brand — serif logotype. At lg+ the brand now lives at the top of
+          the sidebar (ElevenLabs-style full-height sidebar), so this
+          header copy is hidden there; below lg the sidebar collapses to a
+          drawer, so the brand stays here, centered next to the hamburger. */}
       <button
         type="button"
         onClick={onBrandClick}
         aria-label="Go to Pivot chat"
         data-testid="brand-home-link"
-        className="brand-slot flex shrink-0 items-center pl-0 lg:pl-1"
+        className="brand-slot flex shrink-0 items-center pl-0 lg:hidden"
         style={{
           gap: 0,
           fontFamily: "var(--font-experiment)",
@@ -1722,6 +1719,7 @@ function Sidebar({
   conversations,
   mobileOpen,
   onMobileClose,
+  onBrandClick,
 }: {
   active: TabKey;
   onTabChange: (key: TabKey) => void;
@@ -1729,6 +1727,7 @@ function Sidebar({
   conversations: ConvEntry[];
   mobileOpen: boolean;
   onMobileClose: () => void;
+  onBrandClick: () => void;
 }): React.ReactElement {
   // On lg+ the sidebar sits inline (in the flex row) — same look as before.
   // Below lg it becomes a fixed slide-in drawer driven by `mobileOpen`.
@@ -1741,36 +1740,65 @@ function Sidebar({
       data-mobile-open={mobileOpen ? "true" : "false"}
       style={{
         width: 240,
-        background: "var(--bg-base)",
+        // Distinct greyish surface vs. the pure bg-base content pane —
+        // ElevenLabs-style sidebar separation in both light and dark mode.
+        background: "var(--bg-secondary)",
         borderRight: "1px solid var(--glass-border)",
         padding: "18px 14px 16px",
       }}
     >
-      {/* Mobile-only close button — keeps the drawer escapable for
-          screen-reader / keyboard users (clicking nav or backdrop also
-          closes). The .sidebar-close-mobile class hides this on lg+
-          (see globals.css); inline `display: inline-flex` was fighting
-          Tailwind's lg:hidden, so we drive display from CSS. */}
-      <button
-        type="button"
-        onClick={onMobileClose}
-        aria-label="Close navigation"
-        className="sidebar-close-mobile self-end"
-        style={{
-          width: 36,
-          height: 36,
-          margin: "-4px -4px 6px 0",
-          background: "transparent",
-          border: "none",
-          borderRadius: "var(--radius-sm)",
-          color: "var(--text-secondary)",
-          cursor: "pointer",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
+      {/* Brand row — full-height sidebar now owns the logo (ElevenLabs-
+          style), so the top header's copy is hidden at lg+. The mobile-only
+          close button sits on the same row; `.sidebar-close-mobile` hides it
+          on lg+ (see globals.css) — inline `display: inline-flex` was
+          fighting Tailwind's lg:hidden, so display is driven from CSS. */}
+      <div
+        className="flex shrink-0 items-center justify-between"
+        style={{ margin: "-2px 0 18px" }}
       >
-        <X size={18} strokeWidth={2} aria-hidden="true" />
-      </button>
+        <button
+          type="button"
+          onClick={onBrandClick}
+          aria-label="Go to Pivot chat"
+          data-testid="sidebar-brand-home-link"
+          className="inline-flex shrink-0 items-center"
+          style={{
+            gap: 0,
+            fontFamily: "var(--font-experiment)",
+            fontWeight: "var(--weight-display)" as unknown as number,
+            fontSize: 23,
+            letterSpacing: "-0.02em",
+            color: "var(--text-primary)",
+            background: "transparent",
+            border: "none",
+            padding: "4px 4px 4px 0",
+            cursor: "pointer",
+          }}
+        >
+          <PivotMark size={20} className="shrink-0" title="Pivot" />
+          <span style={{ marginLeft: 8 }}>pivot</span>
+        </button>
+        <button
+          type="button"
+          onClick={onMobileClose}
+          aria-label="Close navigation"
+          className="sidebar-close-mobile"
+          style={{
+            width: 36,
+            height: 36,
+            margin: "-4px -4px -4px 0",
+            background: "transparent",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--text-secondary)",
+            cursor: "pointer",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <X size={18} strokeWidth={2} aria-hidden="true" />
+        </button>
+      </div>
       {/* Nav — text-only, with a 4×4 dot indicator on the active row.
           Mirrors frontend-quartr/.../Sidebar.jsx exactly. */}
       <nav className="flex flex-col" style={{ gap: 2 }} aria-label="Primary navigation list">
@@ -1783,9 +1811,12 @@ function Sidebar({
               onClick={() => onTabChange(key)}
               aria-current={isActive ? "page" : undefined}
               data-testid={`nav-${key}`}
+              className="sidebar-nav-item"
               style={{
                 position: "relative",
                 padding: "9px 14px",
+                // Same grey wash as the "New chat" row's hover — one
+                // consistent token for every sidebar row's hover/active state.
                 background: isActive ? "var(--surface-active)" : "transparent",
                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                 border: "none",
@@ -1800,10 +1831,14 @@ function Sidebar({
                   "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
               }}
               onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.color = "var(--text-primary)";
+                if (isActive) return;
+                e.currentTarget.style.color = "var(--text-primary)";
+                e.currentTarget.style.background = "var(--surface-active)";
               }}
               onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.color = "var(--text-secondary)";
+                if (isActive) return;
+                e.currentTarget.style.color = "var(--text-secondary)";
+                e.currentTarget.style.background = "transparent";
               }}
             >
               {label}

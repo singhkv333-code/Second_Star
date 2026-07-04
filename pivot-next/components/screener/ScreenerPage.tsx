@@ -276,13 +276,15 @@ const STOCK_PRESETS: {
   label: string;
   set: () => Partial<StockFilters>;
 }[] = [
+  // Market-cap tiers live in the toolbar segmented control now — these presets
+  // are the "smart screens" (multi-field combos) that the raw toolbar fields
+  // don't express in one tap.
   { id: "all", label: "All", set: () => ({}) },
-  { id: "large", label: "Large Cap", set: () => ({ mcap_tier: "large" }) },
-  { id: "mid", label: "Mid Cap", set: () => ({ mcap_tier: "mid" }) },
-  { id: "small", label: "Small Cap", set: () => ({ mcap_tier: "small" }) },
   { id: "high_roe", label: "High ROE", set: () => ({ roe_min: "20" }) },
   { id: "profitable", label: "Profitable", set: () => ({ roe_min: "12" }) },
   { id: "cheap", label: "Cheap (P/E < 20)", set: () => ({ pe_max: "20" }) },
+  { id: "quality_value", label: "Quality + Value", set: () => ({ roe_min: "15", pe_max: "25" }) },
+  { id: "large_quality", label: "Large & Profitable", set: () => ({ mcap_tier: "large", roe_min: "15" }) },
 ];
 
 // ── Component ────────────────────────────────────────────
@@ -429,7 +431,7 @@ function TitleRow({
           padding: 3,
           background: "var(--bg-base)",
           border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-pill)",
+          borderRadius: "var(--radius-sm)",
         }}
       >
         {SCREEN_ORDER.map((id) => {
@@ -441,7 +443,7 @@ function TitleRow({
               style={{
                 padding: "6px 14px",
                 border: "none",
-                borderRadius: "var(--radius-pill)",
+                borderRadius: "var(--radius-xs)",
                 fontFamily: "var(--font-ui)",
                 fontSize: 12,
                 fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
@@ -476,7 +478,6 @@ function StocksScreen({
   setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
 }): React.ReactElement {
   const [filters, setFilters] = useState<StockFilters>({ ...EMPTY_STOCK_FILTERS });
-  const [activePreset, setActivePreset] = useState<string | null>("all");
   const [sort, setSort] = useState<StockSort>({ key: "market_cap_cr", dir: -1 });
 
   const [rows, setRows] = useState<ScreenerStock[]>([]);
@@ -541,23 +542,13 @@ function StocksScreen({
   const setFilter = useCallback(
     <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => {
       setFilters((prev) => ({ ...prev, [key]: value }));
-      setActivePreset(null);
     },
     [],
   );
 
   const reset = useCallback(() => {
     setFilters({ ...EMPTY_STOCK_FILTERS });
-    setActivePreset("all");
   }, []);
-
-  const applyPreset = useCallback(
-    (p: (typeof STOCK_PRESETS)[number]) => {
-      setFilters({ ...EMPTY_STOCK_FILTERS, ...p.set() });
-      setActivePreset(p.id);
-    },
-    [],
-  );
 
   const toggleSort = useCallback((key: ScreenerSortBy) => {
     setSort((prev) =>
@@ -619,45 +610,21 @@ function StocksScreen({
         }
       />
 
-      {/* Watchlist — stocks-only, sits between the title row and preset
-          chips. Five numbered slots, medium cards (ticker · last ₹ · day Δ). */}
+      {/* Watchlist — stocks-only, sits between the title row and the filter
+          toolbar. Five numbered slots, medium cards (ticker · last ₹ · day Δ). */}
       <WatchlistStrip />
 
-      {/* Preset chips */}
-      <div
-        className="screener-presets"
-        style={{
-          padding: "0 32px 14px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-          flexShrink: 0,
-        }}
-      >
-        {STOCK_PRESETS.map((p) => {
-          const active = activePreset === p.id;
-          return (
-            <button
-              key={p.id}
-              onClick={() => applyPreset(p)}
-              style={{
-                padding: "6px 12px",
-                background: active ? "var(--text-primary)" : "transparent",
-                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
-                borderRadius: "var(--radius-pill)",
-                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 12,
-                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-                cursor: "pointer",
-                transition: "all 0.2s var(--ease-quartr)",
-              }}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* Mobile-only bottom sheet (renders null on desktop). */}
+      {rail}
+
+      {/* Desktop horizontal filter toolbar (hidden <lg). */}
+      <StockFilterToolbar
+        filters={filters}
+        setFilter={setFilter}
+        reset={reset}
+        sectors={sectors}
+        activeFilterCount={activeFilterCount}
+      />
 
       <div
         className="screener-body"
@@ -665,20 +632,10 @@ function StocksScreen({
           flex: 1,
           minHeight: 0,
           display: "grid",
-          gridTemplateColumns: "260px minmax(0, 1fr)",
-          gap: 16,
+          gridTemplateColumns: "minmax(0, 1fr)",
           padding: "0 32px 24px",
         }}
       >
-        {mobileFiltersOpen && (
-          <div
-            className="screener-filter-backdrop"
-            onClick={() => setMobileFiltersOpen(() => false)}
-            aria-hidden="true"
-          />
-        )}
-        {rail}
-
         <StockResultsTable
           rows={displayRows}
           loading={loading}
@@ -770,7 +727,7 @@ function WatchlistStrip(): React.ReactElement {
                 style={{
                   padding: "6px 14px",
                   border: "none",
-                  borderRadius: "var(--radius-pill)",
+                  borderRadius: "var(--radius-sm)",
                   fontFamily: "var(--font-ui)",
                   fontSize: 12,
                   fontWeight: 500,
@@ -1201,7 +1158,7 @@ function StockFilterRail({
   mobileOpen: boolean;
   onMobileClose: () => void;
   resultCount: number;
-}): React.ReactElement {
+}): React.ReactElement | null {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -1325,24 +1282,19 @@ function StockFilterRail({
         </div>
       </FilterGroup>
 
-      <FilterGroup label="Valuation">
-        <Row label="Max P/E">
-          <NumInput
+      <FilterGroup label="Fundamentals">
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <FieldInput
+            label="Max P/E"
             value={filters.pe_max}
             onChange={(v) => setFilter("pe_max", v)}
-            placeholder="—"
           />
-        </Row>
-      </FilterGroup>
-
-      <FilterGroup label="Quality">
-        <Row label="Min ROE %">
-          <NumInput
+          <FieldInput
+            label="Min ROE %"
             value={filters.roe_min}
             onChange={(v) => setFilter("roe_min", v)}
-            placeholder="—"
           />
-        </Row>
+        </div>
       </FilterGroup>
 
       <div
@@ -1381,25 +1333,534 @@ function StockFilterRail({
     );
   }
 
+  // Desktop no longer renders a side rail — filters live in the horizontal
+  // toolbar above the table. This component now only exists to portal the
+  // mobile bottom-sheet (handled above); on desktop it renders nothing.
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────
+// Horizontal filter toolbar (desktop) — replaces the left rail.
+// A single slim control strip above the full-width table: pill dropdowns +
+// segmented tiers + compact numeric fields. Hidden <lg (the mobile sheet,
+// opened by the title-row slider button, takes over there).
+// ─────────────────────────────────────────────────────────
+
+// A pill trigger + anchored popover. `children` is a render-prop that receives
+// a `close()` so single-select menus can dismiss on pick; multi-selects ignore
+// it and stay open.
+function ToolbarPopover({
+  triggerLabel,
+  active,
+  width = 240,
+  children,
+}: {
+  triggerLabel: React.ReactNode;
+  active: boolean;
+  width?: number;
+  children: (close: () => void) => React.ReactNode;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
   return (
-    <aside
-      id="screener-filter-rail"
-      className="screener-filter-rail quartr-no-scrollbar"
+    <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          height: 34,
+          padding: "0 12px",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: active ? "var(--surface-active)" : "var(--bg-primary)",
+          border: `1px solid ${open ? "var(--glass-border-focus)" : active ? "var(--text-primary)" : "var(--glass-border)"}`,
+          borderRadius: "var(--radius-pill)",
+          color: active ? "var(--text-primary)" : "var(--text-secondary)",
+          fontFamily: "var(--font-ui)",
+          fontSize: 12,
+          fontWeight: WEIGHT_MEDIUM,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+          transition: "all 0.15s var(--ease-quartr)",
+        }}
+        onMouseEnter={(e) => {
+          if (!active && !open) e.currentTarget.style.borderColor = "var(--glass-border-focus)";
+        }}
+        onMouseLeave={(e) => {
+          if (!active && !open) e.currentTarget.style.borderColor = "var(--glass-border)";
+        }}
+      >
+        {triggerLabel}
+        <ChevronDown
+          size={13}
+          strokeWidth={2.25}
+          aria-hidden="true"
+          style={{
+            opacity: 0.55,
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.15s var(--ease-quartr)",
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          className="quartr-no-scrollbar"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 30,
+            width,
+            maxHeight: 330,
+            overflowY: "auto",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.06), 0 14px 34px -10px rgba(0,0,0,0.24)",
+            padding: 6,
+          }}
+        >
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One selectable row inside a toolbar popover (label + optional right count).
+function PopoverRow({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
       style={{
-        minHeight: 0,
-        overflowY: "auto",
-        background: "var(--bg-primary)",
-        border: "none",
-        borderRadius: "var(--radius-md)",
-        padding: 16,
+        width: "100%",
         display: "flex",
-        flexDirection: "column",
-        gap: 13,
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        padding: "8px 10px",
+        background: active ? "var(--bg-secondary)" : "transparent",
+        border: "none",
+        borderRadius: "var(--radius-sm)",
+        cursor: "pointer",
+        textAlign: "left",
+        fontFamily: "var(--font-ui)",
+        fontSize: 12.5,
+        fontWeight: active ? WEIGHT_MEDIUM : 400,
+        color: active ? "var(--text-primary)" : "var(--text-secondary)",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) e.currentTarget.style.background = "var(--bg-secondary)";
+      }}
+      onMouseLeave={(e) => {
+        if (!active) e.currentTarget.style.background = "transparent";
       }}
     >
-      {headerEl}
-      {groupsEl}
-    </aside>
+      <span>{label}</span>
+      {count != null && (
+        <span
+          style={{
+            fontVariantNumeric: "tabular-nums",
+            fontSize: 11,
+            color: "var(--text-tertiary)",
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// Inline segmented control (market cap). Clicking the active option clears it.
+function ToolbarSegmented({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        height: 34,
+        padding: 3,
+        gap: 2,
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-sm)",
+      }}
+    >
+      {options.map((o) => {
+        const active = value === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(active ? "" : o.id)}
+            style={{
+              height: "100%",
+              padding: "0 12px",
+              border: "none",
+              borderRadius: "var(--radius-xs)",
+              background: active ? "var(--text-primary)" : "transparent",
+              color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+              fontFamily: "var(--font-ui)",
+              fontSize: 12,
+              fontWeight: WEIGHT_MEDIUM,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              transition: "all 0.15s var(--ease-quartr)",
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Compact inline numeric field for the toolbar: the label lives inside a pill
+// with the value to its right; the pill goes "active" (ink border) once filled.
+function ToolbarField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}): React.ReactElement {
+  const [focused, setFocused] = useState(false);
+  const filled = value !== "";
+  return (
+    <label
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        height: 34,
+        padding: "0 12px",
+        background: filled ? "var(--surface-active)" : "var(--bg-primary)",
+        border: `1px solid ${focused ? "var(--glass-border-focus)" : filled ? "var(--text-primary)" : "var(--glass-border)"}`,
+        borderRadius: "var(--radius-pill)",
+        cursor: "text",
+        transition: "all 0.15s var(--ease-quartr)",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-ui)",
+          fontSize: 12,
+          fontWeight: WEIGHT_MEDIUM,
+          color: filled ? "var(--text-primary)" : "var(--text-secondary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "" || /^-?\d*\.?\d*$/.test(v)) onChange(v);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Any"
+        style={{
+          width: 34,
+          padding: 0,
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          textAlign: "right",
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      />
+    </label>
+  );
+}
+
+// Trailing "Clear all" control, shown only when a filter is set. A quiet ghost
+// pill (no icon, no border at rest) that gains a hairline outline on hover, and
+// carries the active-filter count so its purpose is unambiguous.
+function ToolbarReset({
+  onClick,
+  count,
+}: {
+  onClick: () => void;
+  count: number;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        height: 34,
+        padding: "0 12px",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        background: "transparent",
+        border: "1px solid transparent",
+        borderRadius: "var(--radius-pill)",
+        color: "var(--text-tertiary)",
+        fontFamily: "var(--font-ui)",
+        fontSize: 12,
+        fontWeight: WEIGHT_MEDIUM,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+        transition: "color 0.15s var(--ease-quartr), border-color 0.15s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = "var(--text-primary)";
+        e.currentTarget.style.borderColor = "var(--glass-border)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = "var(--text-tertiary)";
+        e.currentTarget.style.borderColor = "transparent";
+      }}
+    >
+      Clear all
+      <span
+        aria-hidden="true"
+        style={{
+          minWidth: 16,
+          height: 16,
+          padding: "0 4px",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--bg-elevated)",
+          borderRadius: 999,
+          fontSize: 10.5,
+          fontVariantNumeric: "tabular-nums",
+          lineHeight: 1,
+        }}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// The Stocks toolbar: sector dropdown · market-cap segmented · P/E · ROE · reset.
+function StockFilterToolbar({
+  filters,
+  setFilter,
+  reset,
+  sectors,
+  activeFilterCount,
+}: {
+  filters: StockFilters;
+  setFilter: <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => void;
+  reset: () => void;
+  sectors: ScreenerSector[];
+  activeFilterCount: number;
+}): React.ReactElement {
+  const selectedSector = sectors.find((s) => s.sector === filters.sector);
+  const tierOptions = MARKET_CAP_TIERS.map((t) => ({
+    id: String(t[0]),
+    label: String(t[1]),
+  }));
+
+  return (
+    <div
+      className="screener-toolbar"
+      style={{
+        padding: "0 32px 14px",
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <ToolbarPopover
+        active={Boolean(filters.sector)}
+        triggerLabel={selectedSector ? selectedSector.label : "All sectors"}
+        width={230}
+      >
+        {(close) => (
+          <>
+            <PopoverRow
+              label="All sectors"
+              active={!filters.sector}
+              onClick={() => {
+                setFilter("sector", "");
+                close();
+              }}
+            />
+            {sectors.map((s) => (
+              <PopoverRow
+                key={s.sector}
+                label={s.label}
+                count={s.count}
+                active={filters.sector === s.sector}
+                onClick={() => {
+                  setFilter("sector", filters.sector === s.sector ? "" : s.sector);
+                  close();
+                }}
+              />
+            ))}
+          </>
+        )}
+      </ToolbarPopover>
+
+      <ToolbarSegmented
+        options={tierOptions}
+        value={filters.mcap_tier}
+        onChange={(v) => setFilter("mcap_tier", v as ScreenerMcapTier | "")}
+      />
+
+      <ToolbarField
+        label="Max P/E"
+        value={filters.pe_max}
+        onChange={(v) => setFilter("pe_max", v)}
+      />
+      <ToolbarField
+        label="Min ROE %"
+        value={filters.roe_min}
+        onChange={(v) => setFilter("roe_min", v)}
+      />
+
+      {activeFilterCount > 0 && (
+        <>
+          <div style={{ flex: 1 }} />
+          <ToolbarReset onClick={reset} count={activeFilterCount} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// The mock-screen toolbar (ETFs / Indices / Funds): a multi-select Category
+// dropdown + the screen's numeric thresholds + reset. Multi-select keeps the
+// popover open on toggle (ignores the passed close()).
+function MockFilterToolbar({
+  screenId,
+  filters,
+  setFilter,
+  toggleListItem,
+  reset,
+  activeFilterCount,
+}: {
+  screenId: ScreenId;
+  filters: MockFilters;
+  setFilter: (key: string, value: string) => void;
+  toggleListItem: (key: string, value: string) => void;
+  reset: () => void;
+  activeFilterCount: number;
+}): React.ReactElement {
+  const catFor: Record<string, string[]> = {
+    etfs: ETF_CATEGORIES,
+    indices: INDEX_CATEGORIES,
+    funds: FUND_CATEGORIES,
+  };
+  const cats = catFor[screenId] ?? [];
+  const selected = (filters.categories as string[]) ?? [];
+
+  return (
+    <div
+      className="screener-toolbar"
+      style={{
+        padding: "0 32px 14px",
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <ToolbarPopover
+        active={selected.length > 0}
+        triggerLabel={
+          selected.length === 0
+            ? "All categories"
+            : selected.length === 1
+              ? selected[0]
+              : `${selected.length} categories`
+        }
+        width={230}
+      >
+        {() => (
+          <>
+            {cats.map((c) => (
+              <PopoverRow
+                key={c}
+                label={c}
+                active={selected.includes(c)}
+                onClick={() => toggleListItem("categories", c)}
+              />
+            ))}
+          </>
+        )}
+      </ToolbarPopover>
+
+      {screenId === "etfs" && (
+        <>
+          <ToolbarField label="Min AUM ₹Cr" value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} />
+          <ToolbarField label="Max expense %" value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} />
+          <ToolbarField label="Min 1-Y %" value={String(filters.ret_min)} onChange={(v) => setFilter("ret_min", v)} />
+        </>
+      )}
+      {screenId === "indices" && (
+        <>
+          <ToolbarField label="Min day %" value={String(filters.day_min)} onChange={(v) => setFilter("day_min", v)} />
+          <ToolbarField label="Max day %" value={String(filters.day_max)} onChange={(v) => setFilter("day_max", v)} />
+          <ToolbarField label="Min YTD %" value={String(filters.ytd_min)} onChange={(v) => setFilter("ytd_min", v)} />
+        </>
+      )}
+      {screenId === "funds" && (
+        <>
+          <ToolbarField label="Min AUM ₹Cr" value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} />
+          <ToolbarField label="Max expense %" value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} />
+          <ToolbarField label="Min 3-Y %" value={String(filters.three_y_min)} onChange={(v) => setFilter("three_y_min", v)} />
+          <ToolbarField label="Min 5-Y %" value={String(filters.five_y_min)} onChange={(v) => setFilter("five_y_min", v)} />
+        </>
+      )}
+
+      {activeFilterCount > 0 && (
+        <>
+          <div style={{ flex: 1 }} />
+          <ToolbarReset onClick={reset} count={activeFilterCount} />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -1692,21 +2153,18 @@ function MockScreenView({
 }): React.ReactElement {
   const screen = MOCK_SCREENS[screenId] ?? MOCK_SCREENS.etfs!;
   const [filters, setFilters] = useState<MockFilters>(() => cloneFilters(screen.filterShape));
-  const [activePreset, setActivePreset] = useState<string | null>("all");
   const [sortKey, setSortKey] = useState(screen.defaultSort);
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
 
   // Reset filter/sort when the screen changes.
   useEffect(() => {
     setFilters(cloneFilters(screen.filterShape));
-    setActivePreset("all");
     setSortKey(screen.defaultSort);
     setSortDir(-1);
   }, [screen]);
 
   const setFilter = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
-    setActivePreset(null);
   };
   const toggleListItem = (key: string, value: string) => {
     setFilters((prev) => {
@@ -1716,19 +2174,9 @@ function MockScreenView({
         [key]: arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value],
       };
     });
-    setActivePreset(null);
   };
   const reset = () => {
     setFilters(cloneFilters(screen.filterShape));
-    setActivePreset("all");
-  };
-  const applyPreset = (p: MockPreset) => {
-    const merged: MockFilters = { ...cloneFilters(screen.filterShape) };
-    for (const [k, v] of Object.entries(p.set())) {
-      if (v !== undefined) merged[k] = v;
-    }
-    setFilters(merged);
-    setActivePreset(p.id);
   };
 
   const results = useMemo(() => {
@@ -1776,34 +2224,27 @@ function MockScreenView({
         }
       />
 
-      <div
-        className="screener-presets"
-        style={{ padding: "0 32px 14px", display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}
-      >
-        {screen.presets.map((p) => {
-          const active = activePreset === p.id;
-          return (
-            <button
-              key={p.id}
-              onClick={() => applyPreset(p)}
-              style={{
-                padding: "6px 12px",
-                background: active ? "var(--text-primary)" : "transparent",
-                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
-                borderRadius: "var(--radius-pill)",
-                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 12,
-                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-                cursor: "pointer",
-                transition: "all 0.2s var(--ease-quartr)",
-              }}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* Mobile-only bottom sheet (renders null on desktop). */}
+      <MockFilterRail
+        screenId={screenId}
+        filters={filters}
+        setFilter={setFilter}
+        toggleListItem={toggleListItem}
+        reset={reset}
+        mobileOpen={mobileFiltersOpen}
+        onMobileClose={() => setMobileFiltersOpen(() => false)}
+        resultCount={results.length}
+      />
+
+      {/* Desktop horizontal filter toolbar (hidden <lg). */}
+      <MockFilterToolbar
+        screenId={screenId}
+        filters={filters}
+        setFilter={setFilter}
+        toggleListItem={toggleListItem}
+        reset={reset}
+        activeFilterCount={activeFilterCount}
+      />
 
       <div
         className="screener-body"
@@ -1811,28 +2252,10 @@ function MockScreenView({
           flex: 1,
           minHeight: 0,
           display: "grid",
-          gridTemplateColumns: "260px minmax(0, 1fr)",
-          gap: 16,
+          gridTemplateColumns: "minmax(0, 1fr)",
           padding: "0 32px 24px",
         }}
       >
-        {mobileFiltersOpen && (
-          <div
-            className="screener-filter-backdrop"
-            onClick={() => setMobileFiltersOpen(() => false)}
-            aria-hidden="true"
-          />
-        )}
-        <MockFilterRail
-          screenId={screenId}
-          filters={filters}
-          setFilter={setFilter}
-          toggleListItem={toggleListItem}
-          reset={reset}
-          mobileOpen={mobileFiltersOpen}
-          onMobileClose={() => setMobileFiltersOpen(() => false)}
-          resultCount={results.length}
-        />
         <MockResultsTable
           columns={screen.columns}
           rows={results}
@@ -1869,7 +2292,7 @@ function MockFilterRail({
   mobileOpen: boolean;
   onMobileClose: () => void;
   resultCount: number;
-}): React.ReactElement {
+}): React.ReactElement | null {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -1945,62 +2368,34 @@ function MockFilterRail({
       </FilterGroup>
 
       {screenId === "etfs" && (
-        <>
-          <FilterGroup label="AUM (₹ Cr)">
-            <Row label="Min AUM">
-              <NumInput value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} placeholder="—" />
-            </Row>
-          </FilterGroup>
-          <FilterGroup label="Cost">
-            <Row label="Max expense %">
-              <NumInput value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} placeholder="—" />
-            </Row>
-          </FilterGroup>
-          <FilterGroup label="Performance">
-            <Row label="Min 1-Y return %">
-              <NumInput value={String(filters.ret_min)} onChange={(v) => setFilter("ret_min", v)} placeholder="—" />
-            </Row>
-          </FilterGroup>
-        </>
+        <FilterGroup label="Fundamentals">
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <FieldInput label="Min AUM (₹ Cr)" value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} />
+            <FieldInput label="Max expense %" value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} />
+            <FieldInput label="Min 1-Y return %" value={String(filters.ret_min)} onChange={(v) => setFilter("ret_min", v)} />
+          </div>
+        </FilterGroup>
       )}
 
       {screenId === "indices" && (
-        <>
-          <FilterGroup label="Today">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              <NumInput value={String(filters.day_min)} onChange={(v) => setFilter("day_min", v)} placeholder="Min %" />
-              <NumInput value={String(filters.day_max)} onChange={(v) => setFilter("day_max", v)} placeholder="Max %" />
-            </div>
-          </FilterGroup>
-          <FilterGroup label="Year-to-date">
-            <Row label="Min YTD %">
-              <NumInput value={String(filters.ytd_min)} onChange={(v) => setFilter("ytd_min", v)} placeholder="—" />
-            </Row>
-          </FilterGroup>
-        </>
+        <FilterGroup label="Performance">
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <FieldInput label="Min day change %" value={String(filters.day_min)} onChange={(v) => setFilter("day_min", v)} />
+            <FieldInput label="Max day change %" value={String(filters.day_max)} onChange={(v) => setFilter("day_max", v)} />
+            <FieldInput label="Min YTD %" value={String(filters.ytd_min)} onChange={(v) => setFilter("ytd_min", v)} />
+          </div>
+        </FilterGroup>
       )}
 
       {screenId === "funds" && (
-        <>
-          <FilterGroup label="AUM (₹ Cr)">
-            <Row label="Min AUM">
-              <NumInput value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} placeholder="—" />
-            </Row>
-          </FilterGroup>
-          <FilterGroup label="Cost">
-            <Row label="Max expense %">
-              <NumInput value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} placeholder="—" />
-            </Row>
-          </FilterGroup>
-          <FilterGroup label="Performance">
-            <Row label="Min 3-Y CAGR %">
-              <NumInput value={String(filters.three_y_min)} onChange={(v) => setFilter("three_y_min", v)} placeholder="—" />
-            </Row>
-            <Row label="Min 5-Y CAGR %">
-              <NumInput value={String(filters.five_y_min)} onChange={(v) => setFilter("five_y_min", v)} placeholder="—" />
-            </Row>
-          </FilterGroup>
-        </>
+        <FilterGroup label="Fundamentals">
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <FieldInput label="Min AUM (₹ Cr)" value={String(filters.aum_min)} onChange={(v) => setFilter("aum_min", v)} />
+            <FieldInput label="Max expense %" value={String(filters.exp_max)} onChange={(v) => setFilter("exp_max", v)} />
+            <FieldInput label="Min 3-Y CAGR %" value={String(filters.three_y_min)} onChange={(v) => setFilter("three_y_min", v)} />
+            <FieldInput label="Min 5-Y CAGR %" value={String(filters.five_y_min)} onChange={(v) => setFilter("five_y_min", v)} />
+          </div>
+        </FilterGroup>
       )}
     </>
   );
@@ -2022,26 +2417,10 @@ function MockFilterRail({
     );
   }
 
-  return (
-    <aside
-      id="screener-filter-rail"
-      className="screener-filter-rail quartr-no-scrollbar"
-      style={{
-        minHeight: 0,
-        overflowY: "auto",
-        background: "var(--bg-primary)",
-        border: "none",
-        borderRadius: "var(--radius-md)",
-        padding: 16,
-        display: "flex",
-        flexDirection: "column",
-        gap: 13,
-      }}
-    >
-      {headerEl}
-      {groupsEl}
-    </aside>
-  );
+  // Desktop no longer renders a side rail — filters live in the horizontal
+  // toolbar above the table. This component now only exists to portal the
+  // mobile bottom-sheet (handled above); on desktop it renders nothing.
+  return null;
 }
 
 // Monogram glyph for the mock screens (no real logos for ETFs/indices/funds).
@@ -2303,33 +2682,18 @@ function FilterGroup({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
       <div
         style={{
-          fontSize: 10,
+          fontSize: 10.5,
           color: "var(--text-tertiary)",
           fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-          letterSpacing: "0.08em",
+          letterSpacing: "0.09em",
           textTransform: "uppercase",
         }}
       >
         {label}
       </div>
-      {children}
-    </div>
-  );
-}
-
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", alignItems: "center", gap: 10 }}>
-      <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{label}</span>
       {children}
     </div>
   );
@@ -2397,56 +2761,98 @@ function ChipMulti({
   );
 }
 
-function NumInput({
+// A self-contained threshold field: the caption and the numeric input live in
+// one bordered pill, so a single filter reads as one polished, full-width
+// control rather than a label beside a floating dash-in-a-box. The whole field
+// is a <label>, so a tap anywhere focuses the input; the border lights on focus
+// and the unit suffix strengthens once a value is entered.
+function FieldInput({
+  label,
   value,
   onChange,
-  placeholder,
+  suffix,
+  placeholder = "Any",
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
+  suffix?: string;
   placeholder?: string;
 }): React.ReactElement {
+  const [focused, setFocused] = useState(false);
+  const filled = value !== "";
   return (
-    <input
-      type="text"
-      inputMode="decimal"
-      value={value}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (v === "" || /^-?\d*\.?\d*$/.test(v)) onChange(v);
-      }}
-      placeholder={placeholder}
+    <label
       style={{
-        width: "100%",
-        padding: "6px 10px",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 12px",
         background: "var(--bg-base)",
-        border: "1px solid var(--glass-border)",
+        border: `1px solid ${focused ? "var(--glass-border-focus)" : "var(--glass-border)"}`,
         borderRadius: "var(--radius-sm)",
-        color: "var(--text-primary)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 12,
-        outline: "none",
-        textAlign: "right",
+        cursor: "text",
+        transition: "border-color 0.15s var(--ease-quartr)",
       }}
-      onFocus={(e) => {
-        e.currentTarget.style.borderColor = "var(--glass-border-focus)";
-      }}
-      onBlur={(e) => {
-        e.currentTarget.style.borderColor = "var(--glass-border)";
-      }}
-    />
+    >
+      <span
+        style={{
+          flex: 1,
+          fontFamily: "var(--font-ui)",
+          fontSize: 12,
+          color: "var(--text-secondary)",
+        }}
+      >
+        {label}
+      </span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "" || /^-?\d*\.?\d*$/.test(v)) onChange(v);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        style={{
+          width: 52,
+          padding: 0,
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          textAlign: "right",
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      />
+      {suffix && (
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            color: filled ? "var(--text-secondary)" : "var(--text-tertiary)",
+          }}
+        >
+          {suffix}
+        </span>
+      )}
+    </label>
   );
 }
 
 const tierBtnStyle: React.CSSProperties = {
   flex: 1,
-  padding: "5px 0",
+  padding: "8px 0",
   background: "transparent",
   border: "1px solid var(--glass-border)",
   borderRadius: "var(--radius-sm)",
   color: "var(--text-tertiary)",
   fontFamily: "var(--font-ui)",
-  fontSize: 10.5,
+  fontSize: 11.5,
   fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
   cursor: "pointer",
   transition: "all 0.2s var(--ease-quartr)",

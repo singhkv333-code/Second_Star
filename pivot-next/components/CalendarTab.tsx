@@ -449,7 +449,7 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
             padding: 3,
             background: "var(--bg-base)",
             border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-pill)",
+            borderRadius: "var(--radius-sm)",
           }}
         >
           {(["month", "agenda"] as const).map((v) => {
@@ -465,7 +465,7 @@ export function CalendarTab({ onOpenWorkflow }: CalendarTabProps): React.ReactEl
                   padding: "6px 14px",
                   border: "none",
                   cursor: "pointer",
-                  borderRadius: "var(--radius-pill)",
+                  borderRadius: "var(--radius-xs)",
                   fontSize: 12,
                   fontFamily: "var(--font-ui)",
                   fontWeight: 500,

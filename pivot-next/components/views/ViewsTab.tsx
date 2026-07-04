@@ -16,47 +16,53 @@
  */
 
 import * as React from "react";
-import { AlertCircle, RefreshCw } from "lucide-react";
-import { listViews } from "@/lib/api";
-import { isError } from "@/lib/types";
-import type { ViewSummary, StanceIntent } from "@/lib/types";
+import type { ViewSummary, ViewDetail, StanceIntent } from "@/lib/types";
 import { ViewCard } from "./ViewCard";
-import { ViewFilters, DEFAULT_FILTERS, type FiltersState } from "./ViewFilters";
+import { DEFAULT_FILTERS, type FiltersState } from "./ViewFilters";
+import { ViewCategoryBar } from "./ViewCategoryBar";
 import { ViewDetailPage } from "./ViewDetailPage";
+import { categoryLead } from "./view-format";
+import packSummariesRaw from "./pack/viewpack01.summaries.json";
+import packDetailsRaw from "./pack/viewpack01.details.json";
+
+// View Pack 01 — 8 curated views shipped as static data (summaries for the grid,
+// details for the detail page via detailOverride). This tab renders the pack
+// directly, with no /api/views round-trip.
+const PACK_SUMMARIES = packSummariesRaw as unknown as ViewSummary[];
+const PACK_DETAILS = packDetailsRaw as unknown as Record<string, ViewDetail>;
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type FetchState =
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ok"; items: ViewSummary[] };
-
 export type ViewsTabProps = {
   onOpenWorkflowById: (workflowId: string) => void;
 };
 
-// A single shared grid class: 1 / 2 / 3 columns at <640 / 640–1024 / >=1024,
-// equal-width cards, 20px gutter, equal heights (cards are fixed-height).
+// A single shared grid class: 1 / 2 / 3 / 4 columns at <640 / 640–1024 /
+// 1024–1536 / >=1536, equal-width cards, 20px gutter, equal heights (cards are
+// fixed-height). The 4-up column at 2xl keeps each card narrow on the 1920/2560
+// design canvas instead of stretching too wide.
 const GRID_CLASS =
-  "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch";
+  "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 items-stretch";
 const GRID_STYLE: React.CSSProperties = { gap: 20 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function filtersToQuery(f: FiltersState): {
-  status?: string;
-  view_type?: string;
-  category?: string;
-} {
-  const q: { status?: string; view_type?: string; category?: string } = {};
-  if (f.status !== "all") q.status = f.status;
-  if (f.view_type !== "all") q.view_type = f.view_type;
-  if (f.category !== "all") q.category = f.category;
-  return q;
+/** Distinct theme buckets from the loaded views, in first-seen order. */
+function deriveCategories(items: ViewSummary[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of items) {
+    const lead = categoryLead(v.category);
+    if (lead && !seen.has(lead)) {
+      seen.add(lead);
+      out.push(lead);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,33 +80,11 @@ export function ViewsTab({
   const [selectedStance, setSelectedStance] =
     React.useState<StanceIntent | null>(null);
   const [filters, setFilters] = React.useState<FiltersState>(DEFAULT_FILTERS);
-  const [state, setState] = React.useState<FetchState>({ kind: "loading" });
 
   // Per-view follow sync: keyed by view id, avoids a full refetch after toggling.
   const [followMap, setFollowMap] = React.useState<
     Record<string, { is_following: boolean; follower_count: number }>
   >({});
-
-  const load = React.useCallback((f: FiltersState): void => {
-    setState({ kind: "loading" });
-    listViews(filtersToQuery(f))
-      .then((result) => {
-        if (isError(result)) {
-          setState({ kind: "error", message: result.error.message });
-          return;
-        }
-        setState({ kind: "ok", items: result.data.items });
-        setFollowMap({});
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : "Network error";
-        setState({ kind: "error", message: msg });
-      });
-  }, []);
-
-  React.useEffect(() => {
-    load(filters);
-  }, [filters, load]);
 
   const handleFollowChange = React.useCallback(
     (
@@ -125,6 +109,7 @@ export function ViewsTab({
     return (
       <ViewDetailPage
         viewId={selectedViewId}
+        detailOverride={PACK_DETAILS[selectedViewId] ?? null}
         initialStance={selectedStance}
         onBack={() => {
           setSelectedViewId(null);
@@ -136,6 +121,15 @@ export function ViewsTab({
   }
 
   // ── Grid mode ─────────────────────────────────────────────────────────────
+  // The tab renders View Pack 01 — a curated, static set. (DB-backed views are
+  // intentionally not merged in here.)
+  const items = PACK_SUMMARIES;
+  const categories = deriveCategories(items);
+  const visibleItems =
+    filters.category === "all"
+      ? items
+      : items.filter((v) => categoryLead(v.category) === filters.category);
+
   return (
     <div
       className="views-tab flex flex-col"
@@ -146,60 +140,43 @@ export function ViewsTab({
       <div>
         <h1
           style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 28,
-            fontWeight: 600,
-            letterSpacing: "-0.02em",
+            margin: 0,
+            fontFamily: "var(--font-serif)",
+            fontWeight: "var(--weight-display)" as React.CSSProperties["fontWeight"],
+            fontSize: 22,
+            letterSpacing: "-0.025em",
             color: "var(--text-primary)",
-            margin: "0 0 6px 0",
-            lineHeight: 1.2,
           }}
         >
           Views
         </h1>
-        <p
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 15,
-            fontWeight: 400,
-            color: "var(--text-secondary)",
-            margin: 0,
-            lineHeight: 1.5,
-          }}
-        >
-          Beliefs, expressed as deployable strategies — with the return each one has paid.
-        </p>
       </div>
 
-      {/* Filters */}
-      <ViewFilters value={filters} onChange={setFilters} />
-
-      {/* Loading skeletons */}
-      {state.kind === "loading" && <ViewsGridSkeleton />}
-
-      {/* Error */}
-      {state.kind === "error" && (
-        <ViewsErrorState message={state.message} onRetry={() => load(filters)} />
+      {/* Category ribbon (Polymarket-style) — buckets the views by theme. The
+          pack guarantees content, so it shows regardless of backend state. */}
+      {categories.length > 1 && (
+        <ViewCategoryBar
+          categories={categories}
+          value={filters.category}
+          onChange={(category) => setFilters({ ...filters, category })}
+        />
       )}
 
-      {/* Empty state */}
-      {state.kind === "ok" && state.items.length === 0 && <ViewsEmptyState />}
-
-      {/* Grid */}
-      {state.kind === "ok" && state.items.length > 0 && (
+      {/* Grid — pack views (+ any backend views) always render */}
+      {visibleItems.length > 0 && (
         <div
           className={GRID_CLASS}
           style={GRID_STYLE}
           data-testid="views-grid"
           role="list"
         >
-          {state.items.map((view) => {
+          {visibleItems.map((view) => {
             const follow = followMap[view.id];
             const merged: ViewSummary = follow
               ? { ...view, ...follow }
               : view;
             return (
-              <div key={view.id} role="listitem">
+              <div key={view.id} role="listitem" className="h-full">
                 <ViewCard
                   view={merged}
                   onOpen={openView}
@@ -210,158 +187,6 @@ export function ViewsTab({
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ViewsGridSkeleton — rounded, border-only placeholders while the list loads
-// ---------------------------------------------------------------------------
-
-function ViewsGridSkeleton(): React.ReactElement {
-  return (
-    <div className={GRID_CLASS} style={GRID_STYLE} data-testid="views-loading">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          key={i}
-          className="animate-pulse"
-          style={{
-            height: 376,
-            width: "100%",
-            background: "var(--bg-base)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-lg)",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ViewsErrorState — rounded border-only, copy >=15px, no fill
-// ---------------------------------------------------------------------------
-
-function ViewsErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}): React.ReactElement {
-  return (
-    <div
-      role="alert"
-      data-testid="views-error"
-      className="flex flex-col items-center justify-center text-center"
-      style={{
-        background: "var(--bg-base)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "48px 24px",
-        gap: 12,
-      }}
-    >
-      <AlertCircle
-        size={24}
-        aria-hidden
-        style={{ color: "var(--color-loss)" }}
-      />
-      <p
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 18,
-          fontWeight: 600,
-          color: "var(--text-primary)",
-          margin: 0,
-        }}
-      >
-        Couldn&apos;t load views
-      </p>
-      <p
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 15,
-          color: "var(--text-secondary)",
-          margin: 0,
-          maxWidth: 360,
-        }}
-      >
-        {message}
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="inline-flex items-center"
-        style={{
-          marginTop: 4,
-          gap: 8,
-          padding: "8px 16px",
-          background: "var(--bg-base)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-md)",
-          color: "var(--text-primary)",
-          fontFamily: "var(--font-display)",
-          fontSize: 15,
-          fontWeight: 500,
-          cursor: "pointer",
-          transition: "border-color 180ms var(--ease-quartr)",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "var(--glass-border-hover)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "var(--glass-border)";
-        }}
-      >
-        <RefreshCw size={15} aria-hidden />
-        Retry
-      </button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ViewsEmptyState — rounded border-only, copy >=15px, no fill
-// ---------------------------------------------------------------------------
-
-function ViewsEmptyState(): React.ReactElement {
-  return (
-    <div
-      data-testid="views-empty"
-      className="flex flex-col items-center justify-center text-center"
-      style={{
-        background: "var(--bg-base)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "56px 24px",
-        gap: 10,
-      }}
-    >
-      <p
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 18,
-          fontWeight: 600,
-          color: "var(--text-primary)",
-          margin: 0,
-        }}
-      >
-        No views yet
-      </p>
-      <p
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 15,
-          color: "var(--text-secondary)",
-          margin: 0,
-          maxWidth: 380,
-          lineHeight: 1.5,
-        }}
-      >
-        Curated market beliefs will appear here — each one explained, with the
-        return it has paid, and ready to deploy.
-      </p>
     </div>
   );
 }

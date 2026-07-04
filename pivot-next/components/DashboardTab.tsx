@@ -45,8 +45,8 @@ import type { Workflow as WorkflowT } from "@/lib/types";
 type DashboardTabProps = {
   /** Open the workflow editor panel (forwarded to ChatDemo). */
   onOpenWorkflow: (workflow: WorkflowT) => void;
-  /** Called when user clicks the Agents Calendar chip — parent switches tab. */
-  onOpenCalendar: () => void;
+  /** Called when user clicks the My Agents chip — parent switches tab. */
+  onOpenAgents: () => void;
   /** Forwarded from ChatDemo: true once the user has sent ≥1 message.
    * AppShell uses this to hide the Active Agents rail. */
   onChatActiveChange?: (active: boolean) => void;
@@ -71,7 +71,7 @@ type ChipDef = {
   label: string;
   Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties; "aria-hidden"?: boolean }>;
   prompt?: string;
-  action?: "calendar" | "demo";
+  action?: "agents" | "demo";
 };
 
 const ACTION_CHIPS: ChipDef[] = [
@@ -84,7 +84,7 @@ const ACTION_CHIPS: ChipDef[] = [
   { label: "Portfolio Health",  Icon: Activity,     prompt: "Analyze my portfolio health and suggest any rebalancing." },
   { label: "Market Pulse",      Icon: TrendingUp,   prompt: "Give me a market pulse summary for today." },
   { label: "Top Movers",        Icon: ArrowUpRight, prompt: "What are the top movers in NIFTY 50 today?" },
-  { label: "Agents Calendar",   Icon: CalendarDays, action: "calendar" },
+  { label: "My Agents",         Icon: CalendarDays, action: "agents" },
   { label: "News-gated trade",  Icon: Newspaper,    prompt: "Buy 5 RELIANCE at open. At 10 AM IST, if RBI announces a repo rate cut, sell my entire RELIANCE holding; otherwise hold for the day." },
 ];
 
@@ -201,7 +201,7 @@ function getDisplayName(name: string | null | undefined, email: string | null | 
 
 export function DashboardTab({
   onOpenWorkflow,
-  onOpenCalendar,
+  onOpenAgents,
   onChatActiveChange,
   onDraftFromChat,
 }: DashboardTabProps): React.ReactElement {
@@ -231,8 +231,8 @@ export function DashboardTab({
         : null;
 
   const handleChipClick = (chip: ChipDef): void => {
-    if (chip.action === "calendar") {
-      onOpenCalendar();
+    if (chip.action === "agents") {
+      onOpenAgents();
       return;
     }
     if (chip.action === "demo") {

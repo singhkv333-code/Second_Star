@@ -1473,12 +1473,9 @@ export function ChatDemo({
                           </AssistantBubble>
                         </div>
                       ) : (
-                        /* No text yet — show shimmer placeholder while
-                           first delta arrives. */
-                        <div className="mt-3 flex flex-col gap-1.5 py-0.5">
-                          <Skeleton className="h-3 w-40" />
-                          <Skeleton className="h-3 w-28" />
-                        </div>
+                        /* No text yet — the StreamingStatusBar above already
+                           signals the wait, so we render no placeholder bars. */
+                        null
                       )}
                     </div>
                   </div>
@@ -2661,7 +2658,7 @@ function ChatComposer({
                 // sidebar nav: subtle elevated bg + ink text. No border.
                 gap: 6,
                 padding: "6px 12px",
-                borderRadius: "var(--radius-pill)",
+                borderRadius: "var(--radius-sm)",
                 background: isActive ? "var(--surface-active)" : "transparent",
                 border: "none",
                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",

@@ -142,7 +142,7 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
             Laptop has no top toggle; it uses the floating Greeks switch below. */}
         {isPhone && (
           <div className="flex shrink-0 items-center justify-center border-b border-border/50 px-3 py-2 sm:px-6">
-            <div className="inline-flex items-center gap-0.5 rounded-full border border-border/60 bg-card p-0.5" role="tablist" aria-label="Option chain view">
+            <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-sm)] border border-border/60 bg-card p-0.5" role="tablist" aria-label="Option chain view">
               {(["ltp", "oi", "greeks"] as View[]).map((v) => (
                 <button
                   key={v}
@@ -151,7 +151,7 @@ export function OptionChainFullScreen({ open, onClose, underlying = "NIFTY", spo
                   aria-selected={view === v}
                   onClick={() => setView(v)}
                   className={cn(
-                    "rounded-full px-4 py-1 text-[12.5px] font-medium transition-colors sm:px-5",
+                    "rounded-[var(--radius-xs)] px-4 py-1 text-[12.5px] font-medium transition-colors sm:px-5",
                     view === v ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground",
                   )}
                 >

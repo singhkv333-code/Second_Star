@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from datetime import datetime, timezone
 from typing import Literal
@@ -486,6 +487,26 @@ _YF_SERIES_TTL_S: dict[str, int] = {
 _SPARKLINE_YF_CACHE_PREFIX = "sparkline:yf:v1:"
 _OHLC_YF_CACHE_PREFIX = "ohlc:yf:v1:"
 
+# Kite historical only serves up-to-daily candles (no native week/month
+# interval), so a 5Y request comes back as ~1,250 daily points — far too
+# dense for an ~800px sparkline, which overdraws into a fuzzy, jagged mess.
+# The yfinance path already downsamples (1Y→weekly, 5Y→monthly, ~80 pts);
+# mirror that on the Kite path so both sources render at the same clean
+# density. We keep every Nth real close (never interpolate/fabricate) and
+# always preserve the first and last point so the endpoints stay exact.
+_SPARKLINE_MAX_POINTS = 80
+
+
+def _downsample_points(points: list[SparklinePoint]) -> list[SparklinePoint]:
+    n = len(points)
+    if n <= _SPARKLINE_MAX_POINTS:
+        return points
+    stride = math.ceil(n / _SPARKLINE_MAX_POINTS)
+    kept = points[::stride]
+    if kept[-1] is not points[-1]:
+        kept.append(points[-1])
+    return kept
+
 
 @router.get(
     "/sparkline/{symbol}",
@@ -528,7 +549,7 @@ def get_sparkline(
                 if points:
                     return SparklineResponse(
                         symbol=sym, range=range, interval=interval,
-                        points=points,
+                        points=_downsample_points(points),
                     )
         except Exception as e:  # noqa: BLE001 — fall through to yfinance
             pass
