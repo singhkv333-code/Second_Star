@@ -891,7 +891,7 @@ export function MyViews({
               lineHeight: 1.2,
             }}
           >
-            My Views
+            My Opinions
           </h2>
           <p
             style={{
@@ -1009,7 +1009,7 @@ export function MyViews({
                 cursor: "pointer",
               }}
             >
-              Browse views
+              Browse opinion markets
             </button>
           )}
         </ViewSurface>

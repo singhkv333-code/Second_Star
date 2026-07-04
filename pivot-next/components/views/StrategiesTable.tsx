@@ -27,14 +27,16 @@
  */
 
 import * as React from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown, Loader2, CheckCircle2 } from "lucide-react";
 import type { ExpressionDetail, EntryBlock } from "@/lib/types";
+import type { ViewPlaceResponse } from "@/lib/api";
 import { Num } from "@/components/views/Stat";
 import {
   tierLabel,
   fmtPct,
   signColor,
   capitalLabel,
+  isPlaceableBasket,
 } from "@/components/views/view-format";
 
 /** Format INR with Indian grouping (no paise). */
@@ -174,16 +176,22 @@ function DeployButton({
   onClick,
   busy,
   disabled,
+  placeable,
+  placed,
 }: {
   onClick: () => void;
   busy: boolean;
   disabled: boolean;
+  /** True when Deploy places a real share/ETF basket (vs arming a draft). */
+  placeable: boolean;
+  /** Set once the basket has been placed — swaps the CTA to a confirmation. */
+  placed?: ViewPlaceResponse | null;
 }): React.ReactElement {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled || busy}
+      disabled={disabled || busy || !!placed}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -197,14 +205,25 @@ function DeployButton({
         border: "1px solid hsl(var(--primary))",
         borderRadius: "var(--radius-md)",
         padding: "9px 18px",
-        cursor: disabled || busy ? "default" : "pointer",
+        cursor: disabled || busy || placed ? "default" : "pointer",
         opacity: disabled ? 0.55 : 1,
         alignSelf: "flex-start",
         transition: "opacity 180ms var(--ease-quartr)",
       }}
     >
-      {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}
-      {busy ? "Arming…" : "Deploy this strategy"}
+      {placed ? (
+        <>
+          <CheckCircle2 size={14} aria-hidden />
+          {placed.routed_to === "paper" ? "Filled (paper)" : "Order placed"}
+        </>
+      ) : busy ? (
+        <>
+          <Loader2 size={14} className="animate-spin" aria-hidden />
+          {placeable ? "Placing…" : "Arming…"}
+        </>
+      ) : (
+        "Deploy this strategy"
+      )}
     </button>
   );
 }
@@ -217,6 +236,8 @@ interface StrategiesTableProps {
   onDeploy: (expr: ExpressionDetail) => void;
   deployingId?: string | null;
   deployError?: string | null;
+  /** Broker/paper placements keyed by expression id (from ViewDetailPage). */
+  placedById?: Record<string, ViewPlaceResponse>;
   /** Open the full statistical analysis page for a strategy. */
   onOpenDeepDive?: (expr: ExpressionDetail) => void;
 }
@@ -228,6 +249,7 @@ export function StrategiesTable({
   onDeploy,
   deployingId,
   deployError,
+  placedById,
   onOpenDeepDive,
 }: StrategiesTableProps): React.ReactElement | null {
   const [openId, setOpenId] = React.useState<string | null>(null);
@@ -485,10 +507,33 @@ export function StrategiesTable({
                 <DeployButton
                   onClick={() => onDeploy(expr)}
                   busy={deployingId === expr.id}
+                  placeable={isPlaceableBasket(expr.entry)}
+                  placed={placedById?.[expr.id] ?? null}
                   disabled={
-                    !expr.is_deployable && !expr.workflow_id
+                    !isPlaceableBasket(expr.entry) &&
+                    !expr.is_deployable &&
+                    !expr.workflow_id
                   }
                 />
+                {(() => {
+                  const p = placedById?.[expr.id];
+                  if (!p) return null;
+                  const plural = p.count === 1 ? "" : "s";
+                  return (
+                    <span
+                      style={{
+                        fontFamily: FONT,
+                        fontSize: 13,
+                        color: "var(--text-secondary)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {p.routed_to === "paper"
+                        ? `Filled ${p.count} order${plural} in your paper book.`
+                        : `Placed ${p.count} order${plural} through your broker.`}
+                    </span>
+                  );
+                })()}
                 {deployError && deployingId === expr.id && (
                   <span
                     role="alert"

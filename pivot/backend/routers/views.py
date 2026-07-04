@@ -20,6 +20,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
@@ -40,7 +41,11 @@ from backend.models import (
     ViewType,
     Workflow,
 )
-from backend.routers._errors import http_error, not_found, validation_error
+from backend.routers._errors import http_error, not_found, state_conflict, validation_error
+from backend.routers.orders import _persist_leg
+from backend.brokers.sessions import get_active_broker_session
+from backend.paper.routing import should_use_paper
+from backend.utils.time_utils import format_ist
 from backend.view_markets import plain_copy, positions as positions_svc, precompute
 from backend.view_markets.deployment.compare import compare_tiers
 from backend.view_markets.deployment.deploy import deploy_expression
@@ -1464,11 +1469,18 @@ def get_view(
 
 
 def _load_expression_or_404(db: Session, expression_id: str) -> ViewExpression:
-    expr = (
-        db.query(ViewExpression)
-        .filter(ViewExpression.id == expression_id)
-        .one_or_none()
-    )
+    try:
+        expr = (
+            db.query(ViewExpression)
+            .filter(ViewExpression.id == expression_id)
+            .one_or_none()
+        )
+    except DBAPIError:
+        # A malformed id (e.g. not a UUID) makes Postgres raise on the cast,
+        # which also poisons the session — roll back and treat it as a miss so
+        # the caller gets a clean 404 instead of a 500.
+        db.rollback()
+        expr = None
     if expr is None:
         raise not_found(f"expression {expression_id} not found")
     return expr
@@ -1596,6 +1608,186 @@ def deploy(
         status=str(result.get("status") or ""),
         steps_count=int(len(result.get("steps") or [])),
         activated=bool(result.get("activated")),
+    )
+
+
+# ── place-through-broker (register-not-execute, user-initiated) ─────────────
+#
+# Deploy places the strategy's concrete, affordable, whole-share basket through
+# the user's *connected broker* (or the paper book, honouring the account's
+# paper-vs-live mode) — the SAME routing seam the chat LogicCard uses
+# (``_persist_leg`` → ``submit_order_for_user``). It is user-initiated (the
+# user pressed Deploy), never an auto-firing automation, so it stays inside the
+# register-not-execute boundary: no live order without an explicit human action,
+# and a live account with no broker session gets the honest 409 to connect one.
+#
+# Only equity/ETF baskets with a real priced entry ticket are placeable this
+# way; option structures / unaffordable baskets fall back to the automation
+# deploy (the FE routes those to /deploy instead).
+
+
+def _placeable_legs_from_entry(entry: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build BUY-MARKET order legs from an expression's affordable entry ticket.
+
+    Handles the whole-share / ETF-unit entry bases (``lite_basket``,
+    ``etf_core_plus_names``, ``etf_substitute``). Returns ``[]`` for option /
+    unaffordable / priced-at-deploy bases — nothing concrete to place."""
+    if not isinstance(entry, dict):
+        return []
+    basis = entry.get("basis")
+    raw: list[dict[str, Any]] = []
+    if basis in ("lite_basket", "etf_core_plus_names"):
+        raw = [leg for leg in (entry.get("legs") or []) if isinstance(leg, dict)]
+    elif basis == "etf_substitute" and isinstance(entry.get("etf"), dict):
+        raw = [entry["etf"]]
+    legs: list[dict[str, Any]] = []
+    for leg in raw:
+        # NSE tradingsymbols carry no ".NS" suffix; ETFs (NIFTYBEES, …) trade on
+        # NSE too. Quantity is whole shares (equity) or units (ETF).
+        symbol = str(leg.get("symbol") or "").replace(".NS", "").strip().upper()
+        qty = int(leg.get("shares") or leg.get("units") or 0)
+        if not symbol or qty <= 0:
+            continue
+        legs.append({
+            "symbol": symbol,
+            "exchange": "NSE",
+            "transaction_type": "BUY",
+            "order_type": "MARKET",
+            "quantity": qty,
+            "price": None,
+            "trigger_price": None,
+            "product": "CNC",
+        })
+    return legs
+
+
+class PlaceLegIn(BaseModel):
+    """A user-adjusted leg from the deploy confirmation modal — the symbol must
+    be one of the strategy's own affordable-entry names (validated server-side;
+    a mismatch is dropped, so the modal can never place an off-strategy order)."""
+    symbol: str
+    quantity: int = Field(..., ge=0)
+
+
+class PlaceRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    # User-declared position size for the My Views ledger (never invented).
+    capital_inr: Optional[float] = Field(default=None, gt=0)
+    # Per-company share counts the user set in the deploy confirmation modal.
+    # When present they OVERRIDE the computed basket (each symbol validated
+    # against the strategy's own entry names; qty 0 drops that leg).
+    legs: Optional[list[PlaceLegIn]] = None
+
+
+class PlacedLegOut(BaseModel):
+    id: int
+    symbol: str
+    exchange: str
+    transaction_type: str
+    order_type: str
+    quantity: int
+    price: Optional[float] = None
+    status: str
+    placed_at: str
+
+
+class PlaceResponse(BaseModel):
+    registered: list[PlacedLegOut]
+    count: int
+    # "broker" (live account, order placed through the connected broker) or
+    # "paper" (simulated book) — so the FE can label the confirmation honestly.
+    routed_to: str
+
+
+@router.post(
+    "/views/expressions/{expression_id}/place",
+    response_model=PlaceResponse,
+    status_code=201,
+)
+def place(
+    expression_id: str,
+    body: Optional[PlaceRequest] = None,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> PlaceResponse:
+    _require_flag()
+    if user_id is None:
+        raise http_error(401, "auth_required", "Log in to place orders.")
+
+    expression = _load_expression_or_404(db, expression_id)
+    req = body or PlaceRequest()
+
+    pre = precompute.expression_precompute(str(expression.id))
+    entry = pre.get("entry") if isinstance(pre, dict) else None
+    legs = _placeable_legs_from_entry(entry)
+    if not legs:
+        raise validation_error(
+            "This strategy can't be placed as a simple share basket — deploy it "
+            "as an automation instead."
+        )
+
+    # Apply the user's per-company adjustments from the confirmation modal.
+    # Only the strategy's own entry names are honoured (validated against the
+    # computed set) — an unknown symbol or qty 0 is dropped, never placed.
+    if req.legs is not None:
+        wanted = {leg.symbol.replace(".NS", "").strip().upper(): leg.quantity for leg in req.legs}
+        adjusted: list[dict[str, Any]] = []
+        for leg in legs:
+            qty = wanted.get(leg["symbol"])
+            if qty is None:
+                adjusted.append(leg)  # untouched leg keeps its computed qty
+            elif qty > 0:
+                adjusted.append({**leg, "quantity": int(qty)})
+            # qty == 0 → user removed this company from the basket
+        legs = adjusted
+        if not legs:
+            raise validation_error("Add at least one share to place this basket.")
+
+    # Deploying a View basket is a REAL, user-initiated placement — it must go
+    # to the user's connected broker, never silently into the paper book. With
+    # no active broker session, stop and tell the user to connect one (honest
+    # boundary; register-not-execute). Connecting any broker (incl. the dev
+    # mock connector) creates a session and unblocks placement.
+    if get_active_broker_session(db, user_id) is None:
+        raise state_conflict(
+            "No broker connected — connect your broker (e.g. Zerodha Kite) in "
+            "Brokers settings to place this basket."
+        )
+
+    # Route every leg through the shared order seam (broker or paper book,
+    # honouring the account mode). One TradeLog row per leg.
+    paper = should_use_paper(db, user_id)
+    rows = [
+        _persist_leg(db, user_id, leg, conversation_id=req.conversation_id)
+        for leg in legs
+    ]
+
+    # The placed strategy lands on the My Views ledger (best-effort, same txn).
+    _ensure_position(
+        db, expression, user_id, capital_inr=req.capital_inr, workflow_id=None,
+    )
+
+    db.commit()
+    for r in rows:
+        db.refresh(r)
+
+    return PlaceResponse(
+        registered=[
+            PlacedLegOut(
+                id=r.id,
+                symbol=r.symbol,
+                exchange=r.exchange or "NSE",
+                transaction_type=r.transaction_type,
+                order_type=r.order_type,
+                quantity=r.quantity,
+                price=r.price,
+                status=r.status,
+                placed_at=format_ist(r.placed_at),
+            )
+            for r in rows
+        ],
+        count=len(rows),
+        routed_to="paper" if paper else "broker",
     )
 
 

@@ -446,6 +446,10 @@ def affordable_ticket(
         else:
             lo_off = mid
     offset = round(hi_off, 1)
+    # Rounding the offset toward the money can nudge the premium back over
+    # budget — step out until the ticket honestly fits again.
+    while _cost(offset) > budget_inr and offset < _MAX_OTM_OFFSET_PCT:
+        offset = round(offset + 0.1, 1)
 
     k = s * (1.0 + offset / 100.0) if bullish else s * (1.0 - offset / 100.0)
     prem_pct = bs_price(s, k, t, r, sigma, bullish)

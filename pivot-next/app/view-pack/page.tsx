@@ -132,7 +132,7 @@ export default function ViewPackPage(): React.ReactElement {
                     margin: "0 0 8px",
                   }}
                 >
-                  Views
+                  Opinion Markets
                 </h1>
                 <p
                   style={{

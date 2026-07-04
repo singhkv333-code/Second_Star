@@ -26,7 +26,9 @@
 import * as React from "react";
 import { ArrowLeft, AlertCircle, Plus, Info } from "lucide-react";
 import { getView, deployExpression } from "@/lib/api";
+import type { ViewPlaceResponse } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { DeployConfirmModal } from "@/components/views/DeployConfirmModal";
 import type { ViewDetail, ExpressionDetail, StanceIntent } from "@/lib/types";
 import { FollowButton } from "@/components/views/FollowButton";
 import {
@@ -38,7 +40,7 @@ import { StrategiesTable } from "@/components/views/StrategiesTable";
 import { StrategyDeepDive } from "@/components/views/StrategyDeepDive";
 import { BenchmarkComparison } from "@/components/views/BenchmarkComparison";
 import { SimilarViews } from "@/components/views/SimilarViews";
-import { tierLabel, endsLabel } from "@/components/views/view-format";
+import { tierLabel, endsLabel, isPlaceableBasket } from "@/components/views/view-format";
 
 const FONT = "var(--font-display)";
 
@@ -429,6 +431,14 @@ export function ViewDetailPage({
   const [compareOn, setCompareOn] = React.useState(false);
   const [deployingId, setDeployingId] = React.useState<string | null>(null);
   const [deployError, setDeployError] = React.useState<string | null>(null);
+  // Broker/paper placements keyed by expression id — drives the "Order placed"
+  // confirmation on the strategy's Deploy CTA.
+  const [placedById, setPlacedById] = React.useState<
+    Record<string, ViewPlaceResponse>
+  >({});
+  // The expression whose deploy confirmation modal is open (placeable baskets).
+  const [confirmExpr, setConfirmExpr] =
+    React.useState<ExpressionDetail | null>(null);
   const [deepDiveId, setDeepDiveId] = React.useState<string | null>(null);
 
   const load = React.useCallback(() => {
@@ -546,6 +556,15 @@ export function ViewDetailPage({
   async function handleDeploy(expr: ExpressionDetail) {
     if (deployingId) return;
     setDeployError(null);
+
+    // Placeable share/ETF basket → open the confirm-and-place modal (adjust
+    // shares/lots, then place through the connected broker). Everything else
+    // arms the register-not-execute draft.
+    if (isPlaceableBasket(expr.entry)) {
+      setConfirmExpr(expr);
+      return;
+    }
+
     if (expr.workflow_id) {
       onOpenWorkflowById(expr.workflow_id);
       return;
@@ -600,6 +619,16 @@ export function ViewDetailPage({
         gap: 28,
       }}
     >
+      {confirmExpr && (
+        <DeployConfirmModal
+          expression={confirmExpr}
+          onClose={() => setConfirmExpr(null)}
+          onPlaced={(result) => {
+            setPlacedById((prev) => ({ ...prev, [confirmExpr.id]: result }));
+            setConfirmExpr(null);
+          }}
+        />
+      )}
       {loading && (
         <>
           <BackLink onBack={onBack} />
@@ -894,6 +923,7 @@ export function ViewDetailPage({
                 onDeploy={handleDeploy}
                 deployingId={deployingId}
                 deployError={deployError}
+                placedById={placedById}
                 onOpenDeepDive={(expr) => setDeepDiveId(expr.id)}
               />
             </div>

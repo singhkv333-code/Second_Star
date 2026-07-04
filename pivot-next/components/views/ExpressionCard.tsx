@@ -16,22 +16,28 @@
  *   why/risk — one line plain_why + one line plain_risk
  *   CTA      — "Deploy" (solid ink, square)
  *
- * Deploy flow (register-not-execute) preserved verbatim:
- *   workflow_id → onOpenWorkflowById(workflow_id)
- *   null → deployExpression(id) → onOpenWorkflowById(result.workflow_id)
+ * Deploy flow (register-not-execute, user-initiated):
+ *   placeable share/ETF basket → placeExpression(id) → order placed through the
+ *     user's connected broker (or the paper book); an inline confirmation shows
+ *     what filled. A live account with no broker connected gets an honest 409.
+ *   otherwise (option / unaffordable) → deployExpression(id) → the automation
+ *     draft opens via onOpenWorkflowById (no order fires until approval).
  */
 
 import * as React from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2 } from "lucide-react";
 import type { ExpressionDetail } from "@/lib/types";
 import { isError } from "@/lib/types";
 import { deployExpression } from "@/lib/api";
+import type { ViewPlaceResponse } from "@/lib/api";
 import { ViewSurface, Hairline } from "./ViewSurface";
+import { DeployConfirmModal } from "./DeployConfirmModal";
 import { Num } from "./Stat";
 import {
   tierLabel,
   capitalLabel,
   fmtPct,
+  isPlaceableBasket,
   signColor,
   verdictColor,
   verdictLabel,
@@ -138,6 +144,8 @@ export function ExpressionCard({
 }: ExpressionCardProps): React.ReactElement {
   const [deploying, setDeploying] = React.useState(false);
   const [deployError, setDeployError] = React.useState<string | null>(null);
+  const [placed, setPlaced] = React.useState<ViewPlaceResponse | null>(null);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   const verdict = expression.scores?.backtest?.trust_verdict ?? null;
   const trustWord = expression.trust_badge ?? verdictLabel(verdict);
@@ -146,9 +154,21 @@ export function ExpressionCard({
   const members = expression.members ?? [];
   const hasBasket = members.length > 0;
 
+  // A concrete whole-share / ETF basket places through the broker (via a
+  // confirmation modal); anything else (option structures, unaffordable
+  // baskets) arms the register-not-execute automation draft.
+  const placeable = isPlaceableBasket(expression.entry);
+
   async function handleDeploy() {
     if (deploying) return;
     setDeployError(null);
+
+    if (placeable) {
+      setConfirmOpen(true); // open the confirm-and-place modal
+      return;
+    }
+
+    // Automation path (register-not-execute draft).
     if (expression.workflow_id) {
       onOpenWorkflowById(expression.workflow_id);
       return;
@@ -164,9 +184,22 @@ export function ExpressionCard({
   }
 
   const deployDisabled =
-    deploying || (!expression.is_deployable && !expression.workflow_id);
+    deploying ||
+    !!placed ||
+    (!placeable && !expression.is_deployable && !expression.workflow_id);
 
   return (
+    <>
+    {confirmOpen && (
+      <DeployConfirmModal
+        expression={expression}
+        onClose={() => setConfirmOpen(false)}
+        onPlaced={(result) => {
+          setPlaced(result);
+          setConfirmOpen(false);
+        }}
+      />
+    )}
     <ViewSurface
       interactive
       style={{
@@ -335,7 +368,7 @@ export function ExpressionCard({
           type="button"
           onClick={handleDeploy}
           disabled={deployDisabled}
-          aria-label="Deploy this expression"
+          aria-label={placeable ? "Deploy — place this basket" : "Deploy this expression"}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -355,15 +388,27 @@ export function ExpressionCard({
             transition: "opacity 180ms var(--ease-quartr)",
           }}
         >
-          {deploying ? (
+          {placed ? (
+            <>
+              <CheckCircle2 size={14} aria-hidden />
+              {placed.routed_to === "paper" ? "Filled (paper)" : "Order placed"}
+            </>
+          ) : deploying ? (
             <>
               <Loader2 size={14} className="animate-spin" aria-hidden />
-              Arming…
+              {placeable ? "Placing…" : "Arming…"}
             </>
           ) : (
             "Deploy"
           )}
         </button>
+        {placed && (
+          <Line color="var(--text-secondary)" size={13} clamp={2}>
+            {placed.routed_to === "paper"
+              ? `Filled ${placed.count} order${placed.count === 1 ? "" : "s"} in your paper book.`
+              : `Placed ${placed.count} order${placed.count === 1 ? "" : "s"} through your broker.`}
+          </Line>
+        )}
         {deployError && (
           <Line color="var(--color-loss)" size={13} clamp={2}>
             {deployError}
@@ -371,5 +416,6 @@ export function ExpressionCard({
         )}
       </div>
     </ViewSurface>
+    </>
   );
 }

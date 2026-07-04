@@ -120,7 +120,7 @@ const NAV_ITEMS: {
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }[] = [
   { key: "chat", label: "Chat", Icon: MessageSquare },
-  { key: "views", label: "Views", Icon: Telescope },
+  { key: "views", label: "Opinion Markets", Icon: Telescope },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },

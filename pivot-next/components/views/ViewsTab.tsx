@@ -207,7 +207,7 @@ export function ViewsTab({
               lineHeight: 1.2,
             }}
           >
-            Views
+            Opinion Markets
           </h1>
           <p
             style={{
@@ -306,7 +306,7 @@ export function MyViewsButton({
       }}
     >
       <Briefcase size={14} aria-hidden />
-      My Views
+      My Opinions
     </button>
   );
 }
@@ -444,7 +444,7 @@ function ViewsEmptyState(): React.ReactElement {
           margin: 0,
         }}
       >
-        No views yet
+        No opinion markets yet
       </p>
       <p
         style={{

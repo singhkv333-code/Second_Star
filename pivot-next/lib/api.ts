@@ -2270,6 +2270,52 @@ export function deployExpression(
   });
 }
 
+/** One placed leg reported by POST /api/views/expressions/{id}/place. */
+export type ViewPlacedLeg = {
+  id: number;
+  symbol: string;
+  exchange: string;
+  transaction_type: string;
+  order_type: string;
+  quantity: number;
+  price: number | null;
+  status: string;
+  placed_at: string;
+};
+
+export type ViewPlaceResponse = {
+  registered: ViewPlacedLeg[];
+  count: number;
+  /** "broker" (live, placed through the connected broker) or "paper". */
+  routed_to: "broker" | "paper";
+};
+
+/**
+ * `POST /api/views/expressions/{expression_id}/place`
+ *
+ * Places the strategy's concrete, affordable whole-share basket through the
+ * user's CONNECTED BROKER (live account) or the paper book — the same routing
+ * seam the chat order-confirm uses. User-initiated (register-not-execute): a
+ * live account with no broker session gets a 409 asking to connect one. Only
+ * equity/ETF baskets are placeable; option/unaffordable strategies return a
+ * 422 and the caller falls back to the automation `deployExpression`.
+ */
+export function placeExpression(
+  expressionId: string,
+  body?: {
+    capital_inr?: number;
+    conversation_id?: string;
+    /** Per-company share counts from the deploy confirmation modal. Each
+     *  symbol must be one of the strategy's own entry names; qty 0 drops it. */
+    legs?: { symbol: string; quantity: number }[];
+  },
+): Promise<ApiResult<ViewPlaceResponse>> {
+  return request<ViewPlaceResponse>(
+    `/views/expressions/${encodeURIComponent(expressionId)}/place`,
+    { method: "POST", body: body ?? {} },
+  );
+}
+
 /**
  * `POST /api/views/{view_id}/compare`
  *

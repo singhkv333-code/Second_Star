@@ -872,13 +872,6 @@ def get_screener_stocks(
             "live prices warming up — price / day change / 1-year return fill in "
             "shortly"
         )
-    elif msource == "yfinance":
-        # Honest relay tag (CLAUDE.md): these aren't live broker prices. A few
-        # NSE names carry a wrong absolute price on Yahoo's feed.
-        notes.append(
-            "price / day change / 1-year return are delayed (yfinance) — connect "
-            "Kite for live broker prices"
-        )
 
     return ScreenerStocksResponse(
         count=len(enriched),
