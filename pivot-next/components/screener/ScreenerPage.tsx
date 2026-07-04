@@ -827,26 +827,30 @@ function StocksScreen({
         })}
       </div>
 
+      {/* Mobile bottom sheet — portal to document.body; StockFilterRail returns
+          null on desktop so this never takes layout space at wide viewports. */}
+      {rail}
+
+      {/* Horizontal filter toolbar — desktop. The mobile sheet above takes over
+          when the title-row filter button is tapped on narrow viewports. */}
+      <StockFilterToolbar
+        filters={filters}
+        setFilter={setFilter}
+        reset={reset}
+        sectors={sectors}
+        activeFilterCount={activeFilterCount}
+      />
+
       <div
         className="screener-body"
         style={{
           flex: 1,
           minHeight: 0,
           display: "grid",
-          gridTemplateColumns: "260px minmax(0, 1fr)",
-          gap: 16,
+          gridTemplateColumns: "minmax(0, 1fr)",
           padding: "0 32px 24px",
         }}
       >
-        {mobileFiltersOpen && (
-          <div
-            className="screener-filter-backdrop"
-            onClick={() => setMobileFiltersOpen(() => false)}
-            aria-hidden="true"
-          />
-        )}
-        {rail}
-
         <StockResultsTable
           rows={displayRows}
           loading={loading}
@@ -1368,6 +1372,436 @@ const STOCK_COLUMNS: StockColumn[] = [
   { id: "one_year_pct", label: "1-Y Return", align: "right", sortable: true },
 ];
 
+// ─────────────────────────────────────────────────────────
+// Horizontal filter toolbar (desktop) — replaces the left rail for Stocks.
+// A slim control strip above the full-width table: pill dropdowns + segmented
+// tiers + compact numeric fields. Hidden on narrow viewports where the mobile
+// sheet (StockFilterRail portal) takes over.
+// ─────────────────────────────────────────────────────────
+
+// A pill trigger + anchored popover. `children` is a render-prop that receives
+// a `close()` so single-select menus can dismiss on pick; multi-selects ignore
+// it and stay open.
+function ToolbarPopover({
+  triggerLabel,
+  active,
+  width = 240,
+  children,
+}: {
+  triggerLabel: React.ReactNode;
+  active: boolean;
+  width?: number;
+  children: (close: () => void) => React.ReactNode;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          height: 34,
+          padding: "0 12px",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: active ? "var(--surface-active)" : "var(--bg-primary)",
+          border: `1px solid ${open ? "var(--glass-border-focus)" : active ? "var(--text-primary)" : "var(--glass-border)"}`,
+          borderRadius: "var(--radius-pill)",
+          color: active ? "var(--text-primary)" : "var(--text-secondary)",
+          fontFamily: "var(--font-ui)",
+          fontSize: 12,
+          fontWeight: WEIGHT_MEDIUM,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+          transition: "all 0.15s var(--ease-quartr)",
+        }}
+        onMouseEnter={(e) => {
+          if (!active && !open) e.currentTarget.style.borderColor = "var(--glass-border-focus)";
+        }}
+        onMouseLeave={(e) => {
+          if (!active && !open) e.currentTarget.style.borderColor = "var(--glass-border)";
+        }}
+      >
+        {triggerLabel}
+        <ChevronDown
+          size={13}
+          strokeWidth={2.25}
+          aria-hidden="true"
+          style={{
+            opacity: 0.55,
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.15s var(--ease-quartr)",
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          className="quartr-no-scrollbar"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 30,
+            width,
+            maxHeight: 330,
+            overflowY: "auto",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.06), 0 14px 34px -10px rgba(0,0,0,0.24)",
+            padding: 6,
+          }}
+        >
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One selectable row inside a toolbar popover (label + optional right count).
+function PopoverRow({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        padding: "8px 10px",
+        background: active ? "var(--bg-secondary)" : "transparent",
+        border: "none",
+        borderRadius: "var(--radius-sm)",
+        cursor: "pointer",
+        textAlign: "left",
+        fontFamily: "var(--font-ui)",
+        fontSize: 12.5,
+        fontWeight: active ? WEIGHT_MEDIUM : 400,
+        color: active ? "var(--text-primary)" : "var(--text-secondary)",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) e.currentTarget.style.background = "var(--bg-secondary)";
+      }}
+      onMouseLeave={(e) => {
+        if (!active) e.currentTarget.style.background = "transparent";
+      }}
+    >
+      <span>{label}</span>
+      {count != null && (
+        <span
+          style={{
+            fontVariantNumeric: "tabular-nums",
+            fontSize: 11,
+            color: "var(--text-tertiary)",
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// Inline segmented control for market-cap tier. Clicking the active option clears it.
+function ToolbarSegmented({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        height: 34,
+        padding: 3,
+        gap: 2,
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-sm)",
+      }}
+    >
+      {options.map((o) => {
+        const active = value === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(active ? "" : o.id)}
+            style={{
+              height: "100%",
+              padding: "0 12px",
+              border: "none",
+              borderRadius: "var(--radius-xs, var(--radius-sm))",
+              background: active ? "var(--text-primary)" : "transparent",
+              color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+              fontFamily: "var(--font-ui)",
+              fontSize: 12,
+              fontWeight: WEIGHT_MEDIUM,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              transition: "all 0.15s var(--ease-quartr)",
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Compact inline numeric field: label + value fused into one pill. Goes "active"
+// (ink border) once a value is typed, so filled filters are visually distinct.
+function ToolbarField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}): React.ReactElement {
+  const [focused, setFocused] = useState(false);
+  const filled = value !== "";
+  return (
+    <label
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        height: 34,
+        padding: "0 12px",
+        background: filled ? "var(--surface-active)" : "var(--bg-primary)",
+        border: `1px solid ${focused ? "var(--glass-border-focus)" : filled ? "var(--text-primary)" : "var(--glass-border)"}`,
+        borderRadius: "var(--radius-pill)",
+        cursor: "text",
+        transition: "all 0.15s var(--ease-quartr)",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-ui)",
+          fontSize: 12,
+          fontWeight: WEIGHT_MEDIUM,
+          color: filled ? "var(--text-primary)" : "var(--text-secondary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "" || /^-?\d*\.?\d*$/.test(v)) onChange(v);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Any"
+        style={{
+          width: 34,
+          padding: 0,
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          textAlign: "right",
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      />
+    </label>
+  );
+}
+
+// Trailing "Clear all" control shown only when filters are active. A quiet ghost
+// pill that gains a hairline outline on hover, carrying the active filter count.
+function ToolbarReset({
+  onClick,
+  count,
+}: {
+  onClick: () => void;
+  count: number;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        height: 34,
+        padding: "0 12px",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        background: "transparent",
+        border: "1px solid transparent",
+        borderRadius: "var(--radius-pill)",
+        color: "var(--text-tertiary)",
+        fontFamily: "var(--font-ui)",
+        fontSize: 12,
+        fontWeight: WEIGHT_MEDIUM,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+        transition: "color 0.15s var(--ease-quartr), border-color 0.15s var(--ease-quartr)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = "var(--text-primary)";
+        e.currentTarget.style.borderColor = "var(--glass-border)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = "var(--text-tertiary)";
+        e.currentTarget.style.borderColor = "transparent";
+      }}
+    >
+      Clear all
+      <span
+        aria-hidden="true"
+        style={{
+          minWidth: 16,
+          height: 16,
+          padding: "0 4px",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--bg-elevated)",
+          borderRadius: 999,
+          fontSize: 10.5,
+          fontVariantNumeric: "tabular-nums",
+          lineHeight: 1,
+        }}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// The Stocks toolbar: sector dropdown · market-cap segmented · Max P/E · Min ROE · reset.
+function StockFilterToolbar({
+  filters,
+  setFilter,
+  reset,
+  sectors,
+  activeFilterCount,
+}: {
+  filters: StockFilters;
+  setFilter: <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => void;
+  reset: () => void;
+  sectors: ScreenerSector[];
+  activeFilterCount: number;
+}): React.ReactElement {
+  const selectedSector = sectors.find((s) => s.sector === filters.sector);
+  const tierOptions = MARKET_CAP_TIERS.map((t) => ({
+    id: String(t[0]),
+    label: String(t[1]),
+  }));
+
+  return (
+    <div
+      className="screener-toolbar"
+      style={{
+        padding: "0 32px 14px",
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <ToolbarPopover
+        active={Boolean(filters.sector)}
+        triggerLabel={selectedSector ? selectedSector.label : "All sectors"}
+        width={230}
+      >
+        {(close) => (
+          <>
+            <PopoverRow
+              label="All sectors"
+              active={!filters.sector}
+              onClick={() => {
+                setFilter("sector", "");
+                close();
+              }}
+            />
+            {sectors.map((s) => (
+              <PopoverRow
+                key={s.sector}
+                label={s.label}
+                count={s.count}
+                active={filters.sector === s.sector}
+                onClick={() => {
+                  setFilter("sector", filters.sector === s.sector ? "" : s.sector);
+                  close();
+                }}
+              />
+            ))}
+          </>
+        )}
+      </ToolbarPopover>
+
+      <ToolbarSegmented
+        options={tierOptions}
+        value={filters.mcap_tier}
+        onChange={(v) => setFilter("mcap_tier", v as ScreenerMcapTier | "")}
+      />
+
+      <ToolbarField
+        label="Max P/E"
+        value={filters.pe_max}
+        onChange={(v) => setFilter("pe_max", v)}
+      />
+      <ToolbarField
+        label="Min ROE %"
+        value={filters.roe_min}
+        onChange={(v) => setFilter("roe_min", v)}
+      />
+
+      {activeFilterCount > 0 && (
+        <>
+          <div style={{ flex: 1 }} />
+          <ToolbarReset onClick={reset} count={activeFilterCount} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+
 function StockFilterRail({
   filters,
   setFilter,
@@ -1384,7 +1818,7 @@ function StockFilterRail({
   mobileOpen: boolean;
   onMobileClose: () => void;
   resultCount: number;
-}): React.ReactElement {
+}): React.ReactElement | null {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -1564,26 +1998,9 @@ function StockFilterRail({
     );
   }
 
-  return (
-    <aside
-      id="screener-filter-rail"
-      className="screener-filter-rail quartr-no-scrollbar"
-      style={{
-        minHeight: 0,
-        overflowY: "auto",
-        background: "var(--bg-primary)",
-        border: "none",
-        borderRadius: "var(--radius-md)",
-        padding: 16,
-        display: "flex",
-        flexDirection: "column",
-        gap: 13,
-      }}
-    >
-      {headerEl}
-      {groupsEl}
-    </aside>
-  );
+  // Desktop path: the horizontal StockFilterToolbar above the table takes over.
+  // Only the mobile portal (createPortal branch above) is still used.
+  return null;
 }
 
 // ── Stock results table ──────────────────────────────────
