@@ -758,7 +758,7 @@ function PerformanceBlock({
               Backtested · 1y
             </span>
           </div>
-          <NavSparkline series={btSeries} positive={btPositive} dashed />
+          <NavSparkline series={btSeries} positive={btPositive} />
           <div className="flex items-center justify-between gap-2 text-[11px]">
             <span
               className="tabular-nums"
@@ -824,8 +824,8 @@ function NavSparkline({
 }: {
   series: { date: string; nav: number }[];
   positive: boolean;
-  /** Backtested (not live) results render with a dashed stroke so the two
-   *  are never visually confused at a glance. */
+  /** Placeholder-only dashed stroke (no data at all) — real live/backtested
+   *  results render solid. */
   dashed?: boolean;
   /** No real/backtested data at all — a flat muted-gray placeholder line
    *  instead of the profit/loss green or red, so it's never mistaken for

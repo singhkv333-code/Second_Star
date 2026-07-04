@@ -60,7 +60,7 @@
            job — used only for sidebar-active / hover / selected states. */
     --bg-base:       #ffffff;   /* page bg — paper white */
     --bg-primary:    #fbfbfc;   /* card surface — very subtle tint */
-    --bg-secondary:  #f6f6f8;
+    --bg-secondary:  #fafafa;   /* ElevenLabs' exact greyish sidebar surface */
     --bg-card:       #fbfbfc;
     --bg-elevated:   #ececee;   /* hover / active — the warm grey */
 
@@ -176,11 +176,11 @@
     --ring: 222 89% 60%;
 
     /* ─── Quartr dark tokens — exact extracted values ─── */
-    --bg-base:       #0d0d0e;
+    --bg-base:       #000000;   /* page bg — ElevenLabs-style true black */
     --bg-primary:    #111212;
-    --bg-secondary:  #15161a;
+    --bg-secondary:  #1c1c1d;   /* ElevenLabs' exact greyish sidebar surface */
     --bg-card:       #181a1f;
-    --bg-elevated:   #1f2127;
+    --bg-elevated:   #1e1e1e;   /* hover / active — lighter than the sidebar */
 
     --glass-bg:           #111212;
     --glass-bg-hover:     #181a1f;

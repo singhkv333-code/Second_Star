@@ -1960,7 +1960,7 @@ function Sidebar({
       data-mobile-open={mobileOpen ? "true" : "false"}
       style={{
         width: 240,
-        background: "var(--bg-base)",
+        background: "var(--bg-secondary)",
         borderRight: "1px solid var(--glass-border)",
         padding: "18px 14px 16px",
       }}
