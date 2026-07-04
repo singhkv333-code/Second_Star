@@ -36,7 +36,7 @@ export interface PivotLogoProps {
  * cap line, so the mark holds its own next to the bold wordmark instead of
  * reading undersized.
  */
-const MARK_HEIGHT = 0.78;
+const MARK_HEIGHT = 0.73;
 /**
  * Bar width in mark glyph units (column pitch is 180). Heavier than the
  * source geometry's 108 so bar stems match the wordmark's stroke weight.
@@ -48,14 +48,14 @@ const MARK_BAR_WIDTH = 132;
  * height H em therefore needs a translateY of (0.848 − (1 + H) / 2) em to
  * plant the bar bottoms exactly on the wordmark's baseline.
  */
-const BASELINE_OFFSET = 0.848;
+const BASELINE_OFFSET = 0.860;
 /**
  * Mark→wordmark gap: the mark's internal bar gap (48/576 of its height)
  * minus the "P" glyph's left side bearing (~0.058 em at weight 700), so the
  * *ink* gap before the P equals the gap between bars and the P reads as
  * the next bar in the series.
  */
-const WORDMARK_GAP = `${(MARK_HEIGHT * (48 / 576) - 0.058).toFixed(3)}em`;
+const WORDMARK_GAP = `${(MARK_HEIGHT * (48 / 576) - 0.005).toFixed(3)}em`;
 
 export function PivotLogo({
   fontSize = 23,
@@ -72,7 +72,7 @@ export function PivotLogo({
         display: "inline-flex",
         alignItems: "center",
         fontFamily: "var(--font-display)",
-        fontWeight: 700,
+        fontWeight: 600,
         fontSize,
         lineHeight: 1,
         letterSpacing: "-0.035em",
