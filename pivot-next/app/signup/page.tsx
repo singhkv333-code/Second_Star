@@ -15,6 +15,8 @@ import { z } from "zod";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { registerUser } from "@/lib/api";
 import { BrandPanel } from "@/components/auth/BrandPanel";
+import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
+import { AnybodyFontPreload } from "@/components/onboarding/AnybodyFontPreload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -168,11 +170,14 @@ export default function SignupPage(): React.ReactElement {
       setServerError(mapSignupError(status, result.error.message));
       return;
     }
+    armLoginIntro();
     router.replace("/");
   };
 
   return (
     <div className="flex min-h-screen" style={{ background: "var(--bg-base)" }}>
+      {/* Warm the intro's display font while the user types. */}
+      <AnybodyFontPreload />
       {/* Left — shared brand panel */}
       <BrandPanel />
 

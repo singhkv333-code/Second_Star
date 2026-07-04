@@ -16,6 +16,9 @@ import { z } from "zod";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { loginUser } from "@/lib/api";
 import { BrandPanel } from "@/components/auth/BrandPanel";
+import { SocialSignIn } from "@/components/auth/SocialSignIn";
+import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
+import { AnybodyFontPreload } from "@/components/onboarding/AnybodyFontPreload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -80,11 +83,14 @@ export default function LoginPage(): React.ReactElement {
       setServerError(mapLoginError(status, result.error.message));
       return;
     }
+    armLoginIntro();
     router.replace("/");
   };
 
   return (
     <div className="flex min-h-screen" style={{ background: "var(--bg-base)" }}>
+      {/* Warm the intro's display font while the user types. */}
+      <AnybodyFontPreload />
       {/* Left — brand panel */}
       <BrandPanel />
 
@@ -108,6 +114,11 @@ export default function LoginPage(): React.ReactElement {
               <p className="text-sm text-muted-foreground">
                 Enter your email and password to access your account.
               </p>
+            </div>
+
+            {/* Social sign-in (login-03) — sits above the email/password form. */}
+            <div className="mb-5">
+              <SocialSignIn />
             </div>
 
             <form onSubmit={handleSubmit(onSubmit)} onKeyDown={onKeyDown} noValidate className="flex flex-col gap-5">

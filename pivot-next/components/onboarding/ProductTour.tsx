@@ -270,7 +270,9 @@ export function ProductTour({
     }
   }, []);
 
-  // First visit → auto-start after the dashboard settles.
+  // First visit → auto-start after the dashboard settles. On a fresh signup
+  // the brand intro plays first; wait for it (or the immediate "no intro"
+  // signal LoginIntroGate emits) so the tour never opens underneath it.
   useEffect(() => {
     if (!enabled) return;
     let seen: string | null = null;
@@ -281,8 +283,23 @@ export function ProductTour({
     }
     if (seen) return;
     if (window.innerWidth < MIN_VIEWPORT) return;
-    const id = window.setTimeout(start, 1200);
-    return () => window.clearTimeout(id);
+
+    let timer = 0;
+    const arm = (): void => {
+      timer = window.setTimeout(start, 1200);
+    };
+    // If the brand intro is currently owning the screen (set by
+    // LoginIntroGate, covering its white lead-in too), defer until it
+    // signals completion; otherwise arm now.
+    if (window.__pivotIntroPending) {
+      window.addEventListener("pivot:intro-done", arm, { once: true });
+    } else {
+      arm();
+    }
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pivot:intro-done", arm);
+    };
   }, [enabled, start]);
 
   // Replay hook (account menu → Help → "Replay the tour").

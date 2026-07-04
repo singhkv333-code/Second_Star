@@ -76,6 +76,7 @@ import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { PivotLogo } from "@/components/brand/PivotLogo";
 import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTour";
+import { LoginIntroGate } from "@/components/onboarding/LoginIntroGate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -736,6 +737,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   return (
     <ActiveDraftContext.Provider value={activeDraftCtx}>
+    {/* Brand intro — plays once, right after login/signup (armLoginIntro). */}
+    <LoginIntroGate />
     <div
       className="app-shell-root flex h-screen bg-background"
       style={{ ["--paper-banner-h" as string]: tradingMode === "paper" ? "30px" : "0px" }}

@@ -22,6 +22,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
+import { LoadingCubes } from "@/components/ui/LoadingCubes";
 
 const TOKEN_KEY = "pivot_jwt";
 
@@ -84,15 +85,31 @@ export function AppBootstrap({
 }
 
 function BootstrapSplash(): React.ReactElement {
+  // Right after login/signup the brand intro is armed (a sessionStorage
+  // flag set before navigation). In that window we must NOT flash the cube
+  // loader — the intro opens on a white cover, so a plain white hold here
+  // hands off to it seamlessly. This transition is always client-side (SPA
+  // nav from /login), so reading sessionStorage synchronously is safe.
+  let introArmed = false;
+  if (typeof window !== "undefined") {
+    try {
+      introArmed = sessionStorage.getItem("pivot_login_intro") === "1";
+    } catch {
+      introArmed = false;
+    }
+  }
+  if (introArmed) {
+    return (
+      <div className="min-h-screen" style={{ background: "#ffffff" }} aria-hidden="true" />
+    );
+  }
   return (
     <div
-      className="flex min-h-screen items-center justify-center bg-background text-muted-foreground"
+      className="flex min-h-screen items-center justify-center bg-background"
       aria-busy="true"
       aria-label="Loading"
     >
-      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
-        <span className="text-sm font-bold text-primary">P</span>
-      </div>
+      <LoadingCubes size={150} />
     </div>
   );
 }
