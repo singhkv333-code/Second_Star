@@ -26,6 +26,14 @@ export interface PivotMarkProps {
   size?: number;
   /** Corner radius in glyph units (viewBox is 648×576). Default 8 (subtle). */
   radius?: number;
+  /**
+   * Bar width in glyph units (viewBox is 648×576). Default 108, the faithful
+   * source geometry. Bars widen/narrow around their column centres (180px
+   * pitch), so the overall footprint stays put. The wordmark lockup
+   * (PivotLogo) uses a heavier 132 so the bars hold their own next to a
+   * bold wordmark.
+   */
+  barWidth?: number;
   className?: string;
   style?: React.CSSProperties;
   /**
@@ -38,14 +46,22 @@ export interface PivotMarkProps {
 export function PivotMark({
   size = 20,
   radius = 8,
+  barWidth = 108,
   className,
   style,
   title,
 }: PivotMarkProps): React.ReactElement {
-  const width = (size * 648) / 576;
+  /* Column centres sit on the 180px pitch (54, 234, 414, 594); each bar is
+     laid out symmetrically around its centre so barWidth changes don't
+     shift the silhouette. The viewBox hugs the outer bar edges, so at the
+     default 108 it is the original 0 0 648 576. */
+  const x = (center: number) => center - barWidth / 2;
+  const vbX = x(54);
+  const vbWidth = 540 + barWidth;
+  const width = (size * vbWidth) / 576;
   return (
     <svg
-      viewBox="0 0 648 576"
+      viewBox={`${vbX} 0 ${vbWidth} 576`}
       width={width}
       height={size}
       fill="currentColor"
@@ -58,13 +74,13 @@ export function PivotMark({
     >
       {title ? <title>{title}</title> : null}
       {/* Bar 1 — leftmost, sits on the baseline */}
-      <rect x={0} y={360} width={108} height={216} rx={radius} />
+      <rect x={x(54)} y={360} width={barWidth} height={216} rx={radius} />
       {/* Bar 2 — steps up */}
-      <rect x={180} y={180} width={108} height={180} rx={radius} />
+      <rect x={x(234)} y={180} width={barWidth} height={180} rx={radius} />
       {/* Bar 3 — steps up to the top */}
-      <rect x={360} y={0} width={108} height={180} rx={radius} />
+      <rect x={x(414)} y={0} width={barWidth} height={180} rx={radius} />
       {/* Bar 4 — tall final bar, full height to the baseline */}
-      <rect x={540} y={0} width={108} height={576} rx={radius} />
+      <rect x={x(594)} y={0} width={barWidth} height={576} rx={radius} />
     </svg>
   );
 }

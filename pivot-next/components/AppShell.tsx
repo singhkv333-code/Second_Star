@@ -73,7 +73,7 @@ import { SettingsDialog } from "@/components/settings/SettingsTab";
 import { DashboardTab } from "@/components/DashboardTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
-import { PivotMark } from "@/components/brand/PivotMark";
+import { PivotLogo } from "@/components/brand/PivotLogo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -1089,11 +1089,9 @@ function TopHeader({
         <Menu size={20} strokeWidth={2} aria-hidden="true" />
       </button>
 
-      {/* Brand — serif logotype, fixed-width slot at lg+. Uses --font-experiment
-          so we can swap typefaces in one place (globals.css) while we
-          decide on the final brand serif. On mobile the brand sits
-          inline next to the hamburger (no fixed width). Acts as a
-          navigation link back to the chat tab on every breakpoint. */}
+      {/* Brand — PivotLogo lockup (mark + heavy sans wordmark, ElevenLabs
+          treatment). Mobile-only: at lg+ the sidebar owns the brand. Acts
+          as a navigation link back to the chat tab. */}
       <button
         type="button"
         onClick={onBrandClick}
@@ -1101,11 +1099,6 @@ function TopHeader({
         data-testid="brand-home-link"
         className="brand-slot flex shrink-0 items-center pl-0 lg:hidden"
         style={{
-          gap: 0,
-          fontFamily: "var(--font-experiment)",
-          fontWeight: "var(--weight-display)" as unknown as number,
-          fontSize: 22,
-          letterSpacing: "-0.02em",
           color: "var(--text-primary)",
           background: "transparent",
           border: "none",
@@ -1113,13 +1106,7 @@ function TopHeader({
           cursor: "pointer",
         }}
       >
-        {/* Pivot brand mark — crisp inline SVG (see PivotMark). Paints with
-            currentColor, so it inherits `--text-primary` and flips between
-            black (light) and white (dark) automatically, with no raster
-            asset or per-theme file swap. */}
-        <PivotMark size={19} className="shrink-0" title="Pivot" />
-        {/* Tight gap between the mark and the serif wordmark. */}
-        <span style={{ marginLeft: 4 }}>Pivot</span>
+        <PivotLogo fontSize={22} />
       </button>
 
       {/* Search — Quartr pill, sized + bordered, no Tailwind background.
@@ -1979,20 +1966,16 @@ function Sidebar({
           data-testid="sidebar-brand-home-link"
           className="inline-flex shrink-0 items-center"
           style={{
-            gap: 4,
-            fontFamily: "var(--font-experiment)",
-            fontWeight: "var(--weight-display)" as unknown as number,
-            fontSize: 22,
-            letterSpacing: "-0.02em",
             color: "var(--text-primary)",
             background: "transparent",
             border: "none",
-            padding: 0,
+            /* Left-align the mark with the nav labels (rows use 14px
+               horizontal padding inside the same container). */
+            padding: "0 0 0 14px",
             cursor: "pointer",
           }}
         >
-          <PivotMark size={20} className="shrink-0" title="Pivot" />
-          <span style={{ marginLeft: 4 }}>Pivot</span>
+          <PivotLogo fontSize={23} />
         </button>
         {/* Mobile-only close button — keeps the drawer escapable for
             screen-reader / keyboard users. Hidden on lg+ via
