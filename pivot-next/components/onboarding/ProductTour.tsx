@@ -49,7 +49,7 @@ interface TourStep {
   /** Selector to await after a tab switch (defaults to `element`). */
   waitFor?: string;
   title: string;
-  /** Rendered as HTML — <em> = serif-italic example prompt, <strong> = key term. */
+  /** Rendered as HTML — <strong> = key term. No italics; example prompts are plain quoted text. */
   description: string;
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
@@ -68,7 +68,7 @@ const STEPS: TourStep[] = [
     side: "top",
     title: "It all starts here",
     description:
-      "Type what you want, in plain English or Hinglish. <em>&ldquo;Analyse Reliance for me&rdquo;</em>, <em>&ldquo;Buy 10 INFY when RSI drops below 30&rdquo;</em>, <em>&ldquo;Show me the option chain for BANKNIFTY&rdquo;</em> — answers come back with real NSE data, and anything buildable arrives as an editable card in the chat.",
+      "Type what you want, in plain English or Hinglish. “Analyse Reliance for me”, “Buy 10 INFY when RSI drops below 30”, “Show me the option chain for BANKNIFTY” — answers come back with real NSE data, and anything buildable arrives as an editable card in the chat.",
   },
   {
     tab: "chat",
@@ -114,7 +114,7 @@ const STEPS: TourStep[] = [
     side: "right",
     title: "Trade what you believe",
     description:
-      "You don't think in strike prices — you think <em>&ldquo;RBI will cut rates&rdquo;</em> or <em>&ldquo;defence has a decade ahead&rdquo;</em>. Each card is one such belief, researched and scored, with ready-made ways to put money behind it at your kind of risk. Open one and look around.",
+      "You don't think in strike prices — you think “RBI will cut rates” or “defence has a decade ahead”. Each card is one such belief, researched and scored, with ready-made ways to put money behind it at your kind of risk. Open one and look around.",
   },
   {
     tab: "agents",
@@ -139,7 +139,7 @@ const STEPS: TourStep[] = [
     tab: "chat",
     title: "Over to you",
     description:
-      "That's the platform. Ask the first thing on your mind — or borrow one of ours: <em>&ldquo;Analyse TCS&rdquo;</em>, <em>&ldquo;Make me a basket of monsoon stocks&rdquo;</em>, <em>&ldquo;Backtest a 50/200 crossover on NIFTYBEES&rdquo;</em>. Replay this tour anytime from Help, under your profile.",
+      "That's the platform. Ask the first thing on your mind — or borrow one of ours: “Analyse TCS”, “Make me a basket of monsoon stocks”, “Backtest a 50/200 crossover on NIFTYBEES”. Replay this tour anytime from Help, under your profile.",
   },
 ];
 
