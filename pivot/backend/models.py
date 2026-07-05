@@ -382,11 +382,12 @@ class PaperAccount(Base):
     )
     label = Column(String(64), nullable=False, default="default")
     currency = Column(String(3), nullable=False, default="INR")
-    # Seed = the existing MOCK_MARGINS figure. cash_settled/available are
-    # seeded equal to starting_capital by the account-creation service.
-    starting_capital = Column(Numeric(18, 4), nullable=False, default=150000.0)
-    cash_settled = Column(Numeric(18, 4), nullable=False, default=150000.0)
-    cash_available = Column(Numeric(18, 4), nullable=False, default=150000.0)
+    # Seed = ₹5,00,000 paper budget (owner decision 2026-07-06). cash_settled/
+    # available are seeded equal to starting_capital by the account-creation
+    # service (backend/paper/money.py SEED_CAPITAL is the single source).
+    starting_capital = Column(Numeric(18, 4), nullable=False, default=500000.0)
+    cash_settled = Column(Numeric(18, 4), nullable=False, default=500000.0)
+    cash_available = Column(Numeric(18, 4), nullable=False, default=500000.0)
     cash_reserved = Column(Numeric(18, 4), nullable=False, default=0.0)
     mode = Column(String(8), nullable=False, default="paper")
     is_active = Column(Boolean, nullable=False, default=True)

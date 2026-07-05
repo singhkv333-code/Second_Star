@@ -13,9 +13,9 @@ from typing import Union
 # 4 decimal places — matches Numeric(18, 4).
 CENTS = Decimal("0.0001")
 
-# Default seed = the existing MOCK_MARGINS figure (₹1,50,000), per the
-# user's P0 decision. Overridable per account.
-SEED_CAPITAL = Decimal("150000.0000")
+# Default seed = ₹5,00,000 paper budget (owner decision 2026-07-06 for the
+# beta paper-trading test). Overridable per account.
+SEED_CAPITAL = Decimal("500000.0000")
 
 Number = Union[int, float, Decimal, str]
 

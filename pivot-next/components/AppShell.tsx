@@ -30,9 +30,7 @@ import {
   ChevronLeft,
   ExternalLink,
   FileText,
-  FlaskConical,
   HelpCircle,
-  Info,
   Keyboard,
   LogOut,
   Menu,
@@ -79,12 +77,6 @@ import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTo
 import { LoginIntroGate } from "@/components/onboarding/LoginIntroGate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   deleteConversation,
   getMe,
@@ -744,7 +736,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     <LoginIntroGate />
     <div
       className="app-shell-root flex h-screen bg-background"
-      style={{ ["--paper-banner-h" as string]: tradingMode === "paper" ? "30px" : "0px" }}
+      style={{ ["--paper-banner-h" as string]: "0px" }}
     >
       {/* Left sidebar — FULL HEIGHT (ElevenLabs-style: spans top-to-bottom as
           a sibling of the header+content column). Inline at lg+, slide-in
@@ -788,8 +780,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           onReportBug={() => setReportBugOpen(true)}
         />
 
-        {/* Paper-mode banner — spans the content column, on every page. */}
-        {tradingMode === "paper" && <PaperModeBanner />}
+        {/* Paper-mode banner removed per owner request — the account-menu
+            toggle still indicates paper vs real. */}
 
         {/* Mobile nav backdrop — fades in behind the drawer; tap to close. */}
         {mobileNavOpen && (
@@ -1720,67 +1712,6 @@ function ThemeIconButton({
     >
       {children}
     </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Paper-mode banner — full-width, unmissable bar shown on every page while
-// the app is in paper (simulated) mode.
-// ---------------------------------------------------------------------------
-
-function PaperModeBanner(): React.ReactElement {
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      data-testid="paper-mode-banner"
-      className="flex shrink-0 items-center justify-center gap-1.5"
-      style={{
-        background: "#d97706",
-        color: "#ffffff",
-        padding: "5px 16px",
-        fontFamily: "var(--font-ui)",
-        fontSize: 12,
-        fontWeight: 600,
-        letterSpacing: "0.01em",
-        borderBottom: "1px solid rgba(0,0,0,0.10)",
-      }}
-    >
-      <FlaskConical size={13} strokeWidth={2.25} aria-hidden={true} />
-      <span>Paper Trading Mode</span>
-      <TooltipProvider delayDuration={100}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="What is paper trading?"
-              data-testid="paper-mode-info"
-              className="inline-flex items-center justify-center rounded-full"
-              style={{
-                width: 16,
-                height: 16,
-                marginLeft: 1,
-                color: "#ffffff",
-                opacity: 0.85,
-                cursor: "help",
-              }}
-            >
-              <Info size={13} strokeWidth={2.5} aria-hidden={true} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent
-            side="bottom"
-            className="max-w-[280px] text-left font-normal leading-relaxed"
-          >
-            Paper trading places{" "}
-            <strong className="font-semibold">simulated</strong> buys &amp;
-            sells with virtual cash. Balances, holdings, and P&amp;L here are
-            tracked separately — no real money is used and your real portfolio
-            is never touched.
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
   );
 }
 
