@@ -59,6 +59,12 @@ def should_fill(order: PaperOrder, mark: Decimal) -> Optional[Decimal]:
     ot = str(order.order_type).upper()
     side = str(order.transaction_type).upper()
 
+    # A resting MARKET order is one that was QUEUED because it was placed while
+    # the market was closed (see broker.place_order). It carries no trigger — it
+    # simply fills at the current mark on the first market-hours evaluator tick.
+    if ot == "MARKET":
+        return mark
+
     if ot == "LIMIT":
         if order.limit_price is None:
             return None

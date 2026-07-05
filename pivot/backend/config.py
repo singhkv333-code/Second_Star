@@ -141,6 +141,10 @@ class Settings(BaseSettings):
     # "coming soon" toast, so nothing breaks until it's configured.
     google_client_id: str = ""
 
+    # --- PostHog analytics ------------------------------------------------------
+    posthog_project_token: str = ""
+    posthog_host: str = "https://us.i.posthog.com"
+
     # --- Observability ----------------------------------------------------------
     log_format: str = "console"   # "json" | "console"
     log_level: str = "INFO"
@@ -281,6 +285,20 @@ class Settings(BaseSettings):
     # legacy Kite path (mock in dev). The per-account `mode` column is the
     # finer switch: mode='live' always uses Kite even with this flag on.
     paper_trading_enabled: bool = True
+
+    # When True (default), paper fills respect NSE market hours: a MARKET order
+    # placed while the market is CLOSED rests ("queued for open") and fills at
+    # the next market-hours evaluator tick against the then-live price, instead
+    # of filling immediately at a stale close. Resting LIMIT/SL/GTT + queued
+    # MARKET orders are only filled by the scheduler tick during 09:15-15:30 IST.
+    # Pinned False in the test suite (conftest) so the deterministic immediate-
+    # fill tests are unaffected; the market-hours behaviour has its own tests.
+    paper_respect_market_hours: bool = True
+
+    # Starting cash for a NEW paper account (env PAPER_SEED_CAPITAL). Raised to
+    # 500000 for the beta test via .env; defaults to 150000 (matches the
+    # money.SEED_CAPITAL fallback + the test suite's expectations).
+    paper_seed_capital: float = 150000.0
 
     # --- View Markets (V2: belief -> expression -> deployment) -----------------
     # Master flag for the View Markets layer (backend/view_markets/, the /api/

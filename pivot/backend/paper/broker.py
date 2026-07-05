@@ -43,7 +43,7 @@ from backend.paper.ideas import resolve_idea
 from backend.paper.marks import get_mark_price
 from backend.paper.money import to_money
 from backend.services.trading_costs import buy_cost
-from backend.utils.time_utils import now_ist
+from backend.utils.time_utils import is_market_open, now_ist
 
 # Order types that rest until a price tick fills them (P3 evaluator).
 _RESTING_TYPES = {"LIMIT", "SL", "SL-M", "GTT"}
@@ -205,6 +205,22 @@ class PaperBroker:
                 db.flush()
 
         if ot == "MARKET":
+            # Market-hours gate: when enabled and the NSE is CLOSED, a MARKET
+            # order does not fill at the stale last close — it RESTS ("queued
+            # for open") and the market-hours evaluator tick fills it at the
+            # then-live price (see evaluator.should_fill MARKET branch). This
+            # is what makes "orders execute after the market opens" true.
+            from backend.config import settings as _cfg
+            if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+                order.status = "resting"
+                # Stamp the decision-time quote for display; the actual fill
+                # price is captured live at the opening tick.
+                ref = self._price(order.symbol)
+                if ref is not None and to_money(ref) > 0:
+                    order.intended_price = float(to_money(ref))
+                order.intended_quote_at = now_ist()
+                db.flush()
+                return self._result(order)
             mark = self._price(order.symbol)
             if mark is None or to_money(mark) <= 0:
                 order.status = "rejected"

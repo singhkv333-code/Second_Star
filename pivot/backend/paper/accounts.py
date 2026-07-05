@@ -38,7 +38,16 @@ def get_or_create_account(
     if acct is not None:
         return acct
 
-    seed = to_money(starting_capital) if starting_capital is not None else SEED_CAPITAL
+    if starting_capital is not None:
+        seed = to_money(starting_capital)
+    else:
+        # Deployment-configurable seed (env PAPER_SEED_CAPITAL); falls back to
+        # the SEED_CAPITAL constant if the setting is somehow unavailable.
+        try:
+            from backend.config import settings as _cfg
+            seed = to_money(getattr(_cfg, "paper_seed_capital", None) or SEED_CAPITAL)
+        except Exception:
+            seed = SEED_CAPITAL
     acct = PaperAccount(
         user_id=uid,
         starting_capital=seed,

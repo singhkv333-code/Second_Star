@@ -166,12 +166,14 @@ def test_should_fill_upside_trigger() -> None:
     assert should_fill(o, to_money(121)) == to_money(121)
 
 
-def test_should_fill_market_returns_none() -> None:
+def test_should_fill_market_fills_at_mark() -> None:
+    # A resting MARKET order is one queued while the market was closed; it now
+    # fills at the current mark on the next market-hours tick (2026-07-06).
     o = PaperOrder(
         symbol="X", transaction_type="BUY", order_type="MARKET",
-        quantity=1, status="pending",
+        quantity=1, status="resting",
     )
-    assert should_fill(o, to_money(100)) is None
+    assert should_fill(o, to_money(100)) == to_money(100)
 
 
 # ── (a) resting LIMIT BUY crosses ────────────────────────────────────────

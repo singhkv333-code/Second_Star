@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from backend.models import PaperAccount, PaperOrder
 from backend.paper.evaluator import evaluate_resting_orders
 from backend.paper.snapshots import snapshot_account_nav
-from backend.utils.time_utils import now_ist
+from backend.utils.time_utils import is_market_open, now_ist
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,19 @@ def _active_paper_accounts(db: Session) -> list[PaperAccount]:
 def tick_paper_accounts(db: Session, price_fn: PriceFn = None) -> dict:
     """Evaluate + fill resting orders for every paper account that has any.
     Returns a summary. Marking-to-market is lazy-on-read (compute_account_nav
-    marks), so this stays light — it only touches accounts with resting work."""
+    marks), so this stays light — it only touches accounts with resting work.
+
+    Market-hours gate: when ``paper_respect_market_hours`` is on, resting
+    orders (incl. queued MARKET orders) are only filled while the NSE is open
+    (09:15-15:30 IST, mon-fri) so nothing fills at a stale closed-market price.
+    The scheduler cron already restricts to hours 9-15; this tightens it to the
+    real session and skips the pre-open/post-close edge ticks."""
+    from backend.config import settings as _cfg
+    if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+        return {
+            "accounts": 0, "filled": [], "cancelled": [], "failed": [],
+            "skipped_market_closed": True,
+        }
     acct_ids = [
         row[0]
         for row in db.query(PaperOrder.account_id)

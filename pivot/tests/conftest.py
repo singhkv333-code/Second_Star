@@ -19,6 +19,14 @@ os.environ["DEMO_SEED_ON_REGISTER"] = "0"
 # deterministically. Paper-specific tests opt in (monkeypatch the flag True);
 # see tests/test_paper_routing.py.
 os.environ["PAPER_TRADING_ENABLED"] = "false"
+# Market-hours-aware paper fills are ON in dev/prod, but pinned OFF in tests so
+# the deterministic immediate-fill assertions hold regardless of wall-clock.
+# The market-hours behaviour is covered by its own opt-in tests.
+os.environ["PAPER_RESPECT_MARKET_HOURS"] = "false"
+# The deployment .env raises the paper seed to 5L for the beta test; pin the
+# test seed to 150000 (os.environ wins over .env in pydantic) so the paper
+# broker/account balance assertions stay deterministic.
+os.environ["PAPER_SEED_CAPITAL"] = "150000"
 
 import pytest
 from sqlalchemy import create_engine
