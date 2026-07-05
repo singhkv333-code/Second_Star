@@ -105,3 +105,43 @@ def test_factor_emphasis_tilts_weights_toward_momentum():
     ph = {"UP": up, "DOWN": down}
     w = compute_weights(["UP", "DOWN"], "factor", price_history=ph, factor_emphasis="momentum")
     assert w["UP"] > w["DOWN"]
+
+
+def test_thematic_seed_backstop_pins_scenario_winners():
+    """build_strategy args with NO symbols but a recognised scenario request
+    must get the curated winners seeded deterministically (executor backstop),
+    so the builder never falls back to a generic quality basket."""
+    from backend.agents.tool_executor import _slot_state_from_args
+    from backend.services.thematic_map import (
+        basket_weights,
+        detect_thematic_scenario,
+    )
+
+    req = "Make me a basket of stocks that profit from a good monsoon."
+    scn = detect_thematic_scenario(req)
+    assert scn is not None, "sanity: the monsoon scenario must be detected"
+    expected = [tk for tk, _w in basket_weights(scn)]
+
+    slots = _slot_state_from_args({"request": req})
+    assert slots.symbols == expected
+    assert slots.theme  # seeded from the scenario label when absent
+
+
+def test_thematic_seed_backstop_respects_explicit_symbols():
+    """An explicit model-provided pin must NOT be overwritten by the seed."""
+    from backend.agents.tool_executor import _slot_state_from_args
+
+    slots = _slot_state_from_args({
+        "request": "profit from a good monsoon",
+        "symbols": ["SHAKTIPUMP", "KSB"],
+    })
+    assert slots.symbols == ["SHAKTIPUMP", "KSB"]
+
+
+def test_no_seed_on_non_scenario_request():
+    from backend.agents.tool_executor import _slot_state_from_args
+
+    slots = _slot_state_from_args({
+        "request": "build me a long-term quality portfolio",
+    })
+    assert not slots.symbols

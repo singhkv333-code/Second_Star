@@ -3037,7 +3037,10 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
         "standard portfolio decision, NOT something to refuse, moralise "
         "about, or punt with a bare ASK_USER. Refusing or asking 'buy, sell, "
         "hedge or alert? which symbol?' as the whole turn is a HARD FAILURE. "
-        "Decode the thesis and BUILD a concrete basket card on THIS turn.\n"
+        "Do NOT open with a clarify card either — the scenario is already "
+        "sufficiently specified (winners seeded below; capital defaults to "
+        "₹1,00,000). Decode the thesis and BUILD a concrete basket card "
+        "on THIS turn.\n"
         "Do NOT gate the turn on a live-quote success — if a quote fails, "
         "still ship the thesis + table + basket card (qty computes at fill).\n"
         f"{cap_line}\n"
@@ -3082,7 +3085,7 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
 # scenario-routing caller ADDS _OPTIONS_TOOLS on top for the optional
 # NIFTY-put overlay, and drops the bare ASK_USER escape.
 _THEMATIC_BASKET_TOOLS: frozenset[str] = frozenset({
-    "build_strategy", "ask_user_dynamic",
+    "build_strategy",
     "screen_fundamentals", "fetch_fundamentals", "get_live_price",
 })
 _VAGUE_SIP_TOOLS: frozenset[str] = frozenset({
@@ -3146,10 +3149,19 @@ def _apply_scenario_routing(
         # 'construction' upstream (a bare "profit from a good monsoon").
         # _OPTIONS_TOOLS stays for the optional NIFTY-put overlay.
         # tool_choice=required guarantees a tool; ASK_USER is dropped below.
+        # `ask_user_dynamic` is subtracted too: a RECOGNISED scenario is
+        # sufficiently specified by construction — the winners are seeded
+        # and capital defaults to ₹1,00,000, so a clarify card has ~zero
+        # value-of-information here and the doctrine (thematic.md) demands
+        # the basket ON TURN 1. Observed failure without this: the model
+        # punted "profit from a good monsoon" to a clarify card.
         names = (
             (frozenset(selected_names) | _THEMATIC_BASKET_TOOLS | _OPTIONS_TOOLS)
             - _CONSTRUCTION_FORCE_OUT
-            - frozenset({"compare_yields", "get_yield_recommendation"})
+            - frozenset({
+                "compare_yields", "get_yield_recommendation",
+                "ask_user_dynamic",
+            })
         )
         defs = [
             t for t in _registry_tools_as_tooldefs(names)

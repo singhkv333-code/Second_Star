@@ -1649,6 +1649,36 @@ def _slot_state_from_args(a: dict):
         if cleaned:
             slots.symbols = cleaned
 
+    # Deterministic thematic seed (backstop, not a prompt hope): when the
+    # model did NOT pin `symbols` but the request is one of the recognised
+    # macro scenarios (monsoon/war/rupee/crude/rate-cut/slowdown), seed the
+    # pin from the curated winners in `thematic_map`. Without this the
+    # builder falls back to its coarse theme universe and returns a generic
+    # quality basket that misses the thesis (observed live: a "good monsoon"
+    # ask building TCS/NESTLEIND instead of the irrigation/pump names).
+    # Applies on every entry path into build_strategy (chat, clarify-resume).
+    if not slots.symbols:
+        try:
+            from backend.services.thematic_map import (
+                basket_weights,
+                detect_thematic_scenario,
+            )
+            _scn = detect_thematic_scenario(
+                " ".join(
+                    str(a.get(k) or "") for k in ("request", "theme")
+                )
+            )
+            if _scn is not None:
+                slots.symbols = [tk for tk, _w in basket_weights(_scn)]
+                if not slots.theme:
+                    slots.theme = _scn.label
+                logger.info(
+                    "build_strategy thematic seed: scenario=%s symbols=%s",
+                    _scn.key, slots.symbols,
+                )
+        except Exception:  # never let the backstop break the build
+            pass
+
     # Re-validate the whole thing once; on any enum slip fall back to a clean
     # default state so the builder always receives a valid SlotState.
     try:
