@@ -95,6 +95,14 @@ class ForgotPasswordRequest(BaseModel):
         return _normalize_email(v)
 
 
+class GoogleAuthRequest(BaseModel):
+    """Body for POST /auth/google. `access_token` is the Google OAuth 2.0
+    access token the browser obtained via Google Identity Services
+    (initTokenClient, scope `openid email profile`). The backend verifies it
+    against Google before trusting any identity claim."""
+    access_token: str = Field(min_length=1)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

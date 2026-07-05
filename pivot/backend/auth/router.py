@@ -58,6 +58,7 @@ from backend.models import (
 from backend.schemas import (
     EmailVerifyRequest,
     ForgotPasswordRequest,
+    GoogleAuthRequest,
     PasswordResetConfirm,
     TokenRefreshRequest,
     TokenResponse,
@@ -326,6 +327,178 @@ def login(
         background_tasks.add_task(warm_user_cache, int(user.id))
     except Exception as e:  # noqa: BLE001 — cache warm must never break login
         logger.debug("failed to schedule cache warm for user %s: %s", user.id, e)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user_id=user.id,
+        email=user.email,
+    )
+
+
+# ─── /google ────────────────────────────────────────────────────────
+
+# Google's token-introspection + profile endpoints. tokeninfo lets us verify
+# the access token was minted for OUR client (audience) and carries a verified
+# email; userinfo gives a display name for brand-new accounts.
+_GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+_GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+
+def _verify_google_access_token(access_token: str) -> dict[str, Any]:
+    """Introspect a Google access token and return {email, name}.
+
+    Security: we do NOT trust the browser's identity claims. tokeninfo tells
+    us (a) the token's audience — which MUST equal our own client id, or a
+    token minted for a different app could be replayed here — and (b) that
+    Google has verified the email. Only then do we treat the email as an
+    identity. Raises HTTPException(401) on any failure.
+    """
+    import httpx  # local import: only this endpoint needs it
+
+    client_id = settings.google_client_id
+    try:
+        with httpx.Client(timeout=6.0) as client:
+            info = client.get(
+                _GOOGLE_TOKENINFO_URL, params={"access_token": access_token}
+            )
+    except httpx.HTTPError as e:
+        logger.warning("google tokeninfo request failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not verify Google sign-in",
+        )
+    if info.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google credential",
+        )
+    data = info.json()
+
+    # Audience check — the token must have been issued to OUR client id.
+    # Google returns the client id in `aud` (and `azp` for the authorized
+    # party); accept a match on either.
+    aud = data.get("aud")
+    azp = data.get("azp")
+    if client_id not in (aud, azp):
+        logger.warning(
+            "google token audience mismatch: aud=%r azp=%r", aud, azp
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google credential was not issued for this app",
+        )
+
+    email = (data.get("email") or "").strip().lower()
+    email_verified = str(data.get("email_verified", "")).lower() == "true"
+    if not email or not email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account has no verified email",
+        )
+
+    # Display name is best-effort — fetch it from userinfo, else derive from
+    # the email local-part. Never blocks the sign-in.
+    name = ""
+    try:
+        with httpx.Client(timeout=6.0) as client:
+            prof = client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        if prof.status_code == 200:
+            name = (prof.json().get("name") or "").strip()
+    except httpx.HTTPError:
+        name = ""
+    if not name:
+        name = email.split("@", 1)[0].replace(".", " ").title()
+
+    return {"email": email, "name": name}
+
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    dependencies=[Depends(rate_limit("google_auth", 20, 3600))],
+)
+def google_auth(
+    body: GoogleAuthRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Sign in (or sign up) with Google.
+
+    The browser obtains a Google access token via Google Identity Services and
+    posts it here; we verify it with Google (audience + verified email — see
+    :func:`_verify_google_access_token`), then find-or-create the local user by
+    that verified email and issue Pivot tokens.
+
+    Account linking is by verified email: a user who first signed up with a
+    password and later clicks "Login with Google" (same email) is logged into
+    that same account — safe because Google has verified the address. New
+    Google users get an unusable random password (they can set a real one via
+    "forgot password" if they ever want email login) and are marked verified.
+    """
+    ip = _client_ip(request)
+    ua = _user_agent(request)
+
+    if not settings.google_client_id:
+        # Not configured — honest 503 rather than a broken sign-in.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google sign-in is not configured",
+        )
+
+    profile = _verify_google_access_token(body.access_token)
+    email = profile["email"]
+
+    user = db.query(User).filter(User.email == email).first()
+    is_new = user is None
+
+    if user is None:
+        user = User(
+            email=email,
+            # Unusable password: a random secret they don't know. Google is
+            # the credential; email login stays closed until they reset it.
+            hashed_password=hash_password(secrets.token_urlsafe(32)),
+            full_name=profile["name"],
+            is_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        import os as _os
+        if _os.environ.get("DEMO_SEED_ON_REGISTER", "1") != "0":
+            try:
+                seed_demo_data(db, user.id)
+            except Exception as e:  # noqa: BLE001 — seeding never blocks auth
+                logger.warning("Demo seed raised for google user %s: %s", user.id, e)
+    elif not user.is_active:
+        write_audit(
+            db, event="login_failed", success=False, email=email,
+            user_id=user.id, ip=ip, user_agent=ua, detail="inactive_google",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account is not available",
+        )
+
+    access_token = create_access_token(user.id, user.email)
+    refresh_token = create_refresh_token(user.id)
+
+    write_audit(
+        db, event="signup" if is_new else "login", success=True, email=email,
+        user_id=user.id, ip=ip, user_agent=ua, detail="google",
+    )
+
+    # Same fire-and-forget cache warm as password login.
+    try:
+        from backend.services.cache_warm import warm_user_cache
+        background_tasks.add_task(warm_user_cache, int(user.id))
+    except Exception as e:  # noqa: BLE001 — cache warm must never break auth
+        logger.debug("failed to schedule cache warm for google user %s: %s", user.id, e)
 
     return TokenResponse(
         access_token=access_token,

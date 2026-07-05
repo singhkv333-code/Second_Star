@@ -1454,6 +1454,21 @@ export async function registerUser(body: {
   return result;
 }
 
+/** `POST /auth/google` — exchange a Google OAuth access token for Pivot
+ *  tokens (find-or-create by verified email, server-verified). */
+export async function googleLogin(
+  accessToken: string,
+): Promise<ApiResult<AuthResponse>> {
+  const result = await requestLegacy<AuthResponse>("/auth/google", {
+    method: "POST",
+    body: { access_token: accessToken },
+  });
+  if (!("error" in result)) {
+    storeToken(result.data.access_token, result.data.refresh_token);
+  }
+  return result;
+}
+
 /** `POST /auth/refresh` — silently exchange refresh token for new access token. */
 export async function refreshAccess(): Promise<ApiResult<AuthResponse>> {
   let refreshToken: string | null = null;

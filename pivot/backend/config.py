@@ -133,6 +133,14 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
     frontend_url: str = "http://localhost:5173"
 
+    # --- Google Sign-In ---------------------------------------------------------
+    # OAuth 2.0 **Web** client id from Google Cloud Console. The SAME value is
+    # exposed to the browser as NEXT_PUBLIC_GOOGLE_CLIENT_ID (it's not a secret
+    # — the audience check below is what makes it safe). Empty ⇒ the
+    # `/auth/google` endpoint 503s and the FE button falls back to a
+    # "coming soon" toast, so nothing breaks until it's configured.
+    google_client_id: str = ""
+
     # --- Observability ----------------------------------------------------------
     log_format: str = "console"   # "json" | "console"
     log_level: str = "INFO"

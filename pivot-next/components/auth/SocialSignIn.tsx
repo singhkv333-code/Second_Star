@@ -5,14 +5,47 @@
  * "Login with Google" outline buttons over an "Or continue with" divider.
  * Sits above the email/password form on the login page.
  *
- * OAuth isn't wired yet, so the buttons are honest rather than fake: a tap
- * says social sign-in is coming and points the user at email — never a
- * silent no-op or a pretend success.
+ * Google is live when NEXT_PUBLIC_GOOGLE_CLIENT_ID is set: we load Google
+ * Identity Services, run its OAuth popup for an access token, and hand that
+ * to the backend (POST /auth/google) which verifies it with Google and
+ * issues Pivot tokens. On success we arm the brand intro and land on the
+ * app — identical to an email login. Without the env var (or for Apple,
+ * which has no backend yet) the buttons stay honest: a "coming soon" toast,
+ * never a fake success.
  */
 
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { googleLogin } from "@/lib/api";
+import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
+import { isError } from "@/lib/types";
+
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
+const GIS_SRC = "https://accounts.google.com/gsi/client";
+
+// Minimal typing for the slice of Google Identity Services we use.
+interface TokenClient {
+  requestAccessToken: (overrides?: { prompt?: string }) => void;
+}
+interface GoogleOAuth {
+  accounts: {
+    oauth2: {
+      initTokenClient: (config: {
+        client_id: string;
+        scope: string;
+        callback: (resp: { access_token?: string; error?: string }) => void;
+      }) => TokenClient;
+    };
+  };
+}
+declare global {
+  interface Window {
+    google?: GoogleOAuth;
+  }
+}
 
 function AppleIcon(): React.ReactElement {
   return (
@@ -46,10 +79,88 @@ function GoogleIcon(): React.ReactElement {
 }
 
 export function SocialSignIn(): React.ReactElement {
-  const notReady = (provider: string): void => {
+  const router = useRouter();
+  const [gisReady, setGisReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const tokenClientRef = useRef<TokenClient | null>(null);
+
+  const comingSoon = (provider: string): void => {
     toast(`${provider} sign-in is coming soon`, {
       description: "For now, sign in with your email and password.",
     });
+  };
+
+  // Called with the Google access token once the popup resolves.
+  const onGoogleToken = useCallback(
+    async (accessToken: string): Promise<void> => {
+      setBusy(true);
+      const res = await googleLogin(accessToken);
+      if (isError(res)) {
+        setBusy(false);
+        toast("Couldn't sign in with Google", {
+          description: res.error.message || "Please try again.",
+        });
+        return;
+      }
+      // Same hand-off as an email login: play the brand intro, enter the app.
+      armLoginIntro();
+      router.replace("/");
+    },
+    [router],
+  );
+
+  // Load Google Identity Services once, only when a client id is configured.
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+
+    const init = (): void => {
+      if (!window.google || tokenClientRef.current) return;
+      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: "openid email profile",
+        callback: (resp) => {
+          if (resp.access_token) {
+            void onGoogleToken(resp.access_token);
+          } else {
+            // User closed the popup / denied consent — quietly reset.
+            setBusy(false);
+          }
+        },
+      });
+      setGisReady(true);
+    };
+
+    if (window.google) {
+      init();
+      return;
+    }
+    let script = document.querySelector<HTMLScriptElement>(
+      `script[src="${GIS_SRC}"]`,
+    );
+    if (!script) {
+      script = document.createElement("script");
+      script.src = GIS_SRC;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", init);
+    return () => script?.removeEventListener("load", init);
+  }, [onGoogleToken]);
+
+  const onGoogleClick = (): void => {
+    if (!GOOGLE_CLIENT_ID) {
+      comingSoon("Google");
+      return;
+    }
+    if (!gisReady || !tokenClientRef.current) {
+      toast("Google sign-in is still loading", {
+        description: "One moment, then try again.",
+      });
+      return;
+    }
+    setBusy(true);
+    tokenClientRef.current.requestAccessToken();
   };
 
   return (
@@ -59,7 +170,8 @@ export function SocialSignIn(): React.ReactElement {
           type="button"
           variant="outline"
           className="w-full"
-          onClick={() => notReady("Apple")}
+          disabled={busy}
+          onClick={() => comingSoon("Apple")}
         >
           <AppleIcon />
           Login with Apple
@@ -68,10 +180,11 @@ export function SocialSignIn(): React.ReactElement {
           type="button"
           variant="outline"
           className="w-full"
-          onClick={() => notReady("Google")}
+          disabled={busy}
+          onClick={onGoogleClick}
         >
           <GoogleIcon />
-          Login with Google
+          {busy ? "Signing in…" : "Login with Google"}
         </Button>
       </div>
 
