@@ -70,12 +70,21 @@ def tick_paper_accounts(db: Session, price_fn: PriceFn = None) -> dict:
         acct = db.get(PaperAccount, aid)
         if acct is None or not acct.is_active or str(acct.mode) != "paper":
             continue
+        # Resolve THIS account owner's live Kite token so resting/queued fills
+        # mark against live LTP (during market hours) once they've logged into
+        # Kite; falls back to yfinance close otherwise. A caller-supplied
+        # price_fn (tests) always wins.
+        acct_price_fn = price_fn
+        if acct_price_fn is None:
+            from backend.paper.marks import get_mark_price, user_kite_token
+            _tok = user_kite_token(db, int(acct.user_id))
+            acct_price_fn = lambda sym, _t=_tok: get_mark_price(sym, token=_t)
         # Per-account SAVEPOINT: one bad account rolls back only its own
         # work and the pass continues, so a single failure can't abort the
         # whole tick (or the scheduler's end-of-pass commit).
         try:
             with db.begin_nested():
-                res = evaluate_resting_orders(db, acct, price_fn)
+                res = evaluate_resting_orders(db, acct, acct_price_fn)
         except Exception:
             summary["failed"].append(aid)
             logger.warning("paper tick failed for account %s", aid, exc_info=True)

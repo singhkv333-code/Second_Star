@@ -72,6 +72,25 @@ def _looks_like_option(symbol: str) -> bool:
     return len(s) > 6 and s[-2:] in ("CE", "PE") and any(c.isdigit() for c in s[:-2])
 
 
+def user_kite_token(db, user_id: int) -> str:
+    """The user's LIVE Kite access token, or ``"mock_token"`` when they have no
+    active broker session. Threading this into ``get_mark_price`` is what makes
+    a paper account mark against LIVE Kite LTP (during market hours) once the
+    user logs into Kite / opens the websocket in the morning — otherwise marks
+    fall back to the yfinance last close. Defensive: any lookup error → mock."""
+    try:
+        from backend.brokers.sessions import get_active_broker_session
+        from backend.kite.auth import read_kite_access_token
+        sess = get_active_broker_session(db, int(user_id))
+        if sess is not None:
+            tok = read_kite_access_token(sess)
+            if tok:
+                return tok
+    except Exception:
+        pass
+    return "mock_token"
+
+
 def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
     sym = str(symbol).upper()
 

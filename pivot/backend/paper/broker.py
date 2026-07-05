@@ -76,12 +76,23 @@ class PaperBroker:
         # Injectable so tests are deterministic and offline; defaults to
         # the real mark resolver (Kite live -> yfinance).
         self._price_fn = price_fn
+        self._kite_tok: Optional[str] = None
+
+    def _kite_token(self) -> str:
+        """This user's live Kite token (cached per broker instance), so market
+        fills use live LTP once they've logged into Kite; else 'mock_token'
+        (yfinance close). Resolved lazily to avoid a session lookup on the
+        idempotent/validation fast-paths that never price anything."""
+        if self._kite_tok is None:
+            from backend.paper.marks import user_kite_token
+            self._kite_tok = user_kite_token(self.db, self.user_id)
+        return self._kite_tok
 
     # ── price ──────────────────────────────────────────────────────────
     def _price(self, symbol: str):
         if self._price_fn is not None:
             return self._price_fn(symbol)
-        return get_mark_price(symbol)
+        return get_mark_price(symbol, token=self._kite_token())
 
     # ── public: place_order ────────────────────────────────────────────
     def place_order(
