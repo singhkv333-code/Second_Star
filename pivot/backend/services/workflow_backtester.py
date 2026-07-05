@@ -2040,43 +2040,59 @@ _SIGNAL_TRIGGER_TYPES = frozenset({
 _NOTIONAL_KEYS = ("notional", "notional_inr", "amount", "total_inr")
 
 
-def _normalize_buy_and_hold(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Strip a fixed share `quantity` from the lone buy of a one-time
-    buy-and-hold so it deploys the full capital (F7). See the call site for
-    the rationale. No-op unless the workflow is unambiguously a buy-and-hold:
-    a single buy place_order, no exit/sell action anywhere, no signal trigger,
-    no recurring cron schedule, and the buy carries no notional already."""
+def _normalize_buy_and_hold(
+    steps: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], Optional[str]]:
+    """Strip fixed sizing (share `quantity` AND stated notional) from the lone
+    buy of a one-time buy-and-hold so it deploys the full simulation capital
+    (F7). Returns (steps, note) — note is a human-readable sizing disclosure
+    for the summary when normalisation acted, else None. No-op unless the
+    workflow is unambiguously a buy-and-hold: a single buy place_order, no
+    exit/sell action anywhere, no signal trigger, no recurring cron."""
     buys: list[dict[str, Any]] = []
     for s in steps:
         if not isinstance(s, dict):
-            return steps  # non-dict step → bail, don't guess
+            return steps, None  # non-dict step → bail, don't guess
         st = str(s.get("step_type") or "")
         cfg = s.get("config") or {}
         if st in _EXIT_ACTION_TYPES:
-            return steps
+            return steps, None
         if st in _SIGNAL_TRIGGER_TYPES:
-            return steps
+            return steps, None
         if st == "trigger.schedule":
             # A recurring cron (no run_at) is a DCA/SIP — leave sizing alone.
             if not str(cfg.get("run_at") or "").strip():
-                return steps
+                return steps, None
         if st == "action.place_order":
             side = str(cfg.get("side") or "buy").lower()
             if side in {"sell", "short", "cover"}:
-                return steps
+                return steps, None
             buys.append(s)
         if st == "action.allocate_basket":
-            return steps  # already notional-sized
+            return steps, None  # already notional-sized
     if len(buys) != 1:
-        return steps
+        return steps, None
     cfg = buys[0].get("config") or {}
-    if any(cfg.get(k) is not None for k in _NOTIONAL_KEYS):
-        return steps  # notional already stated → honour it
-    # Deploy-capital buy-and-hold: drop the fixed quantity so the sim sizes
-    # the buy to the full available cash.
-    new_cfg = {k: v for k, v in cfg.items() if k != "quantity"}
+    # A stated notional is ALSO stripped for this unambiguous lone-hold
+    # shape: the sim's fixed ₹10L starting capital would leave the rest
+    # idle in cash, diluting the return% (₹1L deployed of ₹10L → +11%
+    # underlying reads as +1.1%). Percent return on a single held
+    # position is identical whatever the ticket size, so full-capital
+    # deploy is the faithful simulation; the stated ₹ figure still
+    # appears on the order card at register time. Surfaced via the
+    # "sized to full simulation capital" note in the summary.
+    new_cfg = {
+        k: v for k, v in cfg.items()
+        if k != "quantity" and k not in _NOTIONAL_KEYS
+    }
+    if new_cfg == cfg:
+        return steps, None
     buys[0]["config"] = new_cfg
-    return steps
+    return steps, (
+        "Buy-and-hold sized to the full simulation capital so the return% "
+        "tracks the position, not idle cash; your stated ticket size still "
+        "applies when you register the order."
+    )
 
 
 def backtest_workflow(
@@ -2128,7 +2144,7 @@ def backtest_workflow(
     # (see `_deploy_cash_buy`). Restricted to one-time/schedule shapes (no
     # signal/indicator/price trigger, no recurring cron) so DCA/SIP and
     # signal entries — which legitimately size per fire — are untouched.
-    steps = _normalize_buy_and_hold(steps)
+    steps, _sizing_note = _normalize_buy_and_hold(steps)
     # R4a: pre-flight Mustache-ref resolvability BEFORE eligibility so
     # the user sees the structured blocker text ("backtester cannot
     # resolve {{ context.1.total_value_inr }}") instead of the
@@ -2151,6 +2167,9 @@ def backtest_workflow(
     elig = check_eligibility(steps)
     if not elig.eligible:
         raise ValueError(elig.reason or "workflow not backtestable")
+    if _sizing_note:
+        # Rides the existing warnings channel → the summary's "Notes:" line.
+        elig.warnings.append(_sizing_note)
 
     # Collect every symbol any branch references — trigger.symbol +
     # action symbols + stoploss + squareoff. Multi-symbol workflows
@@ -2203,6 +2222,30 @@ def backtest_workflow(
     symbol_bars: dict[str, pd.DataFrame] = {}
     for sym in sorted(symbols_to_fetch):
         symbol_bars[sym] = _load_bars(sym, period)
+
+    # One-time entry: when the workflow's only schedule is a run_at and the
+    # caller gave no explicit start_date, clip the window to the entry date.
+    # Otherwise the benchmark buy-and-holds the FULL period (e.g. 5y) while
+    # the strategy enters at run_at — an apples-to-oranges comparison line
+    # ("+12% vs +33%") on what is the same hold.
+    if start_date is None:
+        _run_ats = [
+            str((s.get("config") or {}).get("run_at") or "").strip()
+            for s in steps
+            if isinstance(s, dict) and s.get("step_type") == "trigger.schedule"
+        ]
+        _run_ats = [r for r in _run_ats if r]
+        if _run_ats and all(r for r in _run_ats):
+            _crons = [
+                str((s.get("config") or {}).get("cron") or "").strip()
+                for s in steps
+                if isinstance(s, dict) and s.get("step_type") == "trigger.schedule"
+            ]
+            if not any(_crons):
+                try:
+                    start_date = min(_run_ats)[:10]
+                except ValueError:
+                    pass
 
     # Fixed-window clip: trim every loaded bar series to [start, end]
     # before the simulator walks it. Keeps the equity curve, trade

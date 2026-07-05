@@ -8671,19 +8671,37 @@ def _workflow_skeleton_caption(skeleton: dict) -> str:
         cfg = trigger_step.get("config") or {}
         if trigger_step["step_type"] == "trigger.schedule":
             cron = (cfg.get("cron") or "").strip()
-            # Render a friendly time from "MM HH * * DOW"
+            run_at = str(cfg.get("run_at") or "").strip()
+            # Render a friendly time from "MM HH DOM MON DOW". The DOM/MON
+            # fields matter: "0 9 1 */3 *" is QUARTERLY (1st of every 3rd
+            # month), and describing it as "every day" mis-states the draft
+            # (observed live on the quarterly-rebalance basket caption).
             parts = cron.split()
-            if len(parts) == 5:
-                mm, hh, _, _, dow = parts
-                dow_label = {
-                    "1-5": "every weekday",
-                    "*": "every day",
-                    "1": "every Monday", "2": "every Tuesday",
-                    "3": "every Wednesday", "4": "every Thursday",
-                    "5": "every Friday",
-                }.get(dow, f"on cron `{cron}`")
+            if run_at:
+                when_phrase = f"once, on {run_at[:16].replace('T', ' at ')} IST"
+            elif len(parts) == 5:
+                mm, hh, dom, mon, dow = parts
+                if dom != "*":
+                    mon_label = {
+                        "*": "every month",
+                        "*/3": "every 3rd month",
+                        "*/6": "every 6th month",
+                        "1": "January every year",
+                    }.get(mon, f"months `{mon}`")
+                    dom_label = (
+                        f"on the {dom}st of {mon_label}" if dom == "1"
+                        else f"on day {dom} of {mon_label}"
+                    )
+                else:
+                    dom_label = {
+                        "1-5": "every weekday",
+                        "*": "every day",
+                        "1": "every Monday", "2": "every Tuesday",
+                        "3": "every Wednesday", "4": "every Thursday",
+                        "5": "every Friday",
+                    }.get(dow, f"on cron `{cron}`")
                 try:
-                    when_phrase = f"{dow_label} at {int(hh):02d}:{int(mm):02d} IST"
+                    when_phrase = f"{dom_label} at {int(hh):02d}:{int(mm):02d} IST"
                 except ValueError:
                     when_phrase = f"on `{cron}`"
         elif trigger_step["step_type"] == "trigger.indicator":
