@@ -35,7 +35,6 @@ import {
   Layers,
   LineChart,
   Loader2,
-  PieChart as PieChartIcon,
   Save,
   ShieldAlert,
   Sparkles,
@@ -199,7 +198,7 @@ function AllocationDonut({
   const activeSlice = active ? slices.find((s) => s.key === active) ?? null : null;
 
   return (
-    <div className="relative mx-auto h-[176px] w-full max-w-[260px]" data-testid="strategy-allocation-donut">
+    <div className="relative mx-auto h-[132px] w-full max-w-[150px]" data-testid="strategy-allocation-donut">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -208,8 +207,8 @@ function AllocationDonut({
             nameKey="label"
             cx="50%"
             cy="50%"
-            innerRadius={56}
-            outerRadius={80}
+            innerRadius={42}
+            outerRadius={60}
             paddingAngle={slices.length > 1 ? 1.5 : 0}
             stroke="none"
             startAngle={90}
@@ -244,27 +243,24 @@ function AllocationDonut({
         {activeSlice ? (
           <>
             <span
-              className="max-w-[112px] truncate text-[11px] font-semibold tracking-tight text-foreground"
+              className="max-w-[76px] truncate text-[10px] font-semibold tracking-tight text-foreground"
               style={{ color: activeSlice.color }}
             >
               {activeSlice.label}
             </span>
-            <span className="text-[22px] font-semibold leading-none tabular-nums text-foreground">
+            <span className="text-[17px] font-semibold leading-none tabular-nums text-foreground">
               {fmtPct(activeSlice.pct)}
-            </span>
-            <span className="mt-0.5 max-w-[120px] truncate text-[9.5px] text-muted-foreground">
-              {activeSlice.sub}
             </span>
           </>
         ) : (
           <>
-            <span className="text-[22px] font-semibold leading-none tabular-nums text-foreground">
+            <span className="text-[17px] font-semibold leading-none tabular-nums text-foreground">
               {slices.length}
             </span>
-            <span className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+            <span className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground/70">
               {slices.length === 1 ? "position" : "positions"}
             </span>
-            <span className="mt-0.5 text-[9.5px] tabular-nums text-muted-foreground/60">
+            <span className="text-[9px] tabular-nums text-muted-foreground/60">
               {fmtPct(total)} allocated
             </span>
           </>
@@ -339,6 +335,49 @@ function ConstituentRow({
           ))}
         </div>
       )}
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Compact holding row — one line (dot · symbol · pct) for the right-hand
+// column list; company/sector ride on the title attr, gate metrics live in
+// the expandable Details section, keeping the resting card ~3in tall.
+// ---------------------------------------------------------------------------
+
+function CompactHoldingRow({
+  c,
+  color,
+  active,
+  onActiveChange,
+}: {
+  c: StrategyConstituent;
+  color: string;
+  active: boolean;
+  onActiveChange: (active: boolean) => void;
+}): React.ReactElement {
+  return (
+    <li
+      onMouseEnter={() => onActiveChange(true)}
+      onMouseLeave={() => onActiveChange(false)}
+      title={`${c.name} · ${c.sector}`}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-1.5 py-[3px] transition-colors",
+        active ? "bg-muted/60" : "hover:bg-muted/40",
+      )}
+      style={{ listStyle: "none" }}
+    >
+      <span
+        aria-hidden="true"
+        className="h-2 w-2 shrink-0 rounded-full transition-transform"
+        style={{ background: color, transform: active ? "scale(1.25)" : undefined }}
+      />
+      <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold tracking-tight text-foreground">
+        {c.symbol}
+      </span>
+      <span className="shrink-0 text-[11px] font-semibold tabular-nums text-foreground">
+        {fmtPct(c.weight_pct)}
+      </span>
     </li>
   );
 }
@@ -589,6 +628,9 @@ export function StrategyBuilderCard({
   const holdings = card.constituents.length;
   const sectorCount = new Set(card.constituents.map((c) => c.sector)).size;
   const topWeight = card.constituents.reduce((m, c) => Math.max(m, c.weight_pct), 0);
+  // Right-hand list wraps into a second column once it would outgrow the
+  // donut column (~7 compact rows) — per the compact-card design.
+  const holdingRows = Math.ceil(holdings / (holdings > 7 ? 2 : 1));
 
   return (
     <div
@@ -596,108 +638,47 @@ export function StrategyBuilderCard({
       role="region"
       aria-label={`Strategy basket: ${card.title}`}
       className={cn(
-        "my-2 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card",
+        "my-2 w-full max-w-[600px] overflow-hidden rounded-3xl border border-border/50 bg-card",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]",
       )}
       style={{
         animation: "draftCardIn-quartr 360ms cubic-bezier(0.22, 1, 0.36, 1) both",
       }}
     >
-      {/* HEADER */}
-      <div className="flex flex-col gap-2.5 px-5 pt-4 pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1 rounded-md bg-sky-100 px-2 py-0.5 text-[10.5px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
-            <PieChartIcon className="h-3 w-3" aria-hidden="true" />
-            Strategy basket
-          </span>
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-muted-foreground">
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50"
-            />
-            Draft
-          </span>
-        </div>
-
-        <h3 className="text-[15px] leading-[1.25] font-semibold tracking-tight text-foreground">
+      {/* HEADER — title only; everything else lives behind Details */}
+      <div className="px-5 pt-3.5 pb-2">
+        <h3 className="truncate text-[15px] leading-[1.25] font-semibold tracking-tight text-foreground">
           {card.title}
         </h3>
-
-        {/* SCHEME + GATE — the named decisions (anti-bland) */}
-        <div className="flex flex-wrap gap-1.5">
-          <span
-            className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85"
-            data-testid="strategy-scheme"
-          >
-            <Layers className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-            {schemeLabel}
-          </span>
-          <span
-            className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85"
-            data-testid="strategy-gate"
-          >
-            <Sparkles className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-            Gate: {gateLabel}
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85">
-            Sector cap {fmtPct(card.sector_cap)}
-          </span>
-        </div>
-
-        {/* RATIONALE — collapsible "Why this?" like WorkflowDraftCard */}
-        {card.rationale && (
-          <div className="flex flex-col gap-1.5">
-            <button
-              type="button"
-              onClick={() => setShowWhy((v) => !v)}
-              className="inline-flex w-fit items-center gap-1 text-[11px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
-              aria-expanded={showWhy}
-              data-testid="strategy-why-toggle"
-            >
-              {showWhy ? (
-                <ChevronUp className="h-3 w-3 shrink-0" aria-hidden="true" />
-              ) : (
-                <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
-              )}
-              {showWhy ? "Hide reasoning" : "Why this structure?"}
-            </button>
-            {showWhy && (
-              <p
-                className="rounded-xl bg-muted/60 px-3 py-2 text-[11.5px] leading-relaxed text-muted-foreground"
-                style={{
-                  animation:
-                    "draftCardIn-quartr 240ms cubic-bezier(0.22, 1, 0.36, 1) both",
-                }}
-                data-testid="strategy-rationale"
-              >
-                {card.rationale}
-              </p>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* ALLOCATION — interactive donut, quick stats, and the holdings list
-          (which doubles as the donut legend; one section, no inner dividers) */}
+      {/* ALLOCATION — donut + division stats on the LEFT, the holdings list
+          vertically on the RIGHT (wrapping into a second column when long) */}
       {slices.length > 0 && (
-        <div className="border-t border-border/30 px-5 py-3">
-          <AllocationDonut slices={slices} active={active} onActiveChange={setActive} />
-          {holdings > 0 && (
-            <div className="mt-1 grid grid-cols-3 gap-2 border-t border-border/30 pb-1 pt-3">
-              <QuickStat label="Holdings" value={String(holdings)} />
-              <QuickStat label="Sectors" value={String(sectorCount)} />
-              <QuickStat label="Largest" value={fmtPct(topWeight)} />
-            </div>
-          )}
+        <div className="flex items-start gap-4 border-t border-border/30 px-5 py-3">
+          <div className="w-[168px] shrink-0">
+            <AllocationDonut slices={slices} active={active} onActiveChange={setActive} />
+            {holdings > 0 && (
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                <QuickStat label="Holdings" value={String(holdings)} />
+                <QuickStat label="Sectors" value={String(sectorCount)} />
+                <QuickStat label="Largest" value={fmtPct(topWeight)} />
+              </div>
+            )}
+          </div>
           {card.constituents.length > 0 && (
-            <ol className="m-0 mt-2 flex flex-col gap-0.5">
+            <ol
+              className="m-0 grid min-w-0 flex-1 grid-flow-col gap-x-3 self-center"
+              style={{
+                gridTemplateRows: `repeat(${holdingRows}, minmax(0, auto))`,
+              }}
+            >
               {card.constituents.map((c, i) => {
                 const key = `c:${c.symbol}`;
                 return (
-                  <ConstituentRow
+                  <CompactHoldingRow
                     key={c.symbol}
                     c={c}
-                    index={i}
                     color={constituentColors[i]!}
                     active={active === key}
                     onActiveChange={(on) => setActive(on ? key : null)}
@@ -709,8 +690,87 @@ export function StrategyBuilderCard({
         </div>
       )}
 
-      {/* SLEEVES — gold this phase */}
-      {card.sleeves.length > 0 && (
+      {/* DETAILS — scheme/gate/cap chips, reasoning, per-name fundamentals,
+          sleeves, assumptions and alternatives, collapsed by default so the
+          resting card stays compact */}
+      <div className="border-t border-border/30 px-5 py-2">
+        <button
+          type="button"
+          onClick={() => setShowWhy((v) => !v)}
+          className="inline-flex w-fit items-center gap-1 text-[11px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
+          aria-expanded={showWhy}
+          data-testid="strategy-why-toggle"
+        >
+          {showWhy ? (
+            <ChevronUp className="h-3 w-3 shrink-0" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+          )}
+          {showWhy ? "Hide details" : "Details"}
+        </button>
+      </div>
+
+      {showWhy && (
+        <div
+          style={{
+            animation: "draftCardIn-quartr 240ms cubic-bezier(0.22, 1, 0.36, 1) both",
+          }}
+        >
+          <div className="flex flex-col gap-2 px-5 pb-3">
+            <div className="flex flex-wrap gap-1.5">
+              <span
+                className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85"
+                data-testid="strategy-scheme"
+              >
+                <Layers className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                {schemeLabel}
+              </span>
+              <span
+                className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85"
+                data-testid="strategy-gate"
+              >
+                <Sparkles className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                Gate: {gateLabel}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85">
+                Sector cap {fmtPct(card.sector_cap)}
+              </span>
+            </div>
+            {card.rationale && (
+              <p
+                className="rounded-xl bg-muted/60 px-3 py-2 text-[11.5px] leading-relaxed text-muted-foreground"
+                data-testid="strategy-rationale"
+              >
+                {card.rationale}
+              </p>
+            )}
+          </div>
+
+          {/* Full holdings detail — name/sector + the gate fundamentals */}
+          {card.constituents.length > 0 && (
+            <div className="border-t border-border/30 px-5 py-3">
+              <ol className="m-0 flex flex-col gap-0.5">
+                {card.constituents.map((c, i) => {
+                  const key = `c:${c.symbol}`;
+                  return (
+                    <ConstituentRow
+                      key={c.symbol}
+                      c={c}
+                      index={i}
+                      color={constituentColors[i]!}
+                      active={active === key}
+                      onActiveChange={(on) => setActive(on ? key : null)}
+                    />
+                  );
+                })}
+              </ol>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SLEEVES — gold this phase (Details-gated) */}
+      {showWhy && card.sleeves.length > 0 && (
         <div className="flex flex-col gap-2 border-t border-border/30 px-5 py-3">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
             Sleeves
@@ -732,8 +792,8 @@ export function StrategyBuilderCard({
         </div>
       )}
 
-      {/* ASSUMPTIONS — "(assumed …)" lines */}
-      {card.assumptions.length > 0 && (
+      {/* ASSUMPTIONS — "(assumed …)" lines (Details-gated) */}
+      {showWhy && card.assumptions.length > 0 && (
         <div className="border-t border-border/30 px-5 py-3">
           <p className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">
             Assumptions
@@ -752,19 +812,21 @@ export function StrategyBuilderCard({
         </div>
       )}
 
-      {/* ALTERNATIVES — "you might prefer this instead" pivots, as explained text */}
-      {card.alternatives.length > 0 && (
+      {/* ALTERNATIVES — "you might prefer this instead" pivots (Details-gated) */}
+      {showWhy && card.alternatives.length > 0 && (
         <AlternativesBlock alternatives={card.alternatives} />
       )}
 
-      {/* EDIT HINT — register-not-execute, amend-via-chat language */}
-      <div className="border-t border-border/30 px-5 py-2.5">
-        <p className="text-[10.5px] leading-snug text-muted-foreground">
-          This is a draft you can edit — reply to re-weight, swap a name, change
-          the scheme, or resize the gold sleeve. Pivot registers the idea; you
-          confirm and place orders in your own broker app.
-        </p>
-      </div>
+      {/* EDIT HINT — register-not-execute, amend-via-chat language (Details-gated) */}
+      {showWhy && (
+        <div className="border-t border-border/30 px-5 py-2.5">
+          <p className="text-[10.5px] leading-snug text-muted-foreground">
+            This is a draft you can edit — reply to re-weight, swap a name, change
+            the scheme, or resize the gold sleeve. Pivot registers the idea; you
+            confirm and place orders in your own broker app.
+          </p>
+        </div>
+      )}
 
       {/* ACTIONS — Save as basket → Deploy / Backtest (register-not-execute) */}
       {canSave && (
