@@ -260,7 +260,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [theme, setTheme] = useState<Theme>("system");
   // Global trading mode (real/live vs paper). Mirrors the persisted store so
   // the toggle + banner re-render; the data layer reads the store directly.
-  const [tradingMode, setTradingModeState] = useState<TradingMode>("real");
+  // Default 'paper' matches lib/trading-mode.ts DEFAULT_MODE so the first
+  // client paint agrees with the SSR snapshot (no hydration drift) and a
+  // fresh user lands in the simulated book.
+  const [tradingMode, setTradingModeState] = useState<TradingMode>("paper");
   const [conversations, setConversations] = useState<ConvEntry[]>([]);
   // First letter of the signed-in user's name/email — used for the
   // avatar initial in the topbar (Quartr's TopHeader.jsx pattern).

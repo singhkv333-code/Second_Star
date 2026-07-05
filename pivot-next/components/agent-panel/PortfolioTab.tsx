@@ -43,6 +43,8 @@ import { StockHoverActions } from "@/components/StockHoverActions";
 import {
   getPortfolioHoldings,
   getPortfolioSummary,
+  getPaperFills,
+  getOrderHistory,
   type Holding,
   type PortfolioSummary,
 } from "@/lib/api";
@@ -2348,32 +2350,6 @@ type TradeRow = {
   agent: string;
 };
 
-function generateMockTrades(): TradeRow[] {
-  const agents: string[] = ["INFY weekly dip-buy", "RELIANCE 3:55 PM buy", "TCS monthly SIP"];
-  const symbols: string[] = ["INFY", "RELIANCE", "TCS", "HDFC", "WIPRO"];
-  const trades: TradeRow[] = [];
-  const now = Date.now();
-  for (let i = 0; i < 20; i++) {
-    const symbol = symbols[i % symbols.length]!;
-    const side: "BUY" | "SELL" = i % 2 === 0 ? "BUY" : "SELL";
-    const qty = (i % 5 + 1) * 5;
-    const price = 1000 + ((i * 137 + 42) % 3000);
-    const agent = agents[i % agents.length]!;
-    trades.push({
-      id: `trade-${i}`,
-      symbol,
-      side,
-      quantity: qty,
-      price,
-      amount: qty * price,
-      datetime: new Date(now - i * 3_600_000 * 8).toISOString(),
-      agent,
-    });
-  }
-  return trades;
-}
-
-const MOCK_TRADES = generateMockTrades();
 
 // Mirrors the screener table's cell rhythm (ScreenerPage `td`): hairline
 // glass-border dividers, generous padding, 12.5px text — so the history
@@ -2386,13 +2362,92 @@ const HIST_TD: React.CSSProperties = {
 };
 
 function TradeHistory(): React.ReactElement {
+  // Real trade history — the paper fills journal in paper mode (the active
+  // default), the registered/executed order history in live mode. Both come
+  // through paper-aware `lib/api` helpers, so the same table reflects every
+  // buy/sell, basket, opinion-market expression and armed agent the user ran.
+  const mode = useTradingMode();
+  const [rows, setRows] = useState<TradeRow[] | null>(null);
+  const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    setErrored(false);
+    const load = async (): Promise<void> => {
+      if (mode === "paper") {
+        const r = await getPaperFills(20);
+        if (!alive) return;
+        if (isError(r)) {
+          setErrored(true);
+          return;
+        }
+        setRows(
+          r.data.map((f) => ({
+            id: f.id,
+            symbol: f.symbol,
+            side: (f.side.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+            quantity: f.quantity,
+            price: f.fill_price,
+            amount: Math.abs(f.gross_value),
+            datetime: f.filled_at ?? "",
+            agent: "Paper",
+          })),
+        );
+        return;
+      }
+      const r = await getOrderHistory(20);
+      if (!alive) return;
+      if (isError(r)) {
+        setErrored(true);
+        return;
+      }
+      setRows(
+        r.data.map((o) => ({
+          id: String(o.id),
+          symbol: o.symbol,
+          side: (o.action.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+          quantity: o.quantity,
+          price: 0,
+          amount: 0,
+          datetime: o.placed_at,
+          agent: o.status,
+        })),
+      );
+    };
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [mode]);
+
   const fmt = (iso: string): { date: string; time: string } => {
+    if (!iso) return { date: "—", time: "—" };
     const d = new Date(iso);
     return {
       date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
       time: d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }),
     };
   };
+
+  // Empty / loading / error states — never a fabricated row.
+  if (rows !== null && rows.length === 0 && !errored) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center rounded-2xl bg-card"
+        style={{ gap: 6, padding: "40px 16px", textAlign: "center" }}
+      >
+        <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+          No trades yet
+        </p>
+        <p style={{ fontSize: 12, color: "var(--text-tertiary)", maxWidth: 340 }}>
+          {mode === "paper"
+            ? "Your simulated trades appear here — place a buy, deploy a basket or an opinion, or arm an agent to get started."
+            : "Registered and executed orders will appear here."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col" style={{ gap: 12 }}>
@@ -2431,7 +2486,7 @@ function TradeHistory(): React.ReactElement {
             </tr>
           </thead>
           <tbody>
-            {MOCK_TRADES.map((t) => {
+            {(rows ?? []).map((t) => {
               const { date, time } = fmt(t.datetime);
               const isBuy = t.side === "BUY";
               return (
@@ -2467,10 +2522,10 @@ function TradeHistory(): React.ReactElement {
                   </td>
                   <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{t.quantity}</td>
                   <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
-                    {t.price.toLocaleString("en-IN")}
+                    {t.price > 0 ? t.price.toLocaleString("en-IN") : "—"}
                   </td>
                   <td style={{ ...HIST_TD, fontWeight: 500, color: "var(--text-primary)" }}>
-                    ₹{t.amount.toLocaleString("en-IN")}
+                    {t.amount > 0 ? `₹${t.amount.toLocaleString("en-IN")}` : "—"}
                   </td>
                   <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{date}</td>
                   <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{time}</td>
@@ -2492,7 +2547,9 @@ function TradeHistory(): React.ReactElement {
         </table>
       </div>
       <p style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
-        Showing last 20 trades · Live data requires Kite Connect
+        {mode === "paper"
+          ? "Your last 20 simulated fills"
+          : "Your last 20 registered/executed orders"}
       </p>
     </div>
   );

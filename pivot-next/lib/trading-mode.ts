@@ -18,7 +18,11 @@ import { useSyncExternalStore } from "react";
 export type TradingMode = "real" | "paper";
 
 const LS_KEY = "pivot-trading-mode";
-const DEFAULT_MODE: TradingMode = "real";
+// Paper is the ACTIVE DEFAULT: the platform is register-not-execute (no live
+// broker auto-execution), so a new user's buys/sells, baskets, opinion-market
+// expressions and armed agents all fill the SIMULATED paper book — and the
+// Portfolio page reflects that book — until they deliberately switch to 'real'.
+const DEFAULT_MODE: TradingMode = "paper";
 
 let current: TradingMode = DEFAULT_MODE;
 const listeners = new Set<() => void>();

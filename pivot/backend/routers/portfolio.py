@@ -11,7 +11,7 @@ from backend.auth.jwt_handler import get_user_id_from_token
 from backend.kite.auth import read_kite_access_token
 from backend.kite.portfolio import get_holdings, get_portfolio_summary, get_margins
 from backend.services.portfolio_cache import (
-    get_summary_cached, get_holdings_cached, cache_aside, scores_cache_key,
+    get_summary_cached, cache_aside, scores_cache_key,
 )
 from backend.services import portfolio_scores as _scores
 from backend.agents.yield_scanner import get_all_yields, calculate_after_tax_yield
@@ -56,8 +56,36 @@ def get_kite_token(user_id: int, db: Session) -> str:
     return "mock_token"
 
 
+def _paper_summary_in_kite_shape(db: Session, user_id: int) -> Optional[dict]:
+    """The paper account rolled up into the ``/summary`` (Kite) shape, or None
+    when the user isn't in paper mode. ``total_value`` is NAV (cash + positions)
+    so it matches the header + the FE's ``adaptPaperSummary``."""
+    from backend.paper.routing import should_use_paper
+
+    if not should_use_paper(db, int(user_id)):
+        return None
+    from backend.paper.portfolio import account_summary
+
+    s = account_summary(db, int(user_id))
+    if not s.get("exists"):
+        return None
+    return {
+        "total_value": s["nav"],
+        "invested_value": s["invested"],
+        "total_pnl": s["total_pnl"],
+        "total_pnl_pct": s["total_pnl_pct"],
+        "day_pnl": s["day_pnl"],
+        "num_holdings": s["num_positions"],
+    }
+
+
 @router.get("/summary")
 def portfolio_summary(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
+    # Paper mode: roll up the SIMULATED book (NAV incl. cash) so chat portfolio
+    # reads agree with the Portfolio page. Live/broker: the cached Kite summary.
+    paper = _paper_summary_in_kite_shape(db, user_id)
+    if paper is not None:
+        return paper
     token = get_kite_token(user_id, db)
     # WHY cached: dashboard polls + chat reads share this endpoint; a
     # short (10-15s) TTL collapses bursts without serving stale live
@@ -70,11 +98,12 @@ def portfolio_summary(user_id: int = Depends(get_user_id), db: Session = Depends
 
 @router.get("/holdings")
 def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
+    from backend.services.portfolio_source import resolve_holdings
+
     token = get_kite_token(user_id, db)
-    holdings = list(get_holdings_cached(user_id, token))
-    # Enrich with sector data (mutates the cached list — copy first
-    # so we don't pollute the cached payload across requests).
-    holdings = [dict(h) for h in holdings]
+    # Paper mode → the simulated positions; live → Kite holdings. Same shape.
+    holdings = [dict(h) for h in resolve_holdings(db, user_id, token)]
+    # Enrich with sector data (mutates the copied list, never the cached one).
     for h in holdings:
         h["sector"] = SECTOR_MAP.get(h["tradingsymbol"], "Other")
     return holdings
@@ -82,8 +111,10 @@ def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depend
 
 @router.get("/sector")
 def sector_breakdown(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
+    from backend.services.portfolio_source import resolve_holdings
+
     token = get_kite_token(user_id, db)
-    holdings = get_holdings_cached(user_id, token)
+    holdings = resolve_holdings(db, user_id, token)
     sector_totals = {}
     total_value = 0
     for h in holdings:
@@ -198,8 +229,10 @@ def _user_portfolio_score(user_id: int, db: Session) -> Optional[float]:
     have no holdings with positive market value. Reused by both the
     requesting user's own score and the peer-pool gathering below, so the
     two are always computed identically."""
+    from backend.services.portfolio_source import resolve_holdings
+
     token = get_kite_token(user_id, db)
-    holdings = [dict(h) for h in get_holdings_cached(user_id, token)]
+    holdings = resolve_holdings(db, user_id, token)
     account, nav_snapshots = _account_and_snapshots(user_id, db)
     result = _scores.compute_scores(
         holdings=holdings,
@@ -286,8 +319,10 @@ def compute_portfolio_scores(db: Session, user_id: int) -> dict:
     reimplementing the peer-scan + compute in a second place. Route and
     warmer share this one function; the cache-aside key/TTL are unchanged.
     """
+    from backend.services.portfolio_source import resolve_holdings
+
     token = get_kite_token(user_id, db)
-    holdings = [dict(h) for h in get_holdings_cached(user_id, token)]
+    holdings = resolve_holdings(db, user_id, token)
     account, nav_snapshots = _account_and_snapshots(user_id, db)
     peer_scores = _real_peer_scores(db, exclude_user_id=user_id)
     return _scores.compute_scores(
