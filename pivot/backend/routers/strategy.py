@@ -385,15 +385,17 @@ def trade_basket(
             "skipped": skipped,
         }
 
-    # Real trade — needs a connected broker (register-not-execute; never a
-    # silent paper fill on a basket the user chose to trade). Reuses the shared
-    # order seam so the kill-switch + paper/broker routing apply uniformly.
+    # Reuses the shared order seam so the kill-switch + paper/broker routing
+    # apply uniformly. A LIVE trade needs a connected broker (register-not-
+    # execute); a PAPER account fills the simulated book with no broker at all
+    # — the deploy paths must NOT gate paper users on a broker they don't need.
     from backend.brokers.sessions import get_active_broker_session
     from backend.paper.routing import should_use_paper
     from backend.routers.orders import _persist_leg
     from backend.utils.time_utils import format_ist
 
-    if get_active_broker_session(db, user_id) is None:
+    paper = should_use_paper(db, user_id)
+    if not paper and get_active_broker_session(db, user_id) is None:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -401,8 +403,6 @@ def trade_basket(
                 "in Brokers settings to trade this basket."
             ),
         )
-
-    paper = should_use_paper(db, user_id)
     rows = [
         _persist_leg(db, user_id, {k: v for k, v in leg.items() if not k.startswith("_")})
         for leg in legs

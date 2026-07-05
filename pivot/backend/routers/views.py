@@ -42,6 +42,7 @@ from backend.models import (
     Workflow,
 )
 from backend.routers._errors import http_error, not_found, state_conflict, validation_error
+from backend.posthog_client import get_posthog
 from backend.routers.orders import _persist_leg
 from backend.brokers.sessions import get_active_broker_session
 from backend.paper.routing import should_use_paper
@@ -1603,6 +1604,20 @@ def deploy(
     )
 
     db.commit()
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.capture(
+            "opinion_expression_deployed",
+            distinct_id=str(user_id) if user_id else "anonymous",
+            properties={
+                "expression_id": expression_id,
+                "expression_kind": str(getattr(expression, "expression_kind", "")),
+                "tier": str(getattr(expression, "tier", "")),
+                "activated": bool(result.get("activated")),
+            },
+        )
+
     return DeployResponse(
         workflow_id=str(result.get("workflow_id") or ""),
         status=str(result.get("status") or ""),
@@ -1743,20 +1758,17 @@ def place(
         if not legs:
             raise validation_error("Add at least one share to place this basket.")
 
-    # Deploying a View basket is a REAL, user-initiated placement — it must go
-    # to the user's connected broker, never silently into the paper book. With
-    # no active broker session, stop and tell the user to connect one (honest
+    # Route every leg through the shared order seam (broker or paper book,
+    # honouring the account mode). A PAPER account fills the simulated book
+    # with no broker; only a LIVE deploy needs a connected broker (honest
     # boundary; register-not-execute). Connecting any broker (incl. the dev
-    # mock connector) creates a session and unblocks placement.
-    if get_active_broker_session(db, user_id) is None:
+    # mock connector) creates a session and unblocks the live path.
+    paper = should_use_paper(db, user_id)
+    if not paper and get_active_broker_session(db, user_id) is None:
         raise state_conflict(
             "No broker connected — connect your broker (e.g. Zerodha Kite) in "
             "Brokers settings to place this basket."
         )
-
-    # Route every leg through the shared order seam (broker or paper book,
-    # honouring the account mode). One TradeLog row per leg.
-    paper = should_use_paper(db, user_id)
     rows = [
         _persist_leg(db, user_id, leg, conversation_id=req.conversation_id)
         for leg in legs
@@ -1851,6 +1863,14 @@ def follow(
     if existing is None:
         db.add(ViewFollow(view_id=str(view.id), user_id=user_id))
         db.commit()
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.capture("opinion_followed", distinct_id=str(user_id), properties={
+            "view_id": str(view.id),
+            "view_type": str(view.view_type.value) if hasattr(view.view_type, "value") else str(view.view_type),
+        })
+
     return FollowResponse(
         is_following=True, follower_count=_follower_count(db, str(view.id)),
     )
