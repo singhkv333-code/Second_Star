@@ -26,18 +26,26 @@
 
 import { useMemo, useState } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   Coins,
   GitBranch,
   Info,
   Layers,
+  LineChart,
+  Loader2,
   PieChart as PieChartIcon,
+  Save,
   ShieldAlert,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
+import { isError } from "@/lib/types";
+import { createEquityBasket, type EquityBasket } from "@/lib/agentsApi";
+import { BasketTradeModal } from "@/components/agent-panel/BasketTradeModal";
 import type {
   GoldInstrument,
   SelectionGate,
@@ -54,6 +62,12 @@ import type {
 
 export type StrategyBuilderCardProps = {
   card: StrategyBuilderCardData;
+  /**
+   * Send a prefilled chat message through the composer (used by the "Backtest"
+   * action, which asks the chat pipeline to backtest the just-built basket).
+   * Omitted in non-chat render contexts, where the action is hidden.
+   */
+  onBacktest?: (message: string) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -472,11 +486,77 @@ function AlternativesBlock({
 
 export function StrategyBuilderCard({
   card,
+  onBacktest,
 }: StrategyBuilderCardProps): React.ReactElement {
   const [showWhy, setShowWhy] = useState(false);
   // The hovered/selected allocation slice key, shared by the donut and the
   // holdings/sleeve rows so the two stay in sync in both directions.
   const [active, setActive] = useState<string | null>(null);
+
+  // ── Card actions (Save as basket → Deploy / Backtest) ────────────────────
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<EquityBasket | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [tradeOpen, setTradeOpen] = useState(false);
+
+  // B4: on save, a gold sleeve contributes its LISTED proxy (the Gold ETF, e.g.
+  // GOLDBEES) as a real basket member; the SGB leg is not exchange-tradeable as
+  // a basket order, so it's omitted with a note (never silently included).
+  const goldEtfMembers = useMemo(
+    () =>
+      card.sleeves
+        .filter((s) => s.kind === "gold")
+        .flatMap((s) => s.instruments)
+        .filter((inst) => inst.kind === "etf" && !!inst.symbol)
+        .map((inst) => ({ symbol: inst.symbol, weight: inst.weight_pct })),
+    [card.sleeves],
+  );
+  const omittedSleeveLegs = useMemo(
+    () =>
+      card.sleeves
+        .filter((s) => s.kind === "gold")
+        .flatMap((s) => s.instruments)
+        .filter((inst) => inst.kind !== "etf")
+        .map((inst) => inst.symbol),
+    [card.sleeves],
+  );
+
+  const canSave = card.constituents.length > 0;
+
+  async function handleSave(): Promise<void> {
+    if (saving || saved || !canSave) return;
+    setSaving(true);
+    setSaveError(null);
+    const members = [
+      ...card.constituents.map((c) => ({ symbol: c.symbol, weight: c.weight_pct })),
+      ...goldEtfMembers,
+    ];
+    const res = await createEquityBasket({
+      name: card.title.slice(0, 120) || "Strategy basket",
+      members,
+      weighting: "custom",
+      capital_inr: card.capital_inr ?? undefined,
+    });
+    setSaving(false);
+    if (isError(res)) {
+      setSaveError(res.error.message);
+      return;
+    }
+    setSaved(res.data);
+  }
+
+  // The Backtest action asks the chat pipeline to backtest this exact basket,
+  // buy-and-hold (the Wave-A run_at + allocate_basket / hold-to-end shape). We
+  // include the named legs so the pipeline builds THIS basket, not a guess.
+  const backtestMessage = useMemo(() => {
+    const legs = card.constituents
+      .map((c) => `${c.symbol} ${fmtPct(c.weight_pct)}`)
+      .join(", ");
+    return (
+      "Backtest this basket buy-and-hold over the last 3 years — hold to end, " +
+      `no rebalancing. Constituents: ${legs}.`
+    );
+  }, [card.constituents]);
 
   const schemeLabel = SCHEME_LABEL[card.weighting_scheme] ?? card.weighting_scheme;
   const gateLabel = GATE_LABEL[card.selection_gate] ?? card.selection_gate;
@@ -685,6 +765,85 @@ export function StrategyBuilderCard({
           confirm and place orders in your own broker app.
         </p>
       </div>
+
+      {/* ACTIONS — Save as basket → Deploy / Backtest (register-not-execute) */}
+      {canSave && (
+        <div className="flex flex-col gap-2 border-t border-border/30 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {saved ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11.5px] font-medium text-emerald-700 dark:text-emerald-300"
+                data-testid="strategy-saved-badge"
+              >
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                Saved — find it in Agents → Strategies
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                data-testid="strategy-save"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-[11.5px] font-semibold text-white transition-colors hover:bg-sky-500 disabled:opacity-60"
+              >
+                {saving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                Save as basket
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setTradeOpen(true)}
+              disabled={!saved}
+              data-testid="strategy-deploy"
+              title={saved ? "Deploy this basket" : "Save the basket first to deploy it"}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-3 py-1.5 text-[11.5px] font-semibold text-foreground/85 transition-colors hover:bg-muted/70 disabled:opacity-50"
+            >
+              <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+              Deploy
+            </button>
+
+            {onBacktest && (
+              <button
+                type="button"
+                onClick={() => onBacktest(backtestMessage)}
+                data-testid="strategy-backtest"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-3 py-1.5 text-[11.5px] font-semibold text-foreground/85 transition-colors hover:bg-muted/70"
+              >
+                <LineChart className="h-3.5 w-3.5" aria-hidden="true" />
+                Backtest
+              </button>
+            )}
+          </div>
+
+          {omittedSleeveLegs.length > 0 && saved && (
+            <p className="text-[10px] leading-snug text-muted-foreground/80">
+              Saved with {goldEtfMembers.map((m) => m.symbol).join(", ") || "the listed gold ETF"} for
+              the gold sleeve. {omittedSleeveLegs.join(", ")} (not exchange-traded as a basket order)
+              wasn&apos;t added — buy it directly if you want it.
+            </p>
+          )}
+
+          {saveError && (
+            <p role="alert" className="text-[10.5px] leading-snug text-destructive">
+              {saveError}
+            </p>
+          )}
+
+          <p className="text-[10px] leading-snug text-muted-foreground/70">
+            Deploy registers BUY orders through your connected broker — nothing is
+            auto-executed; you confirm in your broker app.
+          </p>
+        </div>
+      )}
+
+      {saved && (
+        <BasketTradeModal open={tradeOpen} onOpenChange={setTradeOpen} basket={saved} />
+      )}
 
       {/* DISCLAIMER — not-advice footer */}
       <div className="flex items-start gap-1.5 border-t border-border/40 bg-amber-50/40 px-5 py-2 dark:bg-amber-500/[0.04]">

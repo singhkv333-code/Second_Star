@@ -1634,6 +1634,21 @@ def _slot_state_from_args(a: dict):
         slots.theme = theme_in.strip()
         cleared.append("theme")
 
+    # Explicit constituent allow-list (B1): the vetted winners the model pins the
+    # universe to. Normalised (strip .NS, upper, de-dup) and carried in-band on
+    # the slot-state so a clarify round-trip preserves the pin.
+    syms_in = a.get("symbols")
+    if isinstance(syms_in, (list, tuple)):
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for s in syms_in:
+            t = str(s or "").replace(".NS", "").strip().upper()
+            if t and t not in seen:
+                seen.add(t)
+                cleaned.append(t)
+        if cleaned:
+            slots.symbols = cleaned
+
     # Re-validate the whole thing once; on any enum slip fall back to a clean
     # default state so the builder always receives a valid SlotState.
     try:
@@ -1662,7 +1677,9 @@ async def _build_strategy(a, kt, db, uid):
     slots = _slot_state_from_args(a)
     # ctx is loose-typed in the builder; hand it the per-turn DB session so it
     # can reuse an open session (it otherwise opens its own read-only ones).
-    card = build_strategy(request, slots, ctx=db)
+    # `symbols` (the pinned allow-list) is also carried on slots.symbols; passing
+    # it explicitly keeps the direct-call path (Wave C thematic flow) unambiguous.
+    card = build_strategy(request, slots, ctx=db, symbols=slots.symbols)
     payload = {"_render_hint": RENDER_HINT_STRATEGY_BUILDER, **card.model_dump()}
     return {"success": True, "data": payload, "logiccard": None}
 

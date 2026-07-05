@@ -30,6 +30,12 @@ class _Strict(BaseModel):
 #
 #   n_day_hold     exit after `bars` bars regardless of price.
 #
+#   hold_to_end    never exit early — the position is carried to the
+#                  final bar of the window and force-closed there. This
+#                  is the "buy and hold" / "don't sell" shape: it lowers
+#                  to a tree that can never fire, so the engine's
+#                  end-of-window force-close is the only exit.
+#
 #   tree           exit when the supplied DSL tree evaluates TRUE on the
 #                  current bar's close. Same grammar as the entry tree
 #                  plus the ``position`` leaf. Fills at the configured
@@ -44,7 +50,7 @@ class ExitPolicyDeclarative(_Strict):
     """The legacy shape — kept verbatim so already-persisted requests
     keep deserialising. Internally lowered to ``ExitPolicyTree`` by
     ``lower_exit_policy`` before the engine sees it."""
-    kind: Literal["stop_loss_pct", "n_day_hold"]
+    kind: Literal["stop_loss_pct", "n_day_hold", "hold_to_end"]
     value: Optional[float] = Field(
         default=None, ge=0.0, le=1.0,
         description="Stop-loss percentage when kind='stop_loss_pct'.",
@@ -60,6 +66,7 @@ class ExitPolicyDeclarative(_Strict):
             raise ValueError("stop_loss_pct requires 'value' (0..1)")
         if self.kind == "n_day_hold" and self.bars is None:
             raise ValueError("n_day_hold requires 'bars' (>= 1)")
+        # hold_to_end carries no fields — it lowers to a never-firing tree.
         return self
 
 
@@ -109,11 +116,28 @@ def lower_exit_policy(policy) -> "ExitPolicyTree":
                            exit_at='stop_price', stop_price_pct=v
       n_day_hold(n)     →  position.bars_held >= n
                            exit_at='next_open'
+      hold_to_end       →  position.bars_held >= 1e15  (never reached)
+                           exit_at='next_open' — the engine's
+                           end-of-window force-close is the only exit.
     """
     if isinstance(policy, ExitPolicyTree):
         return policy
     if not isinstance(policy, ExitPolicyDeclarative):
         raise TypeError(f"unknown exit policy: {type(policy).__name__}")
+    if policy.kind == "hold_to_end":
+        # A tree that can never fire (bars_held can't reach 1e15) so no
+        # early exit is ever taken; the position is force-closed at the
+        # final bar. Same structural shape as n_day_hold so the readback
+        # stays sensible, just with an unreachable bound.
+        return ExitPolicyTree(
+            kind="tree",
+            tree={
+                "type": "comparison", "op": ">=",
+                "left": {"type": "position", "field": "bars_held"},
+                "right": {"type": "constant", "value": 1e15},
+            },
+            exit_at="next_open",
+        )
     if policy.kind == "stop_loss_pct":
         return ExitPolicyTree(
             kind="tree",
@@ -165,6 +189,34 @@ class Sizing(_Strict):
     atr_mult: float = Field(default=2.0, gt=0.0, le=20.0)
 
 
+class InitialPosition(_Strict):
+    """Seed an already-open position on ``primary_symbol`` at the
+    backtest's window start, so exit rules can be tested against a
+    holding the user already owns ('I hold 50 INFY from ₹1400 —
+    backtest selling at RSI > 70').
+
+    Cost basis is ``avg_price`` when supplied, else the first bar's
+    OPEN. ``entry_date`` is cosmetic (recorded on the trade); the
+    position is always seeded at window start so ``bars_held`` counts
+    from the first simulated bar.
+    """
+    quantity: int = Field(
+        ..., ge=1, le=10_000_000,
+        description="Shares already held at window start.",
+    )
+    avg_price: Optional[float] = Field(
+        default=None, gt=0.0,
+        description=(
+            "Cost basis per share. Defaults to the first bar's OPEN "
+            "when omitted."
+        ),
+    )
+    entry_date: Optional[date] = Field(
+        default=None,
+        description="Original purchase date (recorded on the trade row).",
+    )
+
+
 class BacktestRequest(_Strict):
     """Inbound payload for POST /api/backtest/dsl/run."""
 
@@ -206,8 +258,17 @@ class BacktestRequest(_Strict):
         default_factory=lambda: ExitPolicyDeclarative(kind="n_day_hold", bars=10),
         description=(
             "How to close a position. Defaults to 10-bar hold when "
-            "omitted. Three shapes: stop_loss_pct, n_day_hold, or a "
-            "full tree."
+            "omitted. Four shapes: stop_loss_pct, n_day_hold, "
+            "hold_to_end (carry to the final bar), or a full tree."
+        ),
+    )
+    initial_position: Optional[InitialPosition] = Field(
+        default=None,
+        description=(
+            "Seed an existing open position on primary_symbol at the "
+            "window start (cost basis = avg_price, else the first bar's "
+            "open). The exit policy then applies to the seeded holding — "
+            "used to backtest selling a position the user already owns."
         ),
     )
     save: bool = Field(

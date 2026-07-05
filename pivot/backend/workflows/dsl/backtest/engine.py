@@ -279,6 +279,12 @@ def _simulate(tree, exit_tree, st: _SimState) -> None:
     # backtester package rather than duplicating constants.
     from backend.backtester.engine import buy_cost, sell_cost
 
+    # Seed an already-owned position at the window start so exit rules
+    # backtest against a holding the user already has ("I hold 50 INFY
+    # from ₹1400 — test selling at RSI > 70"). Seeded BEFORE the loop so
+    # bar 0's equity mark-to-market already reflects it.
+    _seed_initial_position(st, buy_cost)
+
     for idx in range(total_bars):
         bar_date = _idx_date(st.loaded.master_dates, idx)
         close = _safe_close(st.primary_bars, idx)
@@ -512,6 +518,35 @@ def _size_position(st: _SimState, entry_idx: int, price: float) -> int:
 
     max_qty = int(equity * 0.98 / price)  # no leverage, leave headroom for costs
     return max(0, min(qty, max_qty))
+
+
+def _seed_initial_position(st: _SimState, buy_cost_fn) -> None:
+    """Open a position at the window's first bar from
+    ``request.initial_position`` (if set). Cost basis is ``avg_price``
+    when supplied, else the first bar's OPEN. The notional is debited
+    from cash so the equity curve stays consistent with the fixed-share
+    engine (equity == cash + qty × close each bar)."""
+    ip = st.request.initial_position
+    if ip is None:
+        return
+    open_px = _safe_open(st.primary_bars, 0)
+    basis = float(ip.avg_price) if ip.avg_price is not None else open_px
+    if basis is None or basis <= 0 or open_px is None:
+        return  # no usable price to seed against
+    qty = int(ip.quantity)
+    if qty <= 0:
+        return
+    net_debit, charges = buy_cost_fn(basis, qty)
+    st.cash -= net_debit
+    st.position = _OpenPos(
+        entry_idx=0,
+        entry_date=ip.entry_date or _idx_date(st.loaded.master_dates, 0),
+        entry_price=basis,
+        qty=qty,
+        costs=charges,
+        trade_id=st.next_trade_id,
+    )
+    st.next_trade_id += 1
 
 
 def _open_position(st: _SimState, entry_idx: int, buy_cost_fn) -> None:

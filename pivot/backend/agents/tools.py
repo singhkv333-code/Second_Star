@@ -1372,13 +1372,42 @@ tool("backtest_dsl_tree",
          },
          "exit_kind": {
              "type": "string",
-             "enum": ["n_day_hold", "stop_loss_pct"],
+             "enum": ["n_day_hold", "stop_loss_pct", "hold_to_end"],
              "default": "n_day_hold",
              "description": (
                  "How to close a position. n_day_hold: exit after "
-                 "exit_bars bars at the next open. stop_loss_pct: "
-                 "exit at the stop price on bar-low (realistic SL)."
+                 "exit_bars bars at the next open (the DEFAULT for signal "
+                 "strategies that state no sell rule). stop_loss_pct: "
+                 "exit at the stop price on bar-low (realistic SL). "
+                 "hold_to_end: NEVER sell early — carry the position to "
+                 "the final bar of the window and mark-to-market there. "
+                 "Use hold_to_end whenever the user says hold / don't "
+                 "sell / buy-and-hold, OR gives no exit AND phrases a "
+                 "hold (e.g. 'buy RELIANCE in Jan 2023 and hold it')."
              ),
+         },
+         "initial_position": {
+             "type": "object",
+             "description": (
+                 "Seed an EXISTING holding on primary_symbol at the "
+                 "window start, so the exit rule backtests against a "
+                 "position the user already owns (e.g. 'I hold 50 INFY "
+                 "from ₹1400 — test selling at RSI>70'). Set `quantity` "
+                 "(required); `avg_price` is the cost basis (defaults to "
+                 "the first bar's open); `entry_date` is optional. When "
+                 "the user describes owning shares already, pass this "
+                 "instead of relying on the entry `condition` to open the "
+                 "position."
+             ),
+             "properties": {
+                 "quantity": {"type": "integer",
+                              "description": "Shares already held."},
+                 "avg_price": {"type": "number",
+                               "description": "Cost basis per share (₹)."},
+                 "entry_date": {"type": "string",
+                                "description": "OPTIONAL ISO YYYY-MM-DD."},
+             },
+             "required": ["quantity"],
          },
          "exit_bars": {
              "type": "integer",
@@ -2049,6 +2078,20 @@ tool("build_strategy",
              "description": "Optional thematic tilt ('quality compounders', "
                             "'rate-cut beneficiaries') resolved against the "
                             "thematic map.",
+         },
+         "symbols": {
+             "type": "array",
+             "items": {"type": "string"},
+             "description": "Optional explicit NSE constituents the caller has "
+                            "ALREADY vetted (e.g. the winners from the "
+                            "DISCOVER→VET→JUDGE thematic flow). When present the "
+                            "builder PINS the universe to exactly these names — "
+                            "it runs NO discovery, never drops a name for missing "
+                            "data (a name the DB is silent on is shown '(no "
+                            "data)', not removed), and the sector cap becomes "
+                            "advisory. The weighting scheme + sizing are still "
+                            "computed. OMIT for an open build where the backend "
+                            "should discover the universe from theme/sector/view.",
          },
      },
      ["request"])

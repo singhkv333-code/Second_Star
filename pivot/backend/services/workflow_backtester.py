@@ -520,10 +520,64 @@ def _cron_field(field: str, lo: int, hi: int) -> set[int]:
     return out
 
 
+def _expand_run_at(
+    run_at: str,
+    dates: pd.DatetimeIndex,
+    notes: Optional[list[str]] = None,
+) -> list[pd.Timestamp]:
+    """One-time schedule: fire EXACTLY ONCE for a ``trigger.schedule``
+    step configured with ``run_at`` (the same one-time shape the LIVE
+    scheduler honours — see ``workflows.scheduler._compute_one_time_run_at``
+    and ``workflow_macros.hydrate_scheduled_order``). This makes
+    "buy X on <date>/in <year> and hold" backtestable.
+
+    Resolution against the backtest window:
+      * run_at date within the window → the first trading day on/after it.
+      * run_at date BEFORE the window  → the window's first bar, with a
+        note (so a date predating the loaded history still fires once
+        rather than silently dropping the buy-and-hold).
+      * run_at date AFTER the window   → no fire (nothing to simulate);
+        the 0-trade result is reported honestly.
+    """
+    if len(dates) == 0:
+        return []
+    try:
+        dt = datetime.fromisoformat(str(run_at).strip().replace("Z", "+00:00"))
+    except ValueError:
+        if notes is not None:
+            notes.append(f"could not parse one-time run_at {run_at!r}")
+        return []
+    target = dt.date()
+    window_start = dates[0].date()
+    window_end = dates[-1].date()
+    if target < window_start:
+        if notes is not None:
+            notes.append(
+                f"the one-time buy dated {target.isoformat()} predates the "
+                f"backtest window; fired at the window start "
+                f"{window_start.isoformat()} instead"
+            )
+        return [dates[0]]
+    if target > window_end:
+        if notes is not None:
+            notes.append(
+                f"the one-time buy dated {target.isoformat()} is after the "
+                f"backtest window (ends {window_end.isoformat()}); nothing "
+                f"to simulate"
+            )
+        return []
+    for ts in dates:
+        if ts.date() >= target:
+            return [ts]
+    return []
+
+
 def _expand_schedule(
     cfg: dict[str, Any], dates: pd.DatetimeIndex,
+    notes: Optional[list[str]] = None,
 ) -> list[pd.Timestamp]:
-    """Match each trading-day index to a cron expression.
+    """Match each trading-day index to a cron expression, OR fire once
+    for a one-time ``run_at`` config.
 
     Cron format: ``minute hour day-of-month month day-of-week``. We
     honour day-of-month (1–31), month (1–12), and day-of-week (cron's
@@ -535,7 +589,13 @@ def _expand_schedule(
     A day matches when ALL THREE fields match (cron's standard "AND"
     semantics when both DOM and DOW are explicit). When either DOM or
     DOW is '*' the unconstrained field doesn't filter.
+
+    A ``run_at`` config (one-time schedule, no cron) delegates to
+    ``_expand_run_at`` — parity with the live scheduler's one-time fire.
     """
+    run_at = str(cfg.get("run_at") or "").strip()
+    if run_at:
+        return _expand_run_at(run_at, dates, notes)
     cron = str(cfg.get("cron") or "").strip()
     if not cron:
         return []
@@ -2075,7 +2135,11 @@ def backtest_workflow(
         trigger_sym = b.trigger_symbol() or b.primary_symbol() or primary_symbol
         bars_for_trigger = symbol_bars.get(trigger_sym, primary_bars)
         if b.trigger_type == "trigger.schedule":
-            fires = _expand_schedule(b.trigger_config, union_index)
+            # One-time run_at notes (past/future-of-window) surface via
+            # elig.warnings → the summary's "Notes:" line.
+            fires = _expand_schedule(
+                b.trigger_config, union_index, notes=elig.warnings,
+            )
         elif b.trigger_type == "trigger.indicator":
             fires = _expand_indicator(b.trigger_config, bars_for_trigger)
         elif b.trigger_type == "trigger.price":

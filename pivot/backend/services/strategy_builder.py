@@ -179,7 +179,12 @@ class _Candidate:
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def build_strategy(request: str, slots: SlotState, ctx: object) -> StrategyBuilderCard:
+def build_strategy(
+    request: str,
+    slots: SlotState,
+    ctx: object,
+    symbols: Optional[list[str]] = None,
+) -> StrategyBuilderCard:
     """Run the §3a equity+gold construction pipeline → a render-ready card.
 
     See module docstring + ``StrategyBuilder.build_strategy`` in
@@ -187,9 +192,23 @@ def build_strategy(request: str, slots: SlotState, ctx: object) -> StrategyBuild
     context (loose-typed); this builder only reads from it opportunistically
     (a DB session if present) and otherwise opens its own read-only sessions
     via the reused helpers.
+
+    ``symbols`` (plan §3 B1) is an optional explicit **allow-list** of NSE
+    constituents the caller has already vetted (the DISCOVER→VET→JUDGE thematic
+    flow's winners). When present — or carried in ``slots.symbols`` — the builder
+    PINS the universe to exactly these names (no discovery, no dropping a name for
+    missing data) via :func:`_build_pinned_strategy`; the weighting scheme + sizing
+    are still computed and the sector cap becomes advisory.
     """
     request = request or ""
     assumptions: list[str] = _assumption_lines(slots)
+
+    # ── Step 0 (B1): PINNED allow-list path ──────────────────────────────────
+    # The explicit kwarg wins; otherwise fall back to the in-band slot-state pin
+    # (so a clarify round-trip that carried the winners still builds them).
+    pinned = _clean_symbols(symbols if symbols is not None else slots.symbols)
+    if pinned:
+        return _build_pinned_strategy(request, slots, pinned, assumptions)
 
     # ── Step 1: universe → fundamentals gate/rank → sector cap + corr check ──
     gate = _choose_selection_gate(slots, request)
@@ -261,7 +280,10 @@ def build_strategy(request: str, slots: SlotState, ctx: object) -> StrategyBuild
     if scheme_note:
         assumptions.append(scheme_note)
 
-    weights, weight_note = _compute_weights(scheme, candidates, slots, price_history)
+    factor_emphasis = _detect_factor_style(slots, request)
+    weights, weight_note = _compute_weights(
+        scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+    )
     if weight_note:
         # Covariance too thin etc. → honest equal-weight fallback + restate.
         scheme = "equal"
@@ -329,6 +351,224 @@ def build_strategy(request: str, slots: SlotState, ctx: object) -> StrategyBuild
         sleeves=sleeves,
         assumptions=_dedup(assumptions),
         alternatives=alternatives,
+        capital_inr=slots.capital_inr,
+        disclaimer=DEFAULT_DISCLAIMER,
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Step 0 (B1) — pinned allow-list path + factor-style detection
+# ════════════════════════════════════════════════════════════════════════════
+
+
+# Factor-style themes (plan §3 B2): a "strategy that benefits from momentum /
+# quality / value / low-vol" is a FACTOR ask, not a sector. These words map to
+# a factor emphasis that (a) forces the ``factor`` weighting scheme over a broad
+# liquid universe and (b) tilts the factor blend toward that style, so the basket
+# is genuinely factor-led rather than an equal four-factor mix.
+_FACTOR_STYLE_THEMES: dict[str, str] = {
+    "momentum": "momentum",
+    "high momentum": "momentum",
+    "trend": "momentum",
+    "quality": "quality",
+    "quality factor": "quality",
+    "compounder": "quality",
+    "value factor": "value",
+    "low vol": "low_vol",
+    "low-vol": "low_vol",
+    "low volatility": "low_vol",
+    "minimum volatility": "low_vol",
+    "min vol": "low_vol",
+    "min-vol": "low_vol",
+}
+
+
+def _detect_factor_style(slots: SlotState, request: str) -> Optional[str]:
+    """Return the factor to emphasise (``momentum``/``quality``/``value``/
+    ``low_vol``) when the request/theme reads as a factor-style ask, else None.
+    Longest keyword wins so "low volatility" beats a stray "vol" substring."""
+    text = f"{request or ''} {slots.theme or ''}".lower()
+    hit: Optional[str] = None
+    hit_len = 0
+    for kw, factor in _FACTOR_STYLE_THEMES.items():
+        if kw in text and len(kw) > hit_len:
+            hit, hit_len = factor, len(kw)
+    return hit
+
+
+def _clean_symbols(symbols: Optional[list[str]]) -> list[str]:
+    """Normalise a caller allow-list: strip ``.NS``, upper-case, drop blanks, and
+    de-dup preserving order. Returns ``[]`` for a missing/empty list."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for s in symbols or []:
+        t = str(s or "").replace(".NS", "").strip().upper()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def _curated_row_map() -> dict[str, dict]:
+    """``{SYMBOL -> universe row}`` across the whole curated universe, network-
+    free — used to resolve name/sector/mcap for pinned symbols we recognise. A
+    pinned symbol absent here still builds (symbol as name, 'unknown' sector)."""
+    m: dict[str, dict] = {}
+    for sec in sorted(set(symbol_sector_map().values())):
+        for r in query_screener(sector=sec, limit=_SCREEN_LIMIT):
+            m[str(r["symbol"]).upper()] = r
+    return m
+
+
+def _pinned_gate_metrics(candidates: list[_Candidate], gate: SelectionGate) -> None:
+    """Set each pinned candidate's ``gate_metrics`` for DISPLAY (never a drop
+    gate). Names the DB is silent on keep an empty dict — the caller surfaces that
+    honestly as "(no data)"; nothing is fabricated."""
+    for c in candidates:
+        has_data = any(v is not None for v in (c.roe, c.roce, c.de, c.pe))
+        if not has_data:
+            c.gate_metrics = {}
+            continue
+        if gate == "fscore":
+            c.gate_metrics = _fscore_metrics(c, _approx_fscore(c))
+        elif gate == "magic_formula":
+            c.gate_metrics = _magic_metrics(c)
+        else:
+            c.gate_metrics = _multifactor_metrics(c)
+
+
+def _advisory_sector_note(candidates: list[_Candidate], sector_cap_pct: float) -> str:
+    """B1: for a pinned basket the sector cap is ADVISORY — we warn when one
+    sector dominates but never trim (the caller chose the names). Returns a note
+    or ""."""
+    n = len(candidates)
+    if n == 0:
+        return ""
+    counts: dict[str, int] = {}
+    for c in candidates:
+        counts[c.sector] = counts.get(c.sector, 0) + 1
+    worst_sec, worst = max(counts.items(), key=lambda kv: kv[1])
+    if worst_sec != "unknown" and (worst / n) * 100.0 > sector_cap_pct:
+        return (
+            f"advisory: {worst}/{n} pinned names are {worst_sec} (> the ~{sector_cap_pct:.0f}% "
+            "sector guide) — concentrated by your pin, kept as-is (not trimmed)"
+        )
+    return ""
+
+
+def _build_pinned_strategy(
+    request: str,
+    slots: SlotState,
+    pinned: list[str],
+    assumptions: list[str],
+) -> StrategyBuilderCard:
+    """B1 — PINNED allow-list path. The caller (e.g. the DISCOVER→VET→JUDGE
+    thematic flow) has already vetted the names, so we build EXACTLY these:
+    no discovery, no dropping a name for missing data. We still fetch fundamentals
+    to *show* each name's ``gate_metrics`` (missing → shown as no-data, never
+    dropped), compute a real weighting scheme + sizing, run the correlation check,
+    add the gold sleeve when earned, and treat the sector cap as advisory."""
+    gate = _choose_selection_gate(slots, request)
+
+    row_map = _curated_row_map()
+    candidates: list[_Candidate] = []
+    for sym in pinned:
+        row = row_map.get(sym)
+        candidates.append(
+            _Candidate(
+                symbol=sym,
+                name=str(row.get("name") or sym) if row else sym,
+                sector=str(row.get("sector") or "unknown") if row else "unknown",
+                mcap_cr=float(row["mcap_cr"]) if row and row.get("mcap_cr") is not None else None,
+            )
+        )
+
+    assumptions.append(
+        f"pinned universe — building exactly the {len(candidates)} name(s) you/the flow "
+        "vetted; no discovery ran and none were dropped for missing data"
+    )
+
+    # Fundamentals for the per-name gate_metrics DISPLAY only (never a drop gate).
+    _backfill_gate_inputs(candidates)
+    _backfill_fundamentals_parallel(candidates)
+    _pinned_gate_metrics(candidates, gate)
+    no_data = [c.symbol for c in candidates if not c.gate_metrics]
+    if no_data:
+        assumptions.append(
+            "no DB fundamentals for " + ", ".join(no_data)
+            + " — shown without gate metrics (no data), kept as pinned (not fabricated)"
+        )
+
+    # Sector cap is advisory for a pinned basket (warn, don't trim).
+    sector_cap = DEFAULT_SECTOR_CAP_PCT
+    adv = _advisory_sector_note(candidates, sector_cap)
+    if adv:
+        assumptions.append(adv)
+
+    # ── Weighting + sizing still computed ──
+    price_history = _fetch_price_history([c.symbol for c in candidates])
+    scheme, scheme_note = _choose_scheme(slots, request, candidates)
+    if scheme_note:
+        assumptions.append(scheme_note)
+    factor_emphasis = _detect_factor_style(slots, request)
+    weights, weight_note = _compute_weights(
+        scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+    )
+    if weight_note:
+        scheme = "equal"
+        assumptions.append(weight_note)
+
+    corr_note = _correlation_check(candidates, weights, price_history)
+    if corr_note:
+        assumptions.append(corr_note)
+
+    structure, _equity_pct, _structure_note = _macro_structure(slots, request, candidates)
+    sleeves, gold_pct, sleeve_notes = _build_sleeves(slots, request)
+    assumptions.extend(sleeve_notes)
+    equity_share = max(0.0, 100.0 - gold_pct)
+    constituents, sizing_notes = _size_constituents(candidates, weights, equity_share, slots)
+    assumptions.extend(sizing_notes)
+
+    _assert_guardrails(
+        constituents=constituents,
+        scheme=scheme,
+        gate=gate,
+        sector_cap=sector_cap,
+        slots=slots,
+        single_sector=False,
+        pinned=True,
+    )
+
+    title = _title(slots, request, structure)
+    rationale = _rationale(
+        slots=slots,
+        request=request,
+        scheme=scheme,
+        gate=gate,
+        structure=structure,
+        constituents=constituents,
+        sleeves=sleeves,
+        sector_cap=sector_cap,
+    )
+    alternatives = _alternatives(
+        slots=slots,
+        scheme=scheme,
+        gate=gate,
+        sleeves=sleeves,
+        n_names=len(constituents),
+        single_sector=False,
+    )
+    return StrategyBuilderCard(
+        title=title,
+        rationale=rationale,
+        weighting_scheme=scheme,
+        selection_gate=gate,
+        sector_cap=sector_cap,
+        constituents=constituents,
+        sleeves=sleeves,
+        assumptions=_dedup(assumptions),
+        alternatives=alternatives,
+        capital_inr=slots.capital_inr,
         disclaimer=DEFAULT_DISCLAIMER,
     )
 
@@ -1002,6 +1242,17 @@ def _choose_scheme(
     if n <= _EQUAL_WEIGHT_MAX_NAMES and len(slots.asset_prefs.allow) <= 2:
         return "equal", f"equal-weight (only {n} names — 1/N is honest and cost-efficient here)"
 
+    # A factor-style ask ("benefits from momentum/quality/value/low-vol") is a
+    # factor bet by definition → factor-weighted, tilted toward that style (B2),
+    # regardless of the parsed view direction.
+    factor_style = _detect_factor_style(slots, request)
+    if factor_style is not None:
+        return (
+            "factor",
+            f"factor-weighted ({factor_style.replace('_', ' ')} factor emphasised — "
+            "the basket is tilted toward the style you asked to benefit from)",
+        )
+
     if slots.risk == "conservative" or "capital preservation" in r or "preserve" in r:
         return "min_variance", "minimum-variance (capital-preservation / conservative intent)"
 
@@ -1027,11 +1278,13 @@ def _compute_weights(
     candidates: list[_Candidate],
     slots: SlotState,
     price_history: dict[str, list[dict]],
+    factor_emphasis: Optional[str] = None,
 ) -> tuple[dict[str, float], str]:
     """Call ``weighting.compute_weights`` against its contract signature.
 
     Returns ``(weights, note)``; a non-empty ``note`` signals the covariance
     fallback fired (caller restates the scheme as ``equal`` and discloses).
+    ``factor_emphasis`` tilts the ``factor`` scheme toward one style (B2).
     """
     symbols = [c.symbol for c in candidates]
     mcap = {c.symbol: c.mcap_cr for c in candidates if c.mcap_cr is not None}
@@ -1044,6 +1297,7 @@ def _compute_weights(
             price_history=price_history,
             mcap=mcap or None,
             views=views,
+            factor_emphasis=factor_emphasis,
         )
     except Exception as e:  # noqa: BLE001 — never let a weighting fault sink the build
         logger.info("compute_weights(%s) failed: %s — equal-weight fallback", scheme, str(e)[:160])
@@ -1234,13 +1488,27 @@ def _assert_guardrails(
     sector_cap: float,
     slots: SlotState,
     single_sector: bool = False,
+    pinned: bool = False,
 ) -> None:
     """The §3a anti-bland invariants. These are *internal* asserts — they catch
     a builder regression in dev/tests, not a user-input problem. A violation is
-    a bug in this module, so failing loudly is correct."""
+    a bug in this module, so failing loudly is correct.
+
+    For a PINNED basket (B1) the universe SHAPE was chosen by the caller/flow,
+    not the builder: the count, the sector spread, and (when history is thin) an
+    honestly-disclosed equal-weight fallback are all legitimate, so #1/#3/#4 are
+    relaxed. The weights-sanity check still runs — that's a real math invariant."""
     n = len(constituents)
     if n == 0:
         return  # the empty-card path handled this honestly already.
+
+    if pinned:
+        # Only the math invariant applies to a pinned basket.
+        total = sum(c.weight_pct for c in constituents)
+        assert all(c.weight_pct >= 0 for c in constituents) and abs(total - 100.0) < 1.0, (
+            f"weights must be ≥0 and sum ~100 (got {total:.2f})"
+        )
+        return
 
     # #1: no bare equal-weight unless ≤4 names.
     assert not (scheme == "equal" and n > _EQUAL_WEIGHT_MAX_NAMES), (
@@ -1539,6 +1807,7 @@ def _empty_card(
         constituents=[],
         sleeves=[],
         assumptions=assumptions,
+        capital_inr=slots.capital_inr,
         disclaimer=DEFAULT_DISCLAIMER,
     )
 

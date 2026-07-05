@@ -396,6 +396,141 @@ _AGENT_INTENT_RE = re.compile(
 )
 
 
+# ── CONSTRUCTION intent (Wave C) ───────────────────────────────────
+# CONSTRUCTION = "what to own NOW": a basket / portfolio / strategy that
+# expresses a view (theme, event-positioning, factor, sector, quality).
+# Artifact: build_strategy → strategy_builder_card. It exists the moment
+# it is built — there is NO contingent future action. This is the sibling
+# of AGENT/AUTOMATION ("what to do LATER, contingently").
+#
+# The three gates (ALL must hold for a message to be construction):
+#   1. it matches a construction shape (build-verb + strategy/basket/
+#      portfolio/allocation noun, "basket/portfolio of", or a positioning
+#      phrase "<strategy|basket|portfolio|stocks> that/to/which benefit/
+#      profit/gain/play(s) from/on …"), AND
+#   2. it has NO contingency (`_HAS_CONTINGENCY_RE`: every-<period>,
+#      at-<time>, when/if-condition, alert/notify/remind/watch,
+#      rebalance-<cadence>, "whenever"), AND
+#   3. it names NO explicit agent noun (agent/automation/rule/bot/
+#      workflow), AND
+#   4. it does NOT mention F&O (options keep their existing path).
+#
+# Checked BEFORE the agent regex in `_classify_intent`, so "build me a
+# strategy" no longer gets lumped into agent intent and stripped of the
+# builder tools. The FE mode-pill override still wins downstream.
+_CONSTRUCTION_INTENT_RE = re.compile(
+    # (a) build-verb + construction noun (strategy / basket / portfolio /
+    #     allocation / sleeve / book). Up to ~40 chars of filler between so
+    #     "build me a long-term equity portfolio" still matches.
+    # NOTE: "show me" is deliberately EXCLUDED — "show me my portfolio" is a
+    # holdings LOOKUP, not a build. Only genuine construct verbs qualify.
+    r"\b(?:build|create|make|set\s*up|setup|generate|design|construct|"
+    r"assemble|put\s+together|come\s+up\s+with|give\s+me|"
+    r"suggest)\b[^\.]{0,40}\b(?:strateg(?:y|ies)|basket|portfolio|"
+    r"allocation|sleeve|book)\b"
+    # (b) "basket/portfolio of <things>" — a direct construction ask even
+    #     without a leading build verb ("a basket of monsoon winners").
+    r"|\b(?:basket|portfolio)\s+of\b"
+    # (c) positioning phrasing — "<noun> that/to/which benefit(s)/profit(s)/
+    #     gain(s)/play(s)/capitalise(s)/win(s)/thrive(s) …". The noun anchors
+    #     it to a construction artifact, not a bare data question.
+    r"|\b(?:strateg(?:y|ies)|basket|portfolio|stocks?|names?|shares?)\s+"
+    r"(?:that|to|which)\s+(?:benefits?|profits?|gains?|plays?|"
+    r"capitali[sz]es?|wins?|thrives?|do\s+well)\b",
+    re.IGNORECASE,
+)
+
+# Contingency = a stated FUTURE, conditional action. Any of these flips a
+# would-be construction ask back to agent/automation (or leaves it 'other').
+# Mirrors the doctrine's "contingency test".
+_HAS_CONTINGENCY_RE = re.compile(
+    # schedule / cadence
+    r"\b(?:every|each)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
+    r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|weekday|day|"
+    r"week|month|quarter|year|hour|minute|morning|evening|fortnight)\b"
+    r"|\b(?:daily|weekly|monthly|quarterly|fortnightly|hourly|annually)\b"
+    # at-<time> / session anchors
+    r"|\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|ist)\b"
+    r"|\bat\s+(?:the\s+)?(?:open|close)\b"
+    # runtime condition
+    r"|\bwhen(?:ever)?\b|\bif\b|\bonce\b|\bas\s+soon\s+as\b"
+    # alert / notify verbs (a watch, not a build)
+    r"|\b(?:alert|notify|remind|watch)\b"
+    # rebalance on a cadence (a hybrid workflow, not a one-shot build)
+    r"|\bre-?balanc\w*\b|\brejig\w*\b",
+    re.IGNORECASE,
+)
+
+# Explicit agent nouns — the user asked for an automation surface by name.
+_EXPLICIT_AGENT_NOUN_RE = re.compile(
+    r"\b(?:agent|automation|automate|workflow|bot)\b|\brules?\b",
+    re.IGNORECASE,
+)
+
+
+def _is_construction_intent(message: str) -> bool:
+    """True when the message is a CONSTRUCTION ask — build/own a basket,
+    portfolio, or strategy expressing a view, with NO contingent future
+    action. See `_CONSTRUCTION_INTENT_RE` for the doctrine.
+
+    Shared by handle() and handle_stream() (via `_classify_intent`) so the
+    two paths can never drift on this classification.
+    """
+    if not message:
+        return False
+    if not _CONSTRUCTION_INTENT_RE.search(message):
+        return False
+    # A stated contingent action → agent/automation, never construction.
+    if _HAS_CONTINGENCY_RE.search(message):
+        return False
+    # An explicit agent/automation/rule/bot/workflow noun → agent.
+    if _EXPLICIT_AGENT_NOUN_RE.search(message):
+        return False
+    # F&O mentions keep their existing options path (option "strategies").
+    if _mentions_fno(message):
+        return False
+    return True
+
+
+# Construction scope surgery — the structural enforcement that a
+# construction ask CANNOT render a workflow card. Force IN the builder +
+# its supporting read/vet tools; force OUT every workflow/macro/immediate-
+# order tool. Applied IDENTICALLY in handle() and handle_stream() via
+# `_apply_construction_scope` (the known drift trap → one function).
+_CONSTRUCTION_FORCE_IN: frozenset[str] = frozenset({
+    "build_strategy", "ask_user_dynamic",
+    "screen_fundamentals", "fetch_fundamentals",
+    "get_multiple_indicators", "get_performance_metrics",
+    "compare_performance", "get_price_history", "get_live_price",
+    "propose_basket_allocation",
+})
+_CONSTRUCTION_FORCE_OUT: frozenset[str] = frozenset({
+    # workflow / macro drafters — a construction ask is not a contingent
+    # rule, so none of these may render.
+    "propose_workflow", "propose_dsl_workflow",
+    "propose_scheduled_order", "propose_threshold_order",
+    "propose_holding_action",
+    # immediate order tools — a build is register-not-execute via the card
+    # actions, never a live order this turn.
+    "place_market_order", "place_limit_order", "create_gtt_order",
+    "create_sl_order", "create_oco_order", "create_dip_buy",
+    "place_basket_order", "create_sip", "squareoff_all_intraday",
+    "squareoff_symbol",
+})
+
+
+def _apply_construction_scope(
+    selected_names: Optional[frozenset],
+) -> Optional[frozenset]:
+    """Force the construction toolset: builder + read/vet tools IN,
+    workflow/macro/immediate-order tools OUT. No-op in whitelist mode
+    (selected_names is None) — the full registry already has every path
+    and the guards + reply-class steer the model."""
+    if selected_names is None:
+        return selected_names
+    return (frozenset(selected_names) | _CONSTRUCTION_FORCE_IN) - _CONSTRUCTION_FORCE_OUT
+
+
 # "Two-action basket NOW" — buy X and sell Y in the same turn, both
 # carrying explicit quantities, with no scheduling / condition. The
 # previous AGENT regex caught this as a workflow, but the user's
@@ -1700,11 +1835,17 @@ _COMPACT_PROSE_TOOLS: frozenset[str] = frozenset({
 
 
 def _classify_intent(message: str) -> str:
-    """Return one of {'agent', 'automation', 'other'}.
+    """Return one of {'construction', 'agent', 'automation', 'other'}.
 
-    Agent wins ties — better to over-draft a workflow than misfire a
-    single immediate tool. 'other' covers data lookups, conversation,
-    explanations.
+    CONSTRUCTION wins over agent — "build me a strategy/basket/portfolio"
+    with no contingent action is a basket-build (build_strategy →
+    strategy_builder_card), NOT a workflow draft. It is checked BEFORE the
+    agent regex so the word "strategy" no longer routes to propose_workflow
+    by default.
+
+    Otherwise agent wins ties — better to over-draft a workflow than
+    misfire a single immediate tool. 'other' covers data lookups,
+    conversation, explanations.
 
     EXCEPT: a two-action basket NOW ("buy 7 reliance and sell 2
     eternal") with no scheduling or conditional language is a pair
@@ -1720,6 +1861,11 @@ def _classify_intent(message: str) -> str:
         and not _HAS_SCHEDULE_OR_CONDITION_RE.search(message)
     ):
         return "automation"
+    # CONSTRUCTION is checked BEFORE the agent regex: a build/basket/
+    # portfolio/positioning ask with no contingency, no explicit agent
+    # noun, and no F&O mention is "what to own now", not a workflow.
+    if _is_construction_intent(message):
+        return "construction"
     if _AGENT_INTENT_RE.search(message):
         return "agent"
     if _AUTOMATION_INTENT_RE.search(message):
@@ -2029,6 +2175,12 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
     """
     if intent_kind == "agent":
         return "draft"
+    if intent_kind == "construction":
+        # A basket/portfolio/strategy build earns the high-cap 'strategy'
+        # budget (connection + rationale + winners/losers table + card
+        # readback). _is_strategy_framed catches most of these too, but a
+        # construction ask is strategy-class by definition — pin it here.
+        return "strategy"
     if intent_kind == "automation":
         return "automation"
     if intent_kind == "backtest":
@@ -2873,6 +3025,7 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
     notional = cap if cap else 100_000
     weights = basket_weights(s)
     split = ", ".join(f"{tk} {w}%" for tk, w in weights)
+    winner_syms = ", ".join(tk for tk, _w in weights)
     cap_line = (
         f"The user stated about ₹{cap:,} — size the basket to it. "
         if cap else "Use a ₹1,00,000 basket unless the user named an amount. "
@@ -2895,13 +3048,18 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
         "one-line reason. Losers are an AVOID list (shorting is not wired — "
         "name them, don't draft sells).\n"
         f"{winners_losers_block(s)}\n"
-        "3. TURN-1 BASKET CARD: call `propose_workflow` with one "
-        "`action.place_order` step per WINNER ticker (side=buy, market), "
-        "or `action.allocate_notional` — render a `workflow_draft_card`. "
-        f"Default split: {split} of the notional. Register-not-execute, "
-        "editable. State the ₹-split in text.\n"
+        "3. TURN-1 BASKET CARD: call `build_strategy` with "
+        f"`symbols=[{winner_syms}]` (the vetted winners above, pinned as the "
+        f'universe), `theme=\"{s.label}\"`, and the user\'s capital → renders '
+        "a `strategy_builder_card` with named constituents + weights. This is "
+        "a CONSTRUCTION ask (what to own NOW) — do NOT call `propose_workflow` "
+        "or draft a `workflow_draft_card`; a basket you build exists the "
+        "moment it is built, there is no contingent future action here. "
+        f"Default split guidance: {split} of the notional. Register-not-"
+        "execute, editable. State the ₹-split in text.\n"
         f"4. CONFIRMATION + INVALIDATION (checkable data): confirms = "
-        f"{s.confirm}; kills it = {s.invalidate}. Offer to ARM it as an "
+        f"{s.confirm}; kills it = {s.invalidate}. OFFER (optional follow-up, "
+        "never a substitute for the basket card) to ARM it as an "
         "event-triggered agent where Pivot can (price/%-move/India-VIX "
         "triggers on the basket names). Be honest about unwired triggers "
         "(no USDINR/rainfall feed) — offer the nearest REAL trigger, never "
@@ -2916,13 +3074,16 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
     )
 
 
-# Tools the thematic / vague paths force into scope so the model has a
-# guaranteed path to a basket/SIP card and can never escape to a bare
-# ASK_USER. propose_workflow expresses an explicit-ticker basket (one
-# action.place_order per winner); propose_scheduled_order builds the SIP.
+# Tools the thematic path forces into scope so the model has a guaranteed
+# path to a strategy_builder_card and can never escape to a bare ASK_USER
+# or a workflow draft. A thematic positioning ask is CONSTRUCTION ("what
+# to own now"), so the forced surface is the builder + its read/vet tools —
+# build_strategy(symbols=[seed winners]) renders the basket card. The
+# scenario-routing caller ADDS _OPTIONS_TOOLS on top for the optional
+# NIFTY-put overlay, and drops the bare ASK_USER escape.
 _THEMATIC_BASKET_TOOLS: frozenset[str] = frozenset({
-    "propose_workflow", "propose_dsl_workflow",
-    "propose_basket_allocation", "get_live_price",
+    "build_strategy", "ask_user_dynamic",
+    "screen_fundamentals", "fetch_fundamentals", "get_live_price",
 })
 _VAGUE_SIP_TOOLS: frozenset[str] = frozenset({
     "propose_scheduled_order", "create_sip", "screen_fundamentals",
@@ -2978,12 +3139,18 @@ def _apply_scenario_routing(
 
     _scenario = detect_thematic_scenario(message)
     if _scenario is not None:
-        # Force the basket toolset; drop the immediate-order + ASK_USER
-        # paths so the model builds a workflow_draft_card, not a punt or
-        # a single market order. tool_choice=required guarantees a tool.
-        names = (frozenset(selected_names) | _THEMATIC_BASKET_TOOLS | _OPTIONS_TOOLS) - frozenset({
-            "compare_yields", "get_yield_recommendation",
-        })
+        # Force the construction toolset; drop the workflow/macro drafters +
+        # immediate-order tools (via _CONSTRUCTION_FORCE_OUT) so the model
+        # builds a strategy_builder_card, not a workflow_draft_card, a punt,
+        # or a single market order — even when the message wasn't classified
+        # 'construction' upstream (a bare "profit from a good monsoon").
+        # _OPTIONS_TOOLS stays for the optional NIFTY-put overlay.
+        # tool_choice=required guarantees a tool; ASK_USER is dropped below.
+        names = (
+            (frozenset(selected_names) | _THEMATIC_BASKET_TOOLS | _OPTIONS_TOOLS)
+            - _CONSTRUCTION_FORCE_OUT
+            - frozenset({"compare_yields", "get_yield_recommendation"})
+        )
         defs = [
             t for t in _registry_tools_as_tooldefs(names)
             if t.name != ASK_USER_TOOL_NAME
@@ -5314,6 +5481,7 @@ class ChatService:
         is_agent_intent = intent_kind == "agent"
         is_automation_intent = intent_kind == "automation"
         is_backtest_intent = intent_kind == "backtest"
+        is_construction_intent = intent_kind == "construction"
         # Tool-surface routing per intent class:
         #
         #   agent      → strip immediate-order tools (e.g. place_limit_order),
@@ -5332,7 +5500,13 @@ class ChatService:
             "create_dip_buy", "place_basket_order",
             "create_sip", "squareoff_all_intraday", "squareoff_symbol",
         })
-        if is_agent_intent and selected_names is not None:
+        if is_construction_intent and selected_names is not None:
+            # Construction scope surgery (shared helper — no drift): builder
+            # + read/vet tools IN, workflow/macro/immediate-order tools OUT.
+            # A construction ask structurally CANNOT render a workflow card;
+            # it renders a strategy_builder_card (or ask_user_dynamic clarify).
+            selected_names = _apply_construction_scope(selected_names)
+        elif is_agent_intent and selected_names is not None:
             selected_names = (selected_names - _IMMEDIATE_ORDER_TOOLS) | {
                 "propose_workflow",
             }
@@ -5412,7 +5586,7 @@ class ChatService:
         # shapes pre-LLM; this branch covers everything that fell
         # through to the model.
         agent_tool_choice: Literal["auto", "required"] = (
-            "required" if is_agent_intent else "auto"
+            "required" if (is_agent_intent or is_construction_intent) else "auto"
         )
         # A tool widget is NOT needed on every agent-flavoured turn. When the
         # message is really a QUESTION / deliberation ("what options should I
@@ -7234,6 +7408,7 @@ class ChatService:
         is_agent_intent = intent_kind == "agent"
         is_automation_intent = intent_kind == "automation"
         is_backtest_intent = intent_kind == "backtest"
+        is_construction_intent = intent_kind == "construction"
         # Streaming mirror of the non-streaming intent routing.
         # See handle() for the full rationale.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
@@ -7242,7 +7417,13 @@ class ChatService:
             "create_dip_buy", "place_basket_order",
             "create_sip", "squareoff_all_intraday", "squareoff_symbol",
         })
-        if is_agent_intent and selected_names is not None:
+        if is_construction_intent and selected_names is not None:
+            # Construction scope surgery (shared helper — no drift): builder
+            # + read/vet tools IN, workflow/macro/immediate-order tools OUT.
+            # A construction ask structurally CANNOT render a workflow card;
+            # it renders a strategy_builder_card (or ask_user_dynamic clarify).
+            selected_names = _apply_construction_scope(selected_names)
+        elif is_agent_intent and selected_names is not None:
             selected_names = (selected_names - _IMMEDIATE_ORDER_TOOLS) | {
                 "propose_workflow",
             }
@@ -7286,7 +7467,7 @@ class ChatService:
         # signals "build me an agent", lock tool_choice to required
         # and drop reasoning_effort to minimal. See _looks_like_agent_intent.
         agent_tool_choice: Literal["auto", "required"] = (
-            "required" if is_agent_intent else "auto"
+            "required" if (is_agent_intent or is_construction_intent) else "auto"
         )
         # Streaming mirror: relax forcing for question/deliberation-shaped
         # agent turns so the model can discuss/ask instead of force-building

@@ -684,7 +684,20 @@ _RULES: list[_Rule] = [
         # Thoughtful-portfolio / strategy-builder framings.
         r"|\b(?:build|make|create|design|construct|put\s+together|give\s+me)\b"
         r"[^.]{0,40}\b(?:portfolio|basket|strateg(?:y|ies)|allocation)\b"
-        r"|\b(?:portfolio|basket)\b[^.]{0,30}\b(?:of\s+(?:quality|value|growth|dividend|good)\s+stocks?|for\s+(?:the\s+)?long)\b",
+        r"|\b(?:portfolio|basket)\b[^.]{0,30}\b(?:of\s+(?:quality|value|growth|dividend|good)\s+stocks?|for\s+(?:the\s+)?long)\b"
+        # Factor-tilt construction — "a strategy that benefits from momentum",
+        # "a low-vol basket", "quality-factor portfolio". Factor keyword
+        # anchored to a strategy/basket/portfolio/factor/tilt context so the
+        # broad words value/quality don't hijack unrelated turns. (Wave C.)
+        r"|\b(?:momentum|low[\s-]?vol(?:atility)?|min[\s-]?vol|quality|value)\b"
+        r"[^.]{0,30}\b(?:factor|tilt|strateg(?:y|ies)|basket|portfolio|names?|stocks?)\b"
+        r"|\b(?:factor|tilt|strateg(?:y|ies)|basket|portfolio)\b"
+        r"[^.]{0,30}\b(?:momentum|low[\s-]?vol(?:atility)?|min[\s-]?vol|quality|value)\b"
+        # Positioning phrasing — "<strategy|basket|portfolio|stocks> that/to/
+        # which benefit/profit/gain/play(s) from/on <view>" (Wave C).
+        r"|\b(?:strateg(?:y|ies)|basket|portfolio|stocks?|names?)\s+"
+        r"(?:that|to|which)\s+(?:benefits?|profits?|gains?|plays?|"
+        r"capitali[sz]es?|wins?|thrives?)\b",
         "propose_basket_allocation",
         # Workstreams A & B — DB-driven builder + dynamic questions.
         "build_strategy",
@@ -962,7 +975,16 @@ _MODULE_RULES: list[tuple[re.Pattern, str]] = [
                 r"historical(ly)? .* (return|perform)"), "backtest"),
     (re.compile(r"\b(baskets?|allocate|allocation|diversif\w*|equal[- ]?weight|"
                 r"risk[- ]?parity|min[- ]?variance|rebalanc\w*|portfolio of|"
-                r"split .* across)\b"), "baskets"),
+                r"split .* across)\b"
+                # Construction verbs (Wave C): a build/design/create/make of a
+                # strategy/basket/portfolio/allocation pulls the baskets pack so
+                # the build_strategy doctrine + anti-bland invariants are in scope.
+                r"|\b(build|make|create|design|construct|put together|give me)\b"
+                r"[^.]{0,40}\b(strateg(y|ies)|basket|portfolio|allocation)\b"
+                # Factor-tilt construction ("strategy that benefits from momentum").
+                r"|\b(momentum|low[- ]?vol\w*|min[- ]?vol|quality|value)\b"
+                r"[^.]{0,30}\b(factor|tilt|strateg(y|ies)|basket|portfolio)\b"),
+     "baskets"),
     (re.compile(r"\b(thematic|monsoon|drought|rural|rate[- ]cut|rupee|depreciat\w*|"
                 r"crude spike|defen[cs]e stocks?|manufacturing upcycle|"
                 r"structural (story|trend|theme)|macro (scenario|theme))\b|"

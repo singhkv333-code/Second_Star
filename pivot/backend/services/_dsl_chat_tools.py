@@ -565,6 +565,11 @@ async def backtest_dsl_tree(args: dict) -> dict:
                 if end_d <= start_d:
                     end_d = min(today, start_d + timedelta(days=int(cap)))
 
+    # Assumptions the reply MUST surface (never silent). The default
+    # n_day_hold exit and any seeded initial position are recorded here
+    # and threaded into both the structured payload and summary_text.
+    assumptions: list[str] = []
+
     # Exit policy — exit_condition (NL) wins over declarative fields
     # so a chat prompt like "buy on RSI<30, sell on RSI>70" gets a
     # real tree exit and not a degenerate AND.
@@ -588,12 +593,29 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "exit_at": "next_open",
         }
     else:
-        exit_kind = (args.get("exit_kind") or "n_day_hold").lower()
-        if exit_kind not in ("n_day_hold", "stop_loss_pct"):
+        exit_kind_raw = args.get("exit_kind")
+        exit_kind = (exit_kind_raw or "n_day_hold").lower()
+        if exit_kind not in ("n_day_hold", "stop_loss_pct", "hold_to_end"):
             exit_kind = "n_day_hold"
-        if exit_kind == "n_day_hold":
-            exit_policy = {"kind": "n_day_hold",
-                           "bars": int(args.get("exit_bars") or 10)}
+        if exit_kind == "hold_to_end":
+            # Carry the position to the final bar — the buy-and-hold /
+            # "don't sell" shape. No early exit is ever taken.
+            exit_policy = {"kind": "hold_to_end"}
+            assumptions.append(
+                "Exit: held to the end of the window (no early sell)."
+            )
+        elif exit_kind == "n_day_hold":
+            bars = int(args.get("exit_bars") or 10)
+            exit_policy = {"kind": "n_day_hold", "bars": bars}
+            if not exit_kind_raw:
+                # Default exit — the user stated no sell rule. Surface it
+                # explicitly so the reply never silently ships a hidden
+                # 10-bar sale as if it were the user's plan.
+                assumptions.append(
+                    f"Exit: {bars}-bar hold (assumed) — say 'hold till end' "
+                    f"to carry the position to the window end, or give a "
+                    f"sell rule."
+                )
         else:
             v = float(args.get("exit_pct") or 0.05)
             v = max(0.001, min(0.5, v))
@@ -627,6 +649,33 @@ async def backtest_dsl_tree(args: dict) -> dict:
             if args.get(k) is not None:
                 sizing[k] = cast(args[k])
 
+    # Seed an already-owned position at window start ("I hold 50 INFY
+    # from ₹1400 — backtest selling at RSI>70"). Only accepted with a
+    # positive quantity; avg_price/entry_date are optional.
+    initial_position: Optional[dict] = None
+    ip_arg = args.get("initial_position")
+    if isinstance(ip_arg, dict) and ip_arg.get("quantity"):
+        try:
+            ip_qty = int(ip_arg["quantity"])
+        except (TypeError, ValueError):
+            ip_qty = 0
+        if ip_qty > 0:
+            initial_position = {"quantity": ip_qty}
+            if ip_arg.get("avg_price") is not None:
+                initial_position["avg_price"] = float(ip_arg["avg_price"])
+            if ip_arg.get("entry_date"):
+                initial_position["entry_date"] = str(ip_arg["entry_date"])
+            _basis_txt = (
+                f"₹{initial_position['avg_price']:g}"
+                if "avg_price" in initial_position
+                else "the window's opening price"
+            )
+            assumptions.append(
+                f"Seeded an existing holding of {ip_qty} {primary} at a "
+                f"cost basis of {_basis_txt}; the exit rule is tested "
+                f"against that position."
+            )
+
     payload = {
         "tree": tree,
         "primary_symbol": primary,
@@ -639,6 +688,8 @@ async def backtest_dsl_tree(args: dict) -> dict:
         "save": False,
         "interval": interval,
     }
+    if initial_position is not None:
+        payload["initial_position"] = initial_position
     try:
         request = BacktestRequest.model_validate(payload)
     except ValidationError as exc:
@@ -732,12 +783,15 @@ async def backtest_dsl_tree(args: dict) -> dict:
         )
     elif sizing.get("mode") == "pct_equity":
         _sizing_txt = f" Sized at {sizing.get('pct', 0.2):.0%} of equity per entry."
+    _assume_txt = (
+        " Assumptions: " + " ".join(assumptions) if assumptions else ""
+    )
     summary = (
         _verdict_lead +
         f"Strategy returned {metrics.total_return_pct:+.1f}% across "
         f"{metrics.total_trades} trade(s). Max drawdown {metrics.max_drawdown_pct:.1f}%. "
         f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt}{_psr_txt}{_dsr_txt}{_sizing_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}."
+        f"Results are {_method['costs']}, on {_method['basis']}.{_assume_txt}"
     )
 
     # Build the legacy-shaped signals list (buy + sell as separate
@@ -824,6 +878,10 @@ async def backtest_dsl_tree(args: dict) -> dict:
         "bench_buy_hold_return_pct": metrics.benchmark_return_pct,
         "methodology": _method,
         "summary_text": summary,
+        # Explicit, non-silent assumptions the reply MUST state (default
+        # exit policy, seeded position). Empty when the user pinned every
+        # parameter. See prompts/modules/backtest.md → state-the-assumption.
+        "assumptions": assumptions,
         # DSL-native fields — present ONLY on DSL responses. The card
         # uses these to render the readback as the title and (later)
         # a trades-list expansion.

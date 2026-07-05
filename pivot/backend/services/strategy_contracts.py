@@ -251,6 +251,17 @@ class SlotState(BaseModel):
     """Optional thematic tilt ("quality compounders", "rate-cut beneficiaries")
     resolved against ``thematic_map`` in builder Step 1."""
 
+    symbols: Optional[list[str]] = None
+    """Explicit NSE constituents to **pin** the universe to — the vetted winners
+    from the DISCOVER→VET→JUDGE thematic flow (plan §3 B1 / thematic.md §5). When
+    set, the builder skips discovery and builds *exactly* these names: fundamentals
+    are still fetched for the per-name ``gate_metrics`` display (missing → shown
+    honestly as no-data, **never dropped**), the weighting scheme + sizing are
+    still computed, and the sector cap becomes advisory (warn, don't trim) because
+    the caller/flow already chose the names. ``None`` ⇒ the builder discovers the
+    universe from theme/sector as before. Travels in-band with the rest of the
+    slot-state so a clarify round-trip preserves the pin."""
+
     assumed: SlotAssumptions = Field(default_factory=SlotAssumptions)
     """Which slots are running on defaults (vs. explicitly set)."""
 
@@ -444,6 +455,12 @@ class StrategyBuilderCard(BaseModel):
     one-line ``detail`` beneath each — NOT as additional constituents. They are
     suggestions only; nothing here is selected or registered until the user
     re-asks for one of them."""
+
+    capital_inr: Optional[float] = None
+    """The investable capital the basket was sized against (₹), echoed from
+    :attr:`SlotState.capital_inr` so the FE "Save as basket" action can persist it
+    with the basket. ``None`` when the user stated no amount (the basket was sized
+    in percentages)."""
 
     disclaimer: str = DEFAULT_DISCLAIMER
 

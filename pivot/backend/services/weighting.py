@@ -148,6 +148,7 @@ def compute_weights(
     price_history: "Mapping[str, object]",
     mcap: Optional["Mapping[str, float]"] = None,
     views: Optional["Mapping[str, float]"] = None,
+    factor_emphasis: Optional[str] = None,
 ) -> dict[str, float]:
     """Return normalised target weights (summing to 1.0) keyed by symbol.
 
@@ -158,6 +159,11 @@ def compute_weights(
     need the fallback *reason* (to surface "(assumed …)" in the card) should call
     :func:`compute_weights_detailed` and read :attr:`WeightingResult.fallback_reason`.
 
+    ``factor_emphasis`` (one of ``value`` / ``quality`` / ``momentum`` /
+    ``low_vol``) only applies to ``scheme == "factor"`` — it tilts the factor
+    blend toward the requested style so "a strategy that benefits from momentum"
+    produces a genuinely momentum-led basket rather than an equal factor blend.
+
     See the module docstring for the per-scheme definitions and the covariance
     policy. Weights are clipped to ``>= 0`` and renormalised before return.
     """
@@ -167,6 +173,7 @@ def compute_weights(
         price_history=price_history,
         mcap=mcap,
         views=views,
+        factor_emphasis=factor_emphasis,
     ).weights
 
 
@@ -177,6 +184,7 @@ def compute_weights_detailed(
     price_history: "Mapping[str, object]",
     mcap: Optional["Mapping[str, float]"] = None,
     views: Optional["Mapping[str, float]"] = None,
+    factor_emphasis: Optional[str] = None,
 ) -> WeightingResult:
     """Like :func:`compute_weights` but returns the full :class:`WeightingResult`.
 
@@ -198,7 +206,9 @@ def compute_weights_detailed(
         return _mcap_weights(syms, mcap)
 
     if scheme == "factor":
-        return _factor_weights(syms, price_history=price_history, scores=views)
+        return _factor_weights(
+            syms, price_history=price_history, scores=views, emphasis=factor_emphasis
+        )
 
     # ── Covariance-based schemes: risk_parity / min_variance / black_litterman ──
     cov, ret_index, cov_reason = _shrinkage_cov(syms, price_history)
@@ -446,11 +456,26 @@ def _black_litterman_weights(
     return raw / raw.sum()
 
 
+def _factor_blend(emphasis: Optional[str]) -> dict[str, float]:
+    """The factor blend weights, optionally tilted toward one factor.
+
+    With no emphasis this is the balanced :data:`_FACTOR_BLEND`. With an
+    ``emphasis`` naming a known factor (``value``/``quality``/``momentum``/
+    ``low_vol``) that factor carries the majority of the blend and the rest is
+    split evenly, so a "momentum" ask produces a momentum-led composite rather
+    than an equal four-factor mix. An unknown emphasis falls back to balanced."""
+    if not emphasis or emphasis not in _FACTOR_BLEND:
+        return dict(_FACTOR_BLEND)
+    lead, rest = 0.55, 0.15
+    return {k: (lead if k == emphasis else rest) for k in _FACTOR_BLEND}
+
+
 def _factor_weights(
     symbols: list[str],
     *,
     price_history: "Mapping[str, object]",
     scores: Optional["Mapping[str, float]"],
+    emphasis: Optional[str] = None,
 ) -> WeightingResult:
     """Factor-score weighting: blend value/quality (fundamental, via ``scores``)
     with momentum/low-vol (derived from ``price_history``).
@@ -461,9 +486,13 @@ def _factor_weights(
     composite is a z-scored, blend-weighted sum mapped through a softmax-free
     non-negative normalisation so every selected name keeps a positive weight.
 
+    ``emphasis`` tilts the blend toward one factor (see :func:`_factor_blend`) so
+    a factor-style ask ("benefits from momentum") is actually led by that factor.
+
     Always succeeds (no covariance inversion) — degrades to equal-weight only if
     no factor signal is available at all.
     """
+    blend_weights = _factor_blend(emphasis)
     n = len(symbols)
     # Price-derived factors
     momentum = np.full(n, np.nan)
@@ -500,7 +529,7 @@ def _factor_weights(
         z = _zscore(col)
         if z is None:
             continue
-        blend = _FACTOR_BLEND[name]
+        blend = blend_weights[name]
         composite += blend * z
         used_blend += blend
 

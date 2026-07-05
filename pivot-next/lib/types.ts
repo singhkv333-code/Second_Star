@@ -1050,6 +1050,11 @@ export type StrategyBuilderCard = {
    * proposed basket. Defaults to `[]` from the backend, so always present.
    */
   alternatives: StrategyAlternative[];
+  /**
+   * Capital (₹) the basket was sized against, echoed from the slot-state so the
+   * "Save as basket" action can persist it. `null` when no amount was stated.
+   */
+  capital_inr: number | null;
   disclaimer: string;
 };
 

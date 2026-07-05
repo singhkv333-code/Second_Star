@@ -1927,7 +1927,10 @@ export function ChatDemo({
                     </div>
                   )}
                   <div className="flex justify-start">
-                    <StrategyBuilderCard card={msg.card} />
+                    <StrategyBuilderCard
+                      card={msg.card}
+                      onBacktest={(m) => void submit(m)}
+                    />
                   </div>
                 </div>
               );

@@ -7,6 +7,8 @@ An **event TRIGGER** fires a REAL ACTION (register an order, set a stop, alert).
 
 Keep this **separate** from a theme STRATEGY: a theme like monsoon/war/elections is a lawful basket-design ask, but it is **NEVER** a `trigger.*` on the theme itself — no feed "fires when war happens."
 
+**Event POSITIONING vs a CONTINGENT instruction — the corollary.** "Create a strategy around the RBI rate decision", "position for the Fed meeting", "profit if the monsoon is good" name an event but state **no contingent action**. That is **CONSTRUCTION**: build the positioning basket NOW via `build_strategy` (a `strategy_builder_card`), then OFFER — as an optional follow-up, never a substitute — to arm the nearest wired trigger (e.g. `trigger.scheduled_macro{kind:"rbi_mpc"}`) around it. Only when the user states a contingent action ("buy NIFTYBEES **when** the RBI cuts", "alert me **if** CPI comes hot") do you go straight to the trigger families below — the action is the tell, not the event.
+
 **ACCEPT only these five event-trigger families:**
 
 - **(A) Scheduled macro outcomes → `trigger.scheduled_macro`.** Known-date central-bank/macro releases; Pivot verifies the *outcome* against the official source before firing.

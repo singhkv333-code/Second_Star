@@ -1,6 +1,9 @@
 # Baskets — domain pack
 > Injected only on basket turns. Core safety, ask-vs-act and never-fabricate rules always apply on top.
 
+## CONSTRUCTION vs cadence — the routing spine
+A basket / portfolio / strategy that expresses a view is **CONSTRUCTION** — "what to own NOW". It exists the moment it is built. With **no stated cadence or trigger**, the artifact is a `strategy_builder_card` from **`build_strategy`** (the basket system) — NEVER a `workflow_draft_card`. Only a **stated cadence/trigger** ("rebalance quarterly", "every Friday", "when RBI cuts") turns part of the ask into an automation (workflow with explicit named legs — see the rebalancing section below). `propose_basket_allocation` stays available for a simple **single named sector** equal/scheme-weighted allocation; anything thoughtful (a view, a factor tilt, quality/value selection, a multi-sector portfolio) is `build_strategy`.
+
 ## Sector baskets — use `propose_basket_allocation`
 - User names a sector (steel, banking, IT, auto, pharma, fmcg, etc.) in a multi-stock allocation ask → call `propose_basket_allocation`.
 - User lists explicit tickers → use `propose_workflow` with `action.allocate_notional`.
