@@ -1708,7 +1708,39 @@ def _execute_branch(
             qty = _resolve_quantity(
                 cfg.get("quantity"), state, symbol_bars, ts, branch,
             )
-            if qty <= 0 or not sym:
+            # Notional sizing (₹ amount to deploy) — the correct way to express
+            # a buy-and-hold so the position tracks the underlying instead of
+            # leaving most of the ₹10L starting capital idle in cash (which
+            # dilutes total_return_pct to ~0 vs the full-capital benchmark).
+            # Accept notional / amount / total_inr; None when absent.
+            _notional_raw = cfg.get("notional")
+            if _notional_raw is None:
+                _notional_raw = cfg.get("notional_inr")
+            if _notional_raw is None:
+                _notional_raw = cfg.get("amount")
+            if _notional_raw is None:
+                _notional_raw = cfg.get("total_inr")
+            notional: Optional[float] = None
+            if _notional_raw is not None:
+                try:
+                    notional = float(
+                        _resolve_ref(_notional_raw, state, symbol_bars, ts, branch)
+                    )
+                except (TypeError, ValueError):
+                    notional = None
+            # A buy with NEITHER an explicit share quantity NOR a notional, on a
+            # NON-signal (schedule / one-time) trigger, is a deploy-capital
+            # buy-and-hold → size it to the available cash below (after
+            # fill_price). Signal-driven bare buys stay a no-op to preserve
+            # existing multi-signal semantics.
+            _deploy_cash_buy = (
+                side == "buy" and qty <= 0
+                and notional is None and not signal_driven
+            )
+            if not sym:
+                continue
+            if qty <= 0 and notional is None and not _deploy_cash_buy:
+                # Sell / short / signal-buy with no resolvable size → skip.
                 continue
             sym_bars = symbol_bars.get(sym)
             if sym_bars is None or ts not in sym_bars.index:
@@ -1737,6 +1769,15 @@ def _execute_branch(
             )
             held = state.holdings.get(sym, 0)
             if side == "buy":
+                # Resolve the effective quantity now that we know fill_price:
+                #   notional (₹ to deploy) > explicit share quantity >
+                #   deploy-available-cash (bare one-time/schedule buy-and-hold).
+                if notional is not None and notional > 0:
+                    qty = int(notional // fill_price)
+                elif _deploy_cash_buy:
+                    qty = int(state.cash // fill_price)
+                if qty <= 0:
+                    continue
                 # Long open or extension. Cash check: don't go negative.
                 if fill_price * qty > state.cash:
                     signals_out.append({
@@ -1761,6 +1802,11 @@ def _execute_branch(
                     signals_out, trades_out, reason="sell",
                 )
             elif side == "short":
+                # Notional sizing for a short leg too (parity with buys).
+                if notional is not None and notional > 0:
+                    qty = int(notional // fill_price)
+                if qty <= 0:
+                    continue
                 # Short open or extension. Naive margin model: deny if
                 # the proceeds would push notional shorted past 50% of
                 # current equity (rough margin check, at the decision bar).
@@ -1982,6 +2028,57 @@ def _execute_branch(
 # ── Public entry ─────────────────────────────────────────────────────
 
 
+_EXIT_ACTION_TYPES = frozenset({
+    "action.set_stoploss", "action.set_takeprofit",
+    "action.squareoff_symbol", "action.squareoff_all_intraday",
+    "action.squareoff_all",
+})
+_SIGNAL_TRIGGER_TYPES = frozenset({
+    "trigger.indicator", "trigger.price", "trigger.compound",
+    "trigger.exit_compound",
+})
+_NOTIONAL_KEYS = ("notional", "notional_inr", "amount", "total_inr")
+
+
+def _normalize_buy_and_hold(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Strip a fixed share `quantity` from the lone buy of a one-time
+    buy-and-hold so it deploys the full capital (F7). See the call site for
+    the rationale. No-op unless the workflow is unambiguously a buy-and-hold:
+    a single buy place_order, no exit/sell action anywhere, no signal trigger,
+    no recurring cron schedule, and the buy carries no notional already."""
+    buys: list[dict[str, Any]] = []
+    for s in steps:
+        if not isinstance(s, dict):
+            return steps  # non-dict step → bail, don't guess
+        st = str(s.get("step_type") or "")
+        cfg = s.get("config") or {}
+        if st in _EXIT_ACTION_TYPES:
+            return steps
+        if st in _SIGNAL_TRIGGER_TYPES:
+            return steps
+        if st == "trigger.schedule":
+            # A recurring cron (no run_at) is a DCA/SIP — leave sizing alone.
+            if not str(cfg.get("run_at") or "").strip():
+                return steps
+        if st == "action.place_order":
+            side = str(cfg.get("side") or "buy").lower()
+            if side in {"sell", "short", "cover"}:
+                return steps
+            buys.append(s)
+        if st == "action.allocate_basket":
+            return steps  # already notional-sized
+    if len(buys) != 1:
+        return steps
+    cfg = buys[0].get("config") or {}
+    if any(cfg.get(k) is not None for k in _NOTIONAL_KEYS):
+        return steps  # notional already stated → honour it
+    # Deploy-capital buy-and-hold: drop the fixed quantity so the sim sizes
+    # the buy to the full available cash.
+    new_cfg = {k: v for k, v in cfg.items() if k != "quantity"}
+    buys[0]["config"] = new_cfg
+    return steps
+
+
 def backtest_workflow(
     steps: list[dict[str, Any]],
     *,
@@ -2020,6 +2117,18 @@ def backtest_workflow(
         ({**s, "step_index": s.get("step_index", i)} if isinstance(s, dict) else s)
         for i, s in enumerate(steps)
     ]
+    # ── Buy-and-hold normalisation (F7) ──────────────────────────────
+    # A one-time-scheduled single BUY with NO exit (no sell/short/cover/
+    # squareoff/stop/target) is a buy-and-hold: the user means "put my money
+    # in X and hold", not "buy N shares". If the model pinned a fixed share
+    # `quantity` and no notional, the position deploys only qty×price of the
+    # ₹10L capital, leaving the rest idle → total_return_pct collapses to ~0
+    # while the full-capital benchmark shows the real move (the silent-wrong
+    # bug). Strip the quantity so the order deploys the full available cash
+    # (see `_deploy_cash_buy`). Restricted to one-time/schedule shapes (no
+    # signal/indicator/price trigger, no recurring cron) so DCA/SIP and
+    # signal entries — which legitimately size per fire — are untouched.
+    steps = _normalize_buy_and_hold(steps)
     # R4a: pre-flight Mustache-ref resolvability BEFORE eligibility so
     # the user sees the structured blocker text ("backtester cannot
     # resolve {{ context.1.total_value_inr }}") instead of the
@@ -2438,11 +2547,23 @@ def backtest_workflow(
         f" ⚠ Fragile: {_conc:.0%} of the return came from a single sub-period."
         if isinstance(_conc, (int, float)) and _conc > 0.6 else ""
     )
+    # Still-open hold? A buy-and-hold leaves a position open at the window end
+    # (entries but no matching exit). Report it as marked-to-market with
+    # unrealized P&L — never imply a closed round-trip. `walking_state` holds
+    # the final book after the equity walk above.
+    _open_units = sum(1 for q in walking_state.holdings.values() if q != 0)
+    _hold_txt = ""
+    if _open_units and n_sells == 0:
+        _hold_txt = (
+            " The position is still OPEN — the return is the mark-to-market of "
+            "the held position at the window end (unrealized), not a closed "
+            "round-trip."
+        )
     summary = (
         f"Verdict — {verdict['label']}: {verdict['rationale']} "
         f"Backtested {name!r} on {primary_symbol} over {period}. "
         f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
-        f"buy-and-hold returned {bench_pct:+.1f}%.{_sharpe_txt}{_psr_txt} "
+        f"buy-and-hold returned {bench_pct:+.1f}%.{_hold_txt}{_sharpe_txt}{_psr_txt} "
         f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}{_dsr_txt}{_sp_txt}"
     )
     if elig.warnings:

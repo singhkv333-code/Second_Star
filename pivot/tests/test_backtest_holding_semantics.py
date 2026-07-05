@@ -248,6 +248,50 @@ def test_backtest_workflow_one_time_buy_and_hold(monkeypatch):
     assert res.metrics["total_return_pct"] > 0
 
 
+def test_one_time_buy_and_hold_tracks_underlying(monkeypatch):
+    """F7 regression: a one-time buy-and-hold's STRATEGY return must ≈ the
+    underlying's move over the window (within costs), NOT collapse to ~0
+    because a fixed tiny share quantity left most of the ₹10L capital idle.
+    Both the bare-quantity (deploy-capital) and the notional shapes must
+    track the ~+20% underlying and roughly match the buy-and-hold benchmark;
+    the summary must label the still-open position as marked-to-market."""
+    from backend.services import workflow_backtester as wb
+
+    n = 250
+    closes = np.linspace(2000, 2400, n)   # +20% underlying move
+    idx = pd.bdate_range("2023-01-02", periods=n)
+    bars = pd.DataFrame({
+        "Open": closes, "High": closes + 2, "Low": closes - 2,
+        "Close": closes, "Volume": np.full(n, 1_000_000.0),
+    }, index=idx)
+    monkeypatch.setattr(wb, "_load_bars", lambda sym, period: bars)
+
+    def _run(order_cfg):
+        steps = [
+            {"step_type": "trigger.schedule",
+             "config": {"run_at": "2023-01-10T09:15", "timezone": "Asia/Kolkata"}},
+            {"step_type": "action.place_order",
+             "config": {"symbol": "RELIANCE", "side": "buy", **order_cfg}},
+        ]
+        return wb.backtest_workflow(steps, period="1y", name="BuyHold")
+
+    # All three shapes must track the underlying: bare quantity (deploy-cash
+    # default), explicit notional, AND — thanks to the buy-and-hold
+    # normalisation — even a fixed small `quantity` (which used to dilute the
+    # return to ~0.4% because ~97% of the ₹10L sat idle in cash).
+    for cfg in ({}, {"notional_inr": 1_000_000}, {"quantity": 10}):
+        res = _run(cfg)
+        strat = res.metrics["total_return_pct"]
+        bench = res.metrics["benchmark_return_pct"]
+        assert res.metrics["n_trades"] == 1
+        # Strategy tracks the underlying: within ~1.5pp of the benchmark
+        # (friction), and unambiguously NOT the diluted ~0.4% bug.
+        assert abs(strat - bench) < 1.5, (cfg, strat, bench)
+        assert strat > 15.0, (cfg, strat)
+        # Still-open hold is labelled as marked-to-market, not a round-trip.
+        assert "still OPEN" in res.summary_text
+
+
 def test_backtest_workflow_run_at_predating_window_notes_it(monkeypatch):
     from backend.services import workflow_backtester as wb
 

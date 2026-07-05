@@ -502,11 +502,16 @@ _CONSTRUCTION_FORCE_IN: frozenset[str] = frozenset({
     "screen_fundamentals", "fetch_fundamentals",
     "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_price_history", "get_live_price",
-    "propose_basket_allocation",
 })
 _CONSTRUCTION_FORCE_OUT: frozenset[str] = frozenset({
     # workflow / macro drafters — a construction ask is not a contingent
-    # rule, so none of these may render.
+    # rule, so none of these may render. propose_basket_allocation is a
+    # workflow drafter too (it emits a workflow_draft_card): a plain,
+    # no-cadence sector basket must go through build_strategy →
+    # strategy_builder_card, NOT a workflow card. Cadence-ask basket routes
+    # (which are NOT construction — a contingency is present) still reach
+    # propose_basket_allocation via the tool_router basket rule.
+    "propose_basket_allocation",
     "propose_workflow", "propose_dsl_workflow",
     "propose_scheduled_order", "propose_threshold_order",
     "propose_holding_action",
@@ -2924,8 +2929,13 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
     # ── GAN R4 keystone: thematic-scenario positioning ───────────────
     # The single highest-leverage directive. Decode-and-propose, never a
     # bare ask_user; refusal calibrated for lawful scenario positioning.
+    # GATED on NO stated contingency: a hybrid ask like "monsoon basket,
+    # rebalance every quarter" states a cadence → it is an AUTOMATION with
+    # explicit named legs, so we FALL THROUGH to normal agent routing (the
+    # thematic.md module still carries the seed map + the hybrid rule). The
+    # construction thematic guard only owns the no-cadence "own this now" ask.
     _scenario = detect_thematic_scenario(message)
-    if _scenario is not None:
+    if _scenario is not None and not _HAS_CONTINGENCY_RE.search(message):
         guards.append(_thematic_guard_text(message, _scenario))
 
     # ── GAN R4 F5/C4: unrealistic-return decode ──────────────────────
@@ -3141,12 +3151,16 @@ def _apply_scenario_routing(
         return no_change
 
     _scenario = detect_thematic_scenario(message)
-    if _scenario is not None:
+    if _scenario is not None and not _HAS_CONTINGENCY_RE.search(message):
         # Force the construction toolset; drop the workflow/macro drafters +
         # immediate-order tools (via _CONSTRUCTION_FORCE_OUT) so the model
         # builds a strategy_builder_card, not a workflow_draft_card, a punt,
         # or a single market order — even when the message wasn't classified
         # 'construction' upstream (a bare "profit from a good monsoon").
+        # GATED on NO contingency: "monsoon basket, rebalance quarterly"
+        # states a cadence → it is an AUTOMATION with explicit named legs;
+        # we fall through so the normal agent path (workflow with explicit
+        # legs, per thematic.md) owns it and the quarterly rebalance is kept.
         # _OPTIONS_TOOLS stays for the optional NIFTY-put overlay.
         # tool_choice=required guarantees a tool; ASK_USER is dropped below.
         # `ask_user_dynamic` is subtracted too: a RECOGNISED scenario is
@@ -3658,6 +3672,16 @@ _BACKTEST_TWEAK_RE = re.compile(
     r"run\s+(?:it|that|the\s+same)|do\s+(?:it|that|the\s+same))\b"
     r"|\binstead\b"
     r"|\bthe\s+same(?:\s+(?:but|strategy|setup|thing|one))?\b"
+    # Hold / exit-removal tweaks — "don't sell (at all)", "no exit", "never
+    # sell", "hold (everything) till/to the end", "remove/drop the exit/stop/
+    # target". These convert the run to exit_kind=hold_to_end; without this
+    # the model narrated "changed: no exit" WITHOUT re-running (fake success).
+    r"|\b(?:don'?t|do\s+not|never)\s+sell\b"
+    r"|\bno\s+exit\b|\bwithout\s+(?:an?\s+)?exit\b"
+    r"|\bhold(?:ing)?\b[^.]{0,30}?\b(?:till|to|until)\s+(?:the\s+)?end\b"
+    r"|\bhold\s+(?:it|them|everything|forever|throughout|the\s+whole)\b"
+    r"|\b(?:remove|drop|delete|get\s+rid\s+of|take\s+out|no\s+more)\b"
+    r"[^.]{0,20}?\b(?:exit|stop[\s-]?loss|stop|target|sell)\b"
     r"|^[A-Za-z ,'/()-]{0,24}\b(?:rsi|sma|ema|wma|macd|adx|cci|mfi|stoch|atr|"
     r"bollinger|supertrend|aroon|donchian|keltner|roc|obv|vwap|williams|period|"
     r"threshold|stop[\s-]?loss|stop|target|window|lookback|trailing)\b"
@@ -4315,7 +4339,10 @@ class ChatService:
             agent_slots: dict[str, Any] = dict(state.slot_state or {})
             slot_state_dump = lambda: dict(agent_slots)  # noqa: E731
         else:
-            from backend.services.clarify_engine import normalize_answer_into_slots
+            from backend.services.clarify_engine import (
+                fold_free_text_into_slots,
+                normalize_answer_into_slots,
+            )
             from backend.services.strategy_contracts import SlotState
             try:
                 slots = SlotState.model_validate(state.slot_state or {})
@@ -4397,12 +4424,38 @@ class ChatService:
                     )
                 else:
                     slots = normalize_answer_into_slots(current, text, slots)
+                    # A free-text answer often pins MORE than the asked slot
+                    # ("Around 3 lakh, 5 plus years, equities only." answers
+                    # capital + horizon + assets in one line). Fold every slot
+                    # the text mentions so queued questions for already-answered
+                    # slots get skipped below — never re-ask what was answered.
+                    slots = fold_free_text_into_slots(text, slots)
             except Exception as e:
                 logger.warning("clarify answer normalise failed: %s", e)
 
         # Advance the cursor past the question we just handled (answered or
         # skipped). A skipped slot keeps its default + stays flagged assumed.
         next_index = index + 1 if current is not None else index
+
+        # Skip any queued questions whose slot the free-text answer already
+        # filled (portfolio flow only — agent slots fold differently). A slot
+        # is "filled" when it is no longer flagged assumed (capital also needs
+        # a concrete value). Without this, the multi-slot fold above would
+        # populate the slot but the cursor would still stop to re-ask it.
+        if not is_agent and not build_now:
+            def _slot_filled(slot_name: str) -> bool:
+                if slot_name == "capital_inr":
+                    return (slots.capital_inr is not None
+                            and not getattr(slots.assumed, "capital_inr", True))
+                if slot_name in ("view", "risk", "horizon", "asset_prefs",
+                                 "theme"):
+                    return not getattr(slots.assumed, slot_name, True)
+                return False
+            while (next_index < len(questions)
+                   and _slot_filled((questions[next_index].slot or "").strip())):
+                trace.event("clarify.slot_prefilled",
+                            slot=(questions[next_index].slot or ""))
+                next_index += 1
 
         # Stopping rule: build when the user said so, or we've run the budget.
         if build_now or next_index >= len(questions) or not questions:

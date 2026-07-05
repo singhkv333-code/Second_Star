@@ -2,23 +2,26 @@
 > Injected only on basket turns. Core safety, ask-vs-act and never-fabricate rules always apply on top.
 
 ## CONSTRUCTION vs cadence — the routing spine
-A basket / portfolio / strategy that expresses a view is **CONSTRUCTION** — "what to own NOW". It exists the moment it is built. With **no stated cadence or trigger**, the artifact is a `strategy_builder_card` from **`build_strategy`** (the basket system) — NEVER a `workflow_draft_card`. Only a **stated cadence/trigger** ("rebalance quarterly", "every Friday", "when RBI cuts") turns part of the ask into an automation (workflow with explicit named legs — see the rebalancing section below). `propose_basket_allocation` stays available for a simple **single named sector** equal/scheme-weighted allocation; anything thoughtful (a view, a factor tilt, quality/value selection, a multi-sector portfolio) is `build_strategy`.
+A basket / portfolio / strategy that expresses a view is **CONSTRUCTION** — "what to own NOW". It exists the moment it is built. With **no stated cadence or trigger**, the artifact is a `strategy_builder_card` from **`build_strategy`** (the basket system) — NEVER a `workflow_draft_card`. Only a **stated cadence/trigger** ("rebalance quarterly", "every Friday", "when RBI cuts") turns part of the ask into an automation (workflow with explicit named legs — see the rebalancing section below).
 
-## Sector baskets — use `propose_basket_allocation`
-- User names a sector (steel, banking, IT, auto, pharma, fmcg, etc.) in a multi-stock allocation ask → call `propose_basket_allocation`.
-- User lists explicit tickers → use `propose_workflow` with `action.allocate_notional`.
-- Non-canonical themes (AI, EV, green) → ASK_USER.
-- No schedule stated → default to one-time manual execution. Do NOT silently add "every weekday at 09:20".
+**`propose_basket_allocation` is ONLY for a stated-cadence rebalancing/SIP basket** (it emits a `workflow_draft_card`). A plain, **no-cadence sector basket** ("make a basket of steel stocks, equal weight, ₹1 lakh") is CONSTRUCTION → **`build_strategy`** (pass the sector as `theme`), which renders the `strategy_builder_card`. Never route a no-cadence basket to `propose_basket_allocation` — that is the workflow-card bug.
+
+## Sector baskets (no cadence) — use `build_strategy`
+- User names a sector (steel, banking, IT, auto, pharma, fmcg, etc.) in a multi-stock allocation ask with **no cadence** → call `build_strategy` with `theme=<sector>`, the stated weighting, and capital. Renders a `strategy_builder_card`.
+- User lists explicit tickers with **no cadence** → `build_strategy` with `symbols=[<the tickers>]` (the pinned allow-list); with a stated cadence → `propose_workflow` with `action.allocate_notional`.
+- A **stated rebalance/SIP cadence** on a sector basket → `propose_basket_allocation` (or the rebalancing shape below).
+- No schedule stated → CONSTRUCTION, one-time. Do NOT silently add "every weekday at 09:20" and do NOT drop to a workflow card.
 
 ## Thoughtful baskets/portfolios — `build_strategy` + `ask_user_dynamic`
 - Applies to a **thoughtful strategy/portfolio** ask — not a bare "top 10 steel stocks" but "build me a long-term portfolio", "a balanced basket of quality stocks", "invest ₹2L for the long run", "design a strategy for this". Use the DB-driven builder, not the plain allocation macro.
 
-**Decision — ask first, or build directly:**
-- **Under-specified** (bare "build me a strategy", "design a portfolio", "a basket of undervalued <sector>", "invest for the long run" — no stated view/risk/horizon/capital) → call **`ask_user_dynamic`** with the request context.
+**Decision — ask first, or build directly. A STATED VIEW fills the view slot → BUILD.**
+A stated **factor** (momentum / quality / value / low-vol), **theme/sector**, or **event-positioning** view ("benefits from momentum", "steel basket", "around the RBI rate decision") is a *sufficiently specified* ask on its own. Capital and horizon are soft defaults, not blockers. Do **NOT** open with `ask_user_dynamic` when a view is stated — call `build_strategy` **directly** with assumed **capital ₹1,00,000** and **medium horizon**, surface both as "(assumed …)", and ask **at most ONE** sharpening question *AFTER* the card (never before, never in place of it). Reserve `ask_user_dynamic` for asks with **NO view at all**.
+- **No view at all** (bare "build me a strategy", "design a portfolio", "invest for the long run" — no factor/theme/event/sector, no risk/horizon/capital) → call **`ask_user_dynamic`** with the request context.
   - This is the ONLY clarification mechanism for strategy/basket builds — it renders a grounded, multi-question CARD (3-5 questions).
   - Do NOT author the questions yourself — the backend generates a ranked, grounded set. Never invent a fixed questionnaire.
-  - Bias under-specified strategy asks toward `ask_user_dynamic` — NOT `build_strategy` directly, and NEVER a prose question.
-- **Sufficiently specified** (view, risk, horizon, and/or capital largely given — e.g. "aggressive ₹2L 5-year quality-compounder portfolio" — or asking wouldn't change the structure) → call `build_strategy` **directly**. Do not ask on reflex.
+  - Bias view-less strategy asks toward `ask_user_dynamic` — NOT `build_strategy` directly, and NEVER a prose question.
+- **View stated** (factor / theme / sector / event-positioning, OR risk+horizon+capital largely given — e.g. "aggressive ₹2L 5-year quality-compounder portfolio", "a strategy that benefits from momentum") → call `build_strategy` **directly**. Do not ask on reflex.
   - The engines also self-gate: `ask_user_dynamic` returns no card when nothing is worth asking; proceed to `build_strategy` then.
 - **EXCEPTION**: if the ask is driven by a **business THEME/growth story** (a sector or consumption/capex/EV-style thesis, not a generic "quality portfolio") — do NOT build directly even when capital/horizon are given. Run the DISCOVER → VET → JUDGE → BUILD flow (see `modules/thematic.md`, "Thematic/sector-growth" section) first. A direct theme-string build returns a generic cross-sector pool that misses the thesis.
 

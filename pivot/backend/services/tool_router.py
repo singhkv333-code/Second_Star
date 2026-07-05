@@ -620,7 +620,12 @@ _RULES: list[_Rule] = [
     # condition?" for every compound query. Still in ALL_TOOLS for
     # programmatic callers, never surfaced in chat.
     _r(
-        r"\bback\s*test(?:ed|ing)?\b|\bsimulate\b|\bif\s+i\s+had\s+(bought|invested)"
+        r"\bback\s*test(?:ed|ing)?\b|\bsimulate\b"
+        # "if I had bought/invested/put/split … and held" — a past-tense
+        # hypothetical hold is a backtest, not a clarify. Also the standalone
+        # "and held/holding" tail and the "where would I be" phrasing.
+        r"|\bif\s+i\s+had\s+(?:bought|invested|put|split|held|holding)"
+        r"|\band\s+(?:held|holding)\b|\bwhere\s+would\s+i\s+be\b"
         r"|\bhow\s+(?:would|did)\b.{0,40}\b(?:perform(?:ed)?|do(?:ne)?|fare(?:d)?)\b",
         "backtest_dsl_tree", "backtest_workflow",
     ),
@@ -1001,7 +1006,23 @@ _MODULE_RULES: list[tuple[re.Pattern, str]] = [
                 # macro/price thesis + 'what should I do' expression ask
                 r"\b(crude|oil|gold|silver|rupee|dollar|inflation|interest rates?|war|conflict|tension)"
                 r"\b.{0,70}\b(spike|surge|rally|crash|weaken|strengthen|going to|will|likely)\b"
-                r".{0,60}\b(what should i|how (do|should) i|help me|position|benefit|play|hedge)\b"),
+                r".{0,60}\b(what should i|how (do|should) i|help me|position|benefit|play|hedge)\b|"
+                # growth-story / structural-narrative phrasings (F8): a stated
+                # growth story, consumption/capex/rural theme, or supercycle is a
+                # THEMATIC construction ask → must run DISCOVER→VET→JUDGE→BUILD.
+                r"\b(growth story|consumption (story|growth|theme|play)|"
+                r"capex\s+(cycle|upcycle|boom|story)|super[- ]?cycle|"
+                r"rural (recovery|revival)|import substitution|make in india|"
+                r"production[- ]linked|\bpli\b)\b|"
+                # a growth-story SECTOR noun + a story/play/theme/supply-chain
+                # expression word (excludes bare commodity/plain-sector nouns so
+                # a plain 'steel basket' or a bare price question stays out).
+                r"\b(ev|electric vehicles?|semiconductors?|chips?|defen[cs]e|"
+                r"renewables?|solar|hydrogen|manufacturing|infra(structure)?|"
+                r"consumption|capex|5g|railways?|electronics?|batter(y|ies)|"
+                r"clean energy|data ?cent(re|er)s?)\b"
+                r"[^.]{0,45}\b(story|theme|play|super[- ]?cycle|upcycle|"
+                r"supply ?chain|boom|space|basket|portfolio|strateg(y|ies))\b"),
      "thematic"),
     (re.compile(r"\b(rbi|mpc|fomc|\bfed\b|\bcpi\b|inflation print|earnings|results day|"
                 r"policy (meeting|decision|announcement)|expiry day|corporate action)\b|"

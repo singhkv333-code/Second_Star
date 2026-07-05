@@ -175,3 +175,66 @@ def test_both_handlers_share_construction_branch():
         r'is_construction_intent = intent_kind == "construction"', src
     ))
     assert n_flags == 2, f"expected is_construction_intent in BOTH handlers, found {n_flags}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Fix-pass 2026-07-05 — residual gaps F1/F2/F5/F6/F8
+# ══════════════════════════════════════════════════════════════════════
+
+
+# ── F1: propose_basket_allocation is a workflow drafter → forced OUT ──
+
+def test_f1_basket_allocation_is_construction_force_out():
+    """A plain no-cadence sector basket must NOT reach propose_basket_allocation
+    (it emits a workflow_draft_card) — it goes through build_strategy."""
+    assert "propose_basket_allocation" in _CONSTRUCTION_FORCE_OUT
+    assert "propose_basket_allocation" not in _CONSTRUCTION_FORCE_IN
+    base = frozenset({"propose_basket_allocation", "build_strategy", "get_live_price"})
+    scoped = _apply_construction_scope(base)
+    assert "propose_basket_allocation" not in scoped
+    assert "build_strategy" in scoped
+
+
+# ── F2: thematic construction routing gated on NO contingency ────────
+
+def test_f2_thematic_scenario_routing_gated_on_contingency():
+    """A hybrid theme+cadence ("monsoon basket, rebalance quarterly") must
+    fall through the construction thematic branch so the workflow path (with
+    explicit named legs) owns it and the cadence is kept. A bare theme ask
+    still routes to construction."""
+    from backend.services.chat_service import (
+        _apply_scenario_routing, _HAS_CONTINGENCY_RE,
+    )
+    hybrid = "a basket that profits from a good monsoon, rebalance every quarter"
+    bare = "make me a basket that profits from a good monsoon"
+    assert detect_thematic_scenario(hybrid) is not None
+    assert _HAS_CONTINGENCY_RE.search(hybrid)
+    assert not _HAS_CONTINGENCY_RE.search(bare)
+
+    base = frozenset({"propose_workflow", "build_strategy", "get_live_price"})
+    tooldefs: list = []
+    # Bare theme → construction routing fires (matched=True).
+    r_bare = _apply_scenario_routing(bare, base, tooldefs, "ck")
+    assert r_bare.matched
+    # Hybrid (cadence stated) → thematic construction branch does NOT own it.
+    r_hybrid = _apply_scenario_routing(hybrid, base, tooldefs, "ck")
+    assert not r_hybrid.matched
+
+
+# ── F8: thematic module injects on growth-story phrasings ────────────
+
+def test_f8_thematic_module_injects_on_growth_story():
+    should = [
+        "Design a portfolio for India's EV supply chain story",
+        "Design a portfolio around the consumption growth story",
+        "build a basket for the capex cycle",
+        "basket to play the defence supercycle",
+        "strategy for the India consumption story",
+        "portfolio for the semiconductor story",
+    ]
+    for m in should:
+        assert "thematic" in tool_router.select_prompt_modules(m), m
+    # Precision: a plain sector basket / bare price question stays OUT.
+    for m in ["Make a basket of steel stocks, equal weight, 1 lakh",
+              "what's the price of TCS", "show me steel stocks"]:
+        assert "thematic" not in tool_router.select_prompt_modules(m), m

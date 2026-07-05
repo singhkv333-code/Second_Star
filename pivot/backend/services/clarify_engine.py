@@ -153,6 +153,29 @@ _THEME_CUES: tuple[str, ...] = (
     "defensive", "esg", "psu", "rate-cut", "rate cut", "ev ", "green",
     "ai ", "infra", "consumption", "export", "monsoon", "inflation",
 )
+# A STATED factor / macro-scenario / event-positioning view. Any of these
+# FILLS the view slot on its own (doctrine: baskets.md / events.md) — the ask
+# is then *sufficiently specified* to build directly with assumed capital +
+# horizon, so we must NOT open with a clarify card. Deterministic, narrow: a
+# named factor, a recognised macro theme, or a named macro/event beneficiary.
+_FACTOR_SCENARIO_VIEW_CUES: tuple[str, ...] = (
+    # factors
+    "momentum", "low vol", "low-vol", "min vol", "min-vol", "low volatility",
+    "quality", "value", "dividend", "compounder", "growth stocks",
+    "high beta", "high-beta", "defensive",
+    # macro scenarios / themes
+    "monsoon", "drought", "rural", "rate cut", "rate-cut", "rupee",
+    "depreciat", "crude", "oil spike", "war", "conflict", "inflation",
+    "slowdown", "recession",
+    # growth-story / sector themes
+    "ev ", "electric vehicle", "supply chain", "semiconductor", "chip",
+    "renewable", "solar", "clean energy", "hydrogen", "manufacturing",
+    "defence", "defense", "infra", "consumption", "export", "capex",
+    "upcycle", "supercycle",
+    # named macro / policy events (event-positioning fills the view slot)
+    "rbi", "mpc", "fomc", "fed ", "the fed", "cpi", "budget", "election",
+    "earnings season", "results season",
+)
 _GOLD_CUES: tuple[str, ...] = ("gold", "sgb", "goldbees", "bullion")
 _ETF_CUES: tuple[str, ...] = ("etf", "index fund", "mutual fund", "nifty bees",
                               "niftybees", "mf ", "passive")
@@ -645,6 +668,13 @@ def should_ask(request: str, slots: SlotState, ctx: object) -> bool:
     Cheap and deterministic (no I/O) so the caller can gate the expensive
     generation call behind it.
     """
+    # A STATED factor / macro-scenario / event-positioning view FILLS the view
+    # slot on its own (doctrine: baskets.md / events.md). Such an ask is
+    # sufficiently specified — build directly with assumed capital + horizon,
+    # never open with a clarify card. (Capital/horizon are soft defaults, not
+    # blockers, when a view is present.) Reserve clarify for asks with NO view.
+    if _contains_any((request or "").lower(), _FACTOR_SCENARIO_VIEW_CUES):
+        return False
     verdict = classify_slots(request, slots)
     unknown_relevant = [s for s, c in verdict.items() if c == "unknown_relevant"]
     if not unknown_relevant:
@@ -955,11 +985,134 @@ def normalize_answer_into_slots(
     return slots
 
 
+# ── Multi-slot free-text folding (resume path) ──────────────────────────────
+# Unambiguous directional/risk words only (NO "long"/"short"/"up"/"down"/
+# "growth"/"high"/"low" — those collide with horizon/capital and would
+# mis-fire when a user answers several slots in one free-text line).
+_VIEW_WORD_RE = re.compile(
+    r"\b(bullish|bull|bearish|bear|rally|rallies|rallying|uptrend|downtrend|"
+    r"crash|crashing|neutral|sideways|range[- ]?bound|choppy)\b", re.IGNORECASE)
+_RISK_WORD_RE = re.compile(
+    r"\b(aggressive|conservative|balanced|defensive|cautious|moderate|risky|"
+    r"moonshot|safe|low[- ]risk|high[- ]risk|capital preservation|preserve)\b",
+    re.IGNORECASE)
+# Horizon by explicit duration. Years ≥5 → long; 1-4y (or "1-5") → medium;
+# weeks/months → tactical.
+_YEARS_RE = re.compile(r"(\d+)\s*(?:\+|plus)?\s*(?:\+\s*)?(?:y\b|yrs?\b|years?\b)",
+                       re.IGNORECASE)
+_HORIZON_PHRASE_RE = re.compile(
+    r"\b(long[- ]?term|short[- ]?term|medium[- ]?term|tactical|swing|intraday|"
+    r"decade|retire\w*|forever|few years)\b", re.IGNORECASE)
+_SUB_YEAR_RE = re.compile(r"\b(\d+)?\s*(week|month|quarter)s?\b", re.IGNORECASE)
+
+
+def _view_from_word(w: str) -> Optional[str]:
+    low = w.lower().replace("-", " ").replace("bearish", "bear").replace(
+        "bullish", "bull")
+    if "bull" in low or "rally" in low or "rallies" in low or "uptrend" in low:
+        return "bull"
+    if "bear" in low or "crash" in low or "downtrend" in low:
+        return "bear"
+    return "neutral"
+
+
+def _risk_from_word(w: str) -> Optional[str]:
+    low = w.lower()
+    if any(k in low for k in ("aggressive", "risky", "moonshot", "high")):
+        return "aggressive"
+    if any(k in low for k in ("conservative", "defensive", "cautious", "safe",
+                              "low", "preserv")):
+        return "conservative"
+    if any(k in low for k in ("balanced", "moderate")):
+        return "balanced"
+    return None
+
+
+def _horizon_from_text(t: str) -> Optional[str]:
+    ph = _HORIZON_PHRASE_RE.search(t)
+    yrs = [int(m.group(1)) for m in _YEARS_RE.finditer(t)]
+    if ph:
+        p = ph.group(1).lower().replace("-", " ").replace(" ", "")
+        if p in ("longterm", "decade", "forever") or p.startswith("retire"):
+            return "long"
+        if p in ("shortterm", "tactical", "swing", "intraday"):
+            return "tactical"
+        if p in ("mediumterm", "fewyears"):
+            return "medium"
+    if yrs:
+        return "long" if max(yrs) >= 5 else "medium"
+    if _SUB_YEAR_RE.search(t) and not yrs:
+        return "tactical"
+    return None
+
+
+def fold_free_text_into_slots(text: str, slots: SlotState) -> SlotState:
+    """Fold a FREE-TEXT clarify answer across EVERY slot it mentions — capital,
+    horizon, risk, view — not just the currently-asked question. A user often
+    answers several slots in one line ("Around 3 lakh, 5 plus years, equities
+    only."); without this the resume path re-asks a slot the user already
+    answered (the observed bug). Only fills slots still flagged ``assumed`` /
+    unset — never overrides a real prior answer. Mutates and returns ``slots``."""
+    t = (text or "").strip()
+    if not t:
+        return slots
+    assumed = slots.assumed
+
+    # capital — reuse the project ₹ parser ("3 lakh" → 300000).
+    if slots.capital_inr is None or getattr(assumed, "capital_inr", True):
+        cap = _detect_capital(t)
+        if cap is not None:
+            slots.capital_inr = float(cap)
+            slots.mark_assumed("capital_inr", value=False)
+
+    # horizon
+    if getattr(assumed, "horizon", True):
+        h = _horizon_from_text(t)
+        if h is not None:
+            slots.horizon = h  # type: ignore[assignment]
+            slots.mark_assumed("horizon", value=False)
+
+    # risk
+    if getattr(assumed, "risk", True):
+        m = _RISK_WORD_RE.search(t)
+        r = _risk_from_word(m.group(1)) if m else None
+        if r is not None:
+            slots.risk = r  # type: ignore[assignment]
+            slots.mark_assumed("risk", value=False)
+
+    # view
+    if getattr(assumed, "view", True):
+        m = _VIEW_WORD_RE.search(t)
+        v = _view_from_word(m.group(1)) if m else None
+        if v is not None:
+            slots.view.direction = v  # type: ignore[assignment]
+            slots.mark_assumed("view", value=False)
+
+    # asset prefs — additive opt-in/opt-out from words in the same line.
+    low = t.lower()
+    if any(k in low for k in ("equity only", "equities only", "only stocks",
+                              "just stocks", "stocks only", "no gold",
+                              "no derivatives", "no options", "gold", "sgb",
+                              "etf", "mutual fund", "index fund")):
+        if "gold" in low or "sgb" in low:
+            if "gold" not in slots.asset_prefs.allow:
+                slots.asset_prefs.allow.append("gold")  # type: ignore[arg-type]
+        if "no gold" in low:
+            slots.asset_prefs.deny.append("gold")  # type: ignore[arg-type]
+        if "etf" in low or "mutual fund" in low or "index fund" in low:
+            if "etf_mf" not in slots.asset_prefs.allow:
+                slots.asset_prefs.allow.append("etf_mf")  # type: ignore[arg-type]
+        slots.mark_assumed("asset_prefs", value=False)
+
+    return slots
+
+
 __all__ = [
     "classify_slots",
     "should_ask",
     "generate_clarify_card",
     "normalize_answer_into_slots",
+    "fold_free_text_into_slots",
     "SlotClass",
 ]
 
