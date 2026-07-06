@@ -423,7 +423,16 @@ const RUN_TRIGGER_LABELS: Record<string, string> = {
 function runHeadline(run: Run): string {
   if (run.status === "running") return "Run in progress";
   if (run.status === "awaiting_approval") return "Run paused for approval";
-  if (run.status === "succeeded") return "Run completed";
+  if (run.status === "succeeded") {
+    // A run can "succeed" by correctly deciding NOT to act — e.g. a manual
+    // test of a schedule/price/indicator trigger outside its condition. That
+    // is a distinct, important outcome from "everything actually ran" and
+    // must never read as a plain green success (2026-07-06 live-test fix).
+    if (run.halt_reason === "condition_not_met") {
+      return "Condition not met — no action taken";
+    }
+    return "Run completed";
+  }
   if (run.status === "failed") return "Run failed";
   if (run.status === "cancelled") return "Run cancelled";
   return "Run";

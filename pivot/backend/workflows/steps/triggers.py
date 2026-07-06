@@ -1,21 +1,37 @@
 """Trigger step executors.
 
 Triggers always live at step_index=0 and have max_retries=0 (§7
-invariant 3). For the v1 demo path we ship `trigger.manual` and
-`trigger.schedule` as no-ops: by the time the engine reaches them, the
-trigger has already fired (the scheduler / "Run now" handler created
-the run row). The executor's job is purely to log the fire and return
-None so the engine moves on to step 1.
+invariant 3). For auto-fired runs, the scheduler/watcher already
+confirmed the condition before creating the run row, so these
+executors are mostly a no-op logging point.
 
-The remaining triggers (price/indicator/event/webhook) stay as
-NotImplementedError stubs — they are wired Day 3-4 once the watcher
-exists. The catalog still publishes them so the frontend renders them
-in the picker, but trying to *execute* one will fail the run.
+RE-VERIFICATION (2026-07-06 live-test fix): a MANUAL run
+(`POST /workflows/{id}/run`) creates the run WITHOUT any pre-check —
+before this fix, the no-op trigger executors let it sail straight
+through to the action steps regardless of whether the condition was
+anywhere close to true (e.g. a "buy at 9:20 AM" schedule agent,
+manually run at 3:35 PM, placed a real paper order). schedule/price/
+indicator/compound triggers now RE-CHECK the live condition inside
+their own executor — for EVERY run, not just manual ones (a single,
+unconditional source of truth beats trusting every future caller to
+pre-check correctly) — and raise `_ConditionFail` when it is
+confirmed NOT currently true, so the engine halts the run cleanly
+with `succeeded` + `halt_reason='condition_not_met'` (the same outcome
+`condition.*` steps already use) instead of silently executing the
+action. Data-fetch failures fail OPEN (proceed) — we only block on a
+*confirmed* false, never on "couldn't tell right now".
+
+The remaining event-driven triggers (event/webhook/scheduled_macro/
+polymarket/kalshi/ipo_open/manual) have no live point-in-time
+condition to re-derive this way and stay pass-through — manually
+testing them without waiting for the real-world event is the whole
+point of a manual run for that class.
 """
 from __future__ import annotations
 
 from typing import Any, Optional
 
+from backend.workflows.engine import _ConditionFail
 from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
     TriggerCompoundConfig,
@@ -37,6 +53,46 @@ from backend.workflows.schemas import (
 )
 
 
+_SCHEDULE_TOLERANCE_SECONDS = 300  # ±5 min around the cron's exact minute
+
+
+def _schedule_condition_holds_now(cfg: dict[str, Any]) -> bool:
+    """True iff `cfg`'s schedule (cron OR one-time run_at) is genuinely due
+    within `_SCHEDULE_TOLERANCE_SECONDS` of right now. False only on a
+    DEFINITIVE mismatch (e.g. a 9:20 AM cron checked at 3:35 PM) — a
+    malformed/missing schedule fails OPEN (returns True) so a config the
+    activate-time validator already accepted never blocks a legitimate run."""
+    import datetime as _dt
+
+    from backend.workflows.scheduler import InvalidCronError, compute_next_run_at
+
+    tz_str = str(cfg.get("timezone") or "Asia/Kolkata")
+    now = _dt.datetime.now(_dt.timezone.utc)
+    run_at = cfg.get("run_at")
+    if run_at:
+        try:
+            dt = _dt.datetime.fromisoformat(str(run_at).replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        if dt.tzinfo is None:
+            from pytz import timezone as _pytz_tz
+            tz = _pytz_tz(tz_str)
+            dt = tz.localize(dt) if hasattr(tz, "localize") else dt.replace(tzinfo=tz)
+        return abs((dt.astimezone(_dt.timezone.utc) - now).total_seconds()) \
+            <= _SCHEDULE_TOLERANCE_SECONDS
+    cron = cfg.get("cron")
+    if not cron:
+        return True
+    try:
+        nxt = compute_next_run_at(
+            str(cron), tz_str,
+            after=now - _dt.timedelta(seconds=_SCHEDULE_TOLERANCE_SECONDS + 1),
+        )
+    except InvalidCronError:
+        return True
+    return abs((nxt - now).total_seconds()) <= _SCHEDULE_TOLERANCE_SECONDS
+
+
 @register_step(
     step_type="trigger.schedule",
     category="trigger",
@@ -53,9 +109,13 @@ from backend.workflows.schemas import (
     group="Schedule & time",
 )
 async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
-    """No-op: the scheduler already decided this should fire. The
-    workflow_runs row carries `triggered_by='schedule'` so the audit
-    trail is complete."""
+    """Re-checks the schedule is genuinely due right now (±5 min) before
+    letting the run proceed — see the module docstring for why. An
+    auto-fired run is always within tolerance (the poller just fired it);
+    a manual run far outside the window is blocked instead of silently
+    placing an order."""
+    if not _schedule_condition_holds_now(ctx.config or {}):
+        raise _ConditionFail
     return None
 
 
@@ -75,10 +135,33 @@ async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
     group="Price, indicators & exits",
 )
 async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
-    """No-op: the watcher (backend/workflows/scheduler.py:_poll_watch_triggers)
-    is what actually fires this trigger. By the time the engine reaches
-    this executor, the run row already carries `triggered_by='price_alert'`.
-    The executor's only job is to log + return None so step 1 runs."""
+    """Re-checks the price condition against a LIVE quote before letting the
+    run proceed (see module docstring). Reuses the watcher's own
+    `_matches_threshold` so "condition met" means the identical thing here
+    and on the auto-fired path. A quote fetch failure fails OPEN (we
+    couldn't tell, so don't block); a quote that clearly does NOT satisfy
+    the operator/threshold raises `_ConditionFail`."""
+    from backend.workflows.scheduler import _LAST_PRICE_KEY, _matches_threshold
+
+    cfg = ctx.config or {}
+    sym = str(cfg.get("symbol", "")).upper()
+    exch = str(cfg.get("exchange", "NSE")).upper()
+    operator = str(cfg.get("operator", ""))
+    threshold = float(cfg.get("value", 0.0))
+    if not sym or not operator:
+        return None
+    try:
+        from backend.workflows.scheduler import _batch_fetch_prices
+        quotes = _batch_fetch_prices([f"{exch}:{sym}"])
+    except Exception:
+        return None  # data unavailable — fail open
+    current = quotes.get(f"{exch}:{sym}")
+    if current is None:
+        return None
+    last_raw = cfg.get(_LAST_PRICE_KEY)
+    last = float(last_raw) if isinstance(last_raw, (int, float)) else None
+    if not _matches_threshold(operator, current, threshold, last):
+        raise _ConditionFail
     return None
 
 
@@ -98,9 +181,33 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     group="Price, indicators & exits",
 )
 async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
-    """No-op: same reasoning as trigger.price. The watcher fires the
-    run with `triggered_by='indicator_alert'`; this executor just
-    acknowledges."""
+    """Re-checks the indicator condition against a freshly-computed value
+    before letting the run proceed (see module docstring). Data/compute
+    failure fails OPEN; a value that clearly does NOT satisfy the
+    operator/threshold raises `_ConditionFail`."""
+    from backend.workflows.scheduler import (
+        _LAST_VALUE_KEY, _compute_indicator_sync, _matches_threshold,
+    )
+
+    cfg = ctx.config or {}
+    sym = str(cfg.get("symbol", "")).upper()
+    indicator = str(cfg.get("indicator", "")).lower()
+    operator = str(cfg.get("operator", ""))
+    if not sym or not indicator or not operator:
+        return None
+    period = int(cfg.get("period", 14))
+    threshold = float(cfg.get("value", 0.0))
+    timeframe = str(cfg.get("timeframe") or "daily").lower()
+    try:
+        value = _compute_indicator_sync(sym, indicator, period, timeframe)
+    except Exception:
+        return None  # data unavailable — fail open
+    if value is None:
+        return None
+    last_raw = cfg.get(_LAST_VALUE_KEY)
+    last = float(last_raw) if isinstance(last_raw, (int, float)) else None
+    if not _matches_threshold(operator, value, threshold, last):
+        raise _ConditionFail
     return None
 
 
@@ -145,11 +252,33 @@ async def execute_trigger_expiry_day(ctx: Any) -> Optional[dict[str, Any]]:
     group="Price, indicators & exits",
 )
 async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
-    """No-op: the watcher (backend/workflows/scheduler.py) evaluates
-    the tree on each tick. By the time the engine reaches this
-    executor, the run row already carries an indicator_alert /
-    price_alert triggered_by (the watcher picks the closest match)
-    and the audit_context records which tree fired."""
+    """Re-walks the DSL tree against LIVE data before letting the run
+    proceed (see module docstring) — the identical evaluator the watcher
+    uses. A parse/eval failure fails OPEN; a tree that resolves to
+    anything other than TRUE raises `_ConditionFail`."""
+    cfg = ctx.config or {}
+    entry_raw = cfg.get("entry")
+    if not isinstance(entry_raw, dict):
+        return None
+    last_values_raw = cfg.get("_last_values")
+    prev_state: dict[str, float] = (
+        {k: float(v) for k, v in last_values_raw.items()
+         if isinstance(v, (int, float))}
+        if isinstance(last_values_raw, dict) else {}
+    )
+    try:
+        from pydantic import TypeAdapter
+
+        from backend.workflows.dsl.data_accessor import LiveDataAccessor
+        from backend.workflows.dsl.evaluator import Ternary, evaluate
+        from backend.workflows.dsl.schema import Tree
+
+        tree = TypeAdapter(Tree).validate_python(entry_raw)
+        result = evaluate(tree, accessor=LiveDataAccessor(), prev_state=prev_state)
+    except Exception:
+        return None  # parse/data failure — fail open
+    if result.value is not Ternary.TRUE:
+        raise _ConditionFail
     return None
 
 
