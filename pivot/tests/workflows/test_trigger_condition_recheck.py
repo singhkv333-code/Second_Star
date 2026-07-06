@@ -146,6 +146,15 @@ def test_manual_run_of_schedule_within_window_proceeds(
     final = db.query(models.WorkflowRun).filter_by(id=run.id).one()
     assert final.status == models.RunStatus.succeeded
     assert final.halt_reason is None
+    # 2026-07-06 audit finding: the trigger step now records a forensic
+    # snapshot of what confirmed it, instead of a bare no-op None.
+    trigger_step = (
+        db.query(models.WorkflowRunStep)
+        .filter_by(run_id=run.id, step_index=0)
+        .one()
+    )
+    assert trigger_step.output is not None
+    assert trigger_step.output.get("cron") == "20 9 * * 1-5"
     order_step = (
         db.query(models.WorkflowRunStep)
         .filter_by(run_id=run.id, step_index=1)
@@ -258,3 +267,11 @@ def test_manual_run_of_indicator_trigger_met_proceeds(
     final = db.query(models.WorkflowRun).filter_by(id=run.id).one()
     assert final.status == models.RunStatus.succeeded
     assert final.halt_reason is None
+    trigger_step = (
+        db.query(models.WorkflowRunStep)
+        .filter_by(run_id=run.id, step_index=0)
+        .one()
+    )
+    assert trigger_step.output["observed_value"] == 22.0
+    assert trigger_step.output["threshold"] == 30.0
+    assert trigger_step.output["indicator"] == "rsi"

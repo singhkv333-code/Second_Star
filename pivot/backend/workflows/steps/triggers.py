@@ -105,7 +105,14 @@ def _schedule_condition_holds_now(cfg: dict[str, Any]) -> bool:
     max_retries=0,
     trigger_only=True,
     config_model=TriggerScheduleConfig,
-    output_schema=None,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "confirmed_at": {"type": "string", "format": "date-time"},
+            "cron": {"type": ["string", "null"]},
+            "run_at": {"type": ["string", "null"]},
+        },
+    },
     group="Schedule & time",
 )
 async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
@@ -113,10 +120,23 @@ async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
     letting the run proceed — see the module docstring for why. An
     auto-fired run is always within tolerance (the poller just fired it);
     a manual run far outside the window is blocked instead of silently
-    placing an order."""
-    if not _schedule_condition_holds_now(ctx.config or {}):
+    placing an order.
+
+    Records the confirmation on WorkflowRunStep.output (2026-07-06 audit
+    finding: trigger steps previously returned None, so a fired run carried
+    NO forensic snapshot of what made it fire — auditing historical fires
+    meant reading the step's current, since-mutated config instead of what
+    was true at THIS run's moment)."""
+    import datetime as _dt
+
+    cfg = ctx.config or {}
+    if not _schedule_condition_holds_now(cfg):
         raise _ConditionFail
-    return None
+    return {
+        "confirmed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "cron": cfg.get("cron"),
+        "run_at": cfg.get("run_at"),
+    }
 
 
 @register_step(
@@ -131,7 +151,15 @@ async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=0,
     trigger_only=True,
     config_model=TriggerPriceConfig,
-    output_schema=None,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "observed_price": {"type": "number"},
+            "threshold": {"type": "number"},
+            "operator": {"type": "string"},
+            "confirmed_at": {"type": "string", "format": "date-time"},
+        },
+    },
     group="Price, indicators & exits",
 )
 async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
@@ -140,7 +168,15 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     `_matches_threshold` so "condition met" means the identical thing here
     and on the auto-fired path. A quote fetch failure fails OPEN (we
     couldn't tell, so don't block); a quote that clearly does NOT satisfy
-    the operator/threshold raises `_ConditionFail`."""
+    the operator/threshold raises `_ConditionFail`.
+
+    On success, records {observed_price, threshold, operator, confirmed_at}
+    on WorkflowRunStep.output — a permanent per-run snapshot of exactly what
+    made this fire (2026-07-06 audit finding: the prior no-op left no
+    forensic trail; auditing a historical fire meant reading the step's
+    CURRENT, since-mutated config instead of the value at THIS run's moment)."""
+    import datetime as _dt
+
     from backend.workflows.scheduler import _LAST_PRICE_KEY, _matches_threshold
 
     cfg = ctx.config or {}
@@ -162,7 +198,12 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     last = float(last_raw) if isinstance(last_raw, (int, float)) else None
     if not _matches_threshold(operator, current, threshold, last):
         raise _ConditionFail
-    return None
+    return {
+        "observed_price": current,
+        "threshold": threshold,
+        "operator": operator,
+        "confirmed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
 
 
 @register_step(
@@ -177,14 +218,29 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=0,
     trigger_only=True,
     config_model=TriggerIndicatorConfig,
-    output_schema=None,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "observed_value": {"type": "number"},
+            "threshold": {"type": "number"},
+            "operator": {"type": "string"},
+            "indicator": {"type": "string"},
+            "confirmed_at": {"type": "string", "format": "date-time"},
+        },
+    },
     group="Price, indicators & exits",
 )
 async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     """Re-checks the indicator condition against a freshly-computed value
     before letting the run proceed (see module docstring). Data/compute
     failure fails OPEN; a value that clearly does NOT satisfy the
-    operator/threshold raises `_ConditionFail`."""
+    operator/threshold raises `_ConditionFail`.
+
+    On success, records {observed_value, threshold, operator, indicator,
+    confirmed_at} on WorkflowRunStep.output (2026-07-06 audit finding — see
+    execute_trigger_price's docstring)."""
+    import datetime as _dt
+
     from backend.workflows.scheduler import (
         _LAST_VALUE_KEY, _compute_indicator_sync, _matches_threshold,
     )
@@ -208,7 +264,13 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     last = float(last_raw) if isinstance(last_raw, (int, float)) else None
     if not _matches_threshold(operator, value, threshold, last):
         raise _ConditionFail
-    return None
+    return {
+        "observed_value": value,
+        "threshold": threshold,
+        "operator": operator,
+        "indicator": indicator,
+        "confirmed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
 
 
 @register_step(
@@ -248,14 +310,26 @@ async def execute_trigger_expiry_day(ctx: Any) -> Optional[dict[str, Any]]:
     max_retries=0,
     trigger_only=True,
     config_model=TriggerCompoundConfig,
-    output_schema=None,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "new_state": {"type": "object"},
+            "confirmed_at": {"type": "string", "format": "date-time"},
+        },
+    },
     group="Price, indicators & exits",
 )
 async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
     """Re-walks the DSL tree against LIVE data before letting the run
     proceed (see module docstring) — the identical evaluator the watcher
     uses. A parse/eval failure fails OPEN; a tree that resolves to
-    anything other than TRUE raises `_ConditionFail`."""
+    anything other than TRUE raises `_ConditionFail`.
+
+    On success, records the tree's resolved leaf values + confirmed_at on
+    WorkflowRunStep.output (2026-07-06 audit finding — see
+    execute_trigger_price's docstring)."""
+    import datetime as _dt
+
     cfg = ctx.config or {}
     entry_raw = cfg.get("entry")
     if not isinstance(entry_raw, dict):
@@ -279,7 +353,10 @@ async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
         return None  # parse/data failure — fail open
     if result.value is not Ternary.TRUE:
         raise _ConditionFail
-    return None
+    return {
+        "new_state": result.new_state,
+        "confirmed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
 
 
 @register_step(
