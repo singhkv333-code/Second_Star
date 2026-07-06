@@ -243,6 +243,16 @@ def test_manual_run_of_indicator_trigger_not_met_does_not_place_order(
     final = db.query(models.WorkflowRun).filter_by(id=run.id).one()
     assert final.status == models.RunStatus.succeeded
     assert final.halt_reason == "condition_not_met"
+    # A blocked fire still records WHY (2026-07-06 trade-log completeness
+    # fix) — not just the bare {"passed": False} it used to.
+    trigger_step = (
+        db.query(models.WorkflowRunStep)
+        .filter_by(run_id=run.id, step_index=0)
+        .one()
+    )
+    assert trigger_step.output["passed"] is False
+    assert trigger_step.output["observed_value"] == 66.6
+    assert trigger_step.output["threshold"] == 30.0
 
 
 def test_manual_run_of_indicator_trigger_met_proceeds(

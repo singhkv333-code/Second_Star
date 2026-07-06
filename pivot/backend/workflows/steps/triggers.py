@@ -130,10 +130,14 @@ async def execute_trigger_schedule(ctx: Any) -> Optional[dict[str, Any]]:
     import datetime as _dt
 
     cfg = ctx.config or {}
+    now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
     if not _schedule_condition_holds_now(cfg):
-        raise _ConditionFail
+        raise _ConditionFail({
+            "checked_at": now_iso, "cron": cfg.get("cron"),
+            "run_at": cfg.get("run_at"),
+        })
     return {
-        "confirmed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "confirmed_at": now_iso,
         "cron": cfg.get("cron"),
         "run_at": cfg.get("run_at"),
     }
@@ -197,7 +201,10 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
     last_raw = cfg.get(_LAST_PRICE_KEY)
     last = float(last_raw) if isinstance(last_raw, (int, float)) else None
     if not _matches_threshold(operator, current, threshold, last):
-        raise _ConditionFail
+        raise _ConditionFail({
+            "observed_price": current, "threshold": threshold, "operator": operator,
+            "checked_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        })
     return {
         "observed_price": current,
         "threshold": threshold,
@@ -263,7 +270,11 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     last_raw = cfg.get(_LAST_VALUE_KEY)
     last = float(last_raw) if isinstance(last_raw, (int, float)) else None
     if not _matches_threshold(operator, value, threshold, last):
-        raise _ConditionFail
+        raise _ConditionFail({
+            "observed_value": value, "threshold": threshold,
+            "operator": operator, "indicator": indicator,
+            "checked_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        })
     return {
         "observed_value": value,
         "threshold": threshold,
@@ -352,7 +363,11 @@ async def execute_trigger_compound(ctx: Any) -> Optional[dict[str, Any]]:
     except Exception:
         return None  # parse/data failure — fail open
     if result.value is not Ternary.TRUE:
-        raise _ConditionFail
+        raise _ConditionFail({
+            "new_state": result.new_state,
+            "resolved_to": str(result.value),
+            "checked_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        })
     return {
         "new_state": result.new_state,
         "confirmed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),

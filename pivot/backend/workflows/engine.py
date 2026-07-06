@@ -573,11 +573,13 @@ class WorkflowEngine:
 
             try:
                 output = _run_executor(defn.executor, ctx)
-            except _ConditionFail:
-                # Condition step explicitly signalled fail-closed.
+            except _ConditionFail as cf:
+                # Condition step explicitly signalled fail-closed. Carries
+                # the observed value/threshold when the raiser supplied one
+                # (trigger.* re-checks do; plain condition.* steps don't).
                 rs.status = StepStatus.succeeded
                 rs.finished_at = _utcnow()
-                rs.output = {"passed": False}
+                rs.output = {"passed": False, **(cf.detail or {})}
                 rs.attempts = attempt
                 db.commit()
                 self._publish_step(run.id, rs)
@@ -762,9 +764,21 @@ class _ExecutorContext:
 
 
 class _ConditionFail(Exception):
-    """Internal signal raised by condition.* executors when their
-    predicate is false. The engine catches this and terminates the run
-    with `succeeded` + `halt_reason='condition_not_met'`."""
+    """Internal signal raised by condition.* / trigger.* executors when
+    their predicate is false. The engine catches this and terminates the
+    run with `succeeded` + `halt_reason='condition_not_met'`.
+
+    ``detail`` is an OPTIONAL forensic snapshot of what was actually
+    observed (e.g. {"observed_value": 75.3, "threshold": 35.0, "operator":
+    "<"}) — 2026-07-06 audit finding: a condition_not_met step previously
+    always recorded the bare {"passed": False}, so there was no record of
+    HOW FAR OFF a blocked run's condition was. Existing bare `raise
+    _ConditionFail` call sites are unaffected (detail defaults to None ->
+    the engine falls back to {"passed": False})."""
+
+    def __init__(self, detail: Optional[dict[str, Any]] = None) -> None:
+        super().__init__()
+        self.detail = detail
 
 
 class _AwaitingApproval(Exception):
