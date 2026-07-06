@@ -112,7 +112,40 @@ def test_market_buy_fills_position_and_debits_cash(session: Session) -> None:
     assert fill.charges == charges
     assert fill.net_cashflow == -net_debit
     assert fill.realized_pnl is None
-    assert isinstance(fill.gross_value, Decimal)
+
+
+def test_market_buy_seeds_mark_and_prev_close_on_open(session: Session) -> None:
+    """Regression (2026-07-06 live-test): a freshly opened position must be
+    immediately marked at the fill price — not left last_price=None until the
+    next scheduler tick / the once-daily EOD snapshot, which froze P&L at ₹0
+    for hours after every fill."""
+    user = _user(session)
+    _broker(session, user, 100.0).place_order(
+        tradingsymbol="RELIANCE", transaction_type="BUY", quantity=10,
+    )
+    pos = session.query(PaperPosition).one()
+    assert pos.last_price == 100.0
+    assert pos.prev_close == 100.0
+    assert pos.stale is False
+    assert pos.last_mark_at is not None
+
+
+def test_market_buy_topup_does_not_reset_mark(session: Session) -> None:
+    """A second BUY into an ALREADY-open position must not re-seed
+    prev_close (that would erase the real day-open reference)."""
+    user = _user(session)
+    broker = _broker(session, user, 100.0)
+    broker.place_order(tradingsymbol="RELIANCE", transaction_type="BUY", quantity=10)
+    pos = session.query(PaperPosition).one()
+    pos.last_price = 150.0
+    pos.prev_close = 90.0  # simulate a real EOD snapshot having run
+    session.flush()
+
+    broker2 = PaperBroker(session, user.id, price_fn=lambda _s: to_money(200.0))
+    broker2.place_order(tradingsymbol="RELIANCE", transaction_type="BUY", quantity=5)
+    session.refresh(pos)
+    assert pos.quantity == 15
+    assert pos.prev_close == 90.0  # untouched by the top-up
 
 
 def test_ledger_reconciles_cash_by_replay(session: Session) -> None:

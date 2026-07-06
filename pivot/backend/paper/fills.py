@@ -113,12 +113,26 @@ def execute_market_fill(
         pos = _get_or_create_position(
             db, order.account_id, order.user_id, order.symbol,
         )
+        was_flat = pos.quantity == 0
         # avg_cost compounds, inclusive of buy charges.
         new_qty = pos.quantity + qty
         pos.avg_cost = to_money(
             (to_money(pos.avg_cost) * pos.quantity + net_debit) / new_qty
         )
         pos.quantity = new_qty
+        if was_flat:
+            # Seed an immediate mark + a same-day reference at the moment a
+            # position OPENS, rather than leaving last_price/prev_close None
+            # until the next scheduler tick / the once-daily EOD snapshot.
+            # Without this, P&L reads ₹0 for hours after a fill (last_price
+            # None -> falls back to avg_cost) and "Day P&L" has no reference
+            # until tomorrow. prev_close=fill_price makes today's day-P&L
+            # read as "move since I bought it"; the EOD snapshot correctly
+            # overwrites prev_close to the real close from then on.
+            pos.last_price = float(price)
+            pos.last_mark_at = now_ist()
+            pos.prev_close = float(price)
+            pos.stale = False
         realized: Optional[Decimal] = None
         ledger_kind = "buy_debit"
         settles_at = None

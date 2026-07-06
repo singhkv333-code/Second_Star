@@ -36,9 +36,18 @@ from backend.paper.marks import get_mark_price  # Kite-primary, yf fallback
 _EXIT_EPSILON = 1e-6
 
 # The honest note stamped on option/hedge positions (no fabricated marks).
+# Kept as the LIVE-mode wording (real broker fill) for backward compat with
+# any code importing the bare constant; `create_position` below picks the
+# paper-mode variant when the account is in paper mode, since "track the fill
+# in your broker app" is factually wrong there — nothing was sent to a broker.
 PRICED_AT_DEPLOY_NOTE = (
     "Options structure — strikes are set when you place it, so the ledger "
     "can't price it from here. Track the fill in your broker app."
+)
+PRICED_AT_DEPLOY_NOTE_PAPER = (
+    "Options structure — strikes are set when it fires, so the ledger can't "
+    "price it from here. Check the Agents tab for this workflow's armed "
+    "status and its simulated fills."
 )
 
 # Every exit response carries this (register-not-execute).
@@ -193,6 +202,18 @@ def create_position(
     legs, note = position_legs(expression)
     for leg in legs:
         leg["entry_price"] = _mark(leg["symbol"])
+
+    if note == PRICED_AT_DEPLOY_NOTE:
+        # "Track the fill in your broker app" is only true in LIVE mode — a
+        # paper deploy never contacts a broker (see paper/routing.should_use_
+        # paper). Swap to the paper-accurate wording so the ledger never
+        # points the user somewhere nothing happened.
+        try:
+            from backend.paper.routing import should_use_paper
+            if should_use_paper(db, int(user_id)):
+                note = PRICED_AT_DEPLOY_NOTE_PAPER
+        except Exception:  # noqa: BLE001 — the LIVE note is still accurate
+            pass
 
     pos = ViewPosition(
         user_id=user_id,

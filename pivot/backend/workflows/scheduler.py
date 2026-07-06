@@ -228,6 +228,84 @@ def _resolve_market_relative_time(cfg: dict[str, object]) -> tuple[str, str]:
     return cron, tz
 
 
+
+# ── POSIX day-of-week -> APScheduler day-name translation ──────────────
+#
+# BUG (found 2026-07-06 live-testing the beta): `CronTrigger.from_crontab`
+# does NOT implement standard crontab day-of-week semantics (0/7=Sunday,
+# 1=Monday, ..., 6=Saturday). It hands numeric day-of-week digits straight to
+# APScheduler's OWN `day_of_week` field, whose convention is 0=Monday..
+# 6=Sunday (matching `datetime.weekday()`, not cron). Every cron string this
+# app builds — via `_dow_field` below, `workflow_macros.py`'s Monday/quarterly
+# helpers, and the LLM's `propose_workflow`/`propose_scheduled_order` calls —
+# assumes the POSIX convention (the same one `chat_service._workflow_skeleton_
+# caption`'s dow_label map and `workflow_backtester.py`'s `_CRON_DOW_MAP`
+# correctly use). Net effect: EVERY day-specific schedule (weekly, "every
+# weekday", any named day) fired one day late — e.g. "every Monday" fired
+# Tuesday, and "every weekday" (1-5) fired Tue-Sat (skipping Monday, running
+# on the closed Saturday). Confirmed empirically:
+#   CronTrigger.from_crontab("15 9 * * 1", ...) -> fires Tuesday, not Monday.
+#
+# Fix: translate the day-of-week field to APScheduler-safe day NAMES (proven
+# unambiguous — `from_crontab("... mon-fri")` fires correctly Mon-Fri) before
+# constructing the trigger. Idempotent on a field that already uses names.
+_POSIX_DOW_NAMES = {0: "sun", 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri", 6: "sat", 7: "sun"}
+_DOW_DISPLAY_ORDER = (1, 2, 3, 4, 5, 6, 0)  # mon..sun, for stable output
+
+
+def _posix_dow_field_to_names(field: str) -> str:
+    """Translate a POSIX-cron day-of-week field to a comma list of day names.
+
+    Supports the standard field grammar: `*`, single values, comma lists,
+    ranges (`a-b`), and steps (`*/n`, `a-b/n`). A field that already contains
+    letters (day names, or an already-safe `*`) passes through untouched.
+    Falls back to the original field on any parse error — a schedule that
+    can't be understood should fail loudly downstream (invalid cron), not
+    silently misfire from a translation bug.
+    """
+    field = field.strip()
+    if field == "*" or not field or any(c.isalpha() for c in field):
+        return field
+    try:
+        matched: set[int] = set()
+        for part in field.split(","):
+            part = part.strip()
+            if "/" in part:
+                base, step_s = part.split("/", 1)
+                step = int(step_s)
+            else:
+                base, step = part, 1
+            if base == "*":
+                lo, hi = 0, 6
+            elif "-" in base:
+                lo_s, hi_s = base.split("-", 1)
+                lo, hi = int(lo_s), int(hi_s)
+            else:
+                lo = hi = int(base)
+            v = lo
+            while v <= hi:
+                matched.add(v % 7)  # folds POSIX 7 (Sunday) -> 0 (Sunday)
+                v += step
+        if not matched:
+            return field
+        return ",".join(
+            _POSIX_DOW_NAMES[d] for d in _DOW_DISPLAY_ORDER if d in matched
+        )
+    except (ValueError, KeyError):
+        return field
+
+
+def _normalize_cron_dow(cron: str) -> str:
+    """Rewrite a 5-field cron string's day-of-week field to safe day names.
+    Non-5-field input passes through unchanged (caller's from_crontab will
+    raise its own InvalidCronError for a malformed expression)."""
+    parts = cron.split()
+    if len(parts) != 5:
+        return cron
+    parts[4] = _posix_dow_field_to_names(parts[4])
+    return " ".join(parts)
+
+
 def compute_next_run_at(
     cron: str,
     tz_str: str,
@@ -244,7 +322,7 @@ def compute_next_run_at(
     except Exception as e:  # pytz.UnknownTimeZoneError, etc.
         raise InvalidCronError(f"unknown timezone: {tz_str}") from e
     try:
-        trigger = CronTrigger.from_crontab(cron, timezone=tz)
+        trigger = CronTrigger.from_crontab(_normalize_cron_dow(cron), timezone=tz)
     except Exception as e:  # ValueError on malformed cron
         raise InvalidCronError(f"invalid cron expression: {cron}") from e
     base = after or datetime.now(timezone.utc)

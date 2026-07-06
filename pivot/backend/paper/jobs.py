@@ -17,9 +17,10 @@ from typing import Any, Callable, Optional
 
 from sqlalchemy.orm import Session
 
-from backend.models import PaperAccount, PaperOrder
+from backend.models import PaperAccount, PaperOrder, PaperPosition
 from backend.paper.evaluator import evaluate_resting_orders
 from backend.paper.snapshots import snapshot_account_nav
+from backend.paper.valuation import mark_positions
 from backend.utils.time_utils import is_market_open, now_ist
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,52 @@ def tick_paper_accounts(db: Session, price_fn: PriceFn = None) -> dict:
         summary["accounts"] += 1
         summary["filled"].extend(res.get("filled", []))
         summary["cancelled"].extend(res.get("cancelled", []))
+    return summary
+
+
+def mark_open_positions(db: Session, price_fn: PriceFn = None) -> dict:
+    """Refresh ``last_price`` (and thus unrealized/day P&L) for every OPEN
+    position across every active paper account, on a market-hours interval.
+
+    BUG this fixes (found 2026-07-06 live-testing the beta): a fresh fill
+    seeds its own mark (see ``fills.execute_market_fill``), but nothing
+    subsequently refreshed it — ``mark_positions`` was only ever invoked
+    from the once-daily 15:37 IST NAV snapshot job, so a position's P&L and
+    LTP were frozen at their fill-time value for the entire trading day.
+    Runs on the same 5-min market-hours cadence as ``paper_tick_resting``
+    (see backend/scheduler.py); market-hours gated the same way. Returns
+    ``{"accounts": int, "positions_marked": int, "failed": [account_id]}``.
+    """
+    from backend.config import settings as _cfg
+    if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+        return {"accounts": 0, "positions_marked": 0, "failed": [],
+                "skipped_market_closed": True}
+    acct_ids = [
+        row[0]
+        for row in db.query(PaperPosition.account_id)
+        .filter(PaperPosition.quantity > 0)
+        .distinct()
+        .all()
+    ]
+    summary: dict[str, Any] = {"accounts": 0, "positions_marked": 0, "failed": []}
+    for aid in acct_ids:
+        acct = db.get(PaperAccount, aid)
+        if acct is None or not acct.is_active or str(acct.mode) != "paper":
+            continue
+        acct_price_fn = price_fn
+        if acct_price_fn is None:
+            from backend.paper.marks import get_mark_price, user_kite_token
+            _tok = user_kite_token(db, int(acct.user_id))
+            acct_price_fn = lambda sym, _t=_tok: get_mark_price(sym, token=_t)
+        try:
+            with db.begin_nested():
+                n = mark_positions(db, acct.id, acct_price_fn)
+        except Exception:
+            summary["failed"].append(aid)
+            logger.warning("position marking failed for account %s", aid, exc_info=True)
+            continue
+        summary["accounts"] += 1
+        summary["positions_marked"] += n
     return summary
 
 

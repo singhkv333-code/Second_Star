@@ -23,6 +23,7 @@ from backend.database import get_db
 from backend.models import Workflow, WorkflowStatus, WorkflowStep
 from backend.routers._deps import require_user
 from backend.routers._errors import validation_error
+from backend.workflows.scheduler import _normalize_cron_dow
 from backend.schemas import ScheduledRunItem, ScheduledRunsResponse
 
 router = APIRouter(prefix="/api", tags=["Agents"])
@@ -97,7 +98,10 @@ def get_scheduled_runs(
             continue
         try:
             tz = pytz_timezone(tz_str)
-            trig = CronTrigger.from_crontab(cron, timezone=tz)
+            # Day-of-week digits in a stored cron are POSIX-convention
+            # (0/7=Sun,1=Mon..6=Sat); from_crontab needs the translated,
+            # unambiguous day-name form (see workflows/scheduler.py).
+            trig = CronTrigger.from_crontab(_normalize_cron_dow(cron), timezone=tz)
         except Exception:
             # Malformed cron / tz on a stored workflow step — should
             # have been blocked at activate time. Skip rather than 500.

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from pytz import timezone as pytz_timezone  # type: ignore[import-untyped]
 from sqlalchemy.orm import Session
 
 from backend.models import (
@@ -28,6 +29,7 @@ from backend.workflows import engine as engine_mod
 from backend.workflows.scheduler import (
     InvalidCronError,
     _poll_due_workflows,
+    _posix_dow_field_to_names,
     compute_next_run_at,
     upsert_workflow_schedule,
 )
@@ -63,6 +65,63 @@ def test_compute_next_run_at_rejects_invalid_cron() -> None:
 def test_compute_next_run_at_rejects_unknown_timezone() -> None:
     with pytest.raises(InvalidCronError):
         compute_next_run_at("0 9 * * *", "Mars/Olympus")
+
+
+# ── POSIX day-of-week translation (2026-07-06 live-test regression) ──
+#
+# CronTrigger.from_crontab does NOT implement standard crontab day-of-week
+# numbering (0/7=Sun,1=Mon..6=Sat) — it forwards digits straight to
+# APScheduler's own day_of_week (0=Mon..6=Sun), silently firing every
+# day-specific schedule one weekday late. These pin the fix so it can never
+# silently regress.
+
+
+def test_posix_dow_single_day_translates_to_name() -> None:
+    assert _posix_dow_field_to_names("1") == "mon"
+    assert _posix_dow_field_to_names("5") == "fri"
+    assert _posix_dow_field_to_names("0") == "sun"
+    assert _posix_dow_field_to_names("7") == "sun"
+
+
+def test_posix_dow_range_translates_to_name_list() -> None:
+    assert _posix_dow_field_to_names("1-5") == "mon,tue,wed,thu,fri"
+
+
+def test_posix_dow_list_translates() -> None:
+    assert _posix_dow_field_to_names("0,6") == "sat,sun"
+
+
+def test_posix_dow_wildcard_and_names_pass_through() -> None:
+    assert _posix_dow_field_to_names("*") == "*"
+    assert _posix_dow_field_to_names("mon-fri") == "mon-fri"
+
+
+def test_compute_next_run_at_monday_cron_fires_monday_not_tuesday() -> None:
+    """The exact bug found live: "every Monday 09:15" must fire the SAME
+    Monday when armed earlier that day, never the following Tuesday."""
+    monday_early_morning = datetime(2026, 7, 6, 0, 54, tzinfo=timezone.utc)  # IST 06:24 Mon
+    nxt = compute_next_run_at(
+        "15 9 * * 1", "Asia/Kolkata", after=monday_early_morning,
+    )
+    ist = nxt.astimezone(pytz_timezone("Asia/Kolkata"))
+    assert ist.strftime("%A") == "Monday"
+    assert ist.date().isoformat() == "2026-07-06"
+
+
+def test_compute_next_run_at_weekday_cron_covers_monday_not_saturday() -> None:
+    """"every weekday" (1-5) must fire Mon-Fri, never skip Monday or land
+    on the closed Saturday."""
+    monday_early_morning = datetime(2026, 7, 6, 0, 54, tzinfo=timezone.utc)
+    fire_days = []
+    after = monday_early_morning
+    for _ in range(5):
+        nxt = compute_next_run_at("20 9 * * 1-5", "Asia/Kolkata", after=after)
+        ist = nxt.astimezone(pytz_timezone("Asia/Kolkata"))
+        fire_days.append(ist.strftime("%A"))
+        # get_next_fire_time is "at or after" `after` — nudge past the exact
+        # fire instant so the next call advances to the following day.
+        after = nxt + timedelta(seconds=1)
+    assert fire_days == ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
 
 # ── upsert_workflow_schedule ─────────────────────────────────────────

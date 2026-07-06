@@ -165,6 +165,19 @@ def _register_jobs():
             replace_existing=True,
         )
         scheduler.add_job(
+            mark_paper_positions_intraday,
+            trigger=CronTrigger(
+                # Offset +2min off the resting tick's */5 boundary so the two
+                # jobs never coincide (matches the 15:37 NAV-snapshot pattern
+                # below, which is likewise offset off the tick boundary).
+                minute="2-59/5", hour="9-15",
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_mark_positions",
+            name="Paper: mark open positions intraday (every 5m, market hours IST)",
+            replace_existing=True,
+        )
+        scheduler.add_job(
             snapshot_paper_navs,
             trigger=CronTrigger(
                 # 15:37 — deliberately OFF the */5 resting-tick boundary so
@@ -250,6 +263,30 @@ async def tick_paper_resting_orders():
     except Exception:
         db.rollback()
         logger.exception("paper resting tick failed")
+    finally:
+        db.close()
+
+
+async def mark_paper_positions_intraday():
+    """Refresh last_price (and thus unrealized/day P&L) for every open paper
+    position. Runs every 5 minutes during market hours — without this, a
+    position's P&L was frozen at its fill-time value until the once-daily
+    15:37 NAV snapshot (found 2026-07-06 live-testing the beta)."""
+    from backend.database import SessionLocal
+    from backend.paper.jobs import mark_open_positions
+
+    db = SessionLocal()
+    try:
+        summary = mark_open_positions(db)
+        db.commit()
+        if summary["positions_marked"]:
+            logger.info(
+                f"[paper] intraday mark: {summary['positions_marked']} "
+                f"position(s) across {summary['accounts']} account(s)"
+            )
+    except Exception:
+        db.rollback()
+        logger.exception("paper intraday marking failed")
     finally:
         db.close()
 

@@ -190,13 +190,31 @@ def test_holdings_sorted_by_mv_with_sector_and_unrealized(session):
     assert h[0]["last_mark_at"] is not None
 
 
-def test_holdings_unmarked_last_price_none(session):
+def test_holdings_market_buy_seeds_last_price_immediately(session):
+    """2026-07-06 fix: a market buy stamps last_price/prev_close at the fill
+    price the instant the position opens — it used to stay None for hours
+    (until the next scheduler tick / the once-daily EOD snapshot), which is
+    why Total P&L read ₹0 all day after every fill."""
     u = _user(session)
-    _buy(session, u.id, "RELIANCE", 4, 100)  # never marked
+    _buy(session, u.id, "RELIANCE", 4, 100)
     h = holdings(session, u.id)
     assert len(h) == 1
-    assert h[0]["last_price"] is None
+    assert h[0]["last_price"] == 100
     assert h[0]["sector"] == "Energy"
+
+
+def test_holdings_unmarked_position_falls_back_to_avg_cost(session):
+    """A position that genuinely has no mark (e.g. a symbol the marker
+    can't price at all) still values at book cost, never None/zero."""
+    u = _user(session)
+    _buy(session, u.id, "RELIANCE", 4, 100)
+    pos = session.query(PaperPosition).filter_by(symbol="RELIANCE").one()
+    pos.last_price = None  # simulate a mark that was never resolved
+    session.flush()
+    h = holdings(session, u.id)
+    assert h[0]["last_price"] is None
+    # avg_cost is inclusive of buy charges, so the fallback isn't a bare 4*100.
+    assert h[0]["market_value"] == pytest.approx(4 * float(pos.avg_cost))
 
 
 def test_holdings_excludes_closed_and_unknown_sector(session):

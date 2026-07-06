@@ -21,7 +21,7 @@ from backend.models import (
     User,
 )
 from backend.paper.broker import PaperBroker
-from backend.paper.jobs import snapshot_all_navs, tick_paper_accounts
+from backend.paper.jobs import mark_open_positions, snapshot_all_navs, tick_paper_accounts
 from backend.paper.money import to_money
 from backend.services.trading_costs import buy_cost
 
@@ -129,3 +129,45 @@ def test_tick_skips_accounts_without_resting_orders(session: Session) -> None:
     out = tick_paper_accounts(session, price_fn=lambda _s: to_money(100))
     assert out["accounts"] == 0
     assert out["filled"] == []
+
+
+# ── mark_open_positions (intraday marking; 2026-07-06 live-test regression) ──
+#
+# Before this job existed, a position's last_price/day-P&L were frozen at
+# their fill-time value for the whole trading day — mark_positions only ran
+# once, from the 15:37 EOD NAV snapshot.
+
+
+def test_mark_open_positions_refreshes_last_price(session: Session) -> None:
+    user = _user(session)
+    _broker(session, user, 100.0).place_order(
+        tradingsymbol="INFY", transaction_type="BUY", quantity=10,
+        order_type="MARKET",
+    )
+    pos = session.query(PaperPosition).one()
+    assert pos.last_price == 100.0  # seeded at fill
+
+    out = mark_open_positions(session, price_fn=lambda _s: to_money(107.5))
+    session.commit()
+    session.refresh(pos)
+    assert out["accounts"] == 1
+    assert out["positions_marked"] == 1
+    assert pos.last_price == 107.5
+
+
+def test_mark_open_positions_skips_accounts_with_no_open_positions(
+    session: Session,
+) -> None:
+    user = _user(session)
+    _broker(session, user, 100.0).place_order(
+        tradingsymbol="INFY", transaction_type="BUY", quantity=1,
+        order_type="MARKET",
+    )
+    # Fully exit the position -> quantity 0, no longer "open".
+    _broker(session, user, 120.0).place_order(
+        tradingsymbol="INFY", transaction_type="SELL", quantity=1,
+        order_type="MARKET",
+    )
+    out = mark_open_positions(session, price_fn=lambda _s: to_money(999))
+    assert out["accounts"] == 0
+    assert out["positions_marked"] == 0

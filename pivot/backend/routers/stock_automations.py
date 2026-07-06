@@ -44,6 +44,7 @@ from backend.models import (
     WorkflowStep,
 )
 from backend.routers._deps import require_user
+from backend.workflows.scheduler import _normalize_cron_dow
 
 
 router = APIRouter(prefix="/api/stocks", tags=["Stocks"])
@@ -266,7 +267,9 @@ def get_stock_automations(
             continue
         try:
             tz = pytz_timezone(tz_str)
-            trig = CronTrigger.from_crontab(cron, timezone=tz)
+            # Day-of-week digits in a stored cron are POSIX-convention;
+            # from_crontab needs the translated day-name form (scheduler.py).
+            trig = CronTrigger.from_crontab(_normalize_cron_dow(cron), timezone=tz)
         except Exception:
             continue
         # Lookup the workflow name once.
