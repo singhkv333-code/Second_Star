@@ -41,7 +41,7 @@ from backend.paper.positions import (
 from backend.paper.snapshots import latest_nav, nav_series, snapshot_account_nav
 from backend.paper.valuation import compute_account_nav, mark_positions
 from backend.paper.ideas import resolve_idea
-from backend.paper.idea_valuation import compute_idea_nav
+from backend.paper.idea_valuation import compute_idea_nav, compute_idea_positions
 from backend.paper.scorecards import (
     idea_detail,
     idea_nav_series,
@@ -84,6 +84,7 @@ __all__ = [
     # scorecard refresh + read service
     "resolve_idea",
     "compute_idea_nav",
+    "compute_idea_positions",
     "snapshot_idea_nav",
     "latest_idea_nav",
     "idea_nav_series",

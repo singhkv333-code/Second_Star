@@ -40,6 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
+from backend.posthog_client import get_posthog
 from backend.models import (
     ForwardIdea,
     PaperAccount,
@@ -650,6 +651,15 @@ def create_workflow(
     _replace_steps(db, wf, steps_in)
     db.commit()
     db.refresh(wf)
+
+    _ph = get_posthog()
+    if _ph:
+        trigger_type = steps_in[0].get("step_type") if steps_in else None
+        _ph.capture("workflow_created", distinct_id=str(user_id), properties={
+            "step_count": len(steps_in),
+            "trigger_type": trigger_type,
+        })
+
     return _to_workflow_out(wf)
 
 
@@ -737,6 +747,30 @@ class _WorkflowsSummaryResponse(BaseModel):
     strategy_returns: list[_StrategyReturn] = Field(default_factory=list)
     total_pnl: float = 0.0
     has_data: bool = False
+
+
+def _live_idea_return_pct(db: Session, idea) -> Optional[float]:
+    """An agent's LIVE return %, marked on read — the SAME number the agent
+    Positions view headlines, so the card / strategy-list % can never disagree
+    with the positions panel or the portfolio. Computed from
+    ``compute_idea_positions`` (live ``get_mark_price``): the open book's
+    unrealized %. Falls back to the (stale) cached cumulative return only for a
+    fully-closed idea with no open positions to live-mark, and to ``None`` when
+    neither exists — never a fabricated number."""
+    try:
+        from backend.paper.idea_valuation import compute_idea_positions
+
+        roll = compute_idea_positions(db, idea)
+        if roll["positions"]:
+            pct = roll["unrealized_pnl_pct"]
+            return float(pct) if pct is not None else None
+    except Exception:  # noqa: BLE001 — a pricing blip must not break the card
+        logger.debug("live idea return failed for %s", idea.id, exc_info=True)
+    if idea.scorecard_cache:
+        raw = idea.scorecard_cache.get("cum_return_pct")
+        if isinstance(raw, (int, float)):
+            return float(raw)
+    return None
 
 
 @router.get(
@@ -857,11 +891,9 @@ def workflows_summary(
                 idea_by_wf[str(idea.workflow_id)] = idea
         for w in active_wfs:
             idea = idea_by_wf.get(str(w.id))
-            ret: Optional[float] = None
-            if idea is not None and idea.scorecard_cache:
-                raw = idea.scorecard_cache.get("cum_return_pct")
-                if isinstance(raw, (int, float)):
-                    ret = float(raw)
+            # LIVE return (marked on read) so this matches the agent's
+            # Positions panel and the portfolio, not a stale EOD scorecard.
+            ret = _live_idea_return_pct(db, idea) if idea is not None else None
             strategy_returns.append(
                 _StrategyReturn(
                     workflow_id=str(w.id),
@@ -1072,6 +1104,18 @@ def activate_workflow(
                 "for workflow_id=%s",
                 workflow_id,
             )
+
+    _ph = get_posthog()
+    if _ph:
+        trigger_type = next(
+            (s.step_type for s in sorted(wf.steps, key=lambda s: int(s.step_index))),
+            None,
+        )
+        _ph.capture("workflow_activated", distinct_id=str(user_id), properties={
+            "workflow_id": str(wf.id),
+            "trigger_type": trigger_type,
+            "step_count": len(wf.steps),
+        })
 
     return _to_workflow_out(wf)
 
@@ -1294,10 +1338,11 @@ def workflow_performance(
         .first()
     )
     if idea is not None:
-        if idea.scorecard_cache:
-            raw = idea.scorecard_cache.get("cum_return_pct")
-            if isinstance(raw, (int, float)):
-                return_pct = float(raw)
+        # LIVE return (marked on read) so the card's headline % matches the
+        # agent's Positions panel and the portfolio — not the stale EOD
+        # scorecard, which read unmarked positions and drifted (e.g. −0.9%
+        # while the live position is +3.55%).
+        return_pct = _live_idea_return_pct(db, idea)
         snaps = (
             db.query(PaperIdeaNavSnapshot)
             .filter(PaperIdeaNavSnapshot.idea_id == idea.id)
@@ -1311,6 +1356,20 @@ def workflow_performance(
                     nav=float(snap.idea_nav),
                 )
             )
+        # Pin a live "today" point onto the EOD series so the sparkline ends at
+        # the current mark — the line and the headline % then tell one story
+        # instead of a red decline under a green number.
+        try:
+            from backend.paper.idea_valuation import compute_idea_nav
+
+            live_nav = float(compute_idea_nav(db, idea)["idea_nav"])
+            today = datetime.now(timezone.utc).date().isoformat()
+            if series and series[-1].date == today:
+                series[-1] = _NavPoint(date=today, nav=live_nav)
+            else:
+                series.append(_NavPoint(date=today, nav=live_nav))
+        except Exception:  # noqa: BLE001 — sparkline tail is best-effort
+            logger.debug("live idea nav tail failed for %s", idea.id, exc_info=True)
 
     has_data = bool(series) or run_count > 0
 
@@ -1320,6 +1379,94 @@ def workflow_performance(
         last_run_at=last_run_at,
         run_count=run_count,
         success_rate=success_rate,
+        has_data=has_data,
+    )
+
+
+# ── Per-agent open positions ──────────────────────────────────────────
+
+
+class _AgentPosition(BaseModel):
+    """One still-open symbol held by this agent, with returns since fill."""
+    symbol: str
+    quantity: int
+    avg_cost: float           # weighted, charge-inclusive basis / share
+    last_price: Optional[float] = None   # None when no live mark available
+    invested: float           # cost basis of the open lots
+    market_value: float
+    unrealized_pnl: float
+    unrealized_pnl_pct: Optional[float] = None
+    realized_pnl: float       # booked P&L on this symbol so far
+
+
+class _AgentPositionsResponse(BaseModel):
+    """The positions this agent's trades opened, plus rolled-up returns.
+
+    Derived on-read by FIFO-replaying the fills tagged to this workflow's
+    ForwardIdea (never the account-grain PaperPosition cache, which can't be
+    attributed to one agent). Absent data → empty list + zeros + has_data
+    false, never fabricated numbers.
+    """
+    positions: list[_AgentPosition] = Field(default_factory=list)
+    invested: float = 0.0
+    market_value: float = 0.0
+    unrealized_pnl: float = 0.0
+    unrealized_pnl_pct: Optional[float] = None
+    realized_pnl: float = 0.0
+    has_data: bool = False
+
+
+@router.get(
+    "/workflows/{workflow_id}/positions",
+    response_model=_AgentPositionsResponse,
+    summary="Open positions held for this agent + returns since the trades",
+    description=(
+        "The positions this agent's own trades opened — one row per "
+        "still-open symbol with net quantity, weighted charge-inclusive "
+        "cost basis, current mark, market value, and unrealized P&L since "
+        "the fills, plus rolled-up invested / market-value / unrealized / "
+        "realized totals. Attribution is by FIFO replay over PaperFill rows "
+        "tagged to the ForwardIdea whose workflow_id matches this workflow "
+        "(the account-grain position cache carries no agent attribution). "
+        "Cross-user / missing workflow → 404. No idea / no fills yet → empty "
+        "positions, zero totals, has_data=false — never fabricated numbers."
+    ),
+)
+def workflow_positions(
+    workflow_id: str,
+    user_id: int = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> _AgentPositionsResponse:
+    wf = _workflow_for_user(db, user_id, workflow_id)
+
+    idea = (
+        db.query(ForwardIdea)
+        .filter(
+            ForwardIdea.user_id == user_id,
+            ForwardIdea.origin_kind == "workflow",
+            ForwardIdea.workflow_id == str(wf.id),
+        )
+        .order_by(ForwardIdea.created_at.desc())
+        .first()
+    )
+    if idea is None:
+        return _AgentPositionsResponse(has_data=False)
+
+    from backend.paper.idea_valuation import compute_idea_positions
+
+    rollup = compute_idea_positions(db, idea)
+    positions = [
+        _AgentPosition(**p) for p in cast(list, rollup["positions"])
+    ]
+    has_data = bool(positions) or float(rollup["realized_pnl"]) != 0.0
+
+    return _AgentPositionsResponse(
+        positions=positions,
+        invested=cast(float, rollup["invested"]),
+        market_value=cast(float, rollup["market_value"]),
+        unrealized_pnl=cast(float, rollup["unrealized_pnl"]),
+        unrealized_pnl_pct=cast(Optional[float], rollup["unrealized_pnl_pct"]),
+        realized_pnl=cast(float, rollup["realized_pnl"]),
         has_data=has_data,
     )
 

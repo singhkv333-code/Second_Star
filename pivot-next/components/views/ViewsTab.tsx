@@ -28,7 +28,7 @@ import type { ViewSummary, StanceIntent } from "@/lib/types";
 import { ViewCard } from "./ViewCard";
 import { ViewFilters, DEFAULT_FILTERS, type FiltersState } from "./ViewFilters";
 import { ViewCategoryBar } from "./ViewCategoryBar";
-import { ViewDetailPage } from "./ViewDetailPage";
+import { ViewDetailPageV2 as ViewDetailPage } from "./ViewDetailPageV2";
 import { MyViews } from "./MyViews";
 import { categoryLead } from "./view-format";
 

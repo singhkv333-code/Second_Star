@@ -1,34 +1,34 @@
 "use client";
 
 /**
- * ViewCard — one gallery card for a ViewSummary.
+ * ViewCard — one belief-market "prediction card" for a ViewSummary, a faithful
+ * port of the reference mockup:
  *
- * Visual structure adopted from the collaborator's 943e782 redesign:
- *   ┌──────────────────────────────────────────────────┐
- *   │ ┌────┐  Will gold prices rise?                    │
- *   │ │IMG │  Timeline  Ends Dec 2025 / [3M] [6M] [1Y]  │
- *   │ └────┘                                            │
- *   │  ~~~ sparkline (flex-grow) ~~~                    │
- *   │  +64.8%            ┌──────────┐                   │
- *   │  best past run     │   Yes    │                   │
- *   │                    ├──────────┤                   │
- *   │                    │   No     │                   │
- *   │ ─────────────────────────────────────────────────│
- *   │ ● Promising · Positive in 24 of 32  [From ₹808]  Follow │
- *   └──────────────────────────────────────────────────┘
+ *   ┌────────────────────────────────────────────────┐
+ *   │ ┌────┐  Will gold price rise?                   │  thumb · question
+ *   │ │IMG │  Timeline  [3M] 6M  1Y                   │           · timeline
+ *   │ └────┘                                          │
+ *   │ ───────────────────────────────────────────────│  hairline rule
+ *   │  95%                         ┌──────────┐       │  hero return  ·  Yes / No
+ *   │  Expected return             │   Yes    │       │
+ *   │  best strategy if yes true   ├──────────┤       │
+ *   │                              │   No     │       │
+ *   └────────────────────────────────────────────────┘
  *
- * Functional bits preserved from our version:
- *   - `endsLabel` integrated into the Timeline fixed-label (resolution_date → "Ends …")
- *   - positive-rate line ("Positive in X of Y") in footer via footerTrack
- *   - onOpen(id, intent?) callback + Yes/No stance buttons that route intent
- *   - trust badge + FollowButton + From ₹808 chip
- *   - BestExpressionWithPositive type extension
- *   - Sparkline in flex-grow spacer region
- *   - ViewSurface for consistent border-only theming
+ * The ONE difference from a prediction exchange — and it is the whole product:
+ * the big number is NOT a fabricated "chance". It is the strategy's OWN best
+ * realised run (best_episode_pct), an honest track number, not a priced
+ * outcome. The Yes/No buttons are NAVIGATION intents, not wagers: they open the
+ * detail page and route to that side's deployable expression.
  *
- * Stance buttons use the collaborator's soft tinted fill (color-mix transparent),
- * not the solid fill in our old version. Yes/No colors are profit/loss for
- * maximum legibility at low opacity.
+ * TIMELINE: some events have a hard resolution date → the horizon is fixed, so
+ * we show a single duration label. Open/structural views show a presentational
+ * 3M/6M/1Y toggle (a reading device — it does not fabricate a per-horizon
+ * return; the number stays the honest best run).
+ *
+ * Colours are the mockup's, routed through theme tokens so light matches the
+ * mockup and dark still holds. Green/red stay reserved for the realised return
+ * and the stance buttons.
  */
 
 import * as React from "react";
@@ -40,36 +40,17 @@ import {
   Landmark,
   Flame,
   TrendingUp,
-  ArrowRight,
   type LucideIcon,
 } from "lucide-react";
 import type { ViewSummary, StanceIntent } from "@/lib/types";
-import { ViewSurface, Hairline } from "./ViewSurface";
-import { FollowButton } from "./FollowButton";
-import {
-  fmtPct,
-  signColor,
-  trustBadge,
-  verdictColor,
-  endsLabel,
-} from "./view-format";
+import { fmtPct } from "./view-format";
 
 const FONT = "var(--font-display)";
 
 // ---------------------------------------------------------------------------
-// BestExpressionWithPositive — local structural extension that adds the
-// positive-outcome count fields ahead of them landing in lib/types.ts.
-// ---------------------------------------------------------------------------
-
-type BestExpressionWithPositive = NonNullable<ViewSummary["best_expression"]> & {
-  pct_positive?: number | null;
-  n_positive?: number | null;
-};
-
-// ---------------------------------------------------------------------------
-// CategoryGlyph — 68×68 image tile with an icon fallback.
-// Photo keyed by category keyword via loremflickr; icon covers load errors.
-// Rounded corners (radius 8) instead of square — matches our design language.
+// CategoryGlyph — the mockup's 88×88 thumbnail tile: a filled, rounded square
+// keyed off the category's leading word ("AI · Theme" → AI) with a calm
+// monochrome glyph. Unknown categories fall back to a trend glyph.
 // ---------------------------------------------------------------------------
 
 const CATEGORY_ICON: Record<string, LucideIcon> = {
@@ -86,22 +67,7 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   gold: Flame,
 };
 
-const CATEGORY_KEYWORD: Record<string, string> = {
-  ai: "microchip",
-  energy: "oil-refinery",
-  autos: "car-factory",
-  auto: "car-factory",
-  geopolitics: "world-map",
-  macro: "central-bank",
-  index: "stock-market",
-  commodity: "commodities",
-  crude: "oil-barrel",
-  oil: "oil-barrel",
-  gold: "gold-bars",
-  monsoon: "monsoon-farm",
-  it: "software",
-};
-
+/** Cheap deterministic string hash → stable per-card image lock. */
 function hashStr(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i);
@@ -122,7 +88,7 @@ function categoryIcon(category: string | null | undefined): LucideIcon {
   return (lead ? CATEGORY_ICON[lead] : undefined) ?? TrendingUp;
 }
 
-function CategoryGlyph({
+export function CategoryGlyph({
   category,
   seed,
 }: {
@@ -130,11 +96,10 @@ function CategoryGlyph({
   seed: string;
 }): React.ReactElement {
   const Icon = categoryIcon(category);
-  const [imgOk, setImgOk] = React.useState(true);
-  const lead = categoryLeadWord(category);
-  const keyword = (lead && CATEGORY_KEYWORD[lead]) || "finance";
-  const lock = Math.abs(hashStr(seed)) % 1000;
-  const src = `https://loremflickr.com/200/200/${keyword}?lock=${lock}`;
+  // A calm, self-contained tile: the category glyph on a faint tinted ground
+  // keyed off the seed hue. No external imagery (CSP-safe, no network, no
+  // preview-only placeholder photos).
+  const hue = Math.abs(hashStr(seed)) % 360;
   return (
     <div
       aria-hidden
@@ -145,39 +110,28 @@ function CategoryGlyph({
         flexShrink: 0,
         display: "grid",
         placeItems: "center",
-        borderRadius: 8,
+        borderRadius: 12,
         overflow: "hidden",
-        background: "var(--bg-elevated)",
+        background: `hsl(${hue} 30% 50% / 0.10)`,
+        border: "1px solid var(--glass-border)",
       }}
     >
-      <Icon size={28} strokeWidth={1.75} color="var(--text-secondary)" />
-      {imgOk && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt=""
-          onError={() => setImgOk(false)}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-          }}
-        />
-      )}
+      <Icon
+        size={28}
+        strokeWidth={1.75}
+        color={`hsl(${hue} 42% 45%)`}
+      />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Timeline — shows how far out a view's horizon is.
-//
-//   fixed  → a single non-interactive label. When resolution_date is present,
-//            we use endsLabel("2025-12-01") → "Ends Dec 2025" (our feature).
-//            Episodic / dated time_horizons also become fixed labels.
-//   toggle → the 3M / 6M / 1Y segmented control for open / structural views.
-//            Presentational only: the honest best-run number does NOT change.
+// Timeline — the horizon affordance. Two modes:
+//   fixed  → a single non-interactive duration label (event with a hard date /
+//            an episodic horizon).
+//   toggle → the mockup's 3M / 6M / 1Y raised-pill segmented control on a grey
+//            track. Presentational only: switching does NOT change the honest
+//            best-run number (we don't fabricate per-horizon returns yet).
 // ---------------------------------------------------------------------------
 
 const TOGGLE_HORIZONS = ["3M", "6M", "1Y"] as const;
@@ -186,18 +140,18 @@ type HorizonConfig =
   | { mode: "fixed"; label: string }
   | { mode: "toggle"; options: readonly string[]; defaultIdx: number };
 
+/** Decide whether a view's timeline is fixed (single label) or flexible (toggle). */
 function horizonConfig(view: ViewSummary): HorizonConfig {
-  // Prefer the formatted resolution date ("Ends Dec 2025") when available.
-  const ends = endsLabel(view.resolution_date);
-  if (ends) return { mode: "fixed", label: ends };
-
   const th = (view.time_horizon ?? "").trim();
   const episodic = /episode|day|week|by\s|until|expir/i.test(th);
-  if (episodic && th) return { mode: "fixed", label: th };
-
-  // Open / structural view → the presentational toggle.
+  // A hard resolution date, or an episodic/dated horizon, means the window is
+  // pinned — show it as one duration, not a chooser.
+  if (view.resolution_date || (episodic && th)) {
+    return { mode: "fixed", label: th || "Fixed window" };
+  }
+  // Otherwise the belief is open / structural → a flexible timeline chooser.
   const s = th.toLowerCase();
-  let defaultIdx = 2; // default 1Y
+  let defaultIdx = 2; // default to 1Y (matches the mockup)
   if (/\b3\b|quarter|3m|90/.test(s)) defaultIdx = 0;
   else if (/\b6\b|half|6m|180/.test(s)) defaultIdx = 1;
   return { mode: "toggle", options: TOGGLE_HORIZONS, defaultIdx };
@@ -298,94 +252,53 @@ function Timeline({
 }
 
 // ---------------------------------------------------------------------------
-// StanceButton — the collaborator's soft tinted fill (Polymarket style).
-// accent color at 12% (18% on hover) over transparent — never a solid fill.
-// Yes = profit green tint, No = loss red tint, Muted = tertiary grey tint.
-// Our content structure (word + secondary line) is preserved.
+// StanceButton — Polymarket-style outcome button: a soft tinted fill (green for
+// Yes, red for No) with matching colored ink and a small corner radius, no glow.
+// NOT a wager: it opens the detail page pre-scrolled to that side's expression.
 // ---------------------------------------------------------------------------
 
 function StanceButton({
-  word,
-  secondary,
+  label,
   tone,
-  ariaLabel,
-  onOpen,
+  onClick,
 }: {
-  word: string;
-  secondary: string;
-  tone: "yes" | "no" | "muted";
-  ariaLabel: string;
-  onOpen: (e: React.MouseEvent) => void;
+  label: string;
+  tone: "yes" | "no";
+  onClick: (e: React.MouseEvent) => void;
 }): React.ReactElement {
   const [hover, setHover] = React.useState(false);
-  const accent =
-    tone === "yes"
-      ? "var(--color-profit)"
-      : tone === "no"
-        ? "var(--color-loss)"
-        : "var(--text-tertiary)";
+  const accent = tone === "yes" ? "var(--color-profit)" : "var(--color-loss)";
   return (
     <button
       type="button"
-      aria-label={ariaLabel}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(e);
-      }}
+      onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        flex: 1,
-        minWidth: 0,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: 2,
-        textAlign: "left",
-        padding: "9px 12px",
+        appearance: "none",
+        cursor: "pointer",
+        width: 112,
+        padding: "7px 0",
         borderRadius: 6,
         border: "none",
+        // Soft tinted fill with colored ink (Polymarket outcome-button style).
         background: `color-mix(in srgb, ${accent} ${hover ? 18 : 12}%, transparent)`,
         color: accent,
-        cursor: "pointer",
+        fontFamily: FONT,
+        fontSize: 14,
+        fontWeight: 700,
+        letterSpacing: "-0.01em",
         transition: "background 140ms var(--ease-quartr)",
       }}
     >
-      <span
-        style={{
-          fontFamily: FONT,
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: "0.03em",
-          lineHeight: 1,
-        }}
-      >
-        {word}
-      </span>
-      <span
-        style={{
-          fontFamily: FONT,
-          fontSize: tone === "yes" ? 16 : 13,
-          fontWeight: tone === "yes" ? 700 : 600,
-          lineHeight: 1.2,
-          letterSpacing: tone === "yes" ? "-0.01em" : "0",
-          fontVariantNumeric: "tabular-nums",
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-          maxWidth: "100%",
-        }}
-      >
-        {secondary}
-      </span>
+      {label}
     </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// HeroFigure — the big honest return number with a superscript %.
-// fmtPct gives "+64.8%" → we split the trailing % into a <sup>.
+// HeroFigure — the big honest return with a superscript % (mockup grammar).
+// fmtPct gives e.g. "+64.8%"; we split the trailing % into a <sup>.
 // ---------------------------------------------------------------------------
 
 function HeroFigure({
@@ -401,94 +314,21 @@ function HeroFigure({
   return (
     <div
       style={{
-        fontFamily: FONT,
+        fontFamily: "var(--font-serif)",
         fontVariantNumeric: "tabular-nums",
-        fontSize: 38,
-        fontWeight: 800,
-        letterSpacing: "-0.03em",
+        fontSize: 40,
+        fontWeight: 600,
+        letterSpacing: "-0.02em",
         lineHeight: 1,
         color,
       }}
     >
       {body}
       {hasPct && (
-        <sup style={{ fontSize: 19, fontWeight: 700, top: "-0.7em" }}>%</sup>
+        <sup style={{ fontSize: 20, fontWeight: 600, top: "-0.7em" }}>%</sup>
       )}
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Sparkline — the belief's own return path, sign-tinted.
-// Preserved from our version; lives in the flex-grow spacer between the
-// header and the hero/stance section.
-// ---------------------------------------------------------------------------
-
-function Sparkline({
-  values,
-  height = 48,
-}: {
-  values: number[];
-  height?: number;
-}): React.ReactElement | null {
-  if (values.length < 2) return null;
-  const W = 100;
-  const H = height;
-  const pad = 3;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const n = values.length;
-  const pts = values.map((v, i) => {
-    const x = (i / (n - 1)) * W;
-    const y = pad + (1 - (v - min) / span) * (H - pad * 2);
-    return [x, y] as const;
-  });
-  const line = pts
-    .map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(2)},${p[1].toFixed(2)}`)
-    .join(" ");
-  const area = `${line} L${W},${H} L0,${H} Z`;
-  const first = values[0] ?? 0;
-  const last = values[values.length - 1] ?? first;
-  const up = last >= first;
-  const color = up ? "var(--color-profit)" : "var(--color-loss)";
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      width="100%"
-      height={H}
-      preserveAspectRatio="none"
-      style={{ display: "block", overflow: "visible" }}
-      aria-hidden
-    >
-      <path d={area} fill={color} fillOpacity={0.07} stroke="none" />
-      <path
-        d={line}
-        fill="none"
-        stroke={color}
-        strokeOpacity={0.85}
-        strokeWidth={1.5}
-        vectorEffect="non-scaling-stroke"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// footerTrack — "Positive in 24 of 32" from the own-return distribution.
-// ---------------------------------------------------------------------------
-
-function footerTrack(be: BestExpressionWithPositive): string {
-  if (be.n_positive != null && be.n_episodes != null && be.n_episodes > 0) {
-    return `Positive in ${be.n_positive} of ${be.n_episodes}`;
-  }
-  if (be.pct_positive != null && be.n_episodes != null && be.n_episodes > 0) {
-    const wins = Math.round((be.pct_positive / 100) * be.n_episodes);
-    return `Positive in ${wins} of ${be.n_episodes}`;
-  }
-  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -508,8 +348,9 @@ type ViewCardProps = {
 export function ViewCard({
   view,
   onOpen,
-  onFollowChange,
 }: ViewCardProps): React.ReactElement {
+  const [hover, setHover] = React.useState(false);
+
   const handleKey = (e: React.KeyboardEvent<HTMLElement>): void => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -517,42 +358,23 @@ export function ViewCard({
     }
   };
 
+  // ── Timeline state (presentational when a toggle) ─────────────────────────
   const config = React.useMemo(() => horizonConfig(view), [view]);
   const [horizon, setHorizon] = React.useState(
     config.mode === "toggle" ? config.defaultIdx : 0,
   );
 
-  const be = view.best_expression as BestExpressionWithPositive | null;
-  const hasReturn = be != null && be.total_return_pct != null;
-  const forwardNet = view.forward_expected_net_pct;
-  const hasForwardOnly = !hasReturn && forwardNet != null;
-  const curve = be?.equity_curve;
-  const curveValues =
-    Array.isArray(curve) && curve.length >= 2
-      ? curve.map((p) => p.strategy)
-      : [];
-  const stance = view.stance ?? null;
-  const noHasTrade = stance?.no.has_trade === true;
+  const be = view.best_expression;
   const title = view.short_title ?? view.plain_one_liner ?? view.title;
 
-  // Hero number — honest by construction.
-  // Prefers best_episode_pct (a single real occurrence), then total_return_pct,
-  // then forward model (labelled "modeled"). Never fabricated.
+  // ── The hero number — honest by construction ────────────────────────────
+  // The single best past occurrence of the headline strategy (best_episode_pct),
+  // falling back to the expression's total realised return. Never a fabricated
+  // "chance" — a real, realised track number.
   const bestRun =
     typeof view.best_episode_pct === "number" ? view.best_episode_pct : null;
   const heroPct = bestRun ?? be?.total_return_pct ?? null;
-  const heroIsForward = heroPct == null && hasForwardOnly;
-  const displayPct = heroIsForward ? (forwardNet ?? null) : heroPct;
-  const heroColor = signColor(displayPct, "var(--color-profit)");
-
-  const heroLabel =
-    bestRun != null
-      ? "best past run"
-      : hasForwardOnly
-        ? "modeled"
-        : hasReturn
-          ? "total return"
-          : "—";
+  const heroColor = "var(--text-primary)";
 
   const stopAnd = (intent: StanceIntent) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -560,26 +382,32 @@ export function ViewCard({
   };
 
   return (
-    <ViewSurface
-      as="div"
-      interactive
+    <article
       role="button"
       tabIndex={0}
       aria-label={`Open view: ${view.plain_one_liner ?? view.title}`}
       onClick={() => onOpen(view.id)}
       onKeyDown={handleKey}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       data-testid={`view-card-${view.id}`}
       className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       style={{
-        height: "100%",
         display: "flex",
         flexDirection: "column",
+        height: "100%",
+        background: "transparent",
+        border: `1px solid ${hover ? "var(--glass-border-hover)" : "var(--glass-border)"}`,
+        borderRadius: 12,
         padding: "20px 22px",
+        boxShadow: "none",
+        transition: "border-color 180ms var(--ease-quartr)",
       }}
     >
-      {/* ── (a) header: CategoryGlyph + title + Timeline ─────────────────── */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+      {/* ── (a) header — thumb · (question + timeline) ────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <CategoryGlyph category={view.category} seed={view.id} />
+
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             className="line-clamp-2"
@@ -600,38 +428,13 @@ export function ViewCard({
         </div>
       </div>
 
-      {/* ── (b) sparkline in flex-grow spacer ────────────────────────────── */}
-      {curveValues.length >= 2 ? (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 48,
-            marginTop: 16,
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ width: "100%" }}>
-            <Sparkline values={curveValues} height={48} />
-          </div>
-        </div>
-      ) : (
-        <div style={{ flex: 1, minHeight: 20 }} />
-      )}
-
-      {/* ── (c) hero return + stance buttons ─────────────────────────────── */}
+      {/* ── (b) body — hero return (left) · Yes/No stance (right) ─────────── */}
       <div
-        style={{
-          display: "flex",
-          alignItems: "flex-end",
-          justifyContent: "space-between",
-          gap: 16,
-          marginTop: 20,
-        }}
+        className="flex items-center justify-between"
+        style={{ gap: 24, marginTop: "auto", paddingTop: 24 }}
       >
-        {/* Hero number */}
         <div style={{ minWidth: 0 }}>
-          <HeroFigure pct={displayPct} color={heroColor} />
+          <HeroFigure pct={heroPct} color={heroColor} />
           <div
             style={{
               marginTop: 5,
@@ -642,148 +445,23 @@ export function ViewCard({
               lineHeight: 1.4,
             }}
           >
-            {heroLabel}
+            Expected return
+            <span style={{ display: "block", color: "var(--text-disabled)" }}>
+              best strategy if yes is true
+            </span>
           </div>
         </div>
 
-        {/* Yes / No stance buttons */}
-        {stance ? (
-          <div
-            className="shrink-0 flex flex-col"
-            style={{ gap: 6, minWidth: 104 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <StanceButton
-              tone="yes"
-              word="Yes"
-              secondary={
-                hasReturn
-                  ? fmtPct(be!.total_return_pct)
-                  : hasForwardOnly
-                    ? `${fmtPct(forwardNet)} modeled`
-                    : "See the basket"
-              }
-              ariaLabel={`Yes — ${stance.yes.verdict}. Open the view.`}
-              onOpen={stopAnd("yes")}
-            />
-            <StanceButton
-              tone={noHasTrade ? "no" : "muted"}
-              word="No"
-              secondary={stance.no.verdict}
-              ariaLabel={`No — ${stance.no.verdict}. Open the view.`}
-              onOpen={stopAnd("no")}
-            />
-          </div>
-        ) : hasReturn ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen(view.id);
-            }}
-            style={{
-              flexShrink: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "10px 14px",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--glass-border)",
-              background: "var(--bg-base)",
-              cursor: "pointer",
-              fontFamily: FONT,
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-            }}
-          >
-            View details
-            <ArrowRight size={13} aria-hidden />
-          </button>
-        ) : (
-          <span
-            style={{
-              flexShrink: 0,
-              fontFamily: FONT,
-              fontSize: 13,
-              fontWeight: 500,
-              color: "var(--text-tertiary)",
-            }}
-          >
-            Still developing
-          </span>
-        )}
-      </div>
-
-      <Hairline style={{ marginTop: 16, marginBottom: 12 }} />
-
-      {/* ── (d) footer: trust + track record + min entry + Follow ────────── */}
-      <div className="flex items-center justify-between gap-3">
-        <span
-          className="inline-flex items-center gap-1.5"
-          style={{
-            minWidth: 0,
-            fontFamily: FONT,
-            fontSize: 13,
-            fontWeight: 500,
-            lineHeight: 1.3,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
+        {/* Yes / No stance — navigation intents, not wagers */}
+        <div
+          className="shrink-0 flex flex-col"
+          style={{ gap: 8 }}
+          onClick={(e) => e.stopPropagation()}
         >
-          {be ? (
-            <>
-              <span
-                aria-hidden
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: verdictColor(be.trust_verdict),
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ color: verdictColor(be.trust_verdict) }}>
-                {trustBadge(be.trust_verdict)}
-              </span>
-              {footerTrack(be) && (
-                <span style={{ color: "var(--text-tertiary)" }}>
-                  {" · "}
-                  {footerTrack(be)}
-                </span>
-              )}
-            </>
-          ) : (
-            <span style={{ color: "var(--text-tertiary)" }}>Recent idea</span>
-          )}
-          {typeof view.min_entry_inr === "number" && (
-            <span
-              style={{
-                marginLeft: 4,
-                fontFamily: FONT,
-                fontSize: 12,
-                fontWeight: 500,
-                color: "var(--text-tertiary)",
-                border: "1px solid var(--glass-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "1px 6px",
-                fontVariantNumeric: "tabular-nums",
-                flexShrink: 0,
-              }}
-            >
-              {`From ₹${Math.round(view.min_entry_inr).toLocaleString("en-IN")}`}
-            </span>
-          )}
-        </span>
-        <FollowButton
-          viewId={view.id}
-          isFollowing={view.is_following}
-          followerCount={view.follower_count}
-          size="sm"
-          onChange={(next) => onFollowChange?.(view.id, next)}
-        />
+          <StanceButton label="Yes" tone="yes" onClick={stopAnd("yes")} />
+          <StanceButton label="No" tone="no" onClick={stopAnd("no")} />
+        </div>
       </div>
-    </ViewSurface>
+    </article>
   );
 }

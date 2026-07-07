@@ -1139,7 +1139,7 @@ function TopHeader({
           aria-hidden={true}
         />
         <CompanyAutosuggest
-          placeholder="Search stocks, strategies, conversations…"
+          placeholder="Search about stocks"
           onSelect={(symbol) => router.push(`/stock/${symbol}`)}
           inputDataTestId="global-search"
           enableVoice

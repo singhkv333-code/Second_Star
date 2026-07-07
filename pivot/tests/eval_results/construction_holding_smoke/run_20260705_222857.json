@@ -1,0 +1,55 @@
+{
+ "ts": "20260705_222857",
+ "elapsed_s": 22.3,
+ "base": "http://localhost:8000",
+ "user_id": 631,
+ "sessions_file": "tests/eval_prompts/construction_holding_25.json",
+ "only": "monsoon_basket",
+ "n_sessions": 1,
+ "n_turns": 1,
+ "sessions": [
+  {
+   "category": "construction-thematic",
+   "name": "monsoon_basket",
+   "why": "The screenshot bug: thematic positioning must render strategy_builder_card with named constituents, not an agent/workflow card.",
+   "conv": "s_6c60905cc9",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Make me a basket of stocks that profit from a good monsoon.",
+     "response": "## Basket built\n\nThis basket positions for a **good monsoon / rural recovery** theme with a balanced, medium-term setup. It leans into irrigation and farm-infrastructure names that can benefit when rainfall is healthy and rural activity improves. The basket is evenly split because there are only four names, which keeps implementation simple and avoids one name dominating the thesis. One caveat: `JISLJALEQS` is a higher-risk leg, so the basket has a bit more volatility than a pure quality basket.\n\n## Holdings\n\n| Symbol | Target | Action |\n|---|---:|---|\n| `SHAKTIPUMP` | 25% | Buy |\n| `KSB` | 25% | Buy |\n| `KIRLOSBROS` | 25% | Buy |\n| `JISLJALEQS` | 25% | Buy |\n\n## Why these names\n\n`SHAKTIPUMP`, `KSB`, and `KIRLOSBROS` are the cleaner monsoon beneficiaries: irrigation demand, pump replacement, and farm capex all tend to improve when rainfall is supportive. `JISLJALEQS` gives the basket more upside torque on the drought-to-normalization cycle, but it is also the least robust on fundamentals, so it is the least defensive leg.\n\n## Alternatives\n\n- **More conservative:** drop `JISLJALEQS` and concentrate in the three stronger names. That reduces upside torque, but the basket becomes easier to defend.\n- **More diversified:** add a rural recovery consumer leg after a second screen. That can smooth the ride, but it dilutes the pure monsoon payoff.\n\n## Assumptions\n\n- `good monsoon / rural recovery` was treated as the theme.\n- Risk was treated as **balanced** and horizon as **medium**.\n- Capital was set to **\u20b91,00,000** since you did not specify an amount.\n- Gold was skipped because this is an equity theme basket, not a capital-preservation build.\n\nThis is a register-not-execute basket \u2014 you review and activate it in your broker app. This is analysis and a framework, not personalised financial advice.",
+     "tools_called": [
+      "build_strategy"
+     ],
+     "render_hint": "strategy_builder_card",
+     "raw_keys": [
+      "_render_hint",
+      "alternatives",
+      "assumptions",
+      "build_strategy",
+      "capital_inr",
+      "constituents",
+      "disclaimer",
+      "rationale",
+      "sector_cap",
+      "selection_gate",
+      "sleeves",
+      "title",
+      "weighting_scheme"
+     ],
+     "card_digest": {
+      "hint": "strategy_builder_card",
+      "compact": "{\"build_strategy\": {\"_render_hint\": \"strategy_builder_card\", \"title\": \"Good Monsoon / Rural Recovery \\u2014 Diversified Equity Basket\", \"rationale\": \"You asked for a 'good monsoon / rural recovery' basket, at a balanced risk level, over a medium-term horizon. So here's the chain: we screened with a multi-factor quality+value gate (ROE/ROCE/D-E + earnings yield) (quality and value together, so one bad year on either factor can't carry a name in) \\u2014 that's what picked these 4 names (each shows the exact ratios that earned its slot). Then the basket is small enough that equal-weight is the honest, cost-efficient choice (1/N earns its place at this name count), and a \\u226432% single-sector cap stops it from quietly becoming one big sector bet. It's sized against \\u20b9100,000. Every step traces back to your brief \\u2014 edit any leg before you register it; nothing executes until you place it in your broker app.\", \"weighting_scheme\": \"equal\", \"selection_gate\": \"multifactor\", \"sector_cap\": 32.0, \"constituents\": [{\"symbol\": \"SHAKTIPUMP\", \"name\": \"SHAKTIPUMP\", \"sector\": \"unknown\", \"weight_pct\": 25.0, \"gate_metrics\": {\"roe\": 17.97, \"de\": 0.3, \"earnings_yield\": 0.0366, \"pe\": 27.33}}, {\"symbol\": \"KSB\", \"name\": \"KSB\", \"sector\": \"unknown\", \"weight_pct\": 25.0, \"gate_metrics\": {\"de\": 0.0, \"earnings_yield\": 0.0159, \"pe\": 62.91}}, {\"symbol\": \"KIRLOSBROS\", \"name\": \"KIRLOSBROS\", \"sector\": \"unknown\", \"weight_pct\": 25.0, \"gate_metrics\": {\"roe\": 16.48, \"de\": 0.1, \"earnings_yield\": 0.0254, \"pe\u2026"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 19696,
+     "latency_server_ms": 19144,
+     "input_tokens": 83513,
+     "output_tokens": 741,
+     "cost_usd": 0.012763,
+     "llm_calls": 2
+    }
+   ]
+  }
+ ]
+}

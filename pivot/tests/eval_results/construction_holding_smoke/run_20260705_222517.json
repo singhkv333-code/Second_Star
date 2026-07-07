@@ -1,0 +1,55 @@
+{
+ "ts": "20260705_222517",
+ "elapsed_s": 41.1,
+ "base": "http://localhost:8000",
+ "user_id": 630,
+ "sessions_file": "tests/eval_prompts/construction_holding_25.json",
+ "only": "monsoon_basket",
+ "n_sessions": 1,
+ "n_turns": 1,
+ "sessions": [
+  {
+   "category": "construction-thematic",
+   "name": "monsoon_basket",
+   "why": "The screenshot bug: thematic positioning must render strategy_builder_card with named constituents, not an agent/workflow card.",
+   "conv": "s_09daf2b77b",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Make me a basket of stocks that profit from a good monsoon.",
+     "response": "## Good monsoon basket\n\nThis basket is a **balanced, \u20b91,00,000, medium-horizon equity basket** built around companies that tend to benefit when rural sentiment improves and discretionary spending holds up. The current card is **broadly diversified**, with a tilt toward consumer staples, autos, and IT rather than only the most direct monsoon plays. That makes it steadier, but also a bit less \u201cpure play\u201d on rainfall than a tighter rural-beneficiaries basket.\n\n## What this structure is doing\n\nA good monsoon usually supports farm income, rural demand, two-wheelers, tractors, packaged foods, and broader consumption. The basket leans toward **higher-quality names with strong balance sheets and earnings power**, so you are not relying on one weather outcome alone. It also spreads risk across sectors, which helps if the monsoon is good but the market rotates away from rural names or if input costs stay sticky.\n\n## Holdings\n\n| Stock | Weight | Approx. \u20b9 allocation |\n|---|---:|---:|\n| ITC | 14.51% | \u20b914,510 |\n| Britannia Industries | 12.35% | \u20b912,350 |\n| Nestle India | 11.91% | \u20b911,910 |\n| Hindustan Unilever | 11.97% | \u20b911,970 |\n| Bajaj Auto | 10.48% | \u20b910,480 |\n| Maruti Suzuki | 8.85% | \u20b98,850 |\n| TCS | 8.35% | \u20b98,350 |\n| Wipro | 8.05% | \u20b98,050 |\n| HCL Technologies | 7.09% | \u20b97,090 |\n| Infosys | 6.44% | \u20b96,440 |\n\n## Why these names\n\nThe consumer names are there for **rural volume recovery and stronger discretionary demand**. Auto names capture the usual monsoon-to-rural-income pass-through. The IT names add stability so the basket is not fully dependent on the weather thesis alone.\n\n## Alternatives\n\n- **More monsoon-pure:** a tighter basket focused on rural/discretionary winners only, but with higher single-theme risk.\n- **More defensive:** trim autos and overweight staples/IT, which reduces drawdown risk if the monsoon thesis is slower to show up.\n\n## Hand-off\n\nThis card **registers an idea only**; nothing is placed until you activate it in your broker app. If you want, I can tighten this into a more monsoon-specific basket with fewer names and a stronger rural tilt.  \nThis is analysis and a framework, not personalised financial advice.",
+     "tools_called": [
+      "build_strategy"
+     ],
+     "render_hint": "strategy_builder_card",
+     "raw_keys": [
+      "_render_hint",
+      "alternatives",
+      "assumptions",
+      "build_strategy",
+      "capital_inr",
+      "constituents",
+      "disclaimer",
+      "rationale",
+      "sector_cap",
+      "selection_gate",
+      "sleeves",
+      "title",
+      "weighting_scheme"
+     ],
+     "card_digest": {
+      "hint": "strategy_builder_card",
+      "compact": "{\"build_strategy\": {\"_render_hint\": \"strategy_builder_card\", \"title\": \"A Good Monsoon \\u2014 Focused Basket\", \"rationale\": \"You asked for a 'a good monsoon' basket, with your medium-conviction bull sector view, at a balanced risk level, over a medium-term horizon. So here's the chain: we screened with a multi-factor quality+value gate (ROE/ROCE/D-E + earnings yield) (quality and value together, so one bad year on either factor can't carry a name in) \\u2014 that's what picked these 10 names (each shows the exact ratios that earned its slot). Then your medium-conviction bull sector view becomes the Black-Litterman view vector over a market-cap prior, so the names you're bullish on carry more weight \\u2014 a tilt, not a coin-flip, and a \\u226432% single-sector cap stops it from quietly becoming one big sector bet. It's sized against \\u20b9100,000. Every step traces back to your brief \\u2014 edit any leg before you register it; nothing executes until you place it in your broker app.\", \"weighting_scheme\": \"black_litterman\", \"selection_gate\": \"multifactor\", \"sector_cap\": 32.0, \"constituents\": [{\"symbol\": \"TCS\", \"name\": \"Tata Consultancy Services\", \"sector\": \"it\", \"weight_pct\": 8.35, \"gate_metrics\": {\"roe\": 48.4, \"de\": 0.1, \"earnings_yield\": 0.065, \"pe\": 15.38}}, {\"symbol\": \"NESTLEIND\", \"name\": \"Nestle India\", \"sector\": \"fmcg\", \"weight_pct\": 11.91, \"gate_metrics\": {\"roe\": 76.34, \"de\": 0.09, \"earnings_yield\": 0.0124, \"pe\": 80.65}}, {\"symbol\": \"BRITANNIA\", \"name\": \"Britannia Industrie\u2026"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 28966,
+     "latency_server_ms": 27517,
+     "input_tokens": 84009,
+     "output_tokens": 969,
+     "cost_usd": 0.01848,
+     "llm_calls": 2
+    }
+   ]
+  }
+ ]
+}

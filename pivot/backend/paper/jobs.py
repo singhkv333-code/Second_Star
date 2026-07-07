@@ -116,7 +116,7 @@ def mark_open_positions(db: Session, price_fn: PriceFn = None) -> dict:
     acct_ids = [
         row[0]
         for row in db.query(PaperPosition.account_id)
-        .filter(PaperPosition.quantity > 0)
+        .filter(PaperPosition.quantity != 0)
         .distinct()
         .all()
     ]

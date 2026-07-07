@@ -19,6 +19,7 @@ from backend.auth.jwt_handler import get_user_id_from_token
 from backend.backtester.engine import run_backtest
 from backend.backtester.parser import parse_strategy
 from backend.cache import redis_client
+from backend.posthog_client import get_posthog
 
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
 logger = logging.getLogger(__name__)
@@ -100,6 +101,14 @@ async def run_endpoint(req: RunRequest, user_id: int = Depends(get_user_id)) -> 
                           ex=CACHE_TTL_SECONDS)
     except Exception as e:
         logger.debug(f"Backtest cache write failed for {cache_key}: {e}")
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.capture("backtest_run", distinct_id=str(user_id), properties={
+            "symbol": strategy.get("symbol"),
+            "has_starting_capital": req.starting_capital is not None,
+            "entry_signal": strategy.get("entry_signal"),
+        })
 
     return result
 

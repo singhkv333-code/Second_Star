@@ -12,7 +12,7 @@
  * plain reload of an already-signed-in session.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LoginIntro } from "@/components/onboarding/LoginIntro";
 
@@ -112,11 +112,16 @@ export function LoginIntroGate(): React.ReactElement | null {
     window.setTimeout(() => setPhase("play"), LEAD_IN_MS);
   }, []);
 
-  const finish = (): void => {
+  // Stable identity: AppShell re-renders often in the first seconds after
+  // login (conversations/account/metrics fetches resolving). LoginIntro's
+  // animation-driving effect depends on `onDone` (see LoginIntro.tsx), so a
+  // fresh `finish` on every render was restarting the rAF loop mid-animation
+  // — the "plays twice" bug. useCallback keeps it referentially stable.
+  const finish = useCallback((): void => {
     setPhase("idle");
     window.__pivotIntroPending = false;
     window.dispatchEvent(new CustomEvent(INTRO_DONE_EVENT));
-  };
+  }, []);
 
   if (phase === "idle") return null;
   if (phase === "hold") {

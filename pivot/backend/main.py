@@ -17,6 +17,7 @@ from backend.observability.request_context import RequestContextMiddleware
 configure_logging()
 from backend.observability.sentry_setup import configure_sentry
 configure_sentry()
+from backend.posthog_client import init_posthog, shutdown_posthog
 logger = structlog.get_logger(__name__)
 
 from backend.database import SessionLocal
@@ -307,6 +308,8 @@ async def _validation_exception_handler(
 @app.on_event("startup")
 async def startup():
     """Start the SIP/strategy scheduler. All times in IST."""
+    init_posthog(settings.posthog_project_token, settings.posthog_host)
+
     from backend.scheduler import init_scheduler
     from backend.utils.time_utils import format_ist, now_ist
 
@@ -529,6 +532,10 @@ async def shutdown():
     try:
         from backend.llm.openai_client import aclose_shared_async_client
         await aclose_shared_async_client()
+    except Exception:
+        pass
+    try:
+        shutdown_posthog()
     except Exception:
         pass
 

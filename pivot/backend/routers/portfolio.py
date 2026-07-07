@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import (
-    User, ProductPosition, PaperAccount, PaperNavSnapshot, BrokerSession,
+    User, ProductPosition, PaperAccount, PaperNavSnapshot, PaperPosition,
+    BrokerSession,
 )
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.kite.auth import read_kite_access_token
@@ -244,19 +245,29 @@ def _user_portfolio_score(user_id: int, db: Session) -> Optional[float]:
     return float(portfolio["score"]) if portfolio else None
 
 
-_PEER_SCORES_CACHE_KEY = "portfolio_scores:real_peers:v1"
+_PEER_SCORES_CACHE_KEY = "portfolio_scores:real_peers:v2"
 _PEER_SCORES_CACHE_TTL = 1200  # 20 min — a leaderboard-style stat, not live-tick data
 
 
 def _real_peer_candidate_ids(db: Session) -> set[int]:
-    """User ids with a genuinely differentiated portfolio: a connected
-    broker session, or paper-trading with at least one NAV snapshot.
+    """EVERY user who holds a real, differentiated portfolio — the full
+    community population the percentile ranks against, not a curated subset.
 
-    Users with neither fall back to the shared MOCK_HOLDINGS with no return
-    history (see ``backend/kite/portfolio.py::_use_mock``) — their score
-    would be byte-identical to every other such user, so they're excluded
-    from the peer pool entirely rather than counted as one (or hundreds of
-    duplicate) real data points.
+    A user qualifies with EITHER a connected broker session (real live
+    holdings) OR a paper account currently holding at least one position
+    (``PaperPosition.quantity != 0`` — a genuinely traded book). We no longer
+    gate paper users on having an EOD NAV snapshot: that snapshot only lands
+    after the first end-of-day scheduler run, which was artificially shrinking
+    the pool to the handful of users who had crossed an EOD boundary. Anyone
+    who has actually traded is a real peer immediately.
+
+    Users with NO real book (never traded — the shared MOCK_HOLDINGS fallback,
+    see ``backend/kite/portfolio.py::_use_mock``) are still not peers: their
+    score is byte-identical to every other such user, so counting them would
+    dress up one placeholder as hundreds of duplicate data points. They also
+    hold no position, so this query excludes them structurally — and
+    ``_user_portfolio_score`` returns ``None`` for an empty book as a second
+    guard, so a cash-only account can never leak into the distribution.
     """
     broker_ids = {
         uid for (uid,) in db.query(BrokerSession.user_id)
@@ -268,10 +279,33 @@ def _real_peer_candidate_ids(db: Session) -> set[int]:
     }
     paper_ids = {
         uid for (uid,) in db.query(PaperAccount.user_id)
-        .join(PaperNavSnapshot, PaperNavSnapshot.account_id == PaperAccount.id)
+        .join(PaperPosition, PaperPosition.account_id == PaperAccount.id)
+        .filter(PaperPosition.quantity != 0)
         .distinct()
     }
     return broker_ids | paper_ids
+
+
+_COMMUNITY_COUNT_CACHE_KEY = "portfolio_scores:community_user_count:v1"
+_COMMUNITY_COUNT_CACHE_TTL = 1200  # 20 min — grows slowly, fine to cache
+
+
+def _community_user_count(db: Session) -> int:
+    """Total registered users — the size of the community the percentile
+    ranks against. Cached (20 min) since it changes slowly and every
+    scores load would otherwise re-COUNT the whole users table."""
+    try:
+        cached = redis_client.get(_COMMUNITY_COUNT_CACHE_KEY)
+        if cached:
+            return int(cached)
+    except Exception:  # noqa: BLE001 — cache is best-effort
+        logger.debug("community-count cache read failed", exc_info=True)
+    n = db.query(User).count()
+    try:
+        redis_client.setex(_COMMUNITY_COUNT_CACHE_KEY, _COMMUNITY_COUNT_CACHE_TTL, str(n))
+    except Exception:  # noqa: BLE001
+        logger.debug("community-count cache write failed", exc_info=True)
+    return n
 
 
 def _real_peer_scores(db: Session, exclude_user_id: int) -> list[float]:
@@ -325,12 +359,18 @@ def compute_portfolio_scores(db: Session, user_id: int) -> dict:
     holdings = resolve_holdings(db, user_id, token)
     account, nav_snapshots = _account_and_snapshots(user_id, db)
     peer_scores = _real_peer_scores(db, exclude_user_id=user_id)
+    # Whole-community denominator: every OTHER registered user. Those who
+    # aren't in `peer_scores` have never traded (empty portfolio) and get
+    # padded into the distribution at the empty baseline, so the percentile
+    # is against ALL users, not just the handful who trade.
+    empty_peer_count = max(0, _community_user_count(db) - 1 - len(peer_scores))
     return _scores.compute_scores(
         holdings=holdings,
         sector_of=lambda sym: SECTOR_MAP.get(sym, "Other"),
         account=account,
         nav_snapshots=nav_snapshots,
         peer_scores=peer_scores,
+        empty_peer_count=empty_peer_count,
     )
 
 

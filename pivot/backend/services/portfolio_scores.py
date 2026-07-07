@@ -34,16 +34,17 @@ Three scores are produced:
    is fully explainable.
 
 3. ``community_score`` (0-100)
-   A **percentile** of this user's ``portfolio_score`` against real peer
-   scores — other users with a genuinely differentiated portfolio (a
-   connected broker session, or paper-trading NAV history) — when at least
-   ``_MIN_REAL_PEERS`` of them exist. Users with neither are excluded from
-   the peer pool entirely: on the shared dev mock holdings with no NAV
-   history their score is byte-identical to every other such user, so
-   counting them would dress up placeholder data as real community
-   signal. Below the threshold this falls back to a fixed, documented
-   benchmark cohort distribution (``BENCHMARK_SCORE_DISTRIBUTION``) and says
-   so plainly in ``basis`` — never silently degrades without disclosing it.
+   A **percentile** of this user's ``portfolio_score`` against EVERY other
+   Pivot user who holds a real, differentiated portfolio — anyone with live
+   broker holdings or a currently-held paper position (see
+   ``_real_peer_candidate_ids``) — when at least ``_MIN_REAL_PEERS`` of them
+   exist. Users who have never traded hold no position and are excluded: on
+   the shared dev mock holdings their score is byte-identical to every other
+   such user, so counting them would dress up one placeholder as hundreds of
+   duplicate data points. Below the threshold this falls back to a fixed,
+   documented benchmark cohort distribution (``BENCHMARK_SCORE_DISTRIBUTION``)
+   and says so plainly in ``basis`` — never silently degrades without
+   disclosing it.
 """
 
 from __future__ import annotations
@@ -74,10 +75,22 @@ BENCHMARK_BASIS = (
     "portfolio scores (benchmark anchors, not live peer/user data)."
 )
 
-# Below this many real peer scores, a percentile is too noisy/small a sample
-# to be meaningful (e.g. "beats 1 of 2 people") — fall back to the documented
-# benchmark cohort instead, and say so in `basis`.
+# Below this many users in the ranked distribution, a percentile is too
+# noisy/small a sample to be meaningful (e.g. "beats 1 of 2 people") — fall
+# back to the documented benchmark cohort instead, and say so in `basis`.
+# With the whole-community population (active traders + never-traded users
+# padded in) this threshold is effectively always cleared except on a
+# brand-new deployment.
 _MIN_REAL_PEERS = 5
+
+# The honest score for a user who has never traded — an empty/all-cash book
+# has no diversification and no return track record, so it ranks at the very
+# bottom of the community distribution. NOT a fabricated mock-holdings score:
+# it's the true score of holding nothing. Kept strictly below any real
+# portfolio's score so "you rank above everyone who hasn't built a book yet"
+# always holds. These users never SEE a community score themselves (no
+# holdings → the card is hidden); they exist only to size the denominator.
+_EMPTY_PORTFOLIO_SCORE = 0.0
 
 
 def _hhi(weights: Iterable[float]) -> float:
@@ -292,33 +305,48 @@ def compute_portfolio_score(
 def compute_community_score(
     portfolio_score: float,
     peer_scores: Optional[list[float]] = None,
+    empty_peer_count: int = 0,
 ) -> dict[str, Any]:
-    """Percentile of the user's portfolio score vs real peers when enough
-    exist, else a fixed benchmark cohort.
+    """Percentile of the user's portfolio score across the WHOLE community.
 
-    ``peer_scores`` — other users' portfolio scores, already filtered by the
-    caller to genuinely differentiated portfolios (see module docstring).
-    When there are at least ``_MIN_REAL_PEERS`` of them, the percentile is
-    computed against that real distribution and ``basis`` says so plainly.
-    Otherwise falls back to ``BENCHMARK_SCORE_DISTRIBUTION`` and discloses
-    the fallback (never silently swaps data sources without saying so).
+    The ranked distribution is every OTHER Pivot user:
+      - ``peer_scores`` — the real portfolio scores of other users who
+        actually hold a book (live broker holdings or a traded paper book),
+        gathered by the caller.
+      - ``empty_peer_count`` — how many other registered users have NEVER
+        traded. Each is padded into the distribution at
+        ``_EMPTY_PORTFOLIO_SCORE`` (the honest score of holding nothing), so
+        the percentile is against all users, not just active traders. These
+        users don't see a community score themselves (no holdings → hidden
+        card); they only size the denominator.
+
+    Because empties sit strictly below any real score, any real portfolio
+    ranks above all of them — "you're ahead of everyone who hasn't built a
+    book yet." Falls back to ``BENCHMARK_SCORE_DISTRIBUTION`` only when the
+    community is smaller than ``_MIN_REAL_PEERS`` (a brand-new deployment),
+    and discloses that in ``basis``.
     """
-    real_peers = peer_scores or []
-    use_real = len(real_peers) >= _MIN_REAL_PEERS
+    real_peers = list(peer_scores or [])
+    empties = [_EMPTY_PORTFOLIO_SCORE] * max(0, empty_peer_count)
+    community = real_peers + empties
+    use_real = len(community) >= _MIN_REAL_PEERS
 
     if use_real:
-        dist = tuple(real_peers)
+        dist: tuple[float, ...] = tuple(community)
+        total_incl_self = len(dist) + 1  # + the requesting user
+        n_empty = len(empties)
         basis = (
-            f"Percentile vs {len(dist)} real peer portfolio scores from "
-            "other Pivot users (users on the shared demo/mock portfolio "
-            "with no trading history are excluded, not counted as peers)."
+            f"Percentile across all {total_incl_self} Pivot users. "
+            f"{n_empty} of them haven't built a portfolio yet and are scored "
+            "as empty, so holding any real book ranks you above them; the "
+            f"other {len(real_peers)} hold real portfolios ranked on merit."
         )
     else:
         dist = BENCHMARK_SCORE_DISTRIBUTION
         basis = BENCHMARK_BASIS + (
-            f" (Only {len(real_peers)} real differentiated peer portfolio(s) "
-            f"exist right now — need at least {_MIN_REAL_PEERS} before the "
-            "percentile switches to live peer data.)"
+            f" (Only {len(community)} other Pivot user(s) exist right now — "
+            f"need at least {_MIN_REAL_PEERS} before the percentile switches "
+            "to live community data.)"
         )
 
     if not dist:
@@ -339,7 +367,8 @@ def compute_community_score(
             f"Your portfolio score of {round(portfolio_score)} sits at the "
             f"{percentile:.0f}th percentile of "
             + (
-                f"{len(dist)} real peer portfolios."
+                f"all {len(dist) + 1} Pivot users "
+                f"({len(empties)} of whom haven't built a portfolio yet)."
                 if use_real
                 else f"a fixed benchmark cohort of {len(dist)} representative "
                 "retail portfolio scores. This is a benchmark comparison, "
@@ -355,14 +384,16 @@ def compute_scores(
     account=None,
     nav_snapshots: Optional[list] = None,
     peer_scores: Optional[list[float]] = None,
+    empty_peer_count: int = 0,
 ) -> dict[str, Any]:
     """Top-level entry: returns the full scores payload.
 
     If there are no holdings (or none with positive market value) all three
     scores are ``None`` and ``reason`` is ``"no_holdings"``. ``peer_scores``
-    is the caller-gathered list of OTHER users' portfolio scores (already
-    filtered to genuinely differentiated portfolios) used for the community
-    percentile — see ``compute_community_score``.
+    is the caller-gathered list of OTHER real-portfolio users' scores, and
+    ``empty_peer_count`` is how many other users have never traded — together
+    they form the whole-community distribution for the percentile (see
+    ``compute_community_score``).
     """
     div = compute_diversification(holdings, sector_of)
     if div is None:
@@ -381,7 +412,11 @@ def compute_scores(
         top_sector_pct=top_sector_pct,
         total_return_pct=total_return_pct,
     )
-    community = compute_community_score(portfolio["score"], peer_scores=peer_scores)
+    community = compute_community_score(
+        portfolio["score"],
+        peer_scores=peer_scores,
+        empty_peer_count=empty_peer_count,
+    )
 
     return {
         "diversification_score": div,

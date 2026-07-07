@@ -20,6 +20,7 @@ from backend.paper.marks import get_mark_price
 from backend.kite import auth as kite_auth
 from backend.kite.auth import read_kite_access_token
 from backend.agents.explainer import explain_order
+from backend.posthog_client import get_posthog
 from backend.safety import validate_order_value
 from backend.utils.time_utils import format_ist, now_ist
 import logging
@@ -193,6 +194,16 @@ async def confirm_order(
     db.commit()
 
     del _preview_store[request.preview_id]
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.capture("order_confirmed", distinct_id=str(user_id), properties={
+            "transaction_type": req["transaction_type"],
+            "order_type": req["order_type"],
+            "quantity": req["quantity"],
+            "exchange": req["exchange"],
+            "is_paper": result.get("is_paper", False),
+        })
 
     confirmed_at_ist = format_ist(now_ist())
     return {

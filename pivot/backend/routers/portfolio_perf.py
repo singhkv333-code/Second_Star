@@ -129,6 +129,167 @@ def _flat_series(period: _PeriodLiteral, value: float) -> dict:
     ).model_dump(mode="json")
 
 
+_PERIOD_SPAN_DAYS: dict[str, int] = {
+    "1M": 31, "3M": 93, "6M": 186, "1Y": 366, "5Y": 1827,
+}
+
+
+def _paper_performance(
+    db, user_id: int, period: _PeriodLiteral,
+) -> Optional[dict]:
+    """Real paper-book equity curve, reconstructed from the account's FILLS.
+
+    This is the honest "value of my portfolio over time" the user asked for:
+    it starts at the FIRST actual trade (never before), replays every fill in
+    order to know the exact holdings + cash on each date, and marks those
+    holdings at their real historical close each day. So the curve reflects
+    the movement of the positions AFTER they were opened — not a backtest of
+    today's basket projected backward over a period the user held nothing.
+
+    Value identity at each date d:
+        value(d) = cash(d) + Σ_sym qty(sym, d) · close(sym, d)
+    where ``cash(d) = starting_capital + Σ net_cashflow(fills ≤ d)`` (buys
+    debit, sells credit, both charge-inclusive) — i.e. exactly NAV = cash +
+    positions_mv. The final point is pinned to the live NAV so the chart's end
+    matches the portfolio header.
+    """
+    from backend.models import PaperAccount, PaperFill
+    from backend.services.portfolio_source import paper_cash_and_nav
+
+    account = (
+        db.query(PaperAccount)
+        .filter(PaperAccount.user_id == user_id)
+        .first()
+    )
+    paper = paper_cash_and_nav(db, user_id)  # (cash, nav) | None
+    nav_now = (
+        float(paper[1]) if paper is not None
+        else (float(account.cash_available) if account is not None else 0.0)
+    )
+    if account is None:
+        # No paper book at all — nothing of our own to show. Defer to the
+        # caller's legacy holdings path (which 404s on an empty book), rather
+        # than fabricating a flat ₹0 line.
+        return None
+
+    fills = (
+        db.query(PaperFill)
+        .filter(PaperFill.account_id == account.id)
+        .order_by(PaperFill.filled_at.asc())
+        .all()
+    )
+    if not fills:
+        # All-cash book — honest flat NAV line, no positions to reconstruct.
+        return _flat_series(period, nav_now)
+
+    yf_period, yf_interval = _PERIOD_MAP[period]
+    end = pd.Timestamp.utcnow().tz_localize(None).normalize()
+    period_start = end - pd.Timedelta(days=_PERIOD_SPAN_DAYS[period])
+    first_fill = pd.Timestamp(fills[0].filled_at.date())
+    # Clamp the axis start to the first fill so the window never shows the
+    # pre-trade past — that projection is exactly the "backtested" look the
+    # chart must NOT have.
+    axis_start = max(period_start, first_fill)
+
+    # Per-symbol historical closes (concurrent yfinance fetch). The paper book
+    # is NSE equities; assume .NS unless already suffixed.
+    symbols = sorted({str(f.symbol) for f in fills})
+    specs = [
+        (1.0, s if s.endswith((".NS", ".BO")) else f"{s}.NS")
+        for s in symbols
+    ]
+    closes: dict[str, pd.Series] = {}
+    if specs:
+        with ThreadPoolExecutor(max_workers=min(8, len(specs))) as pool:
+            futures = {
+                sym: pool.submit(_fetch_one_series, spec, yf_period, yf_interval)
+                for sym, spec in zip(symbols, specs)
+            }
+            for sym, fut in futures.items():
+                _, series = fut.result()
+                if series is None:
+                    continue
+                idx = series.index
+                if getattr(idx, "tz", None) is not None:
+                    series = series.copy()
+                    series.index = idx.tz_localize(None)
+                series.index = series.index.normalize()
+                closes[sym] = series
+
+    # Fallback mark per symbol (its last fill price) so a symbol yfinance can't
+    # price contributes a flat, honest value instead of vanishing from the sum.
+    fallback_px: dict[str, float] = {}
+    for f in fills:
+        try:
+            fallback_px[str(f.symbol)] = float(f.fill_price)
+        except (TypeError, ValueError):
+            pass
+
+    # Common naive date axis over [axis_start, end], anchored at both ends,
+    # forward-filled from each symbol's closes.
+    union = pd.DatetimeIndex([axis_start, end])
+    for s in closes.values():
+        union = union.union(s.index)
+    union = union[(union >= axis_start) & (union <= end)].sort_values()
+    if len(union) == 0:
+        union = pd.DatetimeIndex([axis_start, end])
+    aligned = {sym: s.reindex(union).ffill().bfill() for sym, s in closes.items()}
+
+    seed = float(account.starting_capital or 0.0)
+
+    # Sweep the axis, folding in each fill as its date is reached.
+    i = 0
+    held: dict[str, int] = {}
+    cash = seed
+    points: list[PerfPoint] = []
+    for ts in union:
+        while i < len(fills) and pd.Timestamp(fills[i].filled_at.date()) <= ts:
+            f = fills[i]
+            signed = (
+                int(f.quantity)
+                if str(f.transaction_type).upper() == "BUY"
+                else -int(f.quantity)
+            )
+            sym = str(f.symbol)
+            held[sym] = held.get(sym, 0) + signed
+            cash += float(f.net_cashflow)
+            i += 1
+        val = cash
+        for sym, q in held.items():
+            if q == 0:
+                continue
+            px: Optional[float] = None
+            s = aligned.get(sym)
+            if s is not None:
+                raw = s.get(ts)
+                if raw is not None and not pd.isna(raw):
+                    px = float(raw)
+            if px is None:
+                px = fallback_px.get(sym)
+            if px is not None:
+                val += q * px
+        points.append(PerfPoint(t=ts.to_pydatetime(), v=round(val, 2)))
+
+    # Pin the last point to the live NAV so the chart end == header value.
+    if points:
+        points[-1] = PerfPoint(t=points[-1].t, v=round(nav_now, 2))
+    else:
+        points = [PerfPoint(t=end.to_pydatetime(), v=round(nav_now, 2))]
+
+    starting = float(points[0].v)
+    ending = float(points[-1].v)
+    total_return = ending - starting
+    total_return_pct = (total_return / starting * 100) if starting > 0 else 0.0
+    return PerformanceResponse(
+        period=period,
+        points=points,
+        starting_value=round(starting, 2),
+        ending_value=round(ending, 2),
+        total_return=round(total_return, 2),
+        total_return_pct=round(total_return_pct, 2),
+    ).model_dump(mode="json")
+
+
 def _compute_performance(
     db, user_id: int, token: str, period: _PeriodLiteral,
 ) -> dict:
@@ -136,12 +297,20 @@ def _compute_performance(
     `PerformanceResponse`) so it round-trips cleanly through the Redis
     cache-aside layer — see `services/portfolio_cache.cache_aside`.
 
-    Holdings resolve through ``portfolio_source.resolve_holdings`` so a
-    paper-mode account reconstructs from its SIMULATED positions (making the
-    chart reactive to real activity). In paper mode the account's cash is added
-    as a flat baseline so the curve ends at the true NAV, and an all-cash book
-    draws a flat NAV line instead of erroring on "no holdings".
+    PAPER mode reconstructs the curve from the account's ACTUAL fills forward
+    (``_paper_performance``) — real portfolio movement AFTER the trades took
+    place, never a backward projection of today's book. LIVE / broker mode has
+    no fill history to anchor to, so it falls back to the holdings×history
+    projection below (the only option when we don't know purchase dates).
     """
+    from backend.paper.routing import should_use_paper
+
+    if should_use_paper(db, user_id):
+        paper_result = _paper_performance(db, user_id, period)
+        if paper_result is not None:
+            return paper_result
+        # No paper account yet — fall through to the legacy holdings path.
+
     from backend.services.portfolio_source import (
         paper_cash_and_nav, resolve_holdings,
     )

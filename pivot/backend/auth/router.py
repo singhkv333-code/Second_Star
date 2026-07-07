@@ -29,6 +29,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from backend.auth.audit import write_audit
+from backend.posthog_client import get_posthog
 from backend.auth.jwt_handler import (
     create_access_token,
     create_refresh_token,
@@ -215,6 +216,11 @@ def register(
         email=user.email, user_id=user.id, ip=ip, user_agent=ua,
     )
 
+    _ph = get_posthog()
+    if _ph:
+        _ph.set(distinct_id=str(user.id), properties={"email": user.email})
+        _ph.capture("user_signed_up", distinct_id=str(user.id), properties={"signup_method": "email"})
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -237,6 +243,11 @@ def me(
     re-decoding the JWT in the browser.
     """
     user, _jti = _require_user_with_jti(authorization, db)
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.set(distinct_id=str(user.id), properties={"email": user.email})
+
     return UserResponse.model_validate(user)
 
 
@@ -327,6 +338,11 @@ def login(
         background_tasks.add_task(warm_user_cache, int(user.id))
     except Exception as e:  # noqa: BLE001 — cache warm must never break login
         logger.debug("failed to schedule cache warm for user %s: %s", user.id, e)
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.set(distinct_id=str(user.id), properties={"email": user.email})
+        _ph.capture("user_logged_in", distinct_id=str(user.id), properties={"login_method": "email"})
 
     return TokenResponse(
         access_token=access_token,
@@ -499,6 +515,12 @@ def google_auth(
         background_tasks.add_task(warm_user_cache, int(user.id))
     except Exception as e:  # noqa: BLE001 — cache warm must never break auth
         logger.debug("failed to schedule cache warm for google user %s: %s", user.id, e)
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.set(distinct_id=str(user.id), properties={"email": user.email})
+        event = "user_signed_up_google" if is_new else "user_logged_in_google"
+        _ph.capture(event, distinct_id=str(user.id), properties={"login_method": "google"})
 
     return TokenResponse(
         access_token=access_token,

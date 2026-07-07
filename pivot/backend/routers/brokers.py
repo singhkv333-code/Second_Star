@@ -37,6 +37,7 @@ from backend.brokers.sessions import get_broker_session
 from backend.config import settings
 from backend.database import get_db
 from backend.models import BrokerSession, User
+from backend.posthog_client import get_posthog
 
 logger = logging.getLogger(__name__)
 
@@ -372,6 +373,11 @@ def _handle_broker_callback(
         return _frontend_redirect(
             {"broker": "error", "reason": f"exchange_failed:{exc}", "broker_id": broker}
         )
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.capture("broker_connected", distinct_id=str(user.id), properties={"broker": broker})
+
     # Echo broker_id so the FE deep-opens the exact broker (unambiguous once a
     # second OAuth broker like Fyers ships).
     return _frontend_redirect({"broker": "connected", "broker_id": broker})

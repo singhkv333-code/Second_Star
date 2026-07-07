@@ -47,6 +47,7 @@ import { StepConfigDrawer } from "@/components/agent-panel/StepConfigDrawer";
 import { StepTypePicker } from "@/components/agent-panel/StepTypePicker";
 import { RunHistory } from "@/components/agent-panel/RunHistory";
 import { RunView } from "@/components/agent-panel/RunView";
+import { AgentPositions } from "@/components/agent-panel/AgentPositions";
 import { defaultConfigFromSchema } from "@/lib/json-schema-to-zod";
 
 const LINT_DEBOUNCE_MS = 250;
@@ -101,6 +102,7 @@ export function WorkflowEditorMock({
   // null = editor, string = run id being viewed in RunView
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
   const [showRunHistory, setShowRunHistory] = useState(false);
+  const [showPositions, setShowPositions] = useState(false);
   // Diagnostics keyed by step_index (authoritative from debounced /lint call).
   // Seeded from the server-computed `workflow.diagnostics` so a pre-loaded
   // workflow renders its advisories instantly, before the mount-time lint
@@ -467,6 +469,28 @@ export function WorkflowEditorMock({
     );
   }
 
+  // If viewing this agent's positions, show AgentPositions
+  if (showPositions && workflow.id && !workflow.id.startsWith("00000000-")) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-2 border-b px-6 py-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Back to editor"
+            onClick={() => setShowPositions(false)}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          </Button>
+          <span className="text-sm font-medium">Positions</span>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <AgentPositions workflowId={workflow.id} />
+        </div>
+      </div>
+    );
+  }
+
   const activateLabel = workflow.status === "active"
     ? "Pause"
     : workflow.status === "paused"
@@ -524,7 +548,7 @@ export function WorkflowEditorMock({
         {/* Action bar — a primary Save + Run now pair, then the lifecycle /
             history controls as quiet ghost buttons so the hierarchy reads at
             a glance instead of a flat row of equal-weight buttons. */}
-        <div className="mt-4 flex flex-wrap items-center gap-1.5">
+        <div className="mt-4 flex flex-wrap items-center gap-1">
           <Button
             size="sm"
             variant="default"
@@ -554,7 +578,7 @@ export function WorkflowEditorMock({
               onClick={() => { void handleActivateOrPause(); }}
               disabled={busy}
               data-testid="activate-btn"
-              className="rounded-lg text-muted-foreground hover:text-foreground"
+              className="rounded-lg px-2 text-muted-foreground hover:text-foreground"
             >
               {(actionState === "activating" || actionState === "pausing") && (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -569,9 +593,21 @@ export function WorkflowEditorMock({
               onClick={() => setShowRunHistory(true)}
               disabled={busy}
               data-testid="history-btn"
-              className="rounded-lg text-muted-foreground hover:text-foreground"
+              className="rounded-lg px-2 text-muted-foreground hover:text-foreground"
             >
               History
+            </Button>
+          )}
+          {workflow.id && !workflow.id.startsWith("00000000-") && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowPositions(true)}
+              disabled={busy}
+              data-testid="positions-btn"
+              className="rounded-lg px-2 text-muted-foreground hover:text-foreground"
+            >
+              Positions
             </Button>
           )}
         </div>

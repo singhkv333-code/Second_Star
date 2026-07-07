@@ -41,20 +41,26 @@ def _resolve_price_fn(price_fn: Optional[PriceFn]) -> PriceFn:
 def mark_positions(
     db: Session, account_id: str, price_fn: Optional[PriceFn] = None,
 ) -> int:
-    """Refresh marks for every OPEN (quantity > 0) position in the account.
+    """Refresh marks for every OPEN (quantity != 0) position in the account.
 
     For each position, resolve px = price_fn(symbol). A positive Decimal
     stamps last_price/last_mark_at and clears ``stale``; None or <= 0 marks
     the position ``stale`` and leaves last_price untouched (stale value
     falls back to the last known / book mark). Flushes once. Returns the
     number of positions whose price was successfully refreshed.
+
+    ``quantity != 0`` (not ``> 0``): equity positions are long-only so this
+    only changes behavior for options, where a short leg is a genuine open
+    position (quantity < 0) that still needs its mark refreshed every tick —
+    previously excluded here, so short legs were frozen at their fill price
+    forever.
     """
     pf = _resolve_price_fn(price_fn)
     positions = (
         db.query(PaperPosition)
         .filter(
             PaperPosition.account_id == account_id,
-            PaperPosition.quantity > 0,
+            PaperPosition.quantity != 0,
         )
         .all()
     )
@@ -72,28 +78,48 @@ def mark_positions(
     return refreshed
 
 
-def position_market_value(pos: PaperPosition) -> Decimal:
-    """Quantity * mark, where mark = last_price if marked else avg_cost."""
-    mark = (
-        to_money(pos.last_price) if pos.last_price is not None
+def position_market_value(
+    pos: PaperPosition, mark: Optional[Decimal] = None,
+) -> Decimal:
+    """Quantity * mark. ``mark`` (a live mark-on-read price) wins when given;
+    else the stored ``last_price``; else ``avg_cost`` (an unmarked lot valued
+    at book). The ``mark`` override lets read paths value at the SAME live
+    price the rest of the UI shows, instead of a stale/absent stored mark."""
+    m = (
+        to_money(mark) if mark is not None
+        else to_money(pos.last_price) if pos.last_price is not None
         else to_money(pos.avg_cost)
     )
-    return to_money(pos.quantity * mark)
+    return to_money(pos.quantity * m)
 
 
-def position_unrealized_pnl(pos: PaperPosition) -> Decimal:
-    """Quantity * (last_price - avg_cost); 0 when never marked."""
-    if pos.last_price is not None:
-        return to_money(pos.quantity * (to_money(pos.last_price) - to_money(pos.avg_cost)))
+def position_unrealized_pnl(
+    pos: PaperPosition, mark: Optional[Decimal] = None,
+) -> Decimal:
+    """Quantity * (mark - avg_cost). ``mark`` (live) wins when given; else the
+    stored ``last_price``; 0 when neither is available (never marked)."""
+    m = (
+        to_money(mark) if mark is not None
+        else to_money(pos.last_price) if pos.last_price is not None
+        else None
+    )
+    if m is not None:
+        return to_money(pos.quantity * (m - to_money(pos.avg_cost)))
     return to_money(0)
 
 
-def position_day_pnl(pos: PaperPosition) -> Decimal:
-    """Quantity * (last_price - prev_close); 0 unless BOTH are set."""
-    if pos.last_price is not None and pos.prev_close is not None:
-        return to_money(
-            pos.quantity * (to_money(pos.last_price) - to_money(pos.prev_close))
-        )
+def position_day_pnl(
+    pos: PaperPosition, mark: Optional[Decimal] = None,
+) -> Decimal:
+    """Quantity * (mark - prev_close). ``mark`` (live) wins when given; else
+    the stored ``last_price``. 0 unless both the mark and prev_close exist."""
+    m = (
+        to_money(mark) if mark is not None
+        else to_money(pos.last_price) if pos.last_price is not None
+        else None
+    )
+    if m is not None and pos.prev_close is not None:
+        return to_money(pos.quantity * (m - to_money(pos.prev_close)))
     return to_money(0)
 
 

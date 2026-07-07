@@ -389,7 +389,10 @@ def get_chain(
         "top_put_oi": aggregates["top_put_oi"],
         "t_years": round(T, 6),
         "rows": rows,
-        "research_only": False,  # commodities (MCX) are tradeable via register-not-execute
+        # True when built off the hardcoded _MOCK_SPOTS fallback (no Kite
+        # session at build time) — that spot/chain is synthetic, not a real
+        # quote, and must never be presented or traded as if it were live.
+        "research_only": source == "mock",
         "source": source,
         "asof": datetime.now(IST).isoformat(timespec="seconds"),
     }

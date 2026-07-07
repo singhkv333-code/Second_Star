@@ -77,7 +77,7 @@ def snapshot_account_nav(
         db.query(PaperPosition)
         .filter(
             PaperPosition.account_id == account.id,
-            PaperPosition.quantity > 0,
+            PaperPosition.quantity != 0,
         )
         .all()
     )

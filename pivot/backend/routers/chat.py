@@ -23,6 +23,7 @@ from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
 from backend.kite.auth import read_kite_access_token
 from backend.models import User
+from backend.posthog_client import get_posthog
 from backend.services.chat_service import ChatService, UserContext
 
 
@@ -670,6 +671,17 @@ async def chat(
         user_id, request.conversation_id, last_msg, turn.response or "",
         render_hint=(raw_data or {}).get("_render_hint"),
     )
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.capture("chat_message_sent", distinct_id=str(user_id), properties={
+            "mode": request.mode,
+            "has_attachments": bool(request.attachments),
+            "message_length": len(last_msg),
+            "tools_called_count": len(turn.tools_called or []),
+            "render_hint": (raw_data or {}).get("_render_hint"),
+            "latency_ms": turn.latency_ms,
+        })
 
     return {
         "response": turn.response,

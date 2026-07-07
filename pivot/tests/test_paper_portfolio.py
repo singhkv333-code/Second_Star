@@ -108,7 +108,9 @@ def test_account_summary_nav_unrealized_buying_power_exact(session):
     new_marks = {"INFY": to_money(110), "TCS": to_money(190)}
     mark_positions(session, acct.id, price_fn=lambda s: new_marks[s])
 
-    s = account_summary(session, u.id)
+    # account_summary now marks live on read; inject the same offline marks so
+    # the assertion is deterministic (no network).
+    s = account_summary(session, u.id, price_fn=lambda s: new_marks[s])
 
     exp_mv = to_money(10 * to_money(110)) + to_money(5 * to_money(190))
     exp_unreal = (
@@ -174,7 +176,12 @@ def test_holdings_sorted_by_mv_with_sector_and_unrealized(session):
         price_fn=lambda s: {"INFY": to_money(110), "TCS": to_money(190)}[s],
     )
 
-    h = holdings(session, u.id)
+    # holdings marks live on read; inject the same offline marks for a
+    # deterministic assertion (no network).
+    h = holdings(
+        session, u.id,
+        price_fn=lambda s: {"INFY": to_money(110), "TCS": to_money(190)}[s],
+    )
     assert [r["symbol"] for r in h] == ["INFY", "TCS"]
     # Descending market value.
     assert h[0]["market_value"] >= h[1]["market_value"]
@@ -197,7 +204,9 @@ def test_holdings_market_buy_seeds_last_price_immediately(session):
     why Total P&L read ₹0 all day after every fill."""
     u = _user(session)
     _buy(session, u.id, "RELIANCE", 4, 100)
-    h = holdings(session, u.id)
+    # No live price available (offline) → holdings falls back to the STORED
+    # mark, which the fill seeds to 100 — exactly the behaviour under test.
+    h = holdings(session, u.id, price_fn=lambda s: None)
     assert len(h) == 1
     assert h[0]["last_price"] == 100
     assert h[0]["sector"] == "Energy"
@@ -211,7 +220,8 @@ def test_holdings_unmarked_position_falls_back_to_avg_cost(session):
     pos = session.query(PaperPosition).filter_by(symbol="RELIANCE").one()
     pos.last_price = None  # simulate a mark that was never resolved
     session.flush()
-    h = holdings(session, u.id)
+    # No live price either (the marker can't price it at all) → book fallback.
+    h = holdings(session, u.id, price_fn=lambda s: None)
     assert h[0]["last_price"] is None
     # avg_cost is inclusive of buy charges, so the fallback isn't a bare 4*100.
     assert h[0]["market_value"] == pytest.approx(4 * float(pos.avg_cost))

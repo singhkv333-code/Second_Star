@@ -112,6 +112,12 @@ export function LoginIntro({
     cy: number;
   } | null>(null);
   const doneFired = useRef(false);
+  // Latest onDone, read (not depended-on) by applyFrame/the rAF effect below.
+  // A caller that passes an unstable onDone (new identity every render)
+  // must NOT restart the animation loop mid-flight — that produced a visible
+  // "plays twice" stutter when the parent re-rendered a few hundred ms in.
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
 
   /** Render the animation state for time t. Pure w.r.t. DOM refs. */
   const applyFrame = useCallback(
@@ -299,10 +305,10 @@ export function LoginIntro({
       // ── done ──
       if (t >= T_ZOOM_END && !doneFired.current && freezeAt == null) {
         doneFired.current = true;
-        onDone?.();
+        onDoneRef.current?.();
       }
     },
-    [onDone, freezeAt],
+    [freezeAt],
   );
 
   useEffect(() => {
@@ -313,7 +319,7 @@ export function LoginIntro({
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       if (freezeAt == null) {
         doneFired.current = true;
-        onDone?.();
+        onDoneRef.current?.();
       }
       return;
     }
@@ -388,7 +394,7 @@ export function LoginIntro({
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [applyFrame, freezeAt, onDone]);
+  }, [applyFrame, freezeAt]);
 
   const letters = useMemo(() => WORD.split(""), []);
 

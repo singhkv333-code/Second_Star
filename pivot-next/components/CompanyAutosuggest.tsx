@@ -4,6 +4,11 @@
  * CompanyAutosuggest — debounced company search input with keyboard-navigable
  * dropdown. Self-contained: owns input state + fetch lifecycle.
  *
+ * When the input is focused but EMPTY, it surfaces the user's recent searches
+ * (persisted in localStorage) instead of nothing, so a click on the search bar
+ * is a useful jumping-off point. As soon as they type, it switches to live
+ * company results.
+ *
  * Props:
  *   placeholder       — input placeholder text
  *   onSelect(sym,name)— called when the user picks a result; clears/closes
@@ -38,6 +43,37 @@ interface CompanyAutosuggestProps {
 // avoid hammering the API on every keystroke.
 const DEBOUNCE_MS = 150;
 
+// Recent searches — persisted so a returning user's last picks are one click
+// away. Capped small so the dropdown stays a quick shortlist, not a history log.
+const RECENT_KEY = "pivot:recent-stock-searches";
+const RECENT_MAX = 6;
+
+function loadRecent(): CompanySearchResult[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(
+        (x): x is CompanySearchResult =>
+          !!x && typeof (x as CompanySearchResult).symbol === "string",
+      )
+      .slice(0, RECENT_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(list: CompanySearchResult[]): void {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX)));
+  } catch {
+    // localStorage unavailable (private mode / quota) — recents are a
+    // nice-to-have, never block the search on a persistence failure.
+  }
+}
+
 export function CompanyAutosuggest({
   placeholder,
   onSelect,
@@ -48,6 +84,7 @@ export function CompanyAutosuggest({
 }: CompanyAutosuggestProps): React.ReactElement {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CompanySearchResult[]>([]);
+  const [recent, setRecent] = useState<CompanySearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -59,13 +96,25 @@ export function CompanyAutosuggest({
   // types quickly and an earlier slow response arrives after a later one.
   const cancelledRef = useRef(false);
 
+  // Empty query → show recent searches; typed query → show live results.
+  const trimmed = query.trim();
+  const showingRecent = trimmed.length === 0;
+  const list = showingRecent ? recent : results;
+  const dropdownOpen = open && list.length > 0;
+
+  // ── Load persisted recent searches once on mount ─────────────────────
+  useEffect(() => {
+    setRecent(loadRecent());
+  }, []);
+
   // ── Fetch results whenever query changes (debounced) ─────────────────
   useEffect(() => {
     const q = query.trim();
     if (q.length < 1) {
       setResults([]);
-      setOpen(false);
       setLoading(false);
+      // Don't force-close here: an empty focused input should still be able
+      // to show recent searches (handled by onFocus / dropdownOpen).
       return;
     }
 
@@ -119,6 +168,15 @@ export function CompanyAutosuggest({
   const handleSelect = useCallback(
     (result: CompanySearchResult): void => {
       onSelect(result.symbol, result.name);
+      // Remember this pick at the front of the recent list (dedup by symbol).
+      setRecent((prev) => {
+        const next = [
+          result,
+          ...prev.filter((x) => x.symbol !== result.symbol),
+        ].slice(0, RECENT_MAX);
+        saveRecent(next);
+        return next;
+      });
       setQuery("");
       setResults([]);
       setOpen(false);
@@ -127,18 +185,25 @@ export function CompanyAutosuggest({
     [onSelect],
   );
 
+  const clearRecent = useCallback((): void => {
+    setRecent([]);
+    saveRecent([]);
+    setOpen(false);
+    inputRef.current?.focus();
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (!open || results.length === 0) return;
+    if (!open || list.length === 0) return;
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlighted((h) => Math.min(h + 1, results.length - 1));
+      setHighlighted((h) => Math.min(h + 1, list.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHighlighted((h) => Math.max(h - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const pick = results[highlighted] ?? results[0];
+      const pick = list[highlighted] ?? list[0];
       if (pick) handleSelect(pick);
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -166,7 +231,8 @@ export function CompanyAutosuggest({
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         onFocus={() => {
-          if (results.length > 0) setOpen(true);
+          // Open whichever list has content: recent (empty query) or results.
+          if (list.length > 0) setOpen(true);
         }}
         placeholder={placeholder}
         autoFocus={autoFocus}
@@ -175,9 +241,9 @@ export function CompanyAutosuggest({
         data-testid={inputDataTestId}
         aria-label={placeholder ?? "Search companies"}
         aria-autocomplete="list"
-        aria-controls={open ? "company-autosuggest-list" : undefined}
+        aria-controls={dropdownOpen ? "company-autosuggest-list" : undefined}
         aria-activedescendant={
-          open && results[highlighted]
+          dropdownOpen && list[highlighted]
             ? `cas-option-${highlighted}`
             : undefined
         }
@@ -206,11 +272,11 @@ export function CompanyAutosuggest({
         />
       )}
 
-      {open && results.length > 0 && (
+      {dropdownOpen && (
         <ul
           id="company-autosuggest-list"
           role="listbox"
-          aria-label="Company suggestions"
+          aria-label={showingRecent ? "Recent searches" : "Company suggestions"}
           style={{
             position: "absolute",
             top: "calc(100% + 10px)",
@@ -228,7 +294,44 @@ export function CompanyAutosuggest({
             overflowY: "auto",
           }}
         >
-          {results.map((r, i) => (
+          {showingRecent && (
+            <li
+              role="presentation"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "4px 14px 6px",
+                fontSize: 10,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--text-tertiary)",
+              }}
+            >
+              <span>Recent</span>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  clearRecent();
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontSize: 10,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--text-tertiary)",
+                }}
+              >
+                Clear
+              </button>
+            </li>
+          )}
+
+          {list.map((r, i) => (
             <DropdownRow
               key={r.symbol}
               result={r}
@@ -238,6 +341,7 @@ export function CompanyAutosuggest({
               onSelect={handleSelect}
             />
           ))}
+
           {/* logo.dev attribution — required wherever logos render */}
           <li
             role="presentation"
@@ -340,21 +444,6 @@ function DropdownRow({
         }}
       >
         {result.symbol}
-        {result.has_fundamentals && (
-          <span
-            title="Fundamentals available"
-            aria-label="Fundamentals available"
-            style={{
-              display: "inline-block",
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: "var(--color-profit)",
-              marginLeft: 4,
-              verticalAlign: "middle",
-            }}
-          />
-        )}
       </span>
 
       {/* Company name (primary) */}

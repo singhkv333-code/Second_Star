@@ -18,6 +18,7 @@
 
 import { MOCK_CATALOG } from "@/lib/mock-catalog";
 import type {
+  AgentPositions,
   ApiResult,
   Approval,
   ApprovalDecisionRequest,
@@ -540,6 +541,15 @@ export function listRuns(
 
 export function getRun(id: string): Promise<ApiResult<Run>> {
   return request<Run>(`/runs/${encodeURIComponent(id)}`);
+}
+
+/** Open positions this agent's own trades opened, with returns since fill. */
+export function getAgentPositions(
+  workflowId: string,
+): Promise<ApiResult<AgentPositions>> {
+  return request<AgentPositions>(
+    `/workflows/${encodeURIComponent(workflowId)}/positions`,
+  );
 }
 
 export function cancelRun(

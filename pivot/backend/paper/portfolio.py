@@ -1,11 +1,14 @@
 """READ-ONLY portfolio read service for the paper book (P4 REST API).
 
 A LEAF read layer: every function takes ``(db, user_id, ...)`` and returns
-JSON-ready dicts/lists (plain floats, never Decimal). It NEVER writes, marks,
-or commits — it computes purely from the STORED ``position.last_price`` (with
-the documented fall-back to ``avg_cost`` when ``last_price`` is None, handled
-inside ``backend.paper.valuation``). Marking is the scheduler's job (P3); a GET
-must not mutate the book.
+JSON-ready dicts/lists (plain floats, never Decimal). It NEVER writes or
+commits — but it DOES mark each open position LIVE on read (via
+``marks.get_mark_price``, the same resolver the agent Positions view uses) so
+every surface shows one consistent price. This is an in-memory mark-on-read:
+the live price is passed into the valuation helpers, never persisted to the
+row (persisting marks is still the scheduler's job, P3). When no live price is
+available it falls back to the stored ``last_price``, then ``avg_cost`` — so an
+offline read degrades to book value rather than fabricating a move.
 
 Money columns arrive as ``decimal.Decimal``; we cast every returned money field
 to ``float`` via ``money_to_float`` so the payload is JSON-serialisable.
@@ -17,7 +20,8 @@ raising — a never-traded user is a valid, empty book.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
+from decimal import Decimal
+from typing import Callable, Optional
 
 from sqlalchemy.orm import Session
 
@@ -30,6 +34,18 @@ from backend.paper.valuation import (
     position_unrealized_pnl,
 )
 from backend.routers.portfolio import SECTOR_MAP
+
+PriceFn = Callable[[str], Optional[Decimal]]
+
+
+def _live_mark_fn(price_fn: Optional[PriceFn]) -> PriceFn:
+    """The live mark-on-read resolver — the SAME ``marks.get_mark_price`` the
+    agent Positions view uses, so the portfolio and the agent panels can never
+    disagree on a symbol's price. Tests inject an offline ``price_fn``."""
+    if price_fn is not None:
+        return price_fn
+    from backend.paper import marks
+    return lambda sym: marks.get_mark_price(sym)
 
 
 def _get_account(db: Session, user_id: int) -> Optional[PaperAccount]:
@@ -47,17 +63,24 @@ def _iso(value) -> Optional[str]:
     return value.isoformat()
 
 
-def account_summary(db: Session, user_id: int) -> dict:
-    """READ-ONLY account roll-up from the STORED marks.
+def account_summary(
+    db: Session, user_id: int, price_fn: Optional[PriceFn] = None,
+) -> dict:
+    """READ-ONLY account roll-up, LIVE-MARKED on read.
 
     Returns ``{"exists": False}`` when the user has no paper account. Else a
-    JSON-ready dict of floats plus counts/flags. NAV includes reserved cash
-    (still owned, held against a resting BUY) so the equity curve does not dip
-    when an order rests: ``nav = cash_available + cash_reserved + positions_mv``.
+    JSON-ready dict of floats plus counts/flags. Each open position is valued
+    at its live mark (``_live_mark_fn``) so NAV / Total P&L / Day P&L reflect
+    the current price — matching the holdings table and the agent Positions
+    view — instead of a stale or absent stored mark. NAV includes reserved
+    cash (still owned, held against a resting BUY) so the equity curve does not
+    dip when an order rests: ``nav = cash_available + cash_reserved + positions_mv``.
     """
     account = _get_account(db, user_id)
     if account is None:
         return {"exists": False}
+
+    pf = _live_mark_fn(price_fn)
 
     positions = (
         db.query(PaperPosition)
@@ -76,13 +99,16 @@ def account_summary(db: Session, user_id: int) -> dict:
         # realized P&L accrues across ALL positions, incl. fully-closed lots
         # that retain their realized total at quantity 0.
         realized_pnl_cum += to_money(pos.realized_pnl)
-        if pos.quantity > 0:
+        if pos.quantity != 0:
             num_positions += 1
-            positions_mv += position_market_value(pos)
+            mark = pf(pos.symbol)  # live price, or None → book fallback
+            positions_mv += position_market_value(pos, mark=mark)
             invested += to_money(pos.quantity * to_money(pos.avg_cost))
-            unrealized_pnl += position_unrealized_pnl(pos)
-            day_pnl += position_day_pnl(pos)
-            if pos.stale:
+            unrealized_pnl += position_unrealized_pnl(pos, mark=mark)
+            day_pnl += position_day_pnl(pos, mark=mark)
+            # A position we just marked live is not stale for this read; only
+            # one we couldn't price (mark is None) inherits the stored flag.
+            if mark is None and pos.stale:
                 is_stale = True
 
     cash_available = to_money(account.cash_available)
@@ -137,31 +163,46 @@ def account_summary(db: Session, user_id: int) -> dict:
     }
 
 
-def holdings(db: Session, user_id: int) -> list[dict]:
-    """One dict per OPEN position (quantity > 0), sorted by market value desc.
+def holdings(
+    db: Session, user_id: int, price_fn: Optional[PriceFn] = None,
+) -> list[dict]:
+    """One dict per OPEN position (quantity != 0), sorted by market value desc.
 
-    Returns ``[]`` when the user has no account. ``last_price`` is None for an
-    unmarked lot (its market value falls back to book/avg_cost). All money
-    fields are floats.
+    Returns ``[]`` when the user has no account. Each row is LIVE-MARKED on
+    read (``_live_mark_fn``): ``last_price``, ``market_value``,
+    ``unrealized_pnl`` and ``day_pnl`` all derive from the SAME live price, so
+    a row can never show a live LTP next to a ₹0 P&L. Falls back to the stored
+    ``last_price`` (then book) when no live price is available. All money
+    fields are floats. A short option leg (quantity < 0) is a genuine open
+    position and is included here too.
     """
     account = _get_account(db, user_id)
     if account is None:
         return []
 
+    pf = _live_mark_fn(price_fn)
+
     positions = (
         db.query(PaperPosition)
         .filter(
             PaperPosition.account_id == account.id,
-            PaperPosition.quantity > 0,
+            PaperPosition.quantity != 0,
         )
         .all()
     )
 
     rows = []
     for pos in positions:
-        mv = position_market_value(pos)
+        mark = pf(pos.symbol)  # live price, or None → stored/book fallback
+        # The price actually shown as LTP + used for every P&L field in this
+        # row: live mark, else the stored mark, else None (book-valued).
+        display_price = (
+            mark if mark is not None
+            else (to_money(pos.last_price) if pos.last_price is not None else None)
+        )
+        mv = position_market_value(pos, mark=mark)
         invested = to_money(pos.quantity * to_money(pos.avg_cost))
-        unrealized = position_unrealized_pnl(pos)
+        unrealized = position_unrealized_pnl(pos, mark=mark)
         unrealized_pct = (
             float(unrealized / invested * 100) if invested != 0 else 0.0
         )
@@ -170,16 +211,17 @@ def holdings(db: Session, user_id: int) -> list[dict]:
             "quantity": pos.quantity,
             "avg_cost": money_to_float(pos.avg_cost),
             "last_price": (
-                float(pos.last_price) if pos.last_price is not None else None
+                float(display_price) if display_price is not None else None
             ),
             "market_value": money_to_float(mv),
             "unrealized_pnl": money_to_float(unrealized),
             "unrealized_pct": unrealized_pct,
-            "day_pnl": money_to_float(position_day_pnl(pos)),
+            "day_pnl": money_to_float(position_day_pnl(pos, mark=mark)),
             "invested": money_to_float(invested),
             "realized_pnl": money_to_float(pos.realized_pnl),
             "sector": SECTOR_MAP.get(pos.symbol, "Other"),
-            "stale": bool(pos.stale),
+            # Live-marked rows aren't stale; only an unpriced one inherits it.
+            "stale": bool(pos.stale) if mark is None else False,
             "last_mark_at": _iso(pos.last_mark_at),
         })
 

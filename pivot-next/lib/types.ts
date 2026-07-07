@@ -368,6 +368,37 @@ export type Paginated<T> = {
 };
 
 // ---------------------------------------------------------------------------
+// Agent (workflow) positions — GET /api/workflows/{id}/positions
+// ---------------------------------------------------------------------------
+
+/** One still-open symbol this agent's trades opened, with returns since. */
+export type AgentPosition = {
+  symbol: string;
+  quantity: number;
+  /** Weighted, charge-inclusive cost basis per share. */
+  avg_cost: number;
+  /** Current mark; null when no live price is available. */
+  last_price: number | null;
+  /** Cost basis of the open lots. */
+  invested: number;
+  market_value: number;
+  unrealized_pnl: number;
+  unrealized_pnl_pct: number | null;
+  /** Booked P&L on this symbol so far. */
+  realized_pnl: number;
+};
+
+export type AgentPositions = {
+  positions: AgentPosition[];
+  invested: number;
+  market_value: number;
+  unrealized_pnl: number;
+  unrealized_pnl_pct: number | null;
+  realized_pnl: number;
+  has_data: boolean;
+};
+
+// ---------------------------------------------------------------------------
 // IPO Application (chat card payload + persisted row)
 // ---------------------------------------------------------------------------
 

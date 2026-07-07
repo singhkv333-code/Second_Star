@@ -40,11 +40,12 @@ def paper_positions_kite_shape(db: Session, user_id: int) -> dict:
     """Project OPEN paper positions into Kite ``get_positions`` shape.
 
     Returns {"net": [...], "day": [...]} where each entry mirrors a Kite
-    position dict. Only OPEN positions (quantity > 0) for the user's account
+    position dict. Only OPEN positions (quantity != 0) for the user's account
     are included; a fully-closed lot (quantity 0) keeps its row but is
-    excluded here. "day" mirrors "net" — the paper book has no separate
-    intraday vs overnight split. If the user has no paper account, both
-    legs are empty.
+    excluded here. A short option leg (quantity < 0) is open too and must be
+    included so squareoff/cancel executors can see and close it. "day"
+    mirrors "net" — the paper book has no separate intraday vs overnight
+    split. If the user has no paper account, both legs are empty.
     """
     account = _account(db, user_id)
     if account is None:
@@ -54,7 +55,7 @@ def paper_positions_kite_shape(db: Session, user_id: int) -> dict:
         db.query(PaperPosition)
         .filter(
             PaperPosition.account_id == account.id,
-            PaperPosition.quantity > 0,
+            PaperPosition.quantity != 0,
         )
         .all()
     )

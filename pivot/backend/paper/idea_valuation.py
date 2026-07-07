@@ -38,7 +38,7 @@ from typing import Deque, Dict, Optional
 from sqlalchemy.orm import Session
 
 from backend.models import ForwardIdea, PaperFill
-from backend.paper.money import to_money
+from backend.paper.money import money_to_float, to_money
 from backend.paper.valuation import PriceFn, _resolve_price_fn
 
 
@@ -54,34 +54,15 @@ class _Lot:
     basis_per_share: Decimal
 
 
-def compute_idea_nav(
-    db: Session,
-    idea: ForwardIdea,
-    price_fn: Optional[PriceFn] = None,
-) -> Dict[str, Decimal]:
-    """Replay the idea's fills FIFO and return its current NAV slice.
+def _replay_idea_fills(
+    db: Session, idea: ForwardIdea,
+) -> tuple[Dict[str, "Deque[_Lot]"], Dict[str, Decimal]]:
+    """FIFO-replay an idea's fills into per-symbol open lots + realized P&L.
 
-    Parameters
-    ----------
-    db : Session
-        Read-only — this function does not flush.
-    idea : ForwardIdea
-        The idea whose lots/series to roll up. Filtered on `idea_id`
-        (NOT account); two ideas trading the same symbol within one
-        account each keep their own FIFO ledger.
-    price_fn : Optional[PriceFn]
-        Inject for tests / batch jobs. Defaults to
-        `marks.get_mark_price` via `_resolve_price_fn` (the same
-        resolution used by `compute_account_nav`).
-
-    Returns
-    -------
-    dict with Decimal values for the five fields the snapshot upserter
-    writes into PaperIdeaNavSnapshot. Even when no fills exist, all five
-    fields are present and equal `to_money(0)` (the empty-idea NAV).
-    """
-    pf = _resolve_price_fn(price_fn)
-
+    The shared core of ``compute_idea_nav`` (idea-level Decimal totals) and
+    ``compute_idea_positions`` (per-symbol open-position rows), so both read
+    the SAME charge-inclusive FIFO ledger and can never drift. Read-only;
+    no flush. See the module docstring for the basis contract."""
     fills = (
         db.query(PaperFill)
         .filter(PaperFill.idea_id == idea.id)
@@ -136,6 +117,39 @@ def compute_idea_nav(
             )
         # Any other side (shouldn't exist) is silently skipped.
 
+    return open_lots, realized_by_symbol
+
+
+def compute_idea_nav(
+    db: Session,
+    idea: ForwardIdea,
+    price_fn: Optional[PriceFn] = None,
+) -> Dict[str, Decimal]:
+    """Replay the idea's fills FIFO and return its current NAV slice.
+
+    Parameters
+    ----------
+    db : Session
+        Read-only — this function does not flush.
+    idea : ForwardIdea
+        The idea whose lots/series to roll up. Filtered on `idea_id`
+        (NOT account); two ideas trading the same symbol within one
+        account each keep their own FIFO ledger.
+    price_fn : Optional[PriceFn]
+        Inject for tests / batch jobs. Defaults to
+        `marks.get_mark_price` via `_resolve_price_fn` (the same
+        resolution used by `compute_account_nav`).
+
+    Returns
+    -------
+    dict with Decimal values for the five fields the snapshot upserter
+    writes into PaperIdeaNavSnapshot. Even when no fills exist, all five
+    fields are present and equal `to_money(0)` (the empty-idea NAV).
+    """
+    pf = _resolve_price_fn(price_fn)
+
+    open_lots, realized_by_symbol = _replay_idea_fills(db, idea)
+
     # ── aggregate ──────────────────────────────────────────────────────
     committed_total = to_money(0)
     positions_mv_total = to_money(0)
@@ -181,4 +195,97 @@ def compute_idea_nav(
         "idea_nav": idea_nav,
         "realized_pnl": realized_total,
         "unrealized_pnl": unrealized_total,
+    }
+
+
+def compute_idea_positions(
+    db: Session,
+    idea: ForwardIdea,
+    price_fn: Optional[PriceFn] = None,
+) -> Dict[str, object]:
+    """Per-symbol OPEN positions for one idea (agent) — the Positions view.
+
+    Same charge-inclusive FIFO ledger as ``compute_idea_nav`` (shared via
+    ``_replay_idea_fills``), but returns a per-symbol breakdown the agent
+    Positions panel renders: each still-open symbol's net qty, weighted-avg
+    cost basis, current mark, market value, and unrealized P&L since the
+    fills — plus idea-level totals. Money is emitted as ``float`` here (this
+    is an API-facing helper, unlike the pure-Decimal ``compute_idea_nav``).
+    Fully-closed symbols contribute their realized P&L to the totals but are
+    NOT listed as open positions. Read-only; no flush.
+    """
+    open_lots, realized_by_symbol = _replay_idea_fills(db, idea)
+    pf = _resolve_price_fn(price_fn)
+
+    positions: list[Dict[str, object]] = []
+    invested_total = to_money(0)      # cost basis of still-OPEN lots
+    market_value_total = to_money(0)
+    unrealized_total = to_money(0)
+    realized_total = to_money(0)
+
+    for sym, lots in open_lots.items():
+        open_qty = sum(lot.qty for lot in lots)
+        realized_sym = realized_by_symbol.get(sym, to_money(0))
+        realized_total += realized_sym
+        if open_qty <= 0:
+            # Fully closed — booked realized already counted; no open row.
+            continue
+
+        committed_sym = to_money(
+            sum(
+                (Decimal(lot.qty) * lot.basis_per_share for lot in lots),
+                Decimal("0"),
+            )
+        )
+        avg_cost = committed_sym / Decimal(open_qty)  # weighted, charge-incl.
+        invested_total += committed_sym
+
+        px_raw = pf(sym)
+        if px_raw is not None and to_money(px_raw) > 0:
+            px = to_money(px_raw)
+            mv_sym = to_money(Decimal(open_qty) * px)
+            unrealized_sym = to_money(Decimal(open_qty) * (px - avg_cost))
+            last_price: Optional[float] = float(px)
+        else:
+            # No live mark → value at book, zero unrealized (never fabricate).
+            mv_sym = committed_sym
+            unrealized_sym = to_money(0)
+            last_price = None
+
+        market_value_total += mv_sym
+        unrealized_total += unrealized_sym
+
+        cost_basis = money_to_float(committed_sym)
+        unrl = money_to_float(unrealized_sym)
+        positions.append({
+            "symbol": sym,
+            "quantity": open_qty,
+            "avg_cost": money_to_float(to_money(avg_cost)),
+            "last_price": last_price,
+            "invested": cost_basis,
+            "market_value": money_to_float(mv_sym),
+            "unrealized_pnl": unrl,
+            "unrealized_pnl_pct": (
+                round(unrl / cost_basis * 100.0, 2) if cost_basis > 0 else None
+            ),
+            "realized_pnl": money_to_float(realized_sym),
+        })
+
+    # realized_total is accumulated for EVERY symbol in the loop above
+    # (before the open-qty guard), so closed symbols' booked P&L is included.
+
+    positions.sort(key=lambda p: p["market_value"], reverse=True)  # type: ignore[arg-type,return-value]
+
+    invested_f = money_to_float(invested_total)
+    unrealized_f = money_to_float(unrealized_total)
+    return {
+        "positions": positions,
+        "invested": invested_f,
+        "market_value": money_to_float(market_value_total),
+        "unrealized_pnl": unrealized_f,
+        "unrealized_pnl_pct": (
+            round(unrealized_f / invested_f * 100.0, 2)
+            if invested_f > 0 else None
+        ),
+        "realized_pnl": money_to_float(realized_total),
     }
