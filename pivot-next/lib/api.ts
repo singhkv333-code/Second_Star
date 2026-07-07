@@ -189,6 +189,38 @@ export async function requestLegacy<T>(
 // time (freshness is unchanged).
 const _inflightGets = new Map<string, Promise<ApiResult<unknown>>>();
 
+// Short-TTL response cache for read-mostly, mildly-stale-tolerant GETs (e.g.
+// the Home tab's indices/quotes/sparklines/portfolio — every one of those was
+// re-fetched from scratch on every mount with no cache at all). Unlike
+// `_inflightGets` above, this caches ACROSS time, not just concurrent calls:
+// a hit within `ttlMs` resolves instantly with no network round trip at all.
+// Caches the in-flight PROMISE (not just the settled value) so callers that
+// land mid-fetch share the same request instead of firing a duplicate.
+// Never use this for anything that must reflect the latest write (orders,
+// workflow mutations, etc.) — only for read paths that tolerate a few
+// seconds to minutes of staleness.
+const _ttlCache = new Map<string, { expiresAt: number; value: Promise<ApiResult<unknown>> }>();
+
+function cached<T>(
+  key: string,
+  ttlMs: number,
+  fetcher: () => Promise<ApiResult<T>>,
+): Promise<ApiResult<T>> {
+  const now = Date.now();
+  const hit = _ttlCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.value as Promise<ApiResult<T>>;
+  const value = fetcher();
+  _ttlCache.set(key, { expiresAt: now + ttlMs, value: value as Promise<ApiResult<unknown>> });
+  // A failed fetch (rejection, or a resolved error envelope) must not poison
+  // the cache for the full TTL — drop it so the very next call retries
+  // instead of replaying the failure to everyone for `ttlMs`.
+  void value.then(
+    (v) => { if (isError(v)) _ttlCache.delete(key); },
+    () => { _ttlCache.delete(key); },
+  );
+  return value;
+}
+
 async function _doRequest<T>(
   base: string,
   path: string,
@@ -775,23 +807,29 @@ export type PortfolioSummary = {
  *  In paper mode this reads the paper book and adapts it to the SAME shape so
  *  every consumer (metric strip, Portfolio tab) renders identically. */
 export function getPortfolioSummary(): Promise<ApiResult<PortfolioSummary>> {
-  if (getTradingMode() === "paper") {
-    return getPaperSummary().then((r) =>
-      isError(r) ? r : { data: adaptPaperSummary(r.data) },
-    );
-  }
-  return requestLegacy<PortfolioSummary>("/portfolio/summary");
+  const mode = getTradingMode();
+  return cached(`portfolio-summary:${mode}`, 10_000, () => {
+    if (mode === "paper") {
+      return getPaperSummary().then((r) =>
+        isError(r) ? r : { data: adaptPaperSummary(r.data) },
+      );
+    }
+    return requestLegacy<PortfolioSummary>("/portfolio/summary");
+  });
 }
 
 /** `GET /portfolio/holdings` — list of Holdings (mock data in test mode).
  *  In paper mode this reads the paper positions, adapted to Holding[]. */
 export function getPortfolioHoldings(): Promise<ApiResult<Holding[]>> {
-  if (getTradingMode() === "paper") {
-    return getPaperHoldings().then((r) =>
-      isError(r) ? r : { data: r.data.map(adaptPaperHolding) },
-    );
-  }
-  return requestLegacy<Holding[]>("/portfolio/holdings");
+  const mode = getTradingMode();
+  return cached(`portfolio-holdings:${mode}`, 10_000, () => {
+    if (mode === "paper") {
+      return getPaperHoldings().then((r) =>
+        isError(r) ? r : { data: r.data.map(adaptPaperHolding) },
+      );
+    }
+    return requestLegacy<Holding[]>("/portfolio/holdings");
+  });
 }
 
 // Paper → real shape adapters. The goal is visual parity: the paper book's
@@ -1105,7 +1143,9 @@ export type SparklineRange = "1D" | "1W" | "1M" | "6M" | "1Y" | "5Y";
 
 /** `GET /api/markets/indices` — NIFTY 50, SENSEX, BANK NIFTY, NIFTY MIDCAP 100. 503 if yfinance down. */
 export function getMarketIndices(): Promise<ApiResult<IndicesResponse>> {
-  return request<IndicesResponse>("/markets/indices");
+  return cached("market-indices", 15_000, () =>
+    request<IndicesResponse>("/markets/indices"),
+  );
 }
 
 /** `GET /api/markets/quote/{symbol}?exchange=NSE|BSE` — full StockQuote. 404 if unknown. */
@@ -1113,19 +1153,27 @@ export function getStockQuote(
   symbol: string,
   exchange?: "NSE" | "BSE",
 ): Promise<ApiResult<StockQuote>> {
-  return request<StockQuote>(`/markets/quote/${encodeURIComponent(symbol)}`, {
-    query: exchange ? { exchange } : undefined,
-  });
+  return cached(`quote:${symbol}:${exchange ?? ""}`, 15_000, () =>
+    request<StockQuote>(`/markets/quote/${encodeURIComponent(symbol)}`, {
+      query: exchange ? { exchange } : undefined,
+    }),
+  );
 }
 
-/** `GET /api/markets/sparkline/{symbol}?range=1D|1W|1M|6M|1Y|5Y` — historical close series. */
+/** `GET /api/markets/sparkline/{symbol}?range=1D|1W|1M|6M|1Y|5Y` — historical close series.
+ *  Long TTL: a 1-month-or-longer close series barely moves within a session,
+ *  so re-fetching it every mount (every tab switch, every remount) was pure
+ *  waste — this is the single biggest win for Home-tab load time, since it's
+ *  fetched per index AND per watchlist ticker (up to 11 calls on one mount). */
 export function getSparkline(
   symbol: string,
   range: SparklineRange = "1M",
 ): Promise<ApiResult<SparklineResponse>> {
-  return request<SparklineResponse>(
-    `/markets/sparkline/${encodeURIComponent(symbol)}`,
-    { query: { range } },
+  return cached(`sparkline:${symbol}:${range}`, 10 * 60_000, () =>
+    request<SparklineResponse>(
+      `/markets/sparkline/${encodeURIComponent(symbol)}`,
+      { query: { range } },
+    ),
   );
 }
 
@@ -1353,7 +1401,7 @@ export type UserProfile = {
 
 /** `GET /auth/me` — returns user profile for dashboard greeting. */
 export function getMe(): Promise<ApiResult<UserProfile>> {
-  return requestLegacy<UserProfile>("/auth/me");
+  return cached("me", 5 * 60_000, () => requestLegacy<UserProfile>("/auth/me"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1522,6 +1570,10 @@ export async function logoutUser(): Promise<void> {
     /* best-effort — we clear local tokens regardless */
   }
   clearToken();
+  // Drop every TTL-cached response (user profile, portfolio, quotes, ...) —
+  // without this a second user logging in on the same tab within a cache
+  // window could momentarily see the previous user's cached data.
+  _ttlCache.clear();
 }
 
 // ---------------------------------------------------------------------------
