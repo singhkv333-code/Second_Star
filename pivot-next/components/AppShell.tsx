@@ -31,6 +31,7 @@ import {
   ExternalLink,
   FileText,
   HelpCircle,
+  Home,
   Keyboard,
   LogOut,
   Menu,
@@ -70,6 +71,7 @@ import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
 import { DashboardTab } from "@/components/DashboardTab";
+import { HomeTab } from "@/components/HomeTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { PivotLogo } from "@/components/brand/PivotLogo";
@@ -102,6 +104,7 @@ import {
 // ---------------------------------------------------------------------------
 
 type TabKey =
+  | "home"
   | "chat"
   | "portfolio"
   | "agents"
@@ -114,6 +117,7 @@ const NAV_ITEMS: {
   label: string;
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }[] = [
+  { key: "home", label: "Home", Icon: Home },
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "views", label: "Opinion Markets", Icon: Telescope },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
@@ -267,6 +271,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // Bumped by the "New chat" button to remount DashboardTab/ChatDemo
   // and start a fresh session (clears messages + conversation_id).
   const [chatResetKey, setChatResetKey] = useState(0);
+  // A prompt seeded from the Home tab — passed to DashboardTab which fills the
+  // composer and auto-submits it. Cleared once ChatDemo has consumed it.
+  const [seededChatPrompt, setSeededChatPrompt] = useState<string | undefined>(undefined);
   // Set when the user opens a sidebar conversation — ChatDemo remounts
   // with this thread's id + transcript so the chat continues in place.
   const [resumeConv, setResumeConv] = useState<ResumeConversation | undefined>(
@@ -531,6 +538,13 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       router.push(`/#${key}`);
     }
   }, [pathname, router]);
+
+  // Seed a prompt from the Home tab into the chat composer and jump there.
+  const sendChatPrompt = useCallback((prompt: string): void => {
+    setSeededChatPrompt(prompt);
+    goTab("chat");
+  }, [goTab]);
+  const clearSeededChatPrompt = useCallback(() => setSeededChatPrompt(undefined), []);
 
   const openWorkflow = useCallback(
     (workflow: Workflow, originTab?: TabKey): void => {
@@ -846,6 +860,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   onDraftFromChat={(draft) => {
                     setActiveEditorDraft(draft);
                   }}
+                  seededPrompt={seededChatPrompt}
+                  onSeededPromptConsumed={clearSeededChatPrompt}
                   resume={resumeConv}
                 />
               </div>
@@ -858,6 +874,21 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             // Custom main-pane content (e.g. stock detail page).
             <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
               {children}
+            </div>
+          )}
+          {visitedTabs.has("home") && (
+            // Home — fit-to-screen bento dashboard. overflow-hidden so the
+            // bento grid fills the pane without an outer scrollbar; individual
+            // cards fall back to scroll if a viewport is very short.
+            <div
+              className={
+                !children && active === "home"
+                  ? "flex-1 min-h-0 overflow-hidden px-4 pt-4 pb-4 lg:px-8 lg:pt-6 lg:pb-6"
+                  : "hidden"
+              }
+              style={{ background: "var(--bg-inset)" }}
+            >
+              <HomeTab onGoTab={goTab} onSendPrompt={sendChatPrompt} />
             </div>
           )}
           {visitedTabs.has("calendar") && (

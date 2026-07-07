@@ -55,6 +55,14 @@ type DashboardTabProps = {
    * AppShell uses this to push the draft into the bound editor.
    */
   onDraftFromChat?: (draft: WorkflowT) => void;
+  /**
+   * A prompt seeded from OUTSIDE the chat surface (e.g. the Home tab's
+   * ready-prompt / strategy tiles). When it changes to a non-empty string
+   * the composer is filled and auto-submitted, exactly like a chip click.
+   */
+  seededPrompt?: string;
+  /** Called after `seededPrompt` has been consumed so the parent can clear it. */
+  onSeededPromptConsumed?: () => void;
   /** Resume a persisted sidebar conversation (forwarded to ChatDemo). */
   resume?: ResumeConversation;
 };
@@ -206,12 +214,23 @@ export function DashboardTab({
   onOpenCalendar,
   onChatActiveChange,
   onDraftFromChat,
+  seededPrompt,
+  onSeededPromptConsumed,
   resume,
 }: DashboardTabProps): React.ReactElement {
   const [me, setMe] = useState<MeState>({ kind: "loading" });
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
   const [showMoreExamples, setShowMoreExamples] = useState(false);
   const [demoSeed, setDemoSeed] = useState<ChatDemoSeed | undefined>(undefined);
+
+  // Adopt a prompt seeded from another tab (Home) — mirror it into the local
+  // pending-prompt state so ChatDemo auto-submits it, then tell the parent it
+  // was consumed so a repeat click of the SAME prompt re-fires.
+  useEffect(() => {
+    if (!seededPrompt) return;
+    setPendingPrompt(seededPrompt);
+    onSeededPromptConsumed?.();
+  }, [seededPrompt, onSeededPromptConsumed]);
 
   useEffect(() => {
     getMe()

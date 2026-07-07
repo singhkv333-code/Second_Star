@@ -61,6 +61,7 @@ export function getShortcutGroups(mac: boolean): ShortcutGroup[] {
     {
       heading: "Navigation",
       items: [
+        { id: "go-home", label: "Go to Home", keys: ["G", CHORD_GLUE, "H"] },
         { id: "go-chat", label: "Go to Chat", keys: ["G", CHORD_GLUE, "C"] },
         { id: "go-portfolio", label: "Go to Portfolio", keys: ["G", CHORD_GLUE, "P"] },
         { id: "go-agents", label: "Go to Agents", keys: ["G", CHORD_GLUE, "A"] },
@@ -89,6 +90,7 @@ export function getShortcutGroups(mac: boolean): ShortcutGroup[] {
 
 /** Hash-tab targets for the "G then <key>" navigation chord. */
 export const CHORD_NAV_MAP: Record<string, string> = {
+  h: "home",
   c: "chat",
   p: "portfolio",
   a: "agents",

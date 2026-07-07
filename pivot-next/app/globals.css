@@ -105,6 +105,16 @@
     --pivot-blue:   #219ebc;
     --price-line:   #0f172a;
 
+    /* Elevated-card surfaces (Home dashboard bento). --accent-* is the single
+       quiet teal thread, used only on interactive/focal moments (hover borders,
+       hero details), never as a card fill or persistent tint. */
+    --bg-inset:          #ffffff;
+    --shadow-card:       none;
+    --shadow-card-hover: none;
+    --accent:            var(--pivot-blue);
+    --accent-border:     color-mix(in srgb, var(--pivot-blue) 45%, transparent);
+    --accent-wash:       color-mix(in srgb, var(--pivot-blue) 8%, transparent);
+
     /* Typography */
     --font-display: 'Inter', system-ui, sans-serif;
     --font-mono:    'Inter', system-ui, sans-serif;
@@ -214,8 +224,17 @@
     --color-profit: #10b981;
     --color-loss:   #ef4444;
     --color-warn:   #f59e0b;
-    --pivot-blue:   #219ebc;
+    --pivot-blue:   #2bb3d1;
     --price-line:   #e2e8f0;
+
+    /* Dark: cards are already lighter than the page, so elevation reads via
+       that contrast plus a soft black shadow; the inset page stays near-black. */
+    --bg-inset:          #0a0a0b;
+    --shadow-card:       none;
+    --shadow-card-hover: none;
+    --accent:            var(--pivot-blue);
+    --accent-border:     color-mix(in srgb, var(--pivot-blue) 55%, transparent);
+    --accent-wash:       color-mix(in srgb, var(--pivot-blue) 14%, transparent);
   }
 }
 
@@ -414,6 +433,42 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--text-tertiary);
+}
+
+/* ─── Home tab: live market-status ping ───────────────────────────── */
+@keyframes homeLivePing {
+  0%        { transform: scale(1);   opacity: 0.55; }
+  70%, 100% { transform: scale(2.6); opacity: 0;    }
+}
+.home-live-ping { animation: homeLivePing 1.9s var(--ease-quartr) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .home-live-ping { animation: none; }
+}
+
+/* Strategy tile: the trailing arrow slides in on hover/focus. */
+.home-strat-arrow {
+  opacity: 0;
+  transform: translateX(-5px);
+  transition: opacity 0.2s var(--ease-quartr), transform 0.2s var(--ease-quartr),
+    color 0.2s var(--ease-quartr);
+}
+.home-strat:hover .home-strat-arrow,
+.home-strat:focus-visible .home-strat-arrow {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--text-secondary);
+}
+
+/* Strategy tile icon chip: a crafted white chip with a hairline, not a dead
+   grey square. On hover the hairline + glyph firm up in ink. */
+.home-strat-icon {
+  transition: border-color 0.2s var(--ease-quartr), color 0.2s var(--ease-quartr),
+    background-color 0.2s var(--ease-quartr);
+}
+.home-strat:hover .home-strat-icon,
+.home-strat:focus-visible .home-strat-icon {
+  border-color: var(--glass-border-hover);
+  color: var(--text-primary);
 }
 
 /* ─── Witty loader (chat thinking state) ──────────────────────────── */
@@ -1116,6 +1171,57 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     height: 32px !important;
     width: 32px !important;
   }
+
+  /* Home dashboard — the tall 1440px monitor shows the full six chat prompts
+     and six prebuilt-strategy tiles, but on a shorter laptop viewport six of
+     each overflow their bento cell. Drop to four (hide the 5th/6th) below
+     1200px of viewport height. */
+  .home-chat-prompts > :nth-child(n + 5),
+  .home-strategies-grid > :nth-child(n + 5) {
+    display: none !important;
+  }
+}
+
+/* Home "Not sure what to trade?" (Opinion Markets) teaser — ViewCard is a
+   shared component, so instead of a fixed-breakpoint override we
+   continuously scale every dimension with vh via clamp(), scoped to the
+   Home dashboard only through the .home-views-grid ancestor. `!important`
+   wins over ViewCard's own inline styles. */
+.home-views-grid .view-card {
+  padding: clamp(8px, 1.5vh, 20px) clamp(10px, 1.7vh, 22px) !important;
+  justify-content: center !important;
+}
+.home-views-grid .view-card-thumb {
+  width: clamp(34px, 4.6vh, 68px) !important;
+  height: clamp(34px, 4.6vh, 68px) !important;
+}
+.home-views-grid .view-card-head {
+  gap: clamp(8px, 1.4vh, 16px) !important;
+}
+.home-views-grid .view-card-title {
+  font-size: clamp(12.5px, 1.6vh, 16px) !important;
+  line-height: 1.18 !important;
+  min-height: 0 !important;
+  margin-bottom: clamp(2px, 0.7vh, 9px) !important;
+}
+.home-views-grid .view-card-body {
+  margin-top: 0 !important;
+  padding-top: clamp(8px, 1.7vh, 24px) !important;
+  gap: clamp(8px, 1.6vh, 24px) !important;
+}
+.home-views-grid .view-card-hero {
+  font-size: clamp(20px, 3.3vh, 40px) !important;
+}
+.home-views-grid .view-card-caption {
+  margin-top: clamp(2px, 0.5vh, 5px) !important;
+  font-size: clamp(9px, 0.95vh, 11.5px) !important;
+}
+.home-views-grid .view-card-stance {
+  width: clamp(64px, 8vh, 112px) !important;
+  padding: clamp(3px, 0.8vh, 7px) 0 !important;
+}
+.home-views-grid .view-card-stance-col {
+  gap: clamp(3px, 0.8vh, 8px) !important;
 }
 
 /* Dialog full-screen on small phones — at <640px most modal content

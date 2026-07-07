@@ -27,6 +27,7 @@ import { driver, type Driver } from "driver.js";
 import "driver.js/dist/driver.css";
 
 type TabKey =
+  | "home"
   | "chat"
   | "portfolio"
   | "agents"

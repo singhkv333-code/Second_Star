@@ -103,6 +103,7 @@ export function CategoryGlyph({
   return (
     <div
       aria-hidden
+      className="view-card-thumb"
       style={{
         position: "relative",
         width: 68,
@@ -271,6 +272,7 @@ function StanceButton({
   return (
     <button
       type="button"
+      className="view-card-stance"
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -313,6 +315,7 @@ function HeroFigure({
   const body = hasPct ? s.slice(0, -1) : s;
   return (
     <div
+      className="view-card-hero"
       style={{
         fontFamily: "var(--font-serif)",
         fontVariantNumeric: "tabular-nums",
@@ -343,11 +346,16 @@ type ViewCardProps = {
     id: string,
     next: { is_following: boolean; follower_count: number },
   ) => void;
+  /** Renders the question title in the serif display face instead of the
+   *  default sans — used only by the Home dashboard's teaser cards; the
+   *  Views tab grid keeps its own sans title untouched. */
+  serifTitle?: boolean;
 };
 
 export function ViewCard({
   view,
   onOpen,
+  serifTitle = false,
 }: ViewCardProps): React.ReactElement {
   const [hover, setHover] = React.useState(false);
 
@@ -391,7 +399,7 @@ export function ViewCard({
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       data-testid={`view-card-${view.id}`}
-      className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="view-card cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -405,14 +413,14 @@ export function ViewCard({
       }}
     >
       {/* ── (a) header — thumb · (question + timeline) ────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <div className="view-card-head" style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <CategoryGlyph category={view.category} seed={view.id} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
-            className="line-clamp-2"
+            className="view-card-title line-clamp-2"
             style={{
-              fontFamily: FONT,
+              fontFamily: serifTitle ? "var(--font-serif)" : FONT,
               fontSize: 16,
               fontWeight: 700,
               lineHeight: 1.18,
@@ -430,12 +438,13 @@ export function ViewCard({
 
       {/* ── (b) body — hero return (left) · Yes/No stance (right) ─────────── */}
       <div
-        className="flex items-center justify-between"
+        className="view-card-body flex items-center justify-between"
         style={{ gap: 24, marginTop: "auto", paddingTop: 24 }}
       >
         <div style={{ minWidth: 0 }}>
           <HeroFigure pct={heroPct} color={heroColor} />
           <div
+            className="view-card-caption"
             style={{
               marginTop: 5,
               fontFamily: FONT,
@@ -454,7 +463,7 @@ export function ViewCard({
 
         {/* Yes / No stance — navigation intents, not wagers */}
         <div
-          className="shrink-0 flex flex-col"
+          className="view-card-stance-col shrink-0 flex flex-col"
           style={{ gap: 8 }}
           onClick={(e) => e.stopPropagation()}
         >
