@@ -1,0 +1,1230 @@
+{
+  "core8": {
+    "label": "CORE 8 weak/guidance-cut analogs",
+    "anchors": [
+      "2022-04-11",
+      "2022-07-08",
+      "2023-01-09",
+      "2023-04-12",
+      "2023-07-12",
+      "2023-10-11",
+      "2024-04-12",
+      "2025-01-09"
+    ],
+    "agg_stocks": [
+      {
+        "name": "TVSMOTOR.NS",
+        "events": 8.0,
+        "mean_rank": 20.75,
+        "mean_ret%": 5.6547,
+        "median_ret%": 5.6482,
+        "top_freq": 0.5,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "EICHERMOT.NS",
+        "events": 8.0,
+        "mean_rank": 25.625,
+        "mean_ret%": 4.6066,
+        "median_ret%": 5.4402,
+        "top_freq": 0.375,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "M&M.NS",
+        "events": 8.0,
+        "mean_rank": 27.75,
+        "mean_ret%": 5.1566,
+        "median_ret%": 5.3401,
+        "top_freq": 0.375,
+        "decile_freq": 0.25
+      },
+      {
+        "name": "ONGC.NS",
+        "events": 8.0,
+        "mean_rank": 28.0,
+        "mean_ret%": 3.6852,
+        "median_ret%": 2.7963,
+        "top_freq": 0.125,
+        "decile_freq": 0.0
+      },
+      {
+        "name": "COALINDIA.NS",
+        "events": 8.0,
+        "mean_rank": 28.125,
+        "mean_ret%": 3.6701,
+        "median_ret%": 1.4777,
+        "top_freq": 0.125,
+        "decile_freq": 0.0
+      },
+      {
+        "name": "MARICO.NS",
+        "events": 8.0,
+        "mean_rank": 28.125,
+        "mean_ret%": 4.3554,
+        "median_ret%": 4.0437,
+        "top_freq": 0.5,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "COCHINSHIP.NS",
+        "events": 8.0,
+        "mean_rank": 29.375,
+        "mean_ret%": 4.2035,
+        "median_ret%": 5.1092,
+        "top_freq": 0.5,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "BEL.NS",
+        "events": 8.0,
+        "mean_rank": 30.0,
+        "mean_ret%": 3.6132,
+        "median_ret%": 2.0524,
+        "top_freq": 0.125,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "LUPIN.NS",
+        "events": 8.0,
+        "mean_rank": 30.0,
+        "mean_ret%": 4.294,
+        "median_ret%": 2.8365,
+        "top_freq": 0.25,
+        "decile_freq": 0.25
+      },
+      {
+        "name": "VEDL.NS",
+        "events": 8.0,
+        "mean_rank": 30.125,
+        "mean_ret%": 4.0777,
+        "median_ret%": 4.0995,
+        "top_freq": 0.375,
+        "decile_freq": 0.25
+      },
+      {
+        "name": "POWERGRID.NS",
+        "events": 8.0,
+        "mean_rank": 31.0,
+        "mean_ret%": 3.6,
+        "median_ret%": 5.7214,
+        "top_freq": 0.25,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "RATNAMANI.NS",
+        "events": 8.0,
+        "mean_rank": 31.125,
+        "mean_ret%": 5.8088,
+        "median_ret%": 6.4857,
+        "top_freq": 0.25,
+        "decile_freq": 0.25
+      },
+      {
+        "name": "BAJAJ-AUTO.NS",
+        "events": 8.0,
+        "mean_rank": 31.25,
+        "mean_ret%": 2.8534,
+        "median_ret%": 3.8143,
+        "top_freq": 0.375,
+        "decile_freq": 0.0
+      },
+      {
+        "name": "ITC.NS",
+        "events": 8.0,
+        "mean_rank": 31.375,
+        "mean_ret%": 4.0986,
+        "median_ret%": 2.0265,
+        "top_freq": 0.25,
+        "decile_freq": 0.25
+      },
+      {
+        "name": "HINDALCO.NS",
+        "events": 8.0,
+        "mean_rank": 31.375,
+        "mean_ret%": 2.483,
+        "median_ret%": 3.812,
+        "top_freq": 0.125,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "BRITANNIA.NS",
+        "events": 8.0,
+        "mean_rank": 31.75,
+        "mean_ret%": 1.773,
+        "median_ret%": 2.6762,
+        "top_freq": 0.25,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "COLPAL.NS",
+        "events": 8.0,
+        "mean_rank": 32.0,
+        "mean_ret%": 3.2587,
+        "median_ret%": 3.6349,
+        "top_freq": 0.25,
+        "decile_freq": 0.0
+      },
+      {
+        "name": "MAZDOCK.NS",
+        "events": 8.0,
+        "mean_rank": 32.625,
+        "mean_ret%": 4.3512,
+        "median_ret%": 1.6509,
+        "top_freq": 0.25,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "HEROMOTOCO.NS",
+        "events": 8.0,
+        "mean_rank": 32.75,
+        "mean_ret%": 2.9716,
+        "median_ret%": 3.8497,
+        "top_freq": 0.25,
+        "decile_freq": 0.125
+      },
+      {
+        "name": "HINDZINC.NS",
+        "events": 8.0,
+        "mean_rank": 33.375,
+        "mean_ret%": 5.6138,
+        "median_ret%": 2.305,
+        "top_freq": 0.5,
+        "decile_freq": 0.125
+      }
+    ],
+    "agg_nonstock": [
+      {
+        "name": "^CNXAUTO",
+        "events": 8.0,
+        "mean_rank": 6.125,
+        "mean_ret%": 3.2023,
+        "median_ret%": 3.185,
+        "top_freq": 0.5,
+        "decile_freq": 0.25,
+        "label": "Nifty Auto"
+      },
+      {
+        "name": "^CNXPSE",
+        "events": 8.0,
+        "mean_rank": 7.0,
+        "mean_ret%": 2.2724,
+        "median_ret%": 3.4513,
+        "top_freq": 0.625,
+        "decile_freq": 0.0,
+        "label": "Nifty PSE"
+      },
+      {
+        "name": "GOLDBEES.NS",
+        "events": 8.0,
+        "mean_rank": 7.375,
+        "mean_ret%": 2.9889,
+        "median_ret%": 2.0941,
+        "top_freq": 0.625,
+        "decile_freq": 0.125,
+        "label": "GoldBeES"
+      },
+      {
+        "name": "^CNXFMCG",
+        "events": 8.0,
+        "mean_rank": 8.0,
+        "mean_ret%": 1.9786,
+        "median_ret%": 1.8323,
+        "top_freq": 0.5,
+        "decile_freq": 0.0,
+        "label": "Nifty FMCG"
+      },
+      {
+        "name": "GC=F",
+        "events": 8.0,
+        "mean_rank": 8.5,
+        "mean_ret%": 2.0925,
+        "median_ret%": 1.8963,
+        "top_freq": 0.375,
+        "decile_freq": 0.0,
+        "label": "Gold"
+      },
+      {
+        "name": "^CNXENERGY",
+        "events": 8.0,
+        "mean_rank": 8.5,
+        "mean_ret%": 0.5393,
+        "median_ret%": 2.6764,
+        "top_freq": 0.5,
+        "decile_freq": 0.0,
+        "label": "Nifty Energy"
+      },
+      {
+        "name": "^CNXINFRA",
+        "events": 8.0,
+        "mean_rank": 9.375,
+        "mean_ret%": 0.6512,
+        "median_ret%": 0.1393,
+        "top_freq": 0.0,
+        "decile_freq": 0.0,
+        "label": "Nifty Infra"
+      },
+      {
+        "name": "NIFTYBEES.NS",
+        "events": 8.0,
+        "mean_rank": 9.625,
+        "mean_ret%": 0.3291,
+        "median_ret%": -0.1339,
+        "top_freq": 0.125,
+        "decile_freq": 0.0,
+        "label": "NiftyBeES"
+      },
+      {
+        "name": "INR=X",
+        "events": 8.0,
+        "mean_rank": 9.625,
+        "mean_ret%": 0.3978,
+        "median_ret%": 0.2735,
+        "top_freq": 0.375,
+        "decile_freq": 0.0,
+        "label": "USDINR"
+      },
+      {
+        "name": "^CNXMETAL",
+        "events": 8.0,
+        "mean_rank": 9.875,
+        "mean_ret%": 0.2627,
+        "median_ret%": -0.2799,
+        "top_freq": 0.125,
+        "decile_freq": 0.125,
+        "label": "Nifty Metal"
+      },
+      {
+        "name": "^NSEBANK",
+        "events": 8.0,
+        "mean_rank": 10.0,
+        "mean_ret%": 0.1958,
+        "median_ret%": -0.2375,
+        "top_freq": 0.375,
+        "decile_freq": 0.0,
+        "label": "Bank Nifty"
+      },
+      {
+        "name": "^CNXREALTY",
+        "events": 8.0,
+        "mean_rank": 10.375,
+        "mean_ret%": -0.0638,
+        "median_ret%": -0.5941,
+        "top_freq": 0.375,
+        "decile_freq": 0.125,
+        "label": "Nifty Realty"
+      },
+      {
+        "name": "^NSEI",
+        "events": 8.0,
+        "mean_rank": 10.375,
+        "mean_ret%": 0.2292,
+        "median_ret%": -0.2009,
+        "top_freq": 0.125,
+        "decile_freq": 0.0,
+        "label": "NIFTY 50"
+      },
+      {
+        "name": "^CNXPHARMA",
+        "events": 8.0,
+        "mean_rank": 10.75,
+        "mean_ret%": 0.5908,
+        "median_ret%": -0.0252,
+        "top_freq": 0.25,
+        "decile_freq": 0.0,
+        "label": "Nifty Pharma"
+      },
+      {
+        "name": "ITBEES.NS",
+        "events": 8.0,
+        "mean_rank": 10.875,
+        "mean_ret%": -0.9322,
+        "median_ret%": -1.9011,
+        "top_freq": 0.25,
+        "decile_freq": 0.0,
+        "label": "ITBeES"
+      },
+      {
+        "name": "^CNXIT",
+        "events": 8.0,
+        "mean_rank": 11.25,
+        "mean_ret%": -1.1278,
+        "median_ret%": -2.1973,
+        "top_freq": 0.25,
+        "decile_freq": 0.125,
+        "label": "Nifty IT"
+      },
+      {
+        "name": "BZ=F",
+        "events": 8.0,
+        "mean_rank": 11.5,
+        "mean_ret%": -1.9313,
+        "median_ret%": -4.4486,
+        "top_freq": 0.375,
+        "decile_freq": 0.0,
+        "label": "Brent"
+      },
+      {
+        "name": "CL=F",
+        "events": 8.0,
+        "mean_rank": 11.875,
+        "mean_ret%": -2.6794,
+        "median_ret%": -6.6705,
+        "top_freq": 0.25,
+        "decile_freq": 0.25,
+        "label": "WTI"
+      }
+    ],
+    "connectedness": [
+      {
+        "name": "TVSMOTOR",
+        "b_mkt": 0.9144,
+        "b_fx": 0.2597,
+        "t_fx": 2.403,
+        "b_it": -0.2201,
+        "t_it": -5.7344,
+        "r2": 0.2577,
+        "raw_caar%": 5.6845,
+        "abn_caar%": 2.1718,
+        "abn_t": 1.6918,
+        "verdict": "GENUINE"
+      },
+      {
+        "name": "EICHERMOT",
+        "b_mkt": 0.9835,
+        "b_fx": 0.2124,
+        "t_fx": 2.109,
+        "b_it": -0.2245,
+        "t_it": -6.278,
+        "r2": 0.3152,
+        "raw_caar%": 5.3493,
+        "abn_caar%": 4.2484,
+        "abn_t": 2.5841,
+        "verdict": "GENUINE"
+      },
+      {
+        "name": "M&M",
+        "b_mkt": 1.1039,
+        "b_fx": -0.122,
+        "t_fx": -1.2026,
+        "b_it": -0.1339,
+        "t_it": -3.7148,
+        "r2": 0.3592,
+        "raw_caar%": 4.8293,
+        "abn_caar%": 2.6024,
+        "abn_t": 1.0239,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "ONGC",
+        "b_mkt": 1.0057,
+        "b_fx": -0.0753,
+        "t_fx": -0.6065,
+        "b_it": -0.0625,
+        "t_it": -1.4168,
+        "r2": 0.2345,
+        "raw_caar%": 3.145,
+        "abn_caar%": 2.2214,
+        "abn_t": 1.0015,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "COALINDIA",
+        "b_mkt": 0.8321,
+        "b_fx": 0.0173,
+        "t_fx": 0.1637,
+        "b_it": -0.0899,
+        "t_it": -2.3966,
+        "r2": 0.2247,
+        "raw_caar%": 3.6546,
+        "abn_caar%": 2.2701,
+        "abn_t": 2.0306,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "MARICO",
+        "b_mkt": 0.4688,
+        "b_fx": -0.065,
+        "t_fx": -0.7262,
+        "b_it": 0.0131,
+        "t_it": 0.4127,
+        "r2": 0.114,
+        "raw_caar%": 4.4759,
+        "abn_caar%": 3.8865,
+        "abn_t": 1.3459,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "COCHINSHIP",
+        "b_mkt": 0.8468,
+        "b_fx": -0.103,
+        "t_fx": -0.6488,
+        "b_it": -0.0128,
+        "t_it": -0.2263,
+        "r2": 0.1173,
+        "raw_caar%": 3.132,
+        "abn_caar%": 0.2544,
+        "abn_t": 0.0953,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "BEL",
+        "b_mkt": 1.0805,
+        "b_fx": -0.0075,
+        "t_fx": -0.0567,
+        "b_it": -0.1966,
+        "t_it": -4.1728,
+        "r2": 0.2408,
+        "raw_caar%": 4.5613,
+        "abn_caar%": 2.4949,
+        "abn_t": 1.7607,
+        "verdict": "GENUINE"
+      },
+      {
+        "name": "LUPIN",
+        "b_mkt": 0.5344,
+        "b_fx": 0.278,
+        "t_fx": 2.5061,
+        "b_it": 0.1719,
+        "t_it": 4.3627,
+        "r2": 0.1056,
+        "raw_caar%": 4.998,
+        "abn_caar%": 2.0861,
+        "abn_t": 0.6535,
+        "verdict": "STRUCTURAL (factor-linked, event signal weak)"
+      },
+      {
+        "name": "VEDL",
+        "b_mkt": 1.2949,
+        "b_fx": 0.2601,
+        "t_fx": 1.8525,
+        "b_it": -0.0788,
+        "t_it": -1.5796,
+        "r2": 0.2815,
+        "raw_caar%": 3.1921,
+        "abn_caar%": 1.6749,
+        "abn_t": 0.4287,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "POWERGRID",
+        "b_mkt": 0.6887,
+        "b_fx": 0.0347,
+        "t_fx": 0.3637,
+        "b_it": -0.1315,
+        "t_it": -3.8878,
+        "r2": 0.1999,
+        "raw_caar%": 1.2507,
+        "abn_caar%": -0.3363,
+        "abn_t": -0.2232,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "RATNAMANI",
+        "b_mkt": 0.5013,
+        "b_fx": -0.1147,
+        "t_fx": -1.0102,
+        "b_it": -0.0615,
+        "t_it": -1.5258,
+        "r2": 0.0855,
+        "raw_caar%": 5.489,
+        "abn_caar%": 3.908,
+        "abn_t": 1.1902,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "Nifty Auto",
+        "b_mkt": 1.0428,
+        "b_fx": 0.0204,
+        "t_fx": 0.375,
+        "b_it": -0.1328,
+        "t_it": -6.8739,
+        "r2": 0.6378,
+        "raw_caar%": 3.0614,
+        "abn_caar%": 1.3586,
+        "abn_t": 0.9665,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "Nifty PSE",
+        "b_mkt": 0.9592,
+        "b_fx": 0.0373,
+        "t_fx": 0.5658,
+        "b_it": -0.1568,
+        "t_it": -6.688,
+        "r2": 0.5048,
+        "raw_caar%": 2.7546,
+        "abn_caar%": 1.4227,
+        "abn_t": 2.3184,
+        "verdict": "GENUINE"
+      },
+      {
+        "name": "GoldBeES",
+        "b_mkt": -0.0931,
+        "b_fx": 0.0633,
+        "t_fx": 0.064,
+        "b_it": 0.0289,
+        "t_it": 0.0823,
+        "r2": 0.0,
+        "raw_caar%": 2.5876,
+        "abn_caar%": 1.8925,
+        "abn_t": 1.1783,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "Nifty FMCG",
+        "b_mkt": 0.6294,
+        "b_fx": 0.0052,
+        "t_fx": 0.1135,
+        "b_it": -0.0129,
+        "t_it": -0.7869,
+        "r2": 0.4679,
+        "raw_caar%": 2.5504,
+        "abn_caar%": 1.526,
+        "abn_t": 1.2702,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "Gold",
+        "b_mkt": 0.0217,
+        "b_fx": 0.0581,
+        "t_fx": 0.8823,
+        "b_it": 0.0173,
+        "t_it": 0.7393,
+        "r2": 0.0012,
+        "raw_caar%": 1.853,
+        "abn_caar%": 0.7928,
+        "abn_t": 0.4838,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "Nifty Energy",
+        "b_mkt": 1.0023,
+        "b_fx": 0.0227,
+        "t_fx": 0.4132,
+        "b_it": -0.1486,
+        "t_it": -7.5976,
+        "r2": 0.6145,
+        "raw_caar%": 1.5925,
+        "abn_caar%": 0.8337,
+        "abn_t": 0.6239,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      }
+    ]
+  },
+  "ext10": {
+    "label": "EXTENDED 10 (core 8 + 2019-07-09, 2025-04-10)",
+    "anchors": [
+      "2022-04-11",
+      "2022-07-08",
+      "2023-01-09",
+      "2023-04-12",
+      "2023-07-12",
+      "2023-10-11",
+      "2024-04-12",
+      "2025-01-09",
+      "2019-07-09",
+      "2025-04-10"
+    ],
+    "agg_stocks": [
+      {
+        "name": "TVSMOTOR.NS",
+        "events": 10.0,
+        "mean_rank": 22.9,
+        "mean_ret%": 4.3953,
+        "median_ret%": 5.6482,
+        "top_freq": 0.4,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "MARICO.NS",
+        "events": 10.0,
+        "mean_rank": 26.9,
+        "mean_ret%": 4.1218,
+        "median_ret%": 4.0437,
+        "top_freq": 0.5,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "M&M.NS",
+        "events": 10.0,
+        "mean_rank": 28.1,
+        "mean_ret%": 4.619,
+        "median_ret%": 5.3401,
+        "top_freq": 0.4,
+        "decile_freq": 0.3
+      },
+      {
+        "name": "COCHINSHIP.NS",
+        "events": 10.0,
+        "mean_rank": 28.8,
+        "mean_ret%": 3.4786,
+        "median_ret%": 4.5068,
+        "top_freq": 0.4,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "MAZDOCK.NS",
+        "events": 9.0,
+        "mean_rank": 29.1111,
+        "mean_ret%": 6.5368,
+        "median_ret%": 2.2492,
+        "top_freq": 0.3333,
+        "decile_freq": 0.2222
+      },
+      {
+        "name": "LUPIN.NS",
+        "events": 10.0,
+        "mean_rank": 29.5,
+        "mean_ret%": 3.9833,
+        "median_ret%": 2.7407,
+        "top_freq": 0.3,
+        "decile_freq": 0.3
+      },
+      {
+        "name": "HEROMOTOCO.NS",
+        "events": 10.0,
+        "mean_rank": 29.6,
+        "mean_ret%": 3.1109,
+        "median_ret%": 3.8497,
+        "top_freq": 0.3,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "BEL.NS",
+        "events": 10.0,
+        "mean_rank": 29.7,
+        "mean_ret%": 3.0565,
+        "median_ret%": 2.0524,
+        "top_freq": 0.2,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "COLPAL.NS",
+        "events": 10.0,
+        "mean_rank": 30.2,
+        "mean_ret%": 3.3068,
+        "median_ret%": 3.6349,
+        "top_freq": 0.3,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "HINDALCO.NS",
+        "events": 10.0,
+        "mean_rank": 30.5,
+        "mean_ret%": 2.1059,
+        "median_ret%": 3.812,
+        "top_freq": 0.2,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "INDUSINDBK.NS",
+        "events": 10.0,
+        "mean_rank": 30.6,
+        "mean_ret%": 3.6692,
+        "median_ret%": 3.6301,
+        "top_freq": 0.3,
+        "decile_freq": 0.3
+      },
+      {
+        "name": "VEDL.NS",
+        "events": 10.0,
+        "mean_rank": 31.5,
+        "mean_ret%": 2.7114,
+        "median_ret%": 4.0995,
+        "top_freq": 0.3,
+        "decile_freq": 0.2
+      },
+      {
+        "name": "EICHERMOT.NS",
+        "events": 10.0,
+        "mean_rank": 31.6,
+        "mean_ret%": 2.5852,
+        "median_ret%": 3.8362,
+        "top_freq": 0.3,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "POWERGRID.NS",
+        "events": 10.0,
+        "mean_rank": 31.7,
+        "mean_ret%": 2.8617,
+        "median_ret%": 4.7144,
+        "top_freq": 0.2,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "HAL.NS",
+        "events": 10.0,
+        "mean_rank": 32.0,
+        "mean_ret%": 2.4923,
+        "median_ret%": 3.0865,
+        "top_freq": 0.3,
+        "decile_freq": 0.0
+      },
+      {
+        "name": "DIVISLAB.NS",
+        "events": 10.0,
+        "mean_rank": 32.3,
+        "mean_ret%": 1.4589,
+        "median_ret%": 2.0702,
+        "top_freq": 0.3,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "ICICIBANK.NS",
+        "events": 10.0,
+        "mean_rank": 32.6,
+        "mean_ret%": 1.9233,
+        "median_ret%": 0.193,
+        "top_freq": 0.1,
+        "decile_freq": 0.0
+      },
+      {
+        "name": "MARUTI.NS",
+        "events": 10.0,
+        "mean_rank": 33.3,
+        "mean_ret%": 2.1232,
+        "median_ret%": 1.9388,
+        "top_freq": 0.2,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "BRITANNIA.NS",
+        "events": 10.0,
+        "mean_rank": 33.3,
+        "mean_ret%": 0.9952,
+        "median_ret%": 2.6762,
+        "top_freq": 0.2,
+        "decile_freq": 0.1
+      },
+      {
+        "name": "RATNAMANI.NS",
+        "events": 10.0,
+        "mean_rank": 33.5,
+        "mean_ret%": 4.2232,
+        "median_ret%": 4.2037,
+        "top_freq": 0.2,
+        "decile_freq": 0.2
+      }
+    ],
+    "agg_nonstock": [
+      {
+        "name": "GOLDBEES.NS",
+        "events": 10.0,
+        "mean_rank": 6.3,
+        "mean_ret%": 3.9939,
+        "median_ret%": 2.3908,
+        "top_freq": 0.7,
+        "decile_freq": 0.2,
+        "label": "GoldBeES"
+      },
+      {
+        "name": "^CNXAUTO",
+        "events": 10.0,
+        "mean_rank": 6.6,
+        "mean_ret%": 2.643,
+        "median_ret%": 3.185,
+        "top_freq": 0.5,
+        "decile_freq": 0.2,
+        "label": "Nifty Auto"
+      },
+      {
+        "name": "GC=F",
+        "events": 10.0,
+        "mean_rank": 7.1,
+        "mean_ret%": 3.4524,
+        "median_ret%": 2.1358,
+        "top_freq": 0.5,
+        "decile_freq": 0.1,
+        "label": "Gold"
+      },
+      {
+        "name": "^CNXFMCG",
+        "events": 10.0,
+        "mean_rank": 8.5,
+        "mean_ret%": 1.4527,
+        "median_ret%": 1.8323,
+        "top_freq": 0.5,
+        "decile_freq": 0.0,
+        "label": "Nifty FMCG"
+      },
+      {
+        "name": "^CNXPSE",
+        "events": 10.0,
+        "mean_rank": 8.6,
+        "mean_ret%": 0.8114,
+        "median_ret%": 1.8959,
+        "top_freq": 0.5,
+        "decile_freq": 0.0,
+        "label": "Nifty PSE"
+      },
+      {
+        "name": "^CNXINFRA",
+        "events": 10.0,
+        "mean_rank": 9.3,
+        "mean_ret%": 0.3063,
+        "median_ret%": 0.1393,
+        "top_freq": 0.1,
+        "decile_freq": 0.0,
+        "label": "Nifty Infra"
+      },
+      {
+        "name": "^CNXENERGY",
+        "events": 10.0,
+        "mean_rank": 9.3,
+        "mean_ret%": -0.2459,
+        "median_ret%": 2.6764,
+        "top_freq": 0.4,
+        "decile_freq": 0.0,
+        "label": "Nifty Energy"
+      },
+      {
+        "name": "NIFTYBEES.NS",
+        "events": 10.0,
+        "mean_rank": 9.4,
+        "mean_ret%": 0.1862,
+        "median_ret%": -0.1339,
+        "top_freq": 0.1,
+        "decile_freq": 0.0,
+        "label": "NiftyBeES"
+      },
+      {
+        "name": "INR=X",
+        "events": 10.0,
+        "mean_rank": 9.8,
+        "mean_ret%": 0.7291,
+        "median_ret%": 0.2735,
+        "top_freq": 0.4,
+        "decile_freq": 0.0,
+        "label": "USDINR"
+      },
+      {
+        "name": "^CNXIT",
+        "events": 10.0,
+        "mean_rank": 9.8,
+        "mean_ret%": -0.1321,
+        "median_ret%": -0.6754,
+        "top_freq": 0.4,
+        "decile_freq": 0.1,
+        "label": "Nifty IT"
+      },
+      {
+        "name": "^NSEI",
+        "events": 10.0,
+        "mean_rank": 10.0,
+        "mean_ret%": 0.106,
+        "median_ret%": -0.2009,
+        "top_freq": 0.1,
+        "decile_freq": 0.0,
+        "label": "NIFTY 50"
+      },
+      {
+        "name": "^NSEBANK",
+        "events": 10.0,
+        "mean_rank": 10.2,
+        "mean_ret%": -0.33,
+        "median_ret%": -0.2375,
+        "top_freq": 0.3,
+        "decile_freq": 0.0,
+        "label": "Bank Nifty"
+      },
+      {
+        "name": "ITBEES.NS",
+        "events": 9.0,
+        "mean_rank": 10.2222,
+        "mean_ret%": 0.0175,
+        "median_ret%": -0.9214,
+        "top_freq": 0.3333,
+        "decile_freq": 0.0,
+        "label": "ITBeES"
+      },
+      {
+        "name": "^CNXREALTY",
+        "events": 10.0,
+        "mean_rank": 10.3,
+        "mean_ret%": -0.3912,
+        "median_ret%": -0.5941,
+        "top_freq": 0.3,
+        "decile_freq": 0.1,
+        "label": "Nifty Realty"
+      },
+      {
+        "name": "^CNXPHARMA",
+        "events": 10.0,
+        "mean_rank": 10.4,
+        "mean_ret%": 0.6769,
+        "median_ret%": 0.6211,
+        "top_freq": 0.3,
+        "decile_freq": 0.0,
+        "label": "Nifty Pharma"
+      },
+      {
+        "name": "^CNXMETAL",
+        "events": 10.0,
+        "mean_rank": 10.6,
+        "mean_ret%": -0.6328,
+        "median_ret%": -0.2799,
+        "top_freq": 0.1,
+        "decile_freq": 0.1,
+        "label": "Nifty Metal"
+      },
+      {
+        "name": "CL=F",
+        "events": 10.0,
+        "mean_rank": 11.8,
+        "mean_ret%": -2.5765,
+        "median_ret%": -5.5417,
+        "top_freq": 0.2,
+        "decile_freq": 0.2,
+        "label": "WTI"
+      },
+      {
+        "name": "BZ=F",
+        "events": 10.0,
+        "mean_rank": 12.0,
+        "mean_ret%": -2.1952,
+        "median_ret%": -4.4486,
+        "top_freq": 0.3,
+        "decile_freq": 0.0,
+        "label": "Brent"
+      }
+    ],
+    "connectedness": [
+      {
+        "name": "TVSMOTOR",
+        "b_mkt": 0.9144,
+        "b_fx": 0.2597,
+        "t_fx": 2.403,
+        "b_it": -0.2201,
+        "t_it": -5.7344,
+        "r2": 0.2577,
+        "raw_caar%": 3.8022,
+        "abn_caar%": 2.0964,
+        "abn_t": 2.054,
+        "verdict": "GENUINE"
+      },
+      {
+        "name": "MARICO",
+        "b_mkt": 0.4688,
+        "b_fx": -0.065,
+        "t_fx": -0.7262,
+        "b_it": 0.0131,
+        "t_it": 0.4127,
+        "r2": 0.114,
+        "raw_caar%": 4.453,
+        "abn_caar%": 4.3178,
+        "abn_t": 1.8802,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "M&M",
+        "b_mkt": 1.1039,
+        "b_fx": -0.122,
+        "t_fx": -1.2026,
+        "b_it": -0.1339,
+        "t_it": -3.7148,
+        "r2": 0.3592,
+        "raw_caar%": 3.3489,
+        "abn_caar%": 2.5885,
+        "abn_t": 1.1335,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "COCHINSHIP",
+        "b_mkt": 0.8468,
+        "b_fx": -0.103,
+        "t_fx": -0.6488,
+        "b_it": -0.0128,
+        "t_it": -0.2263,
+        "r2": 0.1173,
+        "raw_caar%": 2.6536,
+        "abn_caar%": 0.441,
+        "abn_t": 0.2072,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "MAZDOCK",
+        "b_mkt": 1.319,
+        "b_fx": 0.0101,
+        "t_fx": 0.0342,
+        "b_it": -0.209,
+        "t_it": -2.4843,
+        "r2": 0.1304,
+        "raw_caar%": 5.7174,
+        "abn_caar%": -0.8194,
+        "abn_t": -0.1796,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "LUPIN",
+        "b_mkt": 0.5344,
+        "b_fx": 0.278,
+        "t_fx": 2.5061,
+        "b_it": 0.1719,
+        "t_it": 4.3627,
+        "r2": 0.1056,
+        "raw_caar%": 4.2967,
+        "abn_caar%": 2.7132,
+        "abn_t": 1.0198,
+        "verdict": "STRUCTURAL (factor-linked, event signal weak)"
+      },
+      {
+        "name": "HEROMOTOCO",
+        "b_mkt": 0.8605,
+        "b_fx": 0.1464,
+        "t_fx": 1.4666,
+        "b_it": -0.0561,
+        "t_it": -1.5819,
+        "r2": 0.2552,
+        "raw_caar%": 3.4247,
+        "abn_caar%": 4.261,
+        "abn_t": 1.8042,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "BEL",
+        "b_mkt": 1.0805,
+        "b_fx": -0.0075,
+        "t_fx": -0.0567,
+        "b_it": -0.1966,
+        "t_it": -4.1728,
+        "r2": 0.2408,
+        "raw_caar%": 3.1772,
+        "abn_caar%": 1.4753,
+        "abn_t": 1.0051,
+        "verdict": "STRUCTURAL (factor-linked, event signal weak)"
+      },
+      {
+        "name": "COLPAL",
+        "b_mkt": 0.4472,
+        "b_fx": 0.0417,
+        "t_fx": 0.4949,
+        "b_it": -0.0047,
+        "t_it": -0.1571,
+        "r2": 0.1147,
+        "raw_caar%": 4.6099,
+        "abn_caar%": 4.6976,
+        "abn_t": 2.7683,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "HINDALCO",
+        "b_mkt": 1.3369,
+        "b_fx": 0.0072,
+        "t_fx": 0.0617,
+        "b_it": 0.0343,
+        "t_it": 0.8258,
+        "r2": 0.3767,
+        "raw_caar%": 0.7783,
+        "abn_caar%": 1.9518,
+        "abn_t": 0.621,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "INDUSINDBK",
+        "b_mkt": 1.4712,
+        "b_fx": 0.0968,
+        "t_fx": 0.6488,
+        "b_it": -0.3449,
+        "t_it": -6.5078,
+        "r2": 0.3208,
+        "raw_caar%": 3.6049,
+        "abn_caar%": 4.7701,
+        "abn_t": 1.8169,
+        "verdict": "GENUINE"
+      },
+      {
+        "name": "VEDL",
+        "b_mkt": 1.2949,
+        "b_fx": 0.2601,
+        "t_fx": 1.8525,
+        "b_it": -0.0788,
+        "t_it": -1.5796,
+        "r2": 0.2815,
+        "raw_caar%": 0.9226,
+        "abn_caar%": 0.8064,
+        "abn_t": 0.2571,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "GoldBeES",
+        "b_mkt": -0.0931,
+        "b_fx": 0.0633,
+        "t_fx": 0.064,
+        "b_it": 0.0289,
+        "t_it": 0.0823,
+        "r2": 0.0,
+        "raw_caar%": 3.4162,
+        "abn_caar%": 2.2364,
+        "abn_t": 1.7369,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "Nifty Auto",
+        "b_mkt": 1.0428,
+        "b_fx": 0.0204,
+        "t_fx": 0.375,
+        "b_it": -0.1328,
+        "t_it": -6.8739,
+        "r2": 0.6378,
+        "raw_caar%": 1.7377,
+        "abn_caar%": 1.6664,
+        "abn_t": 1.3603,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "Gold",
+        "b_mkt": 0.0217,
+        "b_fx": 0.0581,
+        "t_fx": 0.8823,
+        "b_it": 0.0173,
+        "t_it": 0.7393,
+        "r2": 0.0012,
+        "raw_caar%": 2.9403,
+        "abn_caar%": 1.6904,
+        "abn_t": 1.1418,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "Nifty FMCG",
+        "b_mkt": 0.6294,
+        "b_fx": 0.0052,
+        "t_fx": 0.1135,
+        "b_it": -0.0129,
+        "t_it": -0.7869,
+        "r2": 0.4679,
+        "raw_caar%": 2.0454,
+        "abn_caar%": 1.9166,
+        "abn_t": 1.948,
+        "verdict": "GENUINE (event-abnormal; factor link weak)"
+      },
+      {
+        "name": "Nifty PSE",
+        "b_mkt": 0.9592,
+        "b_fx": 0.0373,
+        "t_fx": 0.5658,
+        "b_it": -0.1568,
+        "t_it": -6.688,
+        "r2": 0.5048,
+        "raw_caar%": 0.6182,
+        "abn_caar%": -0.3232,
+        "abn_t": -0.2539,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      },
+      {
+        "name": "Nifty Infra",
+        "b_mkt": 0.9987,
+        "b_fx": 0.072,
+        "t_fx": 2.1263,
+        "b_it": -0.1207,
+        "t_it": -10.0159,
+        "r2": 0.8051,
+        "raw_caar%": 0.6038,
+        "abn_caar%": -0.1217,
+        "abn_t": -0.2516,
+        "verdict": "SPURIOUS (market beta / coincidence)"
+      }
+    ]
+  }
+}

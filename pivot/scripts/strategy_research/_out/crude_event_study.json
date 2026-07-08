@@ -1,0 +1,439 @@
+{
+  "generated": "2026-06-29T18:00:15.126880",
+  "events": [
+    {
+      "date": "2016-01-20",
+      "brent_10d_ret": -0.23448653041011458,
+      "kind": "CRASH",
+      "context": ""
+    },
+    {
+      "date": "2016-03-09",
+      "brent_10d_ret": 0.19354838352064085,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2016-04-19",
+      "brent_10d_ret": 0.1626617380816897,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2016-08-16",
+      "brent_10d_ret": 0.1777512067174447,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2016-12-13",
+      "brent_10d_ret": 0.20137990378376336,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2018-11-23",
+      "brent_10d_ret": -0.16772826656596374,
+      "kind": "CRASH",
+      "context": ""
+    },
+    {
+      "date": "2019-01-09",
+      "brent_10d_ret": 0.2173567889969834,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2019-06-05",
+      "brent_10d_ret": -0.16001661385740307,
+      "kind": "CRASH",
+      "context": ""
+    },
+    {
+      "date": "2020-02-04",
+      "brent_10d_ret": -0.16457652664677525,
+      "kind": "CRASH",
+      "context": ""
+    },
+    {
+      "date": "2020-03-18",
+      "brent_10d_ret": -0.5133972493444399,
+      "kind": "CRASH",
+      "context": "OPEC+ breakup + COVID demand crash (Brent collapse)"
+    },
+    {
+      "date": "2020-05-05",
+      "brent_10d_ret": 0.6021727592131698,
+      "kind": "SPIKE",
+      "context": "WTI negative / Brent sub-$20 trough"
+    },
+    {
+      "date": "2020-11-12",
+      "brent_10d_ret": 0.15617521952492686,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2021-12-01",
+      "brent_10d_ret": -0.16450318462199887,
+      "kind": "CRASH",
+      "context": ""
+    },
+    {
+      "date": "2022-03-08",
+      "brent_10d_ret": 0.32156142293097956,
+      "kind": "SPIKE",
+      "context": "Russia invades Ukraine (Brent spikes >$100)"
+    },
+    {
+      "date": "2022-07-13",
+      "brent_10d_ret": -0.15604342378608205,
+      "kind": "CRASH",
+      "context": ""
+    },
+    {
+      "date": "2023-04-03",
+      "brent_10d_ret": 0.15096895583998138,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2024-09-10",
+      "brent_10d_ret": -0.15031312560355647,
+      "kind": "CRASH",
+      "context": ""
+    },
+    {
+      "date": "2025-06-18",
+      "brent_10d_ret": 0.18254696618058586,
+      "kind": "SPIKE",
+      "context": "Israel-Iran direct strikes (Brent jumps)"
+    },
+    {
+      "date": "2026-03-13",
+      "brent_10d_ret": 0.42301317070485256,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2026-04-29",
+      "brent_10d_ret": 0.24333717897251117,
+      "kind": "SPIKE",
+      "context": ""
+    },
+    {
+      "date": "2026-06-26",
+      "brent_10d_ret": -0.2034742193904301,
+      "kind": "CRASH",
+      "context": ""
+    }
+  ],
+  "caar": {
+    "SPIKE": {
+      "ONGC.NS": {
+        "caar_pct": 2.95,
+        "t_stat": 0.82,
+        "n_events": 10,
+        "role": "upstream"
+      },
+      "OIL.NS": {
+        "caar_pct": 0.0,
+        "t_stat": 0.0,
+        "n_events": 10,
+        "role": "upstream"
+      },
+      "BPCL.NS": {
+        "caar_pct": -2.11,
+        "t_stat": -0.83,
+        "n_events": 10,
+        "role": "omc"
+      },
+      "HINDPETRO.NS": {
+        "caar_pct": -1.87,
+        "t_stat": -0.71,
+        "n_events": 10,
+        "role": "omc"
+      },
+      "IOC.NS": {
+        "caar_pct": 1.26,
+        "t_stat": 0.47,
+        "n_events": 10,
+        "role": "omc"
+      },
+      "RELIANCE.NS": {
+        "caar_pct": 0.34,
+        "t_stat": 0.19,
+        "n_events": 10,
+        "role": "integrated"
+      },
+      "ASIANPAINT.NS": {
+        "caar_pct": 1.57,
+        "t_stat": 0.7,
+        "n_events": 10,
+        "role": "paints"
+      },
+      "BERGEPAINT.NS": {
+        "caar_pct": 0.94,
+        "t_stat": 0.32,
+        "n_events": 10,
+        "role": "paints"
+      },
+      "INDIGO.NS": {
+        "caar_pct": 3.47,
+        "t_stat": 1.94,
+        "n_events": 10,
+        "role": "aviation"
+      },
+      "MRF.NS": {
+        "caar_pct": -0.49,
+        "t_stat": -0.24,
+        "n_events": 10,
+        "role": "tyres"
+      },
+      "APOLLOTYRE.NS": {
+        "caar_pct": 0.61,
+        "t_stat": 0.22,
+        "n_events": 10,
+        "role": "tyres"
+      },
+      "GOLDBEES.NS": {
+        "caar_pct": -2.99,
+        "t_stat": -2.02,
+        "n_events": 10,
+        "role": "gold_hedge"
+      }
+    },
+    "CRASH": {
+      "ONGC.NS": {
+        "caar_pct": -0.85,
+        "t_stat": -0.13,
+        "n_events": 7,
+        "role": "upstream"
+      },
+      "OIL.NS": {
+        "caar_pct": -7.52,
+        "t_stat": -1.16,
+        "n_events": 7,
+        "role": "upstream"
+      },
+      "BPCL.NS": {
+        "caar_pct": 0.27,
+        "t_stat": 0.09,
+        "n_events": 7,
+        "role": "omc"
+      },
+      "HINDPETRO.NS": {
+        "caar_pct": 2.22,
+        "t_stat": 0.42,
+        "n_events": 7,
+        "role": "omc"
+      },
+      "IOC.NS": {
+        "caar_pct": -1.61,
+        "t_stat": -0.44,
+        "n_events": 7,
+        "role": "omc"
+      },
+      "RELIANCE.NS": {
+        "caar_pct": -2.16,
+        "t_stat": -0.71,
+        "n_events": 7,
+        "role": "integrated"
+      },
+      "ASIANPAINT.NS": {
+        "caar_pct": 4.85,
+        "t_stat": 2.51,
+        "n_events": 7,
+        "role": "paints"
+      },
+      "BERGEPAINT.NS": {
+        "caar_pct": 5.17,
+        "t_stat": 2.04,
+        "n_events": 7,
+        "role": "paints"
+      },
+      "INDIGO.NS": {
+        "caar_pct": -1.13,
+        "t_stat": -0.26,
+        "n_events": 7,
+        "role": "aviation"
+      },
+      "MRF.NS": {
+        "caar_pct": 5.97,
+        "t_stat": 2.72,
+        "n_events": 7,
+        "role": "tyres"
+      },
+      "APOLLOTYRE.NS": {
+        "caar_pct": 1.91,
+        "t_stat": 0.74,
+        "n_events": 7,
+        "role": "tyres"
+      },
+      "GOLDBEES.NS": {
+        "caar_pct": 0.97,
+        "t_stat": 0.9,
+        "n_events": 7,
+        "role": "gold_hedge"
+      }
+    }
+  },
+  "connectedness": {
+    "ONGC.NS": {
+      "role": "upstream",
+      "brent_beta": 0.074,
+      "brent_beta_t": 4.64,
+      "brent_beta_uni": 0.118,
+      "market_beta": 0.915,
+      "market_beta_t": 23.54,
+      "r2": 0.21,
+      "n": 2299,
+      "sign_hyp": 1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "OIL.NS": {
+      "role": "upstream",
+      "brent_beta": 0.056,
+      "brent_beta_t": 3.04,
+      "brent_beta_uni": 0.092,
+      "market_beta": 0.737,
+      "market_beta_t": 16.35,
+      "r2": 0.113,
+      "n": 2299,
+      "sign_hyp": 1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "BPCL.NS": {
+      "role": "omc",
+      "brent_beta": -0.069,
+      "brent_beta_t": -4.43,
+      "brent_beta_uni": -0.017,
+      "market_beta": 1.072,
+      "market_beta_t": 28.32,
+      "r2": 0.259,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "HINDPETRO.NS": {
+      "role": "omc",
+      "brent_beta": -0.107,
+      "brent_beta_t": -5.72,
+      "brent_beta_uni": -0.054,
+      "market_beta": 1.094,
+      "market_beta_t": 23.94,
+      "r2": 0.202,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "IOC.NS": {
+      "role": "omc",
+      "brent_beta": -0.037,
+      "brent_beta_t": -2.6,
+      "brent_beta_uni": 0.008,
+      "market_beta": 0.917,
+      "market_beta_t": 26.67,
+      "r2": 0.237,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "RELIANCE.NS": {
+      "role": "integrated",
+      "brent_beta": -0.002,
+      "brent_beta_t": -0.21,
+      "brent_beta_uni": 0.05,
+      "market_beta": 1.076,
+      "market_beta_t": 41.1,
+      "r2": 0.427,
+      "n": 2299,
+      "sign_hyp": 0,
+      "sign_ok": true,
+      "connected": false
+    },
+    "ASIANPAINT.NS": {
+      "role": "paints",
+      "brent_beta": -0.06,
+      "brent_beta_t": -5.34,
+      "brent_beta_uni": -0.024,
+      "market_beta": 0.744,
+      "market_beta_t": 27.23,
+      "r2": 0.245,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "BERGEPAINT.NS": {
+      "role": "paints",
+      "brent_beta": -0.069,
+      "brent_beta_t": -5.15,
+      "brent_beta_uni": -0.033,
+      "market_beta": 0.749,
+      "market_beta_t": 22.76,
+      "r2": 0.186,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "INDIGO.NS": {
+      "role": "aviation",
+      "brent_beta": -0.09,
+      "brent_beta_t": -4.97,
+      "brent_beta_uni": -0.047,
+      "market_beta": 0.876,
+      "market_beta_t": 19.9,
+      "r2": 0.149,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": true,
+      "connected": true
+    },
+    "MRF.NS": {
+      "role": "tyres",
+      "brent_beta": 0.0,
+      "brent_beta_t": 0.02,
+      "brent_beta_uni": 0.039,
+      "market_beta": 0.801,
+      "market_beta_t": 27.95,
+      "r2": 0.257,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": false,
+      "connected": false
+    },
+    "APOLLOTYRE.NS": {
+      "role": "tyres",
+      "brent_beta": 0.002,
+      "brent_beta_t": 0.1,
+      "brent_beta_uni": 0.056,
+      "market_beta": 1.126,
+      "market_beta_t": 29.79,
+      "r2": 0.282,
+      "n": 2299,
+      "sign_hyp": -1,
+      "sign_ok": false,
+      "connected": false
+    },
+    "GOLDBEES.NS": {
+      "role": "gold_hedge",
+      "brent_beta": 0.015,
+      "brent_beta_t": 1.79,
+      "brent_beta_uni": 0.015,
+      "market_beta": -0.005,
+      "market_beta_t": -0.23,
+      "r2": 0.001,
+      "n": 2295,
+      "sign_hyp": 1,
+      "sign_ok": true,
+      "connected": false
+    }
+  }
+}

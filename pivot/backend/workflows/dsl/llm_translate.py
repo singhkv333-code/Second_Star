@@ -1,0 +1,293 @@
+"""Helper to translate natural-language trading conditions into DSL trees.
+
+Single source of truth for the prompt used by the chat-side tools
+(``backtest_dsl_tree`` / ``propose_dsl_workflow``) and the offline eval
+harness in ``scripts/backtest_eval.py``.
+
+When the grammar grows, change the prompt here and both callers pick it
+up.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+
+SYSTEM_PROMPT = """You translate natural-language trading conditions into Pivot's DSL — a small JSON tree of expressions.
+
+Return ONLY a single JSON object representing the tree, no commentary, no markdown fences.
+
+The tree is built from these node types, each tagged with a "type" field:
+
+  { "type": "indicator", "indicator": "<KEY>", "symbol": "<SYM>", "period": <int>, "exchange": "NSE", "offset": <int> }
+  { "type": "price", "symbol": "<SYM>", "exchange": "NSE", "basis": "open"|"high"|"low"|"close", "offset": <int> }
+  { "type": "volume", "symbol": "<SYM>", "bars": <int>, "exchange": "NSE", "offset": <int> }
+  { "type": "constant", "value": <number> }
+  { "type": "session_day", "days": ["mon"|"tue"|"wed"|"thu"|"fri"|"sat"|"sun", ...] }   // boolean: TRUE on listed weekdays
+  { "type": "gap", "symbol": "<SYM>" }                                          // (open - prev_close) / prev_close, signed
+  { "type": "pct_change", "symbol": "<SYM>", "bars": <int> }                    // (close - close[bars]) / close[bars]
+  { "type": "spread", "a": "<SYM_A>", "b": "<SYM_B>" }                          // price_a / price_b
+  { "type": "math", "op": "+"|"-"|"*"|"/"|"abs"|"negate"|"min"|"max", "operands": [<node>, ...] }
+  { "type": "comparison", "op": "<OP>", "left": <node>, "right": <node> }
+  { "type": "logic", "op": "and"|"or"|"not", "operands": [<node>, ...] }
+  { "type": "conditional", "if": <bool-node>, "then": <node>, "else": <node> }
+  { "type": "aggregate", "op": "<AGG>", "source": <node>, "bars": <int>, "second": <node> }
+
+Time-shifted access: every leaf accepts an optional "offset" (default 0). offset=1 reads the previous bar; max 500.
+Price leaves also accept "basis" (default "close"). Use basis="open" for gap conditions, "low"/"high" for stop / target checks.
+
+Aggregate ops (with what they return and what 'source' must yield):
+  - highest, lowest, sum, avg, std         : numeric source → number
+  - percentrank, zscore                    : numeric source → number (percentrank is 0..1, fraction of window strictly below current value)
+  - count_when, any_when                   : BOOLEAN source → count / 1.0-or-0.0
+  - barssince                              : BOOLEAN source → integer (bars since last TRUE in window). UNKNOWN if never observed.
+  - valuewhen                              : BOOLEAN source + numeric 'second' → value of 'second' at last TRUE bar
+  - correlation                            : numeric source + numeric 'second' → Pearson r over the window
+
+Supported indicator keys: rsi, sma, ema, macd, atr, adx, aroon, bb, cci, donchian, keltner, mfi, obv, psar, roc, stoch, stoch_rsi, supertrend, trix, volume, volume_ma, volume_roc, vwap, williams_r, wma.
+
+Multi-output indicators accept an optional "component" field to pick a specific output. Single-output indicators (rsi, sma, ema, atr, adx, cci, mfi, roc, supertrend, trix, williams_r, wma, vwap, obv, psar, volume, volume_ma, volume_roc) MUST omit this field.
+  - bb:        upper, middle, lower, pctb (default), bandwidth
+  - macd:      macd, signal, hist (default)
+  - stoch:     k (default), d
+  - stoch_rsi: k (default), d
+  - aroon:     up, down, osc (default)
+  - donchian:  upper, middle (default), lower
+  - keltner:   upper, middle (default), lower
+
+Supported comparison operators: ">", "<", ">=", "<=", "==", "crosses_above", "crosses_below".
+
+Logic operators: "and", "or" need 2-8 operands; "not" needs exactly 1.
+
+The root MUST be a "comparison" or "logic" node.
+
+Hard limits: tree depth ≤ 6; period in [1, 5000]; aggregate bars in [1, 2000]; offset in [0, 500]; constants finite; constant <op> constant rejected.
+
+Guidance on "reaches the band" / "touches the band" — prefer ">=" / "<=" or "crosses_above" / "crosses_below" rather than "==" (strict equality on floats rarely fires).
+
+Day-of-week filters: when the user says "on Tuesday", "every Monday", "Mon-Wed", etc., use the SESSION_DAY leaf:
+  "on Tuesday"           → { "type": "session_day", "days": ["tue"] }
+  "Monday and Friday"    → { "type": "session_day", "days": ["mon", "fri"] }
+Compose with other conditions via logic.and / logic.or.
+NEVER fake a day-of-week filter using indicator equality (e.g. RSI == RSI) — the validator rejects tautologies, and the result would never fire correctly.
+
+ENTRY vs EXIT — the tree returned from THIS prompt is the ENTRY condition only. Exits are translated in a separate hop with their own tree. NEVER AND together a buy condition and a sell condition in one tree (e.g. RSI<30 AND RSI>30) — the validator rejects the empty intersection.
+
+Math op operand counts:
+  abs / negate         : EXACTLY 1 operand
+  + / - / * / /        : EXACTLY 2 operands
+  min / max            : 2..8 operands
+
+Prefer the SHORTCUT LEAVES whenever they fit:
+  "NIFTY opens 1% below yesterday's close"      → { "type":"comparison", "op":"<", "left":{"type":"gap","symbol":"NIFTY"}, "right":{"type":"constant","value":-0.01} }
+  "TCS price up 3% over last 5 bars"           → { "type":"comparison", "op":">", "left":{"type":"pct_change","symbol":"TCS","bars":5}, "right":{"type":"constant","value":0.03} }
+  "TCS/INFY spread is below 1.5"               → { "type":"comparison", "op":"<", "left":{"type":"spread","a":"TCS","b":"INFY"}, "right":{"type":"constant","value":1.5} }
+
+DIP / DROP WINDOW: a bare percentage DIP / DROP / FALL / PULLBACK / CORRECTION with NO explicit time window means a decline over the PAST WEEK — use bars=5, NOT bars=1. A single-day move of 5%+ essentially never happens for large-caps, so bars=1 makes a "buy the dip" strategy that NEVER fires. Only use bars=1 when the user explicitly says "in a day" / "intraday" / "single session".
+  "buy HDFCBANK on a 10% dip"                  → { "type":"comparison", "op":"<=", "left":{"type":"pct_change","symbol":"HDFCBANK","bars":5}, "right":{"type":"constant","value":-0.10} }
+  "RELIANCE drops 5% in a week"                → { "type":"comparison", "op":"<=", "left":{"type":"pct_change","symbol":"RELIANCE","bars":5}, "right":{"type":"constant","value":-0.05} }
+PERCENT FROM A REFERENCE LEVEL (open / day-high / day-low / prior close): "X% from <reference>" is a MULTIPLIER on that reference price — NOT an absolute rupee value, and NOT the bare reference (that fires almost always). Build it with a `math` (*) node:
+  "falls 4% from the open"        → { "type":"comparison", "op":"<=", "left":{"type":"price","symbol":"<SYM>","basis":"close"}, "right":{"type":"math","op":"*","operands":[{"type":"price","symbol":"<SYM>","basis":"open"},{"type":"constant","value":0.96}]} }
+  "dips 3% from the day's high"   → { "type":"comparison", "op":"<=", "left":{"type":"price","symbol":"<SYM>","basis":"close"}, "right":{"type":"math","op":"*","operands":[{"type":"price","symbol":"<SYM>","basis":"high"},{"type":"constant","value":0.97}]} }
+  "5% above the prior close"      → { "type":"comparison", "op":">=", "left":{"type":"price","symbol":"<SYM>","basis":"close"}, "right":{"type":"math","op":"*","operands":[{"type":"price","symbol":"<SYM>","basis":"close","offset":1},{"type":"constant","value":1.05}]} }
+NEVER encode "4% from open" as `price < 4` (absolute rupees) or `price < open` (no multiplier).
+Use the general `math` node ONLY when the shortcuts don't fit (e.g. "TCS close minus its 20-day SMA, divided by ATR").
+
+Examples:
+
+  "buy NIFTYBEES when its price drops below the lower Bollinger band, 20-day":
+    { "type":"comparison", "op":"<",
+      "left":  { "type":"price", "symbol":"NIFTYBEES" },
+      "right": { "type":"indicator", "indicator":"bb", "symbol":"NIFTYBEES", "period":20, "component":"lower" } }
+
+  "20-day high breakout":
+    { "type":"comparison", "op":">=",
+      "left":  { "type":"price", "symbol":"TCS" },
+      "right": { "type":"aggregate", "op":"highest",
+                 "source": { "type":"price", "symbol":"TCS", "offset":1 },
+                 "bars":20 } }
+
+  "ATR(14) is in the top 30% of its last-252-bar distribution":
+    { "type":"comparison", "op":">",
+      "left":  { "type":"aggregate", "op":"percentrank",
+                 "source": { "type":"indicator", "indicator":"atr",
+                             "symbol":"NIFTY", "period":14 },
+                 "bars":252 },
+      "right": { "type":"constant", "value":0.7 } }
+
+  "bars since RSI was last below 30 is at most 3":
+    { "type":"comparison", "op":"<=",
+      "left":  { "type":"aggregate", "op":"barssince",
+                 "source": { "type":"comparison", "op":"<",
+                             "left": { "type":"indicator", "indicator":"rsi",
+                                       "symbol":"TCS", "period":14 },
+                             "right": { "type":"constant", "value":30 } },
+                 "bars":60 },
+      "right": { "type":"constant", "value":3 } }
+
+The tree expresses ONLY the ENTRY condition. Exits are configured separately.
+
+EXIT GRAMMAR (only when the user is explicitly describing an exit condition):
+  Exit trees may also reference the open position via a new leaf:
+    { "type": "position",
+      "field": "entry_price"|"unrealised_pct"|"unrealised_abs"|"bars_held"|"peak_unrealised_pct"|"drawdown_from_peak_pct",
+      "basis": "close"|"low"|"high"   // only for unrealised_pct / unrealised_abs
+    }
+
+  ALL of these position fields are wired and supported. Do NOT punt back
+  with messages like "this system can't read entry price" or "the
+  drawdown clause needs to be expressed differently" — emit the tree.
+
+  Worked exit-tree examples:
+
+  "trail an 8% stop from the peak unrealised gain":
+    { "type":"comparison", "op":">=",
+      "left":  { "type":"position", "field":"drawdown_from_peak_pct" },
+      "right": { "type":"constant", "value":0.08 } }
+
+  "exit when my position is up 4%":
+    { "type":"comparison", "op":">=",
+      "left":  { "type":"position", "field":"unrealised_pct" },
+      "right": { "type":"constant", "value":0.04 } }
+
+  "exit when I've held for more than 30 bars OR RSI > 75":
+    { "type":"logic", "op":"or",
+      "operands": [
+        { "type":"comparison", "op":">",
+          "left":  { "type":"position", "field":"bars_held" },
+          "right": { "type":"constant", "value":30 } },
+        { "type":"comparison", "op":">",
+          "left":  { "type":"indicator", "indicator":"rsi",
+                      "symbol":"KOTAKBANK", "period":14 },
+          "right": { "type":"constant", "value":75 } } ] }
+
+  "exit when price drops below entry_price minus 2x ATR(14)":
+    { "type":"comparison", "op":"<",
+      "left":  { "type":"price", "symbol":"SBIN" },
+      "right": { "type":"math", "op":"-",
+                 "operands": [
+                   { "type":"position", "field":"entry_price" },
+                   { "type":"math", "op":"*",
+                     "operands": [
+                       { "type":"constant", "value":2 },
+                       { "type":"indicator", "indicator":"atr",
+                         "symbol":"SBIN", "period":14 } ] } ] } }
+
+  "exit when RSI > 70 OR drawdown from peak > 6%":
+    { "type":"logic", "op":"or",
+      "operands": [
+        { "type":"comparison", "op":">",
+          "left":  { "type":"indicator", "indicator":"rsi",
+                      "symbol":"LT", "period":14 },
+          "right": { "type":"constant", "value":70 } },
+        { "type":"comparison", "op":">",
+          "left":  { "type":"position", "field":"drawdown_from_peak_pct" },
+          "right": { "type":"constant", "value":0.06 } } ] }
+"""
+
+
+class TranslationError(ValueError):
+    """Raised when the LLM didn't produce parseable JSON for the tree."""
+
+
+async def translate_condition_to_tree(
+    condition: str,
+    *,
+    allow_position: bool = False,
+    primary_symbol: Optional[str] = None,
+    cache_key: str = "dsl.translate.v1",
+) -> tuple[dict, dict[str, Any]]:
+    """Hand a natural-language condition to the LLM and return its DSL
+    tree as a Python dict.
+
+    Returns ``(tree, meta)`` where ``meta`` has ``input_tokens``,
+    ``output_tokens``, ``latency_ms``. Raises ``TranslationError`` if the
+    LLM's reply isn't valid JSON.
+
+    ``allow_position`` is a hint to the prompt — when True, the LLM is
+    permitted to emit the ``position`` leaf (exit-tree context).
+
+    ``primary_symbol`` is the ticker the caller already pinned (e.g.
+    "INFY" when the chat user said "buy 15 INFY on the golden cross").
+    When set, the translator system prompt is appended with a hint so
+    leaves default to this symbol whenever the NL condition doesn't
+    name one — prevents the model from falling back to "NSE" / "NIFTY"
+    placeholders that don't resolve to real bars.
+    """
+    # Lazy import — avoids pulling the LLM stack into modules that just
+    # need to know the prompt exists.
+    from backend.llm.base import LLMMessage
+    from backend.llm.factory import get_llm_client
+    import time
+
+    if not condition or not condition.strip():
+        raise TranslationError("empty condition")
+
+    sys_prompt = SYSTEM_PROMPT
+    if primary_symbol and primary_symbol.strip():
+        sym = primary_symbol.strip().upper()
+        sys_prompt = (
+            sys_prompt
+            + f"\n\nDEFAULT SYMBOL — when a leaf node (indicator, price, "
+              f"volume, gap, pct_change) needs a 'symbol' field and the "
+              f"user's NL condition does NOT name one explicitly, use "
+              f"\"{sym}\" as the symbol. NEVER emit \"NSE\" or \"BSE\" as "
+              f"a symbol — those are exchange codes, not tickers."
+        )
+    if allow_position:
+        sys_prompt = (
+            sys_prompt
+            + "\n\nThis turn IS asking for an exit condition — you may "
+              "use the 'position' leaf as documented in the EXIT GRAMMAR "
+              "section above."
+        )
+
+    client = get_llm_client()
+    t0 = time.time()
+    resp = await client.complete(
+        messages=[
+            LLMMessage(role="system", content=sys_prompt),
+            LLMMessage(role="user", content=condition),
+        ],
+        response_format="json_object",
+        reasoning_effort="minimal",
+        temperature=0.0,
+        max_output_tokens=1200,
+        prompt_cache_key=cache_key,
+    )
+    elapsed_ms = (
+        float(resp.latency_ms)
+        if getattr(resp, "latency_ms", None) is not None
+        else (time.time() - t0) * 1000.0
+    )
+
+    raw = (resp.content or "").strip()
+    try:
+        tree = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise TranslationError(
+            f"LLM returned non-JSON content: {exc}"
+        ) from None
+
+    if isinstance(tree, dict) and "warning" in tree:
+        tree.pop("warning", None)
+
+    if not isinstance(tree, dict):
+        raise TranslationError(
+            f"expected JSON object, got {type(tree).__name__}"
+        )
+
+    meta = {
+        "input_tokens": int(resp.input_tokens or 0),
+        "output_tokens": int(resp.output_tokens or 0),
+        "latency_ms": elapsed_ms,
+    }
+    logger.info(
+        "[dsl.translate] condition=%r tokens_in=%d tokens_out=%d ms=%.0f",
+        condition[:80], meta["input_tokens"], meta["output_tokens"],
+        meta["latency_ms"],
+    )
+    return tree, meta

@@ -1,0 +1,70 @@
+{
+ "name": "S2 Forecast Run-up Tractor/2W vs NIFTY (PAIR/PRE-POSITION)",
+ "total_return_pct": 164.1,
+ "cagr_in_market_pct": 43.62,
+ "max_dd_pct": -27.3,
+ "win_rate_pct": 62.5,
+ "n_trades": 16,
+ "wins": 10,
+ "in_market_days": 676,
+ "terminal_equity": 264.1,
+ "forward_stats": {
+  "observed_sharpe": 0.0945,
+  "skew": 1.8059,
+  "kurtosis": 13.7546,
+  "n_obs": 692,
+  "num_trials": 3,
+  "psr": 0.9964,
+  "min_trl": 260.6,
+  "deflated_sharpe": 0.9664
+ },
+ "monte_carlo": {
+  "n_sims": 2000,
+  "block_size": 9,
+  "dd_median_pct": -16.42,
+  "dd_p95_severity_pct": -26.36,
+  "dd_worst_pct": -41.18,
+  "terminal_median_pct": 204.44,
+  "terminal_p05_pct": 65.28,
+  "prob_loss": 0.002,
+  "prob_dd_worse_than_tol": 0.2365,
+  "drawdown_tolerance_pct": -20.0
+ },
+ "sub_periods": {
+  "n_periods": 4,
+  "period_returns_pct": [
+   43.27,
+   8.16,
+   6.38,
+   60.18
+  ],
+  "positive_period_frac": 1.0,
+  "best_period_return_pct": 60.18,
+  "worst_period_return_pct": 6.38,
+  "concentration": 0.485
+ },
+ "verdict": {
+  "verdict": "promising",
+  "label": "Statistically credible",
+  "confidence": 97,
+  "rationale": "PSR 100% and deflated-Sharpe 97% after 3 variant(s); the track record clears the minimum needed.",
+  "flags": []
+ },
+ "benchmark_nifty": {
+  "total_return_pct": 498.5,
+  "cagr_pct": 12.0,
+  "max_dd_pct": -38.4
+ },
+ "two_dial": {
+  "outcome": {
+   "letter": "B",
+   "score": 69,
+   "rationale": "Outcome B (69/100): analog hit-rate 62%; relationship strength 55%; N=16."
+  },
+  "expression": {
+   "letter": "A",
+   "score": 96,
+   "rationale": "Expression A (96/100): CAAR/BHAR alignment 100%; significance p=0.005; net-of-cost survival 91%."
+  }
+ }
+}
