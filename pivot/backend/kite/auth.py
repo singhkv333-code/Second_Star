@@ -176,7 +176,8 @@ def totp_login(kite_user_id: str, password: str, totp_secret: str) -> str:
             timeout=_KITE_WEB_TIMEOUT,
         )
         r1.raise_for_status()
-        request_id = (r1.json().get("data") or {}).get("request_id")
+        login_data = r1.json().get("data") or {}
+        request_id = login_data.get("request_id")
         if not request_id:
             raise NeedsManualLogin(
                 "Kite rejected the stored login (no 2FA challenge returned). "
@@ -184,13 +185,23 @@ def totp_login(kite_user_id: str, password: str, totp_secret: str) -> str:
             )
 
         # 2) TOTP 2FA step (sets the session auth cookie)
+        # The login response's own `data.twofa_type` names the type THIS
+        # account currently expects — it isn't a fixed "totp" string. It's
+        # been observed to read "app_code" while 2FA enrollment is pending
+        # confirmation and "totp" once active, so echo back whatever step 1
+        # reported rather than hardcoding either (a hardcoded "totp" got a
+        # hard "requested 2FA type is not available" error regardless of a
+        # correct code — found 2026-07-08 wiring up auto-login for the
+        # first time). Generate the code as late as possible (immediately
+        # before sending) to avoid drifting past a short-lived request_id.
+        twofa_type = login_data.get("twofa_type") or "totp"
         r2 = sess.post(
             _KITE_WEB_TWOFA,
             data={
                 "user_id": kite_user_id,
                 "request_id": request_id,
                 "twofa_value": generate_totp(totp_secret),
-                "twofa_type": "totp",
+                "twofa_type": twofa_type,
             },
             timeout=_KITE_WEB_TIMEOUT,
         )
