@@ -258,6 +258,10 @@ class ToolResult:
     data: dict
     error: str | None = None
     logiccard: dict | None = None
+    # Structured route hint (chat-kernel 2026-07-10): set when the tool
+    # raised ToolRedirect — the chat loop prefers this over regex-scanning
+    # the error prose for "use <tool>".
+    redirect_to: str | None = None
 
     def to_llm_string(self) -> str:
         """Compact JSON string the model sees as the tool result."""
@@ -294,6 +298,15 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
         try:
             data = await _V2_HANDLERS[name](merged)
         except Exception as e:
+            from backend.services.tool_errors import ToolRedirect
+            if isinstance(e, ToolRedirect):
+                # Typed route hint — the chat loop reads redirect_to
+                # directly instead of regex-scanning the prose (which a
+                # truncation once severed). Prose still goes to the LLM.
+                return ToolResult(
+                    name=name, args=merged, success=False, data={},
+                    error=str(e)[:600], redirect_to=e.redirect_to,
+                )
             logger.exception("v2 tool %s failed: %s", name, e)
             # Cap is generous (600, not 200) because several tools append a
             # ROUTE HINT at the END of long explanatory errors ("...Use

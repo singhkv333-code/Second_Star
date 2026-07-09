@@ -281,6 +281,10 @@ class GuardedToolResult:
     # affirmative reply resolves deterministically.
     default_on_yes: Optional[str] = None
     options: Optional[list[str]] = None
+    # Structured route hint (chat-kernel 2026-07-10): carried from
+    # ToolResult when the tool raised ToolRedirect. The chat loop
+    # prefers this over regex-scanning the error prose.
+    redirect_to: Optional[str] = None
 
     @classmethod
     def from_tool_result(cls, name: str, args: dict[str, Any], r: ToolResult) -> "GuardedToolResult":
@@ -290,6 +294,7 @@ class GuardedToolResult:
             data=r.data or {},
             logiccard=r.logiccard,
             error=r.error,
+            redirect_to=getattr(r, "redirect_to", None),
         )
 
 

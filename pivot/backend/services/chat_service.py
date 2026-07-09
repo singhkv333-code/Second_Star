@@ -591,11 +591,16 @@ _ROUTE_HINT_RE = re.compile(
 
 def _redirect_target_for_failure(
     tool_name: str, error: str, user_message: str,
+    structured: Optional[str] = None,
 ) -> Optional[str]:
     """Pick the tool to redirect to after ``tool_name`` failed, or None.
 
-    Primary signal: an explicit "use <tool>" hint in the error string
-    (tools emit these to steer the LLM to the right shape).
+    Primary signal (chat-kernel 2026-07-10): the tool's own typed
+    ``redirect_to`` (raised as ToolRedirect, threaded through
+    GuardedToolResult) — cannot be severed by truncation.
+
+    Secondary signal: an explicit "use <tool>" hint in the error string
+    (legacy raise-sites still emit these to steer the LLM).
 
     Backstop: a ``propose_dsl_workflow`` failure on a RECURRING-SCHEDULE
     ask ("buy INFY every Friday and sell at 10% profit") → route to
@@ -613,6 +618,8 @@ def _redirect_target_for_failure(
     message contains a session-anchor phrase, redirect to propose_workflow
     which supports trigger.market_relative_time(anchor='open'/'close').
     """
+    if structured:
+        return structured
     m = _ROUTE_HINT_RE.search(error or "")
     if m:
         return m.group(1)
@@ -3910,7 +3917,13 @@ def _summarise_tool_result(g: GuardedToolResult) -> str:
                 "Decide whether to call a different tool, call "
                 "ASK_USER for clarification, or finish with a brief "
                 "explanation. Do not retry the same call with the "
-                "same arguments."
+                "same arguments. If the error names a specific field "
+                "with an expected type or allowed_values, repair that "
+                "one field from the user's own words and re-call ONCE. "
+                "When you explain a failure to the user, diagnose from "
+                "your own knowledge of markets and systems (likely "
+                "causes, what to check) — never quote internal error "
+                "text, tool names, or schema fields at them."
             )
         return json.dumps({
             "error": g.error or "tool failed",
@@ -6758,6 +6771,7 @@ class ChatService:
                 # surfaced.
                 target_tool = _redirect_target_for_failure(
                     guarded.name, guarded.error or "", message,
+                    structured=getattr(guarded, "redirect_to", None),
                 )
                 if target_tool and not last_was_macro_draft:
                     trace.event(
@@ -8383,6 +8397,7 @@ class ChatService:
                 # shape backstop (see _redirect_target_for_failure).
                 target_tool = _redirect_target_for_failure(
                     guarded.name, guarded.error or "", message,
+                    structured=getattr(guarded, "redirect_to", None),
                 )
                 if target_tool and not last_was_macro_draft:
                     trace.event(
