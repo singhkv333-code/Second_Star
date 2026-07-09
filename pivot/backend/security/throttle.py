@@ -14,6 +14,7 @@ cache outage never takes the API down — the same posture as the login limiter.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable, Optional
 
 from fastapi import Depends, Header, Request
@@ -48,6 +49,12 @@ def _principal(request: Request, authorization: Optional[str]) -> str:
 def _hit(key: str, window_s: int) -> int:
     """Increment the window counter, stamping a TTL on first hit. Returns the
     new count, or 0 on any Redis error (fail-open)."""
+    # Test-harness escape (2026-07-10): the suite registers a fresh user
+    # per test, which trips the 5/hour register throttle and cascades 429s
+    # through every fixture-dependent test. Set ONLY by tests/conftest.py;
+    # same fail-open return value as a Redis outage, prod posture unchanged.
+    if os.getenv("PIVOT_DISABLE_THROTTLE") == "1":
+        return 0
     try:
         incr = getattr(redis_client, "incr", None)
         if incr is None:  # MockRedis path
