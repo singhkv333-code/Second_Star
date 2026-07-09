@@ -503,7 +503,7 @@ function TitleRow({
           padding: 3,
           background: "var(--bg-base)",
           border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-pill)",
+          borderRadius: "var(--radius-sm)",
         }}
       >
         {SCREEN_ORDER.map((id) => {
@@ -515,7 +515,7 @@ function TitleRow({
               style={{
                 padding: "6px 14px",
                 border: "none",
-                borderRadius: "var(--radius-pill)",
+                borderRadius: "var(--radius-xs)",
                 fontFamily: "var(--font-ui)",
                 fontSize: 12,
                 fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
@@ -956,7 +956,7 @@ function WatchlistStrip(): React.ReactElement {
                 style={{
                   padding: "6px 14px",
                   border: "none",
-                  borderRadius: "var(--radius-pill)",
+                  borderRadius: "var(--radius-sm)",
                   fontFamily: "var(--font-ui)",
                   fontSize: 12,
                   fontWeight: 500,
