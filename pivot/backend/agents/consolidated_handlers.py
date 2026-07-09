@@ -290,9 +290,113 @@ async def _place_order(a: dict, kt: str, db, uid: int) -> dict:
     return await tx._place_market_order(b, kt, db, uid)
 
 
+# ── 6. calculate (round 2) ───────────────────────────────────────────
+
+tool(
+    "calculate",
+    "Deterministic trading calculators, picked by `kind`: order_qty → "
+    "shares a rupee budget buys (budget_inr, price? or symbol); "
+    "tax_impact → STCG/LTCG estimate on a sale (symbol, quantity, "
+    "tax_slab?); sl_price → stop price from a % (entry_price, stop_pct); "
+    "dip_price → the price a dip% implies + shares a budget buys "
+    "(symbol, dip_pct, budget_inr); margin → margin needed for an order "
+    "(symbol, quantity, product CNC|MIS|NRML). Best for: any 'how "
+    "many shares / what price / what tax / what margin' arithmetic. "
+    "NOT for: placing anything (place_order) or market data.",
+    {
+        "kind": {"type": "string",
+                 "enum": ["order_qty", "tax_impact", "sl_price",
+                          "dip_price", "margin"]},
+        "symbol": {"type": "string"},
+        "quantity": {"type": "integer"},
+        "budget_inr": {"type": "number"},
+        "price": {"type": "number"},
+        "entry_price": {"type": "number"},
+        "stop_pct": {"type": "number"},
+        "dip_pct": {"type": "number"},
+        "tax_slab": {"type": "number"},
+        "product": {"type": "string", "enum": ["CNC", "MIS", "NRML"]},
+    },
+    ["kind"],
+)
+
+# Which args each calculator actually requires — checked here so the
+# model gets one structured, repairable error instead of a deep failure.
+_CALC_REQUIRED: dict = {
+    "order_qty": ["budget_inr"],
+    "tax_impact": ["symbol", "quantity"],
+    "sl_price": ["entry_price", "stop_pct"],
+    "dip_price": ["symbol", "dip_pct", "budget_inr"],
+    "margin": ["symbol", "quantity", "product"],
+}
+
+
+async def _calculate(a: dict, kt: str, db, uid: int) -> dict:
+    from backend.agents import tool_executor as tx
+
+    kind = (a.get("kind") or "").strip().lower()
+    dispatch = {
+        "order_qty": tx._calculate_order_qty,
+        "tax_impact": tx._calculate_tax_impact,
+        "sl_price": tx._calculate_sl_price,
+        "dip_price": tx._calculate_dip_price,
+        "margin": tx._calculate_margin,
+    }
+    handler = dispatch.get(kind)
+    if handler is None:
+        return _bad_enum("kind", a.get("kind"), sorted(dispatch))
+    missing = [f for f in _CALC_REQUIRED[kind] if a.get(f) is None]
+    if missing:
+        return {
+            "success": False,
+            "error": (f"kind='{kind}' requires {missing}. Re-call with "
+                      f"those fields filled from the user's words."),
+            "data": {"field": missing[0], "missing_fields": missing,
+                     "retriable": True},
+            "logiccard": None,
+        }
+    return await handler(a, kt, db, uid)
+
+
+# ── 7. get_ipo (round 2) ─────────────────────────────────────────────
+
+tool(
+    "get_ipo",
+    "One IPO by name/symbol, picked by `view`: details → price band, "
+    "dates, lot/issue size, subscription breakdown (retail/HNI/QIB x), "
+    "RHP, allotment ('tell me about the X IPO', 'how subscribed is X'); "
+    "listing → post-listing performance: issue price, listing-day pop, "
+    "current return ('how did X list', 'X listing gain'). Best for: one "
+    "named IPO. NOT for: the upcoming-IPO list (list_upcoming_ipos), "
+    "applying (propose_ipo_application), or reminders "
+    "(propose_ipo_automation). NEVER fabricate IPO details — unavailable "
+    "fields are null with an honest note.",
+    {
+        "name_or_symbol": {"type": "string",
+                           "description": "IPO company name or NSE "
+                                          "symbol, case-insensitive"},
+        "view": {"type": "string", "enum": ["details", "listing"]},
+    },
+    ["name_or_symbol", "view"],
+)
+
+
+async def _get_ipo(a: dict, kt: str, db, uid: int) -> dict:
+    from backend.agents import tool_executor as tx
+
+    view = (a.get("view") or "").strip().lower()
+    if view == "details":
+        return await tx._get_ipo_details(a, kt, db, uid)
+    if view == "listing":
+        return await tx._get_ipo_listing(a, kt, db, uid)
+    return _bad_enum("view", a.get("view"), ["details", "listing"])
+
+
 # ── Export ───────────────────────────────────────────────────────────
 
 CONSOLIDATED_HANDLERS: dict = {
+    "calculate": _calculate,
+    "get_ipo": _get_ipo,
     "get_market_data": _get_market_data,
     "get_portfolio": _get_portfolio,
     "manage_automation": _manage_automation,
@@ -316,4 +420,11 @@ SUPERSEDED_BY_CONSOLIDATION: frozenset = frozenset({
     "get_indicator", "get_multiple_indicators",
     # place_order
     "place_market_order", "place_limit_order",
+    # calculate (round 2)
+    "calculate_order_qty", "calculate_tax_impact", "calculate_sl_price",
+    "calculate_dip_price", "calculate_margin",
+    # get_ipo (round 2)
+    "get_ipo_details", "get_ipo_listing",
+    # folded into compare_performance (round 2): single-symbol subsets
+    "get_performance_metrics", "get_returns",
 })

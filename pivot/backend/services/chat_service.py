@@ -516,8 +516,8 @@ _CONSTRUCTION_FORCE_IN: frozenset[str] = frozenset({
     "screen_fundamentals", "fetch_fundamentals",
     "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_price_history", "get_live_price",
-    # consolidated equivalents (chat-kernel Phase 1)
-    "get_indicators", "get_market_data", "query_financials",
+    # consolidated equivalents (chat-kernel Phase 1 + round 2)
+    "get_indicators", "get_market_data", "query_financials", "calculate",
 })
 _CONSTRUCTION_FORCE_OUT: frozenset[str] = frozenset({
     # workflow / macro drafters — a construction ask is not a contingent

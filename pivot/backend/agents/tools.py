@@ -680,7 +680,7 @@ tool("get_performance_metrics",
      ["symbol"])
 
 tool("compare_performance",
-     "Compare/rank 2+ tickers by a metric over a period. Use for ANY "
+     "Compare/rank 1+ tickers by a metric over a period (a single symbol works — it returns that one's return/vol/drawdown table). Use for ANY "
      "multi-stock comparison: 'compare RELIANCE and TCS', 'INFY vs TCS "
      "which gave better return last year', 'compare returns of HDFCBANK "
      "and ICICIBANK over 3 years', 'which is better WIPRO or INFOSYS', "

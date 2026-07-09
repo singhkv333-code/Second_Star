@@ -228,9 +228,9 @@ _PRE_CONSOLIDATION_SNAPSHOT: set[str] = {
 _REAL_TOOLS_LEGACY_SNAPSHOT: set[str] = (
     (
         _PRE_CONSOLIDATION_SNAPSHOT  # (already includes query_financials)
-        # Chat-kernel Phase 1: five consolidated view-enum tools...
+        # Chat-kernel Phase 1 + round 2: consolidated view-enum tools...
         | {"get_market_data", "get_portfolio", "manage_automation",
-           "get_indicators", "place_order"}
+           "get_indicators", "place_order", "calculate", "get_ipo"}
     )
     # ...replacing the 23 narrow tools they supersede. (Parenthesised:
     # `-` binds tighter than `|`, so without the parens the subtraction

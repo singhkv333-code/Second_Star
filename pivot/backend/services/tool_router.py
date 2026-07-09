@@ -220,7 +220,7 @@ _RULES: list[_Rule] = [
         r"|\bremind\s+me\b.*\bipo\b"
         r"|\bopen[\s-]day\s+reminders?\b"
         r"|\bipo\b.*\b(?:reminders?|automation|automate)\b",
-        "propose_ipo_automation", "get_ipo_details", "list_upcoming_ipos",
+        "propose_ipo_automation", "get_ipo_details", "list_upcoming_ipos", "get_ipo",
     ),
 
     # ── IPO post-listing tracking (P4) ───────────────────────────────
@@ -237,7 +237,7 @@ _RULES: list[_Rule] = [
         r"|\blisting\b[^.]{0,30}\bipo\b"
         r"|\bdid\s+\w[\w\s.&'-]*\s+list\s+(?:well|up|down|good|bad|poor|strong|weak)\b"
         r"|\b\w[\w.&'-]*\s+listing\s+gain\b",
-        "get_ipo_listing", "get_ipo_details", "list_upcoming_ipos",
+        "get_ipo_listing", "get_ipo_details", "list_upcoming_ipos", "get_ipo",
     ),
 
     # ── IPOs (upcoming / open mainboard + SME) ───────────────────────
@@ -249,8 +249,8 @@ _RULES: list[_Rule] = [
         r"|\b(?:mainboard|sme)\s+(?:issue|listing|ipo)\b"
         r"|\bnew\s+(?:listing|issue)s?\b"
         r"|\bapply\s+(?:for|to)\s+(?:the\s+)?[\w\s]+\bipo\b",
-        "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
-        "propose_ipo_automation", "get_ipo_listing",
+        "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application", "get_ipo",
+        "propose_ipo_automation", "get_ipo_listing", "get_ipo",
     ),
 
     # ── Two-stock comparison (2026-05-29) ───────────────────────────
@@ -339,7 +339,7 @@ _RULES: list[_Rule] = [
         # Surface the underlying analytical tools too so the LLM can
         # populate the plan steps.
         "compare_performance",
-        "get_performance_metrics",
+        "get_performance_metrics", "compare_performance",
         "get_correlation_matrix",
         "propose_workflow",
         "propose_threshold_order",
@@ -396,7 +396,7 @@ _RULES: list[_Rule] = [
         r"|\bbuy\s+(?:the\s+|on\s+a\s+)?dip\b"
         r"|\b(?:buy|accumulate|add)\b[^.]{0,40}\b(?:falls?|drops?|dips?)\b"
         r"\s*\d",
-        "create_dip_buy", "calculate_dip_price", "get_live_price", "get_market_data",
+        "create_dip_buy", "calculate_dip_price", "get_live_price", "get_market_data", "calculate",
         "propose_workflow", "propose_dsl_workflow",
     ),
 
@@ -480,7 +480,7 @@ _RULES: list[_Rule] = [
         r"|\bmost\s+(?:correlated|uncorrelated)\b",
         "get_indicator", "get_multiple_indicators", "get_indicators",
         "get_performance_metrics", "compare_performance",
-        "get_correlation_matrix", "get_returns",
+        "get_correlation_matrix", "get_returns", "compare_performance",
         "get_live_price", "get_price_history", "get_market_data",
     ),
 
@@ -535,7 +535,7 @@ _RULES: list[_Rule] = [
         r"|\b(?:is|should\s+i\s+(?:buy|consider|look\s+at))\s+\w+\s+a?\s*"
         r"(?:buy|good|worth|investment)\b",
         "get_price_history", "get_52wk_range", "get_indicator", "get_market_data", "get_indicators",
-        "get_multiple_indicators", "get_performance_metrics", "get_indicators",
+        "get_multiple_indicators", "get_performance_metrics", "get_indicators", "compare_performance",
         "fetch_fundamentals", "get_symbol_news", "get_live_price", "get_market_data",
     ),
 
@@ -560,7 +560,7 @@ _RULES: list[_Rule] = [
         r"|tax\s+(summary|impact|loss|hit)|stcg|ltcg)\b",
         "get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_portfolio",
         "get_holding_detail", "get_tax_summary", "get_active_products", "get_portfolio",
-        "calculate_tax_impact",
+        "calculate_tax_impact", "calculate",
     ),
 
     # ── Order placement (immediate / limit / GTT) ─────────────────
@@ -572,8 +572,8 @@ _RULES: list[_Rule] = [
         "place_basket_order", "cancel_order", "cancel_gtt",
         "list_pending_orders", "list_gtt_orders",
         "squareoff_all_intraday", "squareoff_symbol",
-        "calculate_order_qty", "calculate_sl_price",
-        "calculate_dip_price", "calculate_margin",
+        "calculate_order_qty", "calculate_sl_price", "calculate",
+        "calculate_dip_price", "calculate_margin", "calculate",
         "get_live_price",  # almost always needed alongside an order
         # Order keywords frequently combine with conditions / schedules
         # ("buy NIFTYBEES at open and sell at close"). Include
@@ -745,7 +745,7 @@ _RULES: list[_Rule] = [
         # basket intent could only see fundamentals, so the model couldn't
         # follow the "financials AND technicals" half of that flow.
         "get_multiple_indicators", "get_indicators",
-        "get_performance_metrics",
+        "get_performance_metrics", "compare_performance",
         "compare_performance",
         "get_price_history", "get_market_data",
         "place_basket_order",
