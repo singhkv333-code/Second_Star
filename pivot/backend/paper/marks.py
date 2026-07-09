@@ -1,12 +1,14 @@
 """Mark-price resolution for paper fills.
 
 A paper order needs a price to fill against. Priority:
-  1. Real Kite live quote — only when a genuine session exists (not mock,
-     not the placeholder token). In mock mode get_live_quote returns a
-     flat ₹100 for every symbol, which is useless for a portfolio, so we
-     skip it there.
-  2. yfinance last close — real per-symbol price, no auth, works in the
-     default mock/dev environment. (Network; tests inject a price_fn and
+  1. Real Kite live quote — this user's own session first, then ANY active
+     Kite session app-wide (mirrors the screener's `_market_token`: Kite
+     market DATA isn't user-specific, so we don't skip straight to
+     yfinance just because THIS user hasn't personally logged into Kite
+     today). Skipped entirely in mock mode, where get_live_quote returns a
+     flat ₹100 for every symbol — useless for a portfolio.
+  2. yfinance last close — real per-symbol price, no auth, works when no
+     Kite session exists anywhere. (Network; tests inject a price_fn and
      never reach here.)
   3. The screener's shared, Redis-cached market-metrics price (real, up to
      ~10 min stale) — covers the window where yfinance is transiently rate
@@ -109,18 +111,31 @@ def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
         if mark is not None:
             return mark
 
-    # 1. Real Kite live quote (only trust a genuine session).
+    # 1. Real Kite live quote — this user's own session first, then ANY
+    # active Kite session app-wide (mirrors the screener's `_market_token`:
+    # Kite market DATA isn't user-specific, only order EXECUTION is, so a
+    # paper mark shouldn't fall back to yfinance just because THIS user
+    # hasn't personally logged into Kite today while someone else has).
     from backend.kite.auth import KITE_MOCK_MODE
-    if not KITE_MOCK_MODE and token and token != "mock_token":
+    if not KITE_MOCK_MODE:
+        candidate_tokens = [token] if token and token != "mock_token" else []
         try:
-            from backend.kite.market_data import get_live_quote
-            inst = f"NSE:{sym}"
-            quotes = get_live_quote(token, [inst]) or {}
-            lp = (quotes.get(inst) or {}).get("last_price")
-            if lp and float(lp) > 0:
-                return to_money(lp)
+            from backend.routers.screener import _market_token
+            global_token = _market_token()
+            if global_token and global_token not in candidate_tokens:
+                candidate_tokens.append(global_token)
         except Exception:
             pass
+        for tok in candidate_tokens:
+            try:
+                from backend.kite.market_data import get_live_quote
+                inst = f"NSE:{sym}"
+                quotes = get_live_quote(tok, [inst]) or {}
+                lp = (quotes.get(inst) or {}).get("last_price")
+                if lp and float(lp) > 0:
+                    return to_money(lp)
+            except Exception:
+                continue
 
     # 2. yfinance last close — real per-symbol price for mock/dev.
     try:
