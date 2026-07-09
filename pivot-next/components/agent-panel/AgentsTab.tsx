@@ -18,7 +18,7 @@
  * empty states.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Bot,
@@ -60,6 +60,7 @@ import {
   listRegisteredOptionStrategies,
   withdrawRegisteredOptionStrategy,
   type RegisteredOptionStrategy,
+  type StrategyReturn,
   type WorkflowPerformance,
   type WorkflowsSummary,
 } from "@/lib/agentsApi";
@@ -205,6 +206,16 @@ export function AgentsTab({
 
   // Delete-in-flight ids (both surfaces) so the kebab disables + the card dims.
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // GET /workflows/summary now carries the same sparkline/return/run-stats
+  // fields as GET /workflows/{id}/performance, batched for every workflow —
+  // this lookup lets each card render off the ONE summary fetch instead of
+  // firing its own per-card request (the page's dominant N+1 on first load).
+  const perfByWorkflowId = useMemo(() => {
+    const map = new Map<string, StrategyReturn>();
+    for (const s of summary?.strategy_returns ?? []) map.set(s.workflow_id, s);
+    return map;
+  }, [summary]);
 
   const loadSummary = useCallback((): void => {
     setSummaryLoading(true);
@@ -412,6 +423,8 @@ export function AgentsTab({
                 <div key={wf.id} role="listitem" className="h-full">
                   <AgentMiniCard
                     workflow={wf}
+                    perfFromSummary={perfByWorkflowId.get(wf.id)}
+                    summaryLoading={summaryLoading}
                     isOpening={openingId === wf.id}
                     isDeleting={deletingId === wf.id}
                     onSelect={() => handleSelect(wf.id)}
@@ -506,6 +519,8 @@ function SurfaceToggle({
 
 function AgentMiniCard({
   workflow,
+  perfFromSummary,
+  summaryLoading,
   isOpening,
   isDeleting,
   onSelect,
@@ -513,6 +528,13 @@ function AgentMiniCard({
   onDelete,
 }: {
   workflow: WorkflowSummary;
+  /** This workflow's entry from the batched GET /workflows/summary response.
+   *  When present, the card renders off it directly — no per-card fetch. */
+  perfFromSummary?: StrategyReturn;
+  /** Whether the parent's summary fetch is still in flight — gates the
+   *  per-card fallback fetch below so it doesn't fire prematurely while the
+   *  batched summary (the common path) is still on its way. */
+  summaryLoading: boolean;
   isOpening: boolean;
   isDeleting: boolean;
   onSelect: () => void;
@@ -526,12 +548,27 @@ function AgentMiniCard({
 
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Per-card performance — lazy-loaded once the card mounts.
+  // Performance — prefer the batched summary entry (no per-card fetch).
+  // Fall back to the individual endpoint only once the summary has resolved
+  // and still doesn't carry this workflow (e.g. the summary fetch failed).
   const [perf, setPerf] = useState<WorkflowPerformance | null>(null);
   const [perfLoading, setPerfLoading] = useState(true);
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    if (perfFromSummary) {
+      setPerf({
+        series: perfFromSummary.series,
+        return_pct: perfFromSummary.return_pct,
+        last_run_at: perfFromSummary.last_run_at,
+        run_count: perfFromSummary.run_count,
+        success_rate: perfFromSummary.success_rate,
+        has_data: perfFromSummary.has_data,
+      });
+      setPerfLoading(false);
+      return;
+    }
+    if (summaryLoading) return;
     mountedRef.current = true;
     setPerfLoading(true);
     getWorkflowPerformance(workflow.id)
@@ -552,7 +589,7 @@ function AgentMiniCard({
     return () => {
       mountedRef.current = false;
     };
-  }, [workflow.id]);
+  }, [workflow.id, perfFromSummary, summaryLoading]);
 
   // Backtested-results fallback — only fetched once the live-performance check
   // above resolves AND turns out to have no real NAV chart. A workflow that's

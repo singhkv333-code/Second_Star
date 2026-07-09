@@ -443,6 +443,11 @@ def warm_screener_metrics() -> None:
 
 
 def _label_for_sector(canonical: str) -> str:
+    # "other" is the join-miss fallback (no enrichment row for that company),
+    # not a real sector — label it distinctly so it can't be mistaken for a
+    # market-cap tier in the filter toolbar (both render as capitalized pills).
+    if canonical == "other":
+        return "Uncategorized"
     return canonical.replace("_", " ").title()
 
 
@@ -630,15 +635,44 @@ def _kick_full_fundamentals_warm(symbols: list[str]) -> None:
     threading.Thread(target=_run, name="screener-fund-warm", daemon=True).start()
 
 
+def _merge_market_metrics_cache(new_entries: dict[str, dict], source: str) -> None:
+    """Read-merge-write the shared price/change/1y metrics map (best-effort)."""
+    if not new_entries:
+        return
+    try:
+        raw = redis_client.get(_METRICS_CACHE_KEY)
+        parsed = (
+            json.loads(raw.decode() if isinstance(raw, (bytes, bytearray)) else raw)
+            if raw
+            else {"m": {}, "src": source}
+        )
+        parsed.setdefault("m", {}).update(new_entries)
+        # Keep the strongest source label we've seen.
+        if source == "kite" or parsed.get("src") == "warming":
+            parsed["src"] = source
+        redis_client.set(_METRICS_CACHE_KEY, json.dumps(parsed), ex=_METRICS_TTL_SECONDS)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[screener] page metrics merge failed: %s", exc)
+
+
+# Symbols queued for the background page-metrics warm while a run is already
+# in flight — drained by that run's next loop iteration rather than dropped,
+# so a burst of concurrent page/filter requests doesn't silently lose symbols.
+_page_metrics_pending: set[str] = set()
+
+
 def _kick_page_metrics_warm(symbols: list[str]) -> None:
     """Warm price/1y metrics for a page's symbols in the background and merge
     them into the shared metrics map. Small batches (≤ a page) so a deep-scroll
-    session progressively fills without ever blocking a request."""
+    session progressively fills without ever blocking a request. Single-flight,
+    but concurrent callers' symbols are queued (not dropped) for the running
+    thread's next pass."""
     global _page_metrics_running
-    syms = [s for s in symbols if s]
+    syms = {s for s in symbols if s}
     if not syms:
         return
     with _page_metrics_lock:
+        _page_metrics_pending.update(syms)
         if _page_metrics_running:
             return
         _page_metrics_running = True
@@ -646,26 +680,18 @@ def _kick_page_metrics_warm(symbols: list[str]) -> None:
     def _run() -> None:
         global _page_metrics_running
         try:
-            metrics, source = _compute_market_metrics(syms)
-            if metrics:
+            while True:
+                with _page_metrics_lock:
+                    batch = list(_page_metrics_pending)
+                    _page_metrics_pending.clear()
+                if not batch:
+                    break
                 try:
-                    raw = redis_client.get(_METRICS_CACHE_KEY)
-                    parsed = (
-                        json.loads(raw.decode() if isinstance(raw, (bytes, bytearray)) else raw)
-                        if raw
-                        else {"m": {}, "src": source}
-                    )
-                    parsed.setdefault("m", {}).update(metrics)
-                    # Keep the strongest source label we've seen.
-                    if source == "kite" or parsed.get("src") == "warming":
-                        parsed["src"] = source
-                    redis_client.set(
-                        _METRICS_CACHE_KEY, json.dumps(parsed), ex=_METRICS_TTL_SECONDS
-                    )
+                    metrics, source = _compute_market_metrics(batch)
+                    if metrics:
+                        _merge_market_metrics_cache(metrics, source)
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("[screener] page metrics merge failed: %s", exc)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("[screener] page metrics warm failed: %s", exc)
+                    logger.debug("[screener] page metrics warm failed: %s", exc)
         finally:
             with _page_metrics_lock:
                 _page_metrics_running = False
@@ -852,15 +878,40 @@ def get_screener_stocks(
                     if s.roe is None and rec.get("roe") is not None:
                         s.roe = round(float(rec["roe"]), 2)
 
-    # Prices for the page fill in from a small background batch (never
-    # blocks the request) merged into the shared metrics map.
+    # ── 4d. Page top-up: synchronously fetch price/change/1y for JUST the
+    # visible page's symbols the warm map doesn't cover yet — mirrors the
+    # fundamentals top-up above (4b). The baseline warm (`_refresh_market_metrics`)
+    # only covers the curated sector universe (~80 names), so for any
+    # filter dominated by non-curated names (e.g. Small Cap) nearly every row
+    # would otherwise sit on "—" forever: `_kick_page_metrics_warm` alone is
+    # fire-and-forget, so it only helps the NEXT request, never this one, and
+    # its single-flight lock silently drops symbols queued while a warm is
+    # already running. Bounded to page size (≤ limit), same latency class as
+    # the fundamentals top-up.
     page_missing_mkt = [
         s.symbol for s in enriched if s.symbol.upper() not in mmap
     ]
     if page_missing_mkt:
-        _kick_page_metrics_warm(page_missing_mkt)
+        mkt_topup, mkt_source = _compute_market_metrics(page_missing_mkt)
+        if mkt_topup:
+            _merge_market_metrics_cache(mkt_topup, mkt_source)
+            for s in enriched:
+                rec = mkt_topup.get(s.symbol.upper())
+                if not rec:
+                    continue
+                if s.price is None and rec.get("price") is not None:
+                    s.price = round(float(rec["price"]), 2)
+                if s.change_pct is None and rec.get("change_pct") is not None:
+                    s.change_pct = round(float(rec["change_pct"]), 2)
+                if s.one_year_pct is None and rec.get("one_year_pct") is not None:
+                    s.one_year_pct = round(float(rec["one_year_pct"]), 2)
+        # Anything the synchronous top-up still couldn't resolve (e.g. a
+        # transient yfinance miss) keeps retrying in the background.
+        still_missing = [s.symbol for s in enriched if s.symbol.upper() not in mmap and s.symbol.upper() not in mkt_topup]
+        if still_missing:
+            _kick_page_metrics_warm(still_missing)
 
-    # ── 4c. Hydrate logos for the FINAL page in ONE batch (cold-start fix) ──
+    # ── 4e. Hydrate logos for the FINAL page in ONE batch (cold-start fix) ──
     # Per-row logo resolution was a cold-call N+1 (~2 remote DB queries × every
     # row). Resolve only the symbols that survived the sort+slice, all at once.
     logo_map = _logo_map([s.symbol for s in enriched])

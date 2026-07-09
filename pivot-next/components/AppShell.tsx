@@ -609,6 +609,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       warnings: [],
       _render_hint: "workflow_draft_card" as const,
     };
+    // Start a fresh chat session rather than reusing whatever's mounted —
+    // otherwise the amendment lands in the user's current conversation
+    // instead of a new one seeded just for this agent.
+    setResumeConv(undefined);
+    setChatResetKey((k) => k + 1);
     goTab("chat");
     // Open the side editor on the agent being edited — the user sees the
     // steps they're talking about while they chat. Origin is pinned to "chat"

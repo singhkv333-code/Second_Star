@@ -792,6 +792,9 @@ export type Holding = {
   pnl: number;
   day_change: number;
   day_change_percentage: number;
+  /** "large" | "mid" | "small" | null — same thresholds as the screener's
+   *  market-cap tiers; null when the symbol has no market-cap data. */
+  market_cap_tier?: "large" | "mid" | "small" | null;
 };
 
 export type PortfolioSummary = {

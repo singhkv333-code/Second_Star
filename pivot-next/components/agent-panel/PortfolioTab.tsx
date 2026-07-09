@@ -65,19 +65,13 @@ import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 // Static reference maps (Quartr parity)
 // ---------------------------------------------------------------------------
 
-/** Approximate Indian market-cap classification for the demo tickers.
- *  Mirrors frontend-quartr/.../AssetAllocation.jsx. */
-const MARKET_CAP_MAP: Record<string, string> = {
-  RELIANCE: "Largecap",
-  HDFCBANK: "Largecap",
-  INFY: "Largecap",
-  TCS: "Largecap",
-  AXISBANK: "Largecap",
-  ITC: "Largecap",
-  ASIANPAINT: "Largecap",
-  BAJFINANCE: "Largecap",
-  TATASTEEL: "Midcap",
-  NIFTYBEES: "Index ETF",
+/** Display label for the real `market_cap_tier` the backend attaches to each
+ *  holding (large/mid/small, same thresholds as the Screener). Holdings with
+ *  no market-cap data land in "Unclassified" rather than a fabricated tier. */
+const MCAP_TIER_LABEL: Record<string, string> = {
+  large: "Large Cap",
+  mid: "Mid Cap",
+  small: "Small Cap",
 };
 
 /** Light sector mapping so the "Sectors" tab in Asset Allocation has
@@ -1501,8 +1495,19 @@ function HoldingRow({
   const ltp = liveQuote.ltp ?? h.last_price;
   const value = ltp * h.quantity;
   const sector = SECTOR_MAP[h.tradingsymbol];
-  const pnlPos = h.pnl >= 0;
-  const dayPos = h.day_change_percentage >= 0;
+  // Total P&L and Day P&L are re-derived from the live LTP rather than the
+  // one-time snapshot fields — otherwise these cells sit frozen at whatever
+  // they were on page load while the LTP cell next to them keeps moving.
+  // Mirrors the backend's own formulas: unrealized_pnl = qty*(mark-avg_cost);
+  // day_pnl = qty*(mark-prev_close), with prev_close backed out from the
+  // snapshot's per-share day_change (last_price - prev_close = day_change).
+  const invested = h.average_price * h.quantity;
+  const livePnl = (ltp - h.average_price) * h.quantity;
+  const prevClose = h.last_price - h.day_change;
+  const liveDayPnlPerShare = ltp - prevClose;
+  const liveDayChangePct = invested ? ((liveDayPnlPerShare * h.quantity) / invested) * 100 : h.day_change_percentage;
+  const pnlPos = livePnl >= 0;
+  const dayPos = liveDayChangePct >= 0;
   // Kite-style quick-action bar, revealed while the row is hovered.
   const [hovered, setHovered] = useState(false);
 
@@ -1619,7 +1624,7 @@ function HoldingRow({
           color: pnlPos ? "var(--color-profit)" : "var(--color-loss)",
         }}
       >
-        {fmtRupee(h.pnl, { sign: true, max: 0 })}
+        {fmtRupee(livePnl, { sign: true, max: 0 })}
       </td>
       <td
         style={{
@@ -1631,7 +1636,7 @@ function HoldingRow({
           color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
         }}
       >
-        {fmtPct(h.day_change_percentage)}
+        {fmtPct(liveDayChangePct)}
       </td>
       <NumCell strong>{fmtRupee(value)}</NumCell>
     </tr>
@@ -1727,7 +1732,7 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
 
   const data = useMemo(() => {
     if (!holdings || holdings.length === 0) return { total: 0, rows: [] as AllocRow[] };
-    if (tab === "marketcap") return aggregate(holdings, (h) => MARKET_CAP_MAP[h.tradingsymbol] ?? "Other");
+    if (tab === "marketcap") return aggregate(holdings, (h) => MCAP_TIER_LABEL[h.market_cap_tier ?? ""] ?? "Unclassified");
     if (tab === "sectors") return aggregate(holdings, (h) => SECTOR_MAP[h.tradingsymbol] ?? "Other");
     return aggregate(holdings, (h) => h.tradingsymbol);
   }, [holdings, tab]);
@@ -2108,7 +2113,6 @@ function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactEl
           title="Diversification"
           score={div.score}
           color="var(--pivot-blue)"
-          explainer={div.explainer}
           rows={[
             { label: "Holdings", value: String(div.components.n_holdings) },
             { label: "Sectors", value: String(div.components.n_sectors) },
@@ -2131,7 +2135,6 @@ function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactEl
           title="Portfolio Score"
           score={pf.score}
           color="var(--color-profit)"
-          explainer={pf.explainer}
           rows={[
             {
               label: "Diversification",
@@ -2177,7 +2180,6 @@ function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactEl
           title="Community Score"
           score={comm.score}
           color="var(--text-secondary)"
-          explainer={comm.explainer}
           rows={[
             {
               label: "Percentile",
@@ -2203,13 +2205,11 @@ function ScoreCard({
   title,
   score,
   color,
-  explainer,
   rows,
 }: {
   title: string;
   score: number;
   color: string;
-  explainer: string;
   rows: ScoreRow[];
 }): React.ReactElement {
   const clamped = Math.max(0, Math.min(100, score));
@@ -2294,18 +2294,6 @@ function ScoreCard({
           </div>
         ))}
       </div>
-
-      <p
-        style={{
-          fontSize: 12,
-          lineHeight: 1.55,
-          color: "var(--text-secondary)",
-          paddingTop: 12,
-          borderTop: "1px solid var(--glass-border)",
-        }}
-      >
-        {explainer}
-      </p>
     </Card>
   );
 }

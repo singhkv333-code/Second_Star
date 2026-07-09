@@ -191,6 +191,21 @@ def _paper_performance(
     # chart must NOT have.
     axis_start = max(period_start, first_fill)
 
+    # The REAL held span (since the first fill) can be much shorter than the
+    # selected range's calendar span — e.g. a 5Y view on a 9-day-old paper
+    # book. Bucketing at that range's native interval (1mo for 5Y, 1wk for 1Y)
+    # over a real span that short collapses the whole window into ~1 yfinance
+    # bar, which then ffills/bfills that single coarse sample across every
+    # date on the axis. The same calendar date then shows a different value
+    # depending only on which range is selected (e.g. "1 Jul" on 3M vs 5Y) —
+    # confusing, not a real discrepancy. Force the finer daily interval
+    # whenever the real span doesn't have room for at least a few bars at the
+    # selected interval, so every range agrees on any date they both cover.
+    _BAR_DAYS = {"1d": 1, "1wk": 7, "1mo": 30}
+    real_span_days = max((end - axis_start).days, 1)
+    if real_span_days < _BAR_DAYS.get(yf_interval, 1) * 3:
+        yf_interval = "1d"
+
     # Per-symbol historical closes (concurrent yfinance fetch). The paper book
     # is NSE equities; assume .NS unless already suffixed.
     symbols = sorted({str(f.symbol) for f in fills})

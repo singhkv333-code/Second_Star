@@ -97,6 +97,20 @@ def portfolio_summary(user_id: int = Depends(get_user_id), db: Session = Depends
     return get_summary_cached(user_id, token)
 
 
+def _market_cap_tier(mcap_cr: Optional[float]) -> Optional[str]:
+    """large | mid | small | None, using the SAME thresholds as the screener
+    (`backend.routers.screener._MCAP_TIERS`) so Portfolio and Screener agree
+    on what counts as large/mid/small cap."""
+    if mcap_cr is None:
+        return None
+    from backend.routers.screener import _MCAP_TIERS
+
+    for tier, (lo, hi) in _MCAP_TIERS.items():
+        if (lo is None or mcap_cr >= lo) and (hi is None or mcap_cr < hi):
+            return tier
+    return None
+
+
 @router.get("/holdings")
 def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
     from backend.services.portfolio_source import resolve_holdings
@@ -104,9 +118,25 @@ def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depend
     token = get_kite_token(user_id, db)
     # Paper mode → the simulated positions; live → Kite holdings. Same shape.
     holdings = [dict(h) for h in resolve_holdings(db, user_id, token)]
-    # Enrich with sector data (mutates the copied list, never the cached one).
+    # Enrich with sector + real market-cap tier (mutates the copied list, never
+    # the cached one). Market-cap tier is best-effort: any lookup failure just
+    # leaves it null rather than failing the whole holdings read.
+    symbols = {h["tradingsymbol"] for h in holdings}
+    mcap_by_symbol: dict[str, Optional[float]] = {}
+    if symbols:
+        try:
+            from backend.routers.screener import _full_universe
+
+            mcap_by_symbol = {
+                r["symbol"]: r.get("mcap_cr")
+                for r in _full_universe()
+                if r["symbol"] in symbols
+            }
+        except Exception:  # noqa: BLE001
+            logger.warning("[portfolio] market-cap tier lookup failed", exc_info=True)
     for h in holdings:
         h["sector"] = SECTOR_MAP.get(h["tradingsymbol"], "Other")
+        h["market_cap_tier"] = _market_cap_tier(mcap_by_symbol.get(h["tradingsymbol"]))
     return holdings
 
 
