@@ -5,10 +5,7 @@
  *
  * A 2-3 line plain-English description, then up to 3 plain bullet points that
  * highlight the important factors (what drives it / how to play it — folded
- * here from the old transmission "why" section). The "what if you're wrong"
- * caveat is promoted OUT of that flat list into its own emphasized, warn-
- * tinted line (GOAL D — information hierarchy), sourced from an explicit
- * `caveat` prop or detected from a "Main caveat: ..." bullet.
+ * here from the old transmission "why" section).
  *
  * DESIGN LAW (v2): ROUNDED, BORDER-ONLY (no grey fill), plain language (no
  * jargon), >= 13px text, aligned. Renders nothing when there is neither a
@@ -16,57 +13,27 @@
  */
 
 import * as React from "react";
-import { AlertCircle } from "lucide-react";
 
 const FONT = "var(--font-display)";
-
-// Detects a bullet that IS the "main caveat" line so it can be promoted out
-// of the plain list, e.g. "Main caveat: if the whole market falls, the
-// bundle usually falls too." -> "if the whole market falls, the bundle
-// usually falls too."
-const CAVEAT_PREFIX_RE = /^main caveat\s*:?\s*/i;
 
 export function ViewDescription({
   description,
   bullets,
-  caveat = null,
 }: {
   description?: string | null;
   bullets?: string[] | null;
-  /** Explicit "what if you're wrong" line. Falls back to a detected
-   * "Main caveat: ..." bullet when absent. */
+  /** Deprecated: the "what if you're wrong" caveat is no longer surfaced here
+   * (it lives on the strategy cards). Kept for caller compatibility. */
   caveat?: string | null;
 }): React.ReactElement | null {
-  const safeBullets = (Array.isArray(bullets) ? bullets : []).filter(
+  const plainBullets = (Array.isArray(bullets) ? bullets : []).filter(
     (b) => typeof b === "string" && b.trim().length > 0,
   );
-
-  // Prefer an explicit `caveat` prop; otherwise pull the first "Main
-  // caveat: ..." bullet out of the plain list and use it instead.
-  const explicitCaveat =
-    typeof caveat === "string" && caveat.trim().length > 0
-      ? caveat.trim()
-      : null;
-  let detectedCaveat: string | null = null;
-  const plainBullets: string[] = [];
-  for (const b of safeBullets) {
-    if (
-      !explicitCaveat &&
-      !detectedCaveat &&
-      CAVEAT_PREFIX_RE.test(b.trim())
-    ) {
-      detectedCaveat = b.trim().replace(CAVEAT_PREFIX_RE, "");
-      continue;
-    }
-    plainBullets.push(b);
-  }
-  const shownCaveat = explicitCaveat ?? detectedCaveat;
 
   const hasDescription =
     typeof description === "string" && description.trim().length > 0;
 
-  if (!hasDescription && plainBullets.length === 0 && !shownCaveat)
-    return null;
+  if (!hasDescription && plainBullets.length === 0) return null;
 
   return (
     <section
@@ -156,50 +123,6 @@ export function ViewDescription({
         </ul>
       )}
 
-      {shownCaveat && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 10,
-            border:
-              "1px solid color-mix(in srgb, var(--color-warn) 45%, var(--glass-border))",
-            borderRadius: "var(--radius-md)",
-            background: "color-mix(in srgb, var(--color-warn) 7%, transparent)",
-            padding: "12px 14px",
-          }}
-        >
-          <AlertCircle
-            size={15}
-            aria-hidden
-            style={{ color: "var(--color-warn)", flexShrink: 0, marginTop: 2 }}
-          />
-          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            <span
-              style={{
-                fontFamily: FONT,
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--color-warn)",
-                lineHeight: 1.3,
-              }}
-            >
-              If you&apos;re wrong
-            </span>
-            <span
-              style={{
-                fontFamily: FONT,
-                fontSize: 14,
-                fontWeight: 400,
-                color: "var(--text-primary)",
-                lineHeight: 1.55,
-              }}
-            >
-              {shownCaveat}
-            </span>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

@@ -1545,7 +1545,7 @@ function ViewsCard({
           ~half the board width (the Views tab gives each card a full third). */}
       <div className="home-views-grid grid grid-cols-1 sm:grid-cols-2" style={{ gap: 12, height: "100%" }}>
         {PACK_SUMMARIES.slice(0, 2).map((v) => (
-          <ViewCard key={v.id} view={v} onOpen={() => onGoTab("views")} serifTitle />
+          <ViewCard key={v.id} view={v} onOpen={() => onGoTab("views")} sans />
         ))}
       </div>
     </CardShell>

@@ -4,22 +4,19 @@
  * StrategiesTable — the real, roomy strategies TABLE on a View detail page
  * (replaces the old stacked expression cards).
  *
- * Columns: Name | Risk | Avg gain | Avg loss | Max gain | Max loss | (Details)
- * The four numeric columns are COMPARABLE — all from the same per-occurrence
- * return distribution: avg gain/loss are the means of the positive and
- * negative occurrences; max gain/loss the single best and worst. Benchmark-
- * relative numbers (vs Nifty / excess return) are never rendered here — only
- * the strategy's own outcomes. Strategy type + entry ticket live under the
- * name.
+ * Columns: Name | Type | Risk | Max drop | Avg profit | (View details)
+ * "Avg profit" is the AVERAGE over the event's past occurrences (mean per
+ * occurrence) — never compounded across occurrences. Benchmark-relative
+ * numbers (vs Nifty / excess return) are never rendered here — only the
+ * strategy's own return.
  * Rows: the view's expressions. Numeric columns are right-aligned + tabular.
- * Each row has a "Details" button that expands an in-table panel showing
+ * Each row has a "View details" button that expands an in-table panel showing
  * the strategy's plain_why, plain_risk, what-you'd-hold (basket members or the
  * honest option-legs note), capital intensity, and a Deploy CTA.
  *
  * Option / derivative expressions have no offline historical backtest (there
- * is no offline option chain) — their max gain/loss come from the payoff
- * MODEL (asterisked, explained in the footer) and their averages honestly
- * stay "—" (see isNotBacktested()).
+ * is no offline option chain) — those rows render "Priced at deploy" instead
+ * of a fabricated max-drop number or a trust word (see isNotBacktested()).
  *
  * DESIGN LAW (v2): ROUNDED (outer card var(--radius-lg); chips/buttons
  * var(--radius-md)), BORDER-ONLY (no grey fills), plain language (no jargon),
@@ -27,53 +24,21 @@
  */
 
 import * as React from "react";
-import { ChevronDown, Loader2, CheckCircle2 } from "lucide-react";
-import type { ExpressionDetail, EntryBlock } from "@/lib/types";
-import type { ViewPlaceResponse } from "@/lib/api";
+import { ChevronDown, Loader2 } from "lucide-react";
+import type { ExpressionDetail } from "@/lib/types";
 import { Num } from "@/components/views/Stat";
 import {
   tierLabel,
   fmtPct,
   signColor,
   capitalLabel,
-  isPlaceableBasket,
 } from "@/components/views/view-format";
-
-/** Format INR with Indian grouping (no paise). */
-function fmtInr(n: number): string {
-  return "₹" + Math.round(n).toLocaleString("en-IN");
-}
-
-/** One-line entry ticket text for a row. */
-function entryTicket(entry: EntryBlock): string | null {
-  if (
-    entry.basis === "lite_basket" ||
-    entry.basis === "etf_core_plus_names" ||
-    entry.basis === "etf_substitute"
-  ) {
-    if (entry.min_entry_inr != null) return `From ${fmtInr(entry.min_entry_inr)}`;
-  }
-  if (entry.basis === "option_premium" || entry.basis === "priced_at_deploy") {
-    const own =
-      entry.min_entry_inr != null
-        ? `≈${fmtInr(entry.min_entry_inr)}/lot`
-        : "Priced at deploy";
-    // The budget-sized far-OTM single is a DIFFERENT structure — say "longshot",
-    // never present it as the same trade at a lower price.
-    const small = entry.small_ticket
-      ? ` · longshot from ${fmtInr(entry.small_ticket.est_premium_per_lot_inr)}`
-      : "";
-    return own + small;
-  }
-  if (entry.basis === "margin_required") return "Needs margin";
-  return null;
-}
 
 const FONT = "var(--font-display)";
 
 // Grid template shared by the header row and every data row so columns align.
 const GRID =
-  "minmax(170px, 1.6fr) 88px 84px 84px 84px 84px 96px";
+  "minmax(150px, 1.5fr) minmax(110px, 1.1fr) 96px 92px 92px 116px";
 
 function HeaderCell({
   children,
@@ -86,8 +51,10 @@ function HeaderCell({
     <span
       style={{
         fontFamily: FONT,
-        fontSize: 13,
-        fontWeight: 500,
+        fontSize: 11,
+        fontWeight: 600,
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
         color: "var(--text-tertiary)",
         lineHeight: 1.3,
         textAlign: align,
@@ -111,44 +78,25 @@ function isNotBacktested(expr: ExpressionDetail): boolean {
   );
 }
 
-// One right-aligned cell of the four comparable gain/loss columns. Modelled
-// values (option payoff bounds, no history) carry an asterisk explained in
-// the footer; an uncapped modelled max gain says so instead of a fake cap.
-function GainLossCell({
-  value,
-  modelled,
-  uncapped,
-}: {
-  value: number | null | undefined;
-  modelled: boolean;
-  uncapped?: boolean;
-}): React.ReactElement {
+// A small muted, border-only, rounded chip used in place of a fabricated
+// number for tiers that have no historical backtest.
+function PricedAtDeployChip(): React.ReactElement {
   return (
-    <span style={{ textAlign: "right" }}>
-      {uncapped ? (
-        <span
-          style={{
-            fontFamily: FONT,
-            fontSize: 13,
-            fontWeight: 500,
-            color: "var(--color-profit)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Open-ended*
-        </span>
-      ) : value == null ? (
-        <span
-          style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}
-        >
-          —
-        </span>
-      ) : (
-        <Num size="md" weight={600} color={signColor(value)}>
-          {fmtPct(value)}
-          {modelled ? "*" : ""}
-        </Num>
-      )}
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontFamily: FONT,
+        fontSize: 13,
+        fontWeight: 500,
+        color: "var(--text-tertiary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-md)",
+        padding: "3px 9px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      Priced at deploy
     </span>
   );
 }
@@ -156,10 +104,6 @@ function GainLossCell({
 // A plain word "what you'd hold" line for the expanded panel.
 function holdSentence(expr: ExpressionDetail): string {
   if (expr.option_legs && expr.option_legs.length > 0) {
-    // Long straddle: both legs are BUY (CE + PE) — never assume one BUY + one SELL.
-    if (expr.option_model?.structure === "long_straddle") {
-      return "Both directions (straddle) — you profit from a large move either way. Exact strikes and premium are set at deploy.";
-    }
     return (
       expr.option_legs_note ??
       "An options structure — the exact strikes are set when you deploy."
@@ -176,22 +120,16 @@ function DeployButton({
   onClick,
   busy,
   disabled,
-  placeable,
-  placed,
 }: {
   onClick: () => void;
   busy: boolean;
   disabled: boolean;
-  /** True when Deploy places a real share/ETF basket (vs arming a draft). */
-  placeable: boolean;
-  /** Set once the basket has been placed — swaps the CTA to a confirmation. */
-  placed?: ViewPlaceResponse | null;
 }): React.ReactElement {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled || busy || !!placed}
+      disabled={disabled || busy}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -205,25 +143,14 @@ function DeployButton({
         border: "1px solid hsl(var(--primary))",
         borderRadius: "var(--radius-md)",
         padding: "9px 18px",
-        cursor: disabled || busy || placed ? "default" : "pointer",
+        cursor: disabled || busy ? "default" : "pointer",
         opacity: disabled ? 0.55 : 1,
         alignSelf: "flex-start",
         transition: "opacity 180ms var(--ease-quartr)",
       }}
     >
-      {placed ? (
-        <>
-          <CheckCircle2 size={14} aria-hidden />
-          {placed.routed_to === "paper" ? "Filled (paper)" : "Order placed"}
-        </>
-      ) : busy ? (
-        <>
-          <Loader2 size={14} className="animate-spin" aria-hidden />
-          {placeable ? "Placing…" : "Arming…"}
-        </>
-      ) : (
-        "Deploy this strategy"
-      )}
+      {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}
+      {busy ? "Arming…" : "Deploy this strategy"}
     </button>
   );
 }
@@ -236,8 +163,6 @@ interface StrategiesTableProps {
   onDeploy: (expr: ExpressionDetail) => void;
   deployingId?: string | null;
   deployError?: string | null;
-  /** Broker/paper placements keyed by expression id (from ViewDetailPage). */
-  placedById?: Record<string, ViewPlaceResponse>;
   /** Open the full statistical analysis page for a strategy. */
   onOpenDeepDive?: (expr: ExpressionDetail) => void;
 }
@@ -249,7 +174,6 @@ export function StrategiesTable({
   onDeploy,
   deployingId,
   deployError,
-  placedById,
   onOpenDeepDive,
 }: StrategiesTableProps): React.ReactElement | null {
   const [openId, setOpenId] = React.useState<string | null>(null);
@@ -265,14 +189,10 @@ export function StrategiesTable({
     .find((p): p is string => typeof p === "string" && p.trim().length > 0);
 
   return (
-    <div
-      style={{
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-lg)",
-        background: "var(--bg-base)",
-        overflow: "hidden",
-      }}
-    >
+    // Borderless, editorial: uppercase column headers + row hairlines only —
+    // no outer box (matches the floating hero chart; the trade ticket is the
+    // only card at the top of the page).
+    <div>
       {/* Header */}
       <div
         style={{
@@ -280,16 +200,15 @@ export function StrategiesTable({
           gridTemplateColumns: GRID,
           gap: 12,
           alignItems: "center",
-          padding: "14px 18px",
+          padding: "0 18px 10px",
           borderBottom: "1px solid var(--glass-border)",
         }}
       >
         <HeaderCell>Strategy</HeaderCell>
+        <HeaderCell>Type</HeaderCell>
         <HeaderCell>Risk</HeaderCell>
-        <HeaderCell align="right">Avg gain</HeaderCell>
-        <HeaderCell align="right">Avg loss</HeaderCell>
-        <HeaderCell align="right">Max gain</HeaderCell>
-        <HeaderCell align="right">Max loss</HeaderCell>
+        <HeaderCell align="right">Max drop</HeaderCell>
+        <HeaderCell align="right">Avg profit</HeaderCell>
         <HeaderCell align="right">{""}</HeaderCell>
       </div>
 
@@ -304,9 +223,7 @@ export function StrategiesTable({
             key={expr.id}
             style={{
               borderTop: i === 0 ? "none" : "1px solid var(--glass-border)",
-              background: selected
-                ? "color-mix(in srgb, var(--pivot-blue) 5%, transparent)"
-                : "transparent",
+              background: selected ? "var(--surface-hover)" : "transparent",
             }}
           >
             {/* Data row — the whole row selects (drives the chart); the
@@ -334,38 +251,28 @@ export function StrategiesTable({
                 cursor: onSelect ? "pointer" : "default",
               }}
             >
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span
-                  style={{
-                    fontFamily: FONT,
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--text-primary)",
-                    lineHeight: 1.35,
-                  }}
-                >
-                  {name}
-                </span>
-                {(() => {
-                  const ticket = expr.entry ? entryTicket(expr.entry) : null;
-                  const sub = [type !== "—" ? type : null, ticket]
-                    .filter(Boolean)
-                    .join(" · ");
-                  return sub ? (
-                    <span
-                      style={{
-                        fontFamily: FONT,
-                        fontSize: 12,
-                        fontWeight: 400,
-                        color: "var(--text-tertiary)",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {sub}
-                    </span>
-                  ) : null;
-                })()}
-              </div>
+              <span
+                style={{
+                  fontFamily: FONT,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  lineHeight: 1.35,
+                }}
+              >
+                {name}
+              </span>
+              <span
+                style={{
+                  fontFamily: FONT,
+                  fontSize: 13,
+                  fontWeight: 400,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.35,
+                }}
+              >
+                {type}
+              </span>
               <span
                 style={{
                   fontFamily: FONT,
@@ -376,22 +283,24 @@ export function StrategiesTable({
               >
                 {tierLabel(expr.tier)}
               </span>
-              {(() => {
-                const gl = expr.gain_loss ?? null;
-                const modelled = gl?.basis === "modelled";
-                return (
-                  <>
-                    <GainLossCell value={gl?.avg_gain_pct} modelled={modelled} />
-                    <GainLossCell value={gl?.avg_loss_pct} modelled={modelled} />
-                    <GainLossCell
-                      value={gl?.max_gain_pct}
-                      modelled={modelled}
-                      uncapped={gl?.max_gain_uncapped}
-                    />
-                    <GainLossCell value={gl?.max_loss_pct} modelled={modelled} />
-                  </>
-                );
-              })()}
+              <span style={{ textAlign: "right" }}>
+                {notBacktested ? (
+                  <PricedAtDeployChip />
+                ) : (
+                  <Num size="md" weight={600} color="var(--color-loss)">
+                    {fmtPct(expr.worst_drop_pct)}
+                  </Num>
+                )}
+              </span>
+              <span style={{ textAlign: "right" }}>
+                <Num
+                  size="md"
+                  weight={600}
+                  color={signColor(expr.strategy_total_pct)}
+                >
+                  {fmtPct(expr.strategy_total_pct)}
+                </Num>
+              </span>
               <span
                 style={{ display: "flex", justifyContent: "flex-end" }}
               >
@@ -507,33 +416,10 @@ export function StrategiesTable({
                 <DeployButton
                   onClick={() => onDeploy(expr)}
                   busy={deployingId === expr.id}
-                  placeable={isPlaceableBasket(expr.entry)}
-                  placed={placedById?.[expr.id] ?? null}
                   disabled={
-                    !isPlaceableBasket(expr.entry) &&
-                    !expr.is_deployable &&
-                    !expr.workflow_id
+                    !expr.is_deployable && !expr.workflow_id
                   }
                 />
-                {(() => {
-                  const p = placedById?.[expr.id];
-                  if (!p) return null;
-                  const plural = p.count === 1 ? "" : "s";
-                  return (
-                    <span
-                      style={{
-                        fontFamily: FONT,
-                        fontSize: 13,
-                        color: "var(--text-secondary)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {p.routed_to === "paper"
-                        ? `Filled ${p.count} order${plural} in your paper book.`
-                        : `Placed ${p.count} order${plural} through your broker.`}
-                    </span>
-                  );
-                })()}
                 {deployError && deployingId === expr.id && (
                   <span
                     role="alert"
@@ -585,11 +471,8 @@ export function StrategiesTable({
             lineHeight: 1.4,
           }}
         >
-          Avg gain / avg loss are the average winning and losing outcomes
-          across past occurrences; max gain / max loss are the single best and
-          worst. Nothing is added up across occurrences. * marks modelled
-          option payoff bounds — there is no history for an option structure,
-          and the final pricing is set at deploy.
+          Avg profit is the average each time this has happened before — not
+          added up across occurrences.
         </span>
         {holdWindow && (
           <span

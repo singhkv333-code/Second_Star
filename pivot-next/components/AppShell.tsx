@@ -119,7 +119,7 @@ const NAV_ITEMS: {
 }[] = [
   { key: "home", label: "Home", Icon: Home },
   { key: "chat", label: "Chat", Icon: MessageSquare },
-  { key: "views", label: "Opinion Markets", Icon: Telescope },
+  { key: "views", label: "Opinions", Icon: Telescope },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
   { key: "calendar", label: "Calendar", Icon: CalendarDays },

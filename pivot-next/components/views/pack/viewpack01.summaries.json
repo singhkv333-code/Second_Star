@@ -2,12 +2,12 @@
  {
   "id": "ai_jobs",
   "view_type": "theme",
-  "title": "Will AI create more jobs?",
+  "title": "Will AI create more jobs than it destroys by 2027?",
   "thesis": "As AI spreads, India's big IT & software companies get more work \u2014 and their shares tend to rise.",
   "category": "AI \u00b7 Theme",
   "time_horizon": "Over 6 months",
   "status": "open",
-  "resolution_date": "2026-12-31T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -24,13 +24,13 @@
    "expression_kind": "basket",
    "grade": null,
    "trust_verdict": "unproven",
-   "total_return_pct": 9.81,
+   "total_return_pct": 9.78,
    "excess_return_pct": 6.19,
-   "plain_label": "Slow & Steady AI bundle",
+   "plain_label": "Own a bundle of 7 AI/IT companies",
    "nifty_total_pct": 5.71,
    "n_episodes": 31,
    "pct_episodes_beat": 69,
-   "worst_drop_pct": -32.1,
+   "worst_drop_pct": -32.2,
    "equity_curve": [
     {
      "t": "0",
@@ -39,655 +39,646 @@
     },
     {
      "t": "1",
-     "strategy": 99976.61,
-     "benchmark": 100304.23
+     "strategy": 99759.47,
+     "benchmark": 100097.58
     },
     {
      "t": "2",
-     "strategy": 100068.92,
-     "benchmark": 100493.83
+     "strategy": 99677.5,
+     "benchmark": 100173.94
     },
     {
      "t": "3",
-     "strategy": 100281.4,
-     "benchmark": 100933.07
+     "strategy": 99770.52,
+     "benchmark": 100383.75
     },
     {
      "t": "4",
-     "strategy": 99943.14,
-     "benchmark": 100979.95
+     "strategy": 99435.36,
+     "benchmark": 100503.48
     },
     {
      "t": "5",
-     "strategy": 99839.8,
-     "benchmark": 101047.36
+     "strategy": 99473.94,
+     "benchmark": 100617.82
     },
     {
      "t": "6",
-     "strategy": 99846.89,
-     "benchmark": 100974.23
+     "strategy": 99668.25,
+     "benchmark": 100549.88
     },
     {
      "t": "7",
-     "strategy": 100024.95,
-     "benchmark": 100884.05
+     "strategy": 99740.52,
+     "benchmark": 100575.22
     },
     {
      "t": "8",
-     "strategy": 100289.56,
-     "benchmark": 101068.03
+     "strategy": 99983.84,
+     "benchmark": 100726.83
     },
     {
      "t": "9",
-     "strategy": 100173.09,
-     "benchmark": 101005.73
+     "strategy": 99851.37,
+     "benchmark": 100674.87
     },
     {
      "t": "10",
-     "strategy": 100224.44,
-     "benchmark": 100806.64
+     "strategy": 99697.95,
+     "benchmark": 100410.42
     },
     {
      "t": "11",
-     "strategy": 99971.61,
-     "benchmark": 100713.8
+     "strategy": 99274.99,
+     "benchmark": 100205.56
     },
     {
      "t": "12",
-     "strategy": 99819.6,
-     "benchmark": 100657.92
+     "strategy": 99486.65,
+     "benchmark": 100258.15
     },
     {
      "t": "13",
-     "strategy": 100050.79,
-     "benchmark": 100753.07
+     "strategy": 99820.89,
+     "benchmark": 100386.02
     },
     {
      "t": "14",
-     "strategy": 100028.57,
-     "benchmark": 100445.03
+     "strategy": 99878.29,
+     "benchmark": 100293.42
     },
     {
      "t": "15",
-     "strategy": 100485.28,
-     "benchmark": 100636.81
+     "strategy": 100377.35,
+     "benchmark": 100587.09
     },
     {
      "t": "16",
-     "strategy": 100427.76,
-     "benchmark": 101020.09
+     "strategy": 100230.12,
+     "benchmark": 100736.62
     },
     {
      "t": "17",
-     "strategy": 100613.67,
-     "benchmark": 101113.45
+     "strategy": 100207.23,
+     "benchmark": 100705.48
     },
     {
      "t": "18",
-     "strategy": 100569.77,
-     "benchmark": 101100.76
+     "strategy": 100464.95,
+     "benchmark": 100834.97
     },
     {
      "t": "19",
-     "strategy": 101122.95,
-     "benchmark": 101456.24
+     "strategy": 101032.21,
+     "benchmark": 101241.78
     },
     {
      "t": "20",
-     "strategy": 101181.12,
-     "benchmark": 101388.39
+     "strategy": 100971.3,
+     "benchmark": 101145.8
     },
     {
      "t": "21",
-     "strategy": 101061.87,
-     "benchmark": 101331.11
+     "strategy": 100620.55,
+     "benchmark": 101023.04
     },
     {
      "t": "22",
-     "strategy": 101541.6,
-     "benchmark": 101536.2
+     "strategy": 100966.27,
+     "benchmark": 101194.02
     },
     {
      "t": "23",
-     "strategy": 101314.19,
-     "benchmark": 101519.52
+     "strategy": 101119.5,
+     "benchmark": 101171.05
     },
     {
      "t": "24",
-     "strategy": 101338.56,
-     "benchmark": 101534.27
+     "strategy": 101120.23,
+     "benchmark": 101304.24
     },
     {
      "t": "25",
-     "strategy": 101701.71,
-     "benchmark": 101915.07
+     "strategy": 101742.63,
+     "benchmark": 101906.89
     },
     {
      "t": "26",
-     "strategy": 101969.76,
-     "benchmark": 102399.46
+     "strategy": 101778.8,
+     "benchmark": 102021.06
     },
     {
      "t": "27",
-     "strategy": 101980.46,
-     "benchmark": 102437.15
+     "strategy": 101541.87,
+     "benchmark": 101976.96
     },
     {
      "t": "28",
-     "strategy": 102113.57,
-     "benchmark": 102720.39
+     "strategy": 101840.44,
+     "benchmark": 102312.7
     },
     {
      "t": "29",
-     "strategy": 102303.41,
-     "benchmark": 103051.51
+     "strategy": 101878.34,
+     "benchmark": 102490.24
     },
     {
      "t": "30",
-     "strategy": 101767.95,
-     "benchmark": 102986.38
+     "strategy": 101609.49,
+     "benchmark": 102430.66
     },
     {
      "t": "31",
-     "strategy": 102091.3,
-     "benchmark": 102968.54
+     "strategy": 101695.08,
+     "benchmark": 102447.93
     },
     {
      "t": "32",
-     "strategy": 102126.08,
-     "benchmark": 103019.63
+     "strategy": 101613.33,
+     "benchmark": 102488.56
     },
     {
      "t": "33",
-     "strategy": 102367.89,
-     "benchmark": 103154.33
+     "strategy": 102153.31,
+     "benchmark": 102862.76
     },
     {
      "t": "34",
-     "strategy": 102370.06,
-     "benchmark": 103094.8
+     "strategy": 102034.88,
+     "benchmark": 102723.96
     },
     {
      "t": "35",
-     "strategy": 102700.14,
-     "benchmark": 103250.05
+     "strategy": 102335.91,
+     "benchmark": 102609.72
     },
     {
      "t": "36",
-     "strategy": 102722.03,
-     "benchmark": 103130.8
+     "strategy": 102378.01,
+     "benchmark": 102617.65
     },
     {
      "t": "37",
-     "strategy": 102824.07,
-     "benchmark": 102957.61
+     "strategy": 102334.08,
+     "benchmark": 102466.66
     },
     {
      "t": "38",
-     "strategy": 102812.81,
-     "benchmark": 102929.98
+     "strategy": 102210.91,
+     "benchmark": 102284.05
     },
     {
      "t": "39",
-     "strategy": 103020.71,
-     "benchmark": 102979.37
+     "strategy": 102201.44,
+     "benchmark": 102133.67
     },
     {
      "t": "40",
-     "strategy": 102832.75,
-     "benchmark": 103050.77
+     "strategy": 102163.98,
+     "benchmark": 102140.48
     },
     {
      "t": "41",
-     "strategy": 102778.71,
-     "benchmark": 102902.77
+     "strategy": 102178.17,
+     "benchmark": 102095.08
     },
     {
      "t": "42",
-     "strategy": 103134.66,
-     "benchmark": 102811.28
+     "strategy": 102556.21,
+     "benchmark": 102084.53
     },
     {
      "t": "43",
-     "strategy": 103235.21,
-     "benchmark": 102771.64
+     "strategy": 102598.11,
+     "benchmark": 101988.78
     },
     {
      "t": "44",
-     "strategy": 103260.25,
-     "benchmark": 102603.75
+     "strategy": 102657.02,
+     "benchmark": 102063.38
     },
     {
      "t": "45",
-     "strategy": 103294.34,
-     "benchmark": 102544.3
+     "strategy": 102809.49,
+     "benchmark": 102103.59
     },
     {
      "t": "46",
-     "strategy": 103062.46,
-     "benchmark": 102483.86
+     "strategy": 102636.62,
+     "benchmark": 101966.68
     },
     {
      "t": "47",
-     "strategy": 102981.23,
-     "benchmark": 102659.58
+     "strategy": 102405.62,
+     "benchmark": 101874.6
     },
     {
      "t": "48",
-     "strategy": 103063.41,
-     "benchmark": 102803.55
+     "strategy": 102459.41,
+     "benchmark": 101998.53
     },
     {
      "t": "49",
-     "strategy": 103097.44,
-     "benchmark": 103059.56
+     "strategy": 102607.91,
+     "benchmark": 102138.45
     },
     {
      "t": "50",
-     "strategy": 103576.47,
-     "benchmark": 103272.79
+     "strategy": 102911.24,
+     "benchmark": 102424.23
     },
     {
      "t": "51",
-     "strategy": 103513.22,
-     "benchmark": 103341.29
+     "strategy": 103040.7,
+     "benchmark": 102585.12
     },
     {
      "t": "52",
-     "strategy": 103640.58,
-     "benchmark": 103394.01
+     "strategy": 103041.58,
+     "benchmark": 102650.18
     },
     {
      "t": "53",
-     "strategy": 103939.77,
-     "benchmark": 103400.96
+     "strategy": 103390.3,
+     "benchmark": 102602.5
     },
     {
      "t": "54",
-     "strategy": 103838.47,
-     "benchmark": 103340.09
+     "strategy": 103302.11,
+     "benchmark": 102629.9
     },
     {
      "t": "55",
-     "strategy": 103845.31,
-     "benchmark": 103217.5
+     "strategy": 103159.45,
+     "benchmark": 102622.91
     },
     {
      "t": "56",
-     "strategy": 104136.95,
-     "benchmark": 103274.28
+     "strategy": 103509.53,
+     "benchmark": 102661.02
     },
     {
      "t": "57",
-     "strategy": 103837.24,
-     "benchmark": 102888.91
+     "strategy": 103499.34,
+     "benchmark": 102421.0
     },
     {
      "t": "58",
-     "strategy": 103930.36,
-     "benchmark": 102877.56
+     "strategy": 103695.27,
+     "benchmark": 102673.5
     },
     {
      "t": "59",
-     "strategy": 104170.51,
-     "benchmark": 102943.72
+     "strategy": 104094.76,
+     "benchmark": 102812.71
     },
     {
      "t": "60",
-     "strategy": 104203.01,
-     "benchmark": 103223.1
+     "strategy": 104157.21,
+     "benchmark": 102989.38
     },
     {
      "t": "61",
-     "strategy": 104430.46,
-     "benchmark": 103271.32
+     "strategy": 104466.79,
+     "benchmark": 102986.6
     },
     {
      "t": "62",
-     "strategy": 104373.27,
-     "benchmark": 103335.66
+     "strategy": 104084.24,
+     "benchmark": 102870.46
     },
     {
      "t": "63",
-     "strategy": 104346.36,
-     "benchmark": 103458.93
+     "strategy": 104112.92,
+     "benchmark": 102784.05
     },
     {
      "t": "64",
-     "strategy": 104482.92,
-     "benchmark": 103478.44
+     "strategy": 104295.69,
+     "benchmark": 103027.33
     },
     {
      "t": "65",
-     "strategy": 104791.88,
-     "benchmark": 103876.17
+     "strategy": 104430.82,
+     "benchmark": 103140.71
     },
     {
      "t": "66",
-     "strategy": 104813.23,
-     "benchmark": 103770.32
+     "strategy": 104334.4,
+     "benchmark": 102955.93
     },
     {
      "t": "67",
-     "strategy": 104881.22,
-     "benchmark": 103466.16
+     "strategy": 104585.32,
+     "benchmark": 102741.57
     },
     {
      "t": "68",
-     "strategy": 105280.0,
-     "benchmark": 103483.88
+     "strategy": 104807.36,
+     "benchmark": 102918.06
     },
     {
      "t": "69",
-     "strategy": 105317.57,
-     "benchmark": 103758.6
+     "strategy": 104788.41,
+     "benchmark": 103195.91
     },
     {
      "t": "70",
-     "strategy": 105277.72,
-     "benchmark": 103851.74
+     "strategy": 104660.75,
+     "benchmark": 103261.54
     },
     {
      "t": "71",
-     "strategy": 105209.89,
-     "benchmark": 103789.33
+     "strategy": 104557.37,
+     "benchmark": 103061.98
     },
     {
      "t": "72",
-     "strategy": 104971.86,
-     "benchmark": 103433.75
+     "strategy": 104491.06,
+     "benchmark": 102832.67
     },
     {
      "t": "73",
-     "strategy": 104907.0,
-     "benchmark": 103031.6
+     "strategy": 104789.32,
+     "benchmark": 102727.07
     },
     {
      "t": "74",
-     "strategy": 105336.05,
-     "benchmark": 103228.4
+     "strategy": 105071.57,
+     "benchmark": 102840.44
     },
     {
      "t": "75",
-     "strategy": 105440.57,
-     "benchmark": 103442.31
+     "strategy": 105330.65,
+     "benchmark": 103089.58
     },
     {
      "t": "76",
-     "strategy": 105502.03,
-     "benchmark": 103491.15
+     "strategy": 105522.09,
+     "benchmark": 103276.81
     },
     {
      "t": "77",
-     "strategy": 105630.42,
-     "benchmark": 103576.0
+     "strategy": 105549.71,
+     "benchmark": 103382.16
     },
     {
      "t": "78",
-     "strategy": 105870.54,
-     "benchmark": 103362.74
+     "strategy": 105904.08,
+     "benchmark": 103247.91
     },
     {
      "t": "79",
-     "strategy": 105961.64,
-     "benchmark": 103512.65
+     "strategy": 105894.72,
+     "benchmark": 103405.25
     },
     {
      "t": "80",
-     "strategy": 105993.95,
-     "benchmark": 103488.5
+     "strategy": 105928.79,
+     "benchmark": 103272.13
     },
     {
      "t": "81",
-     "strategy": 106121.26,
-     "benchmark": 103562.79
+     "strategy": 106185.36,
+     "benchmark": 103449.12
     },
     {
      "t": "82",
-     "strategy": 106644.92,
-     "benchmark": 103559.19
+     "strategy": 106404.9,
+     "benchmark": 103394.16
     },
     {
      "t": "83",
-     "strategy": 106376.14,
-     "benchmark": 103566.16
+     "strategy": 106136.28,
+     "benchmark": 103336.42
     },
     {
      "t": "84",
-     "strategy": 106469.3,
-     "benchmark": 103524.45
+     "strategy": 106288.62,
+     "benchmark": 103220.31
     },
     {
      "t": "85",
-     "strategy": 106602.0,
-     "benchmark": 103338.1
+     "strategy": 105906.31,
+     "benchmark": 102865.51
     },
     {
      "t": "86",
-     "strategy": 106822.56,
-     "benchmark": 103379.62
+     "strategy": 105984.12,
+     "benchmark": 102659.19
     },
     {
      "t": "87",
-     "strategy": 106957.11,
-     "benchmark": 103705.48
+     "strategy": 106091.89,
+     "benchmark": 102886.43
     },
     {
      "t": "88",
-     "strategy": 106830.39,
-     "benchmark": 103877.56
+     "strategy": 106131.71,
+     "benchmark": 103193.72
     },
     {
      "t": "89",
-     "strategy": 106868.35,
-     "benchmark": 103972.72
+     "strategy": 106231.87,
+     "benchmark": 103357.76
     },
     {
      "t": "90",
-     "strategy": 106756.79,
-     "benchmark": 103563.65
+     "strategy": 106342.83,
+     "benchmark": 102936.62
     },
     {
      "t": "91",
-     "strategy": 106958.16,
-     "benchmark": 103858.06
+     "strategy": 106208.06,
+     "benchmark": 102958.25
     },
     {
      "t": "92",
-     "strategy": 106909.35,
-     "benchmark": 103620.18
+     "strategy": 106189.73,
+     "benchmark": 102851.11
     },
     {
      "t": "93",
-     "strategy": 106661.17,
-     "benchmark": 103558.22
+     "strategy": 106193.82,
+     "benchmark": 102998.08
     },
     {
      "t": "94",
-     "strategy": 106573.8,
-     "benchmark": 103382.13
+     "strategy": 106198.58,
+     "benchmark": 102913.91
     },
     {
      "t": "95",
-     "strategy": 106678.6,
-     "benchmark": 103420.49
+     "strategy": 106481.72,
+     "benchmark": 102980.58
     },
     {
      "t": "96",
-     "strategy": 107156.61,
-     "benchmark": 103761.58
+     "strategy": 106749.23,
+     "benchmark": 103218.23
     },
     {
      "t": "97",
-     "strategy": 107266.9,
-     "benchmark": 103838.11
+     "strategy": 107058.26,
+     "benchmark": 103538.06
     },
     {
      "t": "98",
-     "strategy": 107791.1,
-     "benchmark": 103886.72
+     "strategy": 107453.51,
+     "benchmark": 103542.48
     },
     {
      "t": "99",
-     "strategy": 107627.84,
-     "benchmark": 103825.58
+     "strategy": 107250.25,
+     "benchmark": 103307.94
     },
     {
      "t": "100",
-     "strategy": 107472.06,
-     "benchmark": 103820.06
+     "strategy": 107081.74,
+     "benchmark": 103292.17
     },
     {
      "t": "101",
-     "strategy": 107527.81,
-     "benchmark": 103815.99
+     "strategy": 107067.53,
+     "benchmark": 103447.06
     },
     {
      "t": "102",
-     "strategy": 107624.94,
-     "benchmark": 103958.91
+     "strategy": 106960.06,
+     "benchmark": 103273.62
     },
     {
      "t": "103",
-     "strategy": 107812.61,
-     "benchmark": 104070.4
+     "strategy": 107362.96,
+     "benchmark": 103391.81
     },
     {
      "t": "104",
-     "strategy": 107961.44,
-     "benchmark": 104014.01
+     "strategy": 107313.45,
+     "benchmark": 103324.28
     },
     {
      "t": "105",
-     "strategy": 107618.01,
-     "benchmark": 103716.79
+     "strategy": 106874.55,
+     "benchmark": 102865.97
     },
     {
      "t": "106",
-     "strategy": 107709.7,
-     "benchmark": 103738.7
+     "strategy": 106962.22,
+     "benchmark": 103050.22
     },
     {
      "t": "107",
-     "strategy": 107723.57,
-     "benchmark": 103952.65
+     "strategy": 107068.72,
+     "benchmark": 103287.16
     },
     {
      "t": "108",
-     "strategy": 108204.04,
-     "benchmark": 104148.31
+     "strategy": 107434.89,
+     "benchmark": 103469.21
     },
     {
      "t": "109",
-     "strategy": 108325.52,
-     "benchmark": 104198.26
+     "strategy": 107405.12,
+     "benchmark": 103339.42
     },
     {
      "t": "110",
-     "strategy": 108249.13,
-     "benchmark": 103791.41
+     "strategy": 107405.58,
+     "benchmark": 103138.05
     },
     {
      "t": "111",
-     "strategy": 108552.43,
-     "benchmark": 103767.78
+     "strategy": 107858.15,
+     "benchmark": 103385.2
     },
     {
      "t": "112",
-     "strategy": 108750.59,
-     "benchmark": 103943.24
+     "strategy": 108195.79,
+     "benchmark": 103487.83
     },
     {
      "t": "113",
-     "strategy": 109028.96,
-     "benchmark": 104255.17
+     "strategy": 108367.95,
+     "benchmark": 103738.09
     },
     {
      "t": "114",
-     "strategy": 108916.17,
-     "benchmark": 104355.69
+     "strategy": 108257.99,
+     "benchmark": 103663.91
     },
     {
      "t": "115",
-     "strategy": 108971.95,
-     "benchmark": 104243.44
+     "strategy": 108173.4,
+     "benchmark": 103594.49
     },
     {
      "t": "116",
-     "strategy": 108904.94,
-     "benchmark": 104396.68
+     "strategy": 108261.28,
+     "benchmark": 103785.66
     },
     {
      "t": "117",
-     "strategy": 108961.7,
-     "benchmark": 104506.06
+     "strategy": 108540.52,
+     "benchmark": 103960.97
     },
     {
      "t": "118",
-     "strategy": 109141.14,
-     "benchmark": 104752.39
+     "strategy": 108425.8,
+     "benchmark": 104148.63
     },
     {
      "t": "119",
-     "strategy": 109167.95,
-     "benchmark": 104796.23
+     "strategy": 108349.89,
+     "benchmark": 104056.17
     },
     {
      "t": "120",
-     "strategy": 108831.69,
-     "benchmark": 104504.75
+     "strategy": 108338.87,
+     "benchmark": 103968.51
     },
     {
      "t": "121",
-     "strategy": 109098.72,
-     "benchmark": 104839.67
+     "strategy": 108602.17,
+     "benchmark": 104272.67
     },
     {
      "t": "122",
-     "strategy": 109243.7,
-     "benchmark": 105095.46
+     "strategy": 109000.26,
+     "benchmark": 104528.3
     },
     {
      "t": "123",
-     "strategy": 109613.73,
-     "benchmark": 105460.93
+     "strategy": 109456.84,
+     "benchmark": 104974.37
     },
     {
      "t": "124",
-     "strategy": 109834.23,
-     "benchmark": 105315.27
+     "strategy": 109700.28,
+     "benchmark": 105111.9
     },
     {
      "t": "125",
-     "strategy": 109727.68,
-     "benchmark": 105336.52
+     "strategy": 109384.59,
+     "benchmark": 105298.27
     },
     {
      "t": "126",
-     "strategy": 109402.63,
-     "benchmark": 105420.75
+     "strategy": 109372.56,
+     "benchmark": 105383.21
     }
    ],
    "pct_positive": 64.5,
-   "n_positive": 20,
-   "gain_loss": {
-    "avg_gain_pct": 20.08,
-    "avg_loss_pct": -8.87,
-    "max_gain_pct": 64.78,
-    "max_loss_pct": -31.15,
-    "n_gain": 20,
-    "n_loss": 11,
-    "basis": "episodes"
-   }
+   "n_positive": 20
   },
   "expression_count": 3,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will AI create more jobs?",
+  "plain_one_liner": "Will AI create more jobs than it destroys by 2027?",
   "plain_summary": "As AI spreads, India's big IT & software companies get more work \u2014 and their shares tend to rise.",
-  "short_title": "Will AI create more jobs?",
+  "short_title": "Will AI create more jobs than it destroys by 2027?",
   "stance": {
    "yes": {
     "verdict": "Own the AI/IT winners",
@@ -700,27 +691,17 @@
    }
   },
   "best_episode_pct": 64.8,
-  "best_episode_label": "6-mo window ended Nov 2020",
-  "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1975,
-  "forward_expected_net_pct": 0.6,
-  "forward_band_pct": {
-   "p25": -9.6,
-   "p50": 0.6,
-   "p75": 10.8,
-   "p05": -24.2
-  },
-  "forward_p_source": "assumed even odds \u2014 no liquid market for this outcome (stated)"
+  "best_episode_label": "Window 20"
  },
  {
   "id": "ai_search",
   "view_type": "relative",
-  "title": "Will AI replace search engines?",
+  "title": "Will AI replace traditional search engines?",
   "thesis": "Newer, faster-moving Indian tech firms may do better than the giant established ones as AI reshapes the industry.",
   "category": "AI \u00b7 Relative",
   "time_horizon": "Over 6 months",
   "status": "open",
-  "resolution_date": "2026-12-31T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -737,9 +718,9 @@
    "expression_kind": "basket",
    "grade": null,
    "trust_verdict": "unproven",
-   "total_return_pct": 17.91,
+   "total_return_pct": 17.95,
    "excess_return_pct": 12.41,
-   "plain_label": "Small & Nimble duo",
+   "plain_label": "Own the 2 nimble AI-adopter firms",
    "nifty_total_pct": 5.71,
    "n_episodes": 31,
    "pct_episodes_beat": 66,
@@ -752,655 +733,646 @@
     },
     {
      "t": "1",
-     "strategy": 100254.72,
-     "benchmark": 100304.23
+     "strategy": 99861.01,
+     "benchmark": 100097.58
     },
     {
      "t": "2",
-     "strategy": 100505.35,
-     "benchmark": 100493.83
+     "strategy": 99839.83,
+     "benchmark": 100173.94
     },
     {
      "t": "3",
-     "strategy": 100918.33,
-     "benchmark": 100933.07
+     "strategy": 99942.83,
+     "benchmark": 100383.75
     },
     {
      "t": "4",
-     "strategy": 100551.06,
-     "benchmark": 100979.95
+     "strategy": 99669.04,
+     "benchmark": 100503.48
     },
     {
      "t": "5",
-     "strategy": 100729.71,
-     "benchmark": 101047.36
+     "strategy": 100029.06,
+     "benchmark": 100617.82
     },
     {
      "t": "6",
-     "strategy": 100803.31,
-     "benchmark": 100974.23
+     "strategy": 100149.98,
+     "benchmark": 100549.88
     },
     {
      "t": "7",
-     "strategy": 100972.35,
-     "benchmark": 100884.05
+     "strategy": 100182.72,
+     "benchmark": 100575.22
     },
     {
      "t": "8",
-     "strategy": 101280.05,
-     "benchmark": 101068.03
+     "strategy": 100331.74,
+     "benchmark": 100726.83
     },
     {
      "t": "9",
-     "strategy": 101093.26,
-     "benchmark": 101005.73
+     "strategy": 100245.2,
+     "benchmark": 100674.87
     },
     {
      "t": "10",
-     "strategy": 101303.6,
-     "benchmark": 100806.64
+     "strategy": 100157.72,
+     "benchmark": 100410.42
     },
     {
      "t": "11",
-     "strategy": 100927.08,
-     "benchmark": 100713.8
+     "strategy": 99832.76,
+     "benchmark": 100205.56
     },
     {
      "t": "12",
-     "strategy": 100657.07,
-     "benchmark": 100657.92
+     "strategy": 99768.36,
+     "benchmark": 100258.15
     },
     {
      "t": "13",
-     "strategy": 100739.07,
-     "benchmark": 100753.07
+     "strategy": 100324.86,
+     "benchmark": 100386.02
     },
     {
      "t": "14",
-     "strategy": 100802.9,
-     "benchmark": 100445.03
+     "strategy": 100285.39,
+     "benchmark": 100293.42
     },
     {
      "t": "15",
-     "strategy": 101267.17,
-     "benchmark": 100636.81
+     "strategy": 100734.52,
+     "benchmark": 100587.09
     },
     {
      "t": "16",
-     "strategy": 101240.4,
-     "benchmark": 101020.09
+     "strategy": 100806.15,
+     "benchmark": 100736.62
     },
     {
      "t": "17",
-     "strategy": 101059.14,
-     "benchmark": 101113.45
+     "strategy": 100625.39,
+     "benchmark": 100705.48
     },
     {
      "t": "18",
-     "strategy": 101328.41,
-     "benchmark": 101100.76
+     "strategy": 101128.65,
+     "benchmark": 100834.97
     },
     {
      "t": "19",
-     "strategy": 101796.09,
-     "benchmark": 101456.24
+     "strategy": 101705.09,
+     "benchmark": 101241.78
     },
     {
      "t": "20",
-     "strategy": 101648.84,
-     "benchmark": 101388.39
+     "strategy": 101324.03,
+     "benchmark": 101145.8
     },
     {
      "t": "21",
-     "strategy": 101761.88,
-     "benchmark": 101331.11
+     "strategy": 101390.98,
+     "benchmark": 101023.04
     },
     {
      "t": "22",
-     "strategy": 102585.06,
-     "benchmark": 101536.2
+     "strategy": 102261.77,
+     "benchmark": 101194.02
     },
     {
      "t": "23",
-     "strategy": 103223.56,
-     "benchmark": 101519.52
+     "strategy": 102897.18,
+     "benchmark": 101171.05
     },
     {
      "t": "24",
-     "strategy": 103489.99,
-     "benchmark": 101534.27
+     "strategy": 103072.68,
+     "benchmark": 101304.24
     },
     {
      "t": "25",
-     "strategy": 103798.03,
-     "benchmark": 101915.07
+     "strategy": 103662.02,
+     "benchmark": 101906.89
     },
     {
      "t": "26",
-     "strategy": 103827.78,
-     "benchmark": 102399.46
+     "strategy": 103812.42,
+     "benchmark": 102021.06
     },
     {
      "t": "27",
-     "strategy": 103902.12,
-     "benchmark": 102437.15
+     "strategy": 103632.58,
+     "benchmark": 101976.96
     },
     {
      "t": "28",
-     "strategy": 104276.33,
-     "benchmark": 102720.39
+     "strategy": 103931.91,
+     "benchmark": 102312.7
     },
     {
      "t": "29",
-     "strategy": 104545.71,
-     "benchmark": 103051.51
+     "strategy": 104129.66,
+     "benchmark": 102490.24
     },
     {
      "t": "30",
-     "strategy": 104063.2,
-     "benchmark": 102986.38
+     "strategy": 103847.38,
+     "benchmark": 102430.66
     },
     {
      "t": "31",
-     "strategy": 104407.95,
-     "benchmark": 102968.54
+     "strategy": 104103.41,
+     "benchmark": 102447.93
     },
     {
      "t": "32",
-     "strategy": 104444.48,
-     "benchmark": 103019.63
+     "strategy": 103891.13,
+     "benchmark": 102488.56
     },
     {
      "t": "33",
-     "strategy": 105001.17,
-     "benchmark": 103154.33
+     "strategy": 104567.41,
+     "benchmark": 102862.76
     },
     {
      "t": "34",
-     "strategy": 105320.73,
-     "benchmark": 103094.8
+     "strategy": 104692.94,
+     "benchmark": 102723.96
     },
     {
      "t": "35",
-     "strategy": 105959.08,
-     "benchmark": 103250.05
+     "strategy": 105367.95,
+     "benchmark": 102609.72
     },
     {
      "t": "36",
-     "strategy": 106321.66,
-     "benchmark": 103130.8
+     "strategy": 105509.96,
+     "benchmark": 102617.65
     },
     {
      "t": "37",
-     "strategy": 106456.3,
-     "benchmark": 102957.61
+     "strategy": 105878.36,
+     "benchmark": 102466.66
     },
     {
      "t": "38",
-     "strategy": 106425.29,
-     "benchmark": 102929.98
+     "strategy": 105619.14,
+     "benchmark": 102284.05
     },
     {
      "t": "39",
-     "strategy": 106387.67,
-     "benchmark": 102979.37
+     "strategy": 105305.84,
+     "benchmark": 102133.67
     },
     {
      "t": "40",
-     "strategy": 106198.88,
-     "benchmark": 103050.77
+     "strategy": 105395.22,
+     "benchmark": 102140.48
     },
     {
      "t": "41",
-     "strategy": 106192.49,
-     "benchmark": 102902.77
+     "strategy": 105429.73,
+     "benchmark": 102095.08
     },
     {
      "t": "42",
-     "strategy": 106719.92,
-     "benchmark": 102811.28
+     "strategy": 106207.9,
+     "benchmark": 102084.53
     },
     {
      "t": "43",
-     "strategy": 107254.83,
-     "benchmark": 102771.64
+     "strategy": 106475.51,
+     "benchmark": 101988.78
     },
     {
      "t": "44",
-     "strategy": 107599.32,
-     "benchmark": 102603.75
+     "strategy": 106937.18,
+     "benchmark": 102063.38
     },
     {
      "t": "45",
-     "strategy": 107746.26,
-     "benchmark": 102544.3
+     "strategy": 106996.56,
+     "benchmark": 102103.59
     },
     {
      "t": "46",
-     "strategy": 107446.29,
-     "benchmark": 102483.86
+     "strategy": 106818.92,
+     "benchmark": 101966.68
     },
     {
      "t": "47",
-     "strategy": 107504.89,
-     "benchmark": 102659.58
+     "strategy": 106819.93,
+     "benchmark": 101874.6
     },
     {
      "t": "48",
-     "strategy": 107726.75,
-     "benchmark": 102803.55
+     "strategy": 106900.29,
+     "benchmark": 101998.53
     },
     {
      "t": "49",
-     "strategy": 107318.63,
-     "benchmark": 103059.56
+     "strategy": 106633.04,
+     "benchmark": 102138.45
     },
     {
      "t": "50",
-     "strategy": 107846.15,
-     "benchmark": 103272.79
+     "strategy": 106905.88,
+     "benchmark": 102424.23
     },
     {
      "t": "51",
-     "strategy": 107747.87,
-     "benchmark": 103341.29
+     "strategy": 107112.05,
+     "benchmark": 102585.12
     },
     {
      "t": "52",
-     "strategy": 107781.53,
-     "benchmark": 103394.01
+     "strategy": 107068.53,
+     "benchmark": 102650.18
     },
     {
      "t": "53",
-     "strategy": 108252.49,
-     "benchmark": 103400.96
+     "strategy": 107410.65,
+     "benchmark": 102602.5
     },
     {
      "t": "54",
-     "strategy": 108099.6,
-     "benchmark": 103340.09
+     "strategy": 107237.57,
+     "benchmark": 102629.9
     },
     {
      "t": "55",
-     "strategy": 107805.66,
-     "benchmark": 103217.5
+     "strategy": 107031.52,
+     "benchmark": 102622.91
     },
     {
      "t": "56",
-     "strategy": 108327.69,
-     "benchmark": 103274.28
+     "strategy": 107237.97,
+     "benchmark": 102661.02
     },
     {
      "t": "57",
-     "strategy": 108040.13,
-     "benchmark": 102888.91
+     "strategy": 107233.43,
+     "benchmark": 102421.0
     },
     {
      "t": "58",
-     "strategy": 108455.88,
-     "benchmark": 102877.56
+     "strategy": 107388.14,
+     "benchmark": 102673.5
     },
     {
      "t": "59",
-     "strategy": 108694.4,
-     "benchmark": 102943.72
+     "strategy": 108030.43,
+     "benchmark": 102812.71
     },
     {
      "t": "60",
-     "strategy": 108786.7,
-     "benchmark": 103223.1
+     "strategy": 108399.16,
+     "benchmark": 102989.38
     },
     {
      "t": "61",
-     "strategy": 109389.8,
-     "benchmark": 103271.32
+     "strategy": 109050.52,
+     "benchmark": 102986.6
     },
     {
      "t": "62",
-     "strategy": 109556.71,
-     "benchmark": 103335.66
+     "strategy": 108578.0,
+     "benchmark": 102870.46
     },
     {
      "t": "63",
-     "strategy": 109359.12,
-     "benchmark": 103458.93
+     "strategy": 108757.13,
+     "benchmark": 102784.05
     },
     {
      "t": "64",
-     "strategy": 109373.43,
-     "benchmark": 103478.44
+     "strategy": 108499.14,
+     "benchmark": 103027.33
     },
     {
      "t": "65",
-     "strategy": 109525.56,
-     "benchmark": 103876.17
+     "strategy": 108769.11,
+     "benchmark": 103140.71
     },
     {
      "t": "66",
-     "strategy": 109513.46,
-     "benchmark": 103770.32
+     "strategy": 108527.0,
+     "benchmark": 102955.93
     },
     {
      "t": "67",
-     "strategy": 109732.79,
-     "benchmark": 103466.16
+     "strategy": 108745.28,
+     "benchmark": 102741.57
     },
     {
      "t": "68",
-     "strategy": 109979.69,
-     "benchmark": 103483.88
+     "strategy": 109302.94,
+     "benchmark": 102918.06
     },
     {
      "t": "69",
-     "strategy": 109990.53,
-     "benchmark": 103758.6
+     "strategy": 109190.15,
+     "benchmark": 103195.91
     },
     {
      "t": "70",
-     "strategy": 109928.1,
-     "benchmark": 103851.74
+     "strategy": 109049.17,
+     "benchmark": 103261.54
     },
     {
      "t": "71",
-     "strategy": 109923.96,
-     "benchmark": 103789.33
+     "strategy": 109239.09,
+     "benchmark": 103061.98
     },
     {
      "t": "72",
-     "strategy": 109899.73,
-     "benchmark": 103433.75
+     "strategy": 109288.78,
+     "benchmark": 102832.67
     },
     {
      "t": "73",
-     "strategy": 109534.38,
-     "benchmark": 103031.6
+     "strategy": 109463.5,
+     "benchmark": 102727.07
     },
     {
      "t": "74",
-     "strategy": 110148.73,
-     "benchmark": 103228.4
+     "strategy": 109705.48,
+     "benchmark": 102840.44
     },
     {
      "t": "75",
-     "strategy": 110359.27,
-     "benchmark": 103442.31
+     "strategy": 109884.16,
+     "benchmark": 103089.58
     },
     {
      "t": "76",
-     "strategy": 110120.92,
-     "benchmark": 103491.15
+     "strategy": 109913.54,
+     "benchmark": 103276.81
     },
     {
      "t": "77",
-     "strategy": 110349.05,
-     "benchmark": 103576.0
+     "strategy": 110178.32,
+     "benchmark": 103382.16
     },
     {
      "t": "78",
-     "strategy": 111168.64,
-     "benchmark": 103362.74
+     "strategy": 110660.26,
+     "benchmark": 103247.91
     },
     {
      "t": "79",
-     "strategy": 111173.73,
-     "benchmark": 103512.65
+     "strategy": 110619.46,
+     "benchmark": 103405.25
     },
     {
      "t": "80",
-     "strategy": 111328.63,
-     "benchmark": 103488.5
+     "strategy": 110815.36,
+     "benchmark": 103272.13
     },
     {
      "t": "81",
-     "strategy": 111901.79,
-     "benchmark": 103562.79
+     "strategy": 111378.34,
+     "benchmark": 103449.12
     },
     {
      "t": "82",
-     "strategy": 112104.67,
-     "benchmark": 103559.19
+     "strategy": 111459.28,
+     "benchmark": 103394.16
     },
     {
      "t": "83",
-     "strategy": 111159.09,
-     "benchmark": 103566.16
+     "strategy": 111013.29,
+     "benchmark": 103336.42
     },
     {
      "t": "84",
-     "strategy": 111265.51,
-     "benchmark": 103524.45
+     "strategy": 111020.0,
+     "benchmark": 103220.31
     },
     {
      "t": "85",
-     "strategy": 111269.75,
-     "benchmark": 103338.1
+     "strategy": 110785.19,
+     "benchmark": 102865.51
     },
     {
      "t": "86",
-     "strategy": 112059.8,
-     "benchmark": 103379.62
+     "strategy": 111482.16,
+     "benchmark": 102659.19
     },
     {
      "t": "87",
-     "strategy": 112795.94,
-     "benchmark": 103705.48
+     "strategy": 112304.78,
+     "benchmark": 102886.43
     },
     {
      "t": "88",
-     "strategy": 113393.31,
-     "benchmark": 103877.56
+     "strategy": 112903.81,
+     "benchmark": 103193.72
     },
     {
      "t": "89",
-     "strategy": 113513.35,
-     "benchmark": 103972.72
+     "strategy": 112962.56,
+     "benchmark": 103357.76
     },
     {
      "t": "90",
-     "strategy": 113335.23,
-     "benchmark": 103563.65
+     "strategy": 113097.51,
+     "benchmark": 102936.62
     },
     {
      "t": "91",
-     "strategy": 113009.16,
-     "benchmark": 103858.06
+     "strategy": 112323.95,
+     "benchmark": 102958.25
     },
     {
      "t": "92",
-     "strategy": 112776.31,
-     "benchmark": 103620.18
+     "strategy": 112197.68,
+     "benchmark": 102851.11
     },
     {
      "t": "93",
-     "strategy": 112232.07,
-     "benchmark": 103558.22
+     "strategy": 111840.5,
+     "benchmark": 102998.08
     },
     {
      "t": "94",
-     "strategy": 112349.48,
-     "benchmark": 103382.13
+     "strategy": 112082.07,
+     "benchmark": 102913.91
     },
     {
      "t": "95",
-     "strategy": 112709.95,
-     "benchmark": 103420.49
+     "strategy": 112168.02,
+     "benchmark": 102980.58
     },
     {
      "t": "96",
-     "strategy": 112923.42,
-     "benchmark": 103761.58
+     "strategy": 112248.5,
+     "benchmark": 103218.23
     },
     {
      "t": "97",
-     "strategy": 113679.73,
-     "benchmark": 103838.11
+     "strategy": 113241.07,
+     "benchmark": 103538.06
     },
     {
      "t": "98",
-     "strategy": 114548.68,
-     "benchmark": 103886.72
+     "strategy": 113971.92,
+     "benchmark": 103542.48
     },
     {
      "t": "99",
-     "strategy": 114358.91,
-     "benchmark": 103825.58
+     "strategy": 113503.64,
+     "benchmark": 103307.94
     },
     {
      "t": "100",
-     "strategy": 113750.68,
-     "benchmark": 103820.06
+     "strategy": 112725.37,
+     "benchmark": 103292.17
     },
     {
      "t": "101",
-     "strategy": 113372.91,
-     "benchmark": 103815.99
+     "strategy": 112588.72,
+     "benchmark": 103447.06
     },
     {
      "t": "102",
-     "strategy": 113239.35,
-     "benchmark": 103958.91
+     "strategy": 112533.67,
+     "benchmark": 103273.62
     },
     {
      "t": "103",
-     "strategy": 113103.72,
-     "benchmark": 104070.4
+     "strategy": 112516.56,
+     "benchmark": 103391.81
     },
     {
      "t": "104",
-     "strategy": 113460.83,
-     "benchmark": 104014.01
+     "strategy": 112834.47,
+     "benchmark": 103324.28
     },
     {
      "t": "105",
-     "strategy": 113352.49,
-     "benchmark": 103716.79
+     "strategy": 112548.6,
+     "benchmark": 102865.97
     },
     {
      "t": "106",
-     "strategy": 113311.97,
-     "benchmark": 103738.7
+     "strategy": 112655.25,
+     "benchmark": 103050.22
     },
     {
      "t": "107",
-     "strategy": 113555.85,
-     "benchmark": 103952.65
+     "strategy": 112832.94,
+     "benchmark": 103287.16
     },
     {
      "t": "108",
-     "strategy": 114342.2,
-     "benchmark": 104148.31
+     "strategy": 113334.75,
+     "benchmark": 103469.21
     },
     {
      "t": "109",
-     "strategy": 114022.51,
-     "benchmark": 104198.26
+     "strategy": 113094.18,
+     "benchmark": 103339.42
     },
     {
      "t": "110",
-     "strategy": 114219.09,
-     "benchmark": 103791.41
+     "strategy": 113245.21,
+     "benchmark": 103138.05
     },
     {
      "t": "111",
-     "strategy": 114768.18,
-     "benchmark": 103767.78
+     "strategy": 113916.42,
+     "benchmark": 103385.2
     },
     {
      "t": "112",
-     "strategy": 115220.74,
-     "benchmark": 103943.24
+     "strategy": 114261.63,
+     "benchmark": 103487.83
     },
     {
      "t": "113",
-     "strategy": 115496.03,
-     "benchmark": 104255.17
+     "strategy": 114636.11,
+     "benchmark": 103738.09
     },
     {
      "t": "114",
-     "strategy": 115441.31,
-     "benchmark": 104355.69
+     "strategy": 114489.48,
+     "benchmark": 103663.91
     },
     {
      "t": "115",
-     "strategy": 115099.54,
-     "benchmark": 104243.44
+     "strategy": 114119.59,
+     "benchmark": 103594.49
     },
     {
      "t": "116",
-     "strategy": 114811.39,
-     "benchmark": 104396.68
+     "strategy": 114227.53,
+     "benchmark": 103785.66
     },
     {
      "t": "117",
-     "strategy": 115873.18,
-     "benchmark": 104506.06
+     "strategy": 115340.28,
+     "benchmark": 103960.97
     },
     {
      "t": "118",
-     "strategy": 116197.47,
-     "benchmark": 104752.39
+     "strategy": 115439.56,
+     "benchmark": 104148.63
     },
     {
      "t": "119",
-     "strategy": 116017.26,
-     "benchmark": 104796.23
+     "strategy": 115255.3,
+     "benchmark": 104056.17
     },
     {
      "t": "120",
-     "strategy": 115985.56,
-     "benchmark": 104504.75
+     "strategy": 115675.29,
+     "benchmark": 103968.51
     },
     {
      "t": "121",
-     "strategy": 116652.5,
-     "benchmark": 104839.67
+     "strategy": 115987.63,
+     "benchmark": 104272.67
     },
     {
      "t": "122",
-     "strategy": 116931.59,
-     "benchmark": 105095.46
+     "strategy": 116479.11,
+     "benchmark": 104528.3
     },
     {
      "t": "123",
-     "strategy": 117456.22,
-     "benchmark": 105460.93
+     "strategy": 117241.89,
+     "benchmark": 104974.37
     },
     {
      "t": "124",
-     "strategy": 117770.38,
-     "benchmark": 105315.27
+     "strategy": 117592.53,
+     "benchmark": 105111.9
     },
     {
      "t": "125",
-     "strategy": 118001.11,
-     "benchmark": 105336.52
+     "strategy": 117388.17,
+     "benchmark": 105298.27
     },
     {
      "t": "126",
-     "strategy": 117479.64,
-     "benchmark": 105420.75
+     "strategy": 117517.84,
+     "benchmark": 105383.21
     }
    ],
    "pct_positive": 67.7,
-   "n_positive": 21,
-   "gain_loss": {
-    "avg_gain_pct": 31.5,
-    "avg_loss_pct": -10.62,
-    "max_gain_pct": 95.36,
-    "max_loss_pct": -23.81,
-    "n_gain": 21,
-    "n_loss": 10,
-    "basis": "episodes"
-   }
+   "n_positive": 21
   },
   "expression_count": 3,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will AI replace search engines?",
+  "plain_one_liner": "Will AI replace traditional search engines?",
   "plain_summary": "Newer, faster-moving Indian tech firms may do better than the giant established ones as AI reshapes the industry.",
-  "short_title": "Will AI replace search engines?",
+  "short_title": "Will AI replace traditional search engines?",
   "stance": {
    "yes": {
     "verdict": "Back the nimble adopters",
@@ -1412,28 +1384,18 @@
     "summary": "If disruption takes longer than expected, the large legacy IT firms keep their scale advantage \u2014 own them instead."
    }
   },
-  "best_episode_pct": 95.4,
-  "best_episode_label": "6-mo window ended Nov 2020",
-  "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1975,
-  "forward_expected_net_pct": 0.7,
-  "forward_band_pct": {
-   "p25": -14.5,
-   "p50": 0.7,
-   "p75": 15.9,
-   "p05": -36.4
-  },
-  "forward_p_source": "assumed even odds \u2014 no liquid market for this outcome (stated)"
+  "best_episode_pct": 95.5,
+  "best_episode_label": "Window 20"
  },
  {
   "id": "nuclear",
   "view_type": "theme",
-  "title": "Will nuclear energy make a comeback?",
+  "title": "Will nuclear energy make a major comeback before 2027?",
   "thesis": "India's power-building boom lifts big power and engineering firms (nuclear pure-plays aren't listed here).",
   "category": "Energy \u00b7 Theme",
   "time_horizon": "Over 6 months",
   "status": "open",
-  "resolution_date": "2026-12-31T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -1450,13 +1412,13 @@
    "expression_kind": "basket",
    "grade": null,
    "trust_verdict": "unproven",
-   "total_return_pct": 8.85,
+   "total_return_pct": 8.74,
    "excess_return_pct": 3.39,
-   "plain_label": "Slow & Steady power bundle",
+   "plain_label": "Own a bundle of 9 power & engineering firms",
    "nifty_total_pct": 5.71,
    "n_episodes": 32,
    "pct_episodes_beat": 56,
-   "worst_drop_pct": -31.8,
+   "worst_drop_pct": -31.5,
    "equity_curve": [
     {
      "t": "0",
@@ -1465,655 +1427,646 @@
     },
     {
      "t": "1",
-     "strategy": 99832.16,
-     "benchmark": 100324.49
+     "strategy": 99681.02,
+     "benchmark": 100080.81
     },
     {
      "t": "2",
-     "strategy": 99714.14,
-     "benchmark": 100189.65
+     "strategy": 99582.89,
+     "benchmark": 100163.78
     },
     {
      "t": "3",
-     "strategy": 99790.57,
-     "benchmark": 100230.65
+     "strategy": 99895.26,
+     "benchmark": 100377.49
     },
     {
      "t": "4",
-     "strategy": 99747.81,
-     "benchmark": 100289.81
+     "strategy": 99844.59,
+     "benchmark": 100495.68
     },
     {
      "t": "5",
-     "strategy": 100082.65,
-     "benchmark": 100577.91
+     "strategy": 99732.78,
+     "benchmark": 100601.5
     },
     {
      "t": "6",
-     "strategy": 99943.14,
-     "benchmark": 100798.33
+     "strategy": 99866.47,
+     "benchmark": 100577.89
     },
     {
      "t": "7",
-     "strategy": 100572.54,
-     "benchmark": 101280.98
+     "strategy": 100100.87,
+     "benchmark": 100623.05
     },
     {
      "t": "8",
-     "strategy": 100564.43,
-     "benchmark": 101376.42
+     "strategy": 100453.64,
+     "benchmark": 100778.46
     },
     {
      "t": "9",
-     "strategy": 100458.23,
-     "benchmark": 101435.61
+     "strategy": 100270.55,
+     "benchmark": 100738.43
     },
     {
      "t": "10",
-     "strategy": 100592.49,
-     "benchmark": 101367.12
+     "strategy": 99978.58,
+     "benchmark": 100447.11
     },
     {
      "t": "11",
-     "strategy": 100703.3,
-     "benchmark": 101297.25
+     "strategy": 99729.03,
+     "benchmark": 100260.92
     },
     {
      "t": "12",
-     "strategy": 101072.29,
-     "benchmark": 101460.83
+     "strategy": 99614.59,
+     "benchmark": 100333.27
     },
     {
      "t": "13",
-     "strategy": 100955.25,
-     "benchmark": 101415.87
+     "strategy": 99726.52,
+     "benchmark": 100470.32
     },
     {
      "t": "14",
-     "strategy": 100675.66,
-     "benchmark": 101237.5
+     "strategy": 99655.36,
+     "benchmark": 100393.33
     },
     {
      "t": "15",
-     "strategy": 100486.16,
-     "benchmark": 101144.05
+     "strategy": 99797.75,
+     "benchmark": 100653.18
     },
     {
      "t": "16",
-     "strategy": 100209.22,
-     "benchmark": 101087.05
+     "strategy": 100028.96,
+     "benchmark": 100789.9
     },
     {
      "t": "17",
-     "strategy": 100325.72,
-     "benchmark": 101224.35
+     "strategy": 100249.29,
+     "benchmark": 100784.98
     },
     {
      "t": "18",
-     "strategy": 100177.11,
-     "benchmark": 100939.07
+     "strategy": 100381.59,
+     "benchmark": 100957.93
     },
     {
      "t": "19",
-     "strategy": 100224.84,
-     "benchmark": 101093.62
+     "strategy": 100840.75,
+     "benchmark": 101350.56
     },
     {
      "t": "20",
-     "strategy": 100500.92,
-     "benchmark": 101480.29
+     "strategy": 100696.21,
+     "benchmark": 101262.85
     },
     {
      "t": "21",
-     "strategy": 100859.31,
-     "benchmark": 101594.58
+     "strategy": 100612.0,
+     "benchmark": 101101.12
     },
     {
      "t": "22",
-     "strategy": 100875.84,
-     "benchmark": 101573.57
+     "strategy": 100703.79,
+     "benchmark": 101301.71
     },
     {
      "t": "23",
-     "strategy": 101163.76,
-     "benchmark": 101947.04
+     "strategy": 100777.88,
+     "benchmark": 101266.0
     },
     {
      "t": "24",
-     "strategy": 101029.5,
-     "benchmark": 101931.72
+     "strategy": 100864.6,
+     "benchmark": 101384.82
     },
     {
      "t": "25",
-     "strategy": 101150.85,
-     "benchmark": 101883.42
+     "strategy": 101208.37,
+     "benchmark": 101938.54
     },
     {
      "t": "26",
-     "strategy": 101106.13,
-     "benchmark": 102021.41
+     "strategy": 101289.73,
+     "benchmark": 102042.43
     },
     {
      "t": "27",
-     "strategy": 101287.56,
-     "benchmark": 101954.67
+     "strategy": 101329.53,
+     "benchmark": 101963.76
     },
     {
      "t": "28",
-     "strategy": 101419.38,
-     "benchmark": 102087.99
+     "strategy": 101626.36,
+     "benchmark": 102305.14
     },
     {
      "t": "29",
-     "strategy": 101814.24,
-     "benchmark": 102546.58
+     "strategy": 102158.55,
+     "benchmark": 102486.15
     },
     {
      "t": "30",
-     "strategy": 101989.92,
-     "benchmark": 102925.17
+     "strategy": 102066.88,
+     "benchmark": 102443.34
     },
     {
      "t": "31",
-     "strategy": 102168.35,
-     "benchmark": 102963.9
+     "strategy": 101987.81,
+     "benchmark": 102481.27
     },
     {
      "t": "32",
-     "strategy": 102455.38,
-     "benchmark": 103231.74
+     "strategy": 102250.58,
+     "benchmark": 102531.83
     },
     {
      "t": "33",
-     "strategy": 103049.84,
-     "benchmark": 103589.3
+     "strategy": 102651.37,
+     "benchmark": 102885.73
     },
     {
      "t": "34",
-     "strategy": 103059.3,
-     "benchmark": 103493.05
+     "strategy": 102638.01,
+     "benchmark": 102694.61
     },
     {
      "t": "35",
-     "strategy": 102910.11,
-     "benchmark": 103440.1
+     "strategy": 102734.65,
+     "benchmark": 102607.54
     },
     {
      "t": "36",
-     "strategy": 102941.25,
-     "benchmark": 103404.04
+     "strategy": 102790.05,
+     "benchmark": 102629.77
     },
     {
      "t": "37",
-     "strategy": 103245.42,
-     "benchmark": 103574.32
+     "strategy": 102634.89,
+     "benchmark": 102449.81
     },
     {
      "t": "38",
-     "strategy": 103189.85,
-     "benchmark": 103525.75
+     "strategy": 102419.26,
+     "benchmark": 102227.62
     },
     {
      "t": "39",
-     "strategy": 103617.43,
-     "benchmark": 103677.98
+     "strategy": 102364.2,
+     "benchmark": 102067.54
     },
     {
      "t": "40",
-     "strategy": 103440.21,
-     "benchmark": 103527.01
+     "strategy": 102346.8,
+     "benchmark": 102053.38
     },
     {
      "t": "41",
-     "strategy": 103253.39,
-     "benchmark": 103383.51
+     "strategy": 102131.44,
+     "benchmark": 101964.99
     },
     {
      "t": "42",
-     "strategy": 103360.88,
-     "benchmark": 103443.47
+     "strategy": 102306.25,
+     "benchmark": 102061.84
     },
     {
      "t": "43",
-     "strategy": 103419.92,
-     "benchmark": 103457.71
+     "strategy": 102244.06,
+     "benchmark": 101934.04
     },
     {
      "t": "44",
-     "strategy": 103717.54,
-     "benchmark": 103501.78
+     "strategy": 102106.67,
+     "benchmark": 102018.81
     },
     {
      "t": "45",
-     "strategy": 103400.27,
-     "benchmark": 103337.24
+     "strategy": 102229.28,
+     "benchmark": 102071.34
     },
     {
      "t": "46",
-     "strategy": 103260.6,
-     "benchmark": 103229.61
+     "strategy": 102135.77,
+     "benchmark": 101886.62
     },
     {
      "t": "47",
-     "strategy": 103276.09,
-     "benchmark": 103168.64
+     "strategy": 102341.5,
+     "benchmark": 101776.92
     },
     {
      "t": "48",
-     "strategy": 103063.39,
-     "benchmark": 102966.62
+     "strategy": 102477.89,
+     "benchmark": 101900.83
     },
     {
      "t": "49",
-     "strategy": 103096.23,
-     "benchmark": 102934.6
+     "strategy": 102617.51,
+     "benchmark": 101946.99
     },
     {
      "t": "50",
-     "strategy": 103199.05,
-     "benchmark": 102873.57
+     "strategy": 103058.34,
+     "benchmark": 102240.9
     },
     {
      "t": "51",
-     "strategy": 103308.82,
-     "benchmark": 102938.72
+     "strategy": 103362.61,
+     "benchmark": 102386.72
     },
     {
      "t": "52",
-     "strategy": 103413.8,
-     "benchmark": 103104.81
+     "strategy": 103549.81,
+     "benchmark": 102457.55
     },
     {
      "t": "53",
-     "strategy": 103848.87,
-     "benchmark": 103476.1
+     "strategy": 103273.08,
+     "benchmark": 102327.69
     },
     {
      "t": "54",
-     "strategy": 104167.83,
-     "benchmark": 103595.42
+     "strategy": 103312.68,
+     "benchmark": 102421.72
     },
     {
      "t": "55",
-     "strategy": 104116.75,
-     "benchmark": 103671.37
+     "strategy": 103441.45,
+     "benchmark": 102467.21
     },
     {
      "t": "56",
-     "strategy": 104248.13,
-     "benchmark": 103795.75
+     "strategy": 103822.68,
+     "benchmark": 102542.82
     },
     {
      "t": "57",
-     "strategy": 104389.9,
-     "benchmark": 103834.61
+     "strategy": 103740.13,
+     "benchmark": 102322.35
     },
     {
      "t": "58",
-     "strategy": 104338.29,
-     "benchmark": 103745.77
+     "strategy": 103923.04,
+     "benchmark": 102496.16
     },
     {
      "t": "59",
-     "strategy": 104235.98,
-     "benchmark": 103519.15
+     "strategy": 104115.43,
+     "benchmark": 102661.29
     },
     {
      "t": "60",
-     "strategy": 104651.76,
-     "benchmark": 103473.39
+     "strategy": 104444.61,
+     "benchmark": 102887.73
     },
     {
      "t": "61",
-     "strategy": 104401.84,
-     "benchmark": 103136.78
+     "strategy": 104670.62,
+     "benchmark": 102900.29
     },
     {
      "t": "62",
-     "strategy": 104523.03,
-     "benchmark": 103153.98
+     "strategy": 104527.13,
+     "benchmark": 102725.87
     },
     {
      "t": "63",
-     "strategy": 104728.84,
-     "benchmark": 103346.95
+     "strategy": 104409.87,
+     "benchmark": 102613.56
     },
     {
      "t": "64",
-     "strategy": 104929.58,
-     "benchmark": 103424.24
+     "strategy": 104665.23,
+     "benchmark": 102857.29
     },
     {
      "t": "65",
-     "strategy": 105253.11,
-     "benchmark": 103434.6
+     "strategy": 104882.2,
+     "benchmark": 103014.88
     },
     {
      "t": "66",
-     "strategy": 105187.58,
-     "benchmark": 103647.41
+     "strategy": 104592.81,
+     "benchmark": 102860.72
     },
     {
      "t": "67",
-     "strategy": 105368.8,
-     "benchmark": 103867.31
+     "strategy": 104601.03,
+     "benchmark": 102700.84
     },
     {
      "t": "68",
-     "strategy": 105467.32,
-     "benchmark": 103893.42
+     "strategy": 104860.81,
+     "benchmark": 102886.85
     },
     {
      "t": "69",
-     "strategy": 105872.82,
-     "benchmark": 104219.01
+     "strategy": 105215.95,
+     "benchmark": 103162.73
     },
     {
      "t": "70",
-     "strategy": 105749.32,
-     "benchmark": 104227.99
+     "strategy": 105277.59,
+     "benchmark": 103251.62
     },
     {
      "t": "71",
-     "strategy": 105724.49,
-     "benchmark": 103946.52
+     "strategy": 105554.3,
+     "benchmark": 103050.82
     },
     {
      "t": "72",
-     "strategy": 105858.9,
-     "benchmark": 103906.43
+     "strategy": 105405.35,
+     "benchmark": 102883.99
     },
     {
      "t": "73",
-     "strategy": 105955.81,
-     "benchmark": 104110.67
+     "strategy": 105313.47,
+     "benchmark": 102759.28
     },
     {
      "t": "74",
-     "strategy": 106354.53,
-     "benchmark": 104179.38
+     "strategy": 105146.57,
+     "benchmark": 102873.14
     },
     {
      "t": "75",
-     "strategy": 106579.34,
-     "benchmark": 104144.24
+     "strategy": 105421.15,
+     "benchmark": 103112.93
     },
     {
      "t": "76",
-     "strategy": 106287.52,
-     "benchmark": 103820.74
+     "strategy": 105525.12,
+     "benchmark": 103262.87
     },
     {
      "t": "77",
-     "strategy": 106159.93,
-     "benchmark": 103468.59
+     "strategy": 105907.44,
+     "benchmark": 103404.23
     },
     {
      "t": "78",
-     "strategy": 105834.55,
-     "benchmark": 103710.87
+     "strategy": 105713.21,
+     "benchmark": 103227.01
     },
     {
      "t": "79",
-     "strategy": 106104.36,
-     "benchmark": 103908.55
+     "strategy": 105577.55,
+     "benchmark": 103413.8
     },
     {
      "t": "80",
-     "strategy": 106102.31,
-     "benchmark": 103912.7
+     "strategy": 105375.97,
+     "benchmark": 103247.57
     },
     {
      "t": "81",
-     "strategy": 106347.65,
-     "benchmark": 104010.19
+     "strategy": 105449.05,
+     "benchmark": 103410.32
     },
     {
      "t": "82",
-     "strategy": 106212.27,
-     "benchmark": 103837.8
+     "strategy": 105331.83,
+     "benchmark": 103356.34
     },
     {
      "t": "83",
-     "strategy": 106065.88,
-     "benchmark": 104060.25
+     "strategy": 105404.57,
+     "benchmark": 103332.82
     },
     {
      "t": "84",
-     "strategy": 105969.03,
-     "benchmark": 104009.3
+     "strategy": 105275.33,
+     "benchmark": 103191.09
     },
     {
      "t": "85",
-     "strategy": 105826.1,
-     "benchmark": 104078.53
+     "strategy": 105184.88,
+     "benchmark": 102881.38
     },
     {
      "t": "86",
-     "strategy": 105797.39,
-     "benchmark": 104048.81
+     "strategy": 104867.7,
+     "benchmark": 102715.42
     },
     {
      "t": "87",
-     "strategy": 105846.94,
-     "benchmark": 104057.26
+     "strategy": 104937.6,
+     "benchmark": 102954.19
     },
     {
      "t": "88",
-     "strategy": 105880.62,
-     "benchmark": 104044.2
+     "strategy": 105248.19,
+     "benchmark": 103262.63
     },
     {
      "t": "89",
-     "strategy": 105750.82,
-     "benchmark": 103829.62
+     "strategy": 105389.85,
+     "benchmark": 103412.7
     },
     {
      "t": "90",
-     "strategy": 105647.67,
-     "benchmark": 103910.83
+     "strategy": 105165.53,
+     "benchmark": 103000.21
     },
     {
      "t": "91",
-     "strategy": 105857.74,
-     "benchmark": 104134.62
+     "strategy": 105013.91,
+     "benchmark": 103030.41
     },
     {
      "t": "92",
-     "strategy": 105917.63,
-     "benchmark": 104246.34
+     "strategy": 104858.22,
+     "benchmark": 102922.07
     },
     {
      "t": "93",
-     "strategy": 105942.09,
-     "benchmark": 104305.47
+     "strategy": 105146.17,
+     "benchmark": 103053.2
     },
     {
      "t": "94",
-     "strategy": 105744.17,
-     "benchmark": 103988.03
+     "strategy": 104875.84,
+     "benchmark": 102990.78
     },
     {
      "t": "95",
-     "strategy": 106023.33,
-     "benchmark": 104330.88
+     "strategy": 104763.06,
+     "benchmark": 103081.34
     },
     {
      "t": "96",
-     "strategy": 105859.49,
-     "benchmark": 104128.63
+     "strategy": 105114.35,
+     "benchmark": 103315.93
     },
     {
      "t": "97",
-     "strategy": 105927.65,
-     "benchmark": 104074.46
+     "strategy": 105491.45,
+     "benchmark": 103607.17
     },
     {
      "t": "98",
-     "strategy": 105659.39,
-     "benchmark": 103926.84
+     "strategy": 105503.5,
+     "benchmark": 103618.77
     },
     {
      "t": "99",
-     "strategy": 105481.02,
-     "benchmark": 103983.69
+     "strategy": 105345.39,
+     "benchmark": 103371.4
     },
     {
      "t": "100",
-     "strategy": 105857.19,
-     "benchmark": 104309.06
+     "strategy": 105630.45,
+     "benchmark": 103363.04
     },
     {
      "t": "101",
-     "strategy": 106142.86,
-     "benchmark": 104383.15
+     "strategy": 105751.15,
+     "benchmark": 103487.91
     },
     {
      "t": "102",
-     "strategy": 106127.86,
-     "benchmark": 104479.23
+     "strategy": 105919.03,
+     "benchmark": 103358.94
     },
     {
      "t": "103",
-     "strategy": 106014.12,
-     "benchmark": 104390.95
+     "strategy": 105703.28,
+     "benchmark": 103478.26
     },
     {
      "t": "104",
-     "strategy": 106417.09,
-     "benchmark": 104326.91
+     "strategy": 105671.62,
+     "benchmark": 103430.1
     },
     {
      "t": "105",
-     "strategy": 106421.13,
-     "benchmark": 104360.97
+     "strategy": 105775.95,
+     "benchmark": 102973.45
     },
     {
      "t": "106",
-     "strategy": 106791.15,
-     "benchmark": 104481.12
+     "strategy": 106025.88,
+     "benchmark": 103147.16
     },
     {
      "t": "107",
-     "strategy": 106647.17,
-     "benchmark": 104574.65
+     "strategy": 106178.06,
+     "benchmark": 103405.3
     },
     {
      "t": "108",
-     "strategy": 106566.96,
-     "benchmark": 104558.76
+     "strategy": 106245.86,
+     "benchmark": 103566.14
     },
     {
      "t": "109",
-     "strategy": 106798.14,
-     "benchmark": 104287.09
+     "strategy": 106139.22,
+     "benchmark": 103415.95
     },
     {
      "t": "110",
-     "strategy": 106952.25,
-     "benchmark": 104282.38
+     "strategy": 106003.04,
+     "benchmark": 103218.35
     },
     {
      "t": "111",
-     "strategy": 107075.36,
-     "benchmark": 104502.82
+     "strategy": 106058.53,
+     "benchmark": 103479.51
     },
     {
      "t": "112",
-     "strategy": 107068.07,
-     "benchmark": 104638.12
+     "strategy": 106015.22,
+     "benchmark": 103558.32
     },
     {
      "t": "113",
-     "strategy": 107106.16,
-     "benchmark": 104750.51
+     "strategy": 106359.87,
+     "benchmark": 103798.23
     },
     {
      "t": "114",
-     "strategy": 106640.08,
-     "benchmark": 104388.78
+     "strategy": 106728.37,
+     "benchmark": 103766.01
     },
     {
      "t": "115",
-     "strategy": 106498.95,
-     "benchmark": 104362.53
+     "strategy": 106232.04,
+     "benchmark": 103735.99
     },
     {
      "t": "116",
-     "strategy": 106508.85,
-     "benchmark": 104584.35
+     "strategy": 106198.7,
+     "benchmark": 103915.36
     },
     {
      "t": "117",
-     "strategy": 106998.96,
-     "benchmark": 104916.94
+     "strategy": 106483.97,
+     "benchmark": 104093.03
     },
     {
      "t": "118",
-     "strategy": 107572.23,
-     "benchmark": 105004.14
+     "strategy": 106713.36,
+     "benchmark": 104251.41
     },
     {
      "t": "119",
-     "strategy": 106965.11,
-     "benchmark": 104868.06
+     "strategy": 106896.87,
+     "benchmark": 104135.76
     },
     {
      "t": "120",
-     "strategy": 106992.6,
-     "benchmark": 104987.47
+     "strategy": 107206.0,
+     "benchmark": 104060.33
     },
     {
      "t": "121",
-     "strategy": 107209.75,
-     "benchmark": 105065.8
+     "strategy": 107484.83,
+     "benchmark": 104312.78
     },
     {
      "t": "122",
-     "strategy": 107415.45,
-     "benchmark": 105330.62
+     "strategy": 107613.13,
+     "benchmark": 104564.54
     },
     {
      "t": "123",
-     "strategy": 107791.98,
-     "benchmark": 105333.11
+     "strategy": 107897.59,
+     "benchmark": 104988.71
     },
     {
      "t": "124",
-     "strategy": 107785.7,
-     "benchmark": 105064.42
+     "strategy": 107985.8,
+     "benchmark": 105164.29
     },
     {
      "t": "125",
-     "strategy": 108200.35,
-     "benchmark": 105470.01
+     "strategy": 108247.17,
+     "benchmark": 105353.57
     },
     {
      "t": "126",
-     "strategy": 108450.07,
-     "benchmark": 105731.56
+     "strategy": 108341.65,
+     "benchmark": 105431.74
     }
    ],
-   "pct_positive": 68.8,
-   "n_positive": 22,
-   "gain_loss": {
-    "avg_gain_pct": 16.6,
-    "avg_loss_pct": -8.2,
-    "max_gain_pct": 57.97,
-    "max_loss_pct": -24.26,
-    "n_gain": 22,
-    "n_loss": 10,
-    "basis": "episodes"
-   }
+   "pct_positive": 65.6,
+   "n_positive": 21
   },
   "expression_count": 3,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will nuclear energy make a comeback?",
+  "plain_one_liner": "Will nuclear energy make a major comeback before 2027?",
   "plain_summary": "India's power-building boom lifts big power and engineering firms (nuclear pure-plays aren't listed here).",
-  "short_title": "Will nuclear energy make a comeback?",
+  "short_title": "Will nuclear energy make a major comeback before 2027?",
   "stance": {
    "yes": {
     "verdict": "Own the power-capex basket",
@@ -2125,28 +2078,18 @@
     "summary": "Nuclear itself isn't listed here, and the wider power theme doesn't clearly separate from the market \u2014 the index is the honest fallback."
    }
   },
-  "best_episode_pct": 58.0,
-  "best_episode_label": "6-mo window ended Jun 2024",
-  "evidence_basis": "rolling_windows",
-  "min_entry_inr": 2497,
-  "forward_expected_net_pct": 1.4,
-  "forward_band_pct": {
-   "p25": -8.4,
-   "p50": 1.4,
-   "p75": 11.3,
-   "p05": -22.5
-  },
-  "forward_p_source": "assumed even odds \u2014 no liquid market for this outcome (stated)"
+  "best_episode_pct": 54.0,
+  "best_episode_label": "Window 28"
  },
  {
   "id": "ev",
   "view_type": "theme",
-  "title": "Will EV sales beat expectations?",
+  "title": "Will EV sales increase more than expected this year?",
   "thesis": "If electric-vehicle sales grow faster than expected, the whole EV supply chain benefits.",
   "category": "Autos \u00b7 Theme",
   "time_horizon": "Over 6 months",
   "status": "open",
-  "resolution_date": "2026-12-31T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -2163,13 +2106,13 @@
    "expression_kind": "basket",
    "grade": null,
    "trust_verdict": "promising",
-   "total_return_pct": 14.97,
+   "total_return_pct": 14.93,
    "excess_return_pct": 9.06,
-   "plain_label": "Slow & Steady EV bundle",
+   "plain_label": "Own a bundle of 7 EV-chain companies",
    "nifty_total_pct": 5.71,
    "n_episodes": 9,
    "pct_episodes_beat": 75,
-   "worst_drop_pct": -21.1,
+   "worst_drop_pct": -21.0,
    "equity_curve": [
     {
      "t": "0",
@@ -2178,655 +2121,646 @@
     },
     {
      "t": "1",
-     "strategy": 100345.39,
-     "benchmark": 100500.6
+     "strategy": 99600.9,
+     "benchmark": 100162.78
     },
     {
      "t": "2",
-     "strategy": 100032.74,
-     "benchmark": 100115.87
+     "strategy": 100149.89,
+     "benchmark": 100459.47
     },
     {
      "t": "3",
-     "strategy": 100072.34,
-     "benchmark": 99999.28
+     "strategy": 100298.93,
+     "benchmark": 100591.35
     },
     {
      "t": "4",
-     "strategy": 99532.08,
-     "benchmark": 99832.69
+     "strategy": 100096.55,
+     "benchmark": 100419.05
     },
     {
      "t": "5",
-     "strategy": 99501.24,
-     "benchmark": 99990.27
+     "strategy": 100606.83,
+     "benchmark": 100693.9
     },
     {
      "t": "6",
-     "strategy": 100043.65,
-     "benchmark": 100284.05
+     "strategy": 101013.65,
+     "benchmark": 100617.49
     },
     {
      "t": "7",
-     "strategy": 100198.81,
-     "benchmark": 100417.24
+     "strategy": 101232.19,
+     "benchmark": 100509.57
     },
     {
      "t": "8",
-     "strategy": 100000.1,
-     "benchmark": 100248.15
+     "strategy": 101654.34,
+     "benchmark": 100603.92
     },
     {
      "t": "9",
-     "strategy": 100510.19,
-     "benchmark": 100523.42
+     "strategy": 101518.13,
+     "benchmark": 100374.15
     },
     {
      "t": "10",
-     "strategy": 100901.11,
-     "benchmark": 100439.53
+     "strategy": 101150.46,
+     "benchmark": 99997.88
     },
     {
      "t": "11",
-     "strategy": 101109.93,
-     "benchmark": 100324.64
+     "strategy": 100957.4,
+     "benchmark": 99913.2
     },
     {
      "t": "12",
-     "strategy": 101516.41,
-     "benchmark": 100408.77
+     "strategy": 100311.4,
+     "benchmark": 99722.67
     },
     {
      "t": "13",
-     "strategy": 101380.99,
-     "benchmark": 100185.06
+     "strategy": 100431.64,
+     "benchmark": 99699.95
     },
     {
      "t": "14",
-     "strategy": 101023.33,
-     "benchmark": 99813.17
+     "strategy": 99450.66,
+     "benchmark": 99121.82
     },
     {
      "t": "15",
-     "strategy": 100834.52,
-     "benchmark": 99726.22
+     "strategy": 100036.12,
+     "benchmark": 99346.66
     },
     {
      "t": "16",
-     "strategy": 100183.22,
-     "benchmark": 99534.18
+     "strategy": 100697.16,
+     "benchmark": 99826.83
     },
     {
      "t": "17",
-     "strategy": 100325.35,
-     "benchmark": 99522.3
+     "strategy": 100754.85,
+     "benchmark": 99897.55
     },
     {
      "t": "18",
-     "strategy": 99350.66,
-     "benchmark": 98949.86
+     "strategy": 100915.35,
+     "benchmark": 99886.54
     },
     {
      "t": "19",
-     "strategy": 99962.53,
-     "benchmark": 99182.41
+     "strategy": 101444.97,
+     "benchmark": 100012.07
     },
     {
      "t": "20",
-     "strategy": 100624.26,
-     "benchmark": 99659.66
+     "strategy": 101097.89,
+     "benchmark": 99997.43
     },
     {
      "t": "21",
-     "strategy": 100683.71,
-     "benchmark": 99728.05
+     "strategy": 101273.18,
+     "benchmark": 99839.73
     },
     {
      "t": "22",
-     "strategy": 100855.82,
-     "benchmark": 99717.68
+     "strategy": 101414.07,
+     "benchmark": 99977.33
     },
     {
      "t": "23",
-     "strategy": 101386.54,
-     "benchmark": 99844.16
+     "strategy": 101516.68,
+     "benchmark": 100060.39
     },
     {
      "t": "24",
-     "strategy": 101034.54,
-     "benchmark": 99823.71
+     "strategy": 101642.17,
+     "benchmark": 100224.78
     },
     {
      "t": "25",
-     "strategy": 101230.0,
-     "benchmark": 99671.59
+     "strategy": 101714.59,
+     "benchmark": 100420.82
     },
     {
      "t": "26",
-     "strategy": 101366.07,
-     "benchmark": 99805.46
+     "strategy": 102166.48,
+     "benchmark": 100771.58
     },
     {
      "t": "27",
-     "strategy": 101447.36,
-     "benchmark": 99882.93
+     "strategy": 102656.12,
+     "benchmark": 100786.15
     },
     {
      "t": "28",
-     "strategy": 101597.38,
-     "benchmark": 100048.03
+     "strategy": 102532.97,
+     "benchmark": 100645.74
     },
     {
      "t": "29",
-     "strategy": 101697.55,
-     "benchmark": 100251.12
+     "strategy": 102726.64,
+     "benchmark": 101108.69
     },
     {
      "t": "30",
-     "strategy": 102145.86,
-     "benchmark": 100598.45
+     "strategy": 102215.99,
+     "benchmark": 100784.43
     },
     {
      "t": "31",
-     "strategy": 102646.6,
-     "benchmark": 100610.08
+     "strategy": 102587.62,
+     "benchmark": 100885.6
     },
     {
      "t": "32",
-     "strategy": 102521.25,
-     "benchmark": 100466.92
+     "strategy": 103024.65,
+     "benchmark": 101079.44
     },
     {
      "t": "33",
-     "strategy": 102706.38,
-     "benchmark": 100920.64
+     "strategy": 103498.39,
+     "benchmark": 101410.43
     },
     {
      "t": "34",
-     "strategy": 102189.89,
-     "benchmark": 100593.54
+     "strategy": 102926.1,
+     "benchmark": 101116.64
     },
     {
      "t": "35",
-     "strategy": 102558.88,
-     "benchmark": 100693.81
+     "strategy": 103225.37,
+     "benchmark": 101420.31
     },
     {
      "t": "36",
-     "strategy": 102981.8,
-     "benchmark": 100880.13
+     "strategy": 103414.41,
+     "benchmark": 101332.6
     },
     {
      "t": "37",
-     "strategy": 103470.91,
-     "benchmark": 101215.37
+     "strategy": 103589.66,
+     "benchmark": 100996.27
     },
     {
      "t": "38",
-     "strategy": 102891.39,
-     "benchmark": 100922.28
+     "strategy": 103080.4,
+     "benchmark": 100392.38
     },
     {
      "t": "39",
-     "strategy": 103209.64,
-     "benchmark": 101233.21
+     "strategy": 102722.58,
+     "benchmark": 100280.32
     },
     {
      "t": "40",
-     "strategy": 103409.73,
-     "benchmark": 101153.79
+     "strategy": 102696.84,
+     "benchmark": 100721.61
     },
     {
      "t": "41",
-     "strategy": 103602.07,
-     "benchmark": 100826.39
+     "strategy": 102841.49,
+     "benchmark": 100553.48
     },
     {
      "t": "42",
-     "strategy": 103101.84,
-     "benchmark": 100222.62
+     "strategy": 103584.75,
+     "benchmark": 100812.53
     },
     {
      "t": "43",
-     "strategy": 102760.63,
-     "benchmark": 100122.09
+     "strategy": 104520.57,
+     "benchmark": 101111.87
     },
     {
      "t": "44",
-     "strategy": 102750.03,
-     "benchmark": 100567.61
+     "strategy": 104761.4,
+     "benchmark": 100994.17
     },
     {
      "t": "45",
-     "strategy": 102910.8,
-     "benchmark": 100402.78
+     "strategy": 104538.47,
+     "benchmark": 100965.0
     },
     {
      "t": "46",
-     "strategy": 103664.41,
-     "benchmark": 100665.2
+     "strategy": 104463.5,
+     "benchmark": 100779.87
     },
     {
      "t": "47",
-     "strategy": 104591.72,
-     "benchmark": 100959.87
+     "strategy": 104863.46,
+     "benchmark": 101022.54
     },
     {
      "t": "48",
-     "strategy": 104815.46,
-     "benchmark": 100836.58
+     "strategy": 104349.5,
+     "benchmark": 100644.91
     },
     {
      "t": "49",
-     "strategy": 104604.24,
-     "benchmark": 100805.53
+     "strategy": 104034.87,
+     "benchmark": 100435.13
     },
     {
      "t": "50",
-     "strategy": 104532.98,
-     "benchmark": 100630.63
+     "strategy": 104803.96,
+     "benchmark": 100852.11
     },
     {
      "t": "51",
-     "strategy": 104941.94,
-     "benchmark": 100875.77
+     "strategy": 105615.11,
+     "benchmark": 100863.6
     },
     {
      "t": "52",
-     "strategy": 104441.96,
-     "benchmark": 100503.94
+     "strategy": 105321.55,
+     "benchmark": 100899.26
     },
     {
      "t": "53",
-     "strategy": 104147.39,
-     "benchmark": 100302.75
+     "strategy": 104017.82,
+     "benchmark": 100249.62
     },
     {
      "t": "54",
-     "strategy": 104911.32,
-     "benchmark": 100718.27
+     "strategy": 104105.86,
+     "benchmark": 100326.03
     },
     {
      "t": "55",
-     "strategy": 105738.64,
-     "benchmark": 100729.72
+     "strategy": 104206.7,
+     "benchmark": 100447.45
     },
     {
      "t": "56",
-     "strategy": 105430.55,
-     "benchmark": 100765.57
+     "strategy": 104478.75,
+     "benchmark": 100520.7
     },
     {
      "t": "57",
-     "strategy": 104131.66,
-     "benchmark": 100120.23
+     "strategy": 104322.7,
+     "benchmark": 100144.72
     },
     {
      "t": "58",
-     "strategy": 104200.9,
-     "benchmark": 100184.89
+     "strategy": 104354.07,
+     "benchmark": 100299.09
     },
     {
      "t": "59",
-     "strategy": 104301.45,
-     "benchmark": 100306.86
+     "strategy": 104404.54,
+     "benchmark": 100145.3
     },
     {
      "t": "60",
-     "strategy": 104575.61,
-     "benchmark": 100380.18
+     "strategy": 104517.21,
+     "benchmark": 100173.74
     },
     {
      "t": "61",
-     "strategy": 104426.48,
-     "benchmark": 100005.45
+     "strategy": 104669.64,
+     "benchmark": 100219.23
     },
     {
      "t": "62",
-     "strategy": 104465.43,
-     "benchmark": 100163.48
+     "strategy": 104269.68,
+     "benchmark": 100000.19
     },
     {
      "t": "63",
-     "strategy": 104513.3,
-     "benchmark": 100009.92
+     "strategy": 104034.61,
+     "benchmark": 100232.24
     },
     {
      "t": "64",
-     "strategy": 104624.51,
-     "benchmark": 100029.36
+     "strategy": 104727.98,
+     "benchmark": 100650.46
     },
     {
      "t": "65",
-     "strategy": 104784.02,
-     "benchmark": 100091.73
+     "strategy": 104964.24,
+     "benchmark": 100706.07
     },
     {
      "t": "66",
-     "strategy": 104376.56,
-     "benchmark": 99856.79
+     "strategy": 104407.44,
+     "benchmark": 100308.62
     },
     {
      "t": "67",
-     "strategy": 104138.14,
-     "benchmark": 100082.9
+     "strategy": 103942.49,
+     "benchmark": 100262.78
     },
     {
      "t": "68",
-     "strategy": 104833.33,
-     "benchmark": 100500.32
+     "strategy": 104929.4,
+     "benchmark": 100879.78
     },
     {
      "t": "69",
-     "strategy": 105081.06,
-     "benchmark": 100556.66
+     "strategy": 105460.67,
+     "benchmark": 100944.68
     },
     {
      "t": "70",
-     "strategy": 104521.06,
-     "benchmark": 100166.62
+     "strategy": 106155.16,
+     "benchmark": 101174.11
     },
     {
      "t": "71",
-     "strategy": 104065.64,
-     "benchmark": 100126.76
+     "strategy": 105997.62,
+     "benchmark": 100965.44
     },
     {
      "t": "72",
-     "strategy": 105051.46,
-     "benchmark": 100746.1
+     "strategy": 105339.04,
+     "benchmark": 100837.62
     },
     {
      "t": "73",
-     "strategy": 105584.21,
-     "benchmark": 100814.07
+     "strategy": 104521.37,
+     "benchmark": 100018.63
     },
     {
      "t": "74",
-     "strategy": 106266.06,
-     "benchmark": 101037.77
+     "strategy": 104856.17,
+     "benchmark": 100535.97
     },
     {
      "t": "75",
-     "strategy": 106106.33,
-     "benchmark": 100828.61
+     "strategy": 105676.3,
+     "benchmark": 100897.52
     },
     {
      "t": "76",
-     "strategy": 105447.61,
-     "benchmark": 100700.35
+     "strategy": 105833.2,
+     "benchmark": 100991.93
     },
     {
      "t": "77",
-     "strategy": 104627.63,
-     "benchmark": 99895.8
+     "strategy": 106056.02,
+     "benchmark": 101105.36
     },
     {
      "t": "78",
-     "strategy": 104948.92,
-     "benchmark": 100401.98
+     "strategy": 106131.04,
+     "benchmark": 101094.01
     },
     {
      "t": "79",
-     "strategy": 105775.69,
-     "benchmark": 100763.87
+     "strategy": 105804.99,
+     "benchmark": 100983.0
     },
     {
      "t": "80",
-     "strategy": 105927.23,
-     "benchmark": 100850.47
+     "strategy": 106258.92,
+     "benchmark": 101249.34
     },
     {
      "t": "81",
-     "strategy": 106133.02,
-     "benchmark": 100949.64
+     "strategy": 106249.56,
+     "benchmark": 101250.54
     },
     {
      "t": "82",
-     "strategy": 106198.74,
-     "benchmark": 100935.86
+     "strategy": 106073.08,
+     "benchmark": 101306.27
     },
     {
      "t": "83",
-     "strategy": 105862.36,
-     "benchmark": 100813.94
+     "strategy": 106340.61,
+     "benchmark": 101439.28
     },
     {
      "t": "84",
-     "strategy": 106312.0,
-     "benchmark": 101076.69
+     "strategy": 106035.51,
+     "benchmark": 101272.23
     },
     {
      "t": "85",
-     "strategy": 106296.43,
-     "benchmark": 101075.3
+     "strategy": 106189.14,
+     "benchmark": 101862.28
     },
     {
      "t": "86",
-     "strategy": 106110.0,
-     "benchmark": 101125.87
+     "strategy": 106807.48,
+     "benchmark": 102301.09
     },
     {
      "t": "87",
-     "strategy": 106376.06,
-     "benchmark": 101260.31
+     "strategy": 107043.76,
+     "benchmark": 102303.41
     },
     {
      "t": "88",
-     "strategy": 106149.74,
-     "benchmark": 101060.85
+     "strategy": 107103.07,
+     "benchmark": 102004.71
     },
     {
      "t": "89",
-     "strategy": 106542.48,
-     "benchmark": 101719.99
+     "strategy": 107605.77,
+     "benchmark": 101870.04
     },
     {
      "t": "90",
-     "strategy": 107360.55,
-     "benchmark": 102189.03
+     "strategy": 107665.67,
+     "benchmark": 101662.1
     },
     {
      "t": "91",
-     "strategy": 107433.73,
-     "benchmark": 102000.02
+     "strategy": 107396.86,
+     "benchmark": 101316.15
     },
     {
      "t": "92",
-     "strategy": 107007.64,
-     "benchmark": 101549.06
+     "strategy": 106917.74,
+     "benchmark": 101146.31
     },
     {
      "t": "93",
-     "strategy": 107258.79,
-     "benchmark": 101290.99
+     "strategy": 106952.85,
+     "benchmark": 101137.82
     },
     {
      "t": "94",
-     "strategy": 107456.33,
-     "benchmark": 101250.4
+     "strategy": 107312.89,
+     "benchmark": 101260.97
     },
     {
      "t": "95",
-     "strategy": 107433.75,
-     "benchmark": 101206.78
+     "strategy": 107055.31,
+     "benchmark": 100998.97
     },
     {
      "t": "96",
-     "strategy": 107054.51,
-     "benchmark": 101009.58
+     "strategy": 107434.68,
+     "benchmark": 101372.24
     },
     {
      "t": "97",
-     "strategy": 106770.47,
-     "benchmark": 100893.56
+     "strategy": 107712.49,
+     "benchmark": 101747.15
     },
     {
      "t": "98",
-     "strategy": 107110.66,
-     "benchmark": 101010.59
+     "strategy": 107875.18,
+     "benchmark": 101574.82
     },
     {
      "t": "99",
-     "strategy": 107189.37,
-     "benchmark": 100775.63
+     "strategy": 107841.71,
+     "benchmark": 101373.35
     },
     {
      "t": "100",
-     "strategy": 107438.36,
-     "benchmark": 101158.36
+     "strategy": 108044.51,
+     "benchmark": 101617.53
     },
     {
      "t": "101",
-     "strategy": 107772.1,
-     "benchmark": 101530.97
+     "strategy": 108318.2,
+     "benchmark": 101680.85
     },
     {
      "t": "102",
-     "strategy": 108199.31,
-     "benchmark": 101500.79
+     "strategy": 108787.6,
+     "benchmark": 101788.72
     },
     {
      "t": "103",
-     "strategy": 108105.29,
-     "benchmark": 101224.75
+     "strategy": 109064.61,
+     "benchmark": 102035.29
     },
     {
      "t": "104",
-     "strategy": 108302.58,
-     "benchmark": 101335.7
+     "strategy": 109508.05,
+     "benchmark": 101941.56
     },
     {
      "t": "105",
-     "strategy": 108524.77,
-     "benchmark": 101450.57
+     "strategy": 109642.92,
+     "benchmark": 101607.9
     },
     {
      "t": "106",
-     "strategy": 108776.61,
-     "benchmark": 101410.64
+     "strategy": 109714.32,
+     "benchmark": 101973.59
     },
     {
      "t": "107",
-     "strategy": 109003.03,
-     "benchmark": 101584.89
+     "strategy": 110073.78,
+     "benchmark": 102219.02
     },
     {
      "t": "108",
-     "strategy": 109696.47,
-     "benchmark": 101683.95
+     "strategy": 110621.86,
+     "benchmark": 102240.18
     },
     {
      "t": "109",
-     "strategy": 109866.9,
-     "benchmark": 101399.11
+     "strategy": 110766.72,
+     "benchmark": 102024.73
     },
     {
      "t": "110",
-     "strategy": 109776.33,
-     "benchmark": 101730.52
+     "strategy": 110430.52,
+     "benchmark": 101709.74
     },
     {
      "t": "111",
-     "strategy": 110229.16,
-     "benchmark": 101992.46
+     "strategy": 110635.46,
+     "benchmark": 101520.97
     },
     {
      "t": "112",
-     "strategy": 110538.93,
-     "benchmark": 101908.82
+     "strategy": 110699.84,
+     "benchmark": 101721.33
     },
     {
      "t": "113",
-     "strategy": 110868.55,
-     "benchmark": 101764.74
+     "strategy": 110592.07,
+     "benchmark": 101952.09
     },
     {
      "t": "114",
-     "strategy": 110683.49,
-     "benchmark": 101548.62
+     "strategy": 111753.39,
+     "benchmark": 102780.38
     },
     {
      "t": "115",
-     "strategy": 110611.13,
-     "benchmark": 101291.32
+     "strategy": 111333.02,
+     "benchmark": 102145.78
     },
     {
      "t": "116",
-     "strategy": 110979.6,
-     "benchmark": 101700.59
+     "strategy": 112015.78,
+     "benchmark": 102356.78
     },
     {
      "t": "117",
-     "strategy": 111163.41,
-     "benchmark": 102045.51
+     "strategy": 112819.41,
+     "benchmark": 103007.51
     },
     {
      "t": "118",
-     "strategy": 112036.78,
-     "benchmark": 102723.52
+     "strategy": 113049.1,
+     "benchmark": 103261.53
     },
     {
      "t": "119",
-     "strategy": 111377.14,
-     "benchmark": 102032.42
+     "strategy": 113332.27,
+     "benchmark": 103415.3
     },
     {
      "t": "120",
-     "strategy": 112217.83,
-     "benchmark": 102226.16
+     "strategy": 113427.68,
+     "benchmark": 103495.41
     },
     {
      "t": "121",
-     "strategy": 112976.7,
-     "benchmark": 102770.48
+     "strategy": 113424.22,
+     "benchmark": 103690.56
     },
     {
      "t": "122",
-     "strategy": 113192.13,
-     "benchmark": 103032.03
+     "strategy": 114229.3,
+     "benchmark": 104058.59
     },
     {
      "t": "123",
-     "strategy": 113423.57,
-     "benchmark": 103131.7
+     "strategy": 115217.46,
+     "benchmark": 104502.64
     },
     {
      "t": "124",
-     "strategy": 113581.28,
-     "benchmark": 103261.9
+     "strategy": 115419.79,
+     "benchmark": 104452.6
     },
     {
      "t": "125",
-     "strategy": 113797.45,
-     "benchmark": 103590.79
+     "strategy": 115096.19,
+     "benchmark": 104259.68
     },
     {
      "t": "126",
-     "strategy": 114551.69,
-     "benchmark": 103866.2
+     "strategy": 114500.79,
+     "benchmark": 104121.49
     }
    ],
-   "pct_positive": 77.8,
-   "n_positive": 7,
-   "gain_loss": {
-    "avg_gain_pct": 20.95,
-    "avg_loss_pct": -5.93,
-    "max_gain_pct": 53.31,
-    "max_loss_pct": -6.32,
-    "n_gain": 7,
-    "n_loss": 2,
-    "basis": "episodes"
-   }
+   "pct_positive": 88.9,
+   "n_positive": 8
   },
   "expression_count": 3,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will EV sales beat expectations?",
+  "plain_one_liner": "Will EV sales increase more than expected this year?",
   "plain_summary": "If electric-vehicle sales grow faster than expected, the whole EV supply chain benefits.",
-  "short_title": "Will EV sales beat expectations?",
+  "short_title": "Will EV sales increase more than expected this year?",
   "stance": {
    "yes": {
     "verdict": "Own the EV supply chain",
@@ -2838,28 +2772,18 @@
     "summary": "If EV adoption disappoints, the established petrol-engine makers and the broad index likely hold up better."
    }
   },
-  "best_episode_pct": 53.3,
-  "best_episode_label": "6-mo window ended Jun 2024",
-  "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1537,
-  "forward_expected_net_pct": 1.4,
-  "forward_band_pct": {
-   "p25": -8.1,
-   "p50": 1.4,
-   "p75": 11.0,
-   "p05": -21.9
-  },
-  "forward_p_source": "assumed even odds \u2014 no liquid market for this outcome (stated)"
+  "best_episode_pct": 55.9,
+  "best_episode_label": "Window 5"
  },
  {
   "id": "mideast",
   "view_type": "event",
-  "title": "Will Middle-East tensions escalate?",
+  "title": "Will Middle-East tensions escalate further this quarter?",
   "thesis": "When conflict flares, oil and gold tend to rise, helping oil producers and defence firms.",
   "category": "Geopolitics \u00b7 Event",
   "time_horizon": "Over 3 months",
   "status": "open",
-  "resolution_date": "2026-09-30T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -2875,27 +2799,347 @@
    "tier": "conservative",
    "expression_kind": "basket",
    "grade": null,
-   "trust_verdict": "insufficient_data",
-   "total_return_pct": null,
+   "trust_verdict": "unproven",
+   "total_return_pct": 6.5,
    "excess_return_pct": 2.86,
-   "plain_label": "Safely Shielded bundle",
+   "plain_label": "Own a bundle of 6 oil & defence firms",
    "nifty_total_pct": 2.13,
-   "n_episodes": null,
+   "n_episodes": 32,
    "pct_episodes_beat": 58,
-   "worst_drop_pct": null,
-   "equity_curve": null,
-   "pct_positive": null,
-   "n_positive": null,
-   "gain_loss": null
+   "worst_drop_pct": -35.4,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 100367.63,
+     "benchmark": 100399.97
+    },
+    {
+     "t": "2",
+     "strategy": 100927.78,
+     "benchmark": 100714.31
+    },
+    {
+     "t": "3",
+     "strategy": 101174.7,
+     "benchmark": 100772.38
+    },
+    {
+     "t": "4",
+     "strategy": 100967.1,
+     "benchmark": 100635.85
+    },
+    {
+     "t": "5",
+     "strategy": 101346.01,
+     "benchmark": 100861.99
+    },
+    {
+     "t": "6",
+     "strategy": 101899.09,
+     "benchmark": 100977.51
+    },
+    {
+     "t": "7",
+     "strategy": 102334.84,
+     "benchmark": 101133.31
+    },
+    {
+     "t": "8",
+     "strategy": 102478.62,
+     "benchmark": 101051.39
+    },
+    {
+     "t": "9",
+     "strategy": 102238.88,
+     "benchmark": 100886.63
+    },
+    {
+     "t": "10",
+     "strategy": 101892.58,
+     "benchmark": 100581.75
+    },
+    {
+     "t": "11",
+     "strategy": 102049.61,
+     "benchmark": 100677.77
+    },
+    {
+     "t": "12",
+     "strategy": 101674.23,
+     "benchmark": 100633.95
+    },
+    {
+     "t": "13",
+     "strategy": 101597.63,
+     "benchmark": 100615.4
+    },
+    {
+     "t": "14",
+     "strategy": 101317.79,
+     "benchmark": 100425.48
+    },
+    {
+     "t": "15",
+     "strategy": 101015.9,
+     "benchmark": 100233.26
+    },
+    {
+     "t": "16",
+     "strategy": 101416.05,
+     "benchmark": 100622.18
+    },
+    {
+     "t": "17",
+     "strategy": 101650.87,
+     "benchmark": 100736.09
+    },
+    {
+     "t": "18",
+     "strategy": 101861.44,
+     "benchmark": 100786.72
+    },
+    {
+     "t": "19",
+     "strategy": 102141.9,
+     "benchmark": 100831.14
+    },
+    {
+     "t": "20",
+     "strategy": 101366.7,
+     "benchmark": 100612.75
+    },
+    {
+     "t": "21",
+     "strategy": 101328.23,
+     "benchmark": 100426.22
+    },
+    {
+     "t": "22",
+     "strategy": 101401.19,
+     "benchmark": 100311.45
+    },
+    {
+     "t": "23",
+     "strategy": 101665.12,
+     "benchmark": 100360.15
+    },
+    {
+     "t": "24",
+     "strategy": 101786.8,
+     "benchmark": 100882.87
+    },
+    {
+     "t": "25",
+     "strategy": 102236.43,
+     "benchmark": 101257.94
+    },
+    {
+     "t": "26",
+     "strategy": 102823.32,
+     "benchmark": 101505.84
+    },
+    {
+     "t": "27",
+     "strategy": 103052.41,
+     "benchmark": 101217.49
+    },
+    {
+     "t": "28",
+     "strategy": 103421.45,
+     "benchmark": 101372.42
+    },
+    {
+     "t": "29",
+     "strategy": 103429.3,
+     "benchmark": 101478.19
+    },
+    {
+     "t": "30",
+     "strategy": 103544.55,
+     "benchmark": 101425.11
+    },
+    {
+     "t": "31",
+     "strategy": 103743.85,
+     "benchmark": 101592.3
+    },
+    {
+     "t": "32",
+     "strategy": 103514.69,
+     "benchmark": 101408.36
+    },
+    {
+     "t": "33",
+     "strategy": 104176.82,
+     "benchmark": 101777.27
+    },
+    {
+     "t": "34",
+     "strategy": 104207.18,
+     "benchmark": 101832.2
+    },
+    {
+     "t": "35",
+     "strategy": 104280.34,
+     "benchmark": 101971.95
+    },
+    {
+     "t": "36",
+     "strategy": 104202.7,
+     "benchmark": 101881.47
+    },
+    {
+     "t": "37",
+     "strategy": 104488.53,
+     "benchmark": 101789.02
+    },
+    {
+     "t": "38",
+     "strategy": 104239.78,
+     "benchmark": 101695.56
+    },
+    {
+     "t": "39",
+     "strategy": 104221.87,
+     "benchmark": 101611.35
+    },
+    {
+     "t": "40",
+     "strategy": 104179.46,
+     "benchmark": 101944.89
+    },
+    {
+     "t": "41",
+     "strategy": 104048.43,
+     "benchmark": 102030.78
+    },
+    {
+     "t": "42",
+     "strategy": 103975.6,
+     "benchmark": 101804.68
+    },
+    {
+     "t": "43",
+     "strategy": 104097.81,
+     "benchmark": 101873.82
+    },
+    {
+     "t": "44",
+     "strategy": 104227.31,
+     "benchmark": 101948.73
+    },
+    {
+     "t": "45",
+     "strategy": 104062.82,
+     "benchmark": 101915.25
+    },
+    {
+     "t": "46",
+     "strategy": 104045.32,
+     "benchmark": 101813.82
+    },
+    {
+     "t": "47",
+     "strategy": 103838.92,
+     "benchmark": 101519.03
+    },
+    {
+     "t": "48",
+     "strategy": 103816.04,
+     "benchmark": 101613.76
+    },
+    {
+     "t": "49",
+     "strategy": 103738.88,
+     "benchmark": 101822.91
+    },
+    {
+     "t": "50",
+     "strategy": 104187.21,
+     "benchmark": 102153.53
+    },
+    {
+     "t": "51",
+     "strategy": 104762.95,
+     "benchmark": 102383.45
+    },
+    {
+     "t": "52",
+     "strategy": 104387.03,
+     "benchmark": 102210.0
+    },
+    {
+     "t": "53",
+     "strategy": 104521.51,
+     "benchmark": 102217.08
+    },
+    {
+     "t": "54",
+     "strategy": 104755.47,
+     "benchmark": 102588.31
+    },
+    {
+     "t": "55",
+     "strategy": 104911.89,
+     "benchmark": 102701.03
+    },
+    {
+     "t": "56",
+     "strategy": 105327.19,
+     "benchmark": 102671.74
+    },
+    {
+     "t": "57",
+     "strategy": 105062.47,
+     "benchmark": 102221.79
+    },
+    {
+     "t": "58",
+     "strategy": 105160.15,
+     "benchmark": 102497.7
+    },
+    {
+     "t": "59",
+     "strategy": 105303.62,
+     "benchmark": 102629.96
+    },
+    {
+     "t": "60",
+     "strategy": 105752.79,
+     "benchmark": 103010.69
+    },
+    {
+     "t": "61",
+     "strategy": 105930.68,
+     "benchmark": 102895.49
+    },
+    {
+     "t": "62",
+     "strategy": 105837.71,
+     "benchmark": 102767.04
+    },
+    {
+     "t": "63",
+     "strategy": 106112.86,
+     "benchmark": 102896.2
+    }
+   ],
+   "pct_positive": 62.5,
+   "n_positive": 20
   },
   "expression_count": 2,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will Middle-East tensions escalate?",
+  "plain_one_liner": "Will Middle-East tensions escalate further this quarter?",
   "plain_summary": "When conflict flares, oil and gold tend to rise, helping oil producers and defence firms.",
-  "short_title": "Will Middle-East tensions escalate?",
+  "short_title": "Will Middle-East tensions escalate further this quarter?",
   "stance": {
    "yes": {
     "verdict": "Own the oil & defence beneficiaries",
@@ -2907,28 +3151,18 @@
     "summary": "De-escalation doesn't reliably move oil, gold or defence stocks the other way, so there's no clean position to take if tensions cool."
    }
   },
-  "best_episode_pct": null,
-  "best_episode_label": null,
-  "evidence_basis": "shock_no_analogs",
-  "min_entry_inr": 1951,
-  "forward_expected_net_pct": 0.3,
-  "forward_band_pct": {
-   "p25": -8.1,
-   "p50": 0.3,
-   "p75": 8.7,
-   "p05": -20.1
-  },
-  "forward_p_source": "assumed even odds \u2014 geopolitics has no honest base rate (stated)"
+  "best_episode_pct": 45.3,
+  "best_episode_label": "Window 9"
  },
  {
   "id": "nifty30k",
   "view_type": "event",
-  "title": "Will Nifty touch 30,000?",
+  "title": "Will Nifty touch 30,000 before year-end?",
   "thesis": "The whole Indian market would need to climb about a quarter more to reach 30,000.",
   "category": "Index \u00b7 Price target",
   "time_horizon": "By year-end",
   "status": "open",
-  "resolution_date": "2026-12-31T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -2944,14 +3178,14 @@
    "tier": "conservative",
    "expression_kind": "basket",
    "grade": null,
-   "trust_verdict": "promising",
-   "total_return_pct": 11.97,
+   "trust_verdict": null,
+   "total_return_pct": 5.74,
    "excess_return_pct": 0.0,
-   "plain_label": "Slow & Steady index fund",
+   "plain_label": "Own the whole market (index fund)",
    "nifty_total_pct": 5.74,
-   "n_episodes": 16,
+   "n_episodes": 32,
    "pct_episodes_beat": 0,
-   "worst_drop_pct": -38.4,
+   "worst_drop_pct": -23.5,
    "equity_curve": [
     {
      "t": "0",
@@ -2960,1285 +3194,646 @@
     },
     {
      "t": "1",
-     "strategy": 99712.97,
-     "benchmark": 100082.42
+     "strategy": 100001.91,
+     "benchmark": 100001.91
     },
     {
      "t": "2",
-     "strategy": 99554.07,
-     "benchmark": 99922.92
+     "strategy": 99977.25,
+     "benchmark": 99977.25
     },
     {
      "t": "3",
-     "strategy": 99694.96,
-     "benchmark": 100064.34
+     "strategy": 99530.51,
+     "benchmark": 99530.51
     },
     {
      "t": "4",
-     "strategy": 99858.97,
-     "benchmark": 100228.95
+     "strategy": 99424.69,
+     "benchmark": 99424.69
     },
     {
      "t": "5",
-     "strategy": 100403.76,
-     "benchmark": 100775.74
+     "strategy": 99678.59,
+     "benchmark": 99678.59
     },
     {
      "t": "6",
-     "strategy": 100745.12,
-     "benchmark": 101118.36
+     "strategy": 100019.21,
+     "benchmark": 100019.21
     },
     {
      "t": "7",
-     "strategy": 100853.49,
-     "benchmark": 101227.13
+     "strategy": 100140.49,
+     "benchmark": 100140.49
     },
     {
      "t": "8",
-     "strategy": 100920.55,
-     "benchmark": 101294.4
+     "strategy": 99759.22,
+     "benchmark": 99759.22
     },
     {
      "t": "9",
-     "strategy": 101343.02,
-     "benchmark": 101718.43
+     "strategy": 99877.5,
+     "benchmark": 99877.5
     },
     {
      "t": "10",
-     "strategy": 101219.12,
-     "benchmark": 101594.08
+     "strategy": 99711.14,
+     "benchmark": 99711.14
     },
     {
      "t": "11",
-     "strategy": 101212.72,
-     "benchmark": 101587.67
+     "strategy": 99787.17,
+     "benchmark": 99787.17
     },
     {
      "t": "12",
-     "strategy": 101668.95,
-     "benchmark": 102045.6
+     "strategy": 99770.91,
+     "benchmark": 99770.91
     },
     {
      "t": "13",
-     "strategy": 101693.73,
-     "benchmark": 102070.48
+     "strategy": 99878.8,
+     "benchmark": 99878.8
     },
     {
      "t": "14",
-     "strategy": 101516.3,
-     "benchmark": 101892.41
+     "strategy": 100065.94,
+     "benchmark": 100065.94
     },
     {
      "t": "15",
-     "strategy": 101426.74,
-     "benchmark": 101802.53
+     "strategy": 100304.8,
+     "benchmark": 100304.8
     },
     {
      "t": "16",
-     "strategy": 100996.45,
-     "benchmark": 101370.64
+     "strategy": 100310.26,
+     "benchmark": 100310.26
     },
     {
      "t": "17",
-     "strategy": 101105.19,
-     "benchmark": 101479.77
+     "strategy": 99990.73,
+     "benchmark": 99990.73
     },
     {
      "t": "18",
-     "strategy": 100846.04,
-     "benchmark": 101219.68
+     "strategy": 100011.82,
+     "benchmark": 100011.82
     },
     {
      "t": "19",
-     "strategy": 101076.19,
-     "benchmark": 101450.67
+     "strategy": 100152.03,
+     "benchmark": 100152.03
     },
     {
      "t": "20",
-     "strategy": 101003.81,
-     "benchmark": 101378.01
+     "strategy": 100006.64,
+     "benchmark": 100006.64
     },
     {
      "t": "21",
-     "strategy": 101259.8,
-     "benchmark": 101634.94
+     "strategy": 100098.48,
+     "benchmark": 100098.48
     },
     {
      "t": "22",
-     "strategy": 101385.28,
-     "benchmark": 101760.87
+     "strategy": 100162.78,
+     "benchmark": 100162.78
     },
     {
      "t": "23",
-     "strategy": 101935.72,
-     "benchmark": 102313.38
+     "strategy": 99688.16,
+     "benchmark": 99688.16
     },
     {
      "t": "24",
-     "strategy": 102269.92,
-     "benchmark": 102648.82
+     "strategy": 99785.04,
+     "benchmark": 99785.04
     },
     {
      "t": "25",
-     "strategy": 101951.91,
-     "benchmark": 102329.64
+     "strategy": 100069.61,
+     "benchmark": 100069.61
     },
     {
      "t": "26",
-     "strategy": 101663.85,
-     "benchmark": 102040.51
+     "strategy": 100285.21,
+     "benchmark": 100285.21
     },
     {
      "t": "27",
-     "strategy": 101542.76,
-     "benchmark": 101918.98
+     "strategy": 100214.6,
+     "benchmark": 100214.6
     },
     {
      "t": "28",
-     "strategy": 101741.74,
-     "benchmark": 102118.69
+     "strategy": 99965.03,
+     "benchmark": 99965.03
     },
     {
      "t": "29",
-     "strategy": 101878.99,
-     "benchmark": 102256.44
+     "strategy": 100217.12,
+     "benchmark": 100217.12
     },
     {
      "t": "30",
-     "strategy": 101878.32,
-     "benchmark": 102255.76
+     "strategy": 100286.41,
+     "benchmark": 100286.41
     },
     {
      "t": "31",
-     "strategy": 102250.83,
-     "benchmark": 102629.66
+     "strategy": 100546.01,
+     "benchmark": 100546.01
     },
     {
      "t": "32",
-     "strategy": 102202.52,
-     "benchmark": 102581.16
+     "strategy": 100495.22,
+     "benchmark": 100495.22
     },
     {
      "t": "33",
-     "strategy": 102652.22,
-     "benchmark": 103032.53
+     "strategy": 100407.38,
+     "benchmark": 100407.38
     },
     {
      "t": "34",
-     "strategy": 102738.92,
-     "benchmark": 103119.56
+     "strategy": 100536.34,
+     "benchmark": 100536.34
     },
     {
      "t": "35",
-     "strategy": 102714.44,
-     "benchmark": 103094.99
+     "strategy": 100714.39,
+     "benchmark": 100714.39
     },
     {
      "t": "36",
-     "strategy": 102904.91,
-     "benchmark": 103286.16
+     "strategy": 100820.43,
+     "benchmark": 100820.43
     },
     {
      "t": "37",
-     "strategy": 102983.69,
-     "benchmark": 103365.23
+     "strategy": 100713.07,
+     "benchmark": 100713.07
     },
     {
      "t": "38",
-     "strategy": 103278.27,
-     "benchmark": 103660.9
+     "strategy": 100602.36,
+     "benchmark": 100602.36
     },
     {
      "t": "39",
-     "strategy": 103225.9,
-     "benchmark": 103608.35
+     "strategy": 100909.45,
+     "benchmark": 100909.45
     },
     {
      "t": "40",
-     "strategy": 103486.99,
-     "benchmark": 103870.42
+     "strategy": 101208.51,
+     "benchmark": 101208.51
     },
     {
      "t": "41",
-     "strategy": 103659.77,
-     "benchmark": 104043.83
+     "strategy": 101669.01,
+     "benchmark": 101669.01
     },
     {
      "t": "42",
-     "strategy": 103890.54,
-     "benchmark": 104275.44
+     "strategy": 101845.12,
+     "benchmark": 101845.12
     },
     {
      "t": "43",
-     "strategy": 104364.11,
-     "benchmark": 104750.75
+     "strategy": 102057.83,
+     "benchmark": 102057.83
     },
     {
      "t": "44",
-     "strategy": 104763.28,
-     "benchmark": 105151.39
+     "strategy": 102188.59,
+     "benchmark": 102188.59
     },
     {
      "t": "45",
-     "strategy": 104684.82,
-     "benchmark": 105072.65
+     "strategy": 102285.47,
+     "benchmark": 102285.47
     },
     {
      "t": "46",
-     "strategy": 104831.32,
-     "benchmark": 105219.68
+     "strategy": 102376.02,
+     "benchmark": 102376.02
     },
     {
      "t": "47",
-     "strategy": 104787.07,
-     "benchmark": 105175.27
+     "strategy": 102608.66,
+     "benchmark": 102608.66
     },
     {
      "t": "48",
-     "strategy": 104754.37,
-     "benchmark": 105142.44
+     "strategy": 102729.3,
+     "benchmark": 102729.3
     },
     {
      "t": "49",
-     "strategy": 104769.15,
-     "benchmark": 105157.28
+     "strategy": 102832.53,
+     "benchmark": 102832.53
     },
     {
      "t": "50",
-     "strategy": 104873.62,
-     "benchmark": 105262.13
+     "strategy": 102814.38,
+     "benchmark": 102814.38
     },
     {
      "t": "51",
-     "strategy": 104929.33,
-     "benchmark": 105318.03
+     "strategy": 102857.96,
+     "benchmark": 102857.96
     },
     {
      "t": "52",
-     "strategy": 104879.73,
-     "benchmark": 105268.25
+     "strategy": 103005.41,
+     "benchmark": 103005.41
     },
     {
      "t": "53",
-     "strategy": 104822.62,
-     "benchmark": 105210.93
+     "strategy": 102959.67,
+     "benchmark": 102959.67
     },
     {
      "t": "54",
-     "strategy": 104942.84,
-     "benchmark": 105331.56
+     "strategy": 102703.95,
+     "benchmark": 102703.95
     },
     {
      "t": "55",
-     "strategy": 104783.49,
-     "benchmark": 105171.63
+     "strategy": 102510.83,
+     "benchmark": 102510.83
     },
     {
      "t": "56",
-     "strategy": 105105.04,
-     "benchmark": 105494.37
+     "strategy": 102590.8,
+     "benchmark": 102590.8
     },
     {
      "t": "57",
-     "strategy": 105308.89,
-     "benchmark": 105698.97
+     "strategy": 102716.08,
+     "benchmark": 102716.08
     },
     {
      "t": "58",
-     "strategy": 105381.0,
-     "benchmark": 105771.35
+     "strategy": 102642.83,
+     "benchmark": 102642.83
     },
     {
      "t": "59",
-     "strategy": 105317.06,
-     "benchmark": 105707.18
+     "strategy": 102907.67,
+     "benchmark": 102907.67
     },
     {
      "t": "60",
-     "strategy": 105514.08,
-     "benchmark": 105904.92
+     "strategy": 103046.0,
+     "benchmark": 103046.0
     },
     {
      "t": "61",
-     "strategy": 105511.81,
-     "benchmark": 105902.62
+     "strategy": 103048.98,
+     "benchmark": 103048.98
     },
     {
      "t": "62",
-     "strategy": 105602.19,
-     "benchmark": 105993.35
+     "strategy": 103230.62,
+     "benchmark": 103230.62
     },
     {
      "t": "63",
-     "strategy": 105599.24,
-     "benchmark": 105990.38
+     "strategy": 103632.78,
+     "benchmark": 103632.78
     },
     {
      "t": "64",
-     "strategy": 105427.37,
-     "benchmark": 105817.85
+     "strategy": 103525.61,
+     "benchmark": 103525.61
     },
     {
      "t": "65",
-     "strategy": 105571.14,
-     "benchmark": 105962.12
+     "strategy": 103361.8,
+     "benchmark": 103361.8
     },
     {
      "t": "66",
-     "strategy": 105290.08,
-     "benchmark": 105680.03
+     "strategy": 103562.96,
+     "benchmark": 103562.96
     },
     {
      "t": "67",
-     "strategy": 105464.41,
-     "benchmark": 105855.01
+     "strategy": 103530.29,
+     "benchmark": 103530.29
     },
     {
      "t": "68",
-     "strategy": 105937.57,
-     "benchmark": 106329.9
+     "strategy": 103658.01,
+     "benchmark": 103658.01
     },
     {
      "t": "69",
-     "strategy": 106277.64,
-     "benchmark": 106671.26
+     "strategy": 104217.41,
+     "benchmark": 104217.41
     },
     {
      "t": "70",
-     "strategy": 106296.58,
-     "benchmark": 106690.26
+     "strategy": 104326.88,
+     "benchmark": 104326.88
     },
     {
      "t": "71",
-     "strategy": 106287.97,
-     "benchmark": 106681.61
+     "strategy": 104257.0,
+     "benchmark": 104257.0
     },
     {
      "t": "72",
-     "strategy": 106379.9,
-     "benchmark": 106773.89
+     "strategy": 104598.48,
+     "benchmark": 104598.48
     },
     {
      "t": "73",
-     "strategy": 106196.31,
-     "benchmark": 106589.61
+     "strategy": 104782.06,
+     "benchmark": 104782.06
     },
     {
      "t": "74",
-     "strategy": 105989.88,
-     "benchmark": 106382.39
+     "strategy": 104732.48,
+     "benchmark": 104732.48
     },
     {
      "t": "75",
-     "strategy": 106068.89,
-     "benchmark": 106461.69
+     "strategy": 104764.36,
+     "benchmark": 104764.36
     },
     {
      "t": "76",
-     "strategy": 105837.79,
-     "benchmark": 106229.73
+     "strategy": 104806.19,
+     "benchmark": 104806.19
     },
     {
      "t": "77",
-     "strategy": 105985.08,
-     "benchmark": 106377.59
+     "strategy": 105179.72,
+     "benchmark": 105179.72
     },
     {
      "t": "78",
-     "strategy": 105954.62,
-     "benchmark": 106346.99
+     "strategy": 104980.84,
+     "benchmark": 104980.84
     },
     {
      "t": "79",
-     "strategy": 105880.38,
-     "benchmark": 106272.47
+     "strategy": 104905.04,
+     "benchmark": 104905.04
     },
     {
      "t": "80",
-     "strategy": 105597.08,
-     "benchmark": 105988.1
+     "strategy": 104934.88,
+     "benchmark": 104934.88
     },
     {
      "t": "81",
-     "strategy": 105736.3,
-     "benchmark": 106127.84
+     "strategy": 104754.99,
+     "benchmark": 104754.99
     },
     {
      "t": "82",
-     "strategy": 105794.07,
-     "benchmark": 106185.85
+     "strategy": 104530.98,
+     "benchmark": 104530.98
     },
     {
      "t": "83",
-     "strategy": 105641.1,
-     "benchmark": 106032.34
+     "strategy": 104384.17,
+     "benchmark": 104384.17
     },
     {
      "t": "84",
-     "strategy": 106114.52,
-     "benchmark": 106507.52
+     "strategy": 104374.71,
+     "benchmark": 104374.71
     },
     {
      "t": "85",
-     "strategy": 106173.45,
-     "benchmark": 106566.65
+     "strategy": 104290.06,
+     "benchmark": 104290.06
     },
     {
      "t": "86",
-     "strategy": 106073.22,
-     "benchmark": 106466.07
+     "strategy": 104384.43,
+     "benchmark": 104384.43
     },
     {
      "t": "87",
-     "strategy": 106171.08,
-     "benchmark": 106564.29
+     "strategy": 104250.39,
+     "benchmark": 104250.39
     },
     {
      "t": "88",
-     "strategy": 106221.91,
-     "benchmark": 106615.33
+     "strategy": 104335.71,
+     "benchmark": 104335.71
     },
     {
      "t": "89",
-     "strategy": 106264.26,
-     "benchmark": 106657.82
+     "strategy": 104388.42,
+     "benchmark": 104388.42
     },
     {
      "t": "90",
-     "strategy": 106053.68,
-     "benchmark": 106446.44
+     "strategy": 104200.85,
+     "benchmark": 104200.85
     },
     {
      "t": "91",
-     "strategy": 105792.37,
-     "benchmark": 106184.18
+     "strategy": 104096.48,
+     "benchmark": 104096.48
     },
     {
      "t": "92",
-     "strategy": 105885.33,
-     "benchmark": 106277.49
+     "strategy": 104225.68,
+     "benchmark": 104225.68
     },
     {
      "t": "93",
-     "strategy": 106444.24,
-     "benchmark": 106838.48
+     "strategy": 104314.94,
+     "benchmark": 104314.94
     },
     {
      "t": "94",
-     "strategy": 106857.31,
-     "benchmark": 107253.1
+     "strategy": 104612.72,
+     "benchmark": 104612.72
     },
     {
      "t": "95",
-     "strategy": 106943.8,
-     "benchmark": 107339.91
+     "strategy": 104777.17,
+     "benchmark": 104777.17
     },
     {
      "t": "96",
-     "strategy": 106856.05,
-     "benchmark": 107251.82
+     "strategy": 104836.96,
+     "benchmark": 104836.96
     },
     {
      "t": "97",
-     "strategy": 106768.7,
-     "benchmark": 107164.14
+     "strategy": 104724.52,
+     "benchmark": 104724.52
     },
     {
      "t": "98",
-     "strategy": 106957.02,
-     "benchmark": 107353.14
+     "strategy": 104809.33,
+     "benchmark": 104809.33
     },
     {
      "t": "99",
-     "strategy": 107327.03,
-     "benchmark": 107724.53
+     "strategy": 104847.48,
+     "benchmark": 104847.48
     },
     {
      "t": "100",
-     "strategy": 107502.33,
-     "benchmark": 107900.47
+     "strategy": 104922.7,
+     "benchmark": 104922.7
     },
     {
      "t": "101",
-     "strategy": 107877.27,
-     "benchmark": 108276.81
+     "strategy": 104703.74,
+     "benchmark": 104703.74
     },
     {
      "t": "102",
-     "strategy": 107904.87,
-     "benchmark": 108304.5
+     "strategy": 104901.5,
+     "benchmark": 104901.5
     },
     {
      "t": "103",
-     "strategy": 107461.12,
-     "benchmark": 107859.11
+     "strategy": 105088.94,
+     "benchmark": 105088.94
     },
     {
      "t": "104",
-     "strategy": 107192.31,
-     "benchmark": 107589.31
+     "strategy": 105319.04,
+     "benchmark": 105319.04
     },
     {
      "t": "105",
-     "strategy": 106715.87,
-     "benchmark": 107111.11
+     "strategy": 105335.15,
+     "benchmark": 105335.15
     },
     {
      "t": "106",
-     "strategy": 106935.37,
-     "benchmark": 107331.42
+     "strategy": 105147.68,
+     "benchmark": 105147.68
     },
     {
      "t": "107",
-     "strategy": 107065.77,
-     "benchmark": 107462.29
+     "strategy": 105044.56,
+     "benchmark": 105044.56
     },
     {
      "t": "108",
-     "strategy": 107082.24,
-     "benchmark": 107478.82
+     "strategy": 105289.12,
+     "benchmark": 105289.12
     },
     {
      "t": "109",
-     "strategy": 106927.02,
-     "benchmark": 107323.02
+     "strategy": 105480.44,
+     "benchmark": 105480.44
     },
     {
      "t": "110",
-     "strategy": 107016.04,
-     "benchmark": 107412.37
+     "strategy": 105323.48,
+     "benchmark": 105323.48
     },
     {
      "t": "111",
-     "strategy": 107035.31,
-     "benchmark": 107431.71
+     "strategy": 105155.71,
+     "benchmark": 105155.71
     },
     {
      "t": "112",
-     "strategy": 106632.75,
-     "benchmark": 107027.67
+     "strategy": 105334.47,
+     "benchmark": 105334.47
     },
     {
      "t": "113",
-     "strategy": 106171.34,
-     "benchmark": 106564.55
+     "strategy": 105619.25,
+     "benchmark": 105619.25
     },
     {
      "t": "114",
-     "strategy": 106373.07,
-     "benchmark": 106767.03
+     "strategy": 105696.41,
+     "benchmark": 105696.41
     },
     {
      "t": "115",
-     "strategy": 106670.33,
-     "benchmark": 107065.4
+     "strategy": 105496.35,
+     "benchmark": 105496.35
     },
     {
      "t": "116",
-     "strategy": 107124.75,
-     "benchmark": 107521.5
+     "strategy": 105316.87,
+     "benchmark": 105316.87
     },
     {
      "t": "117",
-     "strategy": 107168.41,
-     "benchmark": 107565.33
+     "strategy": 105190.76,
+     "benchmark": 105190.76
     },
     {
      "t": "118",
-     "strategy": 107048.47,
-     "benchmark": 107444.94
+     "strategy": 105299.82,
+     "benchmark": 105299.82
     },
     {
      "t": "119",
-     "strategy": 107185.02,
-     "benchmark": 107581.98
+     "strategy": 105550.94,
+     "benchmark": 105550.94
     },
     {
      "t": "120",
-     "strategy": 107597.43,
-     "benchmark": 107995.92
+     "strategy": 105692.58,
+     "benchmark": 105692.58
     },
     {
      "t": "121",
-     "strategy": 107938.57,
-     "benchmark": 108338.31
+     "strategy": 105813.82,
+     "benchmark": 105813.82
     },
     {
      "t": "122",
-     "strategy": 108083.65,
-     "benchmark": 108483.93
+     "strategy": 105611.88,
+     "benchmark": 105611.88
     },
     {
      "t": "123",
-     "strategy": 108303.62,
-     "benchmark": 108704.7
+     "strategy": 105806.79,
+     "benchmark": 105806.79
     },
     {
      "t": "124",
-     "strategy": 108130.11,
-     "benchmark": 108530.53
+     "strategy": 105626.04,
+     "benchmark": 105626.04
     },
     {
      "t": "125",
-     "strategy": 108183.42,
-     "benchmark": 108584.04
+     "strategy": 105795.44,
+     "benchmark": 105795.44
     },
     {
      "t": "126",
-     "strategy": 108132.16,
-     "benchmark": 108532.58
-    },
-    {
-     "t": "127",
-     "strategy": 108126.51,
-     "benchmark": 108526.9
-    },
-    {
-     "t": "128",
-     "strategy": 108093.8,
-     "benchmark": 108494.04
-    },
-    {
-     "t": "129",
-     "strategy": 107976.71,
-     "benchmark": 108376.54
-    },
-    {
-     "t": "130",
-     "strategy": 107681.59,
-     "benchmark": 108080.32
-    },
-    {
-     "t": "131",
-     "strategy": 108093.48,
-     "benchmark": 108493.74
-    },
-    {
-     "t": "132",
-     "strategy": 108683.97,
-     "benchmark": 109086.4
-    },
-    {
-     "t": "133",
-     "strategy": 108724.45,
-     "benchmark": 109127.04
-    },
-    {
-     "t": "134",
-     "strategy": 108974.51,
-     "benchmark": 109378.03
-    },
-    {
-     "t": "135",
-     "strategy": 108931.85,
-     "benchmark": 109335.21
-    },
-    {
-     "t": "136",
-     "strategy": 108835.13,
-     "benchmark": 109238.12
-    },
-    {
-     "t": "137",
-     "strategy": 108790.93,
-     "benchmark": 109193.76
-    },
-    {
-     "t": "138",
-     "strategy": 108866.68,
-     "benchmark": 109269.78
-    },
-    {
-     "t": "139",
-     "strategy": 108582.93,
-     "benchmark": 108984.97
-    },
-    {
-     "t": "140",
-     "strategy": 108613.55,
-     "benchmark": 109015.7
-    },
-    {
-     "t": "141",
-     "strategy": 109180.48,
-     "benchmark": 109584.75
-    },
-    {
-     "t": "142",
-     "strategy": 108999.41,
-     "benchmark": 109403.0
-    },
-    {
-     "t": "143",
-     "strategy": 108534.23,
-     "benchmark": 108936.1
-    },
-    {
-     "t": "144",
-     "strategy": 108301.36,
-     "benchmark": 108702.37
-    },
-    {
-     "t": "145",
-     "strategy": 108106.21,
-     "benchmark": 108506.49
-    },
-    {
-     "t": "146",
-     "strategy": 108549.77,
-     "benchmark": 108951.69
-    },
-    {
-     "t": "147",
-     "strategy": 108611.05,
-     "benchmark": 109013.2
-    },
-    {
-     "t": "148",
-     "strategy": 108239.01,
-     "benchmark": 108639.78
-    },
-    {
-     "t": "149",
-     "strategy": 108299.72,
-     "benchmark": 108700.72
-    },
-    {
-     "t": "150",
-     "strategy": 108684.68,
-     "benchmark": 109087.13
-    },
-    {
-     "t": "151",
-     "strategy": 108939.06,
-     "benchmark": 109342.45
-    },
-    {
-     "t": "152",
-     "strategy": 108961.75,
-     "benchmark": 109365.21
-    },
-    {
-     "t": "153",
-     "strategy": 109020.2,
-     "benchmark": 109423.87
-    },
-    {
-     "t": "154",
-     "strategy": 109195.11,
-     "benchmark": 109599.43
-    },
-    {
-     "t": "155",
-     "strategy": 109514.26,
-     "benchmark": 109919.76
-    },
-    {
-     "t": "156",
-     "strategy": 109637.93,
-     "benchmark": 110043.89
-    },
-    {
-     "t": "157",
-     "strategy": 109867.88,
-     "benchmark": 110274.69
-    },
-    {
-     "t": "158",
-     "strategy": 110036.36,
-     "benchmark": 110443.82
-    },
-    {
-     "t": "159",
-     "strategy": 110580.79,
-     "benchmark": 110990.26
-    },
-    {
-     "t": "160",
-     "strategy": 110650.79,
-     "benchmark": 111060.52
-    },
-    {
-     "t": "161",
-     "strategy": 110669.84,
-     "benchmark": 111079.63
-    },
-    {
-     "t": "162",
-     "strategy": 110789.1,
-     "benchmark": 111199.33
-    },
-    {
-     "t": "163",
-     "strategy": 111009.76,
-     "benchmark": 111420.8
-    },
-    {
-     "t": "164",
-     "strategy": 111240.85,
-     "benchmark": 111652.76
-    },
-    {
-     "t": "165",
-     "strategy": 111245.08,
-     "benchmark": 111656.99
-    },
-    {
-     "t": "166",
-     "strategy": 111182.21,
-     "benchmark": 111593.9
-    },
-    {
-     "t": "167",
-     "strategy": 111073.42,
-     "benchmark": 111484.72
-    },
-    {
-     "t": "168",
-     "strategy": 110970.8,
-     "benchmark": 111381.73
-    },
-    {
-     "t": "169",
-     "strategy": 110639.26,
-     "benchmark": 111048.96
-    },
-    {
-     "t": "170",
-     "strategy": 110806.98,
-     "benchmark": 111217.28
-    },
-    {
-     "t": "171",
-     "strategy": 110819.6,
-     "benchmark": 111229.96
-    },
-    {
-     "t": "172",
-     "strategy": 110854.91,
-     "benchmark": 111265.43
-    },
-    {
-     "t": "173",
-     "strategy": 110726.98,
-     "benchmark": 111137.03
-    },
-    {
-     "t": "174",
-     "strategy": 110589.38,
-     "benchmark": 110998.94
-    },
-    {
-     "t": "175",
-     "strategy": 110400.28,
-     "benchmark": 110809.15
-    },
-    {
-     "t": "176",
-     "strategy": 110222.43,
-     "benchmark": 110630.64
-    },
-    {
-     "t": "177",
-     "strategy": 110010.51,
-     "benchmark": 110417.95
-    },
-    {
-     "t": "178",
-     "strategy": 110206.29,
-     "benchmark": 110614.42
-    },
-    {
-     "t": "179",
-     "strategy": 110672.92,
-     "benchmark": 111082.76
-    },
-    {
-     "t": "180",
-     "strategy": 111261.94,
-     "benchmark": 111673.97
-    },
-    {
-     "t": "181",
-     "strategy": 110999.33,
-     "benchmark": 111410.38
-    },
-    {
-     "t": "182",
-     "strategy": 110586.41,
-     "benchmark": 110995.92
-    },
-    {
-     "t": "183",
-     "strategy": 110480.53,
-     "benchmark": 110889.64
-    },
-    {
-     "t": "184",
-     "strategy": 111068.1,
-     "benchmark": 111479.41
-    },
-    {
-     "t": "185",
-     "strategy": 111017.72,
-     "benchmark": 111428.83
-    },
-    {
-     "t": "186",
-     "strategy": 110869.19,
-     "benchmark": 111279.78
-    },
-    {
-     "t": "187",
-     "strategy": 110709.46,
-     "benchmark": 111119.46
-    },
-    {
-     "t": "188",
-     "strategy": 110713.0,
-     "benchmark": 111123.02
-    },
-    {
-     "t": "189",
-     "strategy": 111095.09,
-     "benchmark": 111506.51
-    },
-    {
-     "t": "190",
-     "strategy": 111046.77,
-     "benchmark": 111458.01
-    },
-    {
-     "t": "191",
-     "strategy": 110589.26,
-     "benchmark": 110998.79
-    },
-    {
-     "t": "192",
-     "strategy": 110665.03,
-     "benchmark": 111074.87
-    },
-    {
-     "t": "193",
-     "strategy": 110874.76,
-     "benchmark": 111285.39
-    },
-    {
-     "t": "194",
-     "strategy": 111050.57,
-     "benchmark": 111461.84
-    },
-    {
-     "t": "195",
-     "strategy": 111365.16,
-     "benchmark": 111777.58
-    },
-    {
-     "t": "196",
-     "strategy": 111214.48,
-     "benchmark": 111626.35
-    },
-    {
-     "t": "197",
-     "strategy": 110660.81,
-     "benchmark": 111070.64
-    },
-    {
-     "t": "198",
-     "strategy": 110680.89,
-     "benchmark": 111090.78
-    },
-    {
-     "t": "199",
-     "strategy": 110763.32,
-     "benchmark": 111173.51
-    },
-    {
-     "t": "200",
-     "strategy": 110283.18,
-     "benchmark": 110691.56
-    },
-    {
-     "t": "201",
-     "strategy": 109907.46,
-     "benchmark": 110314.42
-    },
-    {
-     "t": "202",
-     "strategy": 109885.48,
-     "benchmark": 110292.38
-    },
-    {
-     "t": "203",
-     "strategy": 109694.15,
-     "benchmark": 110100.32
-    },
-    {
-     "t": "204",
-     "strategy": 110329.7,
-     "benchmark": 110738.21
-    },
-    {
-     "t": "205",
-     "strategy": 110473.81,
-     "benchmark": 110882.84
-    },
-    {
-     "t": "206",
-     "strategy": 110664.39,
-     "benchmark": 111074.15
-    },
-    {
-     "t": "207",
-     "strategy": 110534.67,
-     "benchmark": 110943.93
-    },
-    {
-     "t": "208",
-     "strategy": 110627.47,
-     "benchmark": 111037.06
-    },
-    {
-     "t": "209",
-     "strategy": 109822.17,
-     "benchmark": 110228.75
-    },
-    {
-     "t": "210",
-     "strategy": 109802.42,
-     "benchmark": 110208.92
-    },
-    {
-     "t": "211",
-     "strategy": 109619.67,
-     "benchmark": 110025.46
-    },
-    {
-     "t": "212",
-     "strategy": 109598.68,
-     "benchmark": 110004.39
-    },
-    {
-     "t": "213",
-     "strategy": 109718.36,
-     "benchmark": 110124.5
-    },
-    {
-     "t": "214",
-     "strategy": 109504.63,
-     "benchmark": 109909.99
-    },
-    {
-     "t": "215",
-     "strategy": 109911.21,
-     "benchmark": 110318.09
-    },
-    {
-     "t": "216",
-     "strategy": 109653.58,
-     "benchmark": 110059.46
-    },
-    {
-     "t": "217",
-     "strategy": 109724.62,
-     "benchmark": 110130.75
-    },
-    {
-     "t": "218",
-     "strategy": 109837.56,
-     "benchmark": 110244.13
-    },
-    {
-     "t": "219",
-     "strategy": 110031.98,
-     "benchmark": 110439.25
-    },
-    {
-     "t": "220",
-     "strategy": 109687.86,
-     "benchmark": 110093.88
-    },
-    {
-     "t": "221",
-     "strategy": 109649.24,
-     "benchmark": 110055.12
-    },
-    {
-     "t": "222",
-     "strategy": 109963.51,
-     "benchmark": 110370.56
-    },
-    {
-     "t": "223",
-     "strategy": 109576.77,
-     "benchmark": 109982.37
-    },
-    {
-     "t": "224",
-     "strategy": 109847.35,
-     "benchmark": 110253.95
-    },
-    {
-     "t": "225",
-     "strategy": 109780.19,
-     "benchmark": 110186.6
-    },
-    {
-     "t": "226",
-     "strategy": 109898.15,
-     "benchmark": 110304.98
-    },
-    {
-     "t": "227",
-     "strategy": 110363.66,
-     "benchmark": 110772.21
-    },
-    {
-     "t": "228",
-     "strategy": 110167.11,
-     "benchmark": 110574.92
-    },
-    {
-     "t": "229",
-     "strategy": 109894.16,
-     "benchmark": 110300.97
-    },
-    {
-     "t": "230",
-     "strategy": 110370.72,
-     "benchmark": 110779.3
-    },
-    {
-     "t": "231",
-     "strategy": 110652.85,
-     "benchmark": 111062.49
-    },
-    {
-     "t": "232",
-     "strategy": 110522.93,
-     "benchmark": 110932.11
-    },
-    {
-     "t": "233",
-     "strategy": 110648.52,
-     "benchmark": 111058.15
-    },
-    {
-     "t": "234",
-     "strategy": 111057.07,
-     "benchmark": 111468.21
-    },
-    {
-     "t": "235",
-     "strategy": 111211.42,
-     "benchmark": 111623.14
-    },
-    {
-     "t": "236",
-     "strategy": 111152.04,
-     "benchmark": 111563.52
-    },
-    {
-     "t": "237",
-     "strategy": 111140.35,
-     "benchmark": 111551.81
-    },
-    {
-     "t": "238",
-     "strategy": 111285.44,
-     "benchmark": 111697.43
-    },
-    {
-     "t": "239",
-     "strategy": 110763.6,
-     "benchmark": 111173.65
-    },
-    {
-     "t": "240",
-     "strategy": 110948.46,
-     "benchmark": 111359.18
-    },
-    {
-     "t": "241",
-     "strategy": 110603.5,
-     "benchmark": 111012.93
-    },
-    {
-     "t": "242",
-     "strategy": 110952.48,
-     "benchmark": 111363.22
-    },
-    {
-     "t": "243",
-     "strategy": 110988.81,
-     "benchmark": 111399.64
-    },
-    {
-     "t": "244",
-     "strategy": 111467.52,
-     "benchmark": 111880.13
-    },
-    {
-     "t": "245",
-     "strategy": 111048.56,
-     "benchmark": 111459.63
-    },
-    {
-     "t": "246",
-     "strategy": 111073.61,
-     "benchmark": 111484.78
-    },
-    {
-     "t": "247",
-     "strategy": 111647.55,
-     "benchmark": 112060.83
-    },
-    {
-     "t": "248",
-     "strategy": 112116.84,
-     "benchmark": 112531.86
-    },
-    {
-     "t": "249",
-     "strategy": 112017.06,
-     "benchmark": 112431.7
-    },
-    {
-     "t": "250",
-     "strategy": 111784.19,
-     "benchmark": 112197.99
-    },
-    {
-     "t": "251",
-     "strategy": 111684.19,
-     "benchmark": 112097.6
-    },
-    {
-     "t": "252",
-     "strategy": 111555.87,
-     "benchmark": 111968.78
+     "strategy": 105739.03,
+     "benchmark": 105739.03
     }
    ],
-   "pct_positive": 75.0,
-   "n_positive": 12,
-   "gain_loss": {
-    "avg_gain_pct": 19.39,
-    "avg_loss_pct": -10.31,
-    "max_gain_pct": 71.16,
-    "max_loss_pct": -22.78,
-    "n_gain": 12,
-    "n_loss": 4,
-    "basis": "episodes"
-   }
+   "pct_positive": 66,
+   "n_positive": 21
   },
   "expression_count": 2,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will Nifty touch 30,000?",
+  "plain_one_liner": "Will Nifty touch 30,000 before year-end?",
   "plain_summary": "The whole Indian market would need to climb about a quarter more to reach 30,000.",
-  "short_title": "Will Nifty touch 30,000?",
+  "short_title": "Will Nifty touch 30,000 before year-end?",
   "stance": {
    "yes": {
     "verdict": "Position for the run to 30,000",
@@ -4250,28 +3845,18 @@
     "summary": "A move this large is rare \u2014 if it doesn't happen, simply holding the index avoids paying for a bet that can expire worthless."
    }
   },
-  "best_episode_pct": 71.2,
-  "best_episode_label": "12-mo window ended May 2021",
-  "evidence_basis": "rolling_windows",
-  "min_entry_inr": 823,
-  "forward_expected_net_pct": -0.3,
-  "forward_band_pct": {
-   "p25": -9.1,
-   "p50": -0.3,
-   "p75": 8.5,
-   "p05": -21.8
-  },
-  "forward_p_source": "option-implied from the live NIFTY chain (risk-neutral)"
+  "best_episode_pct": 35.9,
+  "best_episode_label": "Mar 2020"
  },
  {
   "id": "gold",
   "view_type": "event",
-  "title": "Will gold prices rise?",
+  "title": "Will Gold make a new all-time high this quarter?",
   "thesis": "When gold keeps hitting new highs, jewellers and gold-loan firms tend to do well.",
   "category": "Commodity \u00b7 Event",
   "time_horizon": "Over 3 months",
   "status": "open",
-  "resolution_date": "2026-09-30T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -4288,13 +3873,13 @@
    "expression_kind": "basket",
    "grade": null,
    "trust_verdict": "promising",
-   "total_return_pct": 6.28,
+   "total_return_pct": 6.38,
    "excess_return_pct": 6.81,
-   "plain_label": "Golden & Steady bundle",
+   "plain_label": "Own a bundle of 4 gold-linked firms",
    "nifty_total_pct": 1.24,
    "n_episodes": 20,
    "pct_episodes_beat": 84,
-   "worst_drop_pct": -20.0,
+   "worst_drop_pct": -20.1,
    "equity_curve": [
     {
      "t": "0",
@@ -4303,340 +3888,331 @@
     },
     {
      "t": "1",
-     "strategy": 99414.82,
-     "benchmark": 99864.5
+     "strategy": 99956.27,
+     "benchmark": 100382.09
     },
     {
      "t": "2",
-     "strategy": 99721.92,
-     "benchmark": 99936.68
+     "strategy": 99971.69,
+     "benchmark": 100594.18
     },
     {
      "t": "3",
-     "strategy": 100052.4,
-     "benchmark": 100315.78
+     "strategy": 100087.34,
+     "benchmark": 100466.18
     },
     {
      "t": "4",
-     "strategy": 100077.71,
-     "benchmark": 100527.55
+     "strategy": 100365.03,
+     "benchmark": 100448.02
     },
     {
      "t": "5",
-     "strategy": 100177.27,
-     "benchmark": 100393.27
+     "strategy": 101164.03,
+     "benchmark": 100887.2
     },
     {
      "t": "6",
-     "strategy": 100441.11,
-     "benchmark": 100370.0
+     "strategy": 101622.25,
+     "benchmark": 100912.58
     },
     {
      "t": "7",
-     "strategy": 101233.36,
-     "benchmark": 100801.39
+     "strategy": 102317.37,
+     "benchmark": 100973.57
     },
     {
      "t": "8",
-     "strategy": 101699.57,
-     "benchmark": 100829.98
+     "strategy": 102534.47,
+     "benchmark": 100882.31
     },
     {
      "t": "9",
-     "strategy": 102392.76,
-     "benchmark": 100889.85
+     "strategy": 102361.86,
+     "benchmark": 100783.62
     },
     {
      "t": "10",
-     "strategy": 102607.41,
-     "benchmark": 100797.76
+     "strategy": 101901.8,
+     "benchmark": 100264.72
     },
     {
      "t": "11",
-     "strategy": 102419.12,
-     "benchmark": 100698.47
+     "strategy": 101913.72,
+     "benchmark": 100481.92
     },
     {
      "t": "12",
-     "strategy": 101952.54,
-     "benchmark": 100176.81
+     "strategy": 102009.89,
+     "benchmark": 100614.98
     },
     {
      "t": "13",
-     "strategy": 101968.48,
-     "benchmark": 100396.22
+     "strategy": 102306.39,
+     "benchmark": 100653.14
     },
     {
      "t": "14",
-     "strategy": 102080.02,
-     "benchmark": 100531.65
+     "strategy": 101849.26,
+     "benchmark": 100403.54
     },
     {
      "t": "15",
-     "strategy": 102371.96,
-     "benchmark": 100569.37
+     "strategy": 101839.8,
+     "benchmark": 100436.69
     },
     {
      "t": "16",
-     "strategy": 101915.57,
-     "benchmark": 100326.31
+     "strategy": 101990.7,
+     "benchmark": 100668.62
     },
     {
      "t": "17",
-     "strategy": 101905.57,
-     "benchmark": 100363.41
+     "strategy": 102295.01,
+     "benchmark": 100834.26
     },
     {
      "t": "18",
-     "strategy": 102063.86,
-     "benchmark": 100599.67
+     "strategy": 102132.05,
+     "benchmark": 100891.87
     },
     {
      "t": "19",
-     "strategy": 102360.0,
-     "benchmark": 100763.64
+     "strategy": 102062.03,
+     "benchmark": 101028.95
     },
     {
      "t": "20",
-     "strategy": 102198.31,
-     "benchmark": 100824.86
+     "strategy": 102097.12,
+     "benchmark": 101100.45
     },
     {
      "t": "21",
-     "strategy": 102136.16,
-     "benchmark": 100963.63
+     "strategy": 101958.91,
+     "benchmark": 100911.81
     },
     {
      "t": "22",
-     "strategy": 102165.4,
-     "benchmark": 101037.26
+     "strategy": 102484.35,
+     "benchmark": 101207.09
     },
     {
      "t": "23",
-     "strategy": 102030.46,
-     "benchmark": 100849.62
+     "strategy": 102790.03,
+     "benchmark": 101403.06
     },
     {
      "t": "24",
-     "strategy": 102554.19,
-     "benchmark": 101144.34
+     "strategy": 103076.21,
+     "benchmark": 101450.35
     },
     {
      "t": "25",
-     "strategy": 102867.86,
-     "benchmark": 101343.37
+     "strategy": 103051.13,
+     "benchmark": 101469.25
     },
     {
      "t": "26",
-     "strategy": 103145.2,
-     "benchmark": 101388.22
+     "strategy": 103081.34,
+     "benchmark": 101633.1
     },
     {
      "t": "27",
-     "strategy": 103123.39,
-     "benchmark": 101408.16
+     "strategy": 103169.16,
+     "benchmark": 101475.82
     },
     {
      "t": "28",
-     "strategy": 103153.4,
-     "benchmark": 101572.03
+     "strategy": 103198.43,
+     "benchmark": 101306.36
     },
     {
      "t": "29",
-     "strategy": 103247.8,
-     "benchmark": 101417.04
+     "strategy": 103589.41,
+     "benchmark": 101421.98
     },
     {
      "t": "30",
-     "strategy": 103288.61,
-     "benchmark": 101251.17
+     "strategy": 103874.16,
+     "benchmark": 101283.09
     },
     {
      "t": "31",
-     "strategy": 103673.05,
-     "benchmark": 101361.46
+     "strategy": 104152.13,
+     "benchmark": 101407.1
     },
     {
      "t": "32",
-     "strategy": 103958.26,
-     "benchmark": 101216.91
+     "strategy": 103950.72,
+     "benchmark": 101466.11
     },
     {
      "t": "33",
-     "strategy": 104235.71,
-     "benchmark": 101341.72
+     "strategy": 103889.14,
+     "benchmark": 101844.01
     },
     {
      "t": "34",
-     "strategy": 104038.83,
-     "benchmark": 101394.52
+     "strategy": 103571.63,
+     "benchmark": 101952.29
     },
     {
      "t": "35",
-     "strategy": 103986.32,
-     "benchmark": 101776.68
+     "strategy": 103461.26,
+     "benchmark": 101999.3
     },
     {
      "t": "36",
-     "strategy": 103671.95,
-     "benchmark": 101890.29
+     "strategy": 103401.33,
+     "benchmark": 101771.96
     },
     {
      "t": "37",
-     "strategy": 103562.68,
-     "benchmark": 101935.39
+     "strategy": 103484.3,
+     "benchmark": 101674.42
     },
     {
      "t": "38",
-     "strategy": 103502.79,
-     "benchmark": 101705.76
+     "strategy": 103401.84,
+     "benchmark": 101474.66
     },
     {
      "t": "39",
-     "strategy": 103579.04,
-     "benchmark": 101608.22
+     "strategy": 103146.25,
+     "benchmark": 101477.42
     },
     {
      "t": "40",
-     "strategy": 103487.06,
-     "benchmark": 101410.04
+     "strategy": 103734.51,
+     "benchmark": 101819.19
     },
     {
      "t": "41",
-     "strategy": 103224.73,
-     "benchmark": 101414.12
+     "strategy": 103756.15,
+     "benchmark": 101646.14
     },
     {
      "t": "42",
-     "strategy": 103809.04,
-     "benchmark": 101755.88
+     "strategy": 103603.41,
+     "benchmark": 101492.0
     },
     {
      "t": "43",
-     "strategy": 103837.4,
-     "benchmark": 101586.66
+     "strategy": 104173.77,
+     "benchmark": 101749.89
     },
     {
      "t": "44",
-     "strategy": 103679.65,
-     "benchmark": 101428.81
+     "strategy": 104326.51,
+     "benchmark": 101865.26
     },
     {
      "t": "45",
-     "strategy": 104246.14,
-     "benchmark": 101684.0
+     "strategy": 104934.25,
+     "benchmark": 101888.04
     },
     {
      "t": "46",
-     "strategy": 104394.54,
-     "benchmark": 101796.93
+     "strategy": 104742.18,
+     "benchmark": 101765.25
     },
     {
      "t": "47",
-     "strategy": 105004.62,
-     "benchmark": 101819.89
+     "strategy": 104286.75,
+     "benchmark": 101791.81
     },
     {
      "t": "48",
-     "strategy": 104810.51,
-     "benchmark": 101700.0
+     "strategy": 104366.42,
+     "benchmark": 101595.91
     },
     {
      "t": "49",
-     "strategy": 104365.17,
-     "benchmark": 101726.28
+     "strategy": 104117.15,
+     "benchmark": 101565.09
     },
     {
      "t": "50",
-     "strategy": 104443.08,
-     "benchmark": 101527.43
+     "strategy": 104609.65,
+     "benchmark": 101851.67
     },
     {
      "t": "51",
-     "strategy": 104197.22,
-     "benchmark": 101500.04
+     "strategy": 104833.35,
+     "benchmark": 102201.56
     },
     {
      "t": "52",
-     "strategy": 104695.23,
-     "benchmark": 101788.75
+     "strategy": 104668.61,
+     "benchmark": 102022.89
     },
     {
      "t": "53",
-     "strategy": 104926.03,
-     "benchmark": 102138.4
+     "strategy": 104715.14,
+     "benchmark": 101849.4
     },
     {
      "t": "54",
-     "strategy": 104745.11,
-     "benchmark": 101959.63
+     "strategy": 104902.33,
+     "benchmark": 102198.06
     },
     {
      "t": "55",
-     "strategy": 104753.61,
-     "benchmark": 101780.48
+     "strategy": 105378.7,
+     "benchmark": 102344.6
     },
     {
      "t": "56",
-     "strategy": 104933.72,
-     "benchmark": 102131.35
+     "strategy": 105533.07,
+     "benchmark": 102413.52
     },
     {
      "t": "57",
-     "strategy": 105408.84,
-     "benchmark": 102275.38
+     "strategy": 105103.38,
+     "benchmark": 102156.62
     },
     {
      "t": "58",
-     "strategy": 105560.25,
-     "benchmark": 102345.61
+     "strategy": 105329.76,
+     "benchmark": 102284.8
     },
     {
      "t": "59",
-     "strategy": 105131.3,
-     "benchmark": 102087.87
+     "strategy": 105294.43,
+     "benchmark": 102375.97
     },
     {
      "t": "60",
-     "strategy": 105362.95,
-     "benchmark": 102220.09
+     "strategy": 105537.38,
+     "benchmark": 102673.08
     },
     {
      "t": "61",
-     "strategy": 105315.28,
-     "benchmark": 102311.43
+     "strategy": 105749.61,
+     "benchmark": 102520.26
     },
     {
      "t": "62",
-     "strategy": 105566.82,
-     "benchmark": 102610.16
+     "strategy": 105549.66,
+     "benchmark": 102348.16
     },
     {
      "t": "63",
-     "strategy": 105883.87,
-     "benchmark": 102451.02
+     "strategy": 105988.01,
+     "benchmark": 102396.07
     }
    ],
-   "pct_positive": 70.0,
-   "n_positive": 14,
-   "gain_loss": {
-    "avg_gain_pct": 11.36,
-    "avg_loss_pct": -5.58,
-    "max_gain_pct": 19.11,
-    "max_loss_pct": -8.97,
-    "n_gain": 14,
-    "n_loss": 6,
-    "basis": "episodes"
-   }
+   "pct_positive": 75.0,
+   "n_positive": 15
   },
   "expression_count": 2,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will gold prices rise?",
+  "plain_one_liner": "Will Gold make a new all-time high this quarter?",
   "plain_summary": "When gold keeps hitting new highs, jewellers and gold-loan firms tend to do well.",
-  "short_title": "Will gold prices rise?",
+  "short_title": "Will Gold make a new all-time high this quarter?",
   "stance": {
    "yes": {
     "verdict": "Own the gold beneficiaries",
@@ -4648,28 +4224,18 @@
     "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
    }
   },
-  "best_episode_pct": 19.1,
-  "best_episode_label": "3-mo window ended Sep 2023",
-  "evidence_basis": "rolling_windows",
-  "min_entry_inr": 1971,
-  "forward_expected_net_pct": -0.0,
-  "forward_band_pct": {
-   "p25": -6.8,
-   "p50": -0.0,
-   "p75": 6.8,
-   "p05": -16.6
-  },
-  "forward_p_source": "assumed even odds \u2014 no liquid market read at generation (stated)"
+  "best_episode_pct": 18.7,
+  "best_episode_label": "Window 9"
  },
  {
   "id": "fintech",
   "view_type": "theme",
-  "title": "Will fintech beat the market?",
+  "title": "Will digital-payments / fintech beat the market this year?",
   "thesis": "India's digital-payment boom (UPI) may lift finance-tech companies above the market.",
   "category": "Fintech \u00b7 Theme",
   "time_horizon": "Over 6-12 months",
   "status": "open",
-  "resolution_date": "2026-12-31T00:00:00Z",
+  "resolution_date": null,
   "created_at": "2026-06-29T18:21:39.487863Z",
   "published_at": "2026-06-29T18:21:39.965318Z",
   "outcome_confidence": {
@@ -4686,13 +4252,13 @@
    "expression_kind": "basket",
    "grade": null,
    "trust_verdict": "insufficient_data",
-   "total_return_pct": 32.12,
+   "total_return_pct": 30.21,
    "excess_return_pct": 10.76,
-   "plain_label": "Slow & Steady fintech bundle",
+   "plain_label": "Own a bundle of 8 finance-tech firms",
    "nifty_total_pct": 6.22,
    "n_episodes": 4,
    "pct_episodes_beat": 61,
-   "worst_drop_pct": -30.6,
+   "worst_drop_pct": -30.0,
    "equity_curve": [
     {
      "t": "0",
@@ -4701,970 +4267,961 @@
     },
     {
      "t": "1",
-     "strategy": 99677.16,
-     "benchmark": 99470.11
+     "strategy": 100204.75,
+     "benchmark": 99775.57
     },
     {
      "t": "2",
-     "strategy": 99162.0,
-     "benchmark": 99218.82
+     "strategy": 99665.72,
+     "benchmark": 99600.25
     },
     {
      "t": "3",
-     "strategy": 97895.77,
-     "benchmark": 98732.23
+     "strategy": 99125.46,
+     "benchmark": 99489.26
     },
     {
      "t": "4",
-     "strategy": 97402.44,
-     "benchmark": 98294.07
+     "strategy": 99762.73,
+     "benchmark": 99610.27
     },
     {
      "t": "5",
-     "strategy": 97944.18,
-     "benchmark": 98065.95
+     "strategy": 101512.49,
+     "benchmark": 99760.52
     },
     {
      "t": "6",
-     "strategy": 97433.85,
-     "benchmark": 97894.93
+     "strategy": 102009.94,
+     "benchmark": 100098.97
     },
     {
      "t": "7",
-     "strategy": 96936.88,
-     "benchmark": 97788.17
+     "strategy": 101800.42,
+     "benchmark": 100187.37
     },
     {
      "t": "8",
-     "strategy": 97542.45,
-     "benchmark": 97906.49
+     "strategy": 102199.75,
+     "benchmark": 100906.84
     },
     {
      "t": "9",
-     "strategy": 99258.39,
-     "benchmark": 98057.83
+     "strategy": 102554.43,
+     "benchmark": 100933.22
     },
     {
      "t": "10",
-     "strategy": 99738.48,
-     "benchmark": 98394.98
+     "strategy": 102630.13,
+     "benchmark": 100694.25
     },
     {
      "t": "11",
-     "strategy": 99550.73,
-     "benchmark": 98477.27
+     "strategy": 103227.11,
+     "benchmark": 100743.22
     },
     {
      "t": "12",
-     "strategy": 99973.13,
-     "benchmark": 99173.98
+     "strategy": 103122.31,
+     "benchmark": 100678.69
     },
     {
      "t": "13",
-     "strategy": 100319.86,
-     "benchmark": 99206.54
+     "strategy": 102537.43,
+     "benchmark": 100684.47
     },
     {
      "t": "14",
-     "strategy": 100392.4,
-     "benchmark": 98980.7
+     "strategy": 101935.29,
+     "benchmark": 100967.9
     },
     {
      "t": "15",
-     "strategy": 100950.52,
-     "benchmark": 99023.29
+     "strategy": 100897.82,
+     "benchmark": 101326.13
     },
     {
      "t": "16",
-     "strategy": 100892.98,
-     "benchmark": 98960.99
+     "strategy": 100769.4,
+     "benchmark": 101698.41
     },
     {
      "t": "17",
-     "strategy": 100350.92,
-     "benchmark": 98975.01
+     "strategy": 101540.08,
+     "benchmark": 102085.29
     },
     {
      "t": "18",
-     "strategy": 99771.88,
-     "benchmark": 99261.43
+     "strategy": 101786.1,
+     "benchmark": 101963.33
     },
     {
      "t": "19",
-     "strategy": 98800.93,
-     "benchmark": 99630.87
+     "strategy": 101407.18,
+     "benchmark": 101724.82
     },
     {
      "t": "20",
-     "strategy": 98688.6,
-     "benchmark": 99998.55
+     "strategy": 101471.9,
+     "benchmark": 101416.12
     },
     {
      "t": "21",
-     "strategy": 99425.02,
-     "benchmark": 100380.34
+     "strategy": 100801.96,
+     "benchmark": 101108.06
     },
     {
      "t": "22",
-     "strategy": 99699.25,
-     "benchmark": 100257.58
+     "strategy": 100372.07,
+     "benchmark": 101499.45
     },
     {
      "t": "23",
-     "strategy": 99341.89,
-     "benchmark": 100028.8
+     "strategy": 101174.61,
+     "benchmark": 101809.76
     },
     {
      "t": "24",
-     "strategy": 99379.85,
-     "benchmark": 99715.89
+     "strategy": 101998.11,
+     "benchmark": 101589.36
     },
     {
      "t": "25",
-     "strategy": 98717.67,
-     "benchmark": 99423.05
+     "strategy": 101205.23,
+     "benchmark": 101396.24
     },
     {
      "t": "26",
-     "strategy": 98315.98,
-     "benchmark": 99806.77
+     "strategy": 100709.95,
+     "benchmark": 101959.9
     },
     {
      "t": "27",
-     "strategy": 99126.18,
-     "benchmark": 100109.37
+     "strategy": 100947.11,
+     "benchmark": 101893.69
     },
     {
      "t": "28",
-     "strategy": 99915.77,
-     "benchmark": 99896.42
+     "strategy": 100000.34,
+     "benchmark": 102262.31
     },
     {
      "t": "29",
-     "strategy": 99143.67,
-     "benchmark": 99718.26
+     "strategy": 100821.31,
+     "benchmark": 102671.72
     },
     {
      "t": "30",
-     "strategy": 98666.58,
-     "benchmark": 100273.52
+     "strategy": 100979.88,
+     "benchmark": 102460.56
     },
     {
      "t": "31",
-     "strategy": 98846.93,
-     "benchmark": 100203.03
+     "strategy": 100219.64,
+     "benchmark": 102160.51
     },
     {
      "t": "32",
-     "strategy": 97964.59,
-     "benchmark": 100565.63
+     "strategy": 100411.07,
+     "benchmark": 102715.44
     },
     {
      "t": "33",
-     "strategy": 98778.98,
-     "benchmark": 100964.99
+     "strategy": 101035.74,
+     "benchmark": 102646.08
     },
     {
      "t": "34",
-     "strategy": 98924.03,
-     "benchmark": 100751.41
+     "strategy": 100674.0,
+     "benchmark": 102419.54
     },
     {
      "t": "35",
-     "strategy": 98176.45,
-     "benchmark": 100457.72
+     "strategy": 100604.13,
+     "benchmark": 102068.68
     },
     {
      "t": "36",
-     "strategy": 98361.52,
-     "benchmark": 100993.13
+     "strategy": 100511.55,
+     "benchmark": 102031.33
     },
     {
      "t": "37",
-     "strategy": 98986.44,
-     "benchmark": 100928.86
+     "strategy": 100262.54,
+     "benchmark": 101873.23
     },
     {
      "t": "38",
-     "strategy": 98661.32,
-     "benchmark": 100705.34
+     "strategy": 100596.22,
+     "benchmark": 101835.02
     },
     {
      "t": "39",
-     "strategy": 98562.29,
-     "benchmark": 100360.91
+     "strategy": 100462.03,
+     "benchmark": 101482.7
     },
     {
      "t": "40",
-     "strategy": 98489.88,
-     "benchmark": 100332.41
+     "strategy": 100330.55,
+     "benchmark": 101677.11
     },
     {
      "t": "41",
-     "strategy": 98288.59,
-     "benchmark": 100185.65
+     "strategy": 101199.24,
+     "benchmark": 101812.64
     },
     {
      "t": "42",
-     "strategy": 98591.68,
-     "benchmark": 100143.18
+     "strategy": 101228.18,
+     "benchmark": 102152.94
     },
     {
      "t": "43",
-     "strategy": 98438.76,
-     "benchmark": 99792.53
+     "strategy": 101816.6,
+     "benchmark": 102310.41
     },
     {
      "t": "44",
-     "strategy": 98324.83,
-     "benchmark": 99990.69
+     "strategy": 101628.58,
+     "benchmark": 102574.39
     },
     {
      "t": "45",
-     "strategy": 99167.44,
-     "benchmark": 100125.39
+     "strategy": 102304.83,
+     "benchmark": 102257.06
     },
     {
      "t": "46",
-     "strategy": 99222.9,
-     "benchmark": 100460.45
+     "strategy": 102061.94,
+     "benchmark": 101837.32
     },
     {
      "t": "47",
-     "strategy": 99802.44,
-     "benchmark": 100617.6
+     "strategy": 100672.62,
+     "benchmark": 101775.92
     },
     {
      "t": "48",
-     "strategy": 99617.33,
-     "benchmark": 100875.59
+     "strategy": 100088.12,
+     "benchmark": 101480.01
     },
     {
      "t": "49",
-     "strategy": 100228.53,
-     "benchmark": 100563.45
+     "strategy": 99378.27,
+     "benchmark": 100869.03
     },
     {
      "t": "50",
-     "strategy": 99992.34,
-     "benchmark": 100157.51
+     "strategy": 99038.16,
+     "benchmark": 100797.34
     },
     {
      "t": "51",
-     "strategy": 98666.79,
-     "benchmark": 100098.04
+     "strategy": 99954.66,
+     "benchmark": 101469.36
     },
     {
      "t": "52",
-     "strategy": 98092.45,
-     "benchmark": 99804.02
+     "strategy": 98201.43,
+     "benchmark": 100164.47
     },
     {
      "t": "53",
-     "strategy": 97410.69,
-     "benchmark": 99213.72
+     "strategy": 99600.31,
+     "benchmark": 101278.3
     },
     {
      "t": "54",
-     "strategy": 97052.94,
-     "benchmark": 99145.41
+     "strategy": 100463.43,
+     "benchmark": 101499.39
     },
     {
      "t": "55",
-     "strategy": 97955.0,
-     "benchmark": 99808.13
+     "strategy": 100792.02,
+     "benchmark": 101965.2
     },
     {
      "t": "56",
-     "strategy": 96271.78,
-     "benchmark": 98516.95
+     "strategy": 100839.87,
+     "benchmark": 101852.4
     },
     {
      "t": "57",
-     "strategy": 97618.19,
-     "benchmark": 99605.9
+     "strategy": 100940.64,
+     "benchmark": 101794.72
     },
     {
      "t": "58",
-     "strategy": 98465.78,
-     "benchmark": 99820.11
+     "strategy": 101793.94,
+     "benchmark": 101653.98
     },
     {
      "t": "59",
-     "strategy": 98768.75,
-     "benchmark": 100282.62
+     "strategy": 102460.44,
+     "benchmark": 102251.96
     },
     {
      "t": "60",
-     "strategy": 98800.16,
-     "benchmark": 100171.28
+     "strategy": 102734.42,
+     "benchmark": 103003.27
     },
     {
      "t": "61",
-     "strategy": 98921.66,
-     "benchmark": 100115.41
+     "strategy": 105051.28,
+     "benchmark": 103251.73
     },
     {
      "t": "62",
-     "strategy": 99746.89,
-     "benchmark": 99976.43
+     "strategy": 105299.4,
+     "benchmark": 103517.96
     },
     {
      "t": "63",
-     "strategy": 100382.31,
-     "benchmark": 100567.05
+     "strategy": 105484.51,
+     "benchmark": 103800.9
     },
     {
      "t": "64",
-     "strategy": 100656.48,
-     "benchmark": 101299.79
+     "strategy": 106669.96,
+     "benchmark": 104077.56
     },
     {
      "t": "65",
-     "strategy": 102917.98,
-     "benchmark": 101543.52
+     "strategy": 107142.58,
+     "benchmark": 104363.38
     },
     {
      "t": "66",
-     "strategy": 103171.99,
-     "benchmark": 101798.1
+     "strategy": 106337.54,
+     "benchmark": 104563.87
     },
     {
      "t": "67",
-     "strategy": 103339.15,
-     "benchmark": 102075.01
+     "strategy": 107181.96,
+     "benchmark": 104961.71
     },
     {
      "t": "68",
-     "strategy": 104549.5,
-     "benchmark": 102340.64
+     "strategy": 106984.43,
+     "benchmark": 105309.09
     },
     {
      "t": "69",
-     "strategy": 105047.66,
-     "benchmark": 102626.67
+     "strategy": 107654.01,
+     "benchmark": 104937.66
     },
     {
      "t": "70",
-     "strategy": 104182.89,
-     "benchmark": 102829.63
+     "strategy": 108424.93,
+     "benchmark": 105111.91
     },
     {
      "t": "71",
-     "strategy": 104971.87,
-     "benchmark": 103220.35
+     "strategy": 108163.64,
+     "benchmark": 104655.32
     },
     {
      "t": "72",
-     "strategy": 104801.5,
-     "benchmark": 103565.66
+     "strategy": 106795.78,
+     "benchmark": 103995.89
     },
     {
      "t": "73",
-     "strategy": 105512.08,
-     "benchmark": 103213.02
+     "strategy": 105079.65,
+     "benchmark": 102941.76
     },
     {
      "t": "74",
-     "strategy": 106218.28,
-     "benchmark": 103377.84
+     "strategy": 104973.51,
+     "benchmark": 103470.02
     },
     {
      "t": "75",
-     "strategy": 105939.4,
-     "benchmark": 102924.25
+     "strategy": 105407.2,
+     "benchmark": 103250.38
     },
     {
      "t": "76",
-     "strategy": 104595.98,
-     "benchmark": 102280.68
+     "strategy": 107313.2,
+     "benchmark": 103835.53
     },
     {
      "t": "77",
-     "strategy": 102948.12,
-     "benchmark": 101263.05
+     "strategy": 107944.19,
+     "benchmark": 103983.92
     },
     {
      "t": "78",
-     "strategy": 102858.34,
-     "benchmark": 101772.03
+     "strategy": 109197.03,
+     "benchmark": 104272.11
     },
     {
      "t": "79",
-     "strategy": 103289.93,
-     "benchmark": 101559.55
+     "strategy": 109288.62,
+     "benchmark": 104666.0
     },
     {
      "t": "80",
-     "strategy": 105115.58,
-     "benchmark": 102124.14
+     "strategy": 108862.76,
+     "benchmark": 104575.25
     },
     {
      "t": "81",
-     "strategy": 105559.37,
-     "benchmark": 102142.89
+     "strategy": 108807.32,
+     "benchmark": 104721.41
     },
     {
      "t": "82",
-     "strategy": 106234.26,
-     "benchmark": 102051.6
+     "strategy": 109248.85,
+     "benchmark": 105381.5
     },
     {
      "t": "83",
-     "strategy": 106115.61,
-     "benchmark": 102457.14
+     "strategy": 107354.63,
+     "benchmark": 104559.53
     },
     {
      "t": "84",
-     "strategy": 106474.81,
-     "benchmark": 102833.77
+     "strategy": 106961.66,
+     "benchmark": 104679.92
     },
     {
      "t": "85",
-     "strategy": 106169.85,
-     "benchmark": 102816.2
+     "strategy": 107967.26,
+     "benchmark": 105282.26
     },
     {
      "t": "86",
-     "strategy": 106195.74,
-     "benchmark": 103458.69
+     "strategy": 108773.22,
+     "benchmark": 105268.86
     },
     {
      "t": "87",
-     "strategy": 105343.36,
-     "benchmark": 103049.29
+     "strategy": 108443.65,
+     "benchmark": 105103.01
     },
     {
      "t": "88",
-     "strategy": 104919.61,
-     "benchmark": 103129.31
+     "strategy": 108390.26,
+     "benchmark": 105342.63
     },
     {
      "t": "89",
-     "strategy": 105489.69,
-     "benchmark": 103456.17
+     "strategy": 110117.97,
+     "benchmark": 106210.04
     },
     {
      "t": "90",
-     "strategy": 106377.97,
-     "benchmark": 103139.34
+     "strategy": 109688.86,
+     "benchmark": 106007.52
     },
     {
      "t": "91",
-     "strategy": 106638.02,
-     "benchmark": 103699.2
+     "strategy": 110711.81,
+     "benchmark": 105955.19
     },
     {
      "t": "92",
-     "strategy": 106741.72,
-     "benchmark": 104209.95
+     "strategy": 109524.04,
+     "benchmark": 105814.33
     },
     {
      "t": "93",
-     "strategy": 108150.68,
-     "benchmark": 104304.07
+     "strategy": 109077.6,
+     "benchmark": 105024.82
     },
     {
      "t": "94",
-     "strategy": 107317.65,
-     "benchmark": 104105.6
+     "strategy": 108496.87,
+     "benchmark": 105102.59
     },
     {
      "t": "95",
-     "strategy": 108331.98,
-     "benchmark": 104353.1
+     "strategy": 107720.82,
+     "benchmark": 104327.59
     },
     {
      "t": "96",
-     "strategy": 107728.24,
-     "benchmark": 104232.99
+     "strategy": 109694.6,
+     "benchmark": 104874.27
     },
     {
      "t": "97",
-     "strategy": 107015.23,
-     "benchmark": 103304.19
+     "strategy": 110128.49,
+     "benchmark": 104879.69
     },
     {
      "t": "98",
-     "strategy": 105961.17,
-     "benchmark": 103138.02
+     "strategy": 112353.37,
+     "benchmark": 105246.56
     },
     {
      "t": "99",
-     "strategy": 104528.8,
-     "benchmark": 102029.49
+     "strategy": 111346.02,
+     "benchmark": 105065.82
     },
     {
      "t": "100",
-     "strategy": 106901.3,
-     "benchmark": 102922.34
+     "strategy": 111026.93,
+     "benchmark": 104840.87
     },
     {
      "t": "101",
-     "strategy": 107876.87,
-     "benchmark": 103290.46
+     "strategy": 111717.3,
+     "benchmark": 104749.97
     },
     {
      "t": "102",
-     "strategy": 109899.37,
-     "benchmark": 103535.59
+     "strategy": 113560.99,
+     "benchmark": 105342.28
     },
     {
      "t": "103",
-     "strategy": 108568.34,
-     "benchmark": 102956.94
+     "strategy": 114703.2,
+     "benchmark": 105770.52
     },
     {
      "t": "104",
-     "strategy": 108368.12,
-     "benchmark": 102769.89
+     "strategy": 114342.52,
+     "benchmark": 105831.52
     },
     {
      "t": "105",
-     "strategy": 109621.34,
-     "benchmark": 103177.0
+     "strategy": 114821.08,
+     "benchmark": 105719.69
     },
     {
      "t": "106",
-     "strategy": 110712.46,
-     "benchmark": 103373.32
+     "strategy": 114498.69,
+     "benchmark": 105742.48
     },
     {
      "t": "107",
-     "strategy": 111687.04,
-     "benchmark": 103705.06
+     "strategy": 115733.51,
+     "benchmark": 105548.88
     },
     {
      "t": "108",
-     "strategy": 111738.25,
-     "benchmark": 104058.75
+     "strategy": 116913.38,
+     "benchmark": 105671.49
     },
     {
      "t": "109",
-     "strategy": 112069.55,
-     "benchmark": 103583.48
+     "strategy": 117543.8,
+     "benchmark": 105379.5
     },
     {
      "t": "110",
-     "strategy": 111668.91,
-     "benchmark": 103287.78
+     "strategy": 117601.69,
+     "benchmark": 105473.98
     },
     {
      "t": "111",
-     "strategy": 113141.0,
-     "benchmark": 103029.17
+     "strategy": 117661.04,
+     "benchmark": 105303.32
     },
     {
      "t": "112",
-     "strategy": 114779.46,
-     "benchmark": 103746.62
+     "strategy": 118474.38,
+     "benchmark": 105235.11
     },
     {
      "t": "113",
-     "strategy": 115141.29,
-     "benchmark": 103531.22
+     "strategy": 118877.69,
+     "benchmark": 105821.86
     },
     {
      "t": "114",
-     "strategy": 115364.17,
-     "benchmark": 102933.29
+     "strategy": 119226.44,
+     "benchmark": 105522.24
     },
     {
      "t": "115",
-     "strategy": 116042.54,
-     "benchmark": 103301.14
+     "strategy": 119594.96,
+     "benchmark": 105194.77
     },
     {
      "t": "116",
-     "strategy": 116595.71,
-     "benchmark": 103259.76
+     "strategy": 119312.07,
+     "benchmark": 104814.15
     },
     {
      "t": "117",
-     "strategy": 116270.06,
-     "benchmark": 103377.59
+     "strategy": 118407.78,
+     "benchmark": 104749.78
     },
     {
      "t": "118",
-     "strategy": 116194.03,
-     "benchmark": 102987.69
+     "strategy": 118269.52,
+     "benchmark": 104886.13
     },
     {
      "t": "119",
-     "strategy": 116879.26,
-     "benchmark": 103141.84
+     "strategy": 119938.85,
+     "benchmark": 105622.85
     },
     {
      "t": "120",
-     "strategy": 117043.84,
-     "benchmark": 103417.35
+     "strategy": 119514.4,
+     "benchmark": 105173.82
     },
     {
      "t": "121",
-     "strategy": 116943.94,
-     "benchmark": 103307.39
+     "strategy": 119113.88,
+     "benchmark": 105998.94
     },
     {
      "t": "122",
-     "strategy": 116223.75,
-     "benchmark": 102516.57
+     "strategy": 118250.7,
+     "benchmark": 105452.77
     },
     {
      "t": "123",
-     "strategy": 117024.55,
-     "benchmark": 103156.02
+     "strategy": 119710.22,
+     "benchmark": 106171.61
     },
     {
      "t": "124",
-     "strategy": 116648.38,
-     "benchmark": 102899.23
+     "strategy": 120014.36,
+     "benchmark": 106546.7
     },
     {
      "t": "125",
-     "strategy": 116850.18,
-     "benchmark": 103999.86
+     "strategy": 120851.9,
+     "benchmark": 106128.62
     },
     {
      "t": "126",
-     "strategy": 117277.53,
-     "benchmark": 104443.26
+     "strategy": 119882.89,
+     "benchmark": 105775.42
     },
     {
      "t": "127",
-     "strategy": 118126.41,
-     "benchmark": 104269.49
+     "strategy": 121239.75,
+     "benchmark": 106895.35
     },
     {
      "t": "128",
-     "strategy": 117328.0,
-     "benchmark": 103778.31
+     "strategy": 122324.07,
+     "benchmark": 107534.19
     },
     {
      "t": "129",
-     "strategy": 118599.95,
-     "benchmark": 104185.35
+     "strategy": 122027.74,
+     "benchmark": 108029.84
     },
     {
      "t": "130",
-     "strategy": 117970.43,
-     "benchmark": 104341.71
+     "strategy": 121461.69,
+     "benchmark": 108232.1
     },
     {
      "t": "131",
-     "strategy": 119146.8,
-     "benchmark": 105344.53
+     "strategy": 122098.37,
+     "benchmark": 109295.54
     },
     {
      "t": "132",
-     "strategy": 120186.53,
-     "benchmark": 106097.55
+     "strategy": 120695.77,
+     "benchmark": 108574.5
     },
     {
      "t": "133",
-     "strategy": 120304.37,
-     "benchmark": 107204.38
+     "strategy": 121024.14,
+     "benchmark": 108633.61
     },
     {
      "t": "134",
-     "strategy": 119743.26,
-     "benchmark": 107030.76
+     "strategy": 122167.45,
+     "benchmark": 108537.29
     },
     {
      "t": "135",
-     "strategy": 119920.05,
-     "benchmark": 107493.76
+     "strategy": 121881.13,
+     "benchmark": 108496.03
     },
     {
      "t": "136",
-     "strategy": 118489.44,
-     "benchmark": 106790.88
+     "strategy": 121555.64,
+     "benchmark": 108432.83
     },
     {
      "t": "137",
-     "strategy": 118997.12,
-     "benchmark": 106961.46
+     "strategy": 121051.22,
+     "benchmark": 108380.43
     },
     {
      "t": "138",
-     "strategy": 120681.92,
-     "benchmark": 107039.59
+     "strategy": 122496.1,
+     "benchmark": 108355.96
     },
     {
      "t": "139",
-     "strategy": 120493.28,
-     "benchmark": 106771.92
+     "strategy": 124034.92,
+     "benchmark": 108474.5
     },
     {
      "t": "140",
-     "strategy": 119574.81,
-     "benchmark": 106762.1
+     "strategy": 124227.52,
+     "benchmark": 108313.28
     },
     {
      "t": "141",
-     "strategy": 118817.92,
-     "benchmark": 106771.57
+     "strategy": 124503.63,
+     "benchmark": 107888.15
     },
     {
      "t": "142",
-     "strategy": 120250.4,
-     "benchmark": 106546.26
+     "strategy": 125004.73,
+     "benchmark": 107881.34
     },
     {
      "t": "143",
-     "strategy": 121665.9,
-     "benchmark": 106255.88
+     "strategy": 125562.95,
+     "benchmark": 107914.37
     },
     {
      "t": "144",
-     "strategy": 121725.25,
-     "benchmark": 106016.38
+     "strategy": 125779.57,
+     "benchmark": 107584.71
     },
     {
      "t": "145",
-     "strategy": 122128.1,
-     "benchmark": 105985.89
+     "strategy": 125468.68,
+     "benchmark": 107527.41
     },
     {
      "t": "146",
-     "strategy": 122803.82,
-     "benchmark": 106161.13
+     "strategy": 124856.37,
+     "benchmark": 107732.94
     },
     {
      "t": "147",
-     "strategy": 123225.84,
-     "benchmark": 106186.82
+     "strategy": 123899.32,
+     "benchmark": 107521.58
     },
     {
      "t": "148",
-     "strategy": 123100.67,
-     "benchmark": 105771.42
+     "strategy": 121939.44,
+     "benchmark": 107387.51
     },
     {
      "t": "149",
-     "strategy": 122778.53,
-     "benchmark": 105538.05
+     "strategy": 123449.01,
+     "benchmark": 107366.65
     },
     {
      "t": "150",
-     "strategy": 122507.43,
-     "benchmark": 106034.2
+     "strategy": 124554.7,
+     "benchmark": 107684.56
     },
     {
      "t": "151",
-     "strategy": 122017.97,
-     "benchmark": 105746.68
+     "strategy": 123936.81,
+     "benchmark": 106851.89
     },
     {
      "t": "152",
-     "strategy": 120596.96,
-     "benchmark": 105801.62
+     "strategy": 123337.18,
+     "benchmark": 106641.42
     },
     {
      "t": "153",
-     "strategy": 122149.13,
-     "benchmark": 105872.2
+     "strategy": 124642.8,
+     "benchmark": 106425.79
     },
     {
      "t": "154",
-     "strategy": 122772.6,
-     "benchmark": 105738.46
+     "strategy": 122992.2,
+     "benchmark": 105500.44
     },
     {
      "t": "155",
-     "strategy": 122074.73,
-     "benchmark": 104555.06
+     "strategy": 124167.95,
+     "benchmark": 105591.51
     },
     {
      "t": "156",
-     "strategy": 120788.77,
-     "benchmark": 104066.66
+     "strategy": 123966.82,
+     "benchmark": 105763.8
     },
     {
      "t": "157",
-     "strategy": 121317.44,
-     "benchmark": 104251.35
+     "strategy": 124137.38,
+     "benchmark": 105908.78
     },
     {
      "t": "158",
-     "strategy": 120369.73,
-     "benchmark": 104025.48
+     "strategy": 124298.34,
+     "benchmark": 105625.34
     },
     {
      "t": "159",
-     "strategy": 121650.63,
-     "benchmark": 104045.62
+     "strategy": 128118.12,
+     "benchmark": 106407.27
     },
     {
      "t": "160",
-     "strategy": 121413.49,
-     "benchmark": 103948.92
+     "strategy": 127587.98,
+     "benchmark": 105985.4
     },
     {
      "t": "161",
-     "strategy": 122004.74,
-     "benchmark": 104115.66
+     "strategy": 127099.64,
+     "benchmark": 106272.98
     },
     {
      "t": "162",
-     "strategy": 122310.45,
-     "benchmark": 103871.51
+     "strategy": 125676.13,
+     "benchmark": 106232.16
     },
     {
      "t": "163",
-     "strategy": 125681.65,
-     "benchmark": 104667.57
+     "strategy": 125327.05,
+     "benchmark": 106724.71
     },
     {
      "t": "164",
-     "strategy": 124812.01,
-     "benchmark": 104277.53
+     "strategy": 124547.85,
+     "benchmark": 106352.17
     },
     {
      "t": "165",
-     "strategy": 124750.69,
-     "benchmark": 104872.15
+     "strategy": 125741.49,
+     "benchmark": 106104.82
     },
     {
      "t": "166",
-     "strategy": 123785.7,
-     "benchmark": 104649.94
+     "strategy": 124609.83,
+     "benchmark": 106137.54
     },
     {
      "t": "167",
-     "strategy": 123127.4,
-     "benchmark": 104818.6
+     "strategy": 124692.14,
+     "benchmark": 105402.24
     },
     {
      "t": "168",
-     "strategy": 122213.98,
-     "benchmark": 104564.63
+     "strategy": 123802.65,
+     "benchmark": 105321.29
     },
     {
      "t": "169",
-     "strategy": 123102.92,
-     "benchmark": 103966.46
+     "strategy": 123765.09,
+     "benchmark": 105910.03
     },
     {
      "t": "170",
-     "strategy": 121548.78,
-     "benchmark": 103837.27
+     "strategy": 124037.14,
+     "benchmark": 106058.5
     },
     {
      "t": "171",
-     "strategy": 122068.06,
-     "benchmark": 103567.3
+     "strategy": 124622.16,
+     "benchmark": 106134.35
     },
     {
      "t": "172",
-     "strategy": 121165.02,
-     "benchmark": 103573.88
+     "strategy": 126017.55,
+     "benchmark": 106494.85
     },
     {
      "t": "173",
-     "strategy": 120912.78,
-     "benchmark": 104075.53
+     "strategy": 125907.46,
+     "benchmark": 105896.52
     },
     {
      "t": "174",
-     "strategy": 121636.19,
-     "benchmark": 104257.65
+     "strategy": 126611.36,
+     "benchmark": 106213.44
     },
     {
      "t": "175",
-     "strategy": 121952.94,
-     "benchmark": 104088.06
+     "strategy": 128310.97,
+     "benchmark": 106588.25
     },
     {
      "t": "176",
-     "strategy": 123535.56,
-     "benchmark": 104605.27
+     "strategy": 129290.01,
+     "benchmark": 106740.18
     },
     {
      "t": "177",
-     "strategy": 123296.1,
-     "benchmark": 104232.35
+     "strategy": 131285.99,
+     "benchmark": 107124.52
     },
     {
      "t": "178",
-     "strategy": 123417.19,
-     "benchmark": 104366.94
+     "strategy": 133650.73,
+     "benchmark": 107830.52
     },
     {
      "t": "179",
-     "strategy": 125934.99,
-     "benchmark": 105219.72
+     "strategy": 133878.96,
+     "benchmark": 107710.04
     },
     {
      "t": "180",
-     "strategy": 127902.05,
-     "benchmark": 105648.27
+     "strategy": 134821.68,
+     "benchmark": 107816.8
     },
     {
      "t": "181",
-     "strategy": 129347.09,
-     "benchmark": 105702.88
+     "strategy": 134586.5,
+     "benchmark": 108481.34
     },
     {
      "t": "182",
-     "strategy": 131309.71,
-     "benchmark": 106265.16
+     "strategy": 134622.93,
+     "benchmark": 108404.84
     },
     {
      "t": "183",
-     "strategy": 131649.52,
-     "benchmark": 106084.46
+     "strategy": 134201.88,
+     "benchmark": 108503.27
     },
     {
      "t": "184",
-     "strategy": 132208.29,
-     "benchmark": 105942.49
+     "strategy": 133306.22,
+     "benchmark": 108727.58
     },
     {
      "t": "185",
-     "strategy": 131888.96,
-     "benchmark": 106610.83
+     "strategy": 134241.64,
+     "benchmark": 108936.84
     },
     {
      "t": "186",
-     "strategy": 131703.2,
-     "benchmark": 106417.04
+     "strategy": 133731.36,
+     "benchmark": 108277.86
     },
     {
      "t": "187",
-     "strategy": 130984.96,
-     "benchmark": 106613.29
+     "strategy": 132964.83,
+     "benchmark": 107994.97
     },
     {
      "t": "188",
-     "strategy": 130331.08,
-     "benchmark": 107142.31
+     "strategy": 130494.58,
+     "benchmark": 107118.2
     },
     {
      "t": "189",
-     "strategy": 131633.82,
-     "benchmark": 107134.5
+     "strategy": 129733.63,
+     "benchmark": 106769.85
     }
    ],
    "pct_positive": 50.0,
-   "n_positive": 2,
-   "gain_loss": {
-    "avg_gain_pct": 70.03,
-    "avg_loss_pct": -5.78,
-    "max_gain_pct": 95.32,
-    "max_loss_pct": -10.89,
-    "n_gain": 2,
-    "n_loss": 2,
-    "basis": "episodes"
-   }
+   "n_positive": 2
   },
   "expression_count": 2,
   "transmission_count": 2,
   "follower_count": 0,
   "is_following": false,
   "is_developing": false,
-  "plain_one_liner": "Will fintech beat the market?",
+  "plain_one_liner": "Will digital-payments / fintech beat the market this year?",
   "plain_summary": "India's digital-payment boom (UPI) may lift finance-tech companies above the market.",
-  "short_title": "Will fintech beat the market?",
+  "short_title": "Will digital-payments / fintech beat the market this year?",
   "stance": {
    "yes": {
     "verdict": "Own the fintech bundle",
@@ -5676,17 +5233,7 @@
     "summary": "These names are young and volatile with an inconsistent edge \u2014 the index is the steadier bet until the pattern proves out."
    }
   },
-  "best_episode_pct": 95.3,
-  "best_episode_label": "9-mo window ended Dec 2024",
-  "evidence_basis": "rolling_windows",
-  "min_entry_inr": 2546,
-  "forward_expected_net_pct": 2.2,
-  "forward_band_pct": {
-   "p25": -12.5,
-   "p50": 2.2,
-   "p75": 16.9,
-   "p05": -33.6
-  },
-  "forward_p_source": "assumed even odds \u2014 no liquid market for this outcome (stated)"
+  "best_episode_pct": 95.9,
+  "best_episode_label": "Window 2"
  }
 ]
