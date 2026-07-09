@@ -8662,7 +8662,13 @@ def _workflow_skeleton_caption(skeleton: dict) -> str:
     steps = skeleton.get("steps") or []
     name = (skeleton.get("name") or "Agent draft").rstrip(".")
     trigger_step = next((s for s in steps if s.get("step_type", "").startswith("trigger.")), None)
-    action_step = next((s for s in steps if s.get("step_type", "").startswith("action.")), None)
+    action_step = next(
+        (
+            s for s in steps
+            if s.get("step_type", "").startswith(("action.", "notify."))
+        ),
+        None,
+    )
 
     when_phrase = "on its trigger"
     if trigger_step:
@@ -8724,8 +8730,17 @@ def _workflow_skeleton_caption(skeleton: dict) -> str:
             }.get(op, f"{op} ₹")
             when_phrase = f"when {sym} {op_word}{val:g}".rstrip()
 
-    do_phrase = "places the configured order"
-    if action_step and action_step["step_type"] == "action.place_order":
+    # Default assumes an action step exists but didn't match a named
+    # branch below — NOT a safe default for "no action step matched at
+    # all" (e.g. notify.message falling through here would silently
+    # claim an order gets placed for a pure alert, violating the
+    # alert-verb hard gate). Only reached when action_step really is an
+    # action.* step of an unhandled sub-type.
+    do_phrase = "runs the configured action"
+    is_notify_only = bool(action_step and action_step["step_type"] == "notify.message")
+    if is_notify_only:
+        do_phrase = "sends you a notification"
+    elif action_step and action_step["step_type"] == "action.place_order":
         cfg = action_step.get("config") or {}
         side = cfg.get("side", "buy")
         qty = cfg.get("quantity", "")
@@ -8757,8 +8772,10 @@ def _workflow_skeleton_caption(skeleton: dict) -> str:
             qty_part = f"{qty} " if qty != "" else ""
             do_phrase = f"{side}s {qty_part}{sym} at {order_type}".strip()
 
+    no_order_note = " No order is placed — this only alerts you." if is_notify_only else ""
     return (
-        f"Here's a draft for **{name}** — it {do_phrase} {when_phrase}. "
+        f"Here's a draft for **{name}** — it {do_phrase} {when_phrase}."
+        f"{no_order_note} "
         "Review the steps below and click Activate when you're happy "
         "with it."
     )
@@ -9267,6 +9284,31 @@ def _count_recent_clarifications(history: list[dict] | None) -> int:
     return count
 
 
+# Tools that CREATE/REGISTER/SCHEDULE/PLACE something. A failure here
+# genuinely means "nothing was built" — the ambiguity-clarification
+# framing (never claim success, ask the user to pick one interpretation)
+# is correct. Every other tool that can land in this generic fallback
+# (compare_performance, fetch_fundamentals, get_price_history, backtest_*
+# read paths, suggest/build/critique_option_strategy, etc.) is a
+# DATA/ANALYSIS call — nothing was ever going to be "created, saved,
+# scheduled" for those, so that framing is a category error, and its
+# "do NOT echo this back" instruction actively suppresses the one thing
+# the user needs to hear (e.g. "TATAMOTORS data unavailable"). Treating
+# every generic tool failure as user-side ambiguity is what produced
+# fabricated "your request was ambiguous" replies for genuine backend/
+# data failures — see [[project fixes philosophy: honest tool-error
+# surfacing]] context. Keep this list to true action/persistence tools
+# only; anything unlisted defaults to the honest data-failure framing.
+_ACTION_TOOL_NAMES = {
+    "propose_workflow", "backtest_workflow", "propose_dsl_workflow",
+    "propose_scheduled_order", "propose_threshold_order",
+    "propose_basket_allocation", "propose_holding_action",
+    "register_workflow", "place_market_order", "place_limit_order",
+    "create_sip", "create_gtt_order", "cancel_order", "modify_order",
+    "build_strategy",
+}
+
+
 async def _llm_clarification(
     *,
     client: LLMClient,
@@ -9285,6 +9327,7 @@ async def _llm_clarification(
     run" or "i meant 252 trading days" lose all context and the model
     hallucinates ticker/date placeholders from training data.
     """
+    is_action = tool_name in _ACTION_TOOL_NAMES
     capability = {
         "backtest_workflow": (
             "simulate a trading strategy on historical price data and "
@@ -9324,6 +9367,7 @@ async def _llm_clarification(
     consecutive_clarifications = _count_recent_clarifications(history)
 
     system_prompt = (
+        (
         "You are Pivot's chat assistant. A user request just failed to "
         "build — NOTHING was created, saved, scheduled, or run. Write a "
         "SHORT reply (1–3 sentences, max 70 words).\n\n"
@@ -9357,6 +9401,30 @@ async def _llm_clarification(
         "  • Flowing prose, no bullet points, no headers.\n"
         "  • Vary the opening — never start with 'I couldn't complete "
         "that' or 'You want to'.\n"
+        if is_action else
+        "You are Pivot's chat assistant. The user asked for data/"
+        "analysis (a lookup, comparison, or computation) and the "
+        "underlying call FAILED — this is not about ambiguity, it is "
+        "a real data/feed problem. Write a SHORT reply (1–3 sentences, "
+        "max 70 words).\n\n"
+        "You are seeing the FULL conversation and the actual internal "
+        "failure reason below. Use it.\n\n"
+        "CRITICAL HONESTY RULE: state the REAL reason in plain English "
+        "— name the specific symbol/metric/window that failed if the "
+        "internal reason names one (e.g. 'TATAMOTORS' price data isn't "
+        "available from our feed right now'). NEVER invent an unrelated "
+        "excuse like 'your request could mean a few things' or 'I need "
+        "a time window' when the real reason is a data/feed gap — that "
+        "is fabrication. If part of the request DID have working data "
+        "(e.g. one of two symbols), offer to show that part now.\n\n"
+        "RULES:\n"
+        "  • Do not claim you produced a table/chart/answer — you "
+        "didn't.\n"
+        "  • No code-flavoured words: 'tool', 'function', 'parameter', "
+        "'field', 'schema', 'exception', 'null'.\n"
+        "  • Flowing prose, one to three sentences, no bullet points, "
+        "no headers.\n"
+        )
         + (
             "\nIMPORTANT: you have already asked the user "
             f"{consecutive_clarifications} clarification(s) in a row. "
@@ -9376,9 +9444,18 @@ async def _llm_clarification(
         f"Their latest message in this turn: \"{user_message}\"\n\n"
         f"What you already know from the conversation above:\n"
         f"{prior_specifics or '  (no specifics extracted)'}\n\n"
-        f"Internal reason it didn't run (for your context only — do "
-        f"NOT echo this back): {error or 'request was ambiguous.'}\n\n"
-        "Write the reply now."
+        + (
+            f"Internal reason it didn't run (for your context only — do "
+            f"NOT echo this back verbatim — use it to pick ONE ambiguity "
+            f"to ask about, in plain English): "
+            f"{error or 'request was ambiguous.'}\n\n"
+            if is_action else
+            f"The real reason this data call failed — PARAPHRASE this "
+            f"honestly in plain English, naming the specific symbol/"
+            f"metric/window it mentions: "
+            f"{error or 'data unavailable.'}\n\n"
+        )
+        + "Write the reply now."
     )
 
     try:

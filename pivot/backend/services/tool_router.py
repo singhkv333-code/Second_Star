@@ -1,9 +1,11 @@
 """Per-hop tool router + route-stable cache keys.
 
-Why: the chat hop sees all 48 tools on every LLM call. That schema is
-~4,900 input tokens, repeated on every hop, every turn. For a turn that
-needs `get_live_price`, the model doesn't need to read the SIP, GTT,
-backtest, or scheduler tool definitions to make a good decision.
+Why: without this router the chat hop sees the FULL tool registry (91
+tools as of 2026-07 — this module predates most of that growth, hence
+the stale "48" figure in earlier revisions) on every LLM call. For a
+turn that needs `get_live_price`, the model doesn't need to read the
+SIP, GTT, backtest, or scheduler tool definitions to make a good
+decision.
 
 This module narrows the visible tool list to a small candidate set per
 hop using cheap keyword heuristics. No LLM, no embeddings, microseconds.

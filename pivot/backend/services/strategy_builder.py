@@ -246,8 +246,11 @@ def build_strategy(
     # basket); a cross-sector basket gets the default ~32% ceiling.
     sector_cap = 100.0 if single_sector else DEFAULT_SECTOR_CAP_PCT
 
-    if not candidates:
-        return _empty_card(request, slots, gate, sector_cap, assumptions)
+    # NOTE: no early-return on `not candidates` here — a universe that
+    # gates down to ZERO survivors is the strongest case for widening
+    # below (step 1b2), not a dead end. Falls through with an empty
+    # `shortlist`; the widen step's `len(shortlist) < _lo` condition
+    # covers zero exactly like "too few".
 
     # ── Step 1b (LATENCY): take a BOUNDED ranked superset, fetch the FULL
     # per-name fundamentals on it IN PARALLEL (+ short-TTL memo), then re-rank on
@@ -261,8 +264,61 @@ def build_strategy(
     shortlist = candidates[: max(hi + 6, 2 * hi)]
     _backfill_fundamentals_parallel(shortlist)
     shortlist = _refinalise_gate(shortlist, gate, slots)
-    if not shortlist:
-        return _empty_card(request, slots, gate, sector_cap, assumptions)
+
+    # ── Step 1b2: WIDEN ON THIN RESULT. A narrow universe (a theme that
+    # resolves to one small sector) can gate down to 1-2 survivors — each
+    # individually correct, but a "basket" of 1 stock is a degenerate result
+    # nobody asked for. Pull the diversified cross-sector pool, gate it the
+    # same way, and top up toward the minimum target band instead of
+    # silently shipping a single-name "basket". Skipped when the pinned
+    # allow-list path was used (handled earlier) or when this already IS
+    # the broad pool (nothing further to widen into). ──
+    if len(shortlist) < _lo:
+        have = {c.symbol for c in shortlist}
+        extra_candidates = [
+            _Candidate(
+                symbol=str(r["symbol"]).upper(),
+                name=str(r.get("name") or r["symbol"]),
+                sector=str(r.get("sector") or "unknown"),
+                mcap_cr=float(r["mcap_cr"]) if r.get("mcap_cr") is not None else None,
+            )
+            for r in _broad_universe()
+            if str(r["symbol"]).upper() not in have
+        ]
+        extra_candidates = _apply_exclusions(extra_candidates, slots)
+        _backfill_gate_inputs(extra_candidates)
+        extra_candidates, _ = _apply_gate(extra_candidates, gate, slots)
+        needed = _lo - len(shortlist)
+        top_up = extra_candidates[: needed + 4]  # small buffer for the full-fetch re-gate
+        if top_up:
+            _backfill_fundamentals_parallel(top_up)
+            top_up = [
+                c for c in _refinalise_gate(top_up, gate, slots)
+                if c.symbol not in have
+            ][:needed]
+        if top_up:
+            shortlist = shortlist + top_up
+            assumptions.append(
+                f"only {len(have)} name(s) cleared the {gate} screen in the "
+                "resolved sector/theme — broadened to a cross-sector quality "
+                "pool to reach a diversified basket rather than ship a "
+                "single-stock 'basket'"
+            )
+            single_sector = False
+            sector_cap = DEFAULT_SECTOR_CAP_PCT
+
+    # Defensive dedup: a basket must never list the same symbol twice.
+    # Keeps the first (best-ranked) occurrence — cheap, catch-all invariant
+    # regardless of which upstream step (widen, universe merge) could have
+    # reintroduced a symbol already present.
+    _seen_final: set[str] = set()
+    _deduped: list[_Candidate] = []
+    for c in shortlist:
+        if c.symbol in _seen_final:
+            continue
+        _seen_final.add(c.symbol)
+        _deduped.append(c)
+    shortlist = _deduped
 
     # ── Step 1c: enforce the sector cap on the AUTHORITATIVE (full-data) ranking,
     # selecting the final ~hi names — provably cap-compliant at its own size. ──
@@ -960,7 +1016,22 @@ def _score_candidates(
             continue
         if gate == "fscore":
             fs = _approx_fscore(c)
-            if fs < _FSCORE_FLOOR:
+            applicable = _fscore_applicable_max(c)
+            # _FSCORE_FLOOR (5) is calibrated against all 9 criteria being
+            # answerable. A name with sparse DB fundamentals (common for
+            # yfinance-sourced large-caps) can't reach 9 possible points at
+            # all — comparing its partial score against the full-9 floor
+            # silently rejects genuinely strong names just for having
+            # incomplete data (observed live: a broad 29-name cross-sector
+            # pool gated down to 1 survivor this way). Below a minimum
+            # signal threshold, rank neutral-low like the no-data bucket
+            # instead of "weak"; above it, hold the SAME relative bar
+            # (floor/9) scaled to what's actually answerable.
+            if applicable < 4:
+                no_data += 1
+                scored.append((0.0, c))
+                continue
+            if fs < _FSCORE_FLOOR * applicable / 9:
                 dropped_broken += 1
                 continue
             c.gate_metrics = _fscore_metrics(c, fs)
@@ -1058,6 +1129,26 @@ def _approx_fscore(c: _Candidate) -> int:
     if c.pe is not None and 0 < c.pe < 35:
         score += 1
     return score
+
+
+def _fscore_applicable_max(c: _Candidate) -> int:
+    """Max points `_approx_fscore` could award this candidate given which
+    ratios it actually has — the denominator for a data-fair floor
+    comparison. Mirrors the point-weighting in `_approx_fscore` exactly."""
+    m = 0
+    if c.roe is not None:
+        m += 2
+    if c.roce is not None:
+        m += 2
+    if c.de is not None:
+        m += 2
+    if c.earnings_yield is not None:
+        m += 1
+    if c.payout is not None:
+        m += 1
+    if c.pe is not None:
+        m += 1
+    return m
 
 
 def _magic_formula_score(c: _Candidate) -> float:

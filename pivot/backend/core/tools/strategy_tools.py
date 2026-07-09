@@ -241,16 +241,66 @@ def get_performance_metrics(
     return out
 
 
+def _fundamentals_row(sym: str) -> dict[str, Any]:
+    """PE/ROE/ROCE/D-E for one symbol, for merging into a comparison row.
+
+    Lazily imported — analysis_chat_tools pulls from the Moneycontrol DB
+    (+ yfinance fallback), a separate service boundary from the price-only
+    data this module otherwise uses.
+    """
+    try:
+        from backend.services.analysis_chat_tools import (
+            fetch_fundamentals, public_fundamentals_view,
+        )
+        d = public_fundamentals_view(fetch_fundamentals(sym))
+        return {
+            "pe": d.get("pe"), "roe": d.get("roe"), "roce": d.get("roce"),
+            "de": d.get("de"), "sector": d.get("sector"),
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"fundamentals unavailable: {type(e).__name__}"}
+
+
+def _technicals_row(prices: "pd.Series") -> dict[str, Any]:
+    """SMA20/50/200 + RSI14 + period high/low from an already-fetched close
+    series — reuses the price data compare_performance already pulled
+    instead of issuing a second per-symbol fetch.
+    """
+    try:
+        from backend.core.indicators.trend_indicators import sma
+        from backend.core.indicators.momentum_indicators import rsi
+        df = prices.to_frame(name="Close")
+        row: dict[str, Any] = {
+            "period_high": float(prices.max()),
+            "period_low": float(prices.min()),
+        }
+        for window in (20, 50, 200):
+            r = sma(df, period=window)
+            row[f"sma{window}"] = r.get("current_value")
+        r = rsi(df, period=14)
+        row["rsi14"] = r.get("current_value")
+        return row
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"technicals unavailable: {type(e).__name__}"}
+
+
 def compare_performance(
     symbols: list[str],
     period: str = "1y",
     metric: str = "sharpe",
+    include: list[str] | None = None,
 ) -> dict[str, Any]:
     """Rank a list of tickers by a chosen metric.
 
     `metric` ∈ {sharpe, total_return, volatility, max_drawdown}.
     Use for: "rank RELIANCE TCS INFY by Sharpe", "which of these
     has best risk-adjusted return", "compare these stocks 6m return".
+
+    `include` ∈ {"fundamentals", "technicals"} (either/both, optional):
+    when the comparison ask also wants PE/ROE or SMA/RSI, pass it here
+    instead of chaining separate fetch_fundamentals/get_price_history
+    calls per symbol — this fetches and merges them into the same
+    per-symbol row in one call, so nothing gets silently dropped.
     """
     syms = [_normalise_symbol(s) for s in symbols if s]
     if len(syms) < 2:
@@ -260,11 +310,24 @@ def compare_performance(
     except Exception as e:
         return _err(f"data fetch failed: {type(e).__name__}", symbols=syms)
     if len(price_dict) < 2:
+        missing = [s for s in syms if s not in price_dict]
         return _err(
-            "data unavailable for too many symbols",
+            f"price data unavailable for {', '.join(missing) or 'most symbols'} "
+            f"(possibly delisted/renamed or a feed gap)",
             available=list(price_dict.keys()),
+            missing=missing,
         )
     table = compare_assets(price_dict)
+    want = set(include or [])
+    if "fundamentals" in want or "technicals" in want:
+        for sym, prices in price_dict.items():
+            row = table.get(sym)
+            if not isinstance(row, dict):
+                continue
+            if "fundamentals" in want:
+                row["fundamentals"] = _fundamentals_row(sym)
+            if "technicals" in want:
+                row["technicals"] = _technicals_row(prices)
     return {
         "period": period,
         "metric": metric,

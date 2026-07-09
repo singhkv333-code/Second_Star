@@ -350,7 +350,13 @@ tool("suggest_option_strategy",
      "editable strategy card. Use for 'I'm bullish on NIFTY', 'income "
      "strategy on BANKNIFTY', 'play the RBI event with options'. Do NOT ask "
      "the user for strikes/expiry first — the tool proposes liquid defaults "
-     "and states its assumptions.",
+     "and states its assumptions. Do NOT call this (or build/critique) for "
+     "a purely conceptual ask with no intent to see a card — 'what would an "
+     "iron condor look like', 'explain how a bull call spread works', 'what "
+     "options play fits X view' asked out of curiosity. Answer those in "
+     "prose with no tool call (get_option_chain only if you need a real "
+     "strike/IV to ground the explanation) — a card the user didn't ask to "
+     "build is a wrong-tool call, not a helpful extra.",
      {
          "underlying": {"type": "string", "description":
                         "e.g. NIFTY, BANKNIFTY, RELIANCE, SENSEX."},
@@ -379,7 +385,10 @@ tool("build_option_strategy",
      "bull_put_spread, bear_call_spread, cash_secured_put, covered_call, "
      "protective_put, long_straddle, short_straddle, long_strangle, "
      "short_strangle, iron_condor, iron_butterfly. For 'which strategy "
-     "should I use' use suggest_option_strategy instead.",
+     "should I use' use suggest_option_strategy instead. If the user "
+     "names a structure but is only asking how it works / what it would "
+     "look like conceptually — not asking to see it built with live "
+     "strikes — answer in prose, no tool call.",
      {
          "underlying": {"type": "string"},
          "template":   {"type": "string", "description":
@@ -399,7 +408,10 @@ tool("critique_option_strategy",
      "user already has in mind and returns the strategy card with verdict "
      "+ flags — liquidity, IV regime vs realized vol, max-loss vs account "
      "size, expiry-day gamma, undefined-risk warnings. Use for 'should I "
-     "sell the 24000 call?', 'critique this trade', 'is this straddle ok?'.",
+     "sell the 24000 call?', 'critique this trade', 'is this straddle ok?'. "
+     "Requires the user's OWN specific legs — if they haven't named "
+     "strikes/sides yet and are just asking what you'd suggest, that's "
+     "suggest_option_strategy, not this.",
      {
          "underlying": {"type": "string"},
          "expiry":     {"type": "string", "description":
@@ -707,12 +719,23 @@ tool("compare_performance",
      "get_price_history on one stock and state the other's number from "
      "memory (that fabricates). Returns the full side-by-side table "
      "(total return %, volatility, Sharpe, max drawdown) for every "
-     "symbol with a declared winner.",
+     "symbol with a declared winner. IF the user also wants PE/ROE and/or "
+     "SMA/RSI compared, set `include` below in THIS SAME call — do not "
+     "separately call fetch_fundamentals/get_price_history once per "
+     "symbol for a comparison ask, that's slower and the model routinely "
+     "forgets half the calls, silently dropping metrics the user asked "
+     "for.",
      {
          "symbols":  {"type": "array", "items": {"type": "string"}},
          "period":   {"type": "string", "default": "1y"},
          "metric":   {"type": "string", "default": "sharpe",
                       "enum": ["sharpe", "total_return", "volatility", "max_drawdown"]},
+         "include":  {"type": "array", "items": {"type": "string"},
+                      "description": "Optional add-ons merged into each "
+                      "symbol's row: 'fundamentals' (PE/ROE/ROCE/D-E/"
+                      "sector), 'technicals' (SMA20/50/200, RSI14, period "
+                      "high/low). Pass both if the user asked for returns "
+                      "+ fundamentals + technicals in one comparison."},
      },
      ["symbols"])
 
@@ -746,7 +769,9 @@ tool("screen_fundamentals",
      "with P/E under 25', 'show me stocks with ROE > 18', 'low debt high ROE "
      "names', 'cheap banking stocks', 'screen for payout > 40%'. This is the "
      "MANY-company tool; for ONE company's PE/ROE use fetch_fundamentals. "
-     "Fields: pe, roe, roce, de (debt/equity), payout. market_cap is NOT a "
+     "Fields: pe, roe, roce, de (debt/equity), payout, price_to_book (P/B), "
+     "ev_to_ebitda, roa, current_ratio, quick_ratio, interest_coverage, "
+     "net_profit_margin, ebitda_margin, asset_turnover. market_cap is NOT a "
      "screenable field, but a real market-cap FLOOR/TIER is applied via "
      "market_cap_tier (see below). Sector is optional + coarse: pharma, bank, "
      "it, energy, auto, autoancillary, metal, finance, chemicals, fmcg, infra, "
@@ -773,7 +798,12 @@ tool("screen_fundamentals",
                      "description": "Numeric constraints, AND-ed. At least one required.",
                      "items": {"type": "object", "properties": {
                          "field": {"type": "string",
-                                   "enum": ["pe", "roe", "roce", "de", "payout", "market_cap"]},
+                                   "enum": ["pe", "roe", "roce", "de", "payout",
+                                            "price_to_book", "ev_to_ebitda", "roa",
+                                            "current_ratio", "quick_ratio",
+                                            "interest_coverage", "net_profit_margin",
+                                            "ebitda_margin", "asset_turnover",
+                                            "market_cap"]},
                          "op":    {"type": "string", "enum": ["<", "<=", ">", ">=", "="]},
                          "value": {"type": "number"}},
                          "required": ["field", "op", "value"]}},
@@ -788,7 +818,11 @@ tool("screen_fundamentals",
                      "/ bluechip / 'big companies'."},
          "sort_by": {"type": "object", "properties": {
                          "field": {"type": "string",
-                                   "enum": ["pe", "roe", "roce", "de", "payout"]},
+                                   "enum": ["pe", "roe", "roce", "de", "payout",
+                                            "price_to_book", "ev_to_ebitda", "roa",
+                                            "current_ratio", "quick_ratio",
+                                            "interest_coverage", "net_profit_margin",
+                                            "ebitda_margin", "asset_turnover"]},
                          "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
          "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15},
      },
@@ -1037,6 +1071,8 @@ _PROPOSE_STEPS_SCHEMA, _PROPOSE_STEP_TYPES, _PROPOSE_CATALOG = _build_propose_wo
 
 
 tool("propose_workflow",
+     "Do NOT call for 'how would I automate X' asked conceptually with no "
+     "intent to actually arm it — answer in prose instead. "
      "FALLBACK workflow builder. PREFER in this order: "
      "(1) `propose_dsl_workflow` for ANY multi-condition entry/exit, "
      "indicator-vs-indicator comparison, multi-output component (MACD "
@@ -1993,6 +2029,9 @@ tool("ask_agent_clarify",
 
 
 tool("build_strategy",
+     "Do NOT call for a purely conceptual ask ('what would a defence-theme "
+     "basket look like', 'how would you build a quality portfolio') with no "
+     "intent to see a card — answer in prose instead. "
      "Build a DB-driven EQUITY + GOLD basket/strategy: pick a named WEIGHTING "
      "SCHEME (never bare equal-weight unless ≤4 names), gate constituents on "
      "the fundamentals DB (F-score / Magic-Formula / multi-factor), enforce a "

@@ -4,6 +4,11 @@ const BACKEND = process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "")
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Standalone output bundles a minimal server + only the deps actually used
+  // into .next/standalone — the standard shape for a containerized deploy
+  // (small image, no full node_modules copy). Purely a build-output change,
+  // no runtime behavior difference for `next dev`.
+  output: "standalone",
   // SKIP_LINT=1 lets `next build` complete despite pre-existing lint errors
   // (unused vars in waitlist/legacy components) — used for perf-measurement
   // and CI builds. Default behaviour (lint enforced) is unchanged.

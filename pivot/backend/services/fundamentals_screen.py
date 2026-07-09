@@ -192,13 +192,23 @@ _ENRICH_SECTOR_INDUSTRIES: dict[str, list[str]] = {
                  "Footwear & Accessories"],
 }
 
-# Screen field -> (enrich raw_info key, scale). yfinance stores ROE/payout as
-# fractions (0.18) so ×100 to a percent; P/E is already a ratio. de/roce have no
-# clean enrich key, so a screen referencing them stays on the mc path.
+# Screen field -> (enrich raw_info key, scale). yfinance stores ROE/payout/ROA as
+# fractions (0.18) so ×100 to a percent; P/E, P/B and EV/EBITDA are already
+# ratios. de/roce have no clean enrich key, so a screen referencing them stays
+# on the mc path. price_to_book/ev_to_ebitda/roa also exist as direct ratio
+# line items in the MC ratios table (see FIELD_MAP), but that table's company
+# coverage is sparse and skews toward smaller/less-liquid names (e.g. TCS,
+# ICICIBANK, HDFCBANK, INFY all lack a populated 'ratios' row there) — the
+# yfinance-backed enrich DB has much better coverage for exactly the
+# large/liquid names a sector screen is usually asked about, so these three
+# are served from enrich whenever the sector qualifies, same as pe/roe/payout.
 _ENRICH_METRIC_KEYS: dict[str, tuple[str, float]] = {
     "pe": ("trailingPE", 1.0),
     "roe": ("returnOnEquity", 100.0),
     "payout": ("payoutRatio", 100.0),
+    "price_to_book": ("priceToBook", 1.0),
+    "ev_to_ebitda": ("enterpriseToEbitda", 1.0),
+    "roa": ("returnOnAssets", 100.0),
 }
 
 
@@ -210,6 +220,12 @@ def _enrich_plausible(field: str, col: str) -> str:
         return f"{col} BETWEEN -200 AND 200"
     if field == "payout":
         return f"{col} BETWEEN 0 AND 100"
+    if field == "price_to_book":
+        return f"{col} > 0 AND {col} <= 100"
+    if field == "ev_to_ebitda":
+        return f"{col} > -100 AND {col} <= 500"
+    if field == "roa":
+        return f"{col} BETWEEN -100 AND 100"
     return "TRUE"
 
 
@@ -393,6 +409,55 @@ _FIELD_DEFS: dict[str, dict] = {
         "items": [],
         "label": "Market Cap",
     },
+    # The rest of this block was a wiring gap, not a data gap: MC publishes
+    # these as direct ratio line items in the SAME `ratios` table as
+    # roe/roce/de/payout above (see FIELD_MAP) — they just were never added
+    # to this screener's field set (2026-07-08).
+    "price_to_book": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["price_to_book"][1]),
+        "label": "P/B",
+    },
+    "ev_to_ebitda": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["ev_to_ebitda"][1]),
+        "label": "EV/EBITDA",
+    },
+    "roa": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["roa"][1]),
+        "label": "ROA %",
+    },
+    "current_ratio": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["current_ratio"][1]),
+        "label": "Current Ratio",
+    },
+    "quick_ratio": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["quick_ratio"][1]),
+        "label": "Quick Ratio",
+    },
+    "interest_coverage": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["interest_coverage"][1]),
+        "label": "Interest Coverage",
+    },
+    "net_profit_margin": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["net_profit_margin"][1]),
+        "label": "Net Profit Margin %",
+    },
+    "ebitda_margin": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["ebitda_margin"][1]),
+        "label": "EBITDA Margin %",
+    },
+    "asset_turnover": {
+        "kind": "direct",
+        "items": list(FIELD_MAP["asset_turnover"][1]),
+        "label": "Asset Turnover",
+    },
 }
 
 # Accept a few common aliases the agent/LLM may emit for the public fields.
@@ -409,6 +474,16 @@ _FIELD_ALIASES: dict[str, str] = {
     "payout_ratio": "payout",
     "mcap": "market_cap",
     "marketcap": "market_cap",
+    "p/b": "price_to_book",
+    "pb": "price_to_book",
+    "pb_ratio": "price_to_book",
+    "price_to_book_value": "price_to_book",
+    "price/book": "price_to_book",
+    "ev/ebitda": "ev_to_ebitda",
+    "ev_ebitda": "ev_to_ebitda",
+    "return_on_assets": "roa",
+    "net_margin": "net_profit_margin",
+    "profit_margin": "net_profit_margin",
 }
 
 _ALLOWED_OPS: frozenset[str] = frozenset({"<", "<=", ">", ">=", "="})

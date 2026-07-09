@@ -1486,6 +1486,7 @@ async def _compare_performance(a, kt, db, uid):
         symbols=a.get("symbols", []),
         period=a.get("period", "1y"),
         metric=a.get("metric", "sharpe"),
+        include=a.get("include") or None,
     )
     success = "error" not in data
     return {"success": success, "data": data, "logiccard": None}
