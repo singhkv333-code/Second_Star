@@ -384,11 +384,23 @@ async def query_financials(args: dict[str, Any]) -> dict[str, Any]:
                     continue
 
                 if not hist:
+                    # Coverage varies by company: P&L line items (revenue,
+                    # net_profit, eps_basic, operating_profit) span ~6,750
+                    # companies; ratio history only ~3,700 and some large
+                    # caps (e.g. TCS) carry P&L-only entries. Name the
+                    # broader-coverage alternative so the LLM can offer a
+                    # real next step instead of a dead end (probe D3:
+                    # empty results should carry alternatives).
                     per_field[field] = {
                         "value": None,
                         "note": (
-                            "no data in DB for this field "
-                            f"(basis={basis}, up to {fetch_limit} years)"
+                            "no data in DB for this field for this company "
+                            f"(basis={basis}, up to {fetch_limit} years). "
+                            "Ratio-history coverage varies by company; "
+                            "P&L lines (revenue, net_profit, eps_basic, "
+                            "operating_profit) have the broadest history "
+                            "coverage — try those, or fetch_fundamentals "
+                            "for the latest snapshot of this ratio."
                         ),
                     }
                     continue

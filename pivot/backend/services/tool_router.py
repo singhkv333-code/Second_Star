@@ -163,11 +163,16 @@ _RULES: list[_Rule] = [
         r"|\b(?:max(?:imum)?|highest|best|min(?:imum)?|lowest|worst|record)\s+"
         r"(?:net\s+)?(?:profit|revenue|earnings|eps|margin|roe|roce|sales)\b"
         r"|\b(?:profit|revenue|earnings|eps|sales|roe|roce|debt|margins?)\s+"
-        r"(?:over|across|in|for)\s+the\s+(?:last|past)?\s*(?:\d+\s+)?years\b"
-        r"|\b(?:profit|revenue|earnings|sales)\s+(?:history|trend|growth)\b"
+        r"(?:\w+\s+){0,2}(?:over|across|in|for|since)\s+the\s+"
+        r"(?:last|past)?\s*(?:\d+\s+)?years\b"
+        r"|\b(?:profit|revenue|earnings|sales|roe|roce)\s+"
+        r"(?:history|trend|growth|trajectory)\b"
         r"|\bcagr\b"
         r"|\b(?:is|has)\s+\w+'?s?\s+(?:roe|roce|profit|revenue|margin|debt)\s+"
-        r"(?:been\s+)?(?:falling|rising|declining|improving|growing|shrinking)\b"
+        r"(?:been\s+)?(?:falling|rising|declining|improving|growing|"
+        r"shrinking|evolv\w+|trend\w+|chang\w+|moved?|progress\w+)\b"
+        r"|\bhow\s+has\s+\w+'?s?\s+(?:roe|roce|profit|revenue|margin|"
+        r"debt|eps)\b"
         r"|\byear[\s-]*(?:on|over)[\s-]*year\b|\byoy\b",
         "query_financials", "fetch_fundamentals", "get_price_history", "get_market_data",
     ),

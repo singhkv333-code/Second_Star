@@ -345,6 +345,20 @@ _AGENT_INTENT_RE = re.compile(
     r"\b(?:and|then)\b"
     # Explicit "automatically execute" phrasing
     r"|\bautomatic(?:ally)?\s+execut"
+    # Macro-EVENT contingency (chat-kernel round 1.5, 2026-07-10): "when
+    # RBI cuts rates buy X", "after the MPC decision...", "if CPI comes
+    # in above 6%...". These need trigger.scheduled_macro / trigger.event
+    # — a WORKFLOW — but the bare "buy \d+ TICKER" automation pattern was
+    # winning, the automation scope surgery then stripped every workflow
+    # builder, and the model had to burn a find_tool reconnaissance hop
+    # (measured: 5 LLM calls / 217K input tok / 26.4s / $0.054 on one
+    # turn — the 2026-07-10 eval judge's #1 fix).
+    r"|\b(?:when(?:ever)?|if|after|once|before)\b[^\.]{0,60}"
+    r"\b(?:rbi|mpc|monetary\s+policy|repo\s+rate|"
+    r"rate\s+(?:cut|hike|decision)|cpi|wpi|"
+    r"inflation\s+(?:print|data|number)|fomc|"
+    r"fed\s+(?:cuts?|hikes?|decision|meeting)|"
+    r"union\s+budget|budget\s+(?:day|announcement)|election\s+results?)\b"
     # Conditional rule with PERCENTAGE move (relative — needs runtime
     # fetch of a baseline). Absolute-price conditionals are GTTs,
     # which are automation.
