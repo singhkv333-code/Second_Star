@@ -1,42 +1,28 @@
 "use client";
 
 /**
- * StrategyDeepDive — the "I want the evidence" page.
+ * StrategyDeepDive — the "See the full analysis" surface, opened as an inline
+ * accordion below a strategy card on the View detail page.
  *
- * The gallery card + view detail are the calm, layman path (belief → stance →
- * strategies). This is the OTHER audience: the speculative, half-baked-finance
- * enthusiast who wants to interrogate a single strategy. Everything here is REAL
- * and computed — nothing is fabricated:
+ * It is deliberately SPARE: exactly three evidence cards, side by side, and
+ * nothing else — no header, no calculator, no stat wall, no episode list. Each
+ * card is real and computed; none is fabricated, and any card whose data is
+ * genuinely unavailable is dropped rather than faked:
  *
- *   1  Calculator      — put in ₹X, see the outcome range (StrategyCalculator).
- *   2  Where it may go  — Monte-Carlo terminal-outcome distribution.
- *   3  Every occurrence — the real event-study, per-window, vs the index.
- *   4  Structure        — option legs + greeks (option tier) OR the weighted
- *                         holdings (basket/hedge tier), with the REAL scheme.
- *   5  The honest stats — typical return, hit-rate, worst drop, reward:risk,
- *                         trust verdict — the numbers, stated plainly.
+ *   1  What you'd hold        — the weighted basket (or the option structure).
+ *   2  What the simulations say — a distilled Monte-Carlo read: the middle
+ *                                outcome, the loss-to-best range, the odds of a
+ *                                loss.
+ *   3  Reward for the risk taken — return earned per unit of worst-case risk.
  *
  * DESIGN LAW: rounded, border-only, ≥13px, tabular numerals, calm color
- * (green/red reserved for real P&L), light + dark via tokens.
+ * (green/red reserved for real P&L), plain language, light + dark via tokens.
  */
 
 import * as React from "react";
-import { ArrowLeft } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  Cell,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import type { ExpressionDetail, ForwardModel, EntryBlock } from "@/lib/types";
-import { MonteCarloDistribution, type MonteCarlo } from "./charts/MonteCarloDistribution";
-import { StrategyCalculator } from "./StrategyCalculator";
+import type { ExpressionDetail } from "@/lib/types";
+import type { MonteCarlo } from "./charts/MonteCarloDistribution";
 import { Num, Stat } from "./Stat";
-import { tierLabel } from "./view-format";
 import { useTokenColors } from "./use-token-color";
 
 const FONT = "var(--font-display)";
@@ -62,13 +48,14 @@ function Section({
         border: "1px solid var(--glass-border)",
         borderRadius: "var(--radius-lg)",
         background: "var(--bg-base)",
-        padding: 18,
+        padding: 20,
         display: "flex",
         flexDirection: "column",
-        gap: 14,
+        gap: 16,
+        minWidth: 0,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <h3
           style={{
             margin: 0,
@@ -91,494 +78,42 @@ function Section({
   );
 }
 
-// ---------------------------------------------------------------------------
-// ForwardModelSection — "If it goes your way" (modeled, never historical).
-// Renders only when forward_model is present. All numbers are computed by the
-// backend scenario model; labeled "modeled" throughout so they are never
-// confused with a track record.
-// ---------------------------------------------------------------------------
-
-function ForwardModelSection({ fm }: { fm: ForwardModel }): React.ReactElement {
-  const net = fm.expected_net_pct;
-  const sign = net > 0 ? "+" : net < 0 ? "−" : "";
-  const absNet = Math.abs(net).toFixed(1);
-  const band = fm.band_pct;
-  const pYesPct = Math.round(fm.p_yes * 100);
-
-  // Horizontal percentile band: p05 | p25 | p50 | p75
-  // Normalize to a 0-100 scale for the visual bar.
-  const vals = [band.p05, band.p25, band.p50, band.p75];
-  const minV = Math.min(...vals);
-  const maxV = Math.max(...vals);
-  const span = maxV - minV || 1;
-  const toPos = (v: number): string => `${((v - minV) / span) * 100}%`;
-
-  const [open, setOpen] = React.useState(false);
-
-  return (
-    <Section
-      title="If it goes your way"
-      subtitle="A scenario model — not a track record. Labeled 'modeled' throughout."
-    >
-      {/* Lead: p50 expected net */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span
-          style={{
-            fontFamily: FONT,
-            fontSize: 28,
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            fontVariantNumeric: "tabular-nums",
-            color: net >= 0 ? "var(--color-profit)" : "var(--color-loss)",
-          }}
-        >
-          {sign}{absNet}%
-        </span>
-        <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-          modeled, net of costs
-        </span>
-      </div>
-
-      {/* Probability line */}
-      <p style={{ margin: 0, fontFamily: FONT, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-        <strong style={{ fontVariantNumeric: "tabular-nums" }}>{pYesPct}%</strong>
-        {" priced in — "}
-        {fm.p_source}
-      </p>
-
-      {/* Percentile band */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
-          Scenario range (p05 → p75, net)
-        </span>
-        <div style={{ position: "relative", height: 20, background: "color-mix(in srgb, var(--text-tertiary) 10%, transparent)", borderRadius: 4 }}>
-          {/* p05 → p75 fill */}
-          <div
-            style={{
-              position: "absolute",
-              left: toPos(band.p05),
-              width: `${((band.p75 - band.p05) / span) * 100}%`,
-              height: "100%",
-              background: "color-mix(in srgb, var(--pivot-blue) 25%, transparent)",
-              borderRadius: 4,
-            }}
-          />
-          {/* p25 → p75 fill (darker) */}
-          <div
-            style={{
-              position: "absolute",
-              left: toPos(band.p25),
-              width: `${((band.p75 - band.p25) / span) * 100}%`,
-              height: "100%",
-              background: "color-mix(in srgb, var(--pivot-blue) 40%, transparent)",
-              borderRadius: 4,
-            }}
-          />
-          {/* p50 marker */}
-          <div
-            style={{
-              position: "absolute",
-              left: toPos(band.p50),
-              width: 2,
-              height: "100%",
-              background: "var(--pivot-blue)",
-              borderRadius: 1,
-              transform: "translateX(-1px)",
-            }}
-          />
-        </div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontFamily: FONT,
-            fontSize: 12,
-            fontVariantNumeric: "tabular-nums",
-            color: "var(--text-tertiary)",
-          }}
-        >
-          <span>{pct(band.p05)} p05</span>
-          <span>{pct(band.p25)} p25</span>
-          <span>{pct(band.p50)} p50</span>
-          <span>{pct(band.p75)} p75</span>
-        </div>
-      </div>
-
-      {/* Assumptions — collapsible quiet list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          style={{
-            alignSelf: "flex-start",
-            fontFamily: FONT,
-            fontSize: 12,
-            fontWeight: 500,
-            color: "var(--text-tertiary)",
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-            textDecoration: "underline",
-            textDecorationStyle: "dotted",
-          }}
-        >
-          How this was modeled {open ? "▲" : "▼"}
-        </button>
-        {open && (
-          <ul
-            style={{
-              margin: 0,
-              paddingLeft: 18,
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-            }}
-          >
-            {fm.assumptions.map((a, i) => (
-              <li
-                key={i}
-                style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}
-              >
-                {a}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </Section>
-  );
+/** Plain, scheme-aware read of how the basket is weighted (no jargon up front). */
+function holdingsSubtitle(scheme: string | null | undefined): string {
+  switch (scheme) {
+    case "min_variance":
+      return "More money goes into the steadier companies, so the whole bundle swings less. (This is called minimum-variance weighting.)";
+    case "risk_parity":
+      return "Each name is sized so it adds a similar amount of risk — no single stock dominates. (This is called risk-parity weighting.)";
+    case "mcap":
+      return "Bigger companies get a bigger share, matching their market size. (This is called market-cap weighting.)";
+    case "factor":
+      return "More money goes into the names with the strongest recent momentum. (This is called momentum weighting.)";
+    default:
+      return "Equal money in each name — the simple, even split, with how each did on average per occurrence.";
+  }
 }
 
-// ---------------------------------------------------------------------------
-// EntrySection — "Getting in small" — the smallest honest entry ticket.
-// ---------------------------------------------------------------------------
-
-function EntrySection({ entry }: { entry: EntryBlock }): React.ReactElement {
-  const fmtInr = (n: number): string => "₹" + Math.round(n).toLocaleString("en-IN");
-
-  return (
-    <Section
-      title="Getting in small"
-      subtitle="The cheapest honest way to enter this strategy today."
-    >
-      {/* Headline: min_entry_inr */}
-      {entry.min_entry_inr != null && (
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span
-            style={{
-              fontFamily: FONT,
-              fontSize: 24,
-              fontWeight: 700,
-              letterSpacing: "-0.01em",
-              fontVariantNumeric: "tabular-nums",
-              color: "var(--text-primary)",
-            }}
-          >
-            {fmtInr(entry.min_entry_inr)}
-          </span>
-          <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-            {entry.basis === "option_premium" ? "per lot (upfront premium)" : "to enter"}
-          </span>
-        </div>
-      )}
-
-      {/* lite_basket / etf_core_plus_names: list the legs. A core leg is ETF
-          units; a satellite leg is one whole share of the strategy's own name. */}
-      {(entry.basis === "lite_basket" || entry.basis === "etf_core_plus_names") &&
-        entry.legs &&
-        entry.legs.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {entry.legs.map((leg, i) => (
-              <div
-                key={i}
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 13,
-                  fontVariantNumeric: "tabular-nums",
-                  color: "var(--text-primary)",
-                }}
-              >
-                {leg.units ?? leg.shares} × {leg.symbol} @ {fmtInr(leg.price)}
-                {leg.role === "core" && leg.tracks && (
-                  <span style={{ color: "var(--text-tertiary)" }}>
-                    {" "}
-                    — the core; tracks {leg.tracks}
-                  </span>
-                )}
-                {leg.role === "satellite" && (
-                  <span style={{ color: "var(--text-tertiary)" }}>
-                    {" "}
-                    — the strategy&rsquo;s own pick
-                  </span>
-                )}
-                {leg.event_mean_pct != null && (
-                  <span style={{ color: "var(--text-tertiary)" }}>
-                    {" "}
-                    — avg {leg.event_mean_pct > 0 ? "+" : ""}
-                    {leg.event_mean_pct}% per past occurrence
-                  </span>
-                )}
-                {leg.substitute && (
-                  <span
-                    style={{
-                      marginLeft: 6,
-                      padding: "1px 6px",
-                      borderRadius: 999,
-                      border: "1px solid var(--glass-border)",
-                      fontSize: 10.5,
-                      fontWeight: 600,
-                      color: "var(--text-secondary)",
-                      verticalAlign: "1px",
-                    }}
-                  >
-                    swapped in
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-      {/* substitutions — priced-out names replaced by event-tested picks
-          from the same theme, with the evidence that earned them the seat. */}
-      {(entry.substitutions ?? []).length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
-            Swapped for affordability (same theme, event-tested):
-          </span>
-          {(entry.substitutions ?? []).map((s, i) => (
-            <span
-              key={i}
-              style={{
-                fontFamily: FONT,
-                fontSize: 12,
-                color: "var(--text-secondary)",
-                lineHeight: 1.4,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {s.in} in for {s.out}
-              {s.in_mean_episode_pct != null && s.in_n_episodes != null && (
-                <>
-                  {" "}
-                  — averaged {s.in_mean_episode_pct > 0 ? "+" : ""}
-                  {s.in_mean_episode_pct}% across {s.in_n_episodes} past
-                  occurrences
-                </>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* dropped names */}
-      {(entry.dropped ?? []).length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
-            Not included at this ticket size:
-          </span>
-          {(entry.dropped ?? []).map((d, i) => (
-            <span
-              key={i}
-              style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.4 }}
-            >
-              {d.symbol} — {d.reason}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* etf_substitute: show the ETF line */}
-      {entry.basis === "etf_substitute" && entry.etf && (
-        <div
-          style={{
-            fontFamily: FONT,
-            fontSize: 13,
-            fontVariantNumeric: "tabular-nums",
-            color: "var(--text-primary)",
-          }}
-        >
-          {entry.etf.units} × {entry.etf.symbol} @ {fmtInr(entry.etf.price)}
-          <span style={{ color: "var(--text-tertiary)" }}> — tracks {entry.etf.tracks}</span>
-        </div>
-      )}
-
-      {/* etf_alternative (offered alongside lite_basket) */}
-      {entry.etf_alternative && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
-            Or simpler:
-          </span>
-          <div
-            style={{
-              fontFamily: FONT,
-              fontSize: 13,
-              fontVariantNumeric: "tabular-nums",
-              color: "var(--text-primary)",
-            }}
-          >
-            {entry.etf_alternative.units} × {entry.etf_alternative.symbol} @ {fmtInr(entry.etf_alternative.price)}
-            <span style={{ color: "var(--text-tertiary)" }}> — tracks {entry.etf_alternative.tracks}</span>
-          </div>
-        </div>
-      )}
-
-      {/* small_ticket: the budget-sized far-OTM long single — a DIFFERENT
-          structure, framed as the longshot it is, never as the same trade. */}
-      {entry.small_ticket && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-            padding: "10px 12px",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: FONT,
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text-primary)",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            Longshot ticket: ≈{fmtInr(entry.small_ticket.est_premium_per_lot_inr)}
-            {" — "}
-            {entry.small_ticket.structure === "long_strangle"
-              ? "a far-out-of-the-money strangle"
-              : entry.small_ticket.structure === "long_put"
-                ? "a single far-out-of-the-money put"
-                : "a single far-out-of-the-money call"}
-            {entry.small_ticket.underlying
-              ? ` on ${entry.small_ticket.underlying}`
-              : ""}
-          </span>
-          {entry.small_ticket.pop_pct != null && (
-            <span
-              style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}
-            >
-              Modelled odds of finishing profitable: ~
-              {entry.small_ticket.pop_pct}% — most of these expire worthless;
-              the premium is the most you can lose.
-            </span>
-          )}
-          {entry.small_ticket.note && (
-            <span
-              style={{
-                fontFamily: FONT,
-                fontSize: 12,
-                color: "var(--text-tertiary)",
-                lineHeight: 1.45,
-              }}
-            >
-              {entry.small_ticket.note}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* option_alternates: the same structure on cheaper same-theme lots */}
-      {(entry.option_alternates ?? []).length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)" }}>
-            Same structure, cheaper lot:
-          </span>
-          {(entry.option_alternates ?? []).map((a, i) => (
-            <span
-              key={i}
-              style={{
-                fontFamily: FONT,
-                fontSize: 13,
-                fontVariantNumeric: "tabular-nums",
-                color: "var(--text-primary)",
-              }}
-            >
-              {a.label} — ≈{fmtInr(a.est_premium_per_lot_inr)}/lot
-              {a.pop_pct != null && (
-                <span style={{ color: "var(--text-tertiary)" }}>
-                  {" "}
-                  (modelled odds ~{a.pop_pct}%)
-                </span>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* note (always present) */}
-      <p
-        style={{
-          margin: 0,
-          fontFamily: FONT,
-          fontSize: 13,
-          color: "var(--text-secondary)",
-          lineHeight: 1.55,
-        }}
-      >
-        {entry.note}
-      </p>
-
-      {/* selection method — how the numbers behind the picks were computed
-          (event-conditioned backtest vs forward model). Quiet footnote. */}
-      {entry.selection_method && (
-        <p
-          style={{
-            margin: 0,
-            fontFamily: FONT,
-            fontSize: 11.5,
-            color: "var(--text-tertiary)",
-            lineHeight: 1.5,
-          }}
-        >
-          Method: {entry.selection_method}
-        </p>
-      )}
-    </Section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// WeakTrackingWarning — amber callout for a "Heads-up: this bundle..." warning.
-// ---------------------------------------------------------------------------
-
-function WeakTrackingWarning({ text }: { text: string }): React.ReactElement {
-  return (
-    <div
-      style={{
-        display: "flex",
-        gap: 10,
-        padding: "12px 14px",
-        border: "1px solid color-mix(in srgb, var(--color-warn) 45%, transparent)",
-        borderRadius: "var(--radius-lg)",
-        background: "color-mix(in srgb, var(--color-warn) 8%, var(--bg-base))",
-      }}
-    >
-      <span
-        style={{
-          fontFamily: FONT,
-          fontSize: 13,
-          color: "var(--text-secondary)",
-          lineHeight: 1.55,
-        }}
-      >
-        {text}
-      </span>
-    </div>
-  );
+/** Plain read of the reward:risk ratio, in the mockup's voice. */
+function rewardVerdict(r: number | null | undefined): string {
+  if (r == null || Number.isNaN(r))
+    return "Not enough history yet to judge the reward for the risk taken.";
+  if (r >= 1.5) return "A strong payoff for the risk taken — well rewarded.";
+  if (r >= 0.8) return "A fair payoff for the risk taken.";
+  if (r >= 0.3) return "A modest payoff for the risk — steady, not spectacular.";
+  if (r >= 0)
+    return "A thin payoff for the risk taken — the reward is small next to the worst drop.";
+  return "The risk taken has not been rewarded historically.";
 }
 
 export function StrategyDeepDive({
   expression,
-  viewTitle,
-  onBack,
 }: {
   expression: ExpressionDetail;
+  /** Retained for API compatibility with the page; unused in the spare layout. */
   viewTitle?: string | null;
-  onBack: () => void;
+  onBack?: () => void;
+  showBackLink?: boolean;
 }): React.ReactElement {
   const c = useTokenColors({
     profit: "--color-profit",
@@ -592,222 +127,64 @@ export function StrategyDeepDive({
   const e = expression;
   const om = e.option_model ?? null;
   const isOption = !!om;
-  const isStraddle = om?.structure === "long_straddle";
   const longHoldings = (e.holdings ?? []).filter((h) => h.position !== "short");
   const shortHolding = (e.holdings ?? []).find((h) => h.position === "short");
-  const name = e.strategy_name ?? e.plain_label ?? tierLabel(e.tier);
 
-  // evidence_basis logic:
-  // - "shock_no_analogs" with no episodes → skip the track record section
-  // - "rolling_windows" → add caption to track record section
-  const evidenceBasis = e.evidence_basis ?? null;
-  const hasNoAnalogs = evidenceBasis === "shock_no_analogs";
-  const hasEpisodes = (e.episodes?.length ?? 0) >= 2;
-  const showEpisodes = hasEpisodes && !hasNoAnalogs;
-
-  // Weak-tracking warnings (lines starting "Heads-up:")
-  const weakWarning = (e.warnings ?? []).find((w) =>
-    w.toLowerCase().startsWith("heads-up:")
-  ) ?? null;
+  const mc = e.monte_carlo ?? null;
+  const hasMc = !!mc && (mc.terminal_pct?.length ?? 0) >= 5;
+  const ratio = e.risk_return_ratio ?? null;
+  const hasRatio = ratio != null && !Number.isNaN(ratio);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {/* header */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <button
-          onClick={onBack}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            alignSelf: "flex-start",
-            fontFamily: FONT,
-            fontSize: 14,
-            fontWeight: 500,
-            color: "var(--text-secondary)",
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <ArrowLeft size={15} /> Back to the view
-        </button>
-        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          {viewTitle && (
-            <span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 500, color: "var(--text-tertiary)" }}>
-              {viewTitle}
-            </span>
-          )}
-          <h1
-            style={{
-              margin: 0,
-              fontFamily: FONT,
-              fontSize: 26,
-              fontWeight: 600,
-              letterSpacing: "-0.02em",
-              color: "var(--text-primary)",
-            }}
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* The three evidence cards, side by side — collapse to a stack only when
+          the row genuinely runs out of width. */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
+          gap: 16,
+          alignItems: "stretch",
+        }}
+      >
+        {/* 1 · What you'd hold (basket) / The options structure */}
+        {isOption ? (
+          <Section title="The options structure" subtitle={om!.assumptions}>
+            <OptionStructure om={om!} />
+          </Section>
+        ) : longHoldings.length > 0 ? (
+          <Section title="What you'd hold" subtitle={holdingsSubtitle(e.weight_scheme)}>
+            <HoldingsWeights holdings={longHoldings} shortHolding={shortHolding} c={c} />
+          </Section>
+        ) : null}
+
+        {/* 2 · What the simulations say (distilled Monte-Carlo read) */}
+        {hasMc && (
+          <Section
+            title="What the simulations say"
+            subtitle={`We re-ran this on reshuffled history ${mc!.n_sims.toLocaleString(
+              "en-IN",
+            )} times to see the spread of outcomes — not one guess.`}
           >
-            {name}
-          </h1>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <TierChip tier={tierLabel(e.tier)} />
-            {e.strategy_type && (
-              <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-secondary)" }}>
-                {e.strategy_type}
-              </span>
-            )}
-            {e.weight_scheme && e.weight_scheme !== "equal" && (
-              <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-                · {schemeLabel(e.weight_scheme)}-weighted
-              </span>
-            )}
-          </div>
-          {e.plain_why && (
-            <p style={{ margin: "4px 0 0", fontFamily: FONT, fontSize: 14, lineHeight: 1.55, color: "var(--text-secondary)", maxWidth: 640 }}>
-              {e.plain_why}
-            </p>
-          )}
-        </div>
+            <SimSummary mc={mc as unknown as MonteCarlo} c={c} />
+          </Section>
+        )}
+
+        {/* 3 · Reward for the risk taken */}
+        {hasRatio && (
+          <Section
+            title="Reward for the risk taken"
+            subtitle="For every ₹1 you risked losing at the worst point, you earned this much back. Higher is better."
+          >
+            <RewardRisk
+              ratio={ratio!}
+              reward={e.strategy_total_pct}
+              worstDrop={e.worst_drop_pct}
+              c={c}
+            />
+          </Section>
+        )}
       </div>
-
-      {/* Weak-tracking callout — near the top so it's seen before the stats */}
-      {weakWarning && <WeakTrackingWarning text={weakWarning} />}
-
-      {/* 1 · calculator */}
-      <StrategyCalculator expression={e} />
-
-      {/* 2 · Monte Carlo — where it may go (gate on the same data-sufficiency the
-          chart uses, so we never render an empty titled card). */}
-      {e.monte_carlo && (e.monte_carlo.terminal_pct?.length ?? 0) >= 5 && (
-        <Section
-          title="Where it could go"
-          subtitle="Re-running the strategy on thousands of resampled histories — the spread of terminal outcomes, not a single guess."
-        >
-          <MonteCarloDistribution
-            mc={e.monte_carlo as unknown as MonteCarlo}
-            underlyingSymbol={e.underlying_symbol}
-            height={168}
-          />
-        </Section>
-      )}
-
-      {/* 2.5 · Forward model — "If it goes your way" (modeled, not historical) */}
-      {e.forward_model && <ForwardModelSection fm={e.forward_model} />}
-
-      {/* 3 · every past occurrence — the event study.
-          Skipped entirely for shock_no_analogs (no comparable history exists). */}
-      {showEpisodes && (
-        <Section
-          title="Every past occurrence"
-          subtitle={`How the strategy did each of the ${e.episodes!.length} times, versus buying the index over the same window.`}
-        >
-          <EpisodeBars episodes={e.episodes!} c={c} />
-          {evidenceBasis === "rolling_windows" && (
-            <span style={{ fontFamily: FONT, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
-              Based on rolling windows of history — not distinct events.
-            </span>
-          )}
-        </Section>
-      )}
-
-      {/* 4 · structure */}
-      {isOption ? (
-        <Section
-          title="The options structure"
-          subtitle={om!.assumptions}
-        >
-          <OptionStructure om={om!} isStraddle={isStraddle} />
-        </Section>
-      ) : longHoldings.length > 0 ? (
-        <Section
-          title="What you'd hold"
-          subtitle={
-            e.weight_scheme && e.weight_scheme !== "equal"
-              ? `Sized by ${schemeLabel(e.weight_scheme)} — not equal-weight. Bigger bars carry more of your capital.`
-              : "The names in the basket and how each did, on average, per occurrence."
-          }
-        >
-          <HoldingsWeights holdings={longHoldings} shortHolding={shortHolding} c={c} />
-        </Section>
-      ) : null}
-
-      {/* 5 · the honest stats */}
-      <Section title="The honest stats" subtitle="Every number here is computed from real prices — nothing is fabricated.">
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-            gap: "16px 20px",
-          }}
-        >
-          {isOption ? (
-            <>
-              <Stat
-                label="Max profit"
-                value={
-                  <span style={{ color: "var(--color-profit)" }}>
-                    {om!.max_profit_uncapped ? "Uncapped" : pct(om!.max_profit_pct, 0)}
-                  </span>
-                }
-                sub={om!.max_profit_uncapped ? "moves with the underlying" : "of capital, capped"}
-              />
-              <Stat label="Max loss" value={<span style={{ color: "var(--color-loss)" }}>{pct(om!.max_loss_pct, 0)}</span>} sub="the premium paid" />
-              <Stat label="Chance of profit" value={`${om!.pop_pct.toFixed(0)}%`} sub="lognormal, at expiry" />
-              <Stat label="Breakeven move" value={isStraddle ? `±${pct(om!.breakeven_move_pct)}` : pct(om!.breakeven_move_pct)} sub="underlying must move" />
-              <Stat label="Modelled vol" value={`${om!.vol_used_pct.toFixed(0)}%`} sub="realised, annualised" />
-            </>
-          ) : (
-            <>
-              <Stat
-                label="Typical return"
-                value={<span style={{ color: (e.strategy_total_pct ?? 0) >= 0 ? "var(--color-profit)" : "var(--color-loss)" }}>{pct(e.strategy_total_pct)}</span>}
-                sub="mean per occurrence"
-              />
-              <Stat
-                label="Ended positive"
-                value={e.pct_positive != null ? `${e.pct_positive.toFixed(0)}%` : "—"}
-                sub={e.n_positive != null && e.n_episodes ? `${e.n_positive} of ${e.n_episodes}` : undefined}
-              />
-              {e.gain_loss?.avg_gain_pct != null && (
-                <Stat
-                  label="Avg gain"
-                  value={<span style={{ color: "var(--color-profit)" }}>{pct(e.gain_loss.avg_gain_pct)}</span>}
-                  sub={e.gain_loss.n_gain != null ? `across ${e.gain_loss.n_gain} winning runs` : undefined}
-                />
-              )}
-              {e.gain_loss?.avg_loss_pct != null && (
-                <Stat
-                  label="Avg loss"
-                  value={<span style={{ color: "var(--color-loss)" }}>{pct(e.gain_loss.avg_loss_pct)}</span>}
-                  sub={e.gain_loss.n_loss != null ? `across ${e.gain_loss.n_loss} losing runs` : undefined}
-                />
-              )}
-              {e.gain_loss?.max_gain_pct != null && (
-                <Stat
-                  label="Max gain"
-                  value={<span style={{ color: "var(--color-profit)" }}>{pct(e.gain_loss.max_gain_pct)}</span>}
-                  sub="best single occurrence"
-                />
-              )}
-              {e.gain_loss?.max_loss_pct != null && (
-                <Stat
-                  label="Max loss"
-                  value={<span style={{ color: e.gain_loss.max_loss_pct < 0 ? "var(--color-loss)" : "var(--color-profit)" }}>{pct(e.gain_loss.max_loss_pct)}</span>}
-                  sub="worst single occurrence"
-                />
-              )}
-              <Stat label="Worst drop" value={<span style={{ color: "var(--color-loss)" }}>{pct(e.worst_drop_pct)}</span>} sub="deepest slide inside a run" />
-              <Stat label="Reward : risk" value={e.risk_return_ratio != null ? e.risk_return_ratio.toFixed(1) : "—"} sub="return ÷ worst drop" />
-              <Stat label="Track record" value={<span style={{ fontSize: 15 }}>{e.trust_badge ?? "—"}</span>} valueSize="md" sub={e.n_episodes ? `${e.n_episodes} occurrences` : undefined} />
-            </>
-          )}
-        </div>
-      </Section>
-
-      {/* 6 · Entry block — "Getting in small" */}
-      {e.entry && <EntrySection entry={e.entry} />}
 
       <p style={{ margin: 0, fontFamily: FONT, fontSize: 13, lineHeight: 1.5, color: "var(--text-tertiary)" }}>
         Pivot arms the trigger and prepares the orders — you review and place every order yourself. This is analysis, not financial advice.
@@ -816,136 +193,243 @@ export function StrategyDeepDive({
   );
 }
 
-function TierChip({ tier }: { tier: string }): React.ReactElement {
-  return (
-    <span
-      style={{
-        fontFamily: FONT,
-        fontSize: 12.5,
-        fontWeight: 600,
-        color: "var(--pivot-blue)",
-        background: "color-mix(in srgb, var(--pivot-blue) 12%, var(--bg-base))",
-        border: "1px solid color-mix(in srgb, var(--pivot-blue) 30%, transparent)",
-        borderRadius: "var(--radius-pill, 999px)",
-        padding: "3px 10px",
-      }}
-    >
-      {tier}
-    </span>
-  );
-}
-
-function schemeLabel(s: string): string {
-  return (
-    {
-      min_variance: "minimum-variance",
-      risk_parity: "risk-parity",
-      factor: "momentum-factor",
-      mcap: "market-cap",
-      equal: "equal",
-    }[s] ?? s
-  );
-}
-
-/** Per-episode return bars vs the index over the same window. */
-function EpisodeBars({
-  episodes,
+/** Distilled Monte-Carlo: middle outcome, the loss→best track, odds of a loss. */
+function SimSummary({
+  mc,
   c,
 }: {
-  episodes: NonNullable<ExpressionDetail["episodes"]>;
+  mc: MonteCarlo;
   c: Record<string, string>;
 }): React.ReactElement {
-  const data = episodes.map((ep, i) => ({
-    i,
-    label: ep.label ?? `#${i + 1}`,
-    date: ep.date ?? null,
-    ret: ep.return_pct ?? 0,
-    bench: ep.benchmark_pct ?? null,
-  }));
+  const worst = mc.p05;
+  const best = mc.p95;
+  const median = mc.median;
+  const lossPct = mc.prob_loss * 100;
+  const range = best - worst;
+  const markerPos = range > 0 ? Math.min(100, Math.max(0, ((median - worst) / range) * 100)) : 50;
+  const medianColor = median >= 0 ? c.profit : c.loss;
+  // The middle-50% band (interquartile range) — the "usual" outcome most runs
+  // clustered in, a calmer read than the 5%-tail extremes. Shown only when the
+  // API supplies both quartiles (never recomputed, never faked).
+  const hasIqr =
+    typeof mc.p25 === "number" &&
+    typeof mc.p75 === "number" &&
+    !Number.isNaN(mc.p25) &&
+    !Number.isNaN(mc.p75);
+
   return (
-    <div style={{ height: 180 }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 12, right: 8, bottom: 4, left: 0 }}>
-          <XAxis dataKey="i" hide />
-          <YAxis
-            tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v}%`}
-            tick={{ fontFamily: FONT, fontSize: 13, fill: c.tertiary }}
-            axisLine={false}
-            tickLine={false}
-            width={46}
-          />
-          <ReferenceLine y={0} stroke={c.borderFocus} />
-          <Tooltip
-            cursor={{ fill: "color-mix(in srgb, var(--text-tertiary) 8%, transparent)" }}
-            content={({ active, payload }) => {
-              if (!active || !payload?.length) return null;
-              const d = payload[0]!.payload as (typeof data)[number];
-              return (
-                <div
-                  style={{
-                    background: "var(--bg-base)",
-                    border: `1px solid ${c.border}`,
-                    borderRadius: 8,
-                    padding: "6px 10px",
-                    fontFamily: FONT,
-                    fontVariantNumeric: "tabular-nums",
-                    fontSize: 13,
-                  }}
-                >
-                  <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>
-                    {d.label}
-                    {d.date ? ` · ${d.date}` : ""}
-                  </div>
-                  <div style={{ color: d.ret >= 0 ? c.profit : c.loss }}>
-                    strategy {pct(d.ret)}
-                  </div>
-                  {d.bench != null && (
-                    <div style={{ color: "var(--text-tertiary)" }}>index {pct(d.bench)}</div>
-                  )}
-                </div>
-              );
+    <div style={{ display: "flex", flex: 1, flexDirection: "column", justifyContent: "space-between", gap: 18 }}>
+      {/* the middle outcome, headline */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span
+          style={{
+            fontFamily: FONT,
+            fontVariantNumeric: "tabular-nums",
+            fontSize: 34,
+            fontWeight: 600,
+            letterSpacing: "-0.02em",
+            lineHeight: 1,
+            color: medianColor,
+          }}
+        >
+          {pct(median, 0)}
+        </span>
+        <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
+          most likely (middle) outcome
+        </span>
+      </div>
+
+      {/* the middle-50% band — where the bulk of runs actually landed */}
+      {hasIqr && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "12px 0",
+            borderTop: "1px solid var(--glass-border)",
+            borderBottom: "1px solid var(--glass-border)",
+          }}
+        >
+          <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
+            Half of all runs landed between
+          </span>
+          <span
+            style={{
+              fontFamily: FONT,
+              fontVariantNumeric: "tabular-nums",
+              fontSize: 15,
+              fontWeight: 600,
+              color: "var(--text-secondary)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {pct(mc.p25!, 0)} &nbsp;to&nbsp; {pct(mc.p75!, 0)}
+          </span>
+        </div>
+      )}
+
+      {/* worst → best track, with the middle outcome marked */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div
+          style={{
+            position: "relative",
+            height: 6,
+            borderRadius: "var(--radius-pill)",
+            background: "color-mix(in srgb, var(--pivot-blue) 22%, var(--glass-border))",
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: -3,
+              left: `${markerPos}%`,
+              transform: "translateX(-50%)",
+              width: 3,
+              height: 12,
+              borderRadius: 2,
+              background: "var(--pivot-blue)",
             }}
           />
-          <Bar dataKey="ret" radius={[2, 2, 0, 0]} isAnimationActive={false}>
-            {data.map((d, i) => (
-              <Cell key={i} fill={d.ret >= 0 ? c.profit : c.loss} fillOpacity={0.82} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 8,
+            fontFamily: FONT,
+            fontVariantNumeric: "tabular-nums",
+            fontSize: 13,
+          }}
+        >
+          <span style={{ color: c.loss }}>worst 5% · {pct(worst, 0)}</span>
+          <span style={{ color: "var(--text-tertiary)" }}>
+            chance of a loss · {lossPct < 0.1 ? "under 0.1" : lossPct.toFixed(0)}%
+          </span>
+          <span style={{ color: c.profit }}>best 5% · {pct(best, 0)}</span>
+        </div>
+      </div>
     </div>
   );
 }
 
-/** Option legs + net greeks. Handles both standard spreads and long_straddle
- *  (two BUY legs: CE + PE at ATM). Pass isStraddle=true to label it correctly. */
+/** Reward:risk as a single scaled bar with a plain verdict beneath, plus the
+ *  two real numbers the ratio is built from (typical gain ÷ worst drop). */
+function RewardRisk({
+  ratio,
+  reward,
+  worstDrop,
+  c,
+}: {
+  ratio: number;
+  reward?: number | null;
+  worstDrop?: number | null;
+  c: Record<string, string>;
+}): React.ReactElement {
+  const pos = ratio >= 0;
+  const color = pos ? c.profit : c.loss;
+  // A reward:risk of 1.0 fills the bar; above that it caps. Below, it scales
+  // linearly (0.3× ≈ a third of the way), matching the "steady, not
+  // spectacular" read.
+  const widthPct = Math.max(3, Math.min(100, Math.abs(ratio) * 100));
+  // The ratio is avg-return ÷ worst-drawdown; when the API supplies both, show
+  // the actual numerator and denominator so the "×" isn't a black box.
+  const hasParts =
+    typeof reward === "number" &&
+    !Number.isNaN(reward) &&
+    typeof worstDrop === "number" &&
+    !Number.isNaN(worstDrop);
+
+  return (
+    <div style={{ display: "flex", flex: 1, flexDirection: "column", justifyContent: "space-between", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: 12,
+              borderRadius: "var(--radius-pill)",
+              background: "var(--glass-border)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${widthPct}%`,
+                height: "100%",
+                background: color,
+                borderRadius: "var(--radius-pill)",
+              }}
+            />
+          </div>
+          <Num size="lg" weight={600} color={color} style={{ flexShrink: 0 }}>
+            {ratio.toFixed(1)}×
+          </Num>
+        </div>
+        <span style={{ fontFamily: FONT, fontSize: 13, lineHeight: 1.5, color: "var(--text-tertiary)" }}>
+          {rewardVerdict(ratio)}
+        </span>
+      </div>
+
+      {/* What the ratio is made of — the two real numbers behind it. */}
+      {hasParts && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
+            paddingTop: 16,
+            borderTop: "1px solid var(--glass-border)",
+          }}
+        >
+          <RewardPart label="Typical gain" value={pct(reward, 1)} color={reward! >= 0 ? c.profit : c.loss} />
+          <RewardPart label="Worst drop" value={pct(worstDrop, 1)} color={c.loss} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One labelled number in the reward:risk decomposition. */
+function RewardPart({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+}): React.ReactElement {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>{label}</span>
+      <span
+        style={{
+          fontFamily: FONT,
+          fontVariantNumeric: "tabular-nums",
+          fontSize: 20,
+          fontWeight: 600,
+          color,
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** Option legs + net greeks. */
 function OptionStructure({
   om,
-  isStraddle = false,
 }: {
   om: NonNullable<ExpressionDetail["option_model"]>;
-  isStraddle?: boolean;
 }): React.ReactElement {
   const g = om.net_greeks;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {isStraddle && (
-        <span
-          style={{
-            fontFamily: FONT,
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--pivot-blue)",
-            background: "color-mix(in srgb, var(--pivot-blue) 8%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--pivot-blue) 25%, transparent)",
-            borderRadius: "var(--radius-md)",
-            padding: "4px 10px",
-            alignSelf: "flex-start",
-          }}
-        >
-          Both directions (straddle) — profits from a large move either way
-        </span>
-      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {om.legs.map((leg, i) => (
           <div

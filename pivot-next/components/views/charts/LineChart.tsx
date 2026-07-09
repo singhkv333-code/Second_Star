@@ -146,6 +146,7 @@ export function StrategyLineChart({
   strategyLabel = "Strategy",
   episodeBoundaries = [],
   height = 240,
+  bare = false,
 }: {
   series?: EquityPoint[] | null;
   compareSeries?: CompareSeries[];
@@ -153,6 +154,9 @@ export function StrategyLineChart({
   /** In-position indices where each new episode starts (faint stitch markers). */
   episodeBoundaries?: number[];
   height?: number;
+  /** Kalshi-clean: drop the card border/padding so the chart floats on the page.
+   *  The caller supplies its own section rhythm. */
+  bare?: boolean;
 }): React.ReactElement {
   const c = useTokenColors({
     blue: "--pivot-blue",
@@ -173,14 +177,14 @@ export function StrategyLineChart({
     return (
       <div
         style={{
-          border: `1px solid ${c.border}`,
-          borderRadius: 16,
-          padding: "28px 20px",
+          border: bare ? "none" : `1px solid ${c.border}`,
+          borderRadius: bare ? 0 : 16,
+          padding: bare ? 0 : "28px 20px",
           height,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: c.bg,
+          background: bare ? "transparent" : c.bg,
         }}
       >
         <span
@@ -201,10 +205,10 @@ export function StrategyLineChart({
   return (
     <div
       style={{
-        border: `1px solid ${c.border}`,
-        borderRadius: 16,
-        padding: "16px 12px 8px",
-        background: c.bg,
+        border: bare ? "none" : `1px solid ${c.border}`,
+        borderRadius: bare ? 0 : 16,
+        padding: bare ? 0 : "16px 12px 8px",
+        background: bare ? "transparent" : c.bg,
         display: "flex",
         flexDirection: "column",
         gap: 10,

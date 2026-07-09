@@ -1,46 +1,48 @@
 "use client";
 
 /**
- * ViewDetailPage — the opened-view detail surface, rebuilt to the canonical
- * hand-drawn reference (top → bottom):
+ * ViewDetailPage — the opened-view detail surface, in the Kalshi-clean
+ * /view-detail layout wired to REAL data (top → bottom):
  *
  *   1  header           "← Return to Views" back link · Follow (bare heart)
- *   2  title            view.short_title as a crisp H1 (NOT the long sentence)
- *   2.5 stance           calm YES/NO reading of the view (view.stance, optional)
- *   3  line chart       StrategyLineChart (the strategy's own return path) +
- *                       tier pills "1 · 2 · 3" selector + a "Compare +" overlay
- *   4  description       <ViewDescription/> — 2-3 plain lines + 3 bullets
- *   5  strategies table  <StrategiesTable/> — a real, roomy table w/ expand+deploy
- *   6  benchmark         <BenchmarkComparison/> — heatmap, per-holding returns,
- *                        risk:return ratio, historical alignment, fundamentals,
- *                        other risks (the old confidence folded in here)
- *   7  similar views     <SimilarViews/> — small clickable related-view cards
+ *   2  title            short_title H1 + subtitle + hairline market-meta strip
+ *                       (Type · Horizon · Resolves · Status)
+ *   3  HERO             two-column: <ExpressionReturnsChart/> floating on the
+ *                       page (every expression's real curve + real benchmark,
+ *                       rescaled to the ticket amount) | <ExpressionTicket/>
+ *                       sticky trade ticket (amount → projection per strategy,
+ *                       REAL deploy). The ticket is the only card up here.
+ *   4  strategies        <StrategiesEditorial/> — table + explanation panel
+ *   5  description       <ViewDescription/> — bullets + caveat ("What this is")
+ *   6  THE DETAIL BLOCK (very bottom, behind a strong divider):
+ *      <BenchmarkComparison/> ("How this strategy behaves") + <SimilarViews/>
  *
- * REMOVED: the Timeline / lifecycle section, the standalone confidence section,
- * the standalone transmission section (its "why" now lives in the bullets).
- *
- * DESIGN LAW (v2): ROUNDED corners, BORDER-ONLY (no grey fills), plain language
- * (no jargon), >= 13px text, aligned/symmetrical.
+ * DESIGN LAW (v2): ROUNDED corners, BORDER-ONLY (no grey fills), hairline
+ * section rhythm, color is for data, plain language, >= 13px text.
  */
 
 import * as React from "react";
-import { ArrowLeft, AlertCircle, Plus, Info } from "lucide-react";
+import { ArrowLeft, AlertCircle, Info } from "lucide-react";
+import { categoryLabel } from "@/components/views/view-format";
+import { ShareButton } from "./ShareButton";
+import { CategoryGlyph } from "@/components/views/ViewCard";
 import { getView, deployExpression } from "@/lib/api";
-import type { ViewPlaceResponse } from "@/lib/api";
 import { isError } from "@/lib/types";
-import { DeployConfirmModal } from "@/components/views/DeployConfirmModal";
-import type { ViewDetail, ExpressionDetail, StanceIntent } from "@/lib/types";
-import { FollowButton } from "@/components/views/FollowButton";
+import type {
+  ViewDetail,
+  ExpressionDetail,
+  StanceIntent,
+  ViewType,
+  ViewStatus,
+} from "@/lib/types";
 import {
-  StrategyLineChart,
-  type CompareSeries,
-} from "@/components/views/charts/LineChart";
-import { ViewDescription } from "@/components/views/ViewDescription";
-import { StrategiesTable } from "@/components/views/StrategiesTable";
+  ExpressionReturnsChart,
+  ExpressionTicket,
+  exprName,
+} from "@/components/views/ExpressionHero";
+import { StrategiesEditorial } from "@/components/views/StrategiesEditorial";
 import { StrategyDeepDive } from "@/components/views/StrategyDeepDive";
-import { BenchmarkComparison } from "@/components/views/BenchmarkComparison";
 import { SimilarViews } from "@/components/views/SimilarViews";
-import { tierLabel, endsLabel, isPlaceableBasket } from "@/components/views/view-format";
 
 const FONT = "var(--font-display)";
 
@@ -98,6 +100,138 @@ function Body({
   );
 }
 
+// ── header market-meta strip ────────────────────────────────────────────────
+// A hairline-separated row of the view's honest facts (Type · Horizon ·
+// Resolves · Status), reading like a real market header. Every value comes
+// straight from ViewDetail — nothing fabricated; null fields are dropped.
+
+const META_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** "The three strategies" section heading, honest about the actual count. */
+function countWord(n: number): string {
+  const words = ["", "one", "two", "three", "four", "five", "six"];
+  const w = words[n];
+  if (n === 1) return "The strategy";
+  return w ? `The ${w} strategies` : `The ${n} strategies`;
+}
+
+/** Title-case a lowercase token as an honest fallback for unmapped values. */
+function titleCase(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+// NOTE: the wire values are lowercase ("event"/"theme"/"relative", "open"…)
+// and richer than the stale TS unions (ViewType claims EVENT|THEME only, and
+// ViewStatus has no "open"). Both formatters normalise casing and fall back to
+// a title-cased raw value so a new/unmapped value never gets mislabelled.
+function fmtViewType(t: ViewType): string {
+  const k = String(t).toLowerCase();
+  if (k === "event") return "Event view";
+  if (k === "relative") return "Relative view";
+  if (k === "theme") return "Theme view";
+  return `${titleCase(k)} view`;
+}
+
+/** ISO date → "31 Dec 2026" (UTC so the day never shifts across timezones). */
+function fmtResolutionDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCDate()} ${META_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+/** Lifecycle status → plain label; `accent` lights the live states (Open). */
+function fmtStatus(s: ViewStatus): { label: string; accent: boolean } {
+  switch (String(s).toLowerCase()) {
+    case "open":
+    case "published":
+      return { label: "Open", accent: false };
+    case "developing":
+      return { label: "Developing", accent: false };
+    case "consensus":
+      return { label: "Consensus", accent: false };
+    case "resolved":
+      return { label: "Resolved", accent: false };
+    case "archived":
+      return { label: "Archived", accent: false };
+    case "draft":
+      return { label: "Draft", accent: false };
+    default:
+      return { label: titleCase(String(s)), accent: false };
+  }
+}
+
+interface MetaItem {
+  label: string;
+  value: string;
+  accent?: boolean;
+}
+
+/** Build the strip's items from a view, dropping any null/empty facts. */
+function buildMetaItems(view: ViewDetail): MetaItem[] {
+  const items: MetaItem[] = [{ label: "Type", value: fmtViewType(view.view_type) }];
+  if (view.time_horizon) items.push({ label: "Horizon", value: view.time_horizon });
+  const resolves = fmtResolutionDate(view.resolution_date);
+  if (resolves) items.push({ label: "Resolves", value: resolves });
+  const st = fmtStatus(view.status);
+  items.push({ label: "Status", value: st.label, accent: st.accent });
+  return items;
+}
+
+/** One fact in the meta strip, split from the previous by a vertical hairline. */
+function MetaStat({
+  label,
+  value,
+  first,
+  accent,
+}: {
+  label: string;
+  value: string;
+  first: boolean;
+  accent?: boolean;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        padding: first ? "0 18px 0 0" : "0 18px",
+        borderLeft: first ? "none" : "1px solid var(--glass-border)",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: FONT,
+          fontSize: 11,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          color: "var(--text-tertiary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontFamily: FONT,
+          fontVariantNumeric: "tabular-nums",
+          fontSize: 14,
+          fontWeight: 600,
+          color: accent ? "var(--pivot-blue)" : "var(--text-primary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 // Skeleton + error blocks — rounded, border-only.
 function SkelBlock({ h }: { h: number }): React.ReactElement {
   return (
@@ -124,247 +258,6 @@ function DetailSkeleton(): React.ReactElement {
   );
 }
 
-// The strategy/tier selector pill "1 · 2 · 3".
-function TierPill({
-  index,
-  label,
-  selected,
-  onClick,
-}: {
-  index: number;
-  label: string;
-  selected: boolean;
-  onClick: () => void;
-}): React.ReactElement {
-  const [hover, setHover] = React.useState(false);
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      aria-pressed={selected}
-      title={label}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        fontFamily: FONT,
-        fontSize: 13,
-        fontWeight: 500,
-        color: selected ? "var(--text-primary)" : "var(--text-secondary)",
-        background: selected
-          ? "color-mix(in srgb, var(--pivot-blue) 8%, transparent)"
-          : "var(--bg-base)",
-        border: `1px solid ${
-          selected
-            ? "var(--pivot-blue)"
-            : hover
-              ? "var(--glass-border-hover)"
-              : "var(--glass-border)"
-        }`,
-        borderRadius: "var(--radius-pill)",
-        padding: "7px 14px",
-        cursor: "pointer",
-        transition: "border-color 180ms var(--ease-quartr)",
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 18,
-          height: 18,
-          borderRadius: "var(--radius-pill)",
-          fontSize: 13,
-          fontWeight: 600,
-          color: selected ? "#fff" : "var(--text-tertiary)",
-          background: selected ? "var(--pivot-blue)" : "transparent",
-          border: selected ? "none" : "1px solid var(--glass-border)",
-        }}
-      >
-        {index}
-      </span>
-      <span
-        style={{
-          maxWidth: 180,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {label}
-      </span>
-    </button>
-  );
-}
-
-// ── stance block (GOAL B) ───────────────────────────────────────────────────
-// A calm, presentation-only YES/NO reading of the view's title question. Never
-// a bet, never a contract — just a readable framing above the strategies.
-
-function StancePill({
-  label,
-  accent,
-}: {
-  label: string;
-  accent: string | null;
-}): React.ReactElement {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontFamily: FONT,
-        fontSize: 13,
-        fontWeight: 600,
-        letterSpacing: "0.02em",
-        color: accent ?? "var(--text-tertiary)",
-        background: accent
-          ? `color-mix(in srgb, ${accent} 10%, transparent)`
-          : "transparent",
-        border: `1px solid ${accent ?? "var(--glass-border)"}`,
-        borderRadius: "var(--radius-pill)",
-        padding: "2px 10px",
-        width: "fit-content",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function StanceCard({
-  pillLabel,
-  accent,
-  verdict,
-  summary,
-  footnote,
-  muted = false,
-  highlighted = false,
-}: {
-  pillLabel: string;
-  accent: string | null;
-  verdict: string;
-  summary: string;
-  footnote?: string;
-  muted?: boolean;
-  /** The side a Yes/No card press picked — drawn with an accent border + a
-   *  soft outline ring (no box-shadow, no fill; design-law clean). */
-  highlighted?: boolean;
-}): React.ReactElement {
-  // A "no clean trade" (muted) side rings in muted grey, not the amber accent —
-  // matching the gallery card's muted treatment so the two surfaces agree.
-  const ring = muted ? "var(--text-tertiary)" : (accent ?? "var(--text-tertiary)");
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        // A muted (no-clean-trade) side gets a DASHED border so it reads as
-        // categorically "not a live position" at a glance — not just a paler pill.
-        border: `1px ${muted ? "dashed" : "solid"} ${
-          highlighted ? ring : "var(--glass-border)"
-        }`,
-        borderRadius: "var(--radius-lg)",
-        background: "var(--bg-base)",
-        outline: highlighted
-          ? `2px solid color-mix(in srgb, ${ring} 32%, transparent)`
-          : undefined,
-        outlineOffset: highlighted ? 2 : undefined,
-        transition: "border-color 200ms var(--ease-quartr)",
-        padding: 18,
-        minWidth: 0,
-      }}
-    >
-      <StancePill label={pillLabel} accent={muted ? null : accent} />
-      <span
-        style={{
-          fontFamily: FONT,
-          fontSize: 15,
-          fontWeight: 600,
-          color: muted ? "var(--text-secondary)" : "var(--text-primary)",
-          lineHeight: 1.3,
-        }}
-      >
-        {verdict}
-      </span>
-      <Body color={muted ? "var(--text-tertiary)" : "var(--text-secondary)"}>
-        {summary}
-      </Body>
-      {footnote && (
-        <Body color="var(--text-tertiary)" size={13}>
-          {footnote}
-        </Body>
-      )}
-    </div>
-  );
-}
-
-function StanceBlock({
-  stance,
-  highlight = null,
-}: {
-  stance: NonNullable<ViewDetail["stance"]>;
-  highlight?: StanceIntent | null;
-}): React.ReactElement {
-  const noHasTrade = stance.no.has_trade === true;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <span
-        style={{
-          fontFamily: FONT,
-          fontSize: 13,
-          fontWeight: 500,
-          color: "var(--text-tertiary)",
-        }}
-      >
-        Your call
-      </span>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns:
-            "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
-          gap: 12,
-        }}
-      >
-        <StanceCard
-          pillLabel="YES"
-          accent="var(--pivot-blue)"
-          verdict={stance.yes.verdict}
-          summary={stance.yes.summary}
-          // When the reader arrived on No, don't point them "down to the
-          // strategies" from the YES card — the No note by the table carries
-          // the honest framing instead.
-          footnote={
-            highlight === "no"
-              ? undefined
-              : "Expressed by the strategies below ↓"
-          }
-          highlighted={highlight === "yes"}
-        />
-        <StanceCard
-          pillLabel="NO"
-          accent="var(--color-warn)"
-          verdict={stance.no.verdict}
-          summary={stance.no.summary}
-          muted={!noHasTrade}
-          highlighted={highlight === "no"}
-          footnote={
-            noHasTrade
-              ? undefined
-              : "Nothing to arm — sitting this one out is the call."
-          }
-        />
-      </div>
-    </div>
-  );
-}
-
 // ── default expression pick ─────────────────────────────────────────────────
 // Lead with the SAME headline strategy the gallery card features (best_expression),
 // so the card number and the detail chart agree. Fall back to the conservative
@@ -378,10 +271,9 @@ function pickDefault(
     const m = exprs.find((e) => e.id === headlineId);
     if (m) return m;
   }
-  // Prefer conservative tier — fall back to highest return. For views with no
-  // historical return (e.g. shock_no_analogs), the conservative tier still
-  // wins so the default matches the gallery card's headline expression.
-  const cons = exprs.find((e) => e.tier === "conservative");
+  const cons = exprs.find(
+    (e) => e.tier === "conservative" && e.strategy_total_pct != null,
+  );
   if (cons) return cons;
   return [...exprs].sort(
     (a, b) => (b.strategy_total_pct ?? -Infinity) - (a.strategy_total_pct ?? -Infinity),
@@ -422,24 +314,18 @@ export function ViewDetailPage({
   const [view, setView] = React.useState<ViewDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [followState, setFollowState] = React.useState<{
+  const [, setFollowState] = React.useState<{
     is_following: boolean;
     follower_count: number;
   } | null>(null);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [compareOn, setCompareOn] = React.useState(false);
+  // ₹ amount typed into the trade ticket — shared with the chart so both
+  // rescale together (the /view-detail single-source-of-truth pattern).
+  const [amount, setAmount] = React.useState<number>(100_000);
   const [deployingId, setDeployingId] = React.useState<string | null>(null);
   const [deployError, setDeployError] = React.useState<string | null>(null);
-  // Broker/paper placements keyed by expression id — drives the "Order placed"
-  // confirmation on the strategy's Deploy CTA.
-  const [placedById, setPlacedById] = React.useState<
-    Record<string, ViewPlaceResponse>
-  >({});
-  // The expression whose deploy confirmation modal is open (placeable baskets).
-  const [confirmExpr, setConfirmExpr] =
-    React.useState<ExpressionDetail | null>(null);
-  const [deepDiveId, setDeepDiveId] = React.useState<string | null>(null);
+  const [deepDiveOpen, setDeepDiveOpen] = React.useState(false);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -470,10 +356,9 @@ export function ViewDetailPage({
     setView(null);
     setFollowState(null);
     setSelectedId(null);
-    setCompareOn(false);
     setDeployError(null);
     setDeployingId(null);
-    setDeepDiveId(null);
+    setDeepDiveOpen(false);
     if (detailOverride) {
       setView(detailOverride);
       setFollowState({
@@ -533,22 +418,6 @@ export function ViewDetailPage({
       window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // When the view was opened by a Yes/No card press, bring the "Your call"
-  // block into view once it has painted — the promise the buttons make ("open
-  // the view on this side"). The highlight (passed to StanceBlock) draws the
-  // eye to the chosen side; from there the strategies/deploy table is one
-  // glance down. No-op when opened via the card body (initialStance null).
-  const stanceRef = React.useRef<HTMLDivElement | null>(null);
-  React.useEffect(() => {
-    if (!initialStance || loading || !view?.stance) return;
-    const el = stanceRef.current;
-    if (!el || typeof window === "undefined") return;
-    const t = window.setTimeout(() => {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 140);
-    return () => window.clearTimeout(t);
-  }, [initialStance, loading, view?.stance, currentId]);
-
   const exprs = view?.expressions ?? [];
   const selectedExpr =
     exprs.find((e) => e.id === selectedId) ?? exprs[0] ?? null;
@@ -556,15 +425,6 @@ export function ViewDetailPage({
   async function handleDeploy(expr: ExpressionDetail) {
     if (deployingId) return;
     setDeployError(null);
-
-    // Placeable share/ETF basket → open the confirm-and-place modal (adjust
-    // shares/lots, then place through the connected broker). Everything else
-    // arms the register-not-execute draft.
-    if (isPlaceableBasket(expr.entry)) {
-      setConfirmExpr(expr);
-      return;
-    }
-
     if (expr.workflow_id) {
       onOpenWorkflowById(expr.workflow_id);
       return;
@@ -579,56 +439,27 @@ export function ViewDetailPage({
     onOpenWorkflowById(res.data.workflow_id);
   }
 
-  // Overlay the OTHER tiers' curves when "Compare +" is on.
-  const compareSeries: CompareSeries[] =
-    compareOn && selectedExpr
-      ? exprs
-          .filter((e) => e.id !== selectedExpr.id)
-          .map((e) => ({
-            label: e.strategy_name ?? tierLabel(e.tier),
-            series: e.equity_curve ?? [],
-          }))
-          .filter((cs) => cs.series.length >= 2)
-      : [];
-
-  // Full statistical deep-dive for one strategy (swaps the whole detail body).
-  const deepDiveExpr =
-    deepDiveId && view
-      ? view.expressions.find((x) => x.id === deepDiveId) ?? null
-      : null;
-  if (deepDiveExpr) {
-    return (
-      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 28 }}>
-        <StrategyDeepDive
-          expression={deepDiveExpr}
-          viewTitle={view?.short_title ?? view?.title ?? null}
-          onBack={() => setDeepDiveId(null)}
-        />
-      </div>
-    );
-  }
+  // The full statistical deep-dive (StrategyDeepDive) is rendered INLINE as an
+  // accordion that expands directly below the strategies block — the table,
+  // explanation panel, belief header and chart all stay on screen; nothing is
+  // swapped out and the page does not jump. It's bound to selectedExpr, so the
+  // open analysis always tracks whichever strategy is selected, and it stays
+  // mounted (hidden by the collapsed accordion) so open AND close both animate.
 
   return (
     <div
       style={{
-        // Full-width content — fills the available area like a chat response
-        // (the page padding around this surface supplies the side breathing room).
+        // Capped + centered so wide screens get real side gutters before the
+        // content begins (on top of the pane's own padding), rather than the
+        // chart + ticket stretching nearly edge-to-edge.
         width: "100%",
+        maxWidth: 1360,
+        marginInline: "auto",
         display: "flex",
         flexDirection: "column",
         gap: 28,
       }}
     >
-      {confirmExpr && (
-        <DeployConfirmModal
-          expression={confirmExpr}
-          onClose={() => setConfirmExpr(null)}
-          onPlaced={(result) => {
-            setPlacedById((prev) => ({ ...prev, [confirmExpr.id]: result }));
-            setConfirmExpr(null);
-          }}
-        />
-      )}
       {loading && (
         <>
           <BackLink onBack={onBack} />
@@ -692,192 +523,172 @@ export function ViewDetailPage({
             }}
           >
             <BackLink onBack={onBack} />
-            {followState && (
-              <FollowButton
-                viewId={view.id}
-                isFollowing={followState.is_following}
-                followerCount={followState.follower_count}
-                size="md"
-                onChange={(next) => setFollowState(next)}
-              />
-            )}
+            <ShareButton ariaLabel="Share this view" />
           </div>
 
-          {/* ── 2 · TITLE (crisp short_title) ── */}
-          <h1
-            style={{
-              fontFamily: FONT,
-              fontSize: 30,
-              fontWeight: 600,
-              lineHeight: 1.2,
-              letterSpacing: "-0.02em",
-              color: "var(--text-primary)",
-              margin: 0,
-            }}
-          >
-            {view.short_title ?? view.plain_one_liner ?? "—"}
-          </h1>
-
-          {/* ── 2.2 · CONTRACT END — titles are dateless; the deadline lives
-                 here (and as the "Ends …" chip on the gallery card). ── */}
-          {endsLabel(view.resolution_date) && (
-            <p
+          {/* ── 2+3 · GRID: (title + chart) | sticky trade ticket ──
+             The title lives in the LEFT column so the ticket (right column)
+             top-aligns with the category thumbnail at the top of the title. */}
+          <style>{`
+            .vwd-hero { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 44px; align-items: start; }
+            .vwd-left { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+            .vwd-sticky { position: sticky; top: 20px; }
+            .vwd-accordion { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 340ms var(--ease-quartr); }
+            .vwd-accordion.open { grid-template-rows: 1fr; }
+            .vwd-accordion > .vwd-accordion-inner { overflow: hidden; min-height: 0; opacity: 0; transition: opacity 260ms var(--ease-quartr); }
+            .vwd-accordion.open > .vwd-accordion-inner { opacity: 1; }
+            @media (prefers-reduced-motion: reduce) {
+              .vwd-accordion { transition: none; }
+              .vwd-accordion > .vwd-accordion-inner { transition: none; }
+            }
+            @media (max-width: 940px) {
+              .vwd-hero { grid-template-columns: 1fr; gap: 24px; }
+              .vwd-sticky { position: static; }
+            }
+          `}</style>
+          <div className="vwd-hero">
+            <div className="vwd-left">
+              {/* title + eyebrow + meta strip */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div
+                  style={{ display: "flex", alignItems: "flex-start", gap: 16 }}
+                >
+              <CategoryGlyph category={view.category} seed={view.id} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span
+                  style={{
+                    display: "block",
+                    fontFamily: FONT,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: "var(--text-tertiary)",
+                  }}
+                >
+                  {categoryLabel(view.category)}
+                </span>
+                <h1
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: 30,
+                    fontWeight: 600,
+                    lineHeight: 1.2,
+                    letterSpacing: "-0.02em",
+                    color: "var(--text-primary)",
+                    margin: "6px 0 0",
+                  }}
+                >
+                  {view.short_title ?? view.plain_one_liner ?? "—"}
+                </h1>
+              </div>
+            </div>
+            {(view.description ?? view.plain_summary) && (
+              <p
+                style={{
+                  margin: 0,
+                  maxWidth: 760,
+                  fontFamily: FONT,
+                  fontSize: 15,
+                  lineHeight: 1.55,
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {view.description ?? view.plain_summary}
+              </p>
+            )}
+            <div
               style={{
-                fontFamily: FONT,
-                fontSize: 14,
-                fontWeight: 500,
-                color: "var(--text-tertiary)",
-                margin: "-6px 0 0",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "8px 0",
+                paddingTop: 14,
+                borderTop: "1px solid var(--glass-border)",
               }}
             >
-              {endsLabel(view.resolution_date).replace(/^Ends/, "Contract ends")}
-            </p>
-          )}
-
-          {/* ── 2.5 · STANCE (YES / NO reading) ── */}
-          {view.stance && (
-            <div ref={stanceRef}>
-              <StanceBlock stance={view.stance} highlight={initialStance} />
+              {buildMetaItems(view).map((m, i) => (
+                <MetaStat
+                  key={m.label}
+                  label={m.label}
+                  value={m.value}
+                  first={i === 0}
+                  accent={m.accent}
+                />
+              ))}
             </div>
-          )}
+              </div>
 
-          {/* ── 3 · LINE CHART + tier selector + Compare ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <StrategyLineChart
-              series={selectedExpr?.equity_curve ?? []}
-              compareSeries={compareSeries}
-              strategyLabel={
-                selectedExpr?.strategy_name ??
-                (selectedExpr ? tierLabel(selectedExpr.tier) : "Strategy")
+              <ExpressionReturnsChart
+              expressions={exprs}
+              selectedId={selectedExpr?.id ?? null}
+              amount={amount}
+              benchmarkLabel={view.benchmark_label}
+              caption={
+                (selectedExpr?.equity_curve?.length ?? 0) >= 2 ? (
+                  <>
+                    The average single occurrence, across{" "}
+                    {selectedExpr?.curve_n_episodes ??
+                      selectedExpr?.n_episodes ??
+                      0}{" "}
+                    past occurrences — the typical return while deployed, not
+                    added up across occurrences.{" "}
+                    {selectedExpr ? exprName(selectedExpr) : "Strategy"},{" "}
+                    ₹{amount.toLocaleString("en-IN")} invested per occurrence ·{" "}
+                    {selectedExpr?.trust_badge ?? "Unproven"} — this is
+                    analysis, not financial advice.
+                  </>
+                ) : (
+                  <>
+                    This view is still developing — no deployable basket yet,
+                    so there is no return path to show. This is analysis, not
+                    financial advice.
+                  </>
+                )
               }
-              episodeBoundaries={selectedExpr?.episode_boundaries ?? []}
-              height={260}
             />
-
+            </div>
             {exprs.length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 8,
-                }}
-              >
-                {exprs.map((e, i) => (
-                  <TierPill
-                    key={e.id}
-                    index={i + 1}
-                    label={e.strategy_name ?? tierLabel(e.tier)}
-                    selected={selectedExpr?.id === e.id}
-                    onClick={() => {
-                      setSelectedId(e.id);
-                    }}
-                  />
-                ))}
-
-                {exprs.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setCompareOn((v) => !v)}
-                    aria-pressed={compareOn}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      fontFamily: FONT,
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: compareOn
-                        ? "var(--text-primary)"
-                        : "var(--text-secondary)",
-                      background: "var(--bg-base)",
-                      border: `1px solid ${
-                        compareOn
-                          ? "var(--glass-border-focus)"
-                          : "var(--glass-border)"
-                      }`,
-                      borderRadius: "var(--radius-pill)",
-                      padding: "7px 14px",
-                      cursor: "pointer",
-                      transition: "border-color 180ms var(--ease-quartr)",
-                    }}
-                  >
-                    <Plus
-                      size={13}
-                      aria-hidden
-                      style={{
-                        transform: compareOn ? "rotate(45deg)" : "none",
-                        transition: "transform 180ms var(--ease-quartr)",
-                      }}
-                    />
-                    {compareOn ? "Comparing" : "Compare"}
-                  </button>
-                )}
+              <div className="vwd-sticky">
+                <ExpressionTicket
+                  expressions={exprs}
+                  selectedId={selectedExpr?.id ?? null}
+                  onSelect={(id) => setSelectedId(id)}
+                  amount={amount}
+                  onAmount={setAmount}
+                  onDeploy={handleDeploy}
+                  deployingId={deployingId}
+                  deployError={deployError}
+                />
               </div>
             )}
-
-            <Body color="var(--text-tertiary)" size={13}>
-              {(selectedExpr?.equity_curve?.length ?? 0) >= 2 ? (
-                <>
-                  The average single occurrence, across{" "}
-                  {selectedExpr?.curve_n_episodes ??
-                    selectedExpr?.n_episodes ??
-                    0}{" "}
-                  past occurrences — the typical return while deployed, not added
-                  up across occurrences.{" "}
-                  {selectedExpr?.strategy_name ?? "Strategy"}, ₹1,00,000
-                  invested per occurrence ·{" "}
-                  {selectedExpr?.trust_badge ?? "Unproven"} — this is
-                  analysis, not financial advice.
-                </>
-              ) : selectedExpr?.forward_model ? (
-                <>
-                  No historical track record for this view. The forward model
-                  projects{" "}
-                  <strong>
-                    {(() => {
-                      const n = selectedExpr.forward_model.expected_net_pct;
-                      const s = n > 0 ? "+" : n < 0 ? "−" : "";
-                      return `${s}${Math.abs(n).toFixed(1)}%`;
-                    })()}
-                    {" "}modeled
-                  </strong>{" "}
-                  (net of costs, scenario-based — not a track record). This is
-                  analysis, not financial advice.
-                </>
-              ) : (
-                <>
-                  This view is still developing — no deployable basket yet, so
-                  there is no return path to show. This is analysis, not
-                  financial advice.
-                </>
-              )}
-            </Body>
           </div>
 
-          {/* ── 4 · DESCRIPTION ── */}
-          <ViewDescription
-            description={view.description}
-            bullets={view.bullets}
-            caveat={view.caveat}
-          />
-
-          {/* ── 5 · STRATEGIES TABLE ── */}
+          {/* ── 4 · THE STRATEGIES (editorial table + explanation panel) ── */}
           {exprs.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <h2
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 18,
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  lineHeight: 1.3,
-                  letterSpacing: "-0.01em",
-                  margin: 0,
-                }}
-              >
-                Strategies
-              </h2>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 18,
+                borderTop: "1px solid var(--glass-border)",
+                paddingTop: 28,
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <h2
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: 17,
+                    fontWeight: 650,
+                    color: "var(--text-primary)",
+                    lineHeight: 1.3,
+                    letterSpacing: "-0.01em",
+                    margin: 0,
+                  }}
+                >
+                  {countWord(exprs.length)}
+                </h2>
+              </div>
               {/* No follow-through: our curated views author only the YES-side
                   expressions (the basket/option tiers). When the reader came in
                   on No, say so plainly — the strategies express Yes; No means
@@ -916,24 +727,66 @@ export function ViewDetailPage({
                   </Body>
                 </div>
               )}
-              <StrategiesTable
+              <StrategiesEditorial
                 expressions={exprs}
-                selectedId={selectedExpr?.id ?? null}
-                onSelect={(id) => setSelectedId(id)}
-                onDeploy={handleDeploy}
-                deployingId={deployingId}
-                deployError={deployError}
-                placedById={placedById}
-                onOpenDeepDive={(expr) => setDeepDiveId(expr.id)}
+                amount={amount}
+                openAnalysisId={deepDiveOpen ? (selectedExpr?.id ?? null) : null}
+                onToggleAnalysis={(id) => {
+                  if (id === selectedExpr?.id) {
+                    setDeepDiveOpen((v) => !v);
+                  } else {
+                    setSelectedId(id);
+                    setDeepDiveOpen(true);
+                  }
+                }}
               />
+
+              {/* Inline accordion: the full analysis expands directly below the
+                  strategies, tracking the selected strategy. Nothing is swapped
+                  out and the page never jumps. */}
+              <div
+                className={`vwd-accordion${deepDiveOpen ? " open" : ""}`}
+                aria-hidden={!deepDiveOpen}
+              >
+                <div className="vwd-accordion-inner">
+                  {selectedExpr && (
+                    <div
+                      style={{
+                        borderTop: "1px solid var(--glass-border)",
+                        paddingTop: 24,
+                        marginTop: 4,
+                      }}
+                    >
+                      <StrategyDeepDive
+                        expression={selectedExpr}
+                        viewTitle={view?.short_title ?? view?.title ?? null}
+                        onBack={() => setDeepDiveOpen(false)}
+                        showBackLink={false}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* ── 6 · BENCHMARK COMPARISON ── */}
-          <BenchmarkComparison view={view} expr={selectedExpr} />
-
-          {/* ── 7 · SIMILAR VIEWS ── */}
-          <SimilarViews items={view.similar_views} onOpen={openSibling} />
+          {/* ── 6 · THE DETAIL BLOCK (kept at the very bottom) ──
+              "How this strategy behaves" + everything beneath it lives here,
+              set apart by a strong divider so the top of the page stays the
+              clean, approachable surface and the dense analytics are a
+              deliberate scroll away. */}
+          <section
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 28,
+              borderTop: "1px solid var(--glass-border)",
+              paddingTop: 28,
+              marginTop: 8,
+            }}
+          >
+            <SimilarViews items={view.similar_views} onOpen={openSibling} />
+          </section>
         </>
       )}
     </div>

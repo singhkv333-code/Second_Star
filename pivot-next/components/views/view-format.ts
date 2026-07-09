@@ -14,7 +14,7 @@
  *    the JetBrains Mono / tabular-nums treatment.
  */
 
-import type { Dial, EntryBlock, ExpressionTier, Grade, TrustVerdict } from "@/lib/types";
+import type { Dial, ExpressionTier, Grade, TrustVerdict } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Grade → color (CSS var string)
@@ -185,68 +185,6 @@ export function isSuppressed(dial: Dial | string | null | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Deploy routing — can this expression be placed as a real share basket?
-// ---------------------------------------------------------------------------
-
-/**
- * True when the expression's affordable entry ticket is a concrete whole-share
- * / ETF-unit basket the broker path can actually place (lite_basket,
- * etf_core_plus_names, or an etf_substitute). Option structures, unaffordable
- * baskets, and priced-at-deploy tickets are NOT directly placeable — those fall
- * back to the register-not-execute automation deploy.
- */
-export function isPlaceableBasket(
-  entry: EntryBlock | null | undefined,
-): boolean {
-  return placeableEntryLegs(entry).length > 0;
-}
-
-/** One line of the deploy confirmation basket — a company/ETF, its base
- *  (minimum-lot) share count, and the live per-share price. */
-export type BasketLeg = {
-  symbol: string;
-  shares: number;
-  price: number;
-  /** ETF units carry a "tracks" note; equity satellites may name what they track. */
-  tracks?: string | null;
-  role?: "core" | "satellite" | null;
-};
-
-/**
- * The concrete whole-share / ETF-unit legs of an expression's affordable entry
- * ticket — the rows shown in the deploy confirmation modal. Empty for option /
- * unaffordable / priced-at-deploy tickets (nothing to place directly).
- * Symbols are cleaned to NSE tradingsymbols (no ".NS").
- */
-export function placeableEntryLegs(
-  entry: EntryBlock | null | undefined,
-): BasketLeg[] {
-  if (!entry) return [];
-  const raw: {
-    symbol?: string;
-    shares?: number;
-    units?: number;
-    price?: number;
-    tracks?: string | null;
-    role?: "core" | "satellite" | null;
-  }[] =
-    entry.basis === "lite_basket" || entry.basis === "etf_core_plus_names"
-      ? entry.legs ?? []
-      : entry.basis === "etf_substitute" && entry.etf
-        ? [entry.etf]
-        : [];
-  const legs: BasketLeg[] = [];
-  for (const l of raw) {
-    const symbol = String(l.symbol ?? "").replace(".NS", "").trim().toUpperCase();
-    const shares = Math.trunc(l.shares ?? l.units ?? 0);
-    const price = Number(l.price ?? 0);
-    if (!symbol || shares <= 0) continue;
-    legs.push({ symbol, shares, price, tracks: l.tracks ?? null, role: l.role ?? null });
-  }
-  return legs;
-}
-
-// ---------------------------------------------------------------------------
 // Numeric formatters (return strings; wrap in <Figure> at call site)
 // ---------------------------------------------------------------------------
 
@@ -335,27 +273,6 @@ export function fmtDate(iso: string | null | undefined): string {
     }).format(new Date(iso));
   } catch {
     return "—";
-  }
-}
-
-/**
- * "Ends 30 Sep" (adds the year only when it isn't the current year) — the
- * contract-end chip for a view's resolution_date. Titles stay dateless; this
- * is the ONE place the deadline lives. Empty string when there's no date.
- */
-export function endsLabel(iso: string | null | undefined): string {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    const sameYear = d.getFullYear() === new Date().getFullYear();
-    const text = new Intl.DateTimeFormat("en-IN", {
-      day: "numeric",
-      month: "short",
-      ...(sameYear ? {} : { year: "numeric" }),
-    }).format(d);
-    return `Ends ${text}`;
-  } catch {
-    return "";
   }
 }
 
