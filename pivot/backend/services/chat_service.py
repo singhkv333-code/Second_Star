@@ -502,6 +502,8 @@ _CONSTRUCTION_FORCE_IN: frozenset[str] = frozenset({
     "screen_fundamentals", "fetch_fundamentals",
     "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_price_history", "get_live_price",
+    # consolidated equivalents (chat-kernel Phase 1)
+    "get_indicators", "get_market_data", "query_financials",
 })
 _CONSTRUCTION_FORCE_OUT: frozenset[str] = frozenset({
     # workflow / macro drafters — a construction ask is not a contingent
@@ -517,7 +519,8 @@ _CONSTRUCTION_FORCE_OUT: frozenset[str] = frozenset({
     "propose_holding_action",
     # immediate order tools — a build is register-not-execute via the card
     # actions, never a live order this turn.
-    "place_market_order", "place_limit_order", "create_gtt_order",
+    "place_market_order", "place_limit_order", "place_order",
+    "create_gtt_order",
     "create_sl_order", "create_oco_order", "create_dip_buy",
     "place_basket_order", "create_sip", "squareoff_all_intraday",
     "squareoff_symbol",
@@ -854,7 +857,7 @@ _HEDGE_STRIP_TOOLS: frozenset[str] = frozenset({
     "propose_workflow", "propose_scheduled_order",
     "propose_threshold_order", "propose_basket_allocation",
     "propose_holding_action", "propose_dsl_workflow",
-    "place_market_order", "place_limit_order",
+    "place_market_order", "place_limit_order", "place_order",
     "create_gtt_order", "create_sl_order", "create_oco_order",
     "create_dip_buy", "place_basket_order", "create_sip",
 })
@@ -1336,7 +1339,8 @@ _ORDER_AND_MACRO_TOOLS: frozenset[str] = frozenset({
     "propose_workflow", "propose_scheduled_order",
     "propose_threshold_order", "propose_basket_allocation",
     "propose_holding_action",
-    "place_market_order", "place_limit_order", "create_gtt_order",
+    "place_market_order", "place_limit_order", "place_order",
+    "create_gtt_order",
     "create_sl_order", "create_oco_order", "create_dip_buy",
     "place_basket_order", "create_sip", "create_strategy",
     "squareoff_all_intraday", "squareoff_symbol",
@@ -3097,10 +3101,11 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
 _THEMATIC_BASKET_TOOLS: frozenset[str] = frozenset({
     "build_strategy",
     "screen_fundamentals", "fetch_fundamentals", "get_live_price",
+    "get_market_data",
 })
 _VAGUE_SIP_TOOLS: frozenset[str] = frozenset({
     "propose_scheduled_order", "create_sip", "screen_fundamentals",
-    "get_live_price",
+    "get_live_price", "get_market_data",
 })
 
 
@@ -5560,7 +5565,7 @@ class ChatService:
         #   backtest   → narrow to run_backtest + price-history reads.
         #   other      → leave the broad surface alone.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
-            "place_market_order", "place_limit_order",
+            "place_market_order", "place_limit_order", "place_order",
             "create_gtt_order", "create_sl_order", "create_oco_order",
             "create_dip_buy", "place_basket_order",
             "create_sip", "squareoff_all_intraday", "squareoff_symbol",
@@ -5610,7 +5615,7 @@ class ChatService:
                     - {"propose_workflow", "run_backtest"}
                 )
                 | {"backtest_workflow", "get_price_history",
-                   "get_live_price", "get_52wk_range"}
+                   "get_live_price", "get_52wk_range", "get_market_data"}
             )
         # Advisory questions in "other" intent: strip workflow macros.
         # WHY: "should I reduce that exposure?" after portfolio data was
@@ -5783,6 +5788,7 @@ class ChatService:
                     # hallucinate a place_market_order on an options ticker…
                     _UNDERSPEC_STRIP = _UNDERSPEC_STRIP | frozenset({
                         "place_market_order", "place_limit_order",
+                        "place_order",
                         "create_gtt_order", "create_sl_order",
                         "create_oco_order", "create_dip_buy",
                         "place_basket_order", "create_sip",
@@ -5814,7 +5820,7 @@ class ChatService:
         # remove ASK_USER from scope so the model cannot escape to it.
         if _named_option_build and selected_names is not None:
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "suggest_option_strategy",
                 "critique_option_strategy",
             })
@@ -5851,7 +5857,7 @@ class ChatService:
             selected_names = (selected_names | frozenset({
                 "propose_dsl_workflow",
             })) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "create_sl_order",
             })
             tooldefs = [
@@ -6086,7 +6092,10 @@ class ChatService:
             if (_is_rupee_notional_resize(message)
                     and selected_names is not None
                     and "get_live_price" not in selected_names):
-                selected_names = selected_names | {"get_live_price"}
+                # get_market_data is the visible consolidated equivalent;
+                # get_live_price stays for the hidden direct dispatch path.
+                selected_names = selected_names | {"get_live_price",
+                                                   "get_market_data"}
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
 
@@ -7475,7 +7484,7 @@ class ChatService:
         # Streaming mirror of the non-streaming intent routing.
         # See handle() for the full rationale.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
-            "place_market_order", "place_limit_order",
+            "place_market_order", "place_limit_order", "place_order",
             "create_gtt_order", "create_sl_order", "create_oco_order",
             "create_dip_buy", "place_basket_order",
             "create_sip", "squareoff_all_intraday", "squareoff_symbol",
@@ -7511,7 +7520,7 @@ class ChatService:
                     - {"propose_workflow", "run_backtest"}
                 )
                 | {"backtest_workflow", "get_price_history",
-                   "get_live_price", "get_52wk_range"}
+                   "get_live_price", "get_52wk_range", "get_market_data"}
             )
         # Mirror of non-streaming advisory-strip — see handle() for WHY.
         if (intent_kind == "other"
@@ -7592,6 +7601,7 @@ class ChatService:
                 if mentions_fno:
                     _UNDERSPEC_STRIP = _UNDERSPEC_STRIP | frozenset({
                         "place_market_order", "place_limit_order",
+                        "place_order",
                         "create_gtt_order", "create_sl_order",
                         "create_oco_order", "create_dip_buy",
                         "place_basket_order", "create_sip",
@@ -7614,7 +7624,7 @@ class ChatService:
         _hedge_request = _is_hedge_request(message) or _hedge_followup
         if _named_option_build and selected_names is not None:
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "suggest_option_strategy",
                 "critique_option_strategy",
             })
@@ -7647,7 +7657,7 @@ class ChatService:
             selected_names = (selected_names | frozenset({
                 "propose_dsl_workflow",
             })) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "create_sl_order",
             })
             tooldefs = [
@@ -7819,7 +7829,10 @@ class ChatService:
             if (_is_rupee_notional_resize(message)
                     and selected_names is not None
                     and "get_live_price" not in selected_names):
-                selected_names = selected_names | {"get_live_price"}
+                # get_market_data is the visible consolidated equivalent;
+                # get_live_price stays for the hidden direct dispatch path.
+                selected_names = selected_names | {"get_live_price",
+                                                   "get_market_data"}
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
 
@@ -9304,6 +9317,7 @@ _ACTION_TOOL_NAMES = {
     "propose_scheduled_order", "propose_threshold_order",
     "propose_basket_allocation", "propose_holding_action",
     "register_workflow", "place_market_order", "place_limit_order",
+    "place_order",
     "create_sip", "create_gtt_order", "cancel_order", "modify_order",
     "build_strategy",
 }
@@ -9340,6 +9354,10 @@ async def _llm_clarification(
         ),
         "place_market_order": "place an immediate market order via the broker",
         "place_limit_order": "place a limit order with a target price",
+        "place_order": (
+            "register a buy/sell order (market, or limit when a price "
+            "is given) for you to confirm in your broker app"
+        ),
         "create_sip": "set up a recurring investment on a schedule",
         "create_gtt_order": "place a long-lived limit / stop order",
         "run_backtest": (
@@ -9691,7 +9709,7 @@ def _format_recoverable_failure_question(
             )
 
         return _conversational_unsupported_reply(msg_lc)
-    if tool_name in {"place_market_order", "place_limit_order"}:
+    if tool_name in {"place_market_order", "place_limit_order", "place_order"}:
         return (
             "I couldn't place that order from what was given — could you "
             "confirm the symbol, quantity, and (for limit orders) the "
@@ -9703,7 +9721,7 @@ def _format_recoverable_failure_question(
     # actual problem — the ticker isn't in the data feed. Naming the
     # symbol gives the user something to act on.
     if tool_name in {"get_live_price", "get_ohlc", "get_52wk_range",
-                     "get_index_level"}:
+                     "get_index_level", "get_market_data"}:
         # Extract the symbol the user mentioned for a specific message.
         # WHY this is careful: the prior blind first-uppercased-token
         # grab surfaced Hinglish filler ("ACTUALLY", "NAHI") as a

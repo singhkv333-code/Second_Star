@@ -120,7 +120,7 @@ _RULES: list[_Rule] = [
         r"|\bsector\b[^.]{0,20}\b(?:outlook|prospects?|view|thesis|doing|health)\b"
         r"|\b(?:outlook|prospects?|view|thesis)\b[^.]{0,30}\bsector\b",
         "screen_fundamentals", "compare_performance", "get_symbol_news",
-        "get_top_movers", "get_live_price",
+        "get_top_movers", "get_live_price", "get_market_data",
     ),
 
     # ── Single-stock fundamentals + buy-decision reasoning ───────────
@@ -148,8 +148,8 @@ _RULES: list[_Rule] = [
         r"|\b(?:dividend|payout)\s+(?:of|for|on)\s+\w+"
         r"|\byield\s+(?:of|for|on)\s+\w+"
         r"|\bdividend\s+(?:play|story|history|track\s+record)\b",
-        "fetch_fundamentals", "get_live_price", "get_symbol_news",
-        "get_price_history", "query_financials",
+        "fetch_fundamentals", "get_live_price", "get_symbol_news", "get_market_data",
+        "get_price_history", "query_financials", "get_market_data",
     ),
 
     # ── Fundamentals HISTORY / trend (chat-kernel 2026-07-10) ─────────
@@ -169,7 +169,7 @@ _RULES: list[_Rule] = [
         r"|\b(?:is|has)\s+\w+'?s?\s+(?:roe|roce|profit|revenue|margin|debt)\s+"
         r"(?:been\s+)?(?:falling|rising|declining|improving|growing|shrinking)\b"
         r"|\byear[\s-]*(?:on|over)[\s-]*year\b|\byoy\b",
-        "query_financials", "fetch_fundamentals", "get_price_history",
+        "query_financials", "fetch_fundamentals", "get_price_history", "get_market_data",
     ),
 
     # ── Single-stock PROFILE: sector / industry / business / promoter ──
@@ -191,7 +191,7 @@ _RULES: list[_Rule] = [
         r"|\bwho\s+(?:are|is|owns)\s+(?:the\s+)?promoters?\b"
         r"|\bpromoter\s+holding\b"
         r"|\b(?:share\s*holding|holding\s+pattern|ownership\s+pattern)\b",
-        "fetch_fundamentals", "get_symbol_news", "get_live_price",
+        "fetch_fundamentals", "get_symbol_news", "get_live_price", "get_market_data",
     ),
 
     # ── Company-specific news ────────────────────────────────────────
@@ -200,7 +200,7 @@ _RULES: list[_Rule] = [
         r"|\bnews\s+(?:on|about|for)\s+\w+"
         r"|\bwhat'?s?\s+happening\s+(?:with|to)\s+\w+"
         r"|\bwhy\s+(?:is|did)\s+\w+\s+(?:up|down|fall|drop|rise|jump|crash)",
-        "get_symbol_news", "get_top_movers", "get_live_price",
+        "get_symbol_news", "get_top_movers", "get_live_price", "get_market_data",
     ),
 
     # ── IPO open-day reminder / automation (P2) ──────────────────────
@@ -373,10 +373,10 @@ _RULES: list[_Rule] = [
         r"\b(?:no|make\s+it|change\s+(?:it\s+)?to|actually|instead)\s*[₹]?\d+\s*(?:shares?|units?|lots?)?\b"
         r"|\bjust\s+\d+\s+(?:shares?|units?|lots?)\b"
         r"|\b\d+\s+(?:shares?|units?|lots?)\s+(?:instead|only|please)\b",
-        "place_market_order", "place_limit_order", "create_gtt_order",
+        "place_market_order", "place_limit_order", "create_gtt_order", "place_order",
         "create_sl_order", "create_oco_order", "create_sip",
         "squareoff_all_intraday", "squareoff_symbol",
-        "get_live_price",
+        "get_live_price", "get_market_data",
     ),
 
     # ── Dip-buy automation (GAN R4 F6) ─────────────────────────────
@@ -391,7 +391,7 @@ _RULES: list[_Rule] = [
         r"|\bbuy\s+(?:the\s+|on\s+a\s+)?dip\b"
         r"|\b(?:buy|accumulate|add)\b[^.]{0,40}\b(?:falls?|drops?|dips?)\b"
         r"\s*\d",
-        "create_dip_buy", "calculate_dip_price", "get_live_price",
+        "create_dip_buy", "calculate_dip_price", "get_live_price", "get_market_data",
         "propose_workflow", "propose_dsl_workflow",
     ),
 
@@ -432,7 +432,7 @@ _RULES: list[_Rule] = [
         r"|what(?:'s| is)\s+\w+\s+(at|trading)|level\s+of\s+(nifty|sensex|banknifty)"
         r"|nifty|sensex|banknifty)\b"
         r"|^\s*[A-Z]{2,12}\s*\??\s*$",
-        "get_live_price", "get_index_level", "get_ohlc", "get_market_status",
+        "get_live_price", "get_index_level", "get_ohlc", "get_market_status", "get_market_data",
     ),
 
     # ── Analytics: indicators / risk / comparison / correlation ──
@@ -473,10 +473,10 @@ _RULES: list[_Rule] = [
         # Multi-stock comparison / correlation
         r"|\b(?:rank|compare|correlat\w*|covariance|diversif\w*)\b"
         r"|\bmost\s+(?:correlated|uncorrelated)\b",
-        "get_indicator", "get_multiple_indicators",
+        "get_indicator", "get_multiple_indicators", "get_indicators",
         "get_performance_metrics", "compare_performance",
         "get_correlation_matrix", "get_returns",
-        "get_live_price", "get_price_history",
+        "get_live_price", "get_price_history", "get_market_data",
     ),
 
     # ── Cross-sectional "cheapest / best of N on a metric" → screen ──
@@ -507,7 +507,7 @@ _RULES: list[_Rule] = [
         r"|\bwho'?s?\s+(?:moving|gaining|losing)\s+most\b",
         "get_top_movers",
         "propose_workflow",
-        "place_market_order", "place_limit_order",  # for "buy top gainer..."
+        "place_market_order", "place_limit_order", "place_order",  # for "buy top gainer..."
     ),
 
     # ── Generic single-stock ANALYSIS intent ───────────────────────
@@ -529,9 +529,9 @@ _RULES: list[_Rule] = [
         r"|\btell\s+me\s+about\b(?!\s+(?:the\s+|all\s+)?markets?\b)"
         r"|\b(?:is|should\s+i\s+(?:buy|consider|look\s+at))\s+\w+\s+a?\s*"
         r"(?:buy|good|worth|investment)\b",
-        "get_price_history", "get_52wk_range", "get_indicator",
-        "get_multiple_indicators", "get_performance_metrics",
-        "fetch_fundamentals", "get_symbol_news", "get_live_price",
+        "get_price_history", "get_52wk_range", "get_indicator", "get_market_data", "get_indicators",
+        "get_multiple_indicators", "get_performance_metrics", "get_indicators",
+        "fetch_fundamentals", "get_symbol_news", "get_live_price", "get_market_data",
     ),
 
     # ── 52-week range, price history, charts ───────────────────────
@@ -539,7 +539,7 @@ _RULES: list[_Rule] = [
         r"\b(52\s*-?\s*week|52w|all[- ]time\s+(high|low)|chart|history|past\s+\d+\s*(year|month|week))"
         r"|\bhow\s+has\s+\w+\s+done"
         r"|\bshow\s+me\s+(?:the\s+)?(?:chart|history|past)",
-        "get_price_history", "get_52wk_range",
+        "get_price_history", "get_52wk_range", "get_market_data",
     ),
 
     # ── Portfolio / holdings / sector ──────────────────────────────
@@ -553,8 +553,8 @@ _RULES: list[_Rule] = [
         r"\b(portfolio|holdings|my\s+(stocks|positions|investments)"
         r"|sector\s+breakdown|allocation|p&?l|profit|loss"
         r"|tax\s+(summary|impact|loss|hit)|stcg|ltcg)\b",
-        "get_portfolio_summary", "get_holdings", "get_sector_breakdown",
-        "get_holding_detail", "get_tax_summary", "get_active_products",
+        "get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_portfolio",
+        "get_holding_detail", "get_tax_summary", "get_active_products", "get_portfolio",
         "calculate_tax_impact",
     ),
 
@@ -562,7 +562,7 @@ _RULES: list[_Rule] = [
     _r(
         r"\b(buy|sell|order|place|short|exit|squareoff|square\s+off|cancel"
         r"|stop\s*-?\s*loss|stoploss|gtt|target|limit|market)\b",
-        "place_market_order", "place_limit_order", "create_gtt_order",
+        "place_market_order", "place_limit_order", "create_gtt_order", "place_order",
         "create_sl_order", "create_oco_order", "create_dip_buy",
         "place_basket_order", "cancel_order", "cancel_gtt",
         "list_pending_orders", "list_gtt_orders",
@@ -591,8 +591,8 @@ _RULES: list[_Rule] = [
         r"|\b(?:invest|buy|put|add|start)\b[^.]{0,40}\bevery\s+(?:month|week|fortnight)\b"
         r"|\b(?:invest|buy|put|add|start)\b[^.]{0,40}\b(?:monthly|weekly|fortnightly)\b"
         r"|\bevery\s+(?:month|week)\b[^.]{0,30}\b(?:invest|buy|in\s+(?:gold|silver|nifty))\b",
-        "create_sip", "list_sips", "pause_sip", "resume_sip",
-        "delete_sip", "pause_all_sips",
+        "create_sip", "list_sips", "pause_sip", "resume_sip", "manage_automation",
+        "delete_sip", "pause_all_sips", "manage_automation",
         # GAN R4 F7: weekly/weekday SIPs route to propose_scheduled_order
         # (registerable + amendable from chat). It is in _ALWAYS_INCLUDE
         # but listing it here documents the SIP-lifecycle intent.
@@ -612,17 +612,17 @@ _RULES: list[_Rule] = [
     _r(
         r"\b(pause|resume|delete|cancel|stop|kill)\s+(all|every|each|both|them|those|my)\b"
         r"|\b(pause|resume|delete)\s+(it|that)\b",
-        "pause_sip", "resume_sip", "delete_sip", "pause_all_sips",
-        "list_sips",
-        "pause_strategy", "resume_strategy", "delete_strategy",
-        "list_strategies",
+        "pause_sip", "resume_sip", "delete_sip", "pause_all_sips", "manage_automation",
+        "list_sips", "manage_automation",
+        "pause_strategy", "resume_strategy", "delete_strategy", "manage_automation",
+        "list_strategies", "manage_automation",
     ),
 
     # ── Strategy automation (single-rule) ──────────────────────────
     _r(
         r"\b(strategy|strategies|automation|rule|monitor|watch\s+for|trigger)\b",
-        "create_strategy", "list_strategies", "pause_strategy",
-        "resume_strategy", "delete_strategy",
+        "create_strategy", "list_strategies", "pause_strategy", "manage_automation",
+        "resume_strategy", "delete_strategy", "manage_automation",
     ),
 
     # ── Backtest ──────────────────────────────────────────────────
@@ -739,12 +739,12 @@ _RULES: list[_Rule] = [
         # discover→vet→judge→build flow in system.md. Without these, the
         # basket intent could only see fundamentals, so the model couldn't
         # follow the "financials AND technicals" half of that flow.
-        "get_multiple_indicators",
+        "get_multiple_indicators", "get_indicators",
         "get_performance_metrics",
         "compare_performance",
-        "get_price_history",
+        "get_price_history", "get_market_data",
         "place_basket_order",
-        "get_live_price",
+        "get_live_price", "get_market_data",
     ),
 
     # ── Yields / cash parking ─────────────────────────────────────
@@ -814,7 +814,7 @@ _RULES: list[_Rule] = [
     # ── Pivot products (only when user explicitly names one) ──────
     _r(
         r"\b(safegrow|earnmore|stormshield|pivot\s+product)\b",
-        "get_product_spec", "get_active_products",
+        "get_product_spec", "get_active_products", "get_portfolio",
     ),
 
     # ── Market status / hours / holidays ──────────────────────────
@@ -840,7 +840,7 @@ _RULES: list[_Rule] = [
         r"|\b(?:becha|bechi)\b[^.]{0,80}\b(?:next\s+expiry|roll)\b"
         r"|\badjust\b[^.]{0,40}\b(?:short\s+)?(?:call|put|strangle|straddle|leg)\b",
         "roll_option_position", "get_option_chain", "build_option_strategy",
-        "critique_option_strategy", "get_live_price",
+        "critique_option_strategy", "get_live_price", "get_market_data",
     ),
 
     # ── Workflow arming + armed-state introspection (Track C #1) ──
@@ -944,8 +944,8 @@ _RULES: list[_Rule] = [
 # my world") that don't tickle any keyword — those still need at least
 # the read-side of the catalog.
 _FALLBACK_TOOLS: frozenset[str] = frozenset({
-    "get_live_price", "get_portfolio_summary", "get_holdings",
-    "get_market_status", "get_price_history",
+    "get_live_price", "get_portfolio_summary", "get_holdings", "get_market_data", "get_portfolio",
+    "get_market_status", "get_price_history", "get_market_data",
     "backtest_workflow", "backtest_dsl_tree",
 })
 

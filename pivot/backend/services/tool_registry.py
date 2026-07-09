@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 #     them back into propose_workflow.
 
 # Handlers that exist but must NOT be shown to the model.
+from backend.agents.consolidated_handlers import SUPERSEDED_BY_CONSOLIDATION
+
 _HIDDEN_TOOLS: frozenset = frozenset({
     # Deterministic helper only meant to be invoked from inside a
     # compose_multistep plan (server resolves $step_id refs first).
@@ -56,7 +58,11 @@ _HIDDEN_TOOLS: frozenset = frozenset({
     "extract_winner_symbol",
     # Handler exists but returns placeholder data — stub by behaviour.
     "get_upcoming_events",
-})
+}) | SUPERSEDED_BY_CONSOLIDATION
+# ^ Chat-kernel Phase 1: the 23 narrow tools replaced by the 5
+# consolidated view-enum tools stay callable (cards, REST, macros,
+# compose_multistep) but are no longer shown to the LLM — overlapping
+# sibling tools were the probe's #1 misroute cause.
 
 
 def _real_tools() -> set[str]:
@@ -66,10 +72,10 @@ def _real_tools() -> set[str]:
     return ((set(HANDLERS) - STUB_TOOLS) | set(_V2_HANDLERS)) - _HIDDEN_TOOLS
 
 
-# Legacy hand-maintained list, kept ONLY as a regression tripwire for the
-# derivation above (see tests/test_tool_registry_derivation.py). Do not
-# add new tools here — implement a real handler and they become visible.
-_REAL_TOOLS_LEGACY_SNAPSHOT: set[str] = {
+# Pre-consolidation hand-maintained list (frozen 2026-07-10), kept ONLY
+# to compute the tripwire snapshot below. Do not add new tools here —
+# implement a real handler and they become visible.
+_PRE_CONSOLIDATION_SNAPSHOT: set[str] = {
     # Trade execution
     "place_market_order", "place_limit_order",
     "create_gtt_order", "create_sl_order", "create_oco_order", "create_dip_buy",
@@ -213,6 +219,24 @@ _REAL_TOOLS_LEGACY_SNAPSHOT: set[str] = {
     # Meta tools — escape hatches for cases the regex router misses.
     "find_tool",
 }
+
+
+# The tripwire snapshot the derivation is checked against
+# (tests/test_tool_registry_derivation.py). Every deliberate visibility
+# change is an explicit term here — reviewable in the diff — while
+# accidental drift still trips the test.
+_REAL_TOOLS_LEGACY_SNAPSHOT: set[str] = (
+    (
+        _PRE_CONSOLIDATION_SNAPSHOT  # (already includes query_financials)
+        # Chat-kernel Phase 1: five consolidated view-enum tools...
+        | {"get_market_data", "get_portfolio", "manage_automation",
+           "get_indicators", "place_order"}
+    )
+    # ...replacing the 23 narrow tools they supersede. (Parenthesised:
+    # `-` binds tighter than `|`, so without the parens the subtraction
+    # only applied to the 5-name union term.)
+    - SUPERSEDED_BY_CONSOLIDATION
+)
 
 
 # Tools intentionally excluded because their implementation is a stub:

@@ -3227,3 +3227,13 @@ HANDLERS: dict = _build_handlers()
 STUB_TOOLS: frozenset = frozenset(
     name for name, fn in HANDLERS.items() if fn is _generic_confirm
 )
+
+# Consolidated view-enum tools (chat-kernel Phase 1, 2026-07-10).
+# Importing the module registers their schemas (tools.tool(...) at
+# import time); merging their handlers here makes them visible via the
+# registry derivation. The narrow tools they supersede stay in HANDLERS
+# as dispatch targets but are hidden from the LLM by tool_registry's
+# _HIDDEN_TOOLS (see SUPERSEDED_BY_CONSOLIDATION).
+from backend.agents.consolidated_handlers import CONSOLIDATED_HANDLERS  # noqa: E402
+
+HANDLERS.update(CONSOLIDATED_HANDLERS)

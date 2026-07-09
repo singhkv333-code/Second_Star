@@ -35,9 +35,17 @@ def test_stub_tools_are_excluded_from_llm_schema():
 def test_v2_tools_are_visible():
     schema = get_tool_schema()
     visible = {t["function"]["name"] for t in schema}
-    expected_v2 = {"get_price_history", "get_52wk_range", "get_product_spec"}
-    missing = expected_v2 - visible
-    assert not missing, f"v2 tools missing from schema: {missing}"
+    # Chat-kernel Phase 1 (2026-07-10): get_price_history and
+    # get_52wk_range folded into get_market_data(view=history|range52w);
+    # they stay callable but are hidden from the LLM.
+    expected = {"get_product_spec", "get_market_data", "query_financials"}
+    missing = expected - visible
+    assert not missing, f"expected tools missing from schema: {missing}"
+    superseded_leaks = {"get_price_history", "get_52wk_range"} & visible
+    assert not superseded_leaks, (
+        f"superseded narrow tools leaked back into the schema: "
+        f"{sorted(superseded_leaks)}"
+    )
 
 
 def test_every_real_tool_has_a_schema_entry():
