@@ -8,7 +8,12 @@ A paper order needs a price to fill against. Priority:
   2. yfinance last close — real per-symbol price, no auth, works in the
      default mock/dev environment. (Network; tests inject a price_fn and
      never reach here.)
-  3. None — the broker rejects the order with reason 'price_unavailable'.
+  3. The screener's shared, Redis-cached market-metrics price (real, up to
+     ~10 min stale) — covers the window where yfinance is transiently rate
+     limited (Yahoo 429s routinely outlast a single request's retry
+     budget) but the symbol has been priced recently by anyone's screener
+     read. Never fabricated — just a slightly older real observation.
+  4. None — the broker rejects the order with reason 'price_unavailable'.
 
 P1 marks at fill time only. The intraday/EOD mark-to-market loop that
 revalues open positions + snapshots NAV is P3.
@@ -128,5 +133,26 @@ def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
     except Exception:
         pass
 
-    # 3. No price.
+    # 3. Shared screener market-metrics cache (Redis, ~10 min TTL) — a REAL
+    # price recently observed by the screener's own warm/top-up pipeline.
+    # Covers a transient yfinance rate-limit that would otherwise reject a
+    # perfectly normal paper order for a symbol that's actually been priced
+    # moments ago (e.g. while the user was just browsing the Screener).
+    try:
+        import json
+
+        from backend.cache import redis_client
+        from backend.routers.screener import _METRICS_CACHE_KEY
+
+        raw = redis_client.get(_METRICS_CACHE_KEY)
+        if raw:
+            parsed = json.loads(raw.decode() if isinstance(raw, (bytes, bytearray)) else raw)
+            rec = (parsed.get("m") or {}).get(sym)
+            price = rec.get("price") if rec else None
+            if price and float(price) > 0:
+                return to_money(price)
+    except Exception:
+        pass
+
+    # 4. No price.
     return None
