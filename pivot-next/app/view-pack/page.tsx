@@ -12,11 +12,10 @@
  */
 
 import * as React from "react";
-import { ArrowLeft } from "lucide-react";
 import { ViewCard } from "@/components/views/ViewCard";
+import { ViewCategoryBar } from "@/components/views/ViewCategoryBar";
 import { ViewDetailPage } from "@/components/views/ViewDetailPage";
-import { MyViews } from "@/components/views/MyViews";
-import { MyViewsButton } from "@/components/views/ViewsTab";
+import { categoryLead } from "@/components/views/view-format";
 import type { ViewSummary, ViewDetail, StanceIntent } from "@/lib/types";
 import summariesRaw from "@/components/views/pack/viewpack01.summaries.json";
 import detailsRaw from "@/components/views/pack/viewpack01.details.json";
@@ -26,11 +25,30 @@ const DETAILS = detailsRaw as unknown as Record<string, ViewDetail>;
 
 const FONT = "var(--font-display)";
 
+// Distinct theme buckets across the pack, in first-seen order.
+const CATEGORIES = ((): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of SUMMARIES) {
+    const lead = categoryLead(v.category);
+    if (lead && !seen.has(lead)) {
+      seen.add(lead);
+      out.push(lead);
+    }
+  }
+  return out;
+})();
+
 export default function ViewPackPage(): React.ReactElement {
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [openStance, setOpenStance] = React.useState<StanceIntent | null>(null);
-  const [showMine, setShowMine] = React.useState(false);
+  const [category, setCategory] = React.useState<string>("all");
   const detail = openId ? (DETAILS[openId] ?? null) : null;
+
+  const visible =
+    category === "all"
+      ? SUMMARIES
+      : SUMMARIES.filter((v) => categoryLead(v.category) === category);
 
   const openView = React.useCallback(
     (id: string, intent?: StanceIntent): void => {
@@ -74,86 +92,45 @@ export default function ViewPackPage(): React.ReactElement {
             }}
             onOpenWorkflowById={() => {}}
           />
-        ) : showMine ? (
-          <div className="flex flex-col" style={{ gap: 20 }}>
-            <button
-              type="button"
-              onClick={() => setShowMine(false)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                alignSelf: "flex-start",
-                background: "none",
-                border: "none",
-                padding: 0,
-                fontFamily: FONT,
-                fontSize: 13.5,
-                fontWeight: 600,
-                color: "var(--text-secondary)",
-                cursor: "pointer",
-              }}
-            >
-              <ArrowLeft size={14} aria-hidden />
-              All views
-            </button>
-            <MyViews onBrowse={() => setShowMine(false)} />
-          </div>
         ) : (
           <>
-            <div
-              style={{
-                marginBottom: 28,
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "space-between",
-                gap: 16,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontFamily: FONT,
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: "var(--text-tertiary)",
-                    marginBottom: 4,
-                  }}
-                >
-                  View Pack 01
-                </div>
-                <h1
-                  style={{
-                    fontFamily: FONT,
-                    fontSize: 30,
-                    fontWeight: 600,
-                    letterSpacing: "-0.02em",
-                    color: "var(--text-primary)",
-                    margin: "0 0 8px",
-                  }}
-                >
-                  Opinion Markets
-                </h1>
-                <p
-                  style={{
-                    fontFamily: FONT,
-                    fontSize: 15,
-                    color: "var(--text-secondary)",
-                    margin: 0,
-                    maxWidth: 720,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Beliefs, expressed as deployable strategies — with the return each one has paid.
-                </p>
+            <div style={{ marginBottom: 28 }}>
+              <div
+                style={{
+                  fontFamily: FONT,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: "var(--text-tertiary)",
+                  marginBottom: 4,
+                }}
+              >
+                View Pack 01
               </div>
-              <MyViewsButton onClick={() => setShowMine(true)} />
+              <h1
+                style={{
+                  margin: 0,
+                  fontFamily: "var(--font-serif)",
+                  fontWeight: "var(--weight-display)" as React.CSSProperties["fontWeight"],
+                  fontSize: 22,
+                  letterSpacing: "-0.025em",
+                  color: "var(--text-primary)",
+                }}
+              >
+                Views
+              </h1>
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <ViewCategoryBar
+                categories={CATEGORIES}
+                value={category}
+                onChange={setCategory}
+              />
             </div>
             <div
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch"
               style={{ gap: 20 }}
             >
-              {SUMMARIES.map((v) => (
+              {visible.map((v) => (
                 <ViewCard key={v.id} view={v} onOpen={openView} />
               ))}
             </div>
