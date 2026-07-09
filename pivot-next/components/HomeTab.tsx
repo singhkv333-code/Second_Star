@@ -127,6 +127,27 @@ const TODAY_FMT = new Intl.DateTimeFormat("en-IN", {
   month: "long",
 });
 
+/** Which physical device is this — the 2560×1440 design monitor or the
+ *  ~1920×1080 laptop? Keys off the screen's PHYSICAL pixel count
+ *  (`screen.width × devicePixelRatio`), NOT the CSS viewport, because OS
+ *  display scaling and browser chrome shrink the CSS width/height
+ *  unpredictably — a scaled 2560 monitor reports a CSS viewport small enough
+ *  that width- or height-based media queries wrongly treat it as a laptop.
+ *  Physical pixels are scaling-invariant. SSR-safe: defaults to "monitor". */
+function useDevice(): "monitor" | "laptop" {
+  const [device, setDevice] = useState<"monitor" | "laptop">("monitor");
+  useEffect(() => {
+    const compute = (): void => {
+      const dpr = window.devicePixelRatio || 1;
+      setDevice(window.screen.width * dpr >= 2200 ? "monitor" : "laptop");
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, []);
+  return device;
+}
+
 /** Rough NSE session check in IST — Mon–Fri, 09:15–15:30. Presentational only
  *  (a calm status chip); never gates any data or action. */
 function marketStatus(): { open: boolean; label: string } {
@@ -282,6 +303,7 @@ const CHAT_PROMPTS: ChatPrompt[] = [
 
 export function HomeTab({ onGoTab, onSendPrompt }: HomeTabProps): React.ReactElement {
   const [greetName, setGreetName] = useState<string | null>(null);
+  const device = useDevice();
 
   useEffect(() => {
     getMe().then((r) => {
@@ -307,6 +329,10 @@ export function HomeTab({ onGoTab, onSendPrompt }: HomeTabProps): React.ReactEle
       className="mx-auto flex h-full min-h-0 w-full flex-col overflow-y-auto"
       style={{ maxWidth: 1760, gap: "clamp(8px, 1.4vh, 14px)" }}
       data-testid="home-tab"
+      // "monitor" (2560-class physical screen) vs "laptop" (1920-class) — drives
+      // the [data-device] rules in globals.css: the prompt/strategy COUNT (six
+      // vs four) and full-size vs compact Views teaser cards. See useDevice().
+      data-device={device}
     >
       {/* ── Greeting + indices (fixed header band) ───────────────────── */}
       <div className="flex shrink-0 flex-col" style={{ gap: "clamp(8px, 1.4vh, 14px)" }}>
