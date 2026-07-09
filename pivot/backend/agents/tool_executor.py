@@ -17,7 +17,29 @@ logger = logging.getLogger(__name__)
 
 async def execute_tool(tool_name: str, arguments: dict,
                        kite_token: str, db, user_id: int) -> dict:
-    handlers = {
+    handler = HANDLERS.get(tool_name)
+    if not handler:
+        return {"success": False, "error": f"Unknown tool: {tool_name}",
+                "data": {}, "logiccard": None}
+    # Merge declarative defaults — user-supplied values win.
+    merged = {**get_tool_defaults(tool_name), **(arguments or {})}
+    try:
+        return await handler(merged, kite_token, db, user_id)
+    except Exception as e:
+        logger.error(f"Tool {tool_name} failed: {e}")
+        return {"success": False, "error": str(e), "data": {}, "logiccard": None}
+
+
+def _build_handlers() -> dict:
+    """Single name → handler map for every legacy chat tool.
+
+    Module-level (via ``HANDLERS`` below) so the registry can DERIVE the
+    LLM-visible tool set from it instead of hand-maintaining a parallel
+    list: a tool is real iff its handler is not the ``_generic_confirm``
+    stub (see ``STUB_TOOLS``). Implementing a real handler makes the tool
+    visible automatically; no second list to keep aligned.
+    """
+    return {
         "place_market_order":         _place_market_order,
         "place_limit_order":          _place_limit_order,
         "create_gtt_order":           _create_gtt_order,
@@ -119,17 +141,6 @@ async def execute_tool(tool_name: str, arguments: dict,
         "get_scheduler_status":       _get_scheduler_status,
         "list_upcoming_jobs":         _list_upcoming_jobs,
     }
-    handler = handlers.get(tool_name)
-    if not handler:
-        return {"success": False, "error": f"Unknown tool: {tool_name}",
-                "data": {}, "logiccard": None}
-    # Merge declarative defaults — user-supplied values win.
-    merged = {**get_tool_defaults(tool_name), **(arguments or {})}
-    try:
-        return await handler(merged, kite_token, db, user_id)
-    except Exception as e:
-        logger.error(f"Tool {tool_name} failed: {e}")
-        return {"success": False, "error": str(e), "data": {}, "logiccard": None}
 
 
 def _lc(type_, action, symbol, details, explanation, *, register_payload=None):
@@ -3205,3 +3216,14 @@ async def _get_scheduler_status(a, kt, db, uid):
 
 async def _list_upcoming_jobs(a, kt, db, uid):
     return await _get_scheduler_status(a, kt, db, uid)
+
+
+# ── Registry derivation surface ──────────────────────────────────────
+# Built once at import (all handler defs above are resolved by now).
+# STUB_TOOLS self-derives: anything still wired to `_generic_confirm`
+# is a placeholder and must NOT be shown to the LLM. Swapping a stub
+# for a real handler makes the tool visible with no other edit.
+HANDLERS: dict = _build_handlers()
+STUB_TOOLS: frozenset = frozenset(
+    name for name, fn in HANDLERS.items() if fn is _generic_confirm
+)

@@ -149,7 +149,27 @@ _RULES: list[_Rule] = [
         r"|\byield\s+(?:of|for|on)\s+\w+"
         r"|\bdividend\s+(?:play|story|history|track\s+record)\b",
         "fetch_fundamentals", "get_live_price", "get_symbol_news",
-        "get_price_history",
+        "get_price_history", "query_financials",
+    ),
+
+    # ── Fundamentals HISTORY / trend (chat-kernel 2026-07-10) ─────────
+    # "which year did X have max profit", "highest/lowest revenue year",
+    # "profit over the years / last N years", "revenue CAGR", "is ROE
+    # falling/improving", "how has X's profit grown". These need the
+    # 12y annual series in the mc.* DB — query_financials — NOT the
+    # latest-snapshot fetch_fundamentals and NOT web search.
+    _r(
+        r"\bwhich\s+year\b"
+        r"|\b(?:max(?:imum)?|highest|best|min(?:imum)?|lowest|worst|record)\s+"
+        r"(?:net\s+)?(?:profit|revenue|earnings|eps|margin|roe|roce|sales)\b"
+        r"|\b(?:profit|revenue|earnings|eps|sales|roe|roce|debt|margins?)\s+"
+        r"(?:over|across|in|for)\s+the\s+(?:last|past)?\s*(?:\d+\s+)?years\b"
+        r"|\b(?:profit|revenue|earnings|sales)\s+(?:history|trend|growth)\b"
+        r"|\bcagr\b"
+        r"|\b(?:is|has)\s+\w+'?s?\s+(?:roe|roce|profit|revenue|margin|debt)\s+"
+        r"(?:been\s+)?(?:falling|rising|declining|improving|growing|shrinking)\b"
+        r"|\byear[\s-]*(?:on|over)[\s-]*year\b|\byoy\b",
+        "query_financials", "fetch_fundamentals", "get_price_history",
     ),
 
     # ── Single-stock PROFILE: sector / industry / business / promoter ──

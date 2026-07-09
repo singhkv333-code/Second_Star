@@ -1,7 +1,7 @@
 """Tool registry visibility tests."""
 from __future__ import annotations
 
-from backend.services.tool_registry import _REAL_TOOLS, get_tool_schema
+from backend.services.tool_registry import _real_tools, get_tool_schema
 
 
 # Tools that are deliberately NOT shown to the LLM because their handlers
@@ -43,7 +43,7 @@ def test_v2_tools_are_visible():
 def test_every_real_tool_has_a_schema_entry():
     schema = get_tool_schema()
     visible = {t["function"]["name"] for t in schema}
-    missing = _REAL_TOOLS - visible
-    # `_REAL_TOOLS` includes legacy tools loaded by tools.py; if any are missing
+    missing = _real_tools() - visible
+    # `_real_tools()` includes legacy tools loaded by tools.py; if any are missing
     # the legacy import may have failed.
     assert not missing, f"real tools missing from schema: {missing}"
