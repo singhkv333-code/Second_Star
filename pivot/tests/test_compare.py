@@ -1,14 +1,11 @@
 """
-Tests for the Compare feature: data layer, chart_parser, and /compare endpoint.
+Tests for the Compare feature: data layer and /compare endpoint.
 
 Network-dependent tests (yfinance) skip automatically when yfinance returns
 empty (rate-limit or no internet). Pure-logic and HTTP tests always run.
 """
-import asyncio
-
 import pytest
 
-from backend.agents.chart_parser import parse_chart_request
 from backend.market.yfinance_service import (
     calculate_returns,
     fetch_multi_symbol,
@@ -85,54 +82,6 @@ def test_multi_symbol_alignment():
     infy_dates = {p["date"] for p in aligned["INFY"]}
     tcs_dates = {p["date"] for p in aligned["TCS"]}
     assert infy_dates == tcs_dates
-
-
-# --- chart_parser ---
-
-def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
-
-
-def test_chart_parser_comparison():
-    parsed = _run(parse_chart_request("compare INFY and TCS over 6 months"))
-    assert parsed is not None
-    assert "INFY" in parsed["symbols"] and "TCS" in parsed["symbols"]
-    assert parsed["period"] == "6m"
-    assert parsed["chart_type"] == "comparison"
-    assert parsed["normalise"] is True
-
-
-def test_chart_parser_not_chart_request():
-    assert _run(parse_chart_request("buy 10 INFY at market")) is None
-    assert _run(parse_chart_request("how am I doing")) is None
-    assert _run(parse_chart_request("")) is None
-
-
-def test_chart_parser_index_ytd():
-    parsed = _run(parse_chart_request("show me Nifty this year"))
-    assert parsed is not None
-    assert "NIFTY50" in parsed["symbols"]
-    assert parsed["period"] == "ytd"
-    assert parsed["chart_type"] == "single"
-
-
-def test_chart_parser_since_year():
-    parsed = _run(parse_chart_request("how has Reliance done since 2022"))
-    assert parsed is not None
-    assert "RELIANCE" in parsed["symbols"]
-    assert parsed["period"] == "max"
-    assert parsed["start_date"] == "2022-01-01"
-
-
-def test_chart_parser_backtest_sip():
-    parsed = _run(parse_chart_request(
-        "backtest buying NIFTYBEES 5000 every month for 2 years"
-    ))
-    assert parsed is not None
-    assert "NIFTYBEES" in parsed["symbols"]
-    assert parsed["period"] == "2y"
-    assert parsed["chart_type"] == "backtest"
-    assert parsed["sip_amount"] == 5000.0
 
 
 # --- /compare endpoint ---

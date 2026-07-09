@@ -5,36 +5,12 @@ All Pivot tool definitions in OpenAI function calling format.
 The LLM (Azure / OpenAI) reads these at call time to understand
 available actions.
 
-TOOL SUBSETS — intent classifier returns a subset name.
-Main call only receives tools in that subset.
-Prevents model seeing 50+ tools simultaneously.
+Tool VISIBILITY is owned by services/tool_registry.py (derived from
+handlers); per-turn SELECTION by services/tool_router.py. The old
+TOOL_SUBSETS classifier map that used to live here was deleted
+2026-07-10 (chat-kernel cleanup) — it had no callers since the v2
+cutover.
 """
-
-TOOL_SUBSETS = {
-    "ORDER_IMMEDIATE":   ["place_market_order", "place_limit_order", "get_live_price"],
-    "ORDER_CONDITIONAL": ["create_gtt_order", "create_sl_order", "create_oco_order", "create_dip_buy", "get_live_price"],
-    "ORDER_RECURRING":   ["create_sip", "list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
-    "ORDER_BASKET":      ["place_basket_order", "get_live_price"],
-    "ORDER_FNO":         ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "roll_option_position", "get_portfolio_greeks"],
-    "OPTIONS_QUERY":     ["get_option_chain", "suggest_option_strategy", "build_option_strategy", "critique_option_strategy", "roll_option_position", "get_portfolio_greeks"],
-    "ORDER_MANAGE":      ["cancel_order", "modify_order", "list_pending_orders", "list_gtt_orders", "cancel_gtt", "squareoff_all_intraday", "squareoff_symbol"],
-    "PORTFOLIO_QUERY":   ["get_portfolio_summary", "get_holdings", "get_sector_breakdown", "get_holding_detail", "get_tax_summary", "get_active_products"],
-    "MARKET_QUERY":      ["get_live_price", "get_index_level", "get_ohlc", "get_52wk_range", "get_market_status", "get_upcoming_events", "get_top_movers", "get_option_chain", "fetch_fundamentals", "get_symbol_news", "list_upcoming_ipos"],
-    "FUNDAMENTAL_SCREEN": ["screen_fundamentals"],
-    "ANALYSIS":          ["fetch_fundamentals", "get_symbol_news"],
-    "IPO_QUERY":         ["list_upcoming_ipos", "get_ipo_details", "get_ipo_listing", "propose_ipo_application", "propose_ipo_automation"],
-    "AUTOMATION_CREATE": ["create_strategy", "create_cash_sweep", "create_rebalancing_rule", "create_drawdown_protection", "propose_workflow", "propose_polymarket_trigger"],
-    "AUTOMATION_MANAGE": ["list_strategies", "pause_strategy", "resume_strategy", "delete_strategy"],
-    "WORKFLOW_PROPOSE":  ["propose_workflow"],
-    "POLYMARKET_TRIGGER": ["propose_polymarket_trigger", "browse_polymarket_markets"],
-    "POLYMARKET_BROWSE":  ["browse_polymarket_markets"],
-    "SIP_MANAGE":        ["list_sips", "pause_sip", "resume_sip", "delete_sip", "pause_all_sips"],
-    "YIELD_QUERY":       ["compare_yields", "get_yield_recommendation"],
-    "CALCULATION":       ["calculate_order_qty", "calculate_tax_impact", "calculate_sl_price", "calculate_dip_price", "calculate_margin"],
-    "BACKTEST":          ["backtest_workflow"],
-    "SCHEDULER":         ["get_scheduler_status", "list_upcoming_jobs"],
-    "GENERAL":           [],
-}
 
 ALL_TOOLS = {}
 
@@ -602,12 +578,6 @@ tool("get_ohlc",
          "symbol": {"type": "string"},
          "period": {"type": "string", "enum": ["today","1w","1m","3m","1y"], "default": "today"},
      },
-     ["symbol"],
-     defaults={"exchange": "NSE"})
-
-tool("get_52wk_range",
-     "Returns 52-week high and low for a stock.",
-     {"symbol": {"type": "string"}},
      ["symbol"],
      defaults={"exchange": "NSE"})
 
@@ -2717,9 +2687,3 @@ tool(
     ["underlying", "strike", "option_type"],
     defaults={"side": "SELL", "to_expiry": "next", "qty_lots": 1},
 )
-
-
-def get_tools_for_subset(subset_name: str) -> list:
-    """Returns tool definition list for a given subset name."""
-    names = TOOL_SUBSETS.get(subset_name, [])
-    return [ALL_TOOLS[n] for n in names if n in ALL_TOOLS]
