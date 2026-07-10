@@ -286,16 +286,19 @@ class Settings(BaseSettings):
     # finer switch: mode='live' always uses Kite even with this flag on.
     paper_trading_enabled: bool = True
 
-    # When True, paper fills respect NSE market hours: a MARKET order placed
-    # while the market is CLOSED rests ("queued for open") and fills at the
-    # next market-hours evaluator tick against the then-live price, instead
+    # When True (default), paper fills respect NSE market hours: a MARKET order
+    # placed while the market is CLOSED rests ("queued for open") and fills at
+    # the next market-hours evaluator tick against the then-live price, instead
     # of filling immediately at a stale close. Resting LIMIT/SL/GTT + queued
-    # MARKET orders are then only filled by the scheduler tick during
-    # 09:15-15:30 IST. Default False (2026-07-10 product call): paper mode is
-    # a feedback tool — a MARKET order fills IMMEDIATELY at the last known
-    # price even off-hours, because "placed but resting overnight" reads as
-    # broken to users. Set PAPER_RESPECT_MARKET_HOURS=1 to restore realism.
-    paper_respect_market_hours: bool = False
+    # MARKET orders are only filled by the scheduler tick during 09:15-15:30
+    # IST, Mon-Fri (is_market_open()). This is the CORRECT default (owner call
+    # 2026-07-10 eve): paper mode must simulate the real world exactly — an
+    # order placed after hours does NOT fill until the market reopens. (An
+    # earlier same-day flip to immediate off-hours fills was reversed: the
+    # user wants true market-timing simulation, not instant fills.)
+    # NOTE: is_market_open() covers weekends + hours but NOT NSE holidays yet
+    # (needs a trading_holidays calendar — tracked follow-up).
+    paper_respect_market_hours: bool = True
 
     # Starting cash for a NEW paper account (env PAPER_SEED_CAPITAL). Raised to
     # 500000 for the beta test via .env; defaults to 150000 (matches the
