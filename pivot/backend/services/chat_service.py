@@ -2340,6 +2340,22 @@ _SMALLTALK_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Ranked-list DATA reads — "top gainers/losers/movers", "most active",
+# "biggest gainers today", "who's moving". The tool returns a ranked list that
+# reads best as a compact table (rank · symbol · LTP · change%); the default
+# analytical_short class (≤120 words, prose-only, no headings) forces the model
+# to cram two tables into a 120-word budget and it truncates mid-table. Route
+# these to the table-friendly 'list_read' budget instead. (Fundamental screens —
+# "cheapest banks by P/E" — are handled separately via the analysis subhint.)
+_LIST_READ_RE = re.compile(
+    r"\b(?:top|biggest|best|worst|leading)\s+(?:\d+\s+)?"
+    r"(?:gainers?|losers?|movers?|advancers?|decliners?)\b"
+    r"|\bgainers?\s+(?:and|&|/|,)\s*losers?\b"
+    r"|\bmost\s+active\b"
+    r"|\bwho'?s\s+moving\b",
+    re.IGNORECASE,
+)
+
 
 def _classify_reply_class(message: str, intent_kind: str) -> str:
     """Return one of {'draft', 'automation', 'backtest', 'explainer',
@@ -2378,6 +2394,10 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
     # (apply-the-data-and-reason), not an explain-concept ask.
     if _ANALYSIS_INTENT_RE.search(msg):
         return "analysis"
+    # Ranked-list reads (movers / gainers-losers / most-active) need a table,
+    # not the ≤120-word prose cap — check BEFORE the analytical_short fallback.
+    if _LIST_READ_RE.search(msg):
+        return "list_read"
     if _EXPLAINER_INTENT_RE.search(msg):
         return "explainer"
     return "analytical_short"
@@ -2452,6 +2472,18 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
         "REPLY-CLASS: SHORT-ANALYTICAL. Reply in ≤120 words of plain "
         "prose. No `##` headings. Do NOT append unsolicited live "
         "prices — recite them only if the user asked."
+    )),
+    # LIST — a ranked-list read (top movers, gainers/losers, most active). The
+    # tool returned a ranked list; render it as a compact markdown TABLE, not
+    # terse prose. This class exists so the two-table layout isn't crushed into
+    # the ≤120-word analytical_short budget (which truncated the table mid-row).
+    "list_read": (3500, (
+        "REPLY-CLASS: LIST. The tool returned a ranked list. Render it as a "
+        "compact markdown TABLE — columns rank · symbol · LTP · change%. If the "
+        "user asked for both gainers AND losers, give ONE table per group. "
+        "Include EVERY row the tool returned and FINISH every row — never stop "
+        "a table mid-line. Add at most one short sentence of read (what's "
+        "leading). Do NOT append prices for unrelated names."
     )),
     # STRATEGY — the text that accompanies a build_strategy /
     # propose_basket_allocation card. The previous 3800-token cap still
@@ -6348,6 +6380,13 @@ class ChatService:
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
         max_output = _budget_tokens
+        # A ranked-list read just formats the tool's rows into a table — no deep
+        # reasoning is needed, and on a reasoning model 'medium' effort spends
+        # most of max_output on reasoning, starving (and truncating) the visible
+        # table. Drop to 'minimal' — formatting rows needs no reasoning, and any
+        # reasoning here just eats the budget and truncates the table.
+        if reply_class == "list_read":
+            effort = "minimal"
         # Scoped retry budget for propose_workflow only — see the
         # documented escape hatch at the bottom of the Change-1 plan.
         # propose_workflow's failures are usually mechanical (unknown
@@ -8229,6 +8268,11 @@ class ChatService:
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
         max_output = _budget_tokens
+        # List reads only format a table — drop reasoning effort to 'low' so
+        # reasoning tokens don't eat the output budget and truncate the table
+        # (mirror of the non-streaming path).
+        if reply_class == "list_read":
+            effort = "minimal"
         # Same scoped retry budget as the non-streaming path.
         propose_workflow_attempts = 0
         _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2
