@@ -21,6 +21,12 @@ async def execute_tool(tool_name: str, arguments: dict,
     if not handler:
         return {"success": False, "error": f"Unknown tool: {tool_name}",
                 "data": {}, "logiccard": None}
+    # Late-bind through module globals so monkeypatching
+    # `tool_executor._foo` keeps working (HANDLERS captured the original
+    # references at import — a Phase-0 regression caught by
+    # tests/test_tool_defaults.py). Handlers defined in other modules
+    # (consolidated_handlers) fall back to the stored reference.
+    handler = globals().get(handler.__name__, handler)
     # Merge declarative defaults — user-supplied values win.
     merged = {**get_tool_defaults(tool_name), **(arguments or {})}
     try:

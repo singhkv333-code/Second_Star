@@ -5510,6 +5510,20 @@ class ChatService:
         # always-include floor + fallback read tools, so we never
         # ship a turn with zero tools.
         selected_names = select_tool_names(message)
+        # Chat-kernel round 3: a bare amendment turn ("make it 10 years")
+        # matches no router rule, so the tool that served the PRIOR turn
+        # falls out of scope and the model burns a find_tool hop to
+        # recover it (measured on revenue_cagr_compare/1). Union the
+        # prior turn's READ tools back in — mutating/drafting tools are
+        # deliberately excluded (they have their own draft-followup
+        # machinery, and widening order scope from a stale turn would be
+        # a safety regression).
+        if selected_names is not None:
+            selected_names = selected_names | {
+                t for t in self.store.get_last_tools(conv_id)
+                if t.startswith(("get_", "query_", "compare_", "screen_"))
+                or t in {"calculate", "find_tool"}
+            }
         intent_kind = _classify_intent(message)
 
         # F&O amendment scope: when the active draft is an OPTION strategy
@@ -6689,6 +6703,9 @@ class ChatService:
                     ))
                     if guarded.name not in tools_called:
                         tools_called.append(guarded.name)
+                        # Round 3: persist for the next turn's scope
+                        # union (bare-amendment recovery, both paths).
+                        self.store.set_last_tools(conv_id, tools_called)
                     if guarded.logiccard:
                         logiccard = guarded.logiccard
                     if guarded.data:
@@ -7456,6 +7473,20 @@ class ChatService:
             return
 
         selected_names = select_tool_names(message)
+        # Chat-kernel round 3: a bare amendment turn ("make it 10 years")
+        # matches no router rule, so the tool that served the PRIOR turn
+        # falls out of scope and the model burns a find_tool hop to
+        # recover it (measured on revenue_cagr_compare/1). Union the
+        # prior turn's READ tools back in — mutating/drafting tools are
+        # deliberately excluded (they have their own draft-followup
+        # machinery, and widening order scope from a stale turn would be
+        # a safety regression).
+        if selected_names is not None:
+            selected_names = selected_names | {
+                t for t in self.store.get_last_tools(conv_id)
+                if t.startswith(("get_", "query_", "compare_", "screen_"))
+                or t in {"calculate", "find_tool"}
+            }
         intent_kind = _classify_intent(message)
 
         # F&O amendment scope: when the active draft is an OPTION strategy
@@ -8349,6 +8380,9 @@ class ChatService:
                     ))
                     if guarded.name not in tools_called:
                         tools_called.append(guarded.name)
+                        # Round 3: persist for the next turn's scope
+                        # union (bare-amendment recovery, both paths).
+                        self.store.set_last_tools(conv_id, tools_called)
                     if guarded.logiccard:
                         logiccard = guarded.logiccard
                     if guarded.data:
