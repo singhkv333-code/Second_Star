@@ -72,6 +72,8 @@ const MCAP_TIER_LABEL: Record<string, string> = {
   large: "Large Cap",
   mid: "Mid Cap",
   small: "Small Cap",
+  etf: "ETF",
+  derivative: "F&O",
 };
 
 /** Light sector mapping so the "Sectors" tab in Asset Allocation has
@@ -171,10 +173,16 @@ export function PortfolioTab(): React.ReactElement {
   // prevMode === mode and we must NOT bump — children already fetch at key=0).
   const prevModeRef = useRef(mode);
 
+  // Stamp of the last successful/attempted fetch — drives the stale-on-return
+  // refetch below (keep-alive tabs stay mounted, so "came back to this tab"
+  // never remounts the component).
+  const lastFetchAtRef = useRef(0);
+
   // Fetches summary + holdings only; does NOT bump scoresReloadKey. Called by
   // the mode-change effect on every run (including initial mount) and indirectly
   // by `load()` below for full reloads (Retry button).
   const loadSummary = (): void => {
+    lastFetchAtRef.current = Date.now();
     setState({ kind: "loading" });
     Promise.all([getPortfolioSummary(), getPortfolioHoldings()])
       .then(([sumRes, holdRes]) => {
@@ -209,8 +217,41 @@ export function PortfolioTab(): React.ReactElement {
     }
   }, [mode]);
 
+  // Keep the ref pointing at the latest `load` so the mount-once listeners
+  // below never call a stale closure.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // 1. A trade/deploy anywhere in the app (order ticket, chat confirm,
+    //    basket/opinion deploy, agent launch) broadcasts this event from
+    //    lib/api — refetch everything so positions show up immediately.
+    const onDirty = (): void => loadRef.current();
+    window.addEventListener("pivot:portfolio-dirty", onDirty);
+    // 2. Keep-alive tabs never remount, so returning to Portfolio shows
+    //    whatever was fetched last. When this tab becomes visible again and
+    //    the data is older than 15s, refetch.
+    const el = rootRef.current;
+    let observer: IntersectionObserver | null = null;
+    if (el && typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && Date.now() - lastFetchAtRef.current > 15_000) {
+            loadRef.current();
+          }
+        }
+      });
+      observer.observe(el);
+    }
+    return () => {
+      window.removeEventListener("pivot:portfolio-dirty", onDirty);
+      observer?.disconnect();
+    };
+  }, []);
+
   return (
-    <div data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
+    <div ref={rootRef} data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
       {/* Page title + Overview/History toggle */}
       <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
         <h1

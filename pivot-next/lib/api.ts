@@ -221,13 +221,38 @@ function cached<T>(
   return value;
 }
 
+// Mutations under these mounts change what the Portfolio surfaces (holdings,
+// summary, history, header value) show. After one succeeds we drop the
+// portfolio-ish TTL-cache entries and broadcast `pivot:portfolio-dirty` so
+// keep-alive tabs refetch instead of showing pre-trade data until a reload.
+const _PORTFOLIO_MUTATION_RE =
+  /\/(orders|paper|workflows|strategies|baskets|views|ipo)\b/;
+
+function _notifyPortfolioMutation(path: string): void {
+  if (typeof window === "undefined") return;
+  if (!_PORTFOLIO_MUTATION_RE.test(path)) return;
+  for (const key of Array.from(_ttlCache.keys())) {
+    if (/portfolio|paper|holdings|summary|performance|scores/i.test(key)) {
+      _ttlCache.delete(key);
+    }
+  }
+  window.dispatchEvent(new CustomEvent("pivot:portfolio-dirty"));
+}
+
 async function _doRequest<T>(
   base: string,
   path: string,
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
   if ((options.method ?? "GET") !== "GET") {
-    return _performRequest<T>(base, path, options);
+    const p = _performRequest<T>(base, path, options);
+    void p.then(
+      (r) => {
+        if (!isError(r)) _notifyPortfolioMutation(path);
+      },
+      () => undefined,
+    );
+    return p;
   }
   const key = buildUrl(base, path, options.query);
   const existing = _inflightGets.get(key);
