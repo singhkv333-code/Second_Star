@@ -300,59 +300,6 @@ type ToolPill = {
 };
 
 
-// Friendly user-facing labels for the status sentence. Anything not
-// listed falls back to "Running <tool_name>…".
-const TOOL_STATUS: Record<string, string> = {
-  propose_workflow: "Drafting workflow",
-  get_live_price: "Fetching live price",
-  get_index_level: "Reading index level",
-  get_ohlc: "Pulling OHLC",
-  get_52wk_range: "Looking up 52-week range",
-  get_price_history: "Loading chart history",
-  get_market_status: "Checking market status",
-  get_portfolio_summary: "Loading portfolio",
-  get_holdings: "Loading holdings",
-  get_holding_detail: "Looking up that holding",
-  get_sector_breakdown: "Computing sector breakdown",
-  get_tax_summary: "Computing tax summary",
-  get_active_products: "Loading active products",
-  get_product_spec: "Reading product spec",
-  place_market_order: "Preparing market order",
-  place_limit_order: "Preparing limit order",
-  create_gtt_order: "Setting up GTT order",
-  create_sl_order: "Setting up stop-loss",
-  create_oco_order: "Setting up OCO order",
-  create_dip_buy: "Setting up dip buy",
-  place_basket_order: "Preparing basket",
-  cancel_order: "Cancelling order",
-  cancel_gtt: "Cancelling GTT",
-  list_pending_orders: "Listing pending orders",
-  list_gtt_orders: "Listing GTTs",
-  squareoff_all_intraday: "Squaring off intraday",
-  squareoff_symbol: "Squaring off positions",
-  create_sip: "Setting up SIP",
-  list_sips: "Listing SIPs",
-  pause_sip: "Pausing SIP",
-  resume_sip: "Resuming SIP",
-  delete_sip: "Removing SIP",
-  pause_all_sips: "Pausing all SIPs",
-  create_strategy: "Setting up strategy",
-  list_strategies: "Listing strategies",
-  pause_strategy: "Pausing strategy",
-  resume_strategy: "Resuming strategy",
-  delete_strategy: "Removing strategy",
-  run_backtest: "Running backtest",
-  compare_yields: "Comparing yields",
-  get_yield_recommendation: "Finding best yield",
-  calculate_order_qty: "Calculating order size",
-  calculate_tax_impact: "Calculating tax impact",
-  calculate_sl_price: "Calculating stop-loss price",
-  calculate_dip_price: "Calculating dip price",
-  calculate_margin: "Calculating margin",
-  get_scheduler_status: "Reading scheduler",
-  list_upcoming_jobs: "Listing upcoming jobs",
-  ASK_USER: "Asking you for one detail",
-};
 
 
 /** Self-contained status row for the streaming bubble.
@@ -365,68 +312,60 @@ const TOOL_STATUS: Record<string, string> = {
  * asked for a clean way to track time themselves and see what stage
  * the LLM is at — this is that widget. */
 /**
- * Witty finance-themed loading verbs. One word each — single-token
- * present participles ("-ing" verbs) that read like an analyst
- * working through a step. Cycles in randomized order so each
- * session feels different. Add liberally.
+ * Backend-steps waiting indicator.
+ *
+ * Replaces the old cycling adjectives ("Triangulating…", "Stress-testing…")
+ * with lines that read like the real system working a prompt — a step KIND
+ * (Query / Data / Search / Tool / Compute …) plus a command-style line. The
+ * point (owner ask): make it legible that Pivot runs a PIPELINE — routing,
+ * DB queries, market-data pulls, tool calls, computation — not just "an LLM
+ * replying". These lines are REPRESENTATIVE of the KIND of work, not a literal
+ * trace; when a real tool fires we surface that tool's actual call over the
+ * scripted line (see `toolStep`).
  */
-const WITTY_PHRASES: readonly string[] = [
-  "Triangulating",
-  "Stress-testing",
-  "Sniffing",
-  "Discounting",
-  "Rebalancing",
-  "Backsolving",
-  "Interrogating",
-  "Tagging",
-  "Hedging",
-  "Compounding",
-  "Sweeping",
-  "Repricing",
-  "Unwinding",
-  "Calibrating",
-  "Auditing",
-  "Debriefing",
-  "Scoring",
-  "Pricing",
-  "Cross-checking",
-  "Arbitraging",
-  "Anchoring",
-  "Smoothing",
-  "Profiling",
-  "Tracing",
-  "Spreading",
-  "Scaling",
-  "De-risking",
-  "Backtesting",
-  "Pulling",
-  "Skewing",
-  "Crunching",
-  "Reconciling",
-  "Front-running",
-  "Trimming",
-  "Forecasting",
-  "Indexing",
-  "Stitching",
-  "Quantifying",
-  "Diversifying",
-  "Marking",
-  "Modelling",
-  "Benchmarking",
-  "Annotating",
-  "Synthesising",
-  "Filtering",
+type StepKind =
+  | "route" | "context" | "db" | "data" | "web" | "tool" | "compute" | "compose";
+
+const STEP_KIND_LABEL: Record<StepKind, string> = {
+  route: "Route",
+  context: "Context",
+  db: "Query",
+  data: "Data",
+  web: "Search",
+  tool: "Tool",
+  compute: "Compute",
+  compose: "Compose",
+};
+
+type Step = { kind: StepKind; text: string };
+
+/** The scripted progression walked while the model is thinking (no real
+ *  tool running yet). Deliberately generic + plausible, never fabricated
+ *  specifics — it conveys "a system is executing steps", nothing more. */
+const STEP_SCRIPT: readonly Step[] = [
+  { kind: "route", text: "classifying intent · selecting tools" },
+  { kind: "context", text: "loading conversation context" },
+  { kind: "db", text: "querying financials.fundamentals" },
+  { kind: "data", text: "fetching NSE quotes · Kite feed" },
+  { kind: "compute", text: "computing RSI · SMA · returns" },
+  { kind: "web", text: "scanning news + events" },
+  { kind: "db", text: "reading portfolio positions" },
+  { kind: "compose", text: "composing reply" },
 ];
 
-/** Fisher-Yates shuffle. Used once per loader mount so two adjacent
- *  cycles don't repeat in the same order. */
-function shufflePhrases(src: readonly string[]): string[] {
-  const a = src.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j]!, a[i]!];
-  }
-  return a;
+/** Map a REAL tool name to a backend-step line, so a live tool call shows
+ *  as the active step over the scripted ones. Kind is inferred from the
+ *  tool's verb; the command shows the actual call so it reads as a trace. */
+function toolStep(name: string): Step {
+  const n = name.toLowerCase();
+  let kind: StepKind = "tool";
+  if (/portfolio|holding|position|paper/.test(n)) kind = "db";
+  else if (/fundamental|financ|screen|compan/.test(n)) kind = "db";
+  else if (/price|ohlc|quote|index|market_data|52wk|history/.test(n)) kind = "data";
+  else if (/news|event|sentiment/.test(n)) kind = "web";
+  else if (/compare|correlat|calculat|backtest|greek|margin|indicator/.test(n)) kind = "compute";
+  else if (/^ask_user$/.test(n)) kind = "route";
+  return { kind, text: `→ ${name}()` };
 }
 
 /** Mini price-chart ticker — three bars rising/falling on
@@ -446,44 +385,83 @@ function WittyTicker(): React.ReactElement {
   );
 }
 
-/** Cycling phrase. Re-keys on every change so the CSS animation
- *  re-plays for the fade+slide-in. Pause behavior: when `paused` is
- *  true (e.g. text is now streaming), we freeze on the current phrase
- *  and let the parent take over. Interval jitters between 2.0s and
- *  3.0s so the cadence doesn't feel mechanical. */
-function WittyPhrase({ paused = false }: { paused?: boolean }): React.ReactElement {
-  const queue = useRef<string[]>(shufflePhrases(WITTY_PHRASES));
-  const [phrase, setPhrase] = useState<string>(() => queue.current[0] ?? "Thinking");
-
-  useEffect(() => {
-    if (paused) return;
-    let cursor = 1;
-    const tick = (): void => {
-      if (cursor >= queue.current.length) {
-        queue.current = shufflePhrases(WITTY_PHRASES);
-        cursor = 0;
-      }
-      setPhrase(queue.current[cursor]!);
-      cursor += 1;
-    };
-    // Random first-phrase dwell time so two parallel mounts don't
-    // breathe in lockstep. Subsequent dwells re-roll inside the
-    // setTimeout chain.
-    let timer: number = window.setTimeout(function loop() {
-      tick();
-      timer = window.setTimeout(loop, 2000 + Math.random() * 1000);
-    }, 2000 + Math.random() * 1000);
-    return () => window.clearTimeout(timer);
-  }, [paused]);
-
+/** One rendered step row: a KIND chip + the command line. The active
+ *  (newest) row shimmers; completed rows dim with a check. */
+function StepRow({ step, active }: { step: Step; active: boolean }): React.ReactElement {
   return (
-    <span
-      key={phrase}
-      className="witty-phrase"
-      style={{ display: "inline-block" }}
+    <div
+      className={`chat-step flex items-center gap-2 ${active ? "" : "chat-step-done"}`}
+      style={{ minWidth: 0 }}
     >
-      {phrase}…
-    </span>
+      <span className="chat-step-kind">{STEP_KIND_LABEL[step.kind]}</span>
+      <span
+        className={`chat-step-cmd ${active ? "shimmer" : ""}`}
+        style={active ? undefined : { }}
+      >
+        {step.text}
+      </span>
+      {!active && (
+        <Check size={11} aria-hidden={true} style={{ color: "var(--positive, #16a34a)", opacity: 0.6, flexShrink: 0 }} />
+      )}
+    </div>
+  );
+}
+
+/** The backend-steps stack. Shows up to the last 3 steps: the newest is
+ *  active (shimmer), the earlier ones are done (dimmed + check). While the
+ *  model is thinking it walks `STEP_SCRIPT`; a real pending tool is surfaced
+ *  over the script (`toolStep`). Once reply text starts streaming it settles
+ *  on a single "composing reply" line. */
+function ChatSteps({
+  tools,
+  hasText,
+}: {
+  tools: ToolPill[];
+  hasText: boolean;
+}): React.ReactElement {
+  const [steps, setSteps] = useState<Step[]>([STEP_SCRIPT[0]!]);
+  const cursor = useRef<number>(1);
+  const seenTools = useRef<Set<string>>(new Set());
+
+  const pushStep = (s: Step): void => {
+    setSteps((prev) => [...prev, s].slice(-3));
+  };
+
+  // Scripted progression while thinking. Stops once text streams.
+  useEffect(() => {
+    if (hasText) return;
+    const iv = window.setInterval(() => {
+      // Don't clobber a real tool that's currently the active line.
+      const next = STEP_SCRIPT[cursor.current % STEP_SCRIPT.length]!;
+      cursor.current += 1;
+      // Skip the "composing reply" script line until text actually starts.
+      if (next.kind === "compose") return;
+      pushStep(next);
+    }, 1150);
+    return () => window.clearInterval(iv);
+  }, [hasText]);
+
+  // Surface real tool calls as they begin (once each).
+  useEffect(() => {
+    const pending = tools.find((t) => t.ok === undefined);
+    if (!pending || seenTools.current.has(pending.name)) return;
+    seenTools.current.add(pending.name);
+    pushStep(toolStep(pending.name));
+  }, [tools]);
+
+  // When reply text starts, settle on the compose line.
+  useEffect(() => {
+    if (hasText) pushStep({ kind: "compose", text: "composing reply" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasText]);
+
+  const lastIdx = steps.length - 1;
+  return (
+    <div className="flex flex-col" style={{ gap: 3 }}>
+      {steps.map((s, i) => (
+        <StepRow key={`${i}-${s.text}`} step={s} active={i === lastIdx && !(hasText && s.kind !== "compose")} />
+      ))}
+    </div>
   );
 }
 
@@ -503,39 +481,22 @@ function StreamingStatusBar({
   }, []);
   const elapsedSec = Math.max(0, Math.round((now - startedAt) / 1000));
 
-  // Decide what to show:
-  //   • Tool actively running          → use the tool's literal label
-  //     so the user knows what's running (not a witty phrase).
-  //   • Text is streaming              → "Writing reply"; phrases stop.
-  //   • Otherwise (thinking/wrap-up)   → cycle witty phrases.
-  const pending = tools.find((t) => t.ok === undefined);
-  let mode: "phrases" | "literal" = "phrases";
-  let literal = "";
-  if (hasText) {
-    mode = "literal";
-    literal = "Writing reply";
-  } else if (pending) {
-    mode = "literal";
-    literal = TOOL_STATUS[pending.name] ?? `Running ${pending.name}`;
-  }
-
+  // Header row keeps the "load bar" (the 3-bar ticker) + a live elapsed
+  // counter; the backend-steps stack below shows WHAT the system is doing
+  // (routing → queries → data → tools → compute → compose). The old
+  // cycling adjectives are gone — steps carry the signal now.
   return (
     <div
-      className="flex items-center gap-3 text-xs text-muted-foreground"
+      className="flex flex-col gap-2"
       data-testid="streaming-status"
     >
-      <WittyTicker />
-      {mode === "literal" ? (
-        <span key={literal} className="witty-phrase">
-          {literal}…
+      <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+        <WittyTicker />
+        <span className="tabular-nums" aria-label={`${elapsedSec} seconds elapsed`}>
+          {elapsedSec}s
         </span>
-      ) : (
-        <WittyPhrase />
-      )}
-      <span aria-hidden={true} className="text-muted-foreground/60">·</span>
-      <span className="tabular-nums" aria-label={`${elapsedSec} seconds elapsed`}>
-        {elapsedSec}s
-      </span>
+      </div>
+      <ChatSteps tools={tools} hasText={hasText} />
     </div>
   );
 }
@@ -2043,7 +2004,9 @@ export function ChatDemo({
                 }}
               >
                 <WittyTicker />
-                <WittyPhrase />
+                <span className="chat-step-cmd shimmer">
+                  classifying intent · selecting tools
+                </span>
                 {/* Subtle shimmer across the bubble's bottom edge so
                     something is always animating even when the phrase
                     is between cycles. */}

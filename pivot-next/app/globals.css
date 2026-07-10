@@ -548,6 +548,85 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   animation: wittyShimmer 2.4s linear infinite;
 }
 
+/* ── shadcn `shimmer` text utility (ui.shadcn.com/docs/utils/shimmer) ──
+   Sweeps a bright band across the glyphs via background-clip:text. Drives
+   the chat "backend steps" waiting indicator: the active step shimmers so
+   the user reads it as work-in-progress, not static text. Theme-aware —
+   the base is the muted text colour, the moving highlight is the primary
+   text colour, so it reads on both light and dark. */
+@keyframes tw-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.shimmer {
+  --shimmer-base: var(--text-tertiary);
+  --shimmer-highlight: var(--text-primary);
+  --shimmer-duration: 2.2s;
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--shimmer-base) 0%,
+    var(--shimmer-base) 42%,
+    var(--shimmer-highlight) 50%,
+    var(--shimmer-base) 58%,
+    var(--shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: tw-shimmer var(--shimmer-duration) linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    color: var(--shimmer-base);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* ── Chat backend-steps waiting indicator ──────────────────────────────
+   A short stack of "what the system is doing" lines: a KIND chip
+   (Query / Data / Search / Tool / Compute …) + a command-style line.
+   Completed steps dim; the newest carries `.shimmer`. */
+@keyframes chatStepIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.chat-step {
+  animation: chatStepIn 300ms var(--ease-quartr) both;
+}
+.chat-step-kind {
+  flex: 0 0 auto;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  padding: 1px 6px;
+  line-height: 1.5;
+}
+.chat-step-cmd {
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-step-done .chat-step-kind {
+  opacity: 0.5;
+}
+.chat-step-done .chat-step-cmd {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
 /* Hide native browser clear button on the topbar global search; we
    render a Lucide X clear control next to the input that matches the
    rest of the chrome's typography. */
