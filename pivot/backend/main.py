@@ -478,6 +478,25 @@ def _maybe_autostart_kite_ticker() -> None:
                         f"Kite ticker autostart: auto-relogin failed: {mint_err}"
                     )
         if token_invalid:
+            # Before the one-way deactivation, confirm the token is REALLY
+            # dead with an explicit verify call. The message-sniff above
+            # ("access_token"/"incorrect" substrings) false-positived on a
+            # transient failure on 2026-07-10 and killed a healthy session —
+            # and every read path filters on is_active, so nothing recovered
+            # until the next morning's cron.
+            try:
+                from backend.kite import auth as _kauth
+                if token and not token.startswith("mock_") and \
+                        _kauth.verify_token_valid(token):
+                    logger.info(
+                        "Kite ticker autostart: holdings failed but token "
+                        "verifies fine — keeping session active (transient "
+                        "error, not an expiry)."
+                    )
+                    token_invalid = False
+            except Exception:  # noqa: BLE001 — verify failed too: truly dead
+                pass
+        if token_invalid:
             # No stored credentials (or replay failed). Mark the session
             # inactive so we don't thrash the WS reconnect loop. User must
             # re-do Kite OAuth.

@@ -59,7 +59,22 @@ def refresh_kite_sessions() -> None:
             try:
                 if token and not token.startswith("mock_") and \
                         kite_auth.verify_token_valid(token):
-                    continue  # still alive — nothing to do
+                    # Still alive. If some earlier failure-sniff wrongly
+                    # deactivated the session (2026-07-10: a transient error
+                    # tripped main's token-invalid heuristic and the flag was
+                    # a one-way trap — every read path filters on is_active),
+                    # a VERIFIED token is proof the session is good: reactivate.
+                    if not s.is_active:
+                        s.is_active = True
+                        db.add(s)
+                        db.commit()
+                        minted += 1  # counts as a heal → ticker restart below
+                        logger.info(
+                            "kite auto-relogin: token verified fine — "
+                            "reactivated wrongly-inactive session for user %s",
+                            s.user_id,
+                        )
+                    continue  # nothing to mint
             except Exception:  # noqa: BLE001 — treat verify failure as dead
                 pass
             try:
