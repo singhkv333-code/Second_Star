@@ -5518,12 +5518,13 @@ class ChatService:
         # deliberately excluded (they have their own draft-followup
         # machinery, and widening order scope from a stale turn would be
         # a safety regression).
-        if selected_names is not None:
-            selected_names = selected_names | {
-                t for t in self.store.get_last_tools(conv_id)
-                if t.startswith(("get_", "query_", "compare_", "screen_"))
-                or t in {"calculate", "find_tool"}
-            }
+        _prior_read_tools = [
+            t for t in self.store.get_last_tools(conv_id)
+            if t.startswith(("get_", "query_", "compare_", "screen_"))
+            or t == "calculate"
+        ]
+        if selected_names is not None and _prior_read_tools:
+            selected_names = selected_names | set(_prior_read_tools)
         intent_kind = _classify_intent(message)
 
         # F&O amendment scope: when the active draft is an OPTION strategy
@@ -6316,6 +6317,30 @@ class ChatService:
             base_messages.append(LLMMessage(role="system", content=mode_pin))
         if followup_hint is not None:
             base_messages.append(followup_hint)
+        # Chat-kernel Phase A3 (2026-07-10): bare amendment of a READ
+        # answer — "make it 10 years" after a revenue-CAGR reply. There
+        # is NO active draft, so the draft-amendment machinery must not
+        # engage; without a hint the model either burned a find_tool hop
+        # or asked "which draft/workflow?" (both live-observed). Tell it
+        # plainly: re-run the prior read with the changed parameter.
+        elif (active is None
+                and _prior_read_tools
+                and _DEPENDENT_INTENT_RE.search(message)
+                and not _is_question_shaped(message)):
+            base_messages.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Amendment of the previous ANSWER (no draft exists)\n"
+                    f"The previous turn answered using "
+                    f"{', '.join(_prior_read_tools[:3])}. The user's "
+                    "current message changes ONE parameter of that same "
+                    "question (a period, a symbol, a threshold). Re-call "
+                    "the SAME tool with the amended parameter and answer "
+                    "directly. There is NO workflow or draft to amend — "
+                    "do NOT ask which one."
+                ),
+            ))
+            agent_tool_choice = "required"
 
         # WHY this directive: when we stripped macro tools because the
         # request is underspec / filler, the model would fall back to
@@ -7481,12 +7506,13 @@ class ChatService:
         # deliberately excluded (they have their own draft-followup
         # machinery, and widening order scope from a stale turn would be
         # a safety regression).
-        if selected_names is not None:
-            selected_names = selected_names | {
-                t for t in self.store.get_last_tools(conv_id)
-                if t.startswith(("get_", "query_", "compare_", "screen_"))
-                or t in {"calculate", "find_tool"}
-            }
+        _prior_read_tools = [
+            t for t in self.store.get_last_tools(conv_id)
+            if t.startswith(("get_", "query_", "compare_", "screen_"))
+            or t == "calculate"
+        ]
+        if selected_names is not None and _prior_read_tools:
+            selected_names = selected_names | set(_prior_read_tools)
         intent_kind = _classify_intent(message)
 
         # F&O amendment scope: when the active draft is an OPTION strategy
@@ -8019,6 +8045,26 @@ class ChatService:
             base_msgs.append(LLMMessage(role="system", content=mode_pin))
         if followup_hint_msg is not None:
             base_msgs.append(followup_hint_msg)
+        # Mirror of non-streaming A3 read-amendment hint (chat-kernel
+        # 2026-07-10): bare amendment of a READ answer, no active draft.
+        elif (active is None
+                and _prior_read_tools
+                and _DEPENDENT_INTENT_RE.search(message)
+                and not _is_question_shaped(message)):
+            base_msgs.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Amendment of the previous ANSWER (no draft exists)\n"
+                    f"The previous turn answered using "
+                    f"{', '.join(_prior_read_tools[:3])}. The user's "
+                    "current message changes ONE parameter of that same "
+                    "question (a period, a symbol, a threshold). Re-call "
+                    "the SAME tool with the amended parameter and answer "
+                    "directly. There is NO workflow or draft to amend — "
+                    "do NOT ask which one."
+                ),
+            ))
+            agent_tool_choice = "required"
         # Mirror of non-streaming underspec/filler hint.
         if (is_underspec_agent or is_filler_after_q) and not _scenario_routed:
             base_msgs.append(LLMMessage(
